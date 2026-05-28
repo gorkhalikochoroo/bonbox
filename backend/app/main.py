@@ -1551,6 +1551,22 @@ _migrations = [
     "ALTER TABLE kasserapport_extractions ADD COLUMN IF NOT EXISTS detected_provider_slug VARCHAR(40)",
     "ALTER TABLE kasserapport_extractions ADD COLUMN IF NOT EXISTS detected_provider_confidence NUMERIC(3,2)",
     "CREATE INDEX IF NOT EXISTS ix_kasserapport_extractions_detected_provider_slug ON kasserapport_extractions (detected_provider_slug)",
+
+    # ── Migration 021 (2026-05-28): Staff v2 — push subscription per staff ──
+    # Adds a nullable staff_id discriminator to push_subscriptions so the
+    # same VAPID infrastructure can serve owner devices (staff_id NULL)
+    # AND staff devices subscribed via the magic-link portal (staff_id
+    # set). One table, two audiences — matches the existing
+    # "multiple devices per user_id" docstring on PushSubscription.
+    #
+    # Why this column is safe to add:
+    #   • Nullable + no default — existing owner rows stay unchanged.
+    #   • Reads filtered by (user_id, staff_id IS NULL) for owner fan-out
+    #     and (user_id, staff_id = X) for staff fan-out — no ambiguity.
+    #   • UNIQUE(user_id, endpoint) constraint already deduplicates rows
+    #     so a staff re-subscribe on the same device is still an upsert.
+    "ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS staff_id VARCHAR(36) REFERENCES staff_members(id)",
+    "CREATE INDEX IF NOT EXISTS ix_push_subscriptions_staff_id ON push_subscriptions (staff_id)",
 ]
 
 

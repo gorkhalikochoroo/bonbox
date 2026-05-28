@@ -246,6 +246,14 @@ export default function StaffSchedulePage() {
   const [exporting, setExporting] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [emailToast, setEmailToast] = useState("");
+  // Staff v2 (2026-05-28) — "Share with staff" CTA mints/refreshes
+  // StaffLink magic-links for every staff scheduled this week and emails
+  // each their portal URL. Distinct from "Email staff" (text-only
+  // change-summary): this CTA is the on-ramp that gives staff a bookmarkable
+  // /s/{token} URL where every future schedule edit + push notification
+  // converges. Tier-gated on `staff_portal_link` (Starter+/Trial).
+  const [sharing, setSharing] = useState(false);
+  const [shareToast, setShareToast] = useState("");
   // UpgradeNudge state — bulk-staff-email is Pro+. Free/Starter
   // users still get the PDF download for printing/WhatsApp share.
   const [upgradeNudge, setUpgradeNudge] = useState(null);
@@ -395,6 +403,92 @@ export default function StaffSchedulePage() {
     }
   };
 
+  /**
+   *  handleShareWithStaff — calls /staff/schedules/share-with-staff which
+   *  (a) ensures every staff scheduled this week has an active StaffLink
+   *      magic-link (mints token_urlsafe(24) when missing), and
+   *  (b) emails each staff their personal /s/{token} portal URL.
+   *
+   *  After the call lands, future schedule edits trigger push notifications
+   *  via the staff's portal subscription — the "auto-sync" requirement
+   *  Manoj wired into the spec.
+   *
+   *  402 plan_required → opens the UpgradeNudge so Free owners see a clean
+   *  upsell instead of a raw error. Other errors land in the error banner.
+   */
+  const handleShareWithStaff = async () => {
+    const eligible = staff.filter(
+      (s) => s.is_active !== false && (s.email || "").includes("@")
+    );
+    if (eligible.length === 0) {
+      setError(
+        t(
+          "scheduleShareNoRecipients",
+          "No active staff have an email yet — add an email so they can receive their schedule link."
+        )
+      );
+      return;
+    }
+    const ok = window.confirm(
+      (t(
+        "scheduleShareConfirm",
+        "Share this week's schedule with {n} staff via a personal magic link?"
+      ).replace("{n}", eligible.length)) +
+        "\n\n" +
+        eligible.map((s) => `• ${s.name} <${s.email}>`).join("\n")
+    );
+    if (!ok) return;
+
+    setSharing(true);
+    setError("");
+    setShareToast("");
+    try {
+      const r = await api.post("/staff/schedules/share-with-staff", {
+        week_start: toISO(weekStart),
+      });
+      const emailed = r.data?.emailed_count || 0;
+      const issued = r.data?.links_issued || 0;
+      const skipped = r.data?.skipped_no_email || 0;
+      const failed = r.data?.email_failed_count || 0;
+      let msg = `✓ ${emailed} ${t("scheduleShareEmailed", "links sent")}`;
+      if (issued)
+        msg += ` · ${issued} ${t("scheduleShareIssued", "new links minted")}`;
+      if (skipped)
+        msg += ` · ${skipped} ${t(
+          "scheduleShareSkippedNoEmail",
+          "skipped (no email)"
+        )}`;
+      if (failed) msg += ` · ${failed} ${t("scheduleShareFailed", "failed")}`;
+      setShareToast(msg);
+      setTimeout(() => setShareToast(""), 7000);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      // 402 plan_required → UpgradeNudge (the Starter+ value gate).
+      if (
+        err?.response?.status === 402 &&
+        detail?.code === "plan_required" &&
+        detail?.feature === "staff_portal_link"
+      ) {
+        setUpgradeNudge({
+          tier: detail.required_plan || "starter",
+          benefit: t(
+            "nudgeStaffPortalLink",
+            "Send every staff a personal schedule link — they bookmark it, get push when shifts change"
+          ),
+          icon: "🔗",
+        });
+      } else {
+        setError(
+          detail?.message ||
+            (typeof detail === "string" ? detail : null) ||
+            t("scheduleShareFailedAll", "Couldn't share the schedule.")
+        );
+      }
+    } finally {
+      setSharing(false);
+    }
+  };
+
   const handleExportPdf = async () => {
     setExporting(true);
     setError("");
@@ -537,12 +631,32 @@ export default function StaffSchedulePage() {
               >
                 {exporting ? "…" : "PDF"}
               </Button>
+              {/* Share with staff (Staff v2, Starter+) — mints/refreshes
+                  StaffLink magic-links and emails each staff their personal
+                  portal URL. The portal becomes the live coordination loop
+                  (push notifications, shift confirmations, swap requests). */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleShareWithStaff}
+                disabled={sharing || emailing || exporting}
+                busy={sharing}
+                iconLeft={!sharing && <Icon name="Link2" size={14} />}
+                title={t(
+                  "scheduleShareTitle",
+                  "Send every staff a personal portal link — they bookmark it once and get push when the schedule changes"
+                )}
+              >
+                {sharing
+                  ? t("scheduleShareSending", "Sharing…")
+                  : t("scheduleShareButton", "Share with staff")}
+              </Button>
               {/* Email schedule to all active staff. */}
               <Button
                 variant="secondary"
                 size="sm"
                 onClick={handleEmailToStaff}
-                disabled={emailing || exporting}
+                disabled={emailing || exporting || sharing}
                 busy={emailing}
                 iconLeft={!emailing && <Icon name="Send" size={14} />}
                 title={t("scheduleEmailTitle", "Email the week's schedule to every staff member with an email on file")}
@@ -572,6 +686,15 @@ export default function StaffSchedulePage() {
           title={emailToast}
           icon="CheckCircle2"
           onDismiss={() => setEmailToast("")}
+        />
+      )}
+      {/* Share-success toast (auto-dismisses after 7s \u2014 see handleShareWithStaff) */}
+      {shareToast && (
+        <SectionBanner
+          severity="success"
+          title={shareToast}
+          icon="Link2"
+          onDismiss={() => setShareToast("")}
         />
       )}
       {/* Autopilot-success toast (auto-dismisses after 7s) */}

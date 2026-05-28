@@ -16,9 +16,135 @@ from sqlalchemy.orm import Session
 
 from app.models.staff import StaffMember, StaffLink, NotificationLog
 from app.models.business_profile import BusinessProfile
+from app.models.push_subscription import PushSubscription
+from app.models.user import User
 from app.services.email_service import send_email
 
 logger = logging.getLogger("bonbox.notification_service")
+
+
+def _send_staff_schedule_push(
+    db: Session,
+    user_id,
+    staff_id,
+    staff_name: str,
+    week_label: str,
+    portal_url: str | None,
+) -> dict:
+    """Best-effort push fan-out for ONE staff member when their schedule
+    changes. Returns {"attempted": int, "sent": int, "removed": int}.
+
+    Multi-barrier:
+      L1 Tenant: filter on (user_id, staff_id) — never reach across tenants.
+      L2 Tier-gated on the OWNER's `schedule_publish_push` feature; if the
+         owner downgrades after a staff subscribed, the row stays but we
+         skip the send (the staff /portal/{token}/push/unsubscribe path
+         is still open for them to clean up).
+      L4 Fail-soft: any push provider error is caught + logged + returned
+         as `sent=0`; the schedule publish itself is unaffected.
+      L7 Audit: each send/fail writes a NotificationLog row with
+         channel='push' — same surface the email path uses.
+      L8 Fallback: 410 Gone responses delete the row immediately
+         (handled inside push_sender.send_to_subscription).
+      L10 Honest claims: the returned counts reflect what actually
+          happened; never optimistic.
+    """
+    result = {"attempted": 0, "sent": 0, "removed": 0}
+
+    # Lazy-import to avoid cold-start cost on machines that don't use push.
+    try:
+        from app.services.push_sender import send_to_subscription
+        from app.services.billing import has_feature
+    except Exception:  # noqa: BLE001
+        return result
+
+    owner = db.query(User).filter(User.id == user_id).first()
+    if owner is None:
+        return result
+    if not has_feature(owner, "schedule_publish_push"):
+        # Free-tier — the L4 design says we silently skip without erroring
+        # the email path. (Front-line audit row still exists from the
+        # email send.)
+        return result
+
+    subs = (
+        db.query(PushSubscription)
+        .filter(
+            PushSubscription.user_id == user_id,
+            PushSubscription.staff_id == staff_id,
+        )
+        .all()
+    )
+    if not subs:
+        return result
+
+    # PII-stripped payload. No amounts, no co-worker names — only the
+    # one-liner "your schedule changed". The deep-link uses the staff's
+    # OWN portal URL so taps land on a personalized view.
+    title = "BonBox · Vagtplan"
+    body_text = f"Din vagtplan for {week_label} er opdateret"
+    if len(body_text) > 140:
+        body_text = body_text[:139] + "…"
+
+    # Tag dedupes — re-fires of the same week replace the previous push
+    # in the OS tray instead of stacking. Keyed on (user_id, week_label)
+    # rather than (staff_id, week_label) so multiple devices belonging to
+    # the same staff each get exactly one notification.
+    safe_label = week_label.replace(" ", "-").lower()
+    tag = f"bonbox-schedule-{user_id}-{safe_label}"
+
+    payload = {
+        "title": title,
+        "body": body_text,
+        "tag": tag,
+        "data": {
+            # When the staff taps the notification, land on their portal.
+            # Falls back to / when we have no portal URL (Free owner, or
+            # link rotation in flight).
+            "url": portal_url or "/",
+        },
+    }
+
+    for sub in subs:
+        result["attempted"] += 1
+        try:
+            outcome = send_to_subscription(sub, payload)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "notification: push send threw for staff_id=%s: %s",
+                staff_id, exc,
+            )
+            outcome = {"ok": False, "removed": False}
+
+        # NotificationLog row — same surface email uses. error_message
+        # captured when push failed so the owner can spot patterns.
+        status = "sent" if outcome.get("ok") else "failed"
+        try:
+            db.add(NotificationLog(
+                id=uuid.uuid4(),
+                user_id=user_id,
+                staff_id=staff_id,
+                channel="push",
+                event_type="schedule_published",
+                subject=title,
+                body=body_text,
+                status=status,
+                error_message=None if outcome.get("ok") else "push_send_failed",
+            ))
+        except Exception:  # noqa: BLE001
+            # Never let log-insert failure escalate.
+            pass
+
+        if outcome.get("ok"):
+            result["sent"] += 1
+        if outcome.get("removed"):
+            result["removed"] += 1
+            try:
+                db.delete(sub)
+            except Exception:  # noqa: BLE001
+                pass
+
+    return result
 
 
 # ── Change detection ──────────────────────────────────────────────────────
@@ -303,6 +429,26 @@ def send_shift_notifications(
                 error_message=None if success else "Email delivery failed",
             )
             db.add(log)
+
+            # Staff v2 (2026-05-28) — push fan-out alongside email.
+            # Fully fail-soft: a push error never blocks the email send
+            # or the per-staff commit. Tier-gating + tenant scope live
+            # inside _send_staff_schedule_push.
+            try:
+                _send_staff_schedule_push(
+                    db=db,
+                    user_id=user_id,
+                    staff_id=staff_uuid,
+                    staff_name=member.name,
+                    week_label=week_label,
+                    portal_url=portal_url,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "notification: push fan-out threw for staff_id=%s",
+                    staff_id_str,
+                )
+
             # Per-staff commit — preserves audit trail even if a later
             # iteration explodes.
             db.commit()

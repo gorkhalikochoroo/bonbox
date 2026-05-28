@@ -84,6 +84,22 @@ class PushSubscription(Base):
         GUID(), ForeignKey("users.id"), nullable=False,
     )
 
+    # Staff v2 (2026-05-28) — discriminator for owner vs. staff devices.
+    # NULL  → owner subscription (the existing daily-brief / shift-change
+    #         push path; tenant-scoped under user_id).
+    # set   → staff member's device subscribed via the magic-link portal.
+    #         user_id still points to the tenant owner so the morning
+    #         cron can list (user_id, staff_id IS NULL) for owner pushes
+    #         and (user_id, staff_id = X) for staff pushes without a
+    #         table-spanning join.
+    # Privacy: the staff member never gets visibility into the owner's
+    # subscription — every read filters BOTH columns, and the portal
+    # endpoint only inserts rows with the resolved staff_id from the
+    # token.
+    staff_id: Mapped[uuid.UUID | None] = mapped_column(
+        GUID(), ForeignKey("staff_members.id"), nullable=True,
+    )
+
     # The endpoint URL from PushManager.subscribe(). Long opaque string
     # provided by the push service (FCM for Chrome / Apple Push for
     # Safari / Mozilla autopush for Firefox). Stored as Text — these

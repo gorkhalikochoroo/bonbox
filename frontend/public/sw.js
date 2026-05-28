@@ -76,6 +76,11 @@ self.addEventListener("message", (event) => {
 //     tag:   "bonbox-daily-brief",     // dedupes same-brief duplicates
 //     data:  { url: "/?brief=open" } } // landing path on tap
 //
+// Known tags in use:
+//   bonbox-daily-brief                   — 8am Brief (owner)
+//   bonbox-schedule-<owner_id>-<week>    — Staff v2 schedule_published
+//                                          (Task #242 — staff portal push)
+//
 // Privacy invariant: payloads NEVER carry amounts / customer names —
 // the body is the brief headline only. We trust the server composer.
 self.addEventListener("push", (event) => {

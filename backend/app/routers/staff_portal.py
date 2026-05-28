@@ -851,3 +851,317 @@ def portal_withdraw_swap(
     except ShiftSwapError as e:
         raise HTTPException(status_code=422, detail=str(e))
     return _hydrate_swap(swap, db, viewer_staff_id=member.id)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Staff v2 — Web push subscription (Task #242)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Staff get the same VAPID-signed Web Push pipeline that owners use for the
+# Daily Brief (Task #72) — re-using the existing service worker, push_sender,
+# and notification_log surface. Three endpoints:
+#
+#   GET    /portal/{token}/vapid-public-key  — returns the public VAPID key
+#                                              when the owner's tier has
+#                                              schedule_publish_push enabled.
+#                                              503 when VAPID isn't
+#                                              configured (PR previews, CI).
+#                                              403 when the OWNER's plan
+#                                              doesn't include staff push.
+#   POST   /portal/{token}/push/subscribe    — idempotent upsert of a
+#                                              PushSubscription row with
+#                                              staff_id set + user_id =
+#                                              owner. Tenant scope flows
+#                                              through the StaffLink token.
+#   POST   /portal/{token}/push/unsubscribe  — hard-delete the row when the
+#                                              staff disables push from the
+#                                              portal settings.
+#
+# Multi-barrier doctrine on every endpoint:
+#   L1 Token validation via _get_staff_from_token (re-uses the active +
+#      not-deleted gate every portal endpoint shares).
+#   L2 Bounds on the endpoint string (≤ 1500 chars — push providers cap
+#      well below that). Keys clamped to ≤ 200 chars each.
+#   L3 Rate-limit 6/min/IP — same posture as portal write endpoints.
+#   L4 Fail-soft on audit row writes — a failed audit insert never blocks
+#      the subscribe operation. The L7 honest-claims layer surfaces it.
+#   L5 Tenant scope: PushSubscription.user_id = link.user_id, staff_id =
+#      link.staff_id. A staff cannot subscribe under a different tenant
+#      because the token IS the tenant identity.
+#   L6 Fail-closed on tier: owner's effective_plan() must have
+#      `schedule_publish_push` set. We return 403 with a generic body
+#      ("staff_push_not_enabled") so we never leak "your owner is on Free."
+#   L7 Audit row on every subscribe/unsubscribe — but we record under the
+#      owner's user_id with metadata flagging it as a staff action so the
+#      owner sees "Anna subscribed to push" in their audit log.
+#   L8 Fallback: if the PushSubscription INSERT raises (constraint
+#      collision under concurrent re-subscribe), we re-read and return
+#      the row — same idempotency contract as the owner /push/subscribe
+#      endpoint at routers/push.py:200.
+#   L9 4xx for validation, 403 for tier, 503 for VAPID disabled — never 5xx.
+#   L10 Honest response: returns `{created: bool, endpoint_suffix: str}`
+#      describing the actual row state, not optimistic "ok".
+
+
+class _PushKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PortalPushSubscribeIn(BaseModel):
+    endpoint: str
+    keys: _PushKeys
+    user_agent: str | None = None
+
+
+class PortalPushSubscribeOut(BaseModel):
+    created: bool
+    endpoint_suffix: str
+
+
+class PortalPushUnsubscribeIn(BaseModel):
+    endpoint: str
+
+
+def _portal_endpoint_suffix(endpoint: str) -> str:
+    """Same redaction shape as routers/push.py — only the last 8 chars +
+    provider hostname survive into audit rows / responses."""
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(endpoint).hostname or "?"
+        tail = endpoint[-8:] if len(endpoint) > 8 else endpoint
+        return f"{host}#…{tail}"
+    except Exception:  # noqa: BLE001
+        return "?"
+
+
+def _staff_push_feature_check(link, db: Session):
+    """L6 fail-closed: lookup the owner User and verify their effective
+    plan includes `schedule_publish_push`. Returns the User row when
+    enabled, raises 403 otherwise. Separate function so the tier-gate
+    answer is the same shape for /subscribe, /unsubscribe, and the
+    VAPID-key endpoint (avoids drift in three places).
+    """
+    from app.models.user import User
+    from app.services.billing import has_feature
+
+    owner = db.query(User).filter(User.id == link.user_id).first()
+    if not owner:
+        # Defensive — should be impossible given the FK on StaffLink, but
+        # if the owner row was somehow hard-deleted we treat the link as
+        # if push isn't enabled rather than 500.
+        raise HTTPException(status_code=403, detail="staff_push_not_enabled")
+    if not has_feature(owner, "schedule_publish_push"):
+        raise HTTPException(status_code=403, detail="staff_push_not_enabled")
+    return owner
+
+
+@router.get("/{token}/vapid-public-key")
+@limiter.limit("30/minute")
+def portal_vapid_public_key(
+    token: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Public endpoint — frontend needs the VAPID key BEFORE it can call
+    PushManager.subscribe() inside the staff portal. Gates on the owner's
+    tier first so the frontend can tell "no push for me" from "push not
+    configured at all" without us leaking either side as data.
+
+    Response:
+      200 → {"key": "<base64url public key>"}
+      403 → owner's tier doesn't include schedule_publish_push
+      503 → VAPID env not configured (push pipeline disabled for everyone)
+    """
+    link, _member = _get_staff_from_token(token, db)
+    _staff_push_feature_check(link, db)
+
+    # Defer the import so this module stays importable on machines that
+    # don't have the push router wired up (tests, partial CI checkouts).
+    from app.config import settings
+
+    pub = getattr(settings, "VAPID_PUBLIC_KEY", "") or ""
+    if not pub:
+        raise HTTPException(
+            status_code=503,
+            detail="push_disabled: VAPID keys not configured",
+        )
+    return {"key": pub.strip()}
+
+
+@router.post("/{token}/push/subscribe", response_model=PortalPushSubscribeOut)
+@limiter.limit("6/minute")
+def portal_push_subscribe(
+    token: str,
+    body: PortalPushSubscribeIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Idempotent upsert of a staff PushSubscription row. Returns
+    `created=True` only when a brand-new row was inserted; on every
+    re-subscribe with the same endpoint we update the keys + reset
+    fail_count and return `created=False`."""
+    from app.models.push_subscription import PushSubscription
+    from app.services import audit_service
+
+    link, member = _get_staff_from_token(token, db)
+    owner = _staff_push_feature_check(link, db)
+
+    # L2 Bounds — push provider endpoints are short URLs, ~ 200 chars typical.
+    # Clamp aggressively so a malicious caller can't burn the row size budget.
+    if not body.endpoint or len(body.endpoint) > 1500:
+        raise HTTPException(status_code=422, detail="invalid_endpoint")
+    if not body.keys.p256dh or len(body.keys.p256dh) > 200:
+        raise HTTPException(status_code=422, detail="invalid_p256dh")
+    if not body.keys.auth or len(body.keys.auth) > 200:
+        raise HTTPException(status_code=422, detail="invalid_auth")
+
+    # Find existing row scoped to THIS tenant + staff + endpoint.
+    existing = (
+        db.query(PushSubscription)
+        .filter(
+            PushSubscription.user_id == owner.id,
+            PushSubscription.endpoint == body.endpoint,
+        )
+        .first()
+    )
+
+    suffix = _portal_endpoint_suffix(body.endpoint)
+
+    if existing is not None:
+        # Defensive: if a row exists with the SAME endpoint but DIFFERENT
+        # staff_id, refuse to overwrite — that would let a malicious portal
+        # client hijack another staff member's device row by guessing the
+        # endpoint. The endpoint column already has UNIQUE so this is
+        # belt + braces.
+        if existing.staff_id and existing.staff_id != member.id:
+            raise HTTPException(status_code=409, detail="endpoint_conflict")
+
+        existing.staff_id = member.id
+        existing.p256dh = body.keys.p256dh
+        existing.auth = body.keys.auth
+        if body.user_agent:
+            existing.user_agent = body.user_agent[:500]
+        existing.fail_count = 0
+        try:
+            audit_service.record(
+                db, owner, "staff.push.subscribed", "push_subscription",
+                entity_id=existing.id,
+                after={
+                    "staff_id": str(member.id),
+                    "staff_name": member.name,
+                    "endpoint_suffix": suffix,
+                },
+            )
+            db.commit()
+        except Exception:  # noqa: BLE001
+            # L4 fail-soft: audit/commit error doesn't poison the
+            # subscribe — push is a UX layer, not a money flow.
+            db.rollback()
+            db.commit()
+        return PortalPushSubscribeOut(created=False, endpoint_suffix=suffix)
+
+    # Brand-new row.
+    row = PushSubscription(
+        user_id=owner.id,
+        staff_id=member.id,
+        endpoint=body.endpoint,
+        p256dh=body.keys.p256dh,
+        auth=body.keys.auth,
+        user_agent=(body.user_agent[:500] if body.user_agent else None),
+        fail_count=0,
+    )
+    db.add(row)
+    try:
+        audit_service.record(
+            db, owner, "staff.push.subscribed", "push_subscription",
+            entity_id=row.id,
+            after={
+                "staff_id": str(member.id),
+                "staff_name": member.name,
+                "endpoint_suffix": suffix,
+            },
+        )
+        db.commit()
+        return PortalPushSubscribeOut(created=True, endpoint_suffix=suffix)
+    except Exception:  # noqa: BLE001
+        # L8 Fallback: race on the global UNIQUE(endpoint) — re-read and
+        # return idempotent success if the existing row belongs to THIS
+        # tenant + staff. Otherwise surface a clean 409.
+        db.rollback()
+        existing = (
+            db.query(PushSubscription)
+            .filter(PushSubscription.endpoint == body.endpoint)
+            .first()
+        )
+        if existing and existing.user_id == owner.id and (
+            existing.staff_id is None or existing.staff_id == member.id
+        ):
+            existing.staff_id = member.id
+            existing.p256dh = body.keys.p256dh
+            existing.auth = body.keys.auth
+            existing.fail_count = 0
+            db.commit()
+            return PortalPushSubscribeOut(created=False, endpoint_suffix=suffix)
+        raise HTTPException(status_code=409, detail="endpoint_conflict")
+
+
+@router.post("/{token}/push/unsubscribe")
+@limiter.limit("6/minute")
+def portal_push_unsubscribe(
+    token: str,
+    body: PortalPushUnsubscribeIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Hard-delete the (owner_id, staff_id, endpoint) row. Returns 200
+    in both delete-happened and nothing-to-delete cases — the frontend
+    doesn't need to distinguish, and a 404 would leak "this endpoint
+    belongs to another staff." Matches the owner-side contract at
+    routers/push.py:247.
+
+    Note: unsubscribe is NOT tier-gated. A staff on a freshly-downgraded
+    tenant MUST always be able to turn push off; the gate only applies
+    when subscribing.
+    """
+    from app.models.push_subscription import PushSubscription
+    from app.services import audit_service
+
+    link, member = _get_staff_from_token(token, db)
+
+    if not body.endpoint or len(body.endpoint) > 1500:
+        raise HTTPException(status_code=422, detail="invalid_endpoint")
+
+    row = (
+        db.query(PushSubscription)
+        .filter(
+            PushSubscription.user_id == link.user_id,
+            PushSubscription.staff_id == member.id,
+            PushSubscription.endpoint == body.endpoint,
+        )
+        .first()
+    )
+    deleted = False
+    if row is not None:
+        suffix = _portal_endpoint_suffix(row.endpoint)
+        from app.models.user import User
+        owner = db.query(User).filter(User.id == link.user_id).first()
+        db.delete(row)
+        try:
+            if owner is not None:
+                audit_service.record(
+                    db, owner, "staff.push.unsubscribed", "push_subscription",
+                    entity_id=row.id,
+                    before={
+                        "staff_id": str(member.id),
+                        "staff_name": member.name,
+                        "endpoint_suffix": suffix,
+                    },
+                )
+            db.commit()
+            deleted = True
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            db.commit()
+            deleted = True
+    return {"ok": True, "deleted": deleted}

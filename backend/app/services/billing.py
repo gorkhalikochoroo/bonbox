@@ -605,6 +605,27 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # rides on multi-week data accumulation that Starter users can
         # see but Free users would mostly see [] for.
         "growth_intelligence": False,
+        # ── Staff v2 (2026-05-28, Manoj-confirmed) ──────────────────────
+        # Schedule + Hours architecture upgrade. The whole staff-facing
+        # layer is locked on Free — owners still get internal scheduling
+        # tools, but the live coordination loop (shareable magic link +
+        # web push when the schedule changes) is the Starter+ value the
+        # owner is paying for. Architecture doc: docs/staff-v2-design.md.
+        #
+        # `staff_portal_link` — Starter+ unlocks the "Share with staff"
+        # CTA on /staff/schedule, which mints/rotates StaffLink rows and
+        # emails each staff member their per-person magic-link URL. Free
+        # still has the existing "Email staff" semantic (text-only
+        # change-summary email) — no schedule-portal URL is included.
+        "staff_portal_link": False,
+        # `schedule_publish_push` — Starter+ fan-out of a web push
+        # notification on `schedule_published` to every staff member who
+        # subscribed via the portal. Free keeps the email path; push is
+        # the Starter+ value layer. Multi-barrier: the staff-side
+        # /portal/{token}/push/subscribe endpoint reads has_feature() on
+        # the OWNER, so a Free owner's staff cannot subscribe at all
+        # (the endpoint returns 403 STAFF_PUSH_NOT_ON_OWNER_TIER).
+        "schedule_publish_push": False,
     },
     "starter": {
         "ai_anomaly_detection": True,
@@ -671,6 +692,10 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # the "Pro-only because Starter would mostly see []" reasoning since
         # the endpoint already degrades gracefully with no signals.
         "growth_intelligence": True,
+        # Staff v2 (2026-05-28) — Starter+ unlocks the staff-facing portal
+        # + push fan-out on schedule_published. See Free comment above.
+        "staff_portal_link": True,
+        "schedule_publish_push": True,
     },
     "trial": {  # = full Pro
         "ai_anomaly_detection": True,
@@ -719,6 +744,9 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "revenue_trend_30d": True,
         "revenue_trend_90d": True,              # Trial mirrors Pro — 90d window
         "growth_intelligence": True,            # Trial mirrors Pro — growth signals
+        # Staff v2 (2026-05-28) — trial mirrors Pro
+        "staff_portal_link": True,
+        "schedule_publish_push": True,
     },
     "pro": {
         "ai_anomaly_detection": True,
@@ -767,6 +795,11 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "revenue_trend_30d": True,                 # Starter+
         "revenue_trend_90d": True,                 # Pro killer — 90d + confidence band
         "growth_intelligence": True,               # Pro killer #3 — growth signals
+        # Staff v2 (2026-05-28) — Pro keeps Starter+ features. Pro-only
+        # extensions (arbejdstidsloven_block_publish, 4-mo report) ship
+        # in Commit 3.
+        "staff_portal_link": True,
+        "schedule_publish_push": True,
     },
 }
 

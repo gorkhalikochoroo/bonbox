@@ -65,7 +65,9 @@ from app.models.staff import (
     HoursLogged,
     Tip,
     TipDistribution,
+    NotificationLog,
 )
+from app.services.email_service import send_email
 from app.models.business_profile import BusinessProfile
 from app.schemas.staff import (
     StaffMemberCreate,
@@ -512,6 +514,223 @@ def set_staff_link_pin(
     link.pin_hash = _pin_ctx.hash(body.pin)
     db.commit()
     return {"message": "PIN set successfully"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Staff v2 — Share with staff (bulk magic-link issue + email)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Used by the "Share with staff" CTA on /staff/schedule. For every staff
+# with at least one published shift in the target week:
+#   1. Ensure an active StaffLink exists (mint if missing — `token_urlsafe(24)`
+#      = 192 bits of entropy, same convention as the existing single-staff
+#      issue endpoint above at line 422).
+#   2. Email them the portal URL with the link to /s/{token}.
+# Schedule-change emails go out automatically via send_shift_notifications
+# (which embeds the same portal_url). This endpoint is the on-ramp: staff
+# get one welcome email with the link to bookmark, and every subsequent
+# schedule change automatically reaches them via push + email update.
+#
+# Tier-gated on `staff_portal_link` — Free owners see an UpgradeNudge on
+# the frontend; the endpoint returns 402 (canonical upgrade payload) if a
+# Free owner somehow hits it directly.
+
+
+class ShareWithStaffRequest(BaseModel):
+    week_start: date
+
+
+@router.post("/schedules/share-with-staff")
+def share_with_staff(
+    body: ShareWithStaffRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Issue/refresh StaffLinks for every staff scheduled in the target week
+    and send each one a welcome email with their portal URL.
+
+    Multi-barrier:
+      L1 Auth: get_current_user.
+      L2 Bounds: week_start in [today - 90d, today + 365d].
+      L3 Rate-limit: 6/minute on the underlying email send, plus a soft
+         cap of 25 staff per call (a single tenant scheduling > 25 staff in
+         one week is the cap_staff_members_active path, not the email path).
+      L5 Tenant: only StaffMembers with user_id == user.id.
+      L6 Fail-closed: 402 if Free tier (missing staff_portal_link).
+      L7 Audit: one `staff_link.shared_week` row per call summarizing
+         {staff_count, emailed_count, link_issued_count}.
+      L8 Fallback: per-staff exceptions wrapped so a single failed email
+         doesn't kill the batch.
+      L9 4xx for validation, 402 for tier, never 5xx.
+      L10 Response reflects ACTUAL counts (links_issued + emailed_count
+          + email_failed_count + skipped_no_email), not optimistic totals.
+    """
+    from app.services.billing import enforce_feature
+
+    # L6 Tier check — raises 402 with canonical upgrade payload when missing.
+    enforce_feature(user, "staff_portal_link")
+
+    # L2 Bounds.
+    today_local = business_today_local(user)
+    if body.week_start < (today_local - timedelta(days=90)):
+        raise HTTPException(status_code=422, detail="week_start_too_old")
+    if body.week_start > (today_local + timedelta(days=365)):
+        raise HTTPException(status_code=422, detail="week_start_too_far")
+    week_end = body.week_start + timedelta(days=6)
+
+    # Find every staff with a published shift in the target week.
+    scheduled_staff_ids = {
+        s.staff_id for s in db.query(Schedule).filter(
+            Schedule.user_id == user.id,
+            Schedule.date >= body.week_start,
+            Schedule.date <= week_end,
+            Schedule.status == "published",
+        ).all()
+    }
+
+    if not scheduled_staff_ids:
+        return {
+            "ok": True,
+            "staff_count": 0,
+            "links_issued": 0,
+            "emailed_count": 0,
+            "email_failed_count": 0,
+            "skipped_no_email": 0,
+            "week_start": body.week_start.isoformat(),
+        }
+
+    # L3 Soft cap — 25 staff per call. The cap_staff_members_active gate
+    # in the architecture doc (Pro=25) makes this a no-op upper bound for
+    # any sensible tenant; a tenant that wires 200 staff into one week is
+    # almost certainly a misuse pattern.
+    if len(scheduled_staff_ids) > 25:
+        raise HTTPException(status_code=422, detail="too_many_staff_for_share")
+
+    members = db.query(StaffMember).filter(
+        StaffMember.user_id == user.id,
+        StaffMember.id.in_(scheduled_staff_ids),
+        StaffMember.is_deleted.isnot(True),
+    ).all()
+
+    # Resolve business name once for the email body.
+    try:
+        profile = db.query(BusinessProfile).filter(
+            BusinessProfile.user_id == user.id,
+        ).first()
+        restaurant_name = profile.business_name if profile and profile.business_name else "BonBox"
+    except Exception:  # noqa: BLE001
+        restaurant_name = "BonBox"
+
+    links_issued = 0
+    emailed_count = 0
+    email_failed_count = 0
+    skipped_no_email = 0
+    week_label = f"Week of {body.week_start.strftime('%d %b %Y')}"
+
+    for member in members:
+        try:
+            # Step 1 — ensure an active link exists (mint if missing).
+            link = db.query(StaffLink).filter(
+                StaffLink.staff_id == member.id,
+                StaffLink.user_id == user.id,
+                StaffLink.active.is_(True),
+            ).first()
+            if link is None:
+                token = secrets.token_urlsafe(24)
+                link = StaffLink(
+                    id=uuid.uuid4(),
+                    user_id=user.id,
+                    staff_id=member.id,
+                    token=token,
+                    active=True,
+                )
+                db.add(link)
+                db.flush()
+                links_issued += 1
+
+            # Step 2 — email the link.
+            if not member.email:
+                skipped_no_email += 1
+                continue
+
+            portal_url = f"https://bonbox.dk/s/{link.token}"
+            subject = f"{restaurant_name} — your shift portal is ready"
+            # Plain, branded HTML. Inlined styles so email clients render it.
+            html = (
+                f"<div style=\"font-family: system-ui, sans-serif; max-width: 520px;\">"
+                f"<h2 style=\"color:#111;margin:0 0 12px;\">Hej {member.name.split(' ')[0]},</h2>"
+                f"<p style=\"color:#333;line-height:1.5;\">"
+                f"{restaurant_name} har delt din vagtplan med dig. Bogmærk linket — "
+                f"hver gang ejeren udgiver eller ændrer din uge, ser du opdateringen her med det samme:"
+                f"</p>"
+                f"<p style=\"margin:24px 0;\">"
+                f"<a href=\"{portal_url}\" "
+                f"style=\"display:inline-block;background:#111;color:#fff;padding:12px 20px;"
+                f"text-decoration:none;border-radius:8px;font-weight:600;\">"
+                f"Åbn min vagtplan</a>"
+                f"</p>"
+                f"<p style=\"color:#666;font-size:13px;line-height:1.5;\">"
+                f"Tip: Tryk på <em>Add to Home Screen</em> i Safari for at få notifikationer "
+                f"når dit skema ændres. Linket er personligt — del det ikke."
+                f"</p>"
+                f"<p style=\"color:#999;font-size:12px;margin-top:32px;\">"
+                f"{restaurant_name} · via BonBox</p>"
+                f"</div>"
+            )
+            success = send_email(to=member.email, subject=subject, html=html)
+            log = NotificationLog(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                staff_id=member.id,
+                channel="email",
+                event_type="staff_link_shared",
+                subject=subject,
+                body=html,
+                status="sent" if success else "failed",
+                error_message=None if success else "Email delivery failed",
+            )
+            db.add(log)
+            if success:
+                emailed_count += 1
+            else:
+                email_failed_count += 1
+        except Exception as exc:  # noqa: BLE001
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            email_failed_count += 1
+            logger.exception(
+                "share_with_staff: per-staff error for staff_id=%s: %s",
+                member.id, exc,
+            )
+            continue
+
+    # L7 Audit — one row per call summarizing what happened.
+    audit_service.record(
+        db, user, "staff_link.shared_week", "staff_link",
+        after={
+            "week_start": body.week_start.isoformat(),
+            "staff_count": len(members),
+            "links_issued": links_issued,
+            "emailed_count": emailed_count,
+            "email_failed_count": email_failed_count,
+            "skipped_no_email": skipped_no_email,
+        },
+        ip_address=request.client.host if request and request.client else None,
+    )
+    db.commit()
+
+    return {
+        "ok": True,
+        "staff_count": len(members),
+        "links_issued": links_issued,
+        "emailed_count": emailed_count,
+        "email_failed_count": email_failed_count,
+        "skipped_no_email": skipped_no_email,
+        "week_start": body.week_start.isoformat(),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════

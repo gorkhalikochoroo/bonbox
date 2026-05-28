@@ -7,6 +7,40 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import portalApi from "../services/portalApi";
 
+
+// ─── Push subscription helpers (Staff v2, 2026-05-28) ───────────────────
+//
+// urlBase64ToUint8Array — VAPID public keys arrive as base64url strings.
+// PushManager.subscribe() requires Uint8Array. Standard polyfill, no deps.
+function _urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+function _isStandalone() {
+  if (typeof window === "undefined") return false;
+  try {
+    if (window.matchMedia?.("(display-mode: standalone)").matches) return true;
+    if (window.navigator?.standalone === true) return true;
+  } catch { /* SSR / sandbox */ }
+  return false;
+}
+
+function _isIos() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  const isIosUa = /iPad|iPhone|iPod/.test(ua);
+  const isIpadOs =
+    /Macintosh/.test(ua) &&
+    typeof navigator.maxTouchPoints === "number" &&
+    navigator.maxTouchPoints > 1;
+  return isIosUa || isIpadOs;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -1132,6 +1166,244 @@ const TABS = [
   { key: "alerts", icon: "🔔", label: "Alerts" },
 ];
 
+/**
+ * StaffPushOptIn — opt-in card for native Web Push, scoped to the staff
+ * portal token. Mirrors PushOptInPrompt (owner-side, Task #72) but uses
+ * the portal endpoints + the OWNER's tier gate to decide whether to show
+ * the toggle at all.
+ *
+ * Visibility cascade (top-to-bottom — first match renders):
+ *   1. Browser doesn't support Web Push → render nothing (graceful skip).
+ *   2. iOS Safari, NOT installed as PWA → "Add to Home Screen first" card.
+ *   3. Owner tier doesn't enable push (403 from VAPID key endpoint) →
+ *      render nothing (we never name the tier — see L10 honest claims).
+ *   4. Already subscribed → "Push on — turn off" toggle.
+ *   5. Permission denied at OS level → "Push blocked — enable in
+ *      Settings" hint (can't recover from JS).
+ *   6. Default state → "Get push when your schedule changes" with Enable
+ *      button.
+ *
+ * Server flow:
+ *   GET  /portal/{token}/vapid-public-key  → fetch the VAPID key. 403 OR
+ *                                            503 → bail without erroring.
+ *   POST /portal/{token}/push/subscribe    → upserts the row.
+ *   POST /portal/{token}/push/unsubscribe  → cleans up.
+ */
+function StaffPushOptIn({ token }) {
+  const [supported, setSupported] = useState(true);
+  const [permission, setPermission] = useState(() => {
+    try {
+      return typeof Notification !== "undefined" ? Notification.permission : "denied";
+    } catch {
+      return "denied";
+    }
+  });
+  const [subscribed, setSubscribed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [tierAllowed, setTierAllowed] = useState(null); // null = unknown, false = locked, true = ok
+  const [vapidKey, setVapidKey] = useState("");
+  const iosNotInstalled = _isIos() && !_isStandalone();
+
+  // Step 1: feature-detect Web Push.
+  useEffect(() => {
+    const ok =
+      typeof window !== "undefined" &&
+      "serviceWorker" in navigator &&
+      "PushManager" in window &&
+      typeof Notification !== "undefined";
+    setSupported(!!ok);
+  }, []);
+
+  // Step 2: prefetch the VAPID key. The endpoint answers the tier gate
+  // for us — 200 means push is enabled on the OWNER's plan, 403 means
+  // locked (we hide the card), 503 means VAPID not configured at all
+  // (also hide). Never error-toasts the staff member; this is a
+  // best-effort feature.
+  useEffect(() => {
+    if (!supported || iosNotInstalled) return;
+    let cancel = false;
+    portalApi
+      .get(`/portal/${token}/vapid-public-key`)
+      .then((res) => {
+        if (cancel) return;
+        const key = res?.data?.key || "";
+        if (!key) {
+          setTierAllowed(false);
+          return;
+        }
+        setVapidKey(key);
+        setTierAllowed(true);
+      })
+      .catch(() => {
+        if (cancel) return;
+        // 403 / 503 → not allowed. Don't surface this — the staff has
+        // no agency over the owner's tier.
+        setTierAllowed(false);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [token, supported, iosNotInstalled]);
+
+  // Step 3: probe the existing subscription so re-opens of the portal
+  // reflect "Push on" without prompting again.
+  useEffect(() => {
+    if (!supported || !tierAllowed) return;
+    let cancel = false;
+    navigator.serviceWorker?.ready
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((sub) => {
+        if (cancel) return;
+        setSubscribed(!!sub);
+      })
+      .catch(() => {});
+    return () => {
+      cancel = true;
+    };
+  }, [supported, tierAllowed]);
+
+  const handleEnable = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      // Re-use existing subscription if the SW already minted one.
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        // Triggers the OS permission prompt as part of subscribe().
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: _urlBase64ToUint8Array(vapidKey),
+        });
+      }
+      const json = sub.toJSON();
+      await portalApi.post(`/portal/${token}/push/subscribe`, {
+        endpoint: json.endpoint,
+        keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
+        user_agent: navigator.userAgent?.slice(0, 500) || null,
+      });
+      setSubscribed(true);
+      setPermission(
+        typeof Notification !== "undefined" ? Notification.permission : "denied"
+      );
+    } catch (err) {
+      // Permission denied is the most common failure — show it as a
+      // hint, not a crash. Anything else is an unknown error.
+      const msg =
+        err?.name === "NotAllowedError"
+          ? "Push permission was blocked. Re-enable in Settings to receive notifications."
+          : err?.response?.data?.detail || "Couldn't enable push. Try again.";
+      setError(msg);
+      if (typeof Notification !== "undefined") {
+        setPermission(Notification.permission);
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDisable = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        try {
+          await portalApi.post(`/portal/${token}/push/unsubscribe`, {
+            endpoint: sub.endpoint,
+          });
+        } catch {
+          // Server-side row may already be gone (downgrade prune, etc.).
+          // Best-effort cleanup; local unsubscribe still runs below.
+        }
+        await sub.unsubscribe();
+      }
+      setSubscribed(false);
+    } catch (err) {
+      setError(err?.response?.data?.detail || "Couldn't disable push.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Bail-outs (see visibility cascade in docstring).
+  if (!supported) return null;
+  if (iosNotInstalled) {
+    return (
+      <div className="rounded-lg bg-white/[0.04] border border-white/[0.06] p-3 text-[11px] text-gray-400 leading-relaxed">
+        <div className="font-semibold text-gray-300 mb-1">📲 Get push notifications</div>
+        On iPhone, tap the share icon in Safari and choose
+        <span className="text-gray-200"> Add to Home Screen</span>. Open BonBox
+        from the home-screen icon to enable push.
+      </div>
+    );
+  }
+  if (tierAllowed === null) {
+    // Loading state — render nothing to avoid flicker.
+    return null;
+  }
+  if (tierAllowed === false) {
+    return null;
+  }
+
+  if (subscribed) {
+    return (
+      <div className="rounded-lg bg-white/[0.04] border border-white/[0.06] p-3 flex items-center justify-between gap-3">
+        <div className="text-[11px] text-gray-300">
+          <div className="font-semibold text-gray-200">🔔 Push notifications on</div>
+          <div className="text-gray-500">
+            You'll get a tap on this device when your schedule changes.
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={handleDisable}
+          disabled={busy}
+          className="text-[11px] px-2 py-1 rounded bg-white/[0.04] border border-white/[0.06] text-gray-400 hover:text-gray-200 disabled:opacity-50"
+        >
+          {busy ? "…" : "Turn off"}
+        </button>
+      </div>
+    );
+  }
+
+  if (permission === "denied") {
+    return (
+      <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 text-[11px] text-amber-200 leading-relaxed">
+        <div className="font-semibold mb-1">🔕 Push blocked</div>
+        Notifications are blocked in your browser settings. Re-enable them in
+        Settings → Notifications → BonBox to get a tap when your shifts change.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg bg-white/[0.04] border border-white/[0.06] p-3 space-y-2">
+      <div className="text-[11px] text-gray-300">
+        <div className="font-semibold text-gray-200">🔔 Get push notifications</div>
+        <div className="text-gray-500 mt-0.5">
+          Get a tap on this device when your shifts change or the schedule
+          updates.
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={handleEnable}
+        disabled={busy}
+        className="w-full px-3 py-2 rounded-lg text-[12px] font-medium bg-gray-100 text-gray-900 hover:bg-white disabled:opacity-50 transition"
+      >
+        {busy ? "Enabling…" : "Enable push"}
+      </button>
+      {error && (
+        <div className="text-[10px] text-red-400 leading-snug">{error}</div>
+      )}
+    </div>
+  );
+}
+
+
 export default function StaffPortalPage() {
   const { token } = useParams();
   const [tab, setTab] = useState("schedule");
@@ -1282,6 +1554,11 @@ export default function StaffPortalPage() {
                   ? `${info.email ? "📧 " + info.email : ""}${info.email && info.phone ? " · " : ""}${info.phone ? "📱 " + info.phone : ""}`
                   : "Add your email or phone to get notified when your schedule changes."}
               </div>
+              {/* Staff v2 (2026-05-28) — opt-in to native Web Push so this
+                  device gets a tap as soon as the owner publishes/edits
+                  the schedule. Tier-gated server-side; component bails out
+                  silently when locked. */}
+              <StaffPushOptIn token={token} />
             </div>
           </div>
         )}
