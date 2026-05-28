@@ -1496,6 +1496,47 @@ _migrations = [
     # NULL = single-terminal venue OR pre-migration data, per the model.
     "ALTER TABLE kasserapport_extractions ADD COLUMN IF NOT EXISTS terminal_id VARCHAR(36) REFERENCES terminals(id) ON DELETE SET NULL",
     "CREATE INDEX IF NOT EXISTS ix_kasserapport_extractions_terminal_id ON kasserapport_extractions (terminal_id)",
+
+    # Migration 019 (2026-05-28): terminal_providers registry — Commit 1
+    # of the POS terminal auto-detect feature. Global catalog of DK/EU
+    # acquirers (Nets, Worldline, MobilePay Point, SumUp, etc.) seeded
+    # at boot from backend/app/data/terminal_providers.json. Per-tenant
+    # `terminals` row gains a soft FK + confidence + owner-lock columns
+    # so future auto-detect (Commit 2) can stamp the provider on each
+    # Z-report scan. RLS deny policy applied per docs/security-rls-doctrine.md
+    # — global metadata still gets the standard anon/authenticated deny
+    # as defense-in-depth.
+    #
+    # Type is VARCHAR(36) on the FK to match the GUID() TypeDecorator
+    # the rest of the schema uses — see the Migration 018 comment above
+    # for why we cannot use native UUID here.
+    """CREATE TABLE IF NOT EXISTS terminal_providers (
+        id VARCHAR(36) PRIMARY KEY,
+        slug VARCHAR(40) NOT NULL UNIQUE,
+        display_name VARCHAR(80) NOT NULL,
+        country_hq VARCHAR(2),
+        dk_market_tier VARCHAR(20) NOT NULL,
+        industries VARCHAR(200),
+        psd2_settlement VARCHAR(10) NOT NULL DEFAULT 'no',
+        signature_keywords TEXT NOT NULL DEFAULT '',
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_terminal_providers_slug ON terminal_providers (slug)",
+    "CREATE INDEX IF NOT EXISTS ix_terminal_providers_active ON terminal_providers (is_active)",
+    # RLS doctrine — see docs/security-rls-doctrine.md. Global catalog
+    # has no per-tenant PII, but anon/authenticated still get a RESTRICTIVE
+    # deny so a leaked Supabase anon key can't SELECT the table. Backend
+    # connects as `postgres` (BYPASSRLS=true), unaffected.
+    "ALTER TABLE terminal_providers ENABLE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS rls_deny_anon ON terminal_providers",
+    "CREATE POLICY rls_deny_anon ON terminal_providers AS RESTRICTIVE FOR ALL TO anon, authenticated USING (false) WITH CHECK (false)",
+    # Per-tenant Terminal row — add provider link + confidence + owner-lock.
+    "ALTER TABLE terminals ADD COLUMN IF NOT EXISTS provider_id VARCHAR(36) REFERENCES terminal_providers(id) ON DELETE SET NULL",
+    "ALTER TABLE terminals ADD COLUMN IF NOT EXISTS provider_confidence NUMERIC(3,2)",
+    "ALTER TABLE terminals ADD COLUMN IF NOT EXISTS provider_locked_by_owner BOOLEAN NOT NULL DEFAULT false",
+    "CREATE INDEX IF NOT EXISTS ix_terminals_provider_id ON terminals (provider_id)",
 ]
 
 
@@ -2280,6 +2321,27 @@ def _init_db():
         # Non-fatal — the AI extraction still works without bootstrap
         # examples (it just starts colder for fresh tenants).
         print(f"Global examples seed warning: {e}")
+    # Terminal-provider catalog seed (added 2026-05-28, Commit 1 of
+    # the POS terminal registry feature). Global metadata only — no
+    # per-tenant impact. Idempotent UPSERT by `slug` reads from
+    # `backend/app/data/terminal_providers.json`. Layer 8 graceful
+    # degradation: failure is logged and does NOT crash startup, the
+    # Daily Close / OCR paths keep working without the catalog.
+    try:
+        from app.services.terminal_providers_seeder import seed_terminal_providers
+        from app.database import SessionLocal
+        with SessionLocal() as seed_db:
+            tp_result = seed_terminal_providers(seed_db)
+        if tp_result.get("created") or tp_result.get("updated"):
+            print(
+                f"Terminal providers seeded: {tp_result['created']} new, "
+                f"{tp_result['updated']} updated ({tp_result['total']} total)"
+            )
+    except Exception as e:
+        # Non-fatal — catalog being stale doesn't break anything in
+        # Commit 1 (no consumer reads it yet). Commit 2's detector
+        # will handle empty/stale catalog with its own fallback.
+        print(f"Terminal providers seed warning: {e}")
     # Demo account seed — populates demo@bonbox.dk with realistic
     # Mirabelle data for sales demos / investor walkthroughs.
     # Idempotent: only seeds when the demo user exists AND has zero

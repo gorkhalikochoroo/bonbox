@@ -1,0 +1,164 @@
+[
+  {
+    "slug": "nets",
+    "display_name": "Nets (Nexi Group)",
+    "country_hq": "DK",
+    "dk_market_tier": "dominant",
+    "industries": "restaurant,retail,services,hotel",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["nets denmark", "nets danmark a/s", "dankort", "nexi"]
+  },
+  {
+    "slug": "bs-payco",
+    "display_name": "BS PAYCO / Verifone Pay DK",
+    "country_hq": "DK",
+    "dk_market_tier": "common",
+    "industries": "retail,restaurant",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["bs payco", "verifone dk", "bs payco a/s"]
+  },
+  {
+    "slug": "worldline",
+    "display_name": "Worldline",
+    "country_hq": "FR",
+    "dk_market_tier": "common",
+    "industries": "restaurant,hotel,retail",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["worldline", "bambora"]
+  },
+  {
+    "slug": "softpay",
+    "display_name": "Softpay (Nexi softPOS)",
+    "country_hq": "DK",
+    "dk_market_tier": "common",
+    "industries": "cafe,food-truck,services",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["softpay", "powered by nets"]
+  },
+  {
+    "slug": "mobilepay-point",
+    "display_name": "MobilePay Tap-to-Pay",
+    "country_hq": "DK",
+    "dk_market_tier": "common",
+    "industries": "cafe,market-stall",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["mobilepay", "tap to pay"]
+  },
+  {
+    "slug": "sumup",
+    "display_name": "SumUp",
+    "country_hq": "UK",
+    "dk_market_tier": "common",
+    "industries": "services,cafe,retail,tradesman",
+    "psd2_settlement": "partial",
+    "signature_keywords": ["sumup"]
+  },
+  {
+    "slug": "zettle",
+    "display_name": "Zettle by PayPal",
+    "country_hq": "SE",
+    "dk_market_tier": "niche",
+    "industries": "retail,market-stall",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["zettle", "paypal"]
+  },
+  {
+    "slug": "adyen",
+    "display_name": "Adyen",
+    "country_hq": "NL",
+    "dk_market_tier": "niche",
+    "industries": "retail-chain,hotel",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["adyen"]
+  },
+  {
+    "slug": "stripe-terminal",
+    "display_name": "Stripe Terminal",
+    "country_hq": "US",
+    "dk_market_tier": "niche",
+    "industries": "ecom-retail-hybrid",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["stripe", "bbpos", "wisepad"]
+  },
+  {
+    "slug": "ingenico",
+    "display_name": "Ingenico (hardware)",
+    "country_hq": "FR",
+    "dk_market_tier": "niche",
+    "industries": "hardware-only",
+    "psd2_settlement": "no",
+    "signature_keywords": ["ingenico"]
+  },
+  {
+    "slug": "pax",
+    "display_name": "PAX Technology (hardware)",
+    "country_hq": "CN",
+    "dk_market_tier": "niche",
+    "industries": "hardware-only",
+    "psd2_settlement": "no",
+    "signature_keywords": ["pax a920", "pax a77", "pax technology"]
+  },
+  {
+    "slug": "clearhaus",
+    "display_name": "Clearhaus",
+    "country_hq": "DK",
+    "dk_market_tier": "niche",
+    "industries": "ecom-hybrid",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["clearhaus", "clearhaus.com"]
+  },
+  {
+    "slug": "teya",
+    "display_name": "Teya (ex-SaltPay)",
+    "country_hq": "UK",
+    "dk_market_tier": "niche",
+    "industries": "restaurant,retail",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["teya", "saltpay"]
+  },
+  {
+    "slug": "viva",
+    "display_name": "Viva.com (Viva Wallet)",
+    "country_hq": "GR",
+    "dk_market_tier": "niche",
+    "industries": "retail,food",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["viva.com", "viva wallet"]
+  },
+  {
+    "slug": "mypos",
+    "display_name": "myPOS",
+    "country_hq": "BG",
+    "dk_market_tier": "niche",
+    "industries": "tradesman,market-stall",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["mypos"]
+  },
+  {
+    "slug": "square",
+    "display_name": "Square (Block)",
+    "country_hq": "US",
+    "dk_market_tier": "fallback",
+    "industries": "reserved",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["square"]
+  },
+  {
+    "slug": "planet",
+    "display_name": "Planet Payment",
+    "country_hq": "IE",
+    "dk_market_tier": "niche",
+    "industries": "hotel,tourist-restaurant",
+    "psd2_settlement": "yes",
+    "signature_keywords": ["planet", "fintrax"]
+  },
+  {
+    "slug": "unknown",
+    "display_name": "Unknown / generic",
+    "country_hq": null,
+    "dk_market_tier": "fallback",
+    "industries": null,
+    "psd2_settlement": "no",
+    "signature_keywords": []
+  }
+]

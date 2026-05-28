@@ -886,3 +886,81 @@ def admin_yapily_institutions(
             for inst in institutions
         ],
     }
+
+
+# ─────────────────────── Terminal provider catalog ─────────────
+#
+# Read-only view of the global terminal_providers catalog (seeded at
+# boot from backend/app/data/terminal_providers.json). Used by the
+# admin to verify the catalog loaded correctly and to audit which
+# DK/EU POS providers BonBox recognizes for auto-detect (Commit 2 of
+# this feature will use these rows to fingerprint Z-report scans).
+#
+# No pagination — catalog is small (18 rows as of 2026-05-28, max ~50
+# even years out). Ordered dominant > common > niche > fallback so the
+# top of the list is the most important providers for DK SMBs.
+
+
+_TIER_ORDER = {"dominant": 0, "common": 1, "niche": 2, "fallback": 3}
+
+
+@router.get("/terminal-providers")
+def admin_terminal_providers_list(
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """List the global POS terminal provider catalog.
+
+    Returns every row in `terminal_providers`, ordered by DK market
+    tier (dominant first) then display name. Super-admin only.
+
+    Response shape:
+        {
+          "count": int,
+          "providers": [
+            {
+              "id": str (UUID),
+              "slug": str,
+              "display_name": str,
+              "country_hq": str | null,  -- ISO-3166-1 alpha-2
+              "dk_market_tier": "dominant" | "common" | "niche" | "fallback",
+              "industries": str | null,  -- comma-separated tags
+              "psd2_settlement": "yes" | "no" | "partial",
+              "signature_keywords": [str, ...],  -- list, normalized
+              "is_active": bool,
+              "created_at": str (ISO-8601),
+              "updated_at": str (ISO-8601),
+            },
+            ...
+          ]
+        }
+    """
+    from app.models.terminal_provider import TerminalProvider
+
+    rows = db.query(TerminalProvider).all()
+    # Sort in Python by tier-rank then name so a niche provider with
+    # name "Adyen" doesn't sort before a common one with name "Worldline".
+    rows.sort(key=lambda r: (_TIER_ORDER.get(r.dk_market_tier, 99), r.display_name.lower()))
+
+    return {
+        "count": len(rows),
+        "providers": [
+            {
+                "id": str(r.id),
+                "slug": r.slug,
+                "display_name": r.display_name,
+                "country_hq": r.country_hq,
+                "dk_market_tier": r.dk_market_tier,
+                "industries": r.industries,
+                "psd2_settlement": r.psd2_settlement,
+                # Newline-separated → list for cleaner JSON consumption
+                "signature_keywords": [
+                    k for k in (r.signature_keywords or "").split("\n") if k
+                ],
+                "is_active": bool(r.is_active),
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+            for r in rows
+        ],
+    }
