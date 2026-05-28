@@ -167,15 +167,28 @@ export default function StaffHoursPage() {
     setPeriodTo(addDays(periodTo, periodLength));
   };
 
+  // Mobile-only sub-tab. Five stacked sections on a 390px phone forced
+  // ~3 screen-heights of scroll. On mobile we render ONE section at a
+  // time (default: Log — the primary action owners come to this page
+  // for) and use a tab-strip to switch. Desktop (sm+) keeps the full
+  // vertical layout per accountant convention.
+  const [mobileTab, setMobileTab] = useState("log"); // "summary" | "log" | "recent"
+  const mobileTabs = [
+    { id: "summary", label: t("hoursTabSummary") || "Summary" },
+    { id: "log", label: t("hoursTabLog") || "Log" },
+    { id: "recent", label: t("hoursTabRecent") || "Recent", count: entries?.length || undefined },
+  ];
+
   return (
-    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4 sm:space-y-6">
       <PageHeader
         eyebrow="STAFF"
         title={t("staffHours") || "Staff Hours"}
         subtitle="Track working hours, clock in/out, and confirm schedules."
       />
 
-      {/* Period Selector */}
+      {/* Period Selector — always visible (the period scopes ALL three
+          mobile tabs, so it lives outside the tab strip). */}
       <FadeIn delay={0.05}>
         <PeriodSelector
           from={periodFrom}
@@ -186,35 +199,55 @@ export default function StaffHoursPage() {
         />
       </FadeIn>
 
-      {/* Hours Summary Table */}
-      <FadeIn delay={0.1}>
-        <HoursSummaryTable
-          summary={summary}
-          loading={summaryLoading}
-          currency={currency}
+      {/* Mobile-only tab strip. Hidden sm+ where the vertical layout
+          works fine on a wide screen. */}
+      <div className="sm:hidden">
+        <TabPills
+          tabs={mobileTabs}
+          activeId={mobileTab}
+          onChange={setMobileTab}
+          wrap={false}
+          ariaLabel="Hours view"
         />
-      </FadeIn>
+      </div>
 
-      {/* Logging Section */}
-      <FadeIn delay={0.15}>
-        <LoggingSection
-          staffList={staffList}
-          currency={currency}
-          periodFrom={periodFrom}
-          onLogged={fetchData}
-        />
-      </FadeIn>
+      {/* Summary table — desktop: always shown; mobile: only when
+          summary tab is active. */}
+      <div className={mobileTab === "summary" ? "" : "hidden sm:block"}>
+        <FadeIn delay={0.1}>
+          <HoursSummaryTable
+            summary={summary}
+            loading={summaryLoading}
+            currency={currency}
+          />
+        </FadeIn>
+      </div>
 
-      {/* Recent Hours Log */}
-      <FadeIn delay={0.2}>
-        <RecentHoursLog
-          entries={entries}
-          loading={entriesLoading}
-          currency={currency}
-          staffList={staffList}
-          onUpdated={fetchData}
-        />
-      </FadeIn>
+      {/* Log hours — desktop: always shown; mobile: default tab. */}
+      <div className={mobileTab === "log" ? "" : "hidden sm:block"}>
+        <FadeIn delay={0.15}>
+          <LoggingSection
+            staffList={staffList}
+            currency={currency}
+            periodFrom={periodFrom}
+            onLogged={fetchData}
+          />
+        </FadeIn>
+      </div>
+
+      {/* Recent log — desktop: always shown; mobile: only when recent
+          tab is active. */}
+      <div className={mobileTab === "recent" ? "" : "hidden sm:block"}>
+        <FadeIn delay={0.2}>
+          <RecentHoursLog
+            entries={entries}
+            loading={entriesLoading}
+            currency={currency}
+            staffList={staffList}
+            onUpdated={fetchData}
+          />
+        </FadeIn>
+      </div>
     </div>
   );
 }

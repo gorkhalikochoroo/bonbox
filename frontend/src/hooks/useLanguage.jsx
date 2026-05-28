@@ -1442,6 +1442,10 @@ const translations = {
     scheduleShareButtonShort: "Share",  // mobile-narrow label
     scheduleEmailButtonShort: "Email",  // mobile-narrow label
     scheduleShareSending: "Sharing…",
+    // Mobile-only tab strip on /staff/hours — fits page in one screen.
+    hoursTabSummary: "Summary",
+    hoursTabLog: "Log",
+    hoursTabRecent: "Recent",
     scheduleShareTitle: "Send every staff a personal portal link — they bookmark it once and get push when the schedule changes.",
     scheduleShareConfirm: "Share this week's schedule with {n} staff via a personal magic link?",
     scheduleShareNoRecipients: "No active staff have an email yet — add an email so they can receive their schedule link.",
@@ -5022,6 +5026,10 @@ const translations = {
     scheduleShareButtonShort: "Del",  // mobil-smalt label
     scheduleEmailButtonShort: "E-mail",  // mobil-smalt label
     scheduleShareSending: "Sender…",
+    // Mobil-faner på /staff/hours — én skærm uden scroll.
+    hoursTabSummary: "Oversigt",
+    hoursTabLog: "Registrér",
+    hoursTabRecent: "Seneste",
     scheduleShareTitle: "Send hver medarbejder et personligt portallink — de bogmærker det og får besked når vagtplanen ændres.",
     scheduleShareConfirm: "Del denne uges vagtplan med {n} medarbejdere via et personligt magic link?",
     scheduleShareNoRecipients: "Ingen aktive medarbejdere har en e-mail endnu — tilføj e-mail så de kan modtage deres link.",
