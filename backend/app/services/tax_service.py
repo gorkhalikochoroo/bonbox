@@ -219,7 +219,7 @@ def _resolve_frequency(user, config: dict) -> str:
 def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
               vat_rate: float, prices_include_moms: bool = True) -> dict:
     """
-    Calculate VAT for a period — dual revenue stream:
+    Calculate VAT for a period — three revenue streams:
 
       1. POS sales (Sale table). Cash basis-ish at the data layer
          but treated as accrual for VAT (DK doesn't allow cash basis
@@ -228,37 +228,102 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
          receipts for fakturaer. The Invoice is the source of truth
          for that revenue; counting the Sale too would double-count.
 
-      2. Faktura revenue (Invoice table). Accrual basis, recognized
+      2. Daily Close (DailyClose table). End-of-shift kasserapport
+         scan or manual close form. The kasserapport's revenue_total
+         lands here and never reaches Sale rows. For owners without
+         integrated POS (most DK cafés/retail), this IS the POS
+         source-of-truth — Sale rows are 0 or sparse. Per-date
+         precedence with stream 1: a confirmed close on date D wins
+         over Sale rows on D (Sale rows are assumed already reflected
+         in the close total — owner closes against the same till
+         the sales rang up on). Only confirmed closes count; drafts
+         are working-copy and excluded from filing.
+
+      3. Faktura revenue (Invoice table). Accrual basis, recognized
          on issue_date per Bogføringsloven. Status >= 'sent', no
          drafts (drafts aren't real outgoing vouchers yet). Includes
          kreditnotaer with their already-negative totals so the period
          net is correct.
 
-    Why two streams: BonBox supports both POS-style businesses
-    (café/restaurant) and faktura-style businesses (event organizer,
-    freelancer). Most have a mix. Without the dedup, marking an
-    invoice paid via bank-import auto-match would inflate revenue by
-    the exact invoice amount.
+    Why three streams: BonBox supports POS-style businesses
+    (café/restaurant — Sale OR DailyClose) and faktura-style
+    businesses (event organizer, freelancer — Invoice). Most have a
+    mix. Without the per-date dedup, an owner who logs Quick Sales
+    AND closes the day with a Z-report would double-count their
+    revenue (and MOMS) for that day.
 
-    prices_include_moms determines the POS extraction formula:
+    prices_include_moms determines the POS extraction formula
+    (applied to both Sale rows AND close.revenue_total when
+    close.moms_total is null — owners may not have keyed MOMS
+    explicitly in the close form):
       - True  (B2C — café, retail; the customer's receipt amount):
               VAT = gross * rate / (1 + rate)
               Net = gross / (1 + rate)
       - False (B2B — net invoicing; price excludes VAT):
               VAT = net * rate
               Gross = net * (1 + rate)
+    When DailyClose.moms_total IS set (owner keyed it OR OCR
+    extracted it), that value is used directly instead of the
+    formula — preserves owner intent / accountant override.
     Invoices always store net + moms separately, so they're rendered
     directly without the prices_include_moms toggle.
     """
-    # POS revenue — Sales NOT linked to an invoice
-    pos_total = float(
+    # ─── Stream 2 (DailyClose) — pull first so we can dedup Stream 1
+    #
+    # Per-date precedence: a confirmed close on date D wins over
+    # Sale rows on D. Drafts are excluded — they're not yet legally
+    # recognized as a filing entry (Bogføringsloven §10 expects an
+    # immutable record, which a draft isn't).
+    close_rows = (
+        db.query(DailyClose.date, DailyClose.revenue_total, DailyClose.moms_total)
+        .filter(
+            DailyClose.user_id == user_id,
+            DailyClose.date >= start_date,
+            DailyClose.date < end_date,
+            DailyClose.is_deleted.isnot(True),
+            DailyClose.status == "confirmed",
+        )
+        .all()
+    )
+    close_dates = {d for d, _, _ in close_rows}
+
+    close_pos_revenue = 0.0
+    close_pos_moms = 0.0
+    for _, rev, moms in close_rows:
+        rev_f = float(rev or 0)
+        close_pos_revenue += rev_f
+        if moms is not None:
+            # Explicit value (incl. explicit 0 for VAT-exempt closes)
+            # — preserve owner / OCR intent. Avoids the formula
+            # over-counting when the owner has manually entered MOMS.
+            close_pos_moms += float(moms)
+        elif rev_f > 0:
+            # No explicit MOMS — extract via the same formula the
+            # Sale path uses below. Keeps the headline consistent
+            # when some closes have MOMS keyed and others don't.
+            if vat_rate > 0:
+                if prices_include_moms:
+                    close_pos_moms += rev_f * vat_rate / (1 + vat_rate)
+                else:
+                    close_pos_moms += rev_f * vat_rate
+
+    # ─── Stream 1 (Sale) — POS revenue NOT linked to an invoice
+    #
+    # Exclude dates with a confirmed close (Stream 2 wins on those
+    # dates). The Sale rows aren't lost — they're presumed already
+    # reflected in close.revenue_total, which the till operator
+    # tallies at end of shift.
+    pos_sale_q = (
         db.query(func.coalesce(func.sum(Sale.amount), 0))
         .filter(Sale.user_id == user_id, Sale.date >= start_date, Sale.date < end_date,
                 Sale.is_deleted.isnot(True), Sale.is_tax_exempt.isnot(True),
                 Sale.invoice_id.is_(None))
-        .scalar()
     )
-    # Faktura revenue — Invoice.total_gross for non-credit-notes
+    if close_dates:
+        pos_sale_q = pos_sale_q.filter(~Sale.date.in_(close_dates))
+    pos_sale_total = float(pos_sale_q.scalar())
+
+    # ─── Stream 3 (Faktura) — Invoice.total_gross for non-credit-notes
     # PLUS Invoice.total_gross for credit notes (already negative).
     # Drafts excluded — not yet legally recognized as outgoing.
     invoice_total_gross = float(
@@ -292,13 +357,19 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     # silently dropped, which was the bug in tax_filing_pdf.py before
     # 2026-05-24 (salg_uden_moms was hardcoded to 0.0 regardless of
     # actual exempt revenue).
-    pos_exempt_total = float(
+    #
+    # Closes don't expose an is_tax_exempt flag — assume all close
+    # revenue is taxable. Owners with material exempt revenue should
+    # be using the Sale + faktura paths anyway (those carry the flag).
+    pos_exempt_q = (
         db.query(func.coalesce(func.sum(Sale.amount), 0))
         .filter(Sale.user_id == user_id, Sale.date >= start_date, Sale.date < end_date,
                 Sale.is_deleted.isnot(True), Sale.is_tax_exempt.is_(True),
                 Sale.invoice_id.is_(None))
-        .scalar()
     )
+    if close_dates:
+        pos_exempt_q = pos_exempt_q.filter(~Sale.date.in_(close_dates))
+    pos_exempt_total = float(pos_exempt_q.scalar())
     invoice_exempt_total = float(
         db.query(func.coalesce(func.sum(Invoice.total_gross), 0))
         .filter(Invoice.user_id == user_id,
@@ -309,16 +380,26 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     )
     exempt_sales = round(pos_exempt_total + invoice_exempt_total, 2)
 
-    # POS output VAT
+    # POS output VAT — extract from Sale rows + add close contribution.
+    # The close contribution was already computed above (close.moms_total
+    # when set, else extracted via the same formula). Keeping them
+    # separate before summing means an explicit close.moms_total of e.g.
+    # 26,950 isn't re-derived through the gross/(1+rate) formula.
     if vat_rate <= 0:
-        pos_output_vat = 0.0
+        pos_sale_vat = 0.0
         input_vat = 0.0
     elif prices_include_moms:
-        pos_output_vat = round(pos_total * vat_rate / (1 + vat_rate), 2)
+        pos_sale_vat = pos_sale_total * vat_rate / (1 + vat_rate)
         input_vat = round(expenses_total * vat_rate / (1 + vat_rate), 2)
     else:
-        pos_output_vat = round(pos_total * vat_rate, 2)
+        pos_sale_vat = pos_sale_total * vat_rate
         input_vat = round(expenses_total * vat_rate, 2)
+
+    pos_output_vat = round(pos_sale_vat + close_pos_moms, 2)
+
+    # Total POS revenue across both streams (Sale on non-close dates +
+    # confirmed close.revenue_total on close dates — no overlap).
+    pos_total = pos_sale_total + close_pos_revenue
 
     # Faktura output VAT comes straight from Invoice.moms_total (no
     # extraction needed — already separated at line-item level).
@@ -330,6 +411,14 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     return {
         "sales_total": sales_total,
         "pos_revenue": round(pos_total, 2),
+        # Breakdown of the POS contribution so the reconciliation card
+        # can show "Closes contributed X, Sales contributed Y" instead
+        # of a misleading "mismatch" between two halves of the same
+        # headline total. Both sum to pos_revenue.
+        "pos_revenue_from_closes": round(close_pos_revenue, 2),
+        "pos_revenue_from_sales": round(pos_sale_total, 2),
+        "pos_output_vat_from_closes": round(close_pos_moms, 2),
+        "pos_output_vat_from_sales": round(pos_sale_vat, 2),
         "invoice_revenue": round(invoice_total_gross, 2),
         "expenses_total": round(expenses_total, 2),
         "exempt_sales": exempt_sales,
@@ -558,44 +647,61 @@ def get_tax_overview(user: User, db: Session) -> dict:
     ytd = _calc_vat(db, user.id, year_start, today + timedelta(days=1), vat_rate, prices_incl_moms)
 
     # ── Daily Close reconciliation ──
+    #
+    # Semantic change (2026-05-28): the headline (`current_period.output_vat`)
+    # now INCLUDES close-derived MOMS via _calc_vat's per-date precedence —
+    # closes and sales are no longer competing sources, they're additive
+    # halves of the same total. The reconciliation card stops framing
+    # close-vs-sale as a "mismatch" (always pulled close MOMS short of the
+    # combined headline) and starts framing it as a contribution breakdown:
+    #
+    #   • moms_from_closes    — MOMS contributed by confirmed closes
+    #   • moms_from_sales     — MOMS contributed by Sale rows on non-close dates
+    #   • status="combined"   — headline is the sum, no discrepancy by design
+    #
+    # `discrepancy` retains its place in the response shape for frontend
+    # back-compat but always reports 0 after this fix. Real per-date
+    # variance detection (close.revenue_total vs SUM(Sale.amount) on the
+    # same date) is a follow-up — flagged in CLAUDE.md.
     dc_month = _calc_daily_close_vat(db, user.id, month_start, today)
     dc_ytd = _calc_daily_close_vat(db, user.id, year_start, today)
 
-    discrepancy = None
-    disc_pct = None
-    recon_status = "no_data"
-
     if dc_month["confirmed_count"] > 0:
-        discrepancy = round(dc_month["total_moms"] - current_period["output_vat"], 2)
-        if current_period["output_vat"] > 0:
-            disc_pct = round(abs(discrepancy) / current_period["output_vat"] * 100, 1)
-        elif dc_month["total_moms"] == 0:
-            disc_pct = 0.0
-        else:
-            disc_pct = 100.0
-
-        if disc_pct is not None and disc_pct <= 2:
-            recon_status = "matched"
-        elif disc_pct is not None and disc_pct <= 10:
-            recon_status = "minor_discrepancy"
-        else:
-            recon_status = "major_discrepancy"
+        recon_status = "combined"
+    else:
+        recon_status = "no_data"
 
     daily_close_recon = {
         "current_month": {
-            "moms_from_closes": dc_month["total_moms"],
-            "moms_from_sales": current_period["output_vat"],
+            # Close-contribution to the headline (matches what _calc_vat
+            # used). Prefer the in-_calc_vat value over the standalone
+            # _calc_daily_close_vat aggregate when present — they agree by
+            # construction but the in-_calc_vat one already had the
+            # extraction formula applied for closes with null moms_total.
+            "moms_from_closes": current_period.get(
+                "pos_output_vat_from_closes", dc_month["total_moms"]
+            ),
+            # Sale-only contribution to the headline (Sale rows on dates
+            # WITHOUT a confirmed close — closes win on shared dates so
+            # there's no double-count). Faktura MOMS isn't included here
+            # because faktura is a separate stream from POS reconciliation.
+            "moms_from_sales": current_period.get(
+                "pos_output_vat_from_sales", 0.0
+            ),
             "closes_count": dc_month["confirmed_count"],
             "drafts_count": dc_month["draft_count"],
             "manual_count": dc_month["manual_count"],
             "revenue_from_closes": dc_month["total_revenue"],
-            "discrepancy": discrepancy,
-            "discrepancy_pct": disc_pct,
+            # Always 0 after the fix — kept for frontend back-compat.
+            "discrepancy": 0.0,
+            "discrepancy_pct": 0.0,
             "status": recon_status,
         },
         "ytd": {
-            "moms_from_closes": dc_ytd["total_moms"],
-            "moms_from_sales": ytd["output_vat"],
+            "moms_from_closes": ytd.get(
+                "pos_output_vat_from_closes", dc_ytd["total_moms"]
+            ),
+            "moms_from_sales": ytd.get("pos_output_vat_from_sales", 0.0),
             "closes_count": dc_ytd["confirmed_count"],
             "revenue_from_closes": dc_ytd["total_revenue"],
         },
@@ -716,31 +822,31 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
         })
 
     # Daily Close reconciliation alert
+    #
+    # 2026-05-28 \u2014 after the per-date precedence fix in _calc_vat,
+    # closes and sales contribute additive halves of the same headline.
+    # The "mismatch" framing no longer applies (status is "combined"
+    # or "no_data"). The positive alert now confirms the two sources
+    # are co-feeding the SKAT filing correctly.
     if recon:
         cm = recon.get("current_month", {})
-        if cm.get("status") == "major_discrepancy":
-            diff = cm.get("discrepancy", 0)
-            alerts.append({
-                "type": "reconciliation",
-                "severity": "warning",
-                "icon": "\U0001f50d",
-                "title": f"Daily Close vs Sales {tax_name} mismatch: {round(diff):+,}",
-                "detail": (
-                    f"Daily closes show {round(cm['moms_from_closes']):,} in {tax_name} this month, "
-                    f"but sales records show {round(cm['moms_from_sales']):,}. "
-                    "Review both sources before filing."
-                ),
-                "action": "Open Daily Close \u2192 History to compare with your sales register.",
-            })
-        elif cm.get("status") == "matched" and cm.get("closes_count", 0) >= 5:
+        from_closes = float(cm.get("moms_from_closes") or 0)
+        from_sales = float(cm.get("moms_from_sales") or 0)
+        closes_count = int(cm.get("closes_count") or 0)
+        if cm.get("status") == "combined" and closes_count >= 1:
             alerts.append({
                 "type": "reconciliation_ok",
                 "severity": "positive",
                 "icon": "\u2705",
-                "title": f"Daily Close {tax_name} matches sales records",
+                "title": (
+                    f"Daily Close and Sales together feed {tax_name} filing"
+                ),
                 "detail": (
-                    f"{cm['closes_count']} confirmed closes this month. "
-                    f"{tax_name} from receipts and sales are aligned."
+                    f"{closes_count} confirmed close"
+                    f"{'s' if closes_count != 1 else ''} this month "
+                    f"contributed {round(from_closes):,} {tax_name}; "
+                    f"Sale rows on the other days contributed {round(from_sales):,}. "
+                    "Both feed the headline filing total."
                 ),
                 "action": None,
             })
