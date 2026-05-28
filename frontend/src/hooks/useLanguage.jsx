@@ -212,6 +212,53 @@ const translations = {
     detectedTerminalTitle: "Detected terminal",
     detectedTerminalAutoLinked: "Auto-linked to your terminal",
     detectedTerminalConfirmHint: "We think this is your {provider} terminal. Confirm in Settings → Terminals.",
+    // Commit 3 — owner confirm UX. The amber chip (0.60-0.85 confidence)
+    // gets Confirm / Not-this-one buttons; the auto-linked chip gets a
+    // small Wrong-terminal link that opens an unlink dialog. "Terminaler"
+    // stays Danish in the EN string when it refers to the Settings page
+    // section title (per terminology lock); product copy stays English.
+    detectedTerminalConfirm: "Confirm",
+    detectedTerminalConfirming: "Saving…",
+    detectedTerminalNotThisOne: "Not this one",
+    detectedTerminalPickTarget: "Pick which terminal this is:",
+    detectedTerminalPickPlaceholder: "— Select terminal —",
+    detectedTerminalNoTerminals: "No terminals yet — add one in Settings first.",
+    detectedTerminalCatalogMissing: "Could not find this provider in the catalog. Try again.",
+    detectedTerminalConfirmError: "Could not save the link. Please try again.",
+    detectedTerminalLinkedConfirmed: "Terminal confirmed: {provider}",
+    detectedTerminalWrong: "Wrong terminal?",
+    detectedTerminalUnlinkConfirm: "Unlink this terminal? You'll be able to relink it later.",
+    detectedTerminalUnlink: "Unlink",
+    detectedTerminalUnlinking: "Unlinking…",
+    detectedTerminalCancel: "Cancel",
+    detectedTerminalUnlinkError: "Could not unlink. Please try again.",
+    // Commit 3 — conflict warning above the prefill fields when the scan
+    // disagrees with a terminal the owner has locked to a different
+    // provider. Brand names render verbatim per the DK terminology lock.
+    terminalConflictTitle: "Terminal mismatch detected",
+    terminalConflictBody: "Wait — this scan looks like a {detected} terminal, but your terminal is linked to {current}. Was a backup terminal used today?",
+    terminalConflictDismiss: "Looks fine",
+    terminalConflictReview: "Review in Settings",
+    // Commit 3 — Connections page Terminals section. "Terminaler" Danish
+    // form retained in DA block; English block uses "Terminals". "revisor"
+    // not referenced here.
+    connTerminalsTitle: "Terminals",
+    connTerminalsSubtitle: "Link each physical POS station to its acquirer (Nets, Worldline, MobilePay, ...). BonBox auto-detects from your Z-report scan; tap Change to override.",
+    connTerminalsEmpty: "No terminals yet. Add one in Settings → Terminals to get started.",
+    connTerminalsNotLinked: "Not linked",
+    connTerminalsAutoDetected: "Auto-detected",
+    connTerminalsLockedByOwner: "Confirmed",
+    connTerminalsChange: "Change",
+    connTerminalsUnlink: "Unlink",
+    connTerminalsSave: "Save",
+    connTerminalsCancel: "Cancel",
+    connTerminalsSaving: "Saving…",
+    connTerminalsUnlinking: "Unlinking…",
+    connTerminalsSelectPlaceholder: "— Select provider —",
+    connTerminalsUnsetOption: "(unset — clear link)",
+    connTerminalsSaveError: "Could not save. Try again.",
+    connTerminalsUnlinkError: "Could not unlink. Try again.",
+    connTerminalsLoadError: "Could not load terminals.",
     taxVarianceTitle: "Per-date variance found",
     taxVarianceSubtitle: "Daily Close and POS sales disagree — reconcile before filing (Bogføringsloven §9 stk. 2)",
     taxVarianceClose: "Close",

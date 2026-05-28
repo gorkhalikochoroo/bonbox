@@ -15,8 +15,9 @@ move terminals between branches via PUT.
 import logging
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -25,8 +26,10 @@ from app.database import get_db
 from app.models.branch import Branch
 from app.models.kasserapport import KasserapportExtraction
 from app.models.terminal import Terminal
+from app.models.terminal_provider import TerminalProvider
 from app.models.user import User
 from app.schemas.terminal import TerminalCreate, TerminalResponse, TerminalUpdate
+from app.services import audit_service
 from app.services.auth import get_current_user
 from app.services.billing import effective_plan
 from app.services.terminal_inference import (
@@ -345,3 +348,277 @@ def bulk_create(
         logger.exception("bulk_create failed: %s", exc)
         raise HTTPException(status_code=500, detail="Could not create terminals") from exc
     return created
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# POS provider link / unlink — Commit 3 (2026-05-28)
+#
+# Owner-facing endpoints that finish the auto-detect loop:
+#   Commit 2 ships the detection chip on /daily-close/scan-report.
+#   Commit 3 lets the owner act on it: Confirm  → link-provider here
+#                                       Wrong   → unlink-provider here
+#                                       Manual  → Connections page edit
+#
+# Both endpoints are auth-gated AND tenant-scoped — we re-read the
+# Terminal under (id, user_id) before any mutation so a forged
+# terminal_id from another tenant returns 404, not 200. Per the
+# multi-barrier doctrine: L1 (auth) + L5 (tenant) + L6 (fail-closed,
+# the lock flag below) + L7 (audit) all in this block.
+#
+# Audit events:
+#   terminal_provider_linked    — owner-confirmed link (sets lock=True)
+#   terminal_provider_unlinked  — owner-rejected link (clears provider)
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class LinkProviderBody(BaseModel):
+    """Body of POST /terminals/{id}/link-provider."""
+
+    # The catalog row this terminal is being tied to. Always required —
+    # the unlink endpoint covers the "clear it" case so this can't be a
+    # null sentinel here.
+    provider_id: uuid.UUID
+
+    # Confidence in [0.00, 1.00]. Optional — defaults to 1.00 because
+    # owner-confirmed = full confidence by definition. The detector
+    # passes the OCR-derived value (0.60-0.85 band) when the owner
+    # confirms a chip; the Connections page edit-dropdown leaves it
+    # unset so it lands on the 1.00 default.
+    confidence: float | None = Field(None, ge=0.0, le=1.0)
+
+
+@router.get("/terminal-providers")
+def list_terminal_providers(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),  # noqa: ARG001 — auth gate only
+):
+    """Owner-readable catalog of the 18 DK/EU POS providers.
+
+    Companion to /admin/terminal-providers (super-admin only) — same
+    payload shape, looser auth. Used by the Connections page dropdown
+    so any signed-in owner can pick a provider for their terminals
+    without needing the super-admin role.
+
+    Defense:
+      L1 — get_current_user gate (anonymous callers 401).
+      RLS — table has the standard deny-anon policy from Commit 1; the
+            backend connects as postgres (BYPASSRLS) so it reads here.
+
+    Sort: dk_market_tier (dominant > common > niche > fallback), then
+    display_name lower-cased. Matches the admin endpoint so the two
+    dropdowns are visually identical.
+    """
+    _TIER_ORDER = {"dominant": 0, "common": 1, "niche": 2, "fallback": 3}
+
+    rows = (
+        db.query(TerminalProvider)
+        .filter(TerminalProvider.is_active.is_(True))
+        .all()
+    )
+    rows.sort(
+        key=lambda r: (
+            _TIER_ORDER.get(r.dk_market_tier, 99),
+            r.display_name.lower(),
+        )
+    )
+    return {
+        "count": len(rows),
+        "providers": [
+            {
+                "id": str(r.id),
+                "slug": r.slug,
+                "display_name": r.display_name,
+                "country_hq": r.country_hq,
+                "dk_market_tier": r.dk_market_tier,
+                "industries": r.industries,
+                "psd2_settlement": r.psd2_settlement,
+            }
+            for r in rows
+        ],
+    }
+
+
+def _load_owned_terminal(
+    db: Session, user: User, terminal_id: str
+) -> Terminal:
+    """L5 tenant scope — fetch the Terminal under (id, user_id) or 404.
+
+    Centralized so the link / unlink / GET endpoints share the same
+    defense. Returns the ORM row including the joined provider (via
+    lazy="joined" on the relationship) so callers don't need a second
+    round-trip to read provider_slug for the response.
+    """
+    try:
+        uuid.UUID(terminal_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid terminal_id")
+    term = (
+        db.query(Terminal)
+        .filter(
+            Terminal.id == terminal_id,
+            Terminal.user_id == user.id,
+            Terminal.is_deleted.isnot(True),
+        )
+        .first()
+    )
+    if not term:
+        raise HTTPException(status_code=404, detail="Terminal not found")
+    return term
+
+
+@router.get("/{terminal_id}", response_model=TerminalResponse)
+def get_terminal(
+    terminal_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Read a single terminal including its joined provider row.
+
+    Frontend Connections page editor depends on this for the per-row
+    dropdown to know which provider is currently linked. Same tenant-
+    scope defense as the rest of the router.
+    """
+    return _load_owned_terminal(db, user, terminal_id)
+
+
+@router.post("/{terminal_id}/link-provider", response_model=TerminalResponse)
+def link_provider(
+    terminal_id: str,
+    body: LinkProviderBody,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner confirms which POS provider a terminal belongs to.
+
+    Sets `provider_id` + `provider_confidence` + `provider_locked_by_owner=true`
+    on the terminal. Once locked, future /daily-close/scan-report calls
+    CANNOT silently overwrite this link — they flag a conflict for the
+    owner to review (L6 fail-closed). Audit row emitted on success.
+
+    Defense layers:
+      L1 auth      — get_current_user.
+      L5 tenant    — _load_owned_terminal scopes by user_id; forged
+                     terminal_id from another tenant → 404.
+      L5 tenant    — provider_id is validated against the global catalog
+                     (no per-tenant scope by design — catalog is global)
+                     but must be an active row.
+      L7 audit     — terminal_provider_linked event before commit.
+
+    Returns the updated terminal row in the standard TerminalResponse
+    shape so the frontend can refresh its local state without a second
+    GET.
+    """
+    term = _load_owned_terminal(db, user, terminal_id)
+
+    # Validate the catalog row exists + is active. Inactive rows can
+    # still appear via historical FKs but should not be link-able fresh.
+    prov = (
+        db.query(TerminalProvider)
+        .filter(
+            TerminalProvider.id == body.provider_id,
+            TerminalProvider.is_active.is_(True),
+        )
+        .first()
+    )
+    if not prov:
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    # Confidence defaults to 1.00 — owner-confirmed = full confidence.
+    # Numeric(3,2) storage; Decimal-quantize so a 0.851 float doesn't
+    # round-trip as 0.85 vs 0.86 inconsistently across DBs.
+    raw_conf = body.confidence if body.confidence is not None else 1.0
+    new_conf = Decimal(f"{float(raw_conf):.2f}")
+
+    before = {
+        "provider_id": str(term.provider_id) if term.provider_id else None,
+        "provider_confidence": (
+            float(term.provider_confidence)
+            if term.provider_confidence is not None
+            else None
+        ),
+        "provider_locked_by_owner": bool(term.provider_locked_by_owner),
+    }
+
+    term.provider_id = prov.id
+    term.provider_confidence = new_conf
+    term.provider_locked_by_owner = True
+    term.updated_at = utc_now()
+
+    audit_service.record(
+        db=db,
+        user=user,
+        action="terminal_provider_linked",
+        entity_type="terminal",
+        entity_id=term.id,
+        before=before,
+        after={
+            "provider_id": str(prov.id),
+            "provider_slug": prov.slug,
+            "provider_display_name": prov.display_name,
+            "provider_confidence": float(new_conf),
+            "provider_locked_by_owner": True,
+        },
+        ip_address=request.client.host if request.client else None,
+    )
+
+    db.commit()
+    db.refresh(term)
+    return term
+
+
+@router.post("/{terminal_id}/unlink-provider", response_model=TerminalResponse)
+def unlink_provider(
+    terminal_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner says "no, that's wrong" — clear the provider link.
+
+    Nulls `provider_id` + `provider_confidence` AND clears
+    `provider_locked_by_owner` so a future auto-detect can silently
+    re-link if it's confident enough. Audit row emitted on success.
+
+    Idempotent — calling unlink on an already-unlinked terminal is a
+    no-op (returns the row with the same null state). We still write
+    an audit row so the trail records the owner's intent.
+
+    Defense layers:
+      L1 auth, L5 tenant, L7 audit — same shape as link-provider.
+    """
+    term = _load_owned_terminal(db, user, terminal_id)
+
+    before = {
+        "provider_id": str(term.provider_id) if term.provider_id else None,
+        "provider_confidence": (
+            float(term.provider_confidence)
+            if term.provider_confidence is not None
+            else None
+        ),
+        "provider_locked_by_owner": bool(term.provider_locked_by_owner),
+    }
+
+    term.provider_id = None
+    term.provider_confidence = None
+    term.provider_locked_by_owner = False
+    term.updated_at = utc_now()
+
+    audit_service.record(
+        db=db,
+        user=user,
+        action="terminal_provider_unlinked",
+        entity_type="terminal",
+        entity_id=term.id,
+        before=before,
+        after={
+            "provider_id": None,
+            "provider_confidence": None,
+            "provider_locked_by_owner": False,
+        },
+        ip_address=request.client.host if request.client else None,
+    )
+
+    db.commit()
+    db.refresh(term)
+    return term

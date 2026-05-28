@@ -1582,14 +1582,20 @@ async def scan_z_report(
             "business_date": parsed.get("business_date"),
         }
 
-    # ─── POS terminal auto-detect — Commit 2 (2026-05-28) ────────────
+    # ─── POS terminal auto-detect — Commit 2 + Commit 3 (2026-05-28) ────
     #
     # Layered defense:
     #   L4 fail-soft: the entire detection block is wrapped in try/except.
-    #     Detection / persistence / silent-link failure NEVER blocks the
-    #     close ritual — the owner gets the prefill response either way.
-    #   L7 audit: terminal_provider_detected + terminal_provider_auto_linked
-    #     events both written via audit_service.record.
+    #     Detection / persistence / silent-link / conflict-detection
+    #     failure NEVER blocks the close ritual — the owner gets the
+    #     prefill response either way.
+    #   L6 fail-closed: conflict detection (Commit 3) never overwrites
+    #     a provider_locked_by_owner=True terminal. Surfaces the mismatch
+    #     in the response, audit-logs the event, lets the owner decide.
+    #   L7 audit: terminal_provider_detected (always when detected),
+    #     terminal_provider_auto_linked (silent link path),
+    #     terminal_provider_conflict (Commit 3) — written via
+    #     audit_service.record.
     #   L8 graceful: detect_provider returns None on catalog hiccup / no
     #     match; we just skip the chip + skip the silent link.
     #
@@ -1600,6 +1606,7 @@ async def scan_z_report(
     # whether or not detection succeeded, so the admin training review
     # has a row to compare against owner corrections in Commit 3.
     parsed["detected_provider"] = None
+    parsed["conflict"] = None
     try:
         from app.services.terminal_provider_detector import detect_provider
 
@@ -1660,6 +1667,87 @@ async def scan_z_report(
                 ip_address=request.client.host if request.client else None,
             )
 
+            # ─── Commit 3 conflict detection ────────────────────────────
+            # If the owner has any terminal locked to a DIFFERENT provider
+            # than what we just detected, raise a conflict flag. The
+            # frontend renders an amber warning above the prefill so the
+            # owner can decide: was a backup terminal used today, or did
+            # someone hand us the wrong receipt? Crucial: we DO NOT
+            # overwrite a locked provider — L6 fail-closed doctrine.
+            #
+            # Scope: only locked-by-owner terminals count for conflict.
+            # An auto-linked-but-unconfirmed terminal (provider_id set
+            # but provider_locked_by_owner=False) is fair game for the
+            # detector to flip — the owner never asserted ownership.
+            #
+            # Picks the first conflicting terminal; if the owner has
+            # multiple locked terminals all pointing somewhere different,
+            # one warning is enough — the Connections page lets them
+            # audit the rest.
+            try:
+                locked_others = (
+                    db.query(Terminal)
+                    .filter(
+                        Terminal.user_id == user.id,
+                        Terminal.is_deleted.isnot(True),
+                        Terminal.provider_locked_by_owner.is_(True),
+                        Terminal.provider_id.isnot(None),
+                        Terminal.provider_id != detection["provider_id"],
+                    )
+                    .all()
+                )
+                if locked_others:
+                    current = locked_others[0]
+                    cur_prov = current.provider  # joined relationship
+                    parsed["conflict"] = {
+                        "detected": {
+                            "slug": detection["slug"],
+                            "display_name": detection["display_name"],
+                            "confidence": round(
+                                float(detection["confidence"]), 2,
+                            ),
+                        },
+                        "current": {
+                            "slug": getattr(cur_prov, "slug", None),
+                            "display_name": getattr(
+                                cur_prov, "display_name", None,
+                            ),
+                            "terminal_id": str(current.id),
+                            "terminal_name": current.name,
+                        },
+                    }
+                    # L7 audit — the conflict event is on the terminal
+                    # the owner had locked, not on the detection row, so
+                    # a future "show me every dispute on this terminal"
+                    # query lands the right history.
+                    audit_service.record(
+                        db=db,
+                        user=user,
+                        action="terminal_provider_conflict",
+                        entity_type="terminal",
+                        entity_id=current.id,
+                        after={
+                            "detected_slug": detection["slug"],
+                            "detected_confidence": round(
+                                float(detection["confidence"]), 2,
+                            ),
+                            "current_slug": getattr(cur_prov, "slug", None),
+                            "locked_by_owner": True,
+                        },
+                        ip_address=(
+                            request.client.host if request.client else None
+                        ),
+                    )
+            except Exception as e:  # noqa: BLE001
+                # L8 graceful — conflict check failure must not block
+                # the close. Owner just won't see the warning tag this
+                # scan; the silent-link block below still won't fire
+                # against a locked terminal because Commit 2 already
+                # gates that on provider_id IS NULL.
+                logger.warning(
+                    "scan-report: conflict check failed (non-fatal): %s", e,
+                )
+
             # Silent link — only when confidence is high enough AND the
             # ambiguity is gone (exactly one unlinked terminal). Two
             # unlinked terminals = we can't pick automatically; Commit 3
@@ -1712,9 +1800,12 @@ async def scan_z_report(
 
             # Chip data — only surfaced when confidence is high enough
             # to be actionable. < 0.60 returns null detection so the
-            # frontend skips the chip entirely.
+            # frontend skips the chip entirely. Commit 3 adds the
+            # provider_id to the payload so the Confirm button can
+            # POST link-provider without a separate catalog round-trip.
             if float(detection["confidence"]) >= 0.60:
                 parsed["detected_provider"] = {
+                    "provider_id": str(detection["provider_id"]),
                     "slug": detection["slug"],
                     "display_name": detection["display_name"],
                     "confidence": round(float(detection["confidence"]), 2),

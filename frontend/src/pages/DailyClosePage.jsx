@@ -564,6 +564,48 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // the source document later (Bogføringsloven §10 retention).
   const [receiptPhotoUrl, setReceiptPhotoUrl] = useState(null);
 
+  // ─── POS terminal auto-detect — Commit 3 owner-confirm state ───────
+  //
+  // The Commit 2 amber chip (0.60-0.85 confidence band) is read-only.
+  // Commit 3 adds two buttons inline: Confirm → POST link-provider,
+  // Not-this-one → dismiss the chip locally (no API). The auto-linked
+  // chip (≥ 0.85) gets a "Wrong terminal?" link that opens the unlink
+  // dialog.
+  //
+  // chipDismissed — frontend-only dismissal of the chip. Per-scan; the
+  //   next scan creates fresh detected_provider data and re-shows the
+  //   chip if applicable. We DON'T persist this to localStorage —
+  //   the chip is contextual ("we think THIS scan is from X"), not a
+  //   user-wide preference.
+  // chipConfirming — true while the link-provider POST is in flight.
+  //   Disables both buttons + swaps the Confirm label to "Saving…" so
+  //   the owner doesn't double-tap.
+  // chipConfirmed — once the link succeeds, we swap the chip to its
+  //   "Linked!" success state. Stays until the next scan replaces it.
+  // chipLinkTarget — when the owner has 2+ unlinked terminals, the
+  //   Confirm flow shows a dropdown so the owner picks which one. This
+  //   holds the selected terminal_id; null/undefined = pick the only
+  //   unlinked one if there's exactly 1.
+  // terminalsForConfirm — list of terminals (from GET /terminals)
+  //   needed for the dropdown. Fetched lazily on first chip render so
+  //   we don't add an extra request to the page-load critical path.
+  // conflictDismissed — frontend-only dismissal of the conflict tag.
+  //   Same scoping as chipDismissed.
+  // unlinkOpenForTerminalId — when the owner clicks "Wrong terminal?"
+  //   on the auto-linked chip, this opens a tiny inline confirm dialog
+  //   below the chip. null = closed. Strict string-compare against the
+  //   target terminal_id so the dialog never opens on the wrong row.
+  // unlinking — true while the unlink-provider POST is in flight.
+  const [chipDismissed, setChipDismissed] = useState(false);
+  const [chipConfirming, setChipConfirming] = useState(false);
+  const [chipConfirmed, setChipConfirmed] = useState(false);
+  const [chipLinkTarget, setChipLinkTarget] = useState("");
+  const [terminalsForConfirm, setTerminalsForConfirm] = useState(null);
+  const [conflictDismissed, setConflictDismissed] = useState(false);
+  const [unlinkOpenForTerminalId, setUnlinkOpenForTerminalId] = useState(null);
+  const [unlinking, setUnlinking] = useState(false);
+  const [chipError, setChipError] = useState("");
+
   // Prefill from an existing draft when the user clicked "Edit" in
   // History. Runs once when editDraft becomes non-null, then clears
   // via onEditConsumed so re-renders don't re-fill (which would clobber
@@ -665,6 +707,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     if (!rawFile) return;
     setScanMode("scanning");
     setScanError("");
+    // Commit 3 — reset per-scan chip + conflict state so the new scan's
+    // detection feedback shows fresh (a previous "Not this one" dismiss
+    // shouldn't suppress the next scan's chip).
+    setChipDismissed(false);
+    setChipConfirmed(false);
+    setChipError("");
+    setUnlinkOpenForTerminalId(null);
+    setConflictDismissed(false);
     try {
       // Auto-resize iPhone-sized photos (48 MP camera shots routinely
       // exceed our 12 MB backend cap). 2000 px long edge keeps OCR
@@ -692,6 +742,223 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       setScanMode(scanResult ? "result" : "idle"); // keep results if we already have some
     }
   };
+
+  // ─── Commit 3 — chip action handlers ────────────────────────────────
+  //
+  // Owner-facing buttons on the auto-detect chip. All API calls are
+  // optimistic on the UI side (loading spinner during the request,
+  // error toast on failure) but never crash the page — failure leaves
+  // the chip visible so the owner can retry.
+  //
+  // ensureTerminalsLoaded: lazy-fetch the user's terminals the first
+  //   time the Confirm flow needs them. We use GET /api/terminals which
+  //   now returns provider_id / provider_locked_by_owner / display_name
+  //   per terminal (extended schema, Commit 3 schema update). Cached in
+  //   `terminalsForConfirm` state so a second Confirm tap is instant.
+  const ensureTerminalsLoaded = async () => {
+    if (Array.isArray(terminalsForConfirm)) return terminalsForConfirm;
+    try {
+      const res = await api.get("/terminals");
+      const list = Array.isArray(res?.data) ? res.data : [];
+      setTerminalsForConfirm(list);
+      return list;
+    } catch {
+      // L8 graceful — if the terminals list fails to load we still
+      // surface the chip; the Confirm button just stays disabled with
+      // an inline error message until the request succeeds.
+      setTerminalsForConfirm([]);
+      return [];
+    }
+  };
+
+  // Compute the target terminal for the Confirm flow.
+  // Returns:
+  //   { terminalId: "<uuid>" }       — unique unlinked terminal exists,
+  //                                    auto-pick it.
+  //   { terminalId: chipLinkTarget } — owner picked from dropdown.
+  //   { needsPicker: true, choices } — 2+ unlinked, need a dropdown.
+  //   { error: "no_unlinked" }       — 0 unlinked terminals (the silent-
+  //                                    link path would have already
+  //                                    fired, or every terminal is
+  //                                    locked elsewhere).
+  const resolveConfirmTarget = (terms) => {
+    const unlinked = (terms || []).filter(
+      (t) => !t.provider_id && t.is_active !== false,
+    );
+    if (chipLinkTarget) {
+      const picked = (terms || []).find((t) => t.id === chipLinkTarget);
+      if (picked) return { terminalId: picked.id };
+    }
+    if (unlinked.length === 1) return { terminalId: unlinked[0].id };
+    if (unlinked.length >= 2) return { needsPicker: true, choices: unlinked };
+    // 0 unlinked: surface ALL terminals so the owner can override an
+    // existing (non-locked) link. Locked terminals stay clickable —
+    // the backend will set lock=true on the new provider; the owner
+    // is asserting authority by clicking Confirm here.
+    if ((terms || []).length >= 2) return { needsPicker: true, choices: terms };
+    if ((terms || []).length === 1) return { terminalId: terms[0].id };
+    return { error: "no_terminals" };
+  };
+
+  const handleConfirmDetectedProvider = async () => {
+    const dp = scanResult?.detected_provider;
+    if (!dp || chipConfirming) return;
+    setChipError("");
+    const terms = await ensureTerminalsLoaded();
+    const target = resolveConfirmTarget(terms);
+    if (target.needsPicker) {
+      // Render path will show the dropdown — caller re-clicks Confirm
+      // once a terminal is picked.
+      if (!chipLinkTarget) {
+        setChipError(t("detectedTerminalPickTarget",
+          "Pick which terminal this is:"));
+        return;
+      }
+    }
+    if (target.error === "no_terminals") {
+      setChipError(t("detectedTerminalNoTerminals",
+        "No terminals yet — add one in Settings first."));
+      return;
+    }
+    const targetId = target.terminalId || chipLinkTarget;
+    if (!targetId) {
+      setChipError(t("detectedTerminalPickTarget",
+        "Pick which terminal this is:"));
+      return;
+    }
+    setChipConfirming(true);
+    try {
+      // Find the provider catalog row from the list endpoint. We could
+      // skip this if the backend returned a provider_id in the chip
+      // payload — it DID. The Commit 2 chip includes slug + display_name,
+      // and we need provider_id (UUID) for the body. Look it up via
+      // /api/terminals/terminal-providers (Commit 3 endpoint).
+      let providerId = dp.provider_id;
+      if (!providerId) {
+        try {
+          const pr = await api.get("/terminals/terminal-providers");
+          const match = (pr?.data?.providers || []).find(
+            (p) => p.slug === dp.slug,
+          );
+          providerId = match?.id;
+        } catch {
+          // fall through — handled below
+        }
+      }
+      if (!providerId) {
+        setChipError(t("detectedTerminalCatalogMissing",
+          "Could not find this provider in the catalog. Try again."));
+        return;
+      }
+      await api.post(`/terminals/${targetId}/link-provider`, {
+        provider_id: providerId,
+        confidence: dp.confidence,
+      });
+      setChipConfirmed(true);
+      // Refresh local terminal cache so the dropdown shows the new
+      // linked state on the next Confirm. Cheap — one GET per click is
+      // fine here; this is not a hot path.
+      setTerminalsForConfirm(null);
+    } catch (err) {
+      setChipError(err?.response?.data?.detail ||
+        t("detectedTerminalConfirmError",
+          "Could not save the link. Please try again."));
+    } finally {
+      setChipConfirming(false);
+    }
+  };
+
+  const handleDismissChip = () => {
+    setChipDismissed(true);
+  };
+
+  // Unlink flow — owner clicked "Wrong terminal?" on the auto-linked
+  // chip. We need to figure out WHICH terminal was auto-linked. The
+  // chip payload doesn't carry the terminal_id (Commit 2 didn't include
+  // it), so we resolve it from the terminals list: the auto-linked
+  // terminal is the only one with provider_slug === dp.slug AND
+  // provider_locked_by_owner === false. If we can't resolve uniquely,
+  // bounce the owner to /connections#terminals where they have a
+  // clearer per-terminal UI.
+  const handleUnlinkAutoLinked = async () => {
+    const dp = scanResult?.detected_provider;
+    if (!dp) return;
+    setChipError("");
+    const terms = await ensureTerminalsLoaded();
+    const candidates = (terms || []).filter(
+      (term) =>
+        term.provider_slug === dp.slug &&
+        term.provider_locked_by_owner === false &&
+        term.is_active !== false,
+    );
+    if (candidates.length === 1) {
+      setUnlinkOpenForTerminalId(candidates[0].id);
+    } else {
+      // Ambiguous — punt to the Connections page where each terminal
+      // has its own Unlink button.
+      navigate("/connections");
+    }
+  };
+
+  const handleConfirmUnlink = async () => {
+    if (!unlinkOpenForTerminalId || unlinking) return;
+    setUnlinking(true);
+    try {
+      await api.post(`/terminals/${unlinkOpenForTerminalId}/unlink-provider`);
+      // Hide the chip post-unlink — provider link is now gone, so the
+      // chip's "auto-linked" claim is no longer true.
+      setChipDismissed(true);
+      setUnlinkOpenForTerminalId(null);
+      setTerminalsForConfirm(null);
+    } catch (err) {
+      setChipError(err?.response?.data?.detail ||
+        t("detectedTerminalUnlinkError",
+          "Could not unlink. Please try again."));
+    } finally {
+      setUnlinking(false);
+    }
+  };
+
+  const handleDismissConflict = () => {
+    setConflictDismissed(true);
+  };
+
+  // Lazy-fetch terminals the first time a chip OR a conflict appears.
+  // We need this for two reasons:
+  //   1. The Confirm dropdown needs to know how many unlinked terminals
+  //      exist before the owner clicks (so the dropdown / single-target
+  //      branch is correct on first render).
+  //   2. The "Wrong terminal?" unlink flow needs to resolve which
+  //      terminal was auto-linked.
+  // Single-shot — once `terminalsForConfirm` is an array (even empty),
+  // skip subsequent fetches. Cleared back to null by handleFileSelect /
+  // handleConfirmDetectedProvider / handleConfirmUnlink so stale state
+  // doesn't survive a re-scan or post-mutation.
+  useEffect(() => {
+    if (
+      !scanResult ||
+      (!scanResult.detected_provider && !scanResult.conflict)
+    ) {
+      return;
+    }
+    if (Array.isArray(terminalsForConfirm)) return;
+    let alive = true;
+    api
+      .get("/terminals")
+      .then((res) => {
+        if (!alive) return;
+        setTerminalsForConfirm(Array.isArray(res?.data) ? res.data : []);
+      })
+      .catch(() => {
+        if (!alive) return;
+        // L8 graceful — leave as [] so the confirm-button error branch
+        // surfaces a clean message instead of an infinite spinner.
+        setTerminalsForConfirm([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [scanResult, terminalsForConfirm]);
 
   const applyScanValues = (jumpToReview = false) => {
     if (!scanResult) return;
@@ -1127,35 +1394,237 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* ─── SCAN RESULT CARD ─── */}
         {scanMode === "result" && scanResult && (
           <div className="space-y-5">
-            {/* ─── POS terminal auto-detect chip — Commit 2 ───────────
+            {/* ─── Conflict warning — Commit 3 ──────────────────────────
+                Fires when the scan's detected provider disagrees with a
+                terminal the owner has LOCKED to a different provider.
+                Rendered ABOVE the prefill fields (per L6 fail-closed
+                doctrine — owner sees the dispute first, decides
+                whether to trust the scan).
+                  • Backend never silently overwrites a locked terminal.
+                  • Dismissing the tag is local-only; the audit row is
+                    already written backend-side. */}
+            {scanResult.conflict && !conflictDismissed && (() => {
+              const cf = scanResult.conflict;
+              return (
+                <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-900 dark:text-amber-100">
+                  <div className="font-medium flex items-center gap-1.5">
+                    <Icon name="AlertTriangle" size={16} />
+                    {t(
+                      "terminalConflictTitle",
+                      "Terminal mismatch detected",
+                    )}
+                  </div>
+                  <div className="text-xs opacity-90 mt-1 leading-relaxed">
+                    {t("terminalConflictBody", {
+                      detected: cf.detected?.display_name || "",
+                      current: cf.current?.display_name || "",
+                    })}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDismissConflict}
+                      className="text-[12px] px-2.5 py-1 rounded-md bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-100 hover:bg-amber-50 dark:hover:bg-amber-900/40 transition"
+                    >
+                      {t("terminalConflictDismiss", "Looks fine")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate("/connections")}
+                      className="text-[12px] px-2.5 py-1 rounded-md bg-amber-900 dark:bg-amber-100 text-white dark:text-amber-900 hover:bg-amber-800 dark:hover:bg-amber-200 transition"
+                    >
+                      {t("terminalConflictReview", "Review in Settings")}
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ─── POS terminal auto-detect chip — Commit 2 + Commit 3 ───
                 Renders when the backend's deterministic provider matcher
                 identified the acquirer (Nets, Worldline, MobilePay, ...)
-                from the receipt header/footer. Read-only in Commit 2 —
-                Commit 3 adds the owner confirm/correct buttons.
-                  • auto_linked  → subtle gray, "linked automatically"
+                from the receipt header/footer.
+                  • auto_linked  → subtle gray, "linked automatically",
+                                    + tiny "Wrong terminal?" link
+                                    (Commit 3 unlink dialog).
                   • 0.60-0.85    → amber, "we think this is your X
-                                    terminal. Confirm in Settings."
+                                    terminal" + Confirm / Not-this-one
+                                    buttons (Commit 3 confirm UX).
                   • < 0.60       → backend returns null, no chip. */}
-            {scanResult.detected_provider && (() => {
+            {scanResult.detected_provider && !chipDismissed && (() => {
               const dp = scanResult.detected_provider;
               const autoLinked = !!dp.auto_linked;
-              const styleCls = autoLinked
+              // After Confirm succeeds the amber chip swaps to the gray
+              // "linked" treatment with a tiny check icon — visual
+              // confirmation that the link landed without forcing the
+              // owner to scroll up to a toast.
+              const showAsLinked = autoLinked || chipConfirmed;
+              const styleCls = showAsLinked
                 ? "rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm text-gray-900 dark:text-gray-100"
                 : "rounded-xl p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-200";
+              // Confirm button states for the 0.60-0.85 amber band:
+              //   • If 2+ unlinked terminals exist and the owner hasn't
+              //     picked yet, render a tiny inline dropdown.
+              //   • If 1 unlinked or owner has picked, render Confirm.
+              const terms = terminalsForConfirm || [];
+              const unlinkedCount = terms.filter(
+                (t) => !t.provider_id && t.is_active !== false,
+              ).length;
+              const needsPicker =
+                Array.isArray(terminalsForConfirm) &&
+                unlinkedCount >= 2 &&
+                !chipLinkTarget;
+
               return (
                 <div className={styleCls}>
                   <div className="font-medium flex items-center gap-1.5">
-                    <Icon name="Cpu" size={16} />
-                    {t("detectedTerminalTitle")}: {dp.display_name}
+                    <Icon
+                      name={chipConfirmed ? "Check" : "Cpu"}
+                      size={16}
+                    />
+                    {chipConfirmed
+                      ? t(
+                          "detectedTerminalLinkedConfirmed",
+                          "Terminal confirmed: {provider}",
+                          { provider: dp.display_name },
+                        )
+                      : `${t("detectedTerminalTitle")}: ${dp.display_name}`}
                   </div>
-                  {autoLinked && (
+                  {showAsLinked && !chipConfirmed && (
                     <div className="text-xs opacity-80 mt-0.5">
                       {t("detectedTerminalAutoLinked")}
                     </div>
                   )}
-                  {!autoLinked && (
+                  {!showAsLinked && (
                     <div className="text-xs opacity-90 mt-0.5">
-                      {t("detectedTerminalConfirmHint", { provider: dp.display_name })}
+                      {t("detectedTerminalConfirmHint", {
+                        provider: dp.display_name,
+                      })}
+                    </div>
+                  )}
+
+                  {/* Action row — Commit 3.
+                      Amber chip (0.60-0.85, not yet confirmed): Confirm + Not-this-one.
+                      Auto-linked chip: small "Wrong terminal?" link.
+                      Post-confirm: no buttons (chip is in success state). */}
+                  {!chipConfirmed && !showAsLinked && (
+                    <div className="mt-2 space-y-2">
+                      {needsPicker && (
+                        <div>
+                          <label className="block text-[11px] opacity-80 mb-1">
+                            {t(
+                              "detectedTerminalPickTarget",
+                              "Pick which terminal this is:",
+                            )}
+                          </label>
+                          <select
+                            value={chipLinkTarget}
+                            onChange={(e) => setChipLinkTarget(e.target.value)}
+                            className="text-[12px] w-full px-2 py-1 rounded-md bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-100"
+                          >
+                            <option value="">
+                              {t(
+                                "detectedTerminalPickPlaceholder",
+                                "— Select terminal —",
+                              )}
+                            </option>
+                            {terms
+                              .filter(
+                                (term) =>
+                                  !term.provider_id &&
+                                  term.is_active !== false,
+                              )
+                              .map((term) => (
+                                <option key={term.id} value={term.id}>
+                                  {term.name}
+                                </option>
+                              ))}
+                          </select>
+                        </div>
+                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handleConfirmDetectedProvider}
+                          disabled={chipConfirming}
+                          className="text-[12px] px-2.5 py-1 rounded-md bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-200 disabled:opacity-50 transition"
+                        >
+                          {chipConfirming
+                            ? t("detectedTerminalConfirming", "Saving…")
+                            : t("detectedTerminalConfirm", "Confirm")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDismissChip}
+                          disabled={chipConfirming}
+                          className="text-[12px] text-amber-800 dark:text-amber-200 hover:underline disabled:opacity-50"
+                        >
+                          {t("detectedTerminalNotThisOne", "Not this one")}
+                        </button>
+                      </div>
+                      {chipError && (
+                        <div className="text-[11px] text-red-700 dark:text-red-300 mt-1">
+                          {chipError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Auto-linked: a small "Wrong terminal?" link that
+                      opens an inline confirm-unlink dialog. Kept subtle
+                      because the auto-link was already confidence ≥ 0.85
+                      — most owners won't touch this. */}
+                  {showAsLinked && !chipConfirmed && (
+                    <div className="mt-2">
+                      {!unlinkOpenForTerminalId && (
+                        <button
+                          type="button"
+                          onClick={handleUnlinkAutoLinked}
+                          className="text-[12px] text-gray-600 dark:text-gray-300 hover:underline"
+                        >
+                          {t("detectedTerminalWrong", "Wrong terminal?")}
+                        </button>
+                      )}
+                      {unlinkOpenForTerminalId && (
+                        <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2 mt-1 text-[12px]">
+                          <div className="mb-1.5 text-gray-700 dark:text-gray-300">
+                            {t(
+                              "detectedTerminalUnlinkConfirm",
+                              "Unlink this terminal? You'll be able to relink it later.",
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={handleConfirmUnlink}
+                              disabled={unlinking}
+                              className="px-2.5 py-1 rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                            >
+                              {unlinking
+                                ? t(
+                                    "detectedTerminalUnlinking",
+                                    "Unlinking…",
+                                  )
+                                : t("detectedTerminalUnlink", "Unlink")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setUnlinkOpenForTerminalId(null)
+                              }
+                              disabled={unlinking}
+                              className="px-2.5 py-1 text-gray-600 dark:text-gray-300 hover:underline disabled:opacity-50"
+                            >
+                              {t("detectedTerminalCancel", "Cancel")}
+                            </button>
+                          </div>
+                          {chipError && (
+                            <div className="text-[11px] text-red-700 dark:text-red-300 mt-1">
+                              {chipError}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
