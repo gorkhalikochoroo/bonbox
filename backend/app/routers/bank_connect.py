@@ -574,31 +574,140 @@ def bank_callback(
 
     persistence_step = "init"
     try:
-        # Encrypt-at-rest. Fernet token is bytes — stored in LargeBinary col.
-        persistence_step = "encrypt"
-        conn.refresh_token_enc = encrypt(refresh_token)
-        persistence_step = "set_fields"
-        conn.aiia_account_id = result.get("account_id") or ""
-        conn.account_label = result.get("account_label") or None
-        conn.status = "active"
-        # Clear the state so a stolen URL can't be replayed.
-        conn.consent_state = None
-        conn.consent_state_expires_at = None
-        expires_in = int(result.get("expires_in") or 7776000)  # 90d default
-        conn.consent_expires_at = utc_now() + timedelta(seconds=expires_in)
+        # Task #222 — UPSERT on (user_id, aiia_account_id).
+        # If the owner previously connected this same bank account and
+        # later disconnected (or the row was orphaned during testing),
+        # the unique constraint `uq_bank_connection_user_account` would
+        # otherwise fire on commit and 500 the callback.  Look up the
+        # prior row up front and reuse it; the in-flight pending `conn`
+        # row created at /init becomes redundant and is dropped.
+        #
+        # L5 tenant scope:   filter pins to user.id — no cross-tenant read.
+        # L6 fail-closed:    skip status='revoked' rows.  Revoked is the
+        #                    bank_connections equivalent of soft-delete:
+        #                    refresh_token_enc was wiped on disconnect and
+        #                    silently resurrecting the row would erase the
+        #                    audit trail of the prior owner-initiated
+        #                    revoke.  A reconnect after a true disconnect
+        #                    creates a fresh row, leaving the revoked row
+        #                    in place for Bogforingsloven evidence.
+        # L7 audit:          bank_connection_reconnected on the update
+        #                    path, bank_connection_connected on the insert
+        #                    path — distinct action names so ops can
+        #                    distinguish first-connects from reconnects.
+        persistence_step = "upsert_lookup"
+        account_id = result.get("account_id") or ""
+        existing: BankConnection | None = None
+        if account_id:
+            existing = (
+                db.query(BankConnection)
+                .filter(
+                    BankConnection.user_id == user.id,
+                    BankConnection.aiia_account_id == account_id,
+                    BankConnection.status != "revoked",
+                    BankConnection.id != conn.id,
+                )
+                .first()
+            )
 
-        persistence_step = "audit"
-        audit_service.record(
-            db, user, "bank_connect.activated",
-            entity_type="bank_connection", entity_id=conn.id,
-            after={
-                "bank_slug": conn.bank_slug,
-                "aiia_account_id": conn.aiia_account_id,
-                "consent_expires_at": conn.consent_expires_at.isoformat() if conn.consent_expires_at else None,
-                "sandbox_mode": conn.sandbox_mode,
-            },
-            ip_address=_client_ip(request),
-        )
+        expires_in = int(result.get("expires_in") or 7776000)  # 90d default
+        new_consent_expires_at = utc_now() + timedelta(seconds=expires_in)
+        encrypted_refresh = encrypt(refresh_token)
+        account_label = result.get("account_label") or None
+
+        if existing is not None:
+            # Reconnect path — refresh tokens/timestamps on the prior row,
+            # drop the redundant pending row, audit as reconnect.
+            persistence_step = "upsert_update"
+            before = {
+                "status": existing.status,
+                "consent_expires_at": (
+                    existing.consent_expires_at.isoformat()
+                    if existing.consent_expires_at else None
+                ),
+                "last_synced_at": (
+                    existing.last_synced_at.isoformat()
+                    if existing.last_synced_at else None
+                ),
+            }
+            existing.refresh_token_enc = encrypted_refresh
+            existing.account_label = account_label or existing.account_label
+            existing.status = "active"
+            existing.consent_expires_at = new_consent_expires_at
+            # Provider may have flipped (e.g. Aiia -> Yapily) since the
+            # prior connect; honour the current /init stamp.
+            existing.provider = conn.provider
+            existing.sandbox_mode = conn.sandbox_mode
+            existing.bank_slug = conn.bank_slug or existing.bank_slug
+            existing.consent_state = None
+            existing.consent_state_expires_at = None
+            # Drop the redundant pending row created at /init — it never
+            # carried real data.  Delete BEFORE the constraint sees both
+            # rows post-flush.
+            db.delete(conn)
+            db.flush()
+
+            persistence_step = "audit"
+            audit_service.record(
+                db, user, "bank_connection_reconnected",
+                entity_type="bank_connection", entity_id=existing.id,
+                before=before,
+                after={
+                    "bank_slug": existing.bank_slug,
+                    "aiia_account_id": existing.aiia_account_id,
+                    "status": "active",
+                    "provider": existing.provider,
+                    "consent_expires_at": new_consent_expires_at.isoformat(),
+                    "sandbox_mode": existing.sandbox_mode,
+                },
+                ip_address=_client_ip(request),
+            )
+            conn = existing  # so the redirect/log below references the live row
+        else:
+            # First-connect path — populate the in-flight pending row.
+            persistence_step = "upsert_insert"
+            conn.refresh_token_enc = encrypted_refresh
+            conn.aiia_account_id = account_id
+            conn.account_label = account_label
+            conn.status = "active"
+            conn.consent_state = None
+            conn.consent_state_expires_at = None
+            conn.consent_expires_at = new_consent_expires_at
+
+            persistence_step = "audit"
+            # Emit both action names: the legacy `bank_connect.activated`
+            # keeps downstream consumers (tests, dashboards) working; the
+            # new `bank_connection_connected` matches the task #222 spec
+            # and pairs symmetrically with `bank_connection_reconnected`.
+            audit_service.record(
+                db, user, "bank_connect.activated",
+                entity_type="bank_connection", entity_id=conn.id,
+                after={
+                    "bank_slug": conn.bank_slug,
+                    "aiia_account_id": conn.aiia_account_id,
+                    "consent_expires_at": (
+                        conn.consent_expires_at.isoformat()
+                        if conn.consent_expires_at else None
+                    ),
+                    "sandbox_mode": conn.sandbox_mode,
+                },
+                ip_address=_client_ip(request),
+            )
+            audit_service.record(
+                db, user, "bank_connection_connected",
+                entity_type="bank_connection", entity_id=conn.id,
+                after={
+                    "bank_slug": conn.bank_slug,
+                    "aiia_account_id": conn.aiia_account_id,
+                    "provider": conn.provider,
+                    "consent_expires_at": (
+                        conn.consent_expires_at.isoformat()
+                        if conn.consent_expires_at else None
+                    ),
+                    "sandbox_mode": conn.sandbox_mode,
+                },
+                ip_address=_client_ip(request),
+            )
         persistence_step = "commit"
         db.commit()
     except Exception as _e:  # noqa: BLE001
