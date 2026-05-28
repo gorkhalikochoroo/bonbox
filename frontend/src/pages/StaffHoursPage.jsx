@@ -916,7 +916,13 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                     {entry.start_time && entry.end_time && (
                       <>
                         <span className="text-gray-300 dark:text-gray-600">|</span>
-                        <span>{entry.start_time}\u2013{entry.end_time}</span>
+                        {/* Render the time range with an en-dash. Bug fix:
+                            `\u2013` text inside JSX is treated as raw
+                            characters, not an escape \u2014 owners were seeing
+                            "16:00\u201300:00" verbatim on every hours row.
+                            Wrap the escape in a JS expression so it
+                            evaluates to U+2013 properly. */}
+                        <span>{`${entry.start_time}\u2013${entry.end_time}`}</span>
                       </>
                     )}
                     {entry.break_minutes > 0 && (
