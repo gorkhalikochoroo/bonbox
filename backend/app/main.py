@@ -104,6 +104,10 @@ from app.routers import growth_signals as growth_signals_router
 from app.routers import public_events as public_events_router
 from app.routers import public_bookings as public_bookings_router
 from app.routers import tickets as tickets_router
+# Reservations (table booking + appointments) — owner CRUD + the public
+# /r/<slug> booking surface. Generic bookable-resource engine.
+from app.routers import reservations as reservations_router
+from app.routers import public_reservations as public_reservations_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -1567,6 +1571,79 @@ _migrations = [
     #     so a staff re-subscribe on the same device is still an upsert.
     "ALTER TABLE push_subscriptions ADD COLUMN IF NOT EXISTS staff_id VARCHAR(36) REFERENCES staff_members(id)",
     "CREATE INDEX IF NOT EXISTS ix_push_subscriptions_staff_id ON push_subscriptions (staff_id)",
+
+    # ── Migration 022 (2026-05-29): Reservations (table booking + appts) ──
+    # Generic bookable-resource engine. `bookable_resources` = a table /
+    # provider / room; `reservations` = a guest holding one for a time
+    # range. Mirrors app/models/bookable_resource.py + reservation.py.
+    # VARCHAR(36) on every id/FK to match the GUID() TypeDecorator (native
+    # UUID breaks FK joins inside the SAVEPOINT wrapper — see Migration 018
+    # comment). create_all() builds these from the models on a fresh DB;
+    # this block is the load-bearing path on Render/Supabase prod and the
+    # net for emergency-restore where create_all is bypassed. JSONB matches
+    # what GUID()/JSON().with_variant produces on Postgres (TEXT on SQLite).
+    """CREATE TABLE IF NOT EXISTS bookable_resources (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        kind VARCHAR(20) NOT NULL DEFAULT 'table',
+        label VARCHAR(120) NOT NULL,
+        capacity_seats INTEGER NOT NULL DEFAULT 2,
+        zone VARCHAR(60),
+        staff_id VARCHAR(36) REFERENCES staff_members(id),
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+        deleted_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_bookable_resources_user_id ON bookable_resources (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_bookable_resource_user_active ON bookable_resources (user_id, is_active, is_deleted)",
+    "CREATE INDEX IF NOT EXISTS ix_bookable_resources_staff_id ON bookable_resources (staff_id)",
+    """CREATE TABLE IF NOT EXISTS reservations (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        resource_id VARCHAR(36) REFERENCES bookable_resources(id),
+        guest_name VARCHAR(160),
+        guest_email VARCHAR(255),
+        guest_phone VARCHAR(40),
+        guest_consent_marketing BOOLEAN DEFAULT FALSE,
+        party_size INTEGER NOT NULL DEFAULT 2,
+        starts_at TIMESTAMP NOT NULL,
+        ends_at TIMESTAMP NOT NULL,
+        service_name VARCHAR(120),
+        duration_min INTEGER NOT NULL DEFAULT 90,
+        status VARCHAR(20) NOT NULL DEFAULT 'confirmed',
+        source VARCHAR(20) NOT NULL DEFAULT 'public',
+        allergen_tags JSONB,
+        allergy_note TEXT,
+        allergy_severity VARCHAR(20),
+        occasion VARCHAR(60),
+        guest_notes TEXT,
+        confirmation_sent_at TIMESTAMP,
+        reminder_sent_at TIMESTAMP,
+        seated_at TIMESTAMP,
+        cancelled_at TIMESTAMP,
+        cancel_reason VARCHAR(255),
+        purge_after TIMESTAMP,
+        purged_at TIMESTAMP,
+        idempotency_key VARCHAR(80) UNIQUE,
+        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+        deleted_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_reservations_user_id ON reservations (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_reservation_user_start ON reservations (user_id, starts_at, is_deleted)",
+    "CREATE INDEX IF NOT EXISTS ix_reservation_resource_start ON reservations (resource_id, starts_at)",
+    "CREATE INDEX IF NOT EXISTS ix_reservation_purge ON reservations (purge_after)",
+    # Per-business public reservation page: vanity slug + on/off switch +
+    # availability settings (turn-times, pacing, party caps, retention) as
+    # JSON so we can iterate config without a migration each time.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS reservation_slug VARCHAR(80)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_business_reservation_slug ON business_profiles (reservation_slug)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS reservations_enabled BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS reservation_settings_json TEXT",
 ]
 
 
@@ -3209,6 +3286,13 @@ app.include_router(
     prefix="/api/internal",
     tags=["Internal Cron"],
 )
+# Reservations — owner CRUD/book + the public /r/<slug> booking surface.
+app.include_router(reservations_router.router, prefix="/api/reservations", tags=["Reservations"])
+app.include_router(
+    public_reservations_router.router,
+    prefix="/api/public/reservations",
+    tags=["Public Reservations"],
+)
 # Door-scan + visitor's web-ticket page (signed URL). Same no-prefix
 # pattern as public_events_router because the routes (`/api/tickets/*`
 # + `/t/{ticket_id}`) live at distinct path roots.
@@ -3539,6 +3623,9 @@ try:
     # the same DailyBrief row and adds no extra LLM cost.
     from app.jobs.daily_brief_push_job import send_daily_brief_pushes
     from app.jobs.expiry_scanner_job import run_expiry_scan
+    from app.jobs.reservation_jobs import (
+        send_reservation_reminders, purge_expired_reservations,
+    )
 
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(
@@ -3596,6 +3683,25 @@ try:
         trigger=CronTrigger(hour=4, minute=0),
         id="recurring_expenses",
         name="Materialize due recurring expenses",
+        replace_existing=True,
+    )
+    # Reservations — day-before reminder (the v1 reminders-only no-show
+    # defense). 08:00 UTC ≈ 09:00-10:00 Copenhagen; sends for confirmed
+    # reservations in the next ~36h that haven't been reminded.
+    _scheduler.add_job(
+        send_reservation_reminders,
+        trigger=CronTrigger(hour=8, minute=0),
+        id="reservation_reminders",
+        name="Reservation day-before reminders",
+        replace_existing=True,
+    )
+    # Reservations — GDPR Art. 9 purge (null guest PII + allergy past
+    # purge_after). 02:45 UTC, right after daily_maintenance.
+    _scheduler.add_job(
+        purge_expired_reservations,
+        trigger=CronTrigger(hour=2, minute=45),
+        id="reservation_gdpr_purge",
+        name="Reservation GDPR purge (PII + allergy)",
         replace_existing=True,
     )
     # Task #54 — Daily Brief email at 06:30 UTC ≈ 07:30 (CET winter) /

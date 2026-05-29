@@ -546,3 +546,72 @@ def send_single_shift_notification(
     )
     db.add(log)
     db.commit()
+
+
+def notify_owner_new_reservation(db: Session, owner, reservation) -> dict:
+    """Best-effort push to the OWNER's devices when a guest books via the
+    public /r/<slug> link — the "ping when a table is booked" the host
+    stand wants. Pushes to owner subscriptions (staff_id IS NULL), writes
+    a NotificationLog row, and never blocks the booking.
+
+    PII-light by design: party size + time only on the lock-screen body,
+    no guest name (the full detail lives behind auth in the reservation
+    book). Returns {"attempted", "sent"}.
+    """
+    result = {"attempted": 0, "sent": 0}
+    try:
+        from app.services.push_sender import send_to_subscription
+    except Exception:  # noqa: BLE001
+        return result
+
+    subs = (
+        db.query(PushSubscription)
+        .filter(
+            PushSubscription.user_id == owner.id,
+            PushSubscription.staff_id.is_(None),  # owner devices, not staff
+        )
+        .all()
+    )
+
+    when = reservation.starts_at.strftime("%d/%m %H:%M") if reservation.starts_at else ""
+    is_request = reservation.status == "requested"
+    title = "BonBox · Ny forespørgsel" if is_request else "BonBox · Ny reservation"
+    body_text = f"{reservation.party_size} pers · {when}"
+    if is_request:
+        body_text += " — afventer svar"
+    tag = f"bonbox-reservation-{reservation.id}"
+    payload = {
+        "title": title,
+        "body": body_text,
+        "tag": tag,
+        "data": {"url": "/reservations"},
+    }
+
+    for sub in subs:
+        result["attempted"] += 1
+        try:
+            outcome = send_to_subscription(sub, payload)
+            if outcome.get("ok"):
+                result["sent"] += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("reservation push send threw: %s", exc)
+            outcome = {"ok": False}
+
+    # One NotificationLog row per booking (channel='push'), regardless of
+    # device count — the audit surface mirrors the schedule-push path.
+    try:
+        db.add(NotificationLog(
+            id=uuid.uuid4(),
+            user_id=owner.id,
+            staff_id=None,
+            channel="push",
+            event_type="reservation_created",
+            subject=title,
+            body=body_text,
+            status="sent" if result["sent"] else "failed",
+            error_message=None if result["sent"] else "no_active_subscription",
+        ))
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+    return result

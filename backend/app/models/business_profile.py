@@ -171,6 +171,19 @@ class BusinessProfile(Base):
         Numeric(4, 3), default=0.30, nullable=False,
     )
 
+    # ── Reservations (Migration 022) ───────────────────────────────────
+    # Public reservation page handle: bonbox.dk/r/<reservation_slug>.
+    # Vanity, durable (won't rotate — printed QR / Insta-bio links keep
+    # working). NULL = reservations not set up yet. UNIQUE via index.
+    reservation_slug: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Owner kill-switch for the public page (accept bookings or not).
+    reservations_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Availability config as JSON-as-text (turn-times by party size,
+    # slot granularity, pacing cap, online party-size ceiling + group
+    # request threshold, booking lead time / advance window, GDPR
+    # retention_days). JSON so config evolves without a migration.
+    reservation_settings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 

@@ -81,5 +81,10 @@ from app.models.receipt_intake import ReceiptIntake
 from app.models.booking import Booking
 from app.models.ticket import Ticket
 from app.models.event_customer import EventCustomer
+# Reservations (table booking + appointments) — generic bookable-resource
+# engine. BookableResource = a table / provider / room; Reservation = a
+# guest holding one for a time-range. See availability_engine.py.
+from app.models.bookable_resource import BookableResource
+from app.models.reservation import Reservation
 
 __all__ = ["User", "Sale", "ExpenseCategory", "Expense", "InventoryItem", "InventoryLog", "StaffingRule", "DailyStaffing", "WasteLog", "Feedback", "CashTransaction", "EventLog", "KhataCustomer", "KhataTransaction", "Budget", "LoanPerson", "LoanTransaction", "CategoryMapping", "WhatsAppUser", "WhatsAppMessage", "SickCall", "DailyWeather", "BusinessProfile", "PaymentConnection", "Branch", "Competitor", "CompetitorPrice", "DailyClose", "Vehicle", "JobCard", "JobCardPart", "JobCardLabor", "Wine", "WineSale", "StaffMember", "PayPeriodConfig", "Schedule", "HoursLogged", "Tip", "TipDistribution", "StaffLink", "NotificationLog", "SecurityEvent", "OwnerPattern", "WaitlistEntry", "DailyBrief", "AnomalyAlert", "TriageNote", "KasserapportExtraction", "KasserapportExample", "InventoryImport", "InventoryImportExample", "Terminal", "TerminalProvider", "OutputChannel", "OrderChannelConfig", "StaffAbsence", "ShiftSwapRequest", "StaffRoleTarget", "SmartDriftFinding", "SupportTicket", "Customer", "Invoice", "InvoiceLine", "MileageEntry", "PaymentMatchSuggestion", "AuditLog", "RecurringExpense", "AccountantGrant", "MagicLinkToken", "BankConnection", "MobilePayConnection", "PushSubscription", "Event", "EmailMessage", "ReceiptIntake", "Booking", "Ticket", "EventCustomer"]

@@ -199,6 +199,11 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # leak — the visitor doesn't know whether the organizer is on
         # Free or just sold out). Starter+ = unlimited.
         "bookings_per_event_max": 30,
+        # Reservations (table booking + appointments) — Free taste. Lets a
+        # restaurant try the public booking page, then upgrade. 20/mo +
+        # max 3 tables/resources is enough to feel it, not run a service on.
+        "reservations_per_month": 20,
+        "bookable_resources_max": 3,
     },
     "starter": {
         "branches": 1,
@@ -250,6 +255,9 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # limit); the tier cap simply doesn't fire.
         "published_events_per_month": -1,
         "bookings_per_event_max": -1,
+        # Reservations — Starter = unlimited (the anchor tier for this feature).
+        "reservations_per_month": -1,
+        "bookable_resources_max": -1,
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -276,6 +284,9 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # Trial mirrors Pro — unlimited event-booking.
         "published_events_per_month": -1,
         "bookings_per_event_max": -1,
+        # Reservations — Trial mirrors Pro: unlimited.
+        "reservations_per_month": -1,
+        "bookable_resources_max": -1,
     },
     "pro": {
         "branches": 3,
@@ -313,6 +324,9 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # See Starter comment for the Manoj-lock rationale.
         "published_events_per_month": -1,
         "bookings_per_event_max": -1,
+        # Reservations — Pro = unlimited.
+        "reservations_per_month": -1,
+        "bookable_resources_max": -1,
     },
 }
 
@@ -529,6 +543,12 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # is the workhorse where most customers live.
         "multi_tier_tickets": False,
         "cross_event_analytics": False,
+        # Reservations (table booking + appointments) — tasteable on Free,
+        # cap-gated to 20/mo + 3 tables (see PLAN_CAPS). The flag is ON for
+        # every tier so the public booking page works; the cap creates the
+        # upgrade moment. Vertical visibility (restaurant/salon/clinic) is a
+        # frontend-nav concern, not a tier gate.
+        "reservations": True,
         # 2026-05-24 — Accountant Hours Saved widget (Manoj-confirmed).
         # The "Du har sparet revisoren X timer = ~Y kr" tracker that
         # powers the dashboard widget AND the live tagline on the
@@ -675,6 +695,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "accountant_month_end_bundle": False,  # Pro-only — positioned, build pending
         "multi_tier_tickets": True,        # Starter+ — adult/student/family pricing
         "cross_event_analytics": False,    # Pro-only — comparison across events
+        "reservations": True,              # Starter = full reservations
         "inbox_email_capture": True,       # Universal — workflow feature
         # ── Tier 4 Dashboard restructure (Phase F) — see Free comment ──
         "dashboard_accountant_hours": True,        # Starter+ — retention card
@@ -731,6 +752,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "accountant_month_end_bundle": True,    # Trial mirrors Pro
         "multi_tier_tickets": True,             # Trial mirrors Pro
         "cross_event_analytics": True,          # Trial mirrors Pro
+        "reservations": True,                   # Trial mirrors Pro
         "inbox_email_capture": True,            # Universal
         # ── Tier 4 Dashboard restructure (Phase F) — trial mirrors Pro ──
         "dashboard_accountant_hours": True,
@@ -782,6 +804,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "accountant_month_end_bundle": True,  # Pro killer — one-click revisor pack
         "multi_tier_tickets": True,        # Starter+ — same on Pro
         "cross_event_analytics": True,     # Pro killer for kulturarrangører
+        "reservations": True,              # Pro = full reservations
         "inbox_email_capture": True,       # Universal
         # ── Tier 4 Dashboard restructure (Phase F) — Pro unlocks all ──
         "dashboard_accountant_hours": True,        # Starter+ — same on Pro
