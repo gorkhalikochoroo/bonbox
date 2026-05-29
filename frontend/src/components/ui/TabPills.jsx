@@ -47,11 +47,22 @@ export default function TabPills({
   wrap = true,
   className = "",
   ariaLabel = "View",
+  size = "md",
 }) {
   // Build a single shared `role="tablist"` to keep keyboard semantics
   // (arrow keys etc.) consistent for screen readers. We don't need a
   // full tab-arrow implementation here — clicks are the dominant input —
   // but the role gives AT users a meaningful grouping.
+  //
+  // `size="lg"` is an opt-in touch size for surfaces used on shared
+  // host-stand tablets / Windows touch PCs, where the global
+  // (pointer: coarse) 44px floor in index.css does NOT fire (a mouse or
+  // stylus reports pointer: fine). It bumps each pill to a 44px tap
+  // target. Default `md` keeps every existing caller pixel-identical.
+  const pillSizeClass =
+    size === "lg"
+      ? "min-h-[44px] px-4 text-sm"
+      : "px-3 py-1.5 text-[13px]";
   const containerClass =
     (wrap
       ? "flex flex-wrap gap-1.5"
@@ -83,7 +94,8 @@ export default function TabPills({
             aria-selected={selected}
             onClick={() => onChange?.(tab.id)}
             className={
-              "inline-flex items-center px-3 py-1.5 rounded-full text-[13px] font-medium transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900 " +
+              "inline-flex items-center justify-center rounded-full font-medium transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900 " +
+              pillSizeClass + " " +
               pillClass
             }
           >

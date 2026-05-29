@@ -63,6 +63,12 @@ const navGroups = [
       // (no nag). DK-first label key is "events" — same English-loaned
       // word works in both EN and DK UI per Manoj's Sudip interviews.
       { to: "/events", icon: "CalendarDays", labelKey: "events" },
+      // Reservations (table booking + appointments) — sits directly after
+      // Events as its own top-level entry (IA decision: NOT nested under
+      // Events). Starter+ feature, so we gate it with requiresFeature; the
+      // item stays visible-but-locked for Free tier (the conversion signal
+      // we want, same as Faktura) and the page renders its own UpgradeNudge.
+      { to: "/reservations", icon: "CalendarCheck", labelKey: "reservations", requiresFeature: "reservations" },
       { to: "/expenses", icon: "Receipt", labelKey: "expenses" },
     ],
   },

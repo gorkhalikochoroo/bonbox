@@ -166,6 +166,11 @@ const BookingCheckoutPage = lazyRetry(() => import("./pages/BookingCheckoutPage"
 const BookingSuccessPage = lazyRetry(() => import("./pages/BookingSuccessPage"));
 const TicketPage = lazyRetry(() => import("./pages/TicketPage"));
 const DoorScanPage = lazyRetry(() => import("./pages/DoorScanPage"));
+// Reservations (table booking + appointments). Public widget at /r/:slug
+// is no-auth (guest books from a link / table QR). Owner book lives at
+// /reservations and is a Starter+ feature, gated inside the page.
+const ReservationPublicPage = lazyRetry(() => import("./pages/ReservationPublicPage"));
+const ReservationsPage = lazyRetry(() => import("./pages/ReservationsPage"));
 const MileagePage = lazyRetry(() => import("./pages/MileagePage"));
 const LoanTrackerPage = lazyRetry(() => import("./pages/LoanTrackerPage"));
 const WeatherPage = lazyRetry(() => import("./pages/WeatherPage"));
@@ -355,6 +360,10 @@ function AppRoutes() {
         <Route path="/e/:slug/checkout" element={<BookingCheckoutPage />} />
         <Route path="/e/:slug/success" element={<BookingSuccessPage />} />
         <Route path="/t/:ticket_id" element={<TicketPage />} />
+        {/* Reservations public widget — no auth (guest books a table from
+            the restaurant's link / QR). Mobile-first; pick date → party →
+            slot → details → confirm. */}
+        <Route path="/r/:slug" element={<ReservationPublicPage />} />
         <Route
           element={
             <ProtectedRoute>
@@ -365,6 +374,10 @@ function AppRoutes() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/sales" element={<SalesPage />} />
           <Route path="/events" element={<EventsPage />} />
+          {/* Reservations owner book — table bookings + appointments.
+              Starter+ feature; the page renders its own UpgradeNudge for
+              Free-tier users. */}
+          <Route path="/reservations" element={<ReservationsPage />} />
           {/* Organizer-only door-scan PWA page — opens camera, scans QR
               codes against the selected event's tickets. Capacitor 8
               and web both go through getUserMedia. */}
