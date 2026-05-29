@@ -61,6 +61,9 @@ export default function StaffPayrollPage() {
   // Staff list collapses by default — 16+ checkboxes was too much scroll on
   // the way to the preview + export buttons. Header shows the count; tap to open.
   const [staffOpen, setStaffOpen] = useState(false);
+  // Per-staff preview table also collapses by default — same scroll problem.
+  // Collapsed state still shows the grand total (staff · hours · payout).
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [staffLoading, setStaffLoading] = useState(true);
 
   // ─── PDF ───
@@ -533,7 +536,20 @@ export default function StaffPayrollPage() {
       {/* ─── PAYROLL PREVIEW TABLE ─── */}
       <FadeIn delay={0.15}>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
-          <h2 className="font-bold text-gray-900 dark:text-gray-100 mb-4">{t("payrollPreview")}</h2>
+          <button
+            type="button"
+            onClick={() => setPreviewOpen((o) => !o)}
+            className="flex items-center gap-2 text-left mb-4 w-full"
+            aria-expanded={previewOpen}
+          >
+            <span className={`text-gray-400 transition-transform ${previewOpen ? "rotate-90" : ""}`}>›</span>
+            <h2 className="font-bold text-gray-900 dark:text-gray-100">{t("payrollPreview")}</h2>
+            {payrollRows.length > 0 && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 tabular-nums">
+                {payrollRows.length}
+              </span>
+            )}
+          </button>
 
           {payrollRows.length === 0 ? (
             <div className="text-center py-8">
@@ -542,7 +558,7 @@ export default function StaffPayrollPage() {
                 Select staff members above to preview payroll
               </p>
             </div>
-          ) : (
+          ) : previewOpen ? (
             <div className="overflow-x-auto -mx-2">
               <table className="w-full text-sm">
                 <thead>
@@ -616,6 +632,14 @@ export default function StaffPayrollPage() {
                 </tfoot>
               </table>
             </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setPreviewOpen(true)}
+              className="w-full text-left text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            >
+              {payrollRows.length} staff · {fmtHours(totals.hours)} · {fmtMoney(totals.total, currency)} total — tap to see per-staff
+            </button>
           )}
         </div>
       </FadeIn>
