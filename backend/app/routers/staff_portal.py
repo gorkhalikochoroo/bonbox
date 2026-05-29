@@ -455,9 +455,16 @@ def get_portal_notifications(token: str, request: Request, db: Session = Depends
     """Return last 30 notification_log entries for this staff member."""
     link, member = _get_staff_from_token(token, db)
 
+    # Tenant scope: staff_id is a globally-unique UUID so it already
+    # resolves to one owner, but we filter on user_id too so this
+    # public, token-only endpoint upholds the same invariant every
+    # sibling query does (L5 tenant isolation).
     notifications = (
         db.query(NotificationLog)
-        .filter(NotificationLog.staff_id == member.id)
+        .filter(
+            NotificationLog.staff_id == member.id,
+            NotificationLog.user_id == link.user_id,
+        )
         .order_by(NotificationLog.created_at.desc())
         .limit(30)
         .all()
@@ -521,7 +528,7 @@ class SickCallPortalResponse(BaseModel):
     called_at: datetime
 
 
-@router.post("/portal/{token}/sick-call", response_model=SickCallPortalResponse)
+@router.post("/{token}/sick-call", response_model=SickCallPortalResponse)
 @limiter.limit("4/minute")
 def portal_call_sick(
     token: str,
@@ -684,7 +691,7 @@ class TeamShift(BaseModel):
     role: str | None
 
 
-@router.get("/portal/{token}/team-schedule", response_model=list[TeamShift])
+@router.get("/{token}/team-schedule", response_model=list[TeamShift])
 def portal_team_schedule(
     token: str,
     days_ahead: int = 21,
@@ -740,7 +747,7 @@ def portal_team_schedule(
     ]
 
 
-@router.post("/portal/{token}/swap-requests", response_model=SwapPortalResponse)
+@router.post("/{token}/swap-requests", response_model=SwapPortalResponse)
 @limiter.limit("6/minute")
 def portal_propose_swap(
     token: str,
@@ -777,7 +784,7 @@ def portal_propose_swap(
     return _hydrate_swap(swap, db, viewer_staff_id=member.id)
 
 
-@router.get("/portal/{token}/swap-requests", response_model=list[SwapPortalResponse])
+@router.get("/{token}/swap-requests", response_model=list[SwapPortalResponse])
 def portal_list_swaps(
     token: str,
     include_resolved: bool = False,
@@ -795,7 +802,7 @@ def portal_list_swaps(
 
 
 @router.post(
-    "/portal/{token}/swap-requests/{swap_id}/respond",
+    "/{token}/swap-requests/{swap_id}/respond",
     response_model=SwapPortalResponse,
 )
 @limiter.limit("6/minute")
@@ -827,7 +834,7 @@ def portal_respond_to_swap(
 
 
 @router.post(
-    "/portal/{token}/swap-requests/{swap_id}/withdraw",
+    "/{token}/swap-requests/{swap_id}/withdraw",
     response_model=SwapPortalResponse,
 )
 @limiter.limit("6/minute")
