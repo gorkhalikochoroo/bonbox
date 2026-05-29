@@ -171,6 +171,7 @@ def fetch_loenseddel_data(
     tax_card_rate = getattr(employee, "tax_card_rate", None)
     deductions = calc_employee_period(
         gross=total_gross,
+        hours=total_hours,
         contract_type=str(getattr(employee, "contract_type", "full") or "full"),
         tax_card_type=tax_card_type,
         tax_card_rate=(float(tax_card_rate) if tax_card_rate is not None else None),
@@ -637,6 +638,11 @@ def _build_story(
             val),
          Paragraph(f"<font color='#6b7280'>− {_money_dk(ded['a_skat'])}</font>",
                    val_r)],
+        [Paragraph(
+            "<font color='#6b7280'>&nbsp;&nbsp;ATP (medarbejder)</font>", val),
+         Paragraph(
+            f"<font color='#6b7280'>− {_money_dk(ded.get('atp_employee', 0))}</font>",
+            val_r)],
         [Paragraph("<b>Nettoløn</b>", val),
          Paragraph(_money_dk(ded["net_pay"]),
                    ParagraphStyle("Net", parent=val_br, textColor=NET_COLOR,
@@ -655,12 +661,16 @@ def _build_story(
 
     # ─── Section C — Arbejdsgivers bidrag (Employer contributions) ─
     story.append(Paragraph("C · ARBEJDSGIVERS BIDRAG", section_title))
+    ferie_label = (
+        "Ferietillæg (1%)" if ded.get("feriepenge_is_funktionaer")
+        else "Feriepenge (12,5%)"
+    )
     emp_rows = [
         [Paragraph(
-            "<font color='#6b7280'>&nbsp;&nbsp;ATP</font>", val),
+            "<font color='#6b7280'>&nbsp;&nbsp;ATP (arbejdsgiver)</font>", val),
          Paragraph(f"<font color='#6b7280'>{_money_dk(ded['atp'])}</font>", val_r)],
         [Paragraph(
-            "<font color='#6b7280'>&nbsp;&nbsp;Feriepenge (12,5%)</font>", val),
+            f"<font color='#6b7280'>&nbsp;&nbsp;{ferie_label}</font>", val),
          Paragraph(f"<font color='#6b7280'>{_money_dk(ded['feriepenge'])}</font>",
                    val_r)],
         [Paragraph("Samlede arbejdsgiveromkostninger", val_b),

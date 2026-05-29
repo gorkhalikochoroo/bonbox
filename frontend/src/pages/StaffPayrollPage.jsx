@@ -393,12 +393,15 @@ export default function StaffPayrollPage() {
         title="DK payroll, the easy way"
       >
         <p className="mb-1.5">
-          BonBox runs <strong>lønhjælp mode</strong> — we estimate AM-bidrag (8%), A-skat (~36% after personfradrag),
-          ATP and feriepenge, then export a clean Lønseddel PDF + a DataLøn / Zenegy CSV your accountant
-          can drop straight into eIndkomst.
+          BonBox runs <strong>lønhjælp mode</strong> — from the hours you already log, we estimate
+          AM-bidrag (8%), A-skat (~36% after personfradrag), ATP and feriepenge, then generate a clean
+          Lønseddel PDF + a summary CSV (DKK, semikolon-separeret for Excel) your revisor can key into
+          DataLøn / Zenegy.
         </p>
         <p className="text-xs opacity-75">
-          We don&rsquo;t store CPR or file directly with SKAT — your accountant signs off on the final numbers.
+          Built for timelønnet (hourly) staff — funktionærer på fast månedsløn køres via lønsystemet. We
+          don&rsquo;t store CPR, run eIndkomst, or file with SKAT — your lønsystem and revisor sign off on
+          the final numbers.
         </p>
       </DismissibleTip>
 
@@ -664,7 +667,7 @@ export default function StaffPayrollPage() {
                     }}
                     className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition"
                   >
-                    Download CSV (DataLøn / Zenegy import)
+                    Download summary CSV (for DataLøn / Zenegy)
                   </button>
                   <button
                     onClick={async () => {

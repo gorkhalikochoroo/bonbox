@@ -61,13 +61,39 @@ ESTIMATED_A_SKAT_RATE = DEFAULT_A_SKAT_RATE  # backwards-compat alias
 # 2026 personfradrag ≈ 52,800 kr/year ÷ 12 ≈ 4,400 kr/month.
 PERSONFRADRAG_MONTHLY = 4400.0
 
-# ATP (Arbejdsmarkedets Tillægspension) — flat employer contribution.
-# 2024+ rate is 94.65 kr/month per full-time employee (284 kr/quarter ÷ 3).
-ATP_MONTHLY_FULL_TIME = 94.65
+# ATP (Arbejdsmarkedets Tillægspension) — FIXED kroner (not a %), and tiered
+# by ATP-pligtige hours worked in the month (monthly-paid satser):
+#   ≥117 t → fuldt bidrag · 78–116 t → 2/3 · 39–77 t → 1/3 · <39 t → 0.
+# Full monthly contribution ("A-sats") ≈ 284 kr, split 1/3 employee
+# (≈94,65 kr, WITHHELD from pay) + 2/3 employer (≈189,30 kr, ON TOP of pay).
+ATP_FULL_MONTHLY_TOTAL = 284.0
+ATP_EMPLOYEE_FRACTION = 1.0 / 3.0
+# Back-compat alias — this used to be the (mislabelled) "full time" constant;
+# it is in fact the employee 1/3 share of the full monthly contribution.
+ATP_MONTHLY_FULL_TIME = round(ATP_FULL_MONTHLY_TOTAL * ATP_EMPLOYEE_FRACTION, 2)
 
-# Feriepenge (holiday allowance) — 12.5% of gross, paid to FerieKonto
-# under "ny ferielov" (since 2020). Employers pay quarterly on top of wages.
+# Feriepenge — "ny ferielov" (2020+):
+#   • Timelønnede (hourly): 12,5% of gross to FerieKonto.
+#   • Funktionærer (fast månedsløn): ferie med løn + 1% ferietillæg.
+# BonBox pays everyone by logged hours × rate (the timelønnet model), so 12,5%
+# is the default; callers pass funktionaer=True to switch to the 1% ferietillæg.
 FERIEPENGE_RATE = 0.125
+FERIETILLAEG_RATE = 0.01
+
+
+def _atp_total_for_hours(hours: float) -> float:
+    """Full monthly ATP contribution (employee + employer) for the hours
+    worked in the month. ATP is hours-tiered, NOT contract-type based."""
+    h = float(hours or 0)
+    if h >= 117:
+        frac = 1.0
+    elif h >= 78:
+        frac = 2.0 / 3.0
+    elif h >= 39:
+        frac = 1.0 / 3.0
+    else:
+        frac = 0.0
+    return round(ATP_FULL_MONTHLY_TOTAL * frac, 2)
 
 
 def _resolve_a_skat_rate(
@@ -116,7 +142,9 @@ def _resolve_a_skat_rate(
 def calc_employee_period(
     *,
     gross: float,
+    hours: float = 0.0,
     contract_type: str = "full",
+    funktionaer: bool = False,
     tax_card_type: str | None = None,
     tax_card_rate: float | None = None,
     include_personfradrag: bool | None = None,  # legacy param; auto-derived if None
@@ -164,17 +192,22 @@ def calc_employee_period(
     # 4. A-skat
     a_skat = round(taxable_base * a_skat_rate, 2)
 
-    # 5. ATP — only for full-time contracts (part-time get pro-rata, simplified to 0)
-    atp = ATP_MONTHLY_FULL_TIME if contract_type == "full" else 0.0
+    # 5. ATP — fixed kroner, tiered by hours worked this month. Split into the
+    #    employee 1/3 (withheld from pay) and employer 2/3 (paid on top).
+    atp_total = _atp_total_for_hours(hours)
+    atp_employee = round(atp_total * ATP_EMPLOYEE_FRACTION, 2)
+    atp_employer = round(atp_total - atp_employee, 2)
 
-    # 6. Feriepenge
-    feriepenge = round(gross * FERIEPENGE_RATE, 2)
+    # 6. Feriepenge — 12,5% to FerieKonto (timelønnet) or 1% ferietillæg (funktionær)
+    ferie_rate = FERIETILLAEG_RATE if funktionaer else FERIEPENGE_RATE
+    feriepenge = round(gross * ferie_rate, 2)
 
-    # 7. Net pay (what hits employee's bank)
-    net_pay = round(gross - am_bidrag - a_skat, 2)
+    # 7. Net pay (what hits the employee's bank) — gross minus AM-bidrag, A-skat
+    #    AND the employee's own ATP share.
+    net_pay = round(gross - am_bidrag - a_skat - atp_employee, 2)
 
-    # 8. Employer total cost
-    employer_total_cost = round(gross + atp + feriepenge, 2)
+    # 8. Employer total cost — gross + EMPLOYER ATP share + feriepenge
+    employer_total_cost = round(gross + atp_employer + feriepenge, 2)
 
     return {
         "gross": round(gross, 2),
@@ -183,8 +216,15 @@ def calc_employee_period(
         "a_skat_rate": a_skat_rate,
         "tax_card_source": rate_source,
         "include_personfradrag": include_personfradrag,
-        "atp": atp,
+        # "atp" = the employer contribution (what shows under Arbejdsgivers
+        # bidrag); the splits are exposed separately for the lønseddel.
+        "atp": atp_employer,
+        "atp_employee": atp_employee,
+        "atp_employer": atp_employer,
+        "atp_total": atp_total,
         "feriepenge": feriepenge,
+        "feriepenge_rate": ferie_rate,
+        "feriepenge_is_funktionaer": bool(funktionaer),
         "net_pay": net_pay,
         "employer_total_cost": employer_total_cost,
     }
@@ -273,6 +313,7 @@ def estimate_period_payroll(
         tax_card_rate = getattr(staff, "tax_card_rate", None)
         deductions = calc_employee_period(
             gross=gross,
+            hours=hours_by_staff.get(sid, 0.0),
             contract_type=str(staff.contract_type or "full"),
             tax_card_type=tax_card_type,
             tax_card_rate=float(tax_card_rate) if tax_card_rate is not None else None,
