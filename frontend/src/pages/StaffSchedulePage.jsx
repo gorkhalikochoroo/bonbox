@@ -699,20 +699,24 @@ export default function StaffSchedulePage() {
 
   // Copy a combined "Name — url" block for every selected staff. UNIVERSAL:
   // works for staff with no email (paste into a WhatsApp/SMS group).
+  // Mints in PARALLEL (a sequential await-loop crawled on a cold backend and
+  // blew past the clipboard's user-gesture window for big teams). Cached
+  // links resolve instantly, so re-copying is a no-op round-trip.
   const copySelectedLinks = async () => {
     const chosen = activeStaff.filter((s) => shareSel.has(s.id));
     if (chosen.length === 0) return;
     setShareBusy(true);
     try {
-      const lines = [];
-      for (const m of chosen) {
-        try {
-          const url = await mintLinkFor(m);
-          lines.push(`${m.name} — ${url}`);
-        } catch {
-          /* skip per-staff failures; keep going */
-        }
-      }
+      const results = await Promise.all(
+        chosen.map(async (m) => {
+          try {
+            return `${m.name} — ${await mintLinkFor(m)}`;
+          } catch {
+            return null; // skip per-staff failures; keep the rest
+          }
+        })
+      );
+      const lines = results.filter(Boolean);
       if (lines.length) {
         await _writeClipboard(lines.join("\n"));
         setShareCopiedN(lines.length);
