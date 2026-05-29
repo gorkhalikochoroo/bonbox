@@ -392,7 +392,12 @@ def send_shift_notifications(
                 StaffMember.user_id == user_id,
                 StaffMember.is_deleted.isnot(True),
             ).first()
-            if not member or not member.email:
+            # Only tenant-scope / deleted bails out. A MISSING EMAIL no longer
+            # skips the staff: we still write the in-app alert (so the portal
+            # Alerts feed shows "schedule published") and still fire push.
+            # Most DK café staff never give an email — they'd previously have
+            # seen an empty Alerts feed and gotten no push even when subscribed.
+            if not member:
                 continue
 
             # Look up portal link for CTA button
@@ -404,29 +409,44 @@ def send_shift_notifications(
             portal_url = f"https://bonbox.dk/s/{link.token}" if link else None
 
             subject = f"Schedule updated - {week_label}"
-            html = build_shift_email_html(
-                staff_name=member.name,
-                changes=changes,
-                portal_url=portal_url,
-                restaurant_name=restaurant_name,
-                week_label=week_label,
-            )
 
-            # send_email is internally try/except'd — returns False on
-            # any failure. The per-staff outer try/except is belt-and-
-            # braces against changes to that contract.
-            success = send_email(to=member.email, subject=subject, html=html)
+            # ── Email channel — only when the staff has an address ────────
+            # When emailed, the NotificationLog row carries channel="email"
+            # (and the full HTML body); otherwise we record an "in_app" row.
+            # Either way exactly ONE schedule_published row is written per
+            # staff, so the portal Alerts feed always has the entry without
+            # duplicating it for emailed staff.
+            channel = "in_app"
+            status = "sent"
+            error_message = None
+            body = None
+            if member.email:
+                html = build_shift_email_html(
+                    staff_name=member.name,
+                    changes=changes,
+                    portal_url=portal_url,
+                    restaurant_name=restaurant_name,
+                    week_label=week_label,
+                )
+                # send_email is internally try/except'd — returns False on
+                # any failure. The per-staff outer try/except is belt-and-
+                # braces against changes to that contract.
+                success = send_email(to=member.email, subject=subject, html=html)
+                channel = "email"
+                status = "sent" if success else "failed"
+                error_message = None if success else "Email delivery failed"
+                body = html
 
             log = NotificationLog(
                 id=uuid.uuid4(),
                 user_id=user_id,
                 staff_id=staff_uuid,
-                channel="email",
+                channel=channel,
                 event_type="schedule_published",
                 subject=subject,
-                body=html,
-                status="sent" if success else "failed",
-                error_message=None if success else "Email delivery failed",
+                body=body,
+                status=status,
+                error_message=error_message,
             )
             db.add(log)
 

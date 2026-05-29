@@ -1168,6 +1168,105 @@ const TABS = [
 ];
 
 /**
+ * InstallNotifyCard — the prominent "make this an app + get notified" card
+ * shown at the top of the Schedule tab. Before this, push opt-in lived
+ * buried behind the avatar → almost nobody found it. This surfaces it where
+ * staff land, and adds the Android/Chrome install button (beforeinstallprompt).
+ *
+ * Install target note: a per-token manifest start_url (so the installed icon
+ * opens straight to THIS staff's schedule) needs a same-origin manifest the
+ * www host serves — tracked as a follow-up. Today install uses the app
+ * manifest; the embedded StaffPushOptIn handles the iOS "Add to Home Screen"
+ * path + the actual push subscription.
+ */
+function InstallNotifyCard({ token }) {
+  const { t } = useLanguage();
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [installed, setInstalled] = useState(() => _isStandalone());
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return localStorage.getItem("bonbox_portal_card_dismissed") === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    const onPrompt = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    const onInstalled = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+    };
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  // Once installed AND dismissed, the card has no job left — hide it. While
+  // not installed we keep it (StaffPushOptIn self-hides when push is on or
+  // tier-locked, so the card can still carry the install affordance).
+  if (dismissed && installed) return null;
+
+  const doInstall = async () => {
+    if (!installPrompt) return;
+    try {
+      installPrompt.prompt();
+      await installPrompt.userChoice;
+    } catch {
+      /* user dismissed the native prompt */
+    }
+    setInstallPrompt(null);
+  };
+
+  const onDismiss = () => {
+    try {
+      localStorage.setItem("bonbox_portal_card_dismissed", "1");
+    } catch {
+      /* private mode */
+    }
+    setDismissed(true);
+  };
+
+  return (
+    <div className="mb-4 rounded-2xl bg-gradient-to-br from-emerald-500/[0.12] to-blue-500/[0.12] border border-white/[0.08] p-4 relative">
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label={t("dismiss", "Dismiss")}
+        className="absolute top-2 right-2.5 text-gray-500 hover:text-gray-300 text-lg leading-none"
+      >
+        ×
+      </button>
+      <div className="text-sm font-bold text-white mb-1">
+        📲 {t("staffInstallTitle", "Keep your schedule one tap away")}
+      </div>
+      <div className="text-[12px] text-gray-400 mb-3 leading-relaxed">
+        {t(
+          "staffInstallSub",
+          "Add this to your home screen and turn on alerts — you'll know the moment your shifts change."
+        )}
+      </div>
+      {!installed && installPrompt && (
+        <button
+          type="button"
+          onClick={doInstall}
+          className="w-full mb-2 px-3 py-2 rounded-lg text-[12px] font-semibold bg-gray-100 text-gray-900 hover:bg-white transition"
+        >
+          ⬇️ {t("staffInstallBtn", "Install app")}
+        </button>
+      )}
+      <StaffPushOptIn token={token} />
+    </div>
+  );
+}
+
+/**
  * StaffPushOptIn — opt-in card for native Web Push, scoped to the staff
  * portal token. Mirrors PushOptInPrompt (owner-side, Task #72) but uses
  * the portal endpoints + the OWNER's tier gate to decide whether to show
@@ -1558,11 +1657,9 @@ export default function StaffPortalPage() {
                   ? `${info.email ? "📧 " + info.email : ""}${info.email && info.phone ? " · " : ""}${info.phone ? "📱 " + info.phone : ""}`
                   : "Add your email or phone to get notified when your schedule changes."}
               </div>
-              {/* Staff v2 (2026-05-28) — opt-in to native Web Push so this
-                  device gets a tap as soon as the owner publishes/edits
-                  the schedule. Tier-gated server-side; component bails out
-                  silently when locked. */}
-              <StaffPushOptIn token={token} />
+              {/* Native Web Push opt-in moved to the prominent
+                  InstallNotifyCard on the Schedule tab — far better
+                  discovery than buried behind the avatar. */}
             </div>
           </div>
         )}
@@ -1570,6 +1667,7 @@ export default function StaffPortalPage() {
 
       {/* Content */}
       <div className="max-w-lg mx-auto px-4 py-4">
+        {tab === "schedule" && <InstallNotifyCard token={token} />}
         {tab === "schedule" && (
           <ScheduleTab
             shifts={shifts}
