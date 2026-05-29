@@ -635,6 +635,99 @@ export default function StaffSchedulePage() {
     };
   }, [shifts, staff, activeStaff]);
 
+  // ─── Unified Share sheet helpers (this component owns the toolbar + state) ──
+  const shareActiveStaff = () => activeStaff;
+
+  const openShareSheet = () => {
+    // Default selection = everyone active (the "share to all" path; owner
+    // unchecks who they don't want).
+    setShareSel(new Set(activeStaff.map((s) => s.id)));
+    setShareCopiedN(0);
+    setShareRowCopied(null);
+    setShareSheet(true);
+  };
+
+  const shareAllSelected = () =>
+    activeStaff.length > 0 && activeStaff.every((s) => shareSel.has(s.id));
+
+  const toggleShareAll = () => {
+    if (shareAllSelected()) setShareSel(new Set());
+    else setShareSel(new Set(activeStaff.map((s) => s.id)));
+  };
+
+  const toggleShareOne = (id) => {
+    setShareSel((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  // Mint (or reuse cached) a portal link for one staff member.
+  const mintLinkFor = async (member) => {
+    if (shareLinks[member.id]) return shareLinks[member.id];
+    const res = await api.post(`/staff/members/${member.id}/link`);
+    const fullUrl = `${window.location.origin}${res.data.portal_url}`;
+    setShareLinks((prev) => ({ ...prev, [member.id]: fullUrl }));
+    return fullUrl;
+  };
+
+  const _writeClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+    }
+  };
+
+  // Copy one staff's link (per-row action).
+  const copyOneLink = async (member) => {
+    try {
+      const url = await mintLinkFor(member);
+      await _writeClipboard(url);
+      setShareRowCopied(member.id);
+      setTimeout(() => setShareRowCopied(null), 2000);
+    } catch (err) {
+      setError(err?.response?.data?.detail || "Failed to generate link");
+    }
+  };
+
+  // Copy a combined "Name — url" block for every selected staff. UNIVERSAL:
+  // works for staff with no email (paste into a WhatsApp/SMS group).
+  const copySelectedLinks = async () => {
+    const chosen = activeStaff.filter((s) => shareSel.has(s.id));
+    if (chosen.length === 0) return;
+    setShareBusy(true);
+    try {
+      const lines = [];
+      for (const m of chosen) {
+        try {
+          const url = await mintLinkFor(m);
+          lines.push(`${m.name} — ${url}`);
+        } catch {
+          /* skip per-staff failures; keep going */
+        }
+      }
+      if (lines.length) {
+        await _writeClipboard(lines.join("\n"));
+        setShareCopiedN(lines.length);
+        setTimeout(() => setShareCopiedN(0), 4000);
+      }
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const shareEmailableCount = () =>
+    activeStaff.filter(
+      (s) => shareSel.has(s.id) && (s.email || "").includes("@")
+    ).length;
+
   /* ─── Render ─── */
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
@@ -1014,6 +1107,101 @@ export default function StaffSchedulePage() {
           onTry={() => setUpgradeNudge(null)}
         />
       )}
+
+      {/* Unified Share sheet — Select all / per-staff, then Copy links
+          (universal — works without email) or Email those with an address. */}
+      {shareSheet && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShareSheet(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg max-w-md w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="p-5 pb-3 border-b border-gray-100 dark:border-gray-700">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-gray-900 dark:text-white">
+                  {t("shareScheduleTitle", "Share this week's schedule")}
+                </h3>
+                <button onClick={() => setShareSheet(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">×</button>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {t("shareScheduleSub", "Pick who to share with. The link needs no account — staff just open it.")}
+              </p>
+              <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={shareAllSelected()}
+                  onChange={toggleShareAll}
+                  className="w-4 h-4 rounded accent-gray-900 dark:accent-gray-100"
+                />
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {t("shareSelectAll", "Select all")}
+                  <span className="text-gray-400 dark:text-gray-500 font-normal"> · {shareSel.size}/{shareActiveStaff().length}</span>
+                </span>
+              </label>
+            </div>
+            {/* Staff list */}
+            <div className="flex-1 overflow-y-auto p-2">
+              {shareActiveStaff().map((s) => {
+                const sel = shareSel.has(s.id);
+                const hasEmail = (s.email || "").includes("@");
+                return (
+                  <label
+                    key={s.id}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${sel ? "bg-gray-50 dark:bg-gray-700/40" : ""}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={sel}
+                      onChange={() => toggleShareOne(s.id)}
+                      className="w-4 h-4 rounded accent-gray-900 dark:accent-gray-100"
+                    />
+                    <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300 flex-shrink-0">
+                      {(s.name || "?").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{s.name}</div>
+                      <div className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
+                        {hasEmail ? `📧 ${s.email}` : t("shareNoEmail", "link only — no email")}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); copyOneLink(s); }}
+                      className="text-[11px] px-2 py-1 rounded text-emerald-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0"
+                    >
+                      {shareRowCopied === s.id ? "✓" : t("shareCopyOne", "copy")}
+                    </button>
+                  </label>
+                );
+              })}
+            </div>
+            {/* Footer actions */}
+            <div className="p-4 border-t border-gray-100 dark:border-gray-700 space-y-2">
+              <button
+                onClick={copySelectedLinks}
+                disabled={shareBusy || shareSel.size === 0}
+                className="w-full px-4 py-2.5 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-50 transition"
+              >
+                {shareBusy
+                  ? t("shareWorking", "Preparing…")
+                  : shareCopiedN > 0
+                    ? `✓ ${shareCopiedN} ${t("shareCopiedLinks", "links copied")}`
+                    : `📋 ${t("shareCopyLinks", "Copy")} ${shareSel.size} ${shareSel.size === 1 ? t("shareLinkWord", "link") : t("shareLinksWord", "links")}`}
+              </button>
+              <button
+                onClick={() => { setShareSheet(false); handleShareWithStaff(); }}
+                disabled={sharing || shareEmailableCount() === 0}
+                className="w-full px-4 py-2 rounded-xl text-sm font-medium border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition"
+                title={shareEmailableCount() === 0 ? t("shareNoEmailable", "No selected staff have an email") : ""}
+              >
+                📧 {t("shareEmailWithAddress", "Email those with an address")}
+                {shareEmailableCount() > 0 ? ` (${shareEmailableCount()})` : ""}
+              </button>
+              <p className="text-[11px] text-gray-400 dark:text-gray-600 text-center">
+                {t("shareFootNote", "Paste copied links into WhatsApp or SMS — works for staff without email.")}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1314,102 +1502,6 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
       copyLink();
     }
   };
-
-  // ─── Unified Share sheet helpers ────────────────────────────────────
-  const shareActiveStaff = () => staff.filter((s) => s.is_active !== false);
-
-  const openShareSheet = () => {
-    // Default selection = everyone active. The owner unchecks who they
-    // don't want rather than hunting one-by-one (the "share to all" path).
-    setShareSel(new Set(shareActiveStaff().map((s) => s.id)));
-    setShareCopiedN(0);
-    setShareRowCopied(null);
-    setShareSheet(true);
-  };
-
-  const shareAllSelected = () => {
-    const act = shareActiveStaff();
-    return act.length > 0 && act.every((s) => shareSel.has(s.id));
-  };
-
-  const toggleShareAll = () => {
-    if (shareAllSelected()) setShareSel(new Set());
-    else setShareSel(new Set(shareActiveStaff().map((s) => s.id)));
-  };
-
-  const toggleShareOne = (id) => {
-    setShareSel((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  };
-
-  // Mint (or reuse cached) a portal link for one staff member.
-  const mintLinkFor = async (member) => {
-    if (shareLinks[member.id]) return shareLinks[member.id];
-    const res = await api.post(`/staff/members/${member.id}/link`);
-    const fullUrl = `${window.location.origin}${res.data.portal_url}`;
-    setShareLinks((prev) => ({ ...prev, [member.id]: fullUrl }));
-    return fullUrl;
-  };
-
-  const _writeClipboard = async (text) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-  };
-
-  // Copy one staff's link (per-row action).
-  const copyOneLink = async (member) => {
-    try {
-      const url = await mintLinkFor(member);
-      await _writeClipboard(url);
-      setShareRowCopied(member.id);
-      setTimeout(() => setShareRowCopied(null), 2000);
-    } catch (err) {
-      setError(err?.response?.data?.detail || "Failed to generate link");
-    }
-  };
-
-  // Copy a combined "Name — url" block for every selected staff. UNIVERSAL:
-  // works for staff with no email (paste into a WhatsApp/SMS group). Mints
-  // any missing links first.
-  const copySelectedLinks = async () => {
-    const chosen = shareActiveStaff().filter((s) => shareSel.has(s.id));
-    if (chosen.length === 0) return;
-    setShareBusy(true);
-    try {
-      const lines = [];
-      for (const m of chosen) {
-        try {
-          const url = await mintLinkFor(m);
-          lines.push(`${m.name} — ${url}`);
-        } catch {
-          /* skip per-staff failures; keep going */
-        }
-      }
-      if (lines.length) {
-        await _writeClipboard(lines.join("\n"));
-        setShareCopiedN(lines.length);
-        setTimeout(() => setShareCopiedN(0), 4000);
-      }
-    } finally {
-      setShareBusy(false);
-    }
-  };
-
-  const shareEmailableCount = () =>
-    shareActiveStaff().filter(
-      (s) => shareSel.has(s.id) && (s.email || "").includes("@")
-    ).length;
 
   const handleAdd = async () => {
     if (!name.trim()) return;
@@ -1889,101 +1981,6 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
           </div>
         </div>
       </details>
-      )}
-
-      {/* Unified Share sheet — select all / individual, then copy links
-          (universal) or email those with an address. */}
-      {shareSheet && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShareSheet(false)}>
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg max-w-md w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            {/* Header */}
-            <div className="p-5 pb-3 border-b border-gray-100 dark:border-gray-700">
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-bold text-gray-900 dark:text-white">
-                  {t("shareScheduleTitle", "Share this week's schedule")}
-                </h3>
-                <button onClick={() => setShareSheet(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">×</button>
-              </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                {t("shareScheduleSub", "Pick who to share with. The link needs no account — staff just open it.")}
-              </p>
-              <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={shareAllSelected()}
-                  onChange={toggleShareAll}
-                  className="w-4 h-4 rounded accent-gray-900 dark:accent-gray-100"
-                />
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {t("shareSelectAll", "Select all")}
-                  <span className="text-gray-400 dark:text-gray-500 font-normal"> · {shareSel.size}/{shareActiveStaff().length}</span>
-                </span>
-              </label>
-            </div>
-            {/* Staff list */}
-            <div className="flex-1 overflow-y-auto p-2">
-              {shareActiveStaff().map((s) => {
-                const sel = shareSel.has(s.id);
-                const hasEmail = (s.email || "").includes("@");
-                return (
-                  <label
-                    key={s.id}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${sel ? "bg-gray-50 dark:bg-gray-700/40" : ""}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={sel}
-                      onChange={() => toggleShareOne(s.id)}
-                      className="w-4 h-4 rounded accent-gray-900 dark:accent-gray-100"
-                    />
-                    <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300 flex-shrink-0">
-                      {(s.name || "?").charAt(0).toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{s.name}</div>
-                      <div className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
-                        {hasEmail ? `📧 ${s.email}` : t("shareNoEmail", "link only — no email")}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); copyOneLink(s); }}
-                      className="text-[11px] px-2 py-1 rounded text-emerald-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex-shrink-0"
-                    >
-                      {shareRowCopied === s.id ? "✓" : t("shareCopyOne", "copy")}
-                    </button>
-                  </label>
-                );
-              })}
-            </div>
-            {/* Footer actions */}
-            <div className="p-4 border-t border-gray-100 dark:border-gray-700 space-y-2">
-              <button
-                onClick={copySelectedLinks}
-                disabled={shareBusy || shareSel.size === 0}
-                className="w-full px-4 py-2.5 rounded-xl text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-50 transition"
-              >
-                {shareBusy
-                  ? t("shareWorking", "Preparing…")
-                  : shareCopiedN > 0
-                    ? `✓ ${shareCopiedN} ${t("shareCopiedLinks", "links copied")}`
-                    : `📋 ${t("shareCopyLinks", "Copy")} ${shareSel.size} ${shareSel.size === 1 ? t("shareLinkWord", "link") : t("shareLinksWord", "links")}`}
-              </button>
-              <button
-                onClick={() => { setShareSheet(false); handleShareWithStaff(); }}
-                disabled={sharing || shareEmailableCount() === 0}
-                className="w-full px-4 py-2 rounded-xl text-sm font-medium border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-40 transition"
-                title={shareEmailableCount() === 0 ? t("shareNoEmailable", "No selected staff have an email") : ""}
-              >
-                📧 {t("shareEmailWithAddress", "Email those with an address")}
-                {shareEmailableCount() > 0 ? ` (${shareEmailableCount()})` : ""}
-              </button>
-              <p className="text-[11px] text-gray-400 dark:text-gray-600 text-center">
-                {t("shareFootNote", "Paste copied links into WhatsApp or SMS — works for staff without email.")}
-              </p>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* Portal Link Modal */}
