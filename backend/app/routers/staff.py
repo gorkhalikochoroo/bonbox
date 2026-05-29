@@ -545,6 +545,61 @@ def set_staff_link_pin(
     return {"message": "PIN set successfully"}
 
 
+@router.get("/schedules/share-links")
+def list_share_links(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Get-or-create active portal links for every (non-deleted) staff member
+    in ONE round-trip.
+
+    Powers the Share sheet's instant "Copy links": instead of firing N parallel
+    POST /members/{id}/link calls (slow on a cold backend, and the clipboard
+    write loses its user-gesture window on big teams), the modal pre-fetches
+    every link here on open. Reuses each staff's durable token via
+    get-or-create — never rotates an existing link.
+    """
+    members = (
+        db.query(StaffMember)
+        .filter(
+            StaffMember.user_id == user.id,
+            StaffMember.is_deleted.isnot(True),
+        )
+        .all()
+    )
+    out = []
+    minted = False
+    for m in members:
+        link = (
+            db.query(StaffLink)
+            .filter(
+                StaffLink.staff_id == m.id,
+                StaffLink.user_id == user.id,
+                StaffLink.active.is_(True),
+            )
+            .first()
+        )
+        if not link:
+            link = StaffLink(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                staff_id=m.id,
+                token=secrets.token_urlsafe(24),
+                active=True,
+            )
+            db.add(link)
+            minted = True
+        out.append({
+            "staff_id": str(m.id),
+            "staff_name": m.name,
+            "email": m.email,
+            "portal_url": f"/s/{link.token}",
+        })
+    if minted:
+        db.commit()
+    return out
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  Staff v2 — Share with staff (bulk magic-link issue + email)
 # ═══════════════════════════════════════════════════════════════════════════

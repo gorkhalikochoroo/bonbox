@@ -1535,6 +1535,10 @@ export default function StaffPortalPage() {
         // If no PIN, auto-verify
         if (!res.data.has_pin) setPinVerified(true);
         setLoading(false);
+        // Remember this as the staff's portal so an INSTALLED app icon
+        // (which launches to "/") can redirect straight back here instead
+        // of the owner login. See PublicOrDashboard in App.jsx.
+        try { localStorage.setItem("bonbox_portal_token", token); } catch { /* private mode */ }
       })
       .catch((err) => {
         setError(err.response?.data?.detail || "Link not found");

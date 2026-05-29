@@ -665,6 +665,20 @@ export default function StaffSchedulePage() {
     setShareCopiedN(0);
     setShareRowCopied(null);
     setShareSheet(true);
+    // Pre-fetch every link in ONE call so "Copy links" is instant and runs
+    // inside the click gesture (no per-staff POST storm). mintLinkFor reads
+    // this cache first; if the fetch fails we fall back to per-staff mint.
+    api.get("/staff/schedules/share-links")
+      .then((r) => {
+        const map = {};
+        for (const row of r.data || []) {
+          if (row.staff_id && row.portal_url) {
+            map[row.staff_id] = `${window.location.origin}${row.portal_url}`;
+          }
+        }
+        setShareLinks((prev) => ({ ...map, ...prev }));
+      })
+      .catch(() => { /* fall back to per-staff mint on copy */ });
   };
 
   const shareAllSelected = () =>

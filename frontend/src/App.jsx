@@ -297,6 +297,20 @@ function PublicOrDashboard() {
   const { user, loading } = useAuth();
   if (loading) return <PageLoader />;
   if (user) return <Navigate to="/dashboard" />;
+  // Installed-PWA staff: if the app was launched from the home-screen icon
+  // (standalone) and we saved their portal link, open straight to their
+  // schedule instead of the owner login. Their magic link IS their app.
+  // Owners (authed above) and normal web visitors are unaffected.
+  try {
+    const portalToken = localStorage.getItem("bonbox_portal_token");
+    const standalone =
+      (typeof window !== "undefined" &&
+        (window.matchMedia?.("(display-mode: standalone)").matches ||
+          window.navigator?.standalone === true));
+    if (portalToken && standalone) {
+      return <Navigate to={`/s/${portalToken}`} replace />;
+    }
+  } catch { /* private mode / SSR — fall through to normal flow */ }
   // On native iOS, skip the marketing landing page (no third-party platform references, native feel)
   const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
   if (isNative) return <Navigate to="/login" />;
