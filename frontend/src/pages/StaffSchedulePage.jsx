@@ -14,6 +14,26 @@ import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../compon
    CONSTANTS & HELPERS
    ═══════════════════════════════════════════════════════════ */
 const ROLES = ["Chef", "Bartender", "Server", "Runner", "Dishwasher", "Manager"];
+
+// Staff roles are stored lowercase ("server", "kitchen"), but the shift-role
+// <select> options are capitalized ("Server"). A raw `member.role` default left
+// the select with no matching option → it snapped to the first one ("Chef").
+// Map a staff role to the matching shift-role option so the New Shift modal
+// defaults to the person's actual role.
+const ROLE_TO_SHIFT_OPTION = {
+  server: "Server", waiter: "Server", floor: "Server",
+  manager: "Manager",
+  dishwasher: "Dishwasher",
+  chef: "Chef", cook: "Chef", kitchen: "Chef",
+  barista: "Bartender", bartender: "Bartender", bar: "Bartender",
+  runner: "Runner",
+};
+function roleToShiftOption(r) {
+  if (!r) return ROLES[0];
+  const exact = ROLES.find((x) => x.toLowerCase() === String(r).toLowerCase());
+  if (exact) return exact;
+  return ROLE_TO_SHIFT_OPTION[String(r).toLowerCase()] || ROLES[0];
+}
 const CONTRACT_TYPES = [
   { value: "full", label: "Full-time" },
   { value: "part", label: "Part-time" },
@@ -2542,9 +2562,9 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
   const [endMin, setEndMin] = useState(() => (seed?.end ? seed.end.slice(3, 5) : "00"));
   const [breakMinutes, setBreakMinutes] = useState(() => seed?.break_minutes ?? 0);
   const [roleOnShift, setRoleOnShift] = useState(() => {
-    if (seed?.role) return seed.role;
+    if (seed?.role) return roleToShiftOption(seed.role);
     const member = staff.find((s) => s.id === (modal.staffId || existingShift?.staff_member_id || existingShift?.staff_id));
-    return member?.role || ROLES[0];
+    return roleToShiftOption(member?.role);
   });
   const [notes, setNotes] = useState(existingShift?.notes || "");
   const [saving, setSaving] = useState(false);
@@ -2567,7 +2587,7 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
     prevStaffRef.current = staffId;
     if (!staffId) return;
     const member = staff.find((s) => s.id === staffId);
-    if (member?.role) setRoleOnShift(member.role);
+    if (member?.role) setRoleOnShift(roleToShiftOption(member.role));
     if (!changed || touched) return;
     const r = mostRecentShiftFor(shifts, staffId);
     if (r) {

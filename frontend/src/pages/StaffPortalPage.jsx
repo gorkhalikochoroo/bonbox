@@ -147,12 +147,12 @@ function PinGate({ onVerified, token, staffName }) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
       <div className="w-full max-w-xs text-center">
-        <div className="w-16 h-16 bg-gray-800 border border-gray-700 rounded-xl flex items-center justify-center mx-auto mb-4">
+        <div className="w-16 h-16 bg-gray-100 border border-gray-200 rounded-xl flex items-center justify-center mx-auto mb-4">
           <span className="text-3xl">🔐</span>
         </div>
-        <h1 className="text-xl font-bold text-white mb-1">Enter PIN</h1>
+        <h1 className="text-xl font-bold text-gray-900 mb-1">Enter PIN</h1>
         <p className="text-sm text-gray-500 mb-8">Hi {staffName}, enter your 4-digit PIN</p>
         <div className="flex gap-3 justify-center mb-6">
           {pin.map((d, i) => (
@@ -165,7 +165,7 @@ function PinGate({ onVerified, token, staffName }) {
               value={d}
               onChange={(e) => handleDigit(i, e.target.value)}
               onKeyDown={(e) => handleKeyDown(i, e)}
-              className="w-14 h-14 text-center text-2xl font-bold bg-white/5 border border-white/10 rounded-xl text-white focus:border-gray-300 focus:ring-2 focus:ring-gray-400/30 outline-none"
+              className="w-14 h-14 text-center text-2xl font-bold bg-white border border-gray-300 rounded-xl text-gray-900 focus:border-gray-900/30 focus:ring-2 focus:ring-gray-400/30 outline-none"
               autoFocus={i === 0}
             />
           ))}
@@ -238,7 +238,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="w-full px-4 py-3 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-sm font-medium text-gray-200 transition flex items-center justify-center gap-2"
+        className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 text-sm font-medium text-gray-700 transition flex items-center justify-center gap-2"
       >
         🤒 Call in sick
       </button>
@@ -250,12 +250,12 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
   const maxIso = toLocalISO(addDaysToDate(new Date(), 14));
 
   return (
-    <div className="rounded-xl bg-white/[0.04] border border-white/[0.08] p-4 space-y-3">
+    <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <div className="font-semibold text-white text-sm">🤒 Call in sick</div>
+        <div className="font-semibold text-gray-900 text-sm">🤒 Call in sick</div>
         <button
           onClick={() => { setOpen(false); setError(""); setReason(""); }}
-          className="text-gray-500 hover:text-gray-300 text-lg leading-none w-6 h-6 flex items-center justify-center"
+          className="text-gray-500 hover:text-gray-700 text-lg leading-none w-6 h-6 flex items-center justify-center"
           aria-label="Close"
         >
           ×
@@ -269,7 +269,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
           min={todayIso}
           max={maxIso}
           onChange={(e) => setDate(e.target.value)}
-          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white outline-none focus:border-amber-500/40"
+          className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-amber-500/40"
         />
         {matchingShift && (
           <div className="mt-1 text-[11px] text-gray-500">
@@ -279,14 +279,14 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
       </div>
       <div>
         <label className="text-[11px] text-gray-500 mb-1 block">
-          Reason <span className="text-gray-600">(optional, only your owner sees this)</span>
+          Reason <span className="text-gray-400">(optional, only your owner sees this)</span>
         </label>
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value.slice(0, 500))}
           rows={2}
           placeholder="e.g. fever 39C, doctor advised rest"
-          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-amber-500/40 resize-none"
+          className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-amber-500/40 resize-none"
         />
       </div>
       {error && (
@@ -299,7 +299,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
       >
         {submitting ? "Sending..." : "Send sick call"}
       </button>
-      <div className="text-[10px] text-gray-600 text-center leading-snug">
+      <div className="text-[10px] text-gray-400 text-center leading-snug">
         Your owner will be notified. They can assign someone to cover.
       </div>
     </div>
@@ -372,7 +372,7 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed }) {
 
   if (allConfirmed) {
     return (
-      <div className="rounded-xl border border-gray-700 bg-gray-800/60 px-4 py-3 text-sm text-gray-300 flex items-center gap-2">
+      <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 flex items-center gap-2">
         <span aria-hidden className="text-emerald-400">✓</span>
         <span className="font-medium">You've confirmed this schedule. Thanks!</span>
       </div>
@@ -380,9 +380,9 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed }) {
   }
 
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 flex items-center justify-between gap-3">
-      <div className="text-sm text-gray-300">
-        <div className="font-medium text-white">Got the schedule?</div>
+    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-center justify-between gap-3">
+      <div className="text-sm text-gray-700">
+        <div className="font-medium text-gray-900">Got the schedule?</div>
         <div className="text-[12px] text-gray-500">Tap to let your owner know you've seen it.</div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
@@ -395,7 +395,7 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed }) {
           type="button"
           onClick={submit}
           disabled={submitting}
-          className="px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold disabled:opacity-50 transition"
+          className="px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-700 text-white text-sm font-semibold disabled:opacity-50 transition"
         >
           {submitting ? "…" : "I've got it"}
         </button>
@@ -451,22 +451,22 @@ function ScheduleTab({ shifts, staffName, token, onShiftsChanged }) {
     <div className="space-y-4">
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
+        <div className="bg-white border border-gray-200 rounded-xl p-3">
           <div className="text-[11px] text-gray-500 mb-1">This week</div>
-          <div className="text-2xl font-bold text-white">{thisWeekHours} <span className="text-sm text-gray-500">hrs</span></div>
+          <div className="text-2xl font-bold text-gray-900">{thisWeekHours} <span className="text-sm text-gray-500">hrs</span></div>
           <div className="text-[11px] text-gray-500">{thisWeekShifts.length} shifts</div>
         </div>
-        <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
+        <div className="bg-white border border-gray-200 rounded-xl p-3">
           <div className="text-[11px] text-gray-500 mb-1">Next shift</div>
           {nextShift ? (
             <>
-              <div className="text-lg font-bold text-white">
+              <div className="text-lg font-bold text-gray-900">
                 {isToday(nextShift.date) ? "Today" : fmtShort(nextShift.date)}
               </div>
               <div className="text-[11px] text-gray-500">{nextShift.start_time} – {nextShift.end_time}</div>
             </>
           ) : (
-            <div className="text-lg font-bold text-gray-600">None</div>
+            <div className="text-lg font-bold text-gray-400">None</div>
           )}
         </div>
       </div>
@@ -542,13 +542,13 @@ function ShiftRow({ date: d, shift }) {
 
   if (!shift) {
     return (
-      <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04] ${past ? "opacity-40" : "opacity-50"}`}>
+      <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-200 ${past ? "opacity-40" : "opacity-50"}`}>
         <div className="w-10 text-center">
-          <div className="text-[10px] font-semibold text-gray-600">{dayName}</div>
-          <div className="text-sm font-bold text-gray-600">{dayNum}</div>
+          <div className="text-[10px] font-semibold text-gray-400">{dayName}</div>
+          <div className="text-sm font-bold text-gray-400">{dayNum}</div>
         </div>
         <div className="flex-1">
-          <div className="text-sm text-gray-600">OFF</div>
+          <div className="text-sm text-gray-400">OFF</div>
         </div>
       </div>
     );
@@ -557,26 +557,26 @@ function ShiftRow({ date: d, shift }) {
   const role = getRoleStyle(shift.role_on_shift);
 
   return (
-    <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] ${past && !today ? "opacity-50" : ""} ${today ? "border-gray-500/40 bg-white/[0.06]" : ""}`}>
+    <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-200 ${past && !today ? "opacity-50" : ""} ${today ? "border-gray-500/40 bg-white" : ""}`}>
       <div className="w-10 text-center">
         <div className="text-[10px] font-semibold text-gray-500">{dayName}</div>
-        <div className={`text-sm font-bold ${today ? "text-gray-300" : "text-white"}`}>{dayNum}</div>
+        <div className={`text-sm font-bold ${today ? "text-gray-900" : "text-gray-900"}`}>{dayNum}</div>
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-semibold text-white">{shift.start_time} – {shift.end_time}</div>
+        <div className="text-sm font-semibold text-gray-900">{shift.start_time} – {shift.end_time}</div>
         <div className="text-[11px] text-gray-500">{role.icon} {shift.role_on_shift || "Staff"}</div>
       </div>
       <div>
         {today ? (
-          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-800 border border-gray-700 text-gray-300">
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-100 border border-gray-200 text-gray-700">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Today
           </span>
         ) : past ? (
-          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-800 border border-gray-700 text-gray-300">
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-100 border border-gray-200 text-gray-700">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Done
           </span>
         ) : (
-          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-white/[0.06] text-gray-400">{shift.net_hours}h</span>
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-100 text-gray-500">{shift.net_hours}h</span>
         )}
       </div>
     </div>
@@ -601,14 +601,14 @@ function HoursTab({ data, maxHours }) {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
+        <div className="bg-white border border-gray-200 rounded-xl p-3">
           <div className="text-[11px] text-gray-500 mb-1">Hours worked</div>
-          <div className="text-2xl font-bold text-white">
+          <div className="text-2xl font-bold text-gray-900">
             {data.total_hours} {maxHours ? <span className="text-sm text-gray-500">/ {maxHours}</span> : null}
           </div>
           {pct !== null && (
             <>
-              <div className="h-1.5 bg-white/[0.06] rounded-full mt-2 overflow-hidden">
+              <div className="h-1.5 bg-gray-100 rounded-full mt-2 overflow-hidden">
                 <div
                   className={`h-full rounded-full ${pct >= 90 ? "bg-red-500" : pct >= 75 ? "bg-amber-500" : "bg-emerald-500"}`}
                   style={{ width: `${pct}%` }}
@@ -622,9 +622,9 @@ function HoursTab({ data, maxHours }) {
             </>
           )}
         </div>
-        <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
+        <div className="bg-white border border-gray-200 rounded-xl p-3">
           <div className="text-[11px] text-gray-500 mb-1">Shifts logged</div>
-          <div className="text-2xl font-bold text-white">{data.entries.length}</div>
+          <div className="text-2xl font-bold text-gray-900">{data.entries.length}</div>
           <div className="text-[11px] text-gray-500">this period</div>
         </div>
       </div>
@@ -642,14 +642,14 @@ function HoursTab({ data, maxHours }) {
         <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Recent shifts</div>
         <div className="space-y-1.5">
           {data.entries.length === 0 && (
-            <div className="text-sm text-gray-600 py-4 text-center">No hours logged yet this period</div>
+            <div className="text-sm text-gray-400 py-4 text-center">No hours logged yet this period</div>
           )}
           {data.entries.map((h, i) => (
-            <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06]">
-              <span className="text-sm text-gray-400">
+            <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white border border-gray-200">
+              <span className="text-sm text-gray-500">
                 {fmtDate(h.date)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
               </span>
-              <span className="text-sm font-semibold text-white">{h.total_hours} hrs</span>
+              <span className="text-sm font-semibold text-gray-900">{h.total_hours} hrs</span>
             </div>
           ))}
         </div>
@@ -671,17 +671,17 @@ function TipsTab({ data }) {
     <div className="space-y-4">
       {/* KPIs */}
       <div className="grid grid-cols-3 gap-2">
-        <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
+        <div className="bg-white border border-gray-200 rounded-xl p-3">
           <div className="text-[10px] text-gray-500 mb-1">Last 30 days</div>
-          <div className="text-lg font-bold text-gray-300">{Math.round(data.total_tips_30d).toLocaleString()}</div>
+          <div className="text-lg font-bold text-gray-700">{Math.round(data.total_tips_30d).toLocaleString()}</div>
         </div>
-        <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
+        <div className="bg-white border border-gray-200 rounded-xl p-3">
           <div className="text-[10px] text-gray-500 mb-1">Last shift</div>
-          <div className="text-lg font-bold text-white">{lastTip ? Math.round(lastTip.amount) : "—"}</div>
+          <div className="text-lg font-bold text-gray-900">{lastTip ? Math.round(lastTip.amount) : "—"}</div>
         </div>
-        <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3">
+        <div className="bg-white border border-gray-200 rounded-xl p-3">
           <div className="text-[10px] text-gray-500 mb-1">Avg / shift</div>
-          <div className="text-lg font-bold text-white">{Math.round(avgPerShift)}</div>
+          <div className="text-lg font-bold text-gray-900">{Math.round(avgPerShift)}</div>
         </div>
       </div>
 
@@ -690,20 +690,20 @@ function TipsTab({ data }) {
         <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Tip history</div>
         <div className="space-y-1.5">
           {data.entries.length === 0 && (
-            <div className="text-sm text-gray-600 py-4 text-center">No tips recorded yet</div>
+            <div className="text-sm text-gray-400 py-4 text-center">No tips recorded yet</div>
           )}
           {data.entries.map((t, i) => (
-            <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06]">
-              <span className="text-sm text-gray-400">{fmtDate(t.date)}</span>
-              {t.share_pct && <span className="text-[11px] text-gray-600">{t.share_pct.toFixed(1)}% share</span>}
-              <span className="text-sm font-semibold text-gray-300">{Math.round(t.amount)} DKK</span>
+            <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white border border-gray-200">
+              <span className="text-sm text-gray-500">{fmtDate(t.date)}</span>
+              {t.share_pct && <span className="text-[11px] text-gray-400">{t.share_pct.toFixed(1)}% share</span>}
+              <span className="text-sm font-semibold text-gray-700">{Math.round(t.amount)} DKK</span>
             </div>
           ))}
         </div>
       </div>
 
       {data.entries.length > 0 && (
-        <div className="text-center text-[11px] text-gray-600">
+        <div className="text-center text-[11px] text-gray-400">
           Split method: {data.entries[0]?.split_method === "by_hours" ? "By hours worked" : data.entries[0]?.split_method || "—"}
         </div>
       )}
@@ -825,11 +825,11 @@ function SwapRow({ swap, token, onChanged }) {
   const statusPill = swap.status === "proposed"
     ? "bg-amber-500/20 text-amber-300"
     : swap.status === "accepted"
-      ? "bg-gray-800 border border-gray-700 text-gray-300"
+      ? "bg-gray-100 border border-gray-200 text-gray-700"
       : "bg-gray-500/20 text-gray-400";
 
   return (
-    <div className="bg-white/[0.04] border border-white/[0.08] rounded-xl p-3 space-y-2">
+    <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[10px] uppercase tracking-wide font-medium text-gray-500">
           {swap.direction === "outgoing" ? "Outgoing" : "Incoming"}
@@ -838,28 +838,28 @@ function SwapRow({ swap, token, onChanged }) {
           {swap.status}
         </span>
       </div>
-      <div className="text-sm text-white">
+      <div className="text-sm text-gray-900">
         <span className="font-semibold">{swap.from_staff_name}</span>
         <span className="text-gray-500"> → </span>
         <span className="font-semibold">{swap.to_staff_name}</span>
       </div>
       <div className="grid grid-cols-2 gap-2 text-[11px]">
-        <div className="bg-white/[0.03] rounded p-1.5">
+        <div className="bg-gray-50 rounded p-1.5">
           <div className="text-[10px] text-gray-500">Gives</div>
-          <div className="text-white">{swap.from_shift_date}</div>
-          <div className="text-gray-400">{swap.from_shift_time}</div>
+          <div className="text-gray-900">{swap.from_shift_date}</div>
+          <div className="text-gray-500">{swap.from_shift_time}</div>
         </div>
-        <div className="bg-white/[0.03] rounded p-1.5">
+        <div className="bg-gray-50 rounded p-1.5">
           <div className="text-[10px] text-gray-500">Gets</div>
-          <div className="text-white">{swap.to_shift_date}</div>
-          <div className="text-gray-400">{swap.to_shift_time}</div>
+          <div className="text-gray-900">{swap.to_shift_date}</div>
+          <div className="text-gray-500">{swap.to_shift_time}</div>
         </div>
       </div>
       {swap.reason && (
-        <div className="text-[11px] text-gray-400 italic">"{swap.reason}"</div>
+        <div className="text-[11px] text-gray-500 italic">"{swap.reason}"</div>
       )}
       {swap.owner_note && (
-        <div className="text-[11px] text-gray-400">
+        <div className="text-[11px] text-gray-500">
           <span className="text-gray-500">Owner:</span> {swap.owner_note}
         </div>
       )}
@@ -870,14 +870,14 @@ function SwapRow({ swap, token, onChanged }) {
           <button
             onClick={() => respond(true)}
             disabled={busy}
-            className="text-xs font-medium px-2.5 py-1 rounded bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-50"
+            className="text-xs font-medium px-2.5 py-1 rounded bg-gray-900 hover:bg-gray-700 text-white disabled:opacity-50"
           >
             Accept
           </button>
           <button
             onClick={() => respond(false)}
             disabled={busy}
-            className="text-xs font-medium px-2.5 py-1 rounded bg-white/[0.06] hover:bg-white/[0.1] text-gray-300 disabled:opacity-50"
+            className="text-xs font-medium px-2.5 py-1 rounded bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
           >
             Decline
           </button>
@@ -888,14 +888,14 @@ function SwapRow({ swap, token, onChanged }) {
           <button
             onClick={withdraw}
             disabled={busy}
-            className="text-xs font-medium px-2.5 py-1 rounded bg-white/[0.06] hover:bg-white/[0.1] text-gray-300 disabled:opacity-50"
+            className="text-xs font-medium px-2.5 py-1 rounded bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
           >
             Withdraw
           </button>
         </div>
       )}
       {swap.status === "accepted" && (
-        <div className="text-[11px] text-gray-300 pt-1">
+        <div className="text-[11px] text-gray-700 pt-1">
           ✓ Both staff agreed — awaiting owner approval
         </div>
       )}
@@ -955,12 +955,12 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
   };
 
   return (
-    <div className="rounded-xl bg-white/[0.04] border border-white/[0.08] p-4 space-y-3">
+    <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <div className="font-semibold text-white text-sm">🔄 Offer to swap</div>
+        <div className="font-semibold text-gray-900 text-sm">🔄 Offer to swap</div>
         <button
           onClick={onClose}
-          className="text-gray-500 hover:text-gray-300 text-lg w-6 h-6 flex items-center justify-center"
+          className="text-gray-500 hover:text-gray-700 text-lg w-6 h-6 flex items-center justify-center"
           aria-label="Close"
         >
           ×
@@ -974,7 +974,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
         <select
           value={fromShiftId}
           onChange={(e) => { setFromShiftId(e.target.value); setToShiftId(""); }}
-          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white outline-none focus:border-gray-900"
+          className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-gray-900"
         >
           <option value="">Pick one of your shifts…</option>
           {upcomingOwn.map((s) => (
@@ -993,7 +993,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
           <select
             value={toShiftId}
             onChange={(e) => setToShiftId(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white outline-none focus:border-gray-900"
+            className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-gray-900"
           >
             <option value="">Pick a teammate's shift…</option>
             {candidateTeamShifts.map((s) => (
@@ -1007,14 +1007,14 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
 
       <div>
         <label className="text-[11px] text-gray-500 mb-1 block">
-          Reason <span className="text-gray-600">(optional)</span>
+          Reason <span className="text-gray-400">(optional)</span>
         </label>
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value.slice(0, 500))}
           rows={2}
           placeholder="e.g. family wedding, doctor appt"
-          className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-gray-900 resize-none"
+          className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900 resize-none"
         />
       </div>
 
@@ -1027,7 +1027,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
       >
         {submitting ? "Sending..." : "Send swap request"}
       </button>
-      <div className="text-[10px] text-gray-600 text-center leading-snug">
+      <div className="text-[10px] text-gray-400 text-center leading-snug">
         Your teammate will see this in their inbox. If they accept, your owner approves.
       </div>
     </div>
@@ -1072,7 +1072,7 @@ function AlertsTab({ token, staffName }) {
       <div className="space-y-4">
         <div className="text-center py-12">
           <div className="text-4xl mb-3">🔔</div>
-          <h3 className="text-base font-semibold text-white mb-1">No notifications yet</h3>
+          <h3 className="text-base font-semibold text-gray-900 mb-1">No notifications yet</h3>
           <p className="text-sm text-gray-500">
             You'll see shift reminders, schedule updates, and tip notifications here.
           </p>
@@ -1092,13 +1092,13 @@ function AlertsTab({ token, staffName }) {
           const channelIcon = CHANNEL_ICONS[n.channel] || "🔔";
           const timeAgo = n.created_at ? formatTimeAgo(n.created_at) : "";
           return (
-            <div key={n.id} className="flex items-start gap-3 px-3 py-3 rounded-xl bg-white/[0.04] border border-white/[0.06]">
+            <div key={n.id} className="flex items-start gap-3 px-3 py-3 rounded-xl bg-white border border-gray-200">
               <div className="text-lg mt-0.5">{evt.icon}</div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-white">{n.subject || evt.label}</div>
+                <div className="text-sm font-medium text-gray-900">{n.subject || evt.label}</div>
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-[11px] text-gray-500">{channelIcon} {n.channel}</span>
-                  <span className="text-[11px] text-gray-600">{timeAgo}</span>
+                  <span className="text-[11px] text-gray-400">{timeAgo}</span>
                 </div>
               </div>
             </div>
@@ -1131,11 +1131,11 @@ function LoadingSkeleton() {
   return (
     <div className="space-y-3 animate-pulse">
       <div className="grid grid-cols-2 gap-3">
-        <div className="h-20 bg-white/[0.04] rounded-xl" />
-        <div className="h-20 bg-white/[0.04] rounded-xl" />
+        <div className="h-20 bg-gray-100 rounded-xl" />
+        <div className="h-20 bg-gray-100 rounded-xl" />
       </div>
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="h-14 bg-white/[0.04] rounded-xl" />
+        <div key={i} className="h-14 bg-gray-100 rounded-xl" />
       ))}
     </div>
   );
@@ -1146,10 +1146,10 @@ function LoadingSkeleton() {
 
 function PortalError({ message }) {
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
       <div className="text-center max-w-xs">
         <div className="text-4xl mb-3">😕</div>
-        <h1 className="text-xl font-bold text-white mb-2">Link not working</h1>
+        <h1 className="text-xl font-bold text-gray-900 mb-2">Link not working</h1>
         <p className="text-sm text-gray-500">{message || "This link may have expired or been deactivated. Ask your manager for a new one."}</p>
       </div>
     </div>
@@ -1234,19 +1234,19 @@ function InstallNotifyCard({ token }) {
   };
 
   return (
-    <div className="mb-4 rounded-2xl bg-gradient-to-br from-emerald-500/[0.12] to-blue-500/[0.12] border border-white/[0.08] p-4 relative">
+    <div className="mb-4 rounded-2xl bg-gradient-to-br from-emerald-50 to-blue-50 border border-gray-200 p-4 relative">
       <button
         type="button"
         onClick={onDismiss}
         aria-label={t("dismiss", "Dismiss")}
-        className="absolute top-2 right-2.5 text-gray-500 hover:text-gray-300 text-lg leading-none"
+        className="absolute top-2 right-2.5 text-gray-500 hover:text-gray-700 text-lg leading-none"
       >
         ×
       </button>
-      <div className="text-sm font-bold text-white mb-1">
+      <div className="text-sm font-bold text-gray-900 mb-1">
         📲 {t("staffInstallTitle", "Keep your schedule one tap away")}
       </div>
-      <div className="text-[12px] text-gray-400 mb-3 leading-relaxed">
+      <div className="text-[12px] text-gray-500 mb-3 leading-relaxed">
         {t(
           "staffInstallSub",
           "Add this to your home screen and turn on alerts — you'll know the moment your shifts change."
@@ -1256,7 +1256,7 @@ function InstallNotifyCard({ token }) {
         <button
           type="button"
           onClick={doInstall}
-          className="w-full mb-2 px-3 py-2 rounded-lg text-[12px] font-semibold bg-gray-100 text-gray-900 hover:bg-white transition"
+          className="w-full mb-2 px-3 py-2 rounded-lg text-[12px] font-semibold bg-gray-900 text-white hover:bg-gray-700 transition"
         >
           ⬇️ {t("staffInstallBtn", "Install app")}
         </button>
@@ -1433,8 +1433,8 @@ function StaffPushOptIn({ token }) {
   if (!supported) return null;
   if (iosNotInstalled) {
     return (
-      <div className="rounded-lg bg-white/[0.04] border border-white/[0.06] p-3 text-[11px] text-gray-400 leading-relaxed">
-        <div className="font-semibold text-gray-300 mb-1">
+      <div className="rounded-lg bg-white border border-gray-200 p-3 text-[11px] text-gray-500 leading-relaxed">
+        <div className="font-semibold text-gray-700 mb-1">
           📲 {t("staffPushIosInstallTitle", "Get push notifications")}
         </div>
         {t("staffPushIosInstallHint", "On iPhone, tap the share icon in Safari and choose Add to Home Screen. Open BonBox from the home-screen icon to enable push.")}
@@ -1451,9 +1451,9 @@ function StaffPushOptIn({ token }) {
 
   if (subscribed) {
     return (
-      <div className="rounded-lg bg-white/[0.04] border border-white/[0.06] p-3 flex items-center justify-between gap-3">
-        <div className="text-[11px] text-gray-300 min-w-0 flex-1">
-          <div className="font-semibold text-gray-200">
+      <div className="rounded-lg bg-white border border-gray-200 p-3 flex items-center justify-between gap-3">
+        <div className="text-[11px] text-gray-700 min-w-0 flex-1">
+          <div className="font-semibold text-gray-900">
             🔔 {t("staffPushOnTitle", "Push notifications on")}
           </div>
           <div className="text-gray-500">
@@ -1464,7 +1464,7 @@ function StaffPushOptIn({ token }) {
           type="button"
           onClick={handleDisable}
           disabled={busy}
-          className="text-[11px] px-2 py-1 rounded bg-white/[0.04] border border-white/[0.06] text-gray-400 hover:text-gray-200 disabled:opacity-50 flex-shrink-0"
+          className="text-[11px] px-2 py-1 rounded bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-50 flex-shrink-0"
         >
           {busy ? "…" : t("staffPushOnTurnOff", "Turn off")}
         </button>
@@ -1482,9 +1482,9 @@ function StaffPushOptIn({ token }) {
   }
 
   return (
-    <div className="rounded-lg bg-white/[0.04] border border-white/[0.06] p-3 space-y-2">
-      <div className="text-[11px] text-gray-300">
-        <div className="font-semibold text-gray-200">
+    <div className="rounded-lg bg-white border border-gray-200 p-3 space-y-2">
+      <div className="text-[11px] text-gray-700">
+        <div className="font-semibold text-gray-900">
           🔔 {t("staffPushOffTitle", "Get push notifications")}
         </div>
         <div className="text-gray-500 mt-0.5">
@@ -1495,7 +1495,7 @@ function StaffPushOptIn({ token }) {
         type="button"
         onClick={handleEnable}
         disabled={busy}
-        className="w-full px-3 py-2 rounded-lg text-[12px] font-medium bg-gray-100 text-gray-900 hover:bg-white disabled:opacity-50 transition"
+        className="w-full px-3 py-2 rounded-lg text-[12px] font-medium bg-gray-900 text-white hover:bg-gray-700 disabled:opacity-50 transition"
       >
         {busy ? t("staffPushEnabling", "Enabling…") : t("staffPushEnable", "Enable push")}
       </button>
@@ -1567,7 +1567,7 @@ export default function StaffPortalPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-2 border-gray-300 border-t-transparent rounded-full" />
       </div>
     );
@@ -1597,12 +1597,12 @@ export default function StaffPortalPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white pb-24">
+    <div className="min-h-screen bg-gray-50 text-gray-900 pb-24">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-gray-950/80 backdrop-blur-xl border-b border-white/[0.06]">
+      <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-gray-200">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold text-white">
+            <h1 className="text-lg font-bold text-gray-900">
               {tab === "schedule" ? "My schedule" : tab === "hours" ? "My hours" : tab === "tips" ? "My tips" : "Alerts"}
             </h1>
             {info?.restaurant_name && (
@@ -1611,7 +1611,7 @@ export default function StaffPortalPage() {
           </div>
           <button
             onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setEmailMsg(""); }}
-            className="w-9 h-9 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-sm font-bold text-gray-300"
+            className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-sm font-bold text-gray-700"
             title="Edit email"
           >
             {info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
@@ -1620,7 +1620,7 @@ export default function StaffPortalPage() {
         {/* Email edit panel */}
         {showEmailEdit && (
           <div className="max-w-lg mx-auto px-4 pb-3">
-            <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl p-3 space-y-3">
+            <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-3">
               <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">Notifications</div>
               <div>
                 <label className="text-[10px] text-gray-500 mb-1 block">Email</label>
@@ -1629,7 +1629,7 @@ export default function StaffPortalPage() {
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
                   placeholder="your@email.com"
-                  className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-gray-300/40"
+                  className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
                 />
               </div>
               <div>
@@ -1639,20 +1639,20 @@ export default function StaffPortalPage() {
                   value={phoneInput}
                   onChange={(e) => setPhoneInput(e.target.value)}
                   placeholder="+45 12 34 56 78"
-                  className="w-full px-3 py-2 rounded-lg bg-white/[0.06] border border-white/[0.08] text-sm text-white placeholder:text-gray-600 outline-none focus:border-gray-300/40"
+                  className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
                 />
               </div>
               <button
                 onClick={handleContactSave}
                 disabled={emailSaving}
-                className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
+                className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 transition disabled:opacity-50"
               >
                 {emailSaving ? "Saving..." : "Save"}
               </button>
               {emailMsg && (
-                <div className={`text-xs ${emailMsg === "Saved!" ? "text-gray-300" : "text-red-400"}`}>{emailMsg}</div>
+                <div className={`text-xs ${emailMsg === "Saved!" ? "text-gray-700" : "text-red-400"}`}>{emailMsg}</div>
               )}
-              <div className="text-[10px] text-gray-600">
+              <div className="text-[10px] text-gray-400">
                 {info?.email || info?.phone
                   ? `${info.email ? "📧 " + info.email : ""}${info.email && info.phone ? " · " : ""}${info.phone ? "📱 " + info.phone : ""}`
                   : "Add your email or phone to get notified when your schedule changes."}
@@ -1685,14 +1685,14 @@ export default function StaffPortalPage() {
       </div>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-gray-900/95 backdrop-blur-xl border-t border-white/[0.06] z-20">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-gray-200 z-20">
         <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {TABS.map((t) => (
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
               className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${
-                tab === t.key ? "text-gray-300" : "text-gray-600"
+                tab === t.key ? "text-gray-900" : "text-gray-400"
               }`}
             >
               <span className="text-lg">{t.icon}</span>

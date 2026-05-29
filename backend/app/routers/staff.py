@@ -1973,41 +1973,87 @@ def hours_summary(
         log.warning("hours_summary: tips aggregation failed: %s", e)
         tips_map = {}
 
-    # Staff names — wrapped so a corrupt member row doesn't kill the report
-    staff_ids = list({str(r.staff_id) for r in hours_rows} | set(tips_map.keys()))
-    staff_names = {}
+    hours_by_id = {str(r.staff_id): r for r in hours_rows}
+    hours_staff_ids = set(hours_by_id.keys())
+
+    # Scheduled hours per staff in the period (from the roster) so the table
+    # can show Scheduled vs Actual vs Diff. start/end are "HH:MM" strings, so
+    # we sum in Python. Defensive — a failure just leaves scheduled_hours=0.
+    def _shift_hours(start, end, brk):
+        try:
+            sh, sm = int(start[:2]), int(start[3:5])
+            eh, em = int(end[:2]), int(end[3:5])
+            mins = (eh * 60 + em) - (sh * 60 + sm)
+            if mins < 0:
+                mins += 24 * 60  # overnight shift
+            mins -= int(brk or 0)
+            return max(0.0, mins / 60.0)
+        except Exception:
+            return 0.0
+
+    sched_map: dict[str, float] = {}
+    try:
+        for s in (
+            db.query(Schedule)
+            .filter(
+                Schedule.user_id == user.id,
+                Schedule.date >= from_date,
+                Schedule.date <= to_date,
+            )
+            .all()
+        ):
+            sid = str(s.staff_id)
+            sched_map[sid] = sched_map.get(sid, 0.0) + _shift_hours(
+                s.start_time, s.end_time, s.break_minutes
+            )
+    except Exception as e:
+        log.warning("hours_summary: scheduled-hours aggregation failed: %s", e)
+        sched_map = {}
+
+    # Staff names + pay/limit fields — wrapped so a corrupt member row doesn't
+    # kill the report. base_rate → hourly_rate, max_hours_month → work_limit.
+    staff_ids = list(hours_staff_ids | set(tips_map.keys()) | set(sched_map.keys()))
+    staff_names: dict[str, str] = {}
+    rate_map: dict[str, float | None] = {}
+    limit_map: dict[str, float | None] = {}
     if staff_ids:
         try:
-            members = db.query(StaffMember).filter(StaffMember.id.in_(staff_ids)).all()
-            staff_names = {str(m.id): (m.name or "Unknown") for m in members}
+            for m in db.query(StaffMember).filter(StaffMember.id.in_(staff_ids)).all():
+                mid = str(m.id)
+                staff_names[mid] = m.name or "Unknown"
+                rate_map[mid] = float(m.base_rate) if m.base_rate is not None else None
+                limit_map[mid] = (
+                    float(m.max_hours_month) if m.max_hours_month is not None else None
+                )
         except Exception as e:
-            log.warning("hours_summary: staff name lookup failed: %s", e)
-            staff_names = {}
+            log.warning("hours_summary: staff lookup failed: %s", e)
 
+    # One row per staff who has actual hours, tips, OR a scheduled shift.
     summary = []
-    for r in hours_rows:
-        sid = str(r.staff_id)
+    for sid in staff_ids:
+        r = hours_by_id.get(sid)
+        actual = round(float(r.total_hours or 0), 1) if r else 0.0
+        earned = round(float(r.total_earned or 0), 2) if r else 0.0
+        overtime = round(float(r.overtime_hours or 0), 1) if r else 0.0
+        tips = round(float(tips_map.get(sid, 0)), 2)
+        scheduled = round(sched_map.get(sid, 0.0), 1)
         summary.append({
             "staff_id": sid,
             "staff_name": staff_names.get(sid, f"Staff #{sid[:8]}"),
-            "total_hours": round(float(r.total_hours or 0), 1),
-            "total_earned": round(float(r.total_earned or 0), 2),
-            "overtime_hours": round(float(r.overtime_hours or 0), 1),
-            "tips_received": round(tips_map.get(sid, 0), 2),
+            # legacy keys (back-compat for any other caller)
+            "total_hours": actual,
+            "total_earned": earned,
+            "overtime_hours": overtime,
+            "tips_received": tips,
+            # keys the Hours "Period summary" table reads
+            "actual_hours": actual,
+            "scheduled_hours": scheduled,
+            "hourly_rate": rate_map.get(sid),
+            "earned": earned,
+            "tips": tips,
+            "total": round(earned + tips, 2),
+            "work_limit": limit_map.get(sid),
         })
-
-    # Include staff who only have tips but no hours
-    hours_staff_ids = {str(r.staff_id) for r in hours_rows}
-    for sid, tip_amount in tips_map.items():
-        if sid not in hours_staff_ids:
-            summary.append({
-                "staff_id": sid,
-                "staff_name": staff_names.get(sid, f"Staff #{sid[:8]}"),
-                "total_hours": 0,
-                "total_earned": 0,
-                "overtime_hours": 0,
-                "tips_received": round(tip_amount, 2),
-            })
 
     return summary
 
