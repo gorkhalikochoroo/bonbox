@@ -116,11 +116,11 @@ const translations = {
     // here, but the section ships DK-first like the rest of the page.
     rsvpSmsTitle: "SMS-påmindelser",
     rsvpSmsToggle: "SMS-påmindelser",
-    rsvpSmsHint: "Send en SMS-påmindelse dagen før i stedet for email (kræver Pro).",
+    rsvpSmsHint: "Send en SMS-påmindelse dagen før i stedet for email (på Starter og Pro).",
     rsvpSmsSender: "Sender name",
     rsvpSmsSenderHint: "Afsendernavn på SMS'en (maks. 11 tegn).",
-    rsvpSmsPro: "Pro",
-    rsvpSmsProUpsell: "Available on Pro",
+    rsvpSmsPro: "Starter",
+    rsvpSmsProUpsell: "Available on Starter",
     rsvpSmsFallbackNote: "SMS sendes når din konto er klar. Indtil da sender vi påmindelsen som email.",
     // Public widget (/r/:slug) — DK-first market, but EN here is the
     // fallback when the visitor's browser is set to English.
@@ -3934,11 +3934,11 @@ const translations = {
     // SMS-påmindelser (Pro).
     rsvpSmsTitle: "SMS-påmindelser",
     rsvpSmsToggle: "SMS-påmindelser",
-    rsvpSmsHint: "Send en SMS-påmindelse dagen før i stedet for email (kræver Pro).",
+    rsvpSmsHint: "Send en SMS-påmindelse dagen før i stedet for email (på Starter og Pro).",
     rsvpSmsSender: "Afsendernavn",
     rsvpSmsSenderHint: "Afsendernavn på SMS'en (maks. 11 tegn).",
-    rsvpSmsPro: "Pro",
-    rsvpSmsProUpsell: "Tilgængelig på Pro",
+    rsvpSmsPro: "Starter",
+    rsvpSmsProUpsell: "Tilgængelig på Starter",
     rsvpSmsFallbackNote: "SMS sendes når din konto er klar. Indtil da sender vi påmindelsen som email.",
     // Offentlig widget (/r/:slug)
     rsvpLoading: "Henter…",

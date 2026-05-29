@@ -259,7 +259,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # Reservations — Starter = unlimited (the anchor tier for this feature).
         "reservations_per_month": -1,
         "bookable_resources_max": -1,
-        "sms_reminders_per_month": 0,   # Starter: reservations yes, SMS is Pro
+        "sms_reminders_per_month": 300,   # Starter SMS allowance (Pro = 1000)
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -701,7 +701,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "multi_tier_tickets": True,        # Starter+ — adult/student/family pricing
         "cross_event_analytics": False,    # Pro-only — comparison across events
         "reservations": True,              # Starter = full reservations
-        "sms_reminders": False,            # SMS reminders are Pro-only
+        "sms_reminders": True,             # SMS reminders on Starter + Pro
         "inbox_email_capture": True,       # Universal — workflow feature
         # ── Tier 4 Dashboard restructure (Phase F) — see Free comment ──
         "dashboard_accountant_hours": True,        # Starter+ — retention card
