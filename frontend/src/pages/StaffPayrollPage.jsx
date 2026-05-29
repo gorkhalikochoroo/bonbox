@@ -58,6 +58,9 @@ export default function StaffPayrollPage() {
   const [staffList, setStaffList] = useState([]);
   const [hoursSummary, setHoursSummary] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  // Staff list collapses by default — 16+ checkboxes was too much scroll on
+  // the way to the preview + export buttons. Header shows the count; tap to open.
+  const [staffOpen, setStaffOpen] = useState(false);
   const [staffLoading, setStaffLoading] = useState(true);
 
   // ─── PDF ───
@@ -429,7 +432,18 @@ export default function StaffPayrollPage() {
       <FadeIn delay={0.1}>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-bold text-gray-900 dark:text-gray-100">{t("staffSelection")}</h2>
+            <button
+              type="button"
+              onClick={() => setStaffOpen((o) => !o)}
+              className="flex items-center gap-2 text-left"
+              aria-expanded={staffOpen}
+            >
+              <span className={`text-gray-400 transition-transform ${staffOpen ? "rotate-90" : ""}`}>›</span>
+              <h2 className="font-bold text-gray-900 dark:text-gray-100">{t("staffSelection")}</h2>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 tabular-nums">
+                {selectedIds.size}/{staffList.length}
+              </span>
+            </button>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
@@ -441,7 +455,7 @@ export default function StaffPayrollPage() {
             </label>
           </div>
 
-          {staffLoading ? (
+          {staffOpen && (staffLoading ? (
             <div className="flex items-center justify-center py-8">
               <div className="text-center">
                 <div className="text-2xl mb-2 animate-pulse">👥</div>
@@ -503,6 +517,15 @@ export default function StaffPayrollPage() {
                 );
               })}
             </div>
+          ))}
+          {!staffOpen && staffList.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setStaffOpen(true)}
+              className="w-full text-left text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            >
+              {selectedIds.size} of {staffList.length} staff selected — tap to change
+            </button>
           )}
         </div>
       </FadeIn>
