@@ -400,10 +400,20 @@ _pin_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 @router.post("/members/{member_id}/link")
 def generate_staff_link(
     member_id: str,
+    rotate: bool = Query(False, description="Force a brand-new token, revoking the old one"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Generate a magic portal link for a staff member."""
+    """Get-or-create the magic portal link for a staff member.
+
+    Idempotent by default: if an active link already exists we RETURN IT
+    unchanged. This matters because the owner shares the same link repeatedly
+    ("Copy links" for the whole team, re-share after adding staff, etc.) and the
+    staff member bookmarks it once — rotating the token on every call silently
+    broke every bookmarked link. Pass ?rotate=true to deliberately mint a fresh
+    token and revoke the old one (e.g. a link leaked); the DELETE endpoint still
+    fully revokes.
+    """
     member = db.query(StaffMember).filter(
         StaffMember.id == member_id,
         StaffMember.user_id == user.id,
@@ -412,14 +422,33 @@ def generate_staff_link(
     if not member:
         raise HTTPException(status_code=404, detail="Staff member not found")
 
-    # Deactivate any existing links
+    existing = db.query(StaffLink).filter(
+        StaffLink.staff_id == member.id,
+        StaffLink.user_id == user.id,
+        StaffLink.active.is_(True),
+    ).first()
+
+    if existing and not rotate:
+        # Reuse the durable link — do NOT rotate (would break bookmarks).
+        return {
+            "id": str(existing.id),
+            "staff_id": str(member.id),
+            "staff_name": member.name,
+            "token": existing.token,
+            "active": existing.active,
+            "has_pin": bool(existing.pin_hash),
+            "portal_url": f"/s/{existing.token}",
+            "created_at": existing.created_at,
+        }
+
+    # Either rotating on request, or no active link exists: revoke any active
+    # links, then mint a fresh one.
     db.query(StaffLink).filter(
         StaffLink.staff_id == member.id,
         StaffLink.user_id == user.id,
         StaffLink.active.is_(True),
     ).update({"active": False})
 
-    # Create new link
     token = secrets.token_urlsafe(24)  # ~32 chars, 192 bits of entropy
     link = StaffLink(
         id=uuid.uuid4(),

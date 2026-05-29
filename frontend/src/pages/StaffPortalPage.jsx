@@ -1603,7 +1603,7 @@ export default function StaffPortalPage() {
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-gray-900">
-              {tab === "schedule" ? "My schedule" : tab === "hours" ? "My hours" : tab === "tips" ? "My tips" : "Alerts"}
+              {tab === "schedule" ? "My schedule" : tab === "swaps" ? "Swaps" : tab === "hours" ? "My hours" : tab === "tips" ? "My tips" : "Alerts"}
             </h1>
             {info?.restaurant_name && (
               <div className="text-[11px] text-gray-500">{info.restaurant_name}</div>
