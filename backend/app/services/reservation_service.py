@@ -46,6 +46,10 @@ DEFAULT_SETTINGS: dict = {
     "retention_days": 90,            # GDPR purge window after service date
     # Appointment vertical default service length when none specified.
     "default_service_duration_min": 60,
+    # SMS reminders (Pro): owner opt-in, off by default. sms_sender is the
+    # alphanumeric sender ID shown on the text (max 11 chars).
+    "sms_reminders": False,
+    "sms_sender": "BonBox",
     # Fallback open window when operating_hours_json is unset.
     "fallback_open": "11:00",
     "fallback_close": "22:00",

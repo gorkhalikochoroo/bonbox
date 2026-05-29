@@ -42,7 +42,10 @@ import {
   RefreshCw,
   MonitorSmartphone,
   Download,
+  MessageSquare,
+  Lock,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -705,6 +708,10 @@ function FloorSection({ t }) {
 
 // ─── Settings + share ─────────────────────────────────────────────────
 function SettingsSection({ t }) {
+  // SettingsSection only mounts after the parent's `if (!isReady) return null`
+  // gate, so entitlements are already settled here — reading hasFeature is
+  // flicker-safe (tier-flicker doctrine, useEntitlements.jsx).
+  const { hasFeature } = useEntitlements();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -724,6 +731,11 @@ function SettingsSection({ t }) {
     max_advance_days: "",
     pacing_max_per_slot: "",
   });
+  // SMS reminders (Pro) — kept in its own state so the toggle/sender input
+  // are independent of the availability-number form's save lifecycle.
+  const [sms, setSms] = useState({ enabled: false, sender: "" });
+  const [savingSms, setSavingSms] = useState(false);
+  const [smsSaved, setSmsSaved] = useState(false);
   const [savingForm, setSavingForm] = useState(false);
   const [formSaved, setFormSaved] = useState(false);
 
@@ -737,6 +749,10 @@ function SettingsSection({ t }) {
       lead_time_min: s.lead_time_min ?? "",
       max_advance_days: s.max_advance_days ?? "",
       pacing_max_per_slot: s.pacing_max_per_slot ?? "",
+    });
+    setSms({
+      enabled: !!s.sms_reminders,
+      sender: s.sms_sender ?? "",
     });
   }, []);
 
@@ -862,6 +878,47 @@ function SettingsSection({ t }) {
       setSavingForm(false);
     }
   };
+
+  // SMS reminders save — SAME PUT /reservations/settings path as the
+  // availability numbers, just carrying sms_reminders + sms_sender in the
+  // settings payload (no new endpoint). Sender is clamped to 11 chars to
+  // match the alphanumeric-sender-ID limit. nextSms lets a toggle flip save
+  // immediately without waiting on a state re-render.
+  const saveSms = async (nextSms) => {
+    const desired = nextSms || sms;
+    setSavingSms(true);
+    setSmsSaved(false);
+    setError("");
+    const settings = {
+      sms_reminders: !!desired.enabled,
+      sms_sender: (desired.sender || "").slice(0, 11),
+    };
+    try {
+      const res = await api.put("/reservations/settings", { settings });
+      applyData(res.data || null);
+      setSmsSaved(true);
+      setTimeout(() => setSmsSaved(false), 2500);
+    } catch (e) {
+      setError(
+        e?.response?.data?.detail?.error ||
+          t("rsvpSettingsSaveError", "Couldn't save settings."),
+      );
+      // Re-sync from server on failure so the toggle reflects truth.
+      fetchSettings();
+    } finally {
+      setSavingSms(false);
+    }
+  };
+
+  // Toggle flips state + persists in one go (optimistic, like the
+  // accept-online switch). Disabled entirely when the tier lacks the feature.
+  const toggleSms = () => {
+    const next = { ...sms, enabled: !sms.enabled };
+    setSms(next);
+    saveSms(next);
+  };
+
+  const smsUnlocked = hasFeature("sms_reminders");
 
   if (loading) {
     return <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>;
@@ -1066,6 +1123,129 @@ function SettingsSection({ t }) {
           </Button>
         </div>
       </form>
+
+      {/* SMS reminders (Pro). Locked surface for non-Pro tiers (disabled
+          switch + Pro badge/lock + upsell link to /subscription, the same
+          path the rest of the app's Pro gates use). A Pro / Trial owner
+          sees it fully enabled. Saves through the SAME PUT
+          /reservations/settings as the availability numbers. */}
+      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+              <MessageSquare className="w-4 h-4 text-gray-400" aria-hidden />
+              {t("rsvpSmsTitle", "SMS reminders")}
+              {!smsUnlocked && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[10px] font-semibold uppercase tracking-wide">
+                  <Lock className="w-3 h-3" aria-hidden />
+                  {t("rsvpSmsPro", "Pro")}
+                </span>
+              )}
+            </h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
+              {t(
+                "rsvpSmsHint",
+                "Send an SMS reminder the day before instead of email (Pro).",
+              )}
+            </p>
+          </div>
+          {/* 44px-tall tap target, switch track centred inside — identical
+              to the "Accept online reservations" toggle above. Disabled +
+              dimmed when the tier doesn't include SMS. */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={smsUnlocked && sms.enabled}
+            aria-label={t("rsvpSmsToggle", "SMS reminders")}
+            disabled={!smsUnlocked || savingSms}
+            onClick={toggleSms}
+            className="shrink-0 inline-flex items-center justify-center min-h-[44px] min-w-[44px] -mr-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <span
+              className={
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors " +
+                (smsUnlocked && sms.enabled
+                  ? "bg-emerald-600"
+                  : "bg-gray-300 dark:bg-gray-600")
+              }
+            >
+              <span
+                className={
+                  "inline-block h-5 w-5 transform rounded-full bg-white transition-transform " +
+                  (smsUnlocked && sms.enabled ? "translate-x-5" : "translate-x-0.5")
+                }
+              />
+            </span>
+          </button>
+        </div>
+
+        {/* Locked tiers: short upsell line → /subscription (same route as
+            other Pro gates, e.g. the sidebar Lock entries + UpgradeNudge). */}
+        {!smsUnlocked && (
+          <Link
+            to="/subscription"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300 hover:text-emerald-800 dark:hover:text-emerald-200"
+          >
+            <Lock className="w-3.5 h-3.5" aria-hidden />
+            {t("rsvpSmsProUpsell", "Available on Pro")}
+          </Link>
+        )}
+
+        {/* Sender input — only when unlocked AND the toggle is on. */}
+        {smsUnlocked && sms.enabled && (
+          <div className="border-t border-gray-100 dark:border-gray-800 pt-3 space-y-2">
+            <label
+              htmlFor="rsvp-sms-sender"
+              className="block text-xs font-medium text-gray-700 dark:text-gray-300"
+            >
+              {t("rsvpSmsSender", "Sender name")}
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                id="rsvp-sms-sender"
+                type="text"
+                value={sms.sender}
+                onChange={(e) =>
+                  setSms((s) => ({ ...s, sender: e.target.value.slice(0, 11) }))
+                }
+                onBlur={() => saveSms()}
+                placeholder="BonBox"
+                maxLength={11}
+                className="flex-1 min-w-0 h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+              />
+              <Button
+                type="button"
+                variant="primary"
+                size="lg"
+                busy={savingSms}
+                onClick={() => saveSms()}
+              >
+                {t("save", "Save")}
+              </Button>
+            </div>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500">
+              {t("rsvpSmsSenderHint", "Sender name on the SMS (max 11 characters).")}
+            </p>
+          </div>
+        )}
+
+        {/* Honesty: SMS needs a provider token that may not be configured
+            yet — until then the reminder is sent by email. */}
+        {smsUnlocked && sms.enabled && (
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+            {t(
+              "rsvpSmsFallbackNote",
+              "SMS sends once your account is set up. Until then we send the reminder by email.",
+            )}
+          </p>
+        )}
+
+        {smsSaved && (
+          <span className="text-xs text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1">
+            <Check className="w-3.5 h-3.5" /> {t("rsvpSaved", "Saved")}
+          </span>
+        )}
+      </div>
 
       {/* Install-as-app hint — BonBox's host-stand edge: runs as an app on
           the Windows PC / touch tablet already at the podium, no locked-down

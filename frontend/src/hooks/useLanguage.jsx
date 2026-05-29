@@ -112,6 +112,16 @@ const translations = {
     rsvpPacing: "Max covers per slot",
     rsvpPacingHint: "Leave blank for no pacing cap.",
     rsvpSaved: "Saved",
+    // SMS reminders (Pro). DK terms (kasserapport/revisor/MOMS) don't apply
+    // here, but the section ships DK-first like the rest of the page.
+    rsvpSmsTitle: "SMS-påmindelser",
+    rsvpSmsToggle: "SMS-påmindelser",
+    rsvpSmsHint: "Send en SMS-påmindelse dagen før i stedet for email (kræver Pro).",
+    rsvpSmsSender: "Sender name",
+    rsvpSmsSenderHint: "Afsendernavn på SMS'en (maks. 11 tegn).",
+    rsvpSmsPro: "Pro",
+    rsvpSmsProUpsell: "Available on Pro",
+    rsvpSmsFallbackNote: "SMS sendes når din konto er klar. Indtil da sender vi påmindelsen som email.",
     // Public widget (/r/:slug) — DK-first market, but EN here is the
     // fallback when the visitor's browser is set to English.
     rsvpLoading: "Loading…",
@@ -3921,6 +3931,15 @@ const translations = {
     rsvpPacing: "Maks. gæster pr. tid",
     rsvpPacingHint: "Lad stå tomt for ingen grænse.",
     rsvpSaved: "Gemt",
+    // SMS-påmindelser (Pro).
+    rsvpSmsTitle: "SMS-påmindelser",
+    rsvpSmsToggle: "SMS-påmindelser",
+    rsvpSmsHint: "Send en SMS-påmindelse dagen før i stedet for email (kræver Pro).",
+    rsvpSmsSender: "Afsendernavn",
+    rsvpSmsSenderHint: "Afsendernavn på SMS'en (maks. 11 tegn).",
+    rsvpSmsPro: "Pro",
+    rsvpSmsProUpsell: "Tilgængelig på Pro",
+    rsvpSmsFallbackNote: "SMS sendes når din konto er klar. Indtil da sender vi påmindelsen som email.",
     // Offentlig widget (/r/:slug)
     rsvpLoading: "Henter…",
     rsvpNotFound: "Vi kunne ikke finde siden",

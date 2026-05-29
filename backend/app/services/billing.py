@@ -204,6 +204,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # max 3 tables/resources is enough to feel it, not run a service on.
         "reservations_per_month": 20,
         "bookable_resources_max": 3,
+        "sms_reminders_per_month": 0,   # SMS is a Pro perk (cost-bearing)
     },
     "starter": {
         "branches": 1,
@@ -258,6 +259,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # Reservations — Starter = unlimited (the anchor tier for this feature).
         "reservations_per_month": -1,
         "bookable_resources_max": -1,
+        "sms_reminders_per_month": 0,   # Starter: reservations yes, SMS is Pro
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -287,6 +289,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # Reservations — Trial mirrors Pro: unlimited.
         "reservations_per_month": -1,
         "bookable_resources_max": -1,
+        "sms_reminders_per_month": 1000,   # Trial mirrors Pro
     },
     "pro": {
         "branches": 3,
@@ -327,6 +330,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # Reservations — Pro = unlimited.
         "reservations_per_month": -1,
         "bookable_resources_max": -1,
+        "sms_reminders_per_month": 1000,   # Pro perk; bounded for SMS cost
     },
 }
 
@@ -549,6 +553,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # upgrade moment. Vertical visibility (restaurant/salon/clinic) is a
         # frontend-nav concern, not a tier gate.
         "reservations": True,
+        "sms_reminders": False,   # SMS is a Pro perk (per-message cost)
         # 2026-05-24 — Accountant Hours Saved widget (Manoj-confirmed).
         # The "Du har sparet revisoren X timer = ~Y kr" tracker that
         # powers the dashboard widget AND the live tagline on the
@@ -696,6 +701,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "multi_tier_tickets": True,        # Starter+ — adult/student/family pricing
         "cross_event_analytics": False,    # Pro-only — comparison across events
         "reservations": True,              # Starter = full reservations
+        "sms_reminders": False,            # SMS reminders are Pro-only
         "inbox_email_capture": True,       # Universal — workflow feature
         # ── Tier 4 Dashboard restructure (Phase F) — see Free comment ──
         "dashboard_accountant_hours": True,        # Starter+ — retention card
@@ -753,6 +759,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "multi_tier_tickets": True,             # Trial mirrors Pro
         "cross_event_analytics": True,          # Trial mirrors Pro
         "reservations": True,                   # Trial mirrors Pro
+        "sms_reminders": True,                  # Trial mirrors Pro
         "inbox_email_capture": True,            # Universal
         # ── Tier 4 Dashboard restructure (Phase F) — trial mirrors Pro ──
         "dashboard_accountant_hours": True,
@@ -805,6 +812,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "multi_tier_tickets": True,        # Starter+ — same on Pro
         "cross_event_analytics": True,     # Pro killer for kulturarrangører
         "reservations": True,              # Pro = full reservations
+        "sms_reminders": True,             # Pro perk — SMS booking reminders
         "inbox_email_capture": True,       # Universal
         # ── Tier 4 Dashboard restructure (Phase F) — Pro unlocks all ──
         "dashboard_accountant_hours": True,        # Starter+ — same on Pro
