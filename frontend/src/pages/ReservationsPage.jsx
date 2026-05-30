@@ -51,6 +51,7 @@ import {
   Globe,
   Footprints,
   PartyPopper,
+  Clock,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
@@ -101,6 +102,39 @@ function fmtTime(iso) {
   } catch {
     return "";
   }
+}
+
+// Booking hours (per weekday) ↔ the "HH:MM-HH:MM" | "closed" dict the engine
+// reads (reservation_service.restaurant_windows). Mon-first to match DK weeks.
+const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+function defaultBookingHours() {
+  const o = {};
+  DAY_KEYS.forEach((k) => {
+    o[k] = { closed: false, open: "11:00", close: "22:00" };
+  });
+  return o;
+}
+function parseBookingHours(bh) {
+  const out = defaultBookingHours();
+  if (bh && typeof bh === "object") {
+    DAY_KEYS.forEach((k) => {
+      const v = bh[k];
+      if (v === "closed") out[k] = { closed: true, open: "11:00", close: "22:00" };
+      else if (typeof v === "string" && v.includes("-")) {
+        const [open, close] = v.split("-");
+        out[k] = { closed: false, open: open || "11:00", close: close || "22:00" };
+      }
+    });
+  }
+  return out;
+}
+function serializeBookingHours(hours) {
+  const out = {};
+  DAY_KEYS.forEach((k) => {
+    const d = hours[k];
+    out[k] = d.closed ? "closed" : `${d.open}-${d.close}`;
+  });
+  return out;
 }
 
 export default function ReservationsPage() {
@@ -1817,6 +1851,11 @@ function SettingsSection({ t }) {
   const [smsSaved, setSmsSaved] = useState(false);
   const [savingForm, setSavingForm] = useState(false);
   const [formSaved, setFormSaved] = useState(false);
+  // Opening / booking hours, per weekday. Owner-settable so slots come from
+  // when they actually open — not a hard-coded default.
+  const [hours, setHours] = useState(() => defaultBookingHours());
+  const [savingHours, setSavingHours] = useState(false);
+  const [hoursSaved, setHoursSaved] = useState(false);
 
   const applyData = useCallback((d) => {
     setData(d);
@@ -1838,6 +1877,7 @@ function SettingsSection({ t }) {
       enabled: !!s.sms_reminders,
       sender: s.sms_sender ?? "",
     });
+    setHours(parseBookingHours(s.booking_hours));
   }, []);
 
   const fetchSettings = useCallback(async () => {
@@ -2016,7 +2056,59 @@ function SettingsSection({ t }) {
     saveSms(next);
   };
 
+  // Patch one weekday's hours (open/close time or closed flag).
+  const setHourDay = (key, patch) =>
+    setHours((h) => ({ ...h, [key]: { ...h[key], ...patch } }));
+
+  // Convenience: copy Monday's row to every day (the common "same every day"
+  // case — set once, fan out).
+  const applyMonToAll = () =>
+    setHours((h) => {
+      const mon = h.mon;
+      const next = {};
+      DAY_KEYS.forEach((k) => {
+        next[k] = { ...mon };
+      });
+      return next;
+    });
+
+  // Persist booking hours through the SAME PUT /reservations/settings path —
+  // serialized to the {mon:"HH:MM-HH:MM"|"closed", …} dict the availability
+  // engine reads (reservation_service.restaurant_windows).
+  const saveHours = async () => {
+    setSavingHours(true);
+    setHoursSaved(false);
+    setError("");
+    try {
+      const res = await api.put("/reservations/settings", {
+        settings: { booking_hours: serializeBookingHours(hours) },
+      });
+      applyData(res.data || null);
+      setHoursSaved(true);
+      setTimeout(() => setHoursSaved(false), 2500);
+    } catch (e) {
+      setError(
+        e?.response?.data?.detail?.error ||
+          t("rsvpHoursSaveError", "Couldn't save opening hours."),
+      );
+    } finally {
+      setSavingHours(false);
+    }
+  };
+
   const smsUnlocked = hasFeature("sms_reminders");
+
+  // Short weekday labels — static t() keys (not template-literal) so the i18n
+  // discipline grep can verify each has an EN+DA entry. DK weeks start Monday.
+  const dayLabel = {
+    mon: t("rsvpDayMon", "Mon"),
+    tue: t("rsvpDayTue", "Tue"),
+    wed: t("rsvpDayWed", "Wed"),
+    thu: t("rsvpDayThu", "Thu"),
+    fri: t("rsvpDayFri", "Fri"),
+    sat: t("rsvpDaySat", "Sat"),
+    sun: t("rsvpDaySun", "Sun"),
+  };
 
   if (loading) {
     return <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>;
@@ -2169,6 +2261,100 @@ function SettingsSection({ t }) {
           </form>
         </div>
       )}
+
+      {/* Opening / booking hours — the hours each weekday a guest can book.
+          These feed the slot generator (reservation_service reads
+          booking_hours first, before any fallback), so the times guests see
+          come from when the owner actually opens, not a hard-coded default. */}
+      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+              <Clock className="w-4 h-4 text-gray-400" aria-hidden />
+              {t("rsvpHoursTitle", "Opening hours (bookings)")}
+            </h2>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              {t(
+                "rsvpHoursHint",
+                "Guests can only book while you're open. Set the hours for each day.",
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={applyMonToAll}
+            className="shrink-0 text-xs font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200 underline-offset-2 hover:underline"
+          >
+            {t("rsvpHoursCopyMon", "Apply Monday to all")}
+          </button>
+        </div>
+
+        <div className="divide-y divide-gray-100 dark:divide-gray-800">
+          {DAY_KEYS.map((k) => {
+            const d = hours[k];
+            const isOpen = !d.closed;
+            return (
+              <div key={k} className="flex items-center gap-3 py-2 flex-wrap">
+                <span className="w-9 shrink-0 text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {dayLabel[k]}
+                </span>
+                {/* Open / closed — 44px tap target for the host stand. */}
+                <label className="inline-flex items-center gap-1.5 cursor-pointer select-none shrink-0 min-h-[44px]">
+                  <input
+                    type="checkbox"
+                    checked={isOpen}
+                    onChange={(e) => setHourDay(k, { closed: !e.target.checked })}
+                    className="w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-400"
+                  />
+                  <span className="text-xs text-gray-500 dark:text-gray-400 w-12">
+                    {isOpen ? t("rsvpHoursOpen", "Open") : t("rsvpHoursClosed", "Closed")}
+                  </span>
+                </label>
+                {isOpen ? (
+                  <div className="inline-flex items-center gap-1.5">
+                    <input
+                      type="time"
+                      value={d.open}
+                      onChange={(e) => setHourDay(k, { open: e.target.value })}
+                      aria-label={t("rsvpHoursOpenAt", "Opens")}
+                      className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+                    />
+                    <span className="text-gray-400" aria-hidden>–</span>
+                    <input
+                      type="time"
+                      value={d.close}
+                      onChange={(e) => setHourDay(k, { close: e.target.value })}
+                      aria-label={t("rsvpHoursCloseAt", "Closes")}
+                      className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+                    />
+                  </div>
+                ) : (
+                  <span className="text-sm text-gray-400 dark:text-gray-500">
+                    {t("rsvpHoursClosedDay", "Closed all day")}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center justify-end gap-3 pt-1">
+          {hoursSaved && (
+            <span className="text-xs text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1">
+              <Check className="w-3.5 h-3.5" /> {t("rsvpSaved", "Saved")}
+            </span>
+          )}
+          <Button
+            type="button"
+            variant="primary"
+            size="lg"
+            busy={savingHours}
+            onClick={saveHours}
+          >
+            {t("save", "Save")}
+          </Button>
+        </div>
+      </div>
 
       {/* Availability settings (kept simple — a few numbers). <form> so
           Enter saves from any field on a host-stand keyboard. */}

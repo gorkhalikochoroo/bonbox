@@ -105,20 +105,34 @@ def _parse_hhmm(s: str) -> time | None:
 
 def restaurant_windows(profile: BusinessProfile | None, day: date,
                        settings: dict) -> list[TimeWindow]:
-    """One open window for the day from operating_hours_json. Closes past
-    midnight roll to the next day (e.g. '18:00-02:00')."""
+    """The day's open window for bookings. Source precedence:
+      1. `booking_hours` in reservation settings — owner-set "we take bookings
+         Mon 17:00–23:00, Tue closed, …" (a dict keyed by mon..sun, values
+         "HH:MM-HH:MM" or "closed"). This is the explicit control.
+      2. the business's `operating_hours_json` (same format),
+      3. the `fallback_open`/`fallback_close` defaults.
+    Closes past midnight roll to the next day (e.g. '18:00-02:00')."""
     key = _WEEKDAY_KEYS[day.weekday()]
     spec = None
-    raw = getattr(profile, "operating_hours_json", None) if profile else None
-    if raw:
-        try:
-            hours = json.loads(raw)
-            spec = hours.get(key) if isinstance(hours, dict) else None
-        except (ValueError, TypeError):
-            spec = None
+
+    # 1. Reservation-specific booking hours win (owner sets them in Settings).
+    bh = settings.get("booking_hours")
+    if isinstance(bh, dict) and bh.get(key):
+        spec = bh.get(key)
+
+    # 2. Else fall back to the business's operating hours.
+    if spec is None:
+        raw = getattr(profile, "operating_hours_json", None) if profile else None
+        if raw:
+            try:
+                hours = json.loads(raw)
+                spec = hours.get(key) if isinstance(hours, dict) else None
+            except (ValueError, TypeError):
+                spec = None
 
     if spec == "closed":
         return []
+    # 3. Else the fallback open/close.
     open_s, close_s = settings["fallback_open"], settings["fallback_close"]
     if spec and "-" in spec:
         parts = spec.split("-")
