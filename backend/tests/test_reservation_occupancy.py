@@ -162,6 +162,45 @@ def _restaurant(db, *, plan: str = "starter", tables: int = 1,
     return u, profile, resources
 
 
+def _combine_restaurant(db, *, plan: str = "starter"):
+    """Owner + profile + a combinable 4-top and 2-top in the SAME zone — the
+    'seat a party of 6 across two tables' floor."""
+    u = User(
+        email=f"owner-{uuid.uuid4().hex[:6]}@bonbox.test",
+        password_hash="x", business_name="Combo Bistro",
+        business_type="restaurant", currency="DKK", plan=plan,
+    )
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+
+    hours = {k: "11:00-23:00" for k in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")}
+    profile = BusinessProfile(
+        user_id=u.id, company_name="Combo Bistro",
+        reservation_slug=f"combo-{uuid.uuid4().hex[:6]}",
+        reservations_enabled=True,
+        reservation_settings_json=json.dumps(_SETTINGS),
+        operating_hours_json=json.dumps(hours),
+    )
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+
+    t4 = BookableResource(
+        user_id=u.id, kind="table", label="Bord 1", capacity_seats=4,
+        zone="inde", combinable=True, sort_order=0,
+    )
+    t2 = BookableResource(
+        user_id=u.id, kind="table", label="Bord 2", capacity_seats=2,
+        zone="inde", combinable=True, sort_order=1,
+    )
+    db.add_all([t4, t2])
+    db.commit()
+    db.refresh(t4)
+    db.refresh(t2)
+    return u, profile, [t4, t2]
+
+
 def _post_public(client, slug, *, time="19:00", party=2, idem=None):
     headers = {"X-Idempotency-Key": idem} if idem else {}
     return client.post(
@@ -454,6 +493,71 @@ def test_owner_manual_unassigned_no_occupancy(client, db, engine_and_session):
         assert _all_occ(db, rid) == []
     finally:
         _clear_user_override()
+
+
+# ─── combined seating (table combining) ────────────────────────────────
+def test_combined_booking_writes_one_occupancy_row_per_table(client, db, engine_and_session):
+    """A party that fits no single table is seated across two combinable
+    tables: TWO active occupancy rows, and combined_resource_ids lists both."""
+    _, profile, resources = _combine_restaurant(db)
+    slug = profile.reservation_slug
+
+    resp = _post_public(client, slug, time="19:00", party=6)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "confirmed"
+
+    rid = uuid.UUID(body["id"])
+    occ = _active_occ(db, rid)
+    assert len(occ) == 2
+    assert {str(o.resource_id) for o in occ} == {str(resources[0].id), str(resources[1].id)}
+
+    r = db.query(Reservation).filter(Reservation.id == rid).first()
+    assert r.combined_resource_ids is not None
+    assert len(r.combined_resource_ids) == 2
+    # Primary resource_id is one of the combined tables.
+    assert str(r.resource_id) in {str(resources[0].id), str(resources[1].id)}
+
+
+def test_combined_booking_blocks_each_member_table(client, db, engine_and_session):
+    """Once a party is seated across the 4-top + 2-top, BOTH tables are held —
+    a later overlapping booking that needs either one is refused (the secondary
+    table is busy via its own occupancy row, not just the primary)."""
+    _, profile, _ = _combine_restaurant(db)
+    slug = profile.reservation_slug
+
+    assert _post_public(client, slug, time="19:00", party=6).status_code == 200
+    # 19:30 overlaps the 19:00–20:30 combo; no free table of any size remains.
+    r2 = _post_public(client, slug, time="19:30", party=2)
+    assert r2.status_code == 409
+    assert r2.json()["detail"]["error"] == "slot_unavailable"
+
+
+def test_combined_booking_cancel_frees_both_tables(client, db, engine_and_session):
+    """Cancelling a combined booking releases BOTH occupancy rows, freeing the
+    tables for a fresh booking on the same slot."""
+    owner, profile, _ = _combine_restaurant(db)
+    slug = profile.reservation_slug
+
+    body = _post_public(client, slug, time="19:00", party=6).json()
+    rid = uuid.UUID(body["id"])
+    assert len(_active_occ(db, rid)) == 2
+
+    _override_user(owner)
+    try:
+        patch = client.patch(
+            f"/api/reservations/reservations/{body['id']}/status",
+            json={"status": "cancelled", "cancel_reason": "guest_called"},
+        )
+        assert patch.status_code == 200, patch.text
+    finally:
+        _clear_user_override()
+
+    db.expire_all()
+    assert _active_occ(db, rid) == []          # both rows released
+    assert len(_all_occ(db, rid)) == 2         # kept for history
+    # Slot free again — a fresh party of 6 can rebook the same combined slot.
+    assert _post_public(client, slug, time="19:00", party=6).status_code == 200
 
 
 # ─── insert-and-catch retry path (service-level, simulated conflict) ───

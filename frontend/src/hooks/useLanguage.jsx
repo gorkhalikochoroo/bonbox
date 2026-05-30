@@ -85,6 +85,15 @@ const translations = {
     rsvpFloorEmpty: "No tables yet — add your first above.",
     rsvpTableCapHit: "You've reached your plan's table limit ({limit}). Upgrade to add more.",
     rsvpTableCapBenefit: "Unlimited tables",
+    // Table combining
+    rsvpCombinable: "Can be combined",
+    rsvpCombinableHint: "Push together with other combinable tables in the same zone to seat a bigger party.",
+    rsvpCombineShort: "Combine",
+    rsvpCombinableToggleTitle: "Combine with other combinable tables in the same zone to seat bigger parties",
+    rsvpCombinedTablesTitle: "Seated across multiple tables",
+    rsvpCombineSetting: "Table combining",
+    rsvpCombineSettingHint: "Let big parties be seated across multiple combinable tables in the same zone.",
+    rsvpMaxComboSize: "Max tables per party",
     // Settings + share
     rsvpSettingsError: "Couldn't load settings.",
     rsvpSettingsSaveError: "Couldn't save settings.",
@@ -3904,6 +3913,15 @@ const translations = {
     rsvpFloorEmpty: "Ingen borde endnu — tilføj dit første ovenfor.",
     rsvpTableCapHit: "Du har nået din plans grænse for borde ({limit}). Opgradér for at tilføje flere.",
     rsvpTableCapBenefit: "Ubegrænsede borde",
+    // Kombinér borde
+    rsvpCombinable: "Kan kombineres",
+    rsvpCombinableHint: "Skub sammen med andre kombinerbare borde i samme zone for at give plads til et større selskab.",
+    rsvpCombineShort: "Kombinér",
+    rsvpCombinableToggleTitle: "Kombinér med andre kombinerbare borde i samme zone for større selskaber",
+    rsvpCombinedTablesTitle: "Placeret ved flere borde",
+    rsvpCombineSetting: "Kombinér borde",
+    rsvpCombineSettingHint: "Lad store selskaber placeres ved flere kombinerbare borde i samme zone.",
+    rsvpMaxComboSize: "Maks. borde pr. selskab",
     // Indstillinger + del
     rsvpSettingsError: "Kunne ikke hente indstillinger.",
     rsvpSettingsSaveError: "Kunne ikke gemme indstillinger.",

@@ -164,8 +164,8 @@ Same `bookable_resource` + `reservation_occupancy` + engine; `business_type` dri
 ## 9. v1 → target gap list (prioritised)
 | # | Gap | Severity | Target (this doc) |
 |---|---|---|---|
-| 1 | No DB overlap guarantee (race → double-book) | **P0** | §2 exclusion constraint + insert-and-catch |
-| 2 | Single-resource (no combinable tables) | **P1** | §3 `reservation_occupancy` + `resource_combos` |
+| 1 | ~~No DB overlap guarantee (race → double-book)~~ | ✅ **SHIPPED** | §2 exclusion constraint + insert-and-catch *(Migration 055; proven on prod)* |
+| 2 | ~~Single-resource (no combinable tables)~~ | ✅ **SHIPPED** | §3 `reservation_occupancy` multi-row + `find_combo` engine *(Migration 056; `combinable` flag per table)* |
 | 3 | No visual floor / timeline | P1 | §7 floor + timeline views |
 | 4 | No walk-in / waitlist | P1 | §7 walk-in + §3 waitlist |
 | 5 | Formal state machine + auto-no-show | P2 | §4 |
@@ -175,9 +175,16 @@ Same `bookable_resource` + `reservation_occupancy` + engine; `business_type` dri
 | 9 | Deposits/no-show capture | P2 | needs payment rails (Stripe/Reepay) |
 
 ## 10. Build sequence
-1. **P0 — integrity backbone:** `reservation_occupancy` + exclusion constraint + insert-and-catch create flow + tests that hammer concurrent identical bookings and assert exactly one wins. *(Migration 023; Postgres-guarded.)*
-2. **P1 — combinable tables** (combos + multi-row occupancy) → **walk-in** → **timeline grid** → **visual floor** → **waitlist**.
+1. ✅ **P0 — integrity backbone:** `reservation_occupancy` + exclusion constraint + insert-and-catch create flow + tests that hammer concurrent identical bookings and assert exactly one wins. *(Migration 055; Postgres-guarded. Proven on prod: overlap rejected, touching allowed.)*
+2. ✅ **P1 — combinable tables** (combos + multi-row occupancy): per-table `combinable` flag + zone-scoped `find_combo` (smallest table-count, then least waste) + `busy_for_day` reads occupancy so each combo member blocks individually. *(Migration 056. 15 engine/occupancy tests.)* → **next: walk-in → timeline grid → visual floor → waitlist.**
 3. **P2 — state machine formalization + auto-no-show**, service-periods table, availability cache, appointment owner-UI.
 4. **Later — deposits/no-show capture** (payment rails), the Events↔Reservations bridge, guest CRM.
 
 > The P0 backbone is the one that makes the system trustworthy — without it, "best-in-class" is undermined by a race that quietly seats two parties at one table on a busy Friday. Everything else is depth on a sound foundation.
+
+### Combinable tables — how it works (shipped)
+- **Opt-in per table:** owners flag tables `combinable` on the Floor tab. Only combinable tables sharing a **zone** can be pushed together (an indoor table can't join a terrace one).
+- **Single table first:** the engine always prefers one table that fits; it only combines when no single table seats the party — so two tables are never tied up when one would do.
+- **Best-combo heuristic:** fewest tables, then least wasted seats (a party of 5 takes a 4-top + 2-top, not 4-top + 4-top).
+- **Integrity preserved:** each combined table gets its **own** `reservation_occupancy` row, all inserted in one transaction. If any member lost a concurrent race the whole booking rolls back (never a half-seated party). Cancel/no-show releases every member row.
+- **Bounded:** `combine_enabled` (default on) + `max_combo_size` (default 3) in settings; group-request threshold still routes very large parties to owner approval.

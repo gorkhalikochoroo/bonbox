@@ -9,6 +9,7 @@ The pure maths live in availability_engine.py; this layer is the glue.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, datetime, time, timedelta
 
 from sqlalchemy.orm import Session
@@ -16,11 +17,15 @@ from sqlalchemy.orm import Session
 from app.models.bookable_resource import BookableResource
 from app.models.business_profile import BusinessProfile
 from app.models.reservation import Reservation
+from app.models.reservation_occupancy import ReservationOccupancy
 from app.models.staff import Schedule
 from app.services.availability_engine import (
     AvailabilityConfig, BusyInterval, ResourceView, TimeWindow,
-    compute_slots, find_slot_resource, turn_time_minutes,
+    combinable_zone_overflow, compute_slots, find_slot_resource,
+    find_slot_resources, turn_time_minutes,
 )
+
+logger = logging.getLogger(__name__)
 
 # Statuses that still occupy a resource (a cancelled/no-show row frees it).
 ACTIVE_STATUSES = ("requested", "confirmed", "seated")
@@ -43,6 +48,12 @@ DEFAULT_SETTINGS: dict = {
     "max_advance_days": 60,          # how far ahead guests can book
     "max_party_size": 10,            # online ceiling — bigger → "call us"
     "group_request_threshold": 8,    # at/above → request (owner approves)
+    # Table combining: push 2+ combinable same-zone tables together for a
+    # party no single table fits (a 6 across a 4-top + 2-top). On by default,
+    # but inert until the owner flags tables `combinable` — so a fresh floor
+    # behaves exactly as before. max_combo_size caps tables per seating.
+    "combine_enabled": True,
+    "max_combo_size": 3,
     "retention_days": 90,            # GDPR purge window after service date
     # Appointment vertical default service length when none specified.
     "default_service_duration_min": 60,
@@ -79,6 +90,8 @@ def build_config(settings: dict) -> AvailabilityConfig:
         default_duration_min=int(settings.get("default_duration_min", 90)),
         lead_time_min=int(settings.get("lead_time_min", 0)),
         max_party_size=settings.get("max_party_size"),
+        combine_enabled=bool(settings.get("combine_enabled", True)),
+        max_combo_size=int(settings.get("max_combo_size", 3) or 3),
     )
 
 
@@ -162,30 +175,51 @@ def active_resources(db: Session, user_id) -> list[BookableResource]:
 
 
 def busy_for_day(db: Session, user_id, day: date) -> list[BusyInterval]:
-    """Active reservations overlapping the day (+/- a margin for turns that
-    straddle midnight). Cancelled / no-show rows free their resource."""
+    """What's occupied on the day (+/- a margin for turns that straddle
+    midnight). Read from `reservation_occupancy` — the SAME source of truth the
+    DB exclusion constraint enforces — so a combined seating contributes one
+    busy interval PER table (a 6-top booking across a 4-top + 2-top blocks
+    BOTH), and a cancelled/no-show/completed reservation (its rows flipped
+    active=FALSE) frees its tables automatically. A `requested` group hold owns
+    no occupancy row, so it correctly blocks nothing until approved."""
     lo = datetime.combine(day, time(0, 0)) - timedelta(hours=6)
     hi = datetime.combine(day, time(0, 0)) + timedelta(days=1, hours=6)
     rows = (
-        db.query(Reservation)
+        db.query(ReservationOccupancy)
         .filter(
-            Reservation.user_id == user_id,
-            Reservation.is_deleted.is_(False),
-            Reservation.status.in_(ACTIVE_STATUSES),
-            Reservation.resource_id.isnot(None),
-            Reservation.starts_at < hi,
-            Reservation.ends_at > lo,
+            ReservationOccupancy.user_id == user_id,
+            ReservationOccupancy.active.is_(True),
+            ReservationOccupancy.starts_at < hi,
+            ReservationOccupancy.ends_at > lo,
         )
         .all()
     )
     return [
-        BusyInterval(resource_id=str(r.resource_id), start=r.starts_at, end=r.ends_at)
-        for r in rows
+        BusyInterval(resource_id=str(o.resource_id), start=o.starts_at, end=o.ends_at)
+        for o in rows
     ]
 
 
 def _views(resources: list[BookableResource]) -> list[ResourceView]:
-    return [ResourceView(id=str(r.id), capacity_seats=r.capacity_seats) for r in resources]
+    return [
+        ResourceView(
+            id=str(r.id), capacity_seats=r.capacity_seats,
+            combinable=bool(getattr(r, "combinable", False)), zone=r.zone,
+        )
+        for r in resources
+    ]
+
+
+def _log_combo_overflow(views: list[ResourceView]) -> None:
+    """Honest-claims: if any zone has more combinable tables than the engine's
+    per-zone search cap, the search only considers the smallest ones — say so
+    in the log rather than silently capping coverage. No-op for normal floors."""
+    for zone, count in combinable_zone_overflow(views):
+        logger.warning(
+            "reservation combine: zone %r has %d combinable tables — only the "
+            "smallest are considered for combinations (per-zone search cap).",
+            zone, count,
+        )
 
 
 def available_slots(db: Session, *, profile: BusinessProfile, user_id, day: date,
@@ -208,8 +242,11 @@ def available_slots(db: Session, *, profile: BusinessProfile, user_id, day: date
     if tables:
         windows = restaurant_windows(profile, day, settings)
         if windows:
+            table_views = _views(tables)
+            if config.combine_enabled:
+                _log_combo_overflow(table_views)
             for s in compute_slots(
-                windows=windows, resources=_views(tables), busy=busy,
+                windows=windows, resources=table_views, busy=busy,
                 party_size=party_size, config=config, now=now,
                 duration_min=duration_min,
             ):
@@ -230,12 +267,17 @@ def available_slots(db: Session, *, profile: BusinessProfile, user_id, day: date
     return sorted(starts)
 
 
-def recheck_and_assign(db: Session, *, profile: BusinessProfile, user_id,
-                       start: datetime, party_size: int,
-                       now: datetime | None = None,
-                       duration_min: int | None = None) -> str | None:
-    """Server-side race re-check at booking time. Returns the resource id to
-    assign, or None if the slot is no longer bookable."""
+def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
+                             start: datetime, party_size: int,
+                             now: datetime | None = None,
+                             duration_min: int | None = None) -> list[str] | None:
+    """Server-side race re-check at booking time, combo-aware. Returns the full
+    table set to assign — one id for a single table, or two+ when the party can
+    only be seated by combining tables — or None if no longer bookable.
+
+    Restaurant tables are checked first (and may combine); appointment
+    providers each carry capacity 1 and never combine, so they return at most a
+    single id. The caller writes one occupancy row per id, atomically."""
     settings = load_settings(profile)
     config = build_config(settings)
     resources = active_resources(db, user_id)
@@ -244,27 +286,44 @@ def recheck_and_assign(db: Session, *, profile: BusinessProfile, user_id,
     tables = [r for r in resources if r.kind != "provider"]
     if tables:
         windows = restaurant_windows(profile, start.date(), settings)
-        rid = find_slot_resource(
+        table_views = _views(tables)
+        if config.combine_enabled:
+            _log_combo_overflow(table_views)
+        ids = find_slot_resources(
             requested_start=start, party_size=party_size, windows=windows,
-            resources=_views(tables), busy=busy, config=config, now=now,
+            resources=table_views, busy=busy, config=config, now=now,
             duration_min=duration_min,
         )
-        if rid:
-            return rid
+        if ids:
+            return ids
 
     for p in resources:
         if p.kind != "provider":
             continue
         windows = provider_windows(db, user_id, p.staff_id, start.date())
         dur = duration_min or settings.get("default_service_duration_min", 60)
-        rid = find_slot_resource(
+        ids = find_slot_resources(
             requested_start=start, party_size=party_size, windows=windows,
             resources=_views([p]), busy=busy, config=config, now=now,
             duration_min=dur,
         )
-        if rid:
-            return rid
+        if ids:
+            return ids
     return None
+
+
+def recheck_and_assign(db: Session, *, profile: BusinessProfile, user_id,
+                       start: datetime, party_size: int,
+                       now: datetime | None = None,
+                       duration_min: int | None = None) -> str | None:
+    """Single-id back-compat wrapper over `recheck_and_assign_combo` — returns
+    the PRIMARY table to assign (or None). Kept for callers that don't yet
+    handle combined seatings; new code should use the combo variant."""
+    ids = recheck_and_assign_combo(
+        db, profile=profile, user_id=user_id, start=start,
+        party_size=party_size, now=now, duration_min=duration_min,
+    )
+    return ids[0] if ids else None
 
 
 def resolve_duration(profile: BusinessProfile, party_size: int,

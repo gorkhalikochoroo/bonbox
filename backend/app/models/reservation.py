@@ -57,9 +57,21 @@ class Reservation(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), index=True)
 
     # Assigned resource. NULL while a request is pending (no hold yet) or
-    # if the owner books "any table" — auto-assigned on confirm.
+    # if the owner books "any table" — auto-assigned on confirm. For a
+    # combined seating this holds the PRIMARY table (the first id of
+    # combined_resource_ids) for display + sort; the full set lives below and
+    # the per-table holds live in reservation_occupancy.
     resource_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("bookable_resources.id"), nullable=True,
+    )
+
+    # Combined seating: the full ordered list of table ids (incl. the primary)
+    # when a party was seated across two+ tables. NULL / absent for the common
+    # single-table booking. This is a display convenience — the authoritative,
+    # overlap-protected hold for EACH table is its own reservation_occupancy
+    # row, so combining can never weaken the no-double-booking guarantee.
+    combined_resource_ids: Mapped[list | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True,
     )
 
     # ── Guest (personal data — purged after `purge_after`) ─────────────

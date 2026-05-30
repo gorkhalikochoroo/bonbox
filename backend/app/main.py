@@ -1589,6 +1589,7 @@ _migrations = [
         label VARCHAR(120) NOT NULL,
         capacity_seats INTEGER NOT NULL DEFAULT 2,
         zone VARCHAR(60),
+        combinable BOOLEAN NOT NULL DEFAULT FALSE,
         staff_id VARCHAR(36) REFERENCES staff_members(id),
         sort_order INTEGER NOT NULL DEFAULT 0,
         is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -1604,6 +1605,7 @@ _migrations = [
         id VARCHAR(36) PRIMARY KEY,
         user_id VARCHAR(36) NOT NULL REFERENCES users(id),
         resource_id VARCHAR(36) REFERENCES bookable_resources(id),
+        combined_resource_ids JSONB,
         guest_name VARCHAR(160),
         guest_email VARCHAR(255),
         guest_phone VARCHAR(40),
@@ -1717,6 +1719,24 @@ _migrations = [
            SELECT 1 FROM reservation_occupancy o
            WHERE o.reservation_id = r.id AND o.resource_id = r.resource_id
          )""",
+    # ── Migration 056 (2026-05-30): Combinable tables ──
+    # Seat a party that fits no single table across 2+ combinable same-zone
+    # tables (a 6 across a 4-top + 2-top). Each combined table keeps its OWN
+    # reservation_occupancy row, so Migration 055's exclusion constraint still
+    # guarantees no double-booking per table — combining never weakens the
+    # guarantee. See docs/reservations-architecture.md §10 +
+    # app/services/availability_engine.py:find_combo.
+    #
+    # Both columns ALSO live in the emergency-restore CREATE TABLE blocks
+    # above; these idempotent ALTERs add them to the live prod tables (built by
+    # create_all from the pre-combine models). REQUIRED by the schema-drift
+    # self-test — the new model columns must exist on Postgres or strict
+    # startup keeps returning 503 (and the prior healthy deploy stays live).
+    # `ADD COLUMN ... NOT NULL DEFAULT FALSE` backfills existing rows with a
+    # constant default (no table rewrite on PG 11+); combinable defaults off so
+    # existing floors behave exactly as before until an owner opts a table in.
+    "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS combinable BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS combined_resource_ids JSONB",
 ]
 
 

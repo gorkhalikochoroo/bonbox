@@ -51,8 +51,17 @@ class BookableResource(Base):
     capacity_seats: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
 
     # Optional grouping — "Indendørs" / "Terrasse" / "Bar". Surfaced in the
-    # owner floor view; not used by the availability maths in v1.
+    # owner floor view, AND scopes table-combining: only tables sharing a zone
+    # can be pushed together (you can't join an indoor table to a terrace one).
     zone: Mapped[str | None] = mapped_column(String(60), nullable=True)
+
+    # Can this table be pushed together with other combinable tables in the
+    # same zone to seat a party that fits no single table (a party of 6 across
+    # a 4-top + a 2-top)? Each combined table keeps its own occupancy row, so
+    # the DB exclusion constraint still guarantees no double-booking. Tables /
+    # rooms only — providers (capacity 1) are never combinable. Default off:
+    # combining is opt-in per table so a fresh floor behaves exactly as before.
+    combinable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # For kind='provider': the StaffMember whose published schedule defines
     # this resource's availability windows. NULL for tables/rooms.

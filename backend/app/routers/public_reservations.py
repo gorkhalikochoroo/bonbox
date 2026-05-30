@@ -215,22 +215,23 @@ def create_reservation(request: Request, slug: str = Path(...),
     group_threshold = settings.get("group_request_threshold")
     is_request = bool(group_threshold and payload.party_size >= group_threshold)
 
-    resource_id = None
+    resource_ids = None
     if not is_request:
         # Confirmed booking — re-check the slot server-side (fast path) &
-        # assign a table. The DB exclusion constraint is the real backstop
-        # (see insert-and-catch below); this just avoids a doomed INSERT.
-        resource_id = rsvc.recheck_and_assign(
+        # assign a table, or a combination of tables when no single one fits
+        # the party. The DB exclusion constraint is the real backstop (see
+        # insert-and-catch below); this just avoids a doomed INSERT.
+        resource_ids = rsvc.recheck_and_assign_combo(
             db, profile=profile, user_id=owner.id, start=start,
             party_size=payload.party_size, now=_now_local(),
         )
-        if resource_id is None:
+        if not resource_ids:
             raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
 
     btype = getattr(owner, "business_type", None) or "restaurant"
     r = Reservation(
         user_id=owner.id,
-        resource_id=resource_id,
+        resource_id=(resource_ids[0] if resource_ids else None),
         guest_name=payload.guest_name, guest_email=payload.guest_email,
         guest_phone=payload.guest_phone,
         guest_consent_marketing=payload.consent_marketing,
@@ -262,7 +263,7 @@ def create_reservation(request: Request, slug: str = Path(...),
         # recheck above is the only guard (local-dev caveat, by design).
         try:
             occ_service.create_reservation_with_occupancy(
-                db, profile=profile, reservation=r, initial_resource_id=resource_id,
+                db, profile=profile, reservation=r, initial_resource_ids=resource_ids,
                 party_size=payload.party_size, start=start, duration_min=duration,
                 now=_now_local(),
             )

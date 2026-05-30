@@ -15,7 +15,7 @@
 //   GET    /reservations/book?day=YYYY-MM-DD
 //   PATCH  /reservations/reservations/{id}/status   {status, cancel_reason?}
 //   GET    /reservations/resources
-//   POST   /reservations/resources                  {kind, label, capacity_seats, zone}
+//   POST   /reservations/resources                  {kind, label, capacity_seats, zone, combinable}
 //   PATCH  /reservations/resources/{id}
 //   DELETE /reservations/resources/{id}
 //   GET    /reservations/settings
@@ -395,6 +395,15 @@ function ReservationRow({ r, t, busy, onStatus }) {
           </div>
           <div className="text-sm text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-2 flex-wrap">
             <StatusPill status={r.status} label={statusLabel[r.status] || r.status} />
+            {Array.isArray(r.combined_resource_labels) && r.combined_resource_labels.length > 1 && (
+              <span
+                title={t("rsvpCombinedTablesTitle", "Seated across multiple tables")}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+              >
+                <Armchair className="w-3.5 h-3.5" aria-hidden />
+                {r.combined_resource_labels.join(" + ")}
+              </span>
+            )}
             {r.occasion && <span>· {r.occasion}</span>}
             {r.source === "public" && <span>· {t("rsvpSourceOnline", "online")}</span>}
             {(r.source === "walk_in") && <span>· {t("rsvpSourceWalkIn", "walk-in")}</span>}
@@ -470,6 +479,7 @@ function FloorSection({ t }) {
   const [label, setLabel] = useState("");
   const [seats, setSeats] = useState("2");
   const [zone, setZone] = useState("");
+  const [combinable, setCombinable] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const fetchResources = useCallback(async () => {
@@ -506,11 +516,13 @@ function FloorSection({ t }) {
         label: label.trim(),
         capacity_seats: Math.max(1, Math.min(100, parseInt(seats, 10) || 2)),
         zone: zone.trim() || null,
+        combinable,
       });
       setResources((prev) => [...prev, res.data]);
       setLabel("");
       setSeats("2");
       setZone("");
+      setCombinable(false);
     } catch (e) {
       // 402 cap_exceeded → show the cap message + upgrade nudge. FastAPI
       // wraps HTTPException(detail=…) so the structured payload
@@ -545,6 +557,19 @@ function FloorSection({ t }) {
     );
     try {
       await api.patch(`/reservations/resources/${r.id}`, { capacity_seats });
+    } catch {
+      fetchResources();
+    }
+  };
+
+  const toggleCombinable = async (r) => {
+    const next = !r.combinable;
+    // Optimistic.
+    setResources((prev) =>
+      prev.map((x) => (x.id === r.id ? { ...x, combinable: next } : x)),
+    );
+    try {
+      await api.patch(`/reservations/resources/${r.id}`, { combinable: next });
     } catch {
       fetchResources();
     }
@@ -613,6 +638,23 @@ function FloorSection({ t }) {
             className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
           />
         </div>
+        <label className="flex items-start gap-2.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={combinable}
+            onChange={(e) => setCombinable(e.target.checked)}
+            className="mt-0.5 w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-400"
+          />
+          <span className="text-sm text-gray-700 dark:text-gray-300 leading-snug">
+            {t("rsvpCombinable", "Can be combined")}
+            <span className="block text-xs text-gray-400 dark:text-gray-500">
+              {t(
+                "rsvpCombinableHint",
+                "Push together with other combinable tables in the same zone to seat a bigger party.",
+              )}
+            </span>
+          </span>
+        </label>
         <div className="flex justify-end">
           <Button type="submit" variant="primary" size="lg" busy={saving} iconLeft={<Plus className="w-4 h-4" />}>
             {t("rsvpAddTableBtn", "Add table")}
@@ -673,6 +715,24 @@ function FloorSection({ t }) {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => toggleCombinable(r)}
+                  aria-pressed={!!r.combinable}
+                  title={t(
+                    "rsvpCombinableToggleTitle",
+                    "Combine with other combinable tables in the same zone to seat bigger parties",
+                  )}
+                  className={
+                    "h-11 px-3 inline-flex items-center gap-1.5 rounded-lg border text-xs font-medium transition-colors " +
+                    (r.combinable
+                      ? "border-gray-900 bg-gray-900 text-white dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900"
+                      : "border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200")
+                  }
+                >
+                  <Link2 className="w-4 h-4" aria-hidden />
+                  <span className="hidden sm:inline">{t("rsvpCombineShort", "Combine")}</span>
+                </button>
                 <div className="relative w-24">
                   <input
                     type="text"
@@ -730,6 +790,8 @@ function SettingsSection({ t }) {
     lead_time_min: "",
     max_advance_days: "",
     pacing_max_per_slot: "",
+    combine_enabled: true,
+    max_combo_size: "",
   });
   // SMS reminders (Pro) — kept in its own state so the toggle/sender input
   // are independent of the availability-number form's save lifecycle.
@@ -749,6 +811,10 @@ function SettingsSection({ t }) {
       lead_time_min: s.lead_time_min ?? "",
       max_advance_days: s.max_advance_days ?? "",
       pacing_max_per_slot: s.pacing_max_per_slot ?? "",
+      // combine_enabled defaults on (matches the backend); only flips off if
+      // the owner explicitly disabled combining.
+      combine_enabled: s.combine_enabled !== false,
+      max_combo_size: s.max_combo_size ?? "",
     });
     setSms({
       enabled: !!s.sms_reminders,
@@ -864,6 +930,12 @@ function SettingsSection({ t }) {
     // pacing: blank → null (no cap); a number → that cap.
     settings.pacing_max_per_slot =
       form.pacing_max_per_slot === "" ? null : toInt(form.pacing_max_per_slot) ?? null;
+    // Table combining: always send the on/off flag; cap is clamped to 2–6
+    // (blank leaves the backend default of 3).
+    settings.combine_enabled = !!form.combine_enabled;
+    if (toInt(form.max_combo_size) !== undefined) {
+      settings.max_combo_size = Math.max(2, Math.min(6, toInt(form.max_combo_size)));
+    }
     try {
       const res = await api.put("/reservations/settings", { settings });
       applyData(res.data || null);
@@ -1111,6 +1183,36 @@ function SettingsSection({ t }) {
             value={form.pacing_max_per_slot}
             onChange={(v) => setForm((f) => ({ ...f, pacing_max_per_slot: v }))}
           />
+        </div>
+        {/* Table combining — flag tables as combinable on the Floor tab; this
+            switch governs whether the engine actually combines them. */}
+        <div className="pt-3 border-t border-gray-100 dark:border-gray-800">
+          <label className="flex items-start gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!form.combine_enabled}
+              onChange={(e) => setForm((f) => ({ ...f, combine_enabled: e.target.checked }))}
+              className="mt-0.5 w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-400"
+            />
+            <span className="text-sm text-gray-700 dark:text-gray-300 leading-snug">
+              {t("rsvpCombineSetting", "Table combining")}
+              <span className="block text-xs text-gray-400 dark:text-gray-500">
+                {t(
+                  "rsvpCombineSettingHint",
+                  "Let big parties be seated across multiple combinable tables in the same zone.",
+                )}
+              </span>
+            </span>
+          </label>
+          {form.combine_enabled && (
+            <div className="mt-3 sm:max-w-[14rem]">
+              <NumberField
+                label={t("rsvpMaxComboSize", "Max tables per party")}
+                value={form.max_combo_size}
+                onChange={(v) => setForm((f) => ({ ...f, max_combo_size: v }))}
+              />
+            </div>
+          )}
         </div>
         <div className="flex items-center justify-end gap-3">
           {formSaved && (

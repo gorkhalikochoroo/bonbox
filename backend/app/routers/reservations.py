@@ -57,6 +57,7 @@ class ResourceCreate(BaseModel):
     label: str = Field(min_length=1, max_length=120)
     capacity_seats: int = Field(default=2, ge=1, le=100)
     zone: str | None = Field(default=None, max_length=60)
+    combinable: bool = False
     staff_id: UUID | None = None
     sort_order: int = 0
 
@@ -65,6 +66,7 @@ class ResourceUpdate(BaseModel):
     label: str | None = Field(default=None, max_length=120)
     capacity_seats: int | None = Field(default=None, ge=1, le=100)
     zone: str | None = Field(default=None, max_length=60)
+    combinable: bool | None = None
     is_active: bool | None = None
     sort_order: int | None = None
 
@@ -117,14 +119,20 @@ def _resource_dict(r: BookableResource) -> dict:
     return {
         "id": str(r.id), "kind": r.kind, "label": r.label,
         "capacity_seats": r.capacity_seats, "zone": r.zone,
+        "combinable": bool(getattr(r, "combinable", False)),
         "staff_id": str(r.staff_id) if r.staff_id else None,
         "sort_order": r.sort_order, "is_active": r.is_active,
     }
 
 
 def _reservation_dict(r: Reservation) -> dict:
+    combined = getattr(r, "combined_resource_ids", None) or None
     return {
         "id": str(r.id), "resource_id": str(r.resource_id) if r.resource_id else None,
+        # Full table set for a combined seating (["id1","id2"]); None/absent
+        # for a normal single-table booking. Frontend maps ids → labels via
+        # the resources list it already holds.
+        "combined_resource_ids": [str(x) for x in combined] if combined else None,
         "guest_name": r.guest_name, "guest_phone": r.guest_phone,
         "guest_email": r.guest_email, "party_size": r.party_size,
         "starts_at": r.starts_at.isoformat() if r.starts_at else None,
@@ -231,6 +239,7 @@ def create_resource(payload: ResourceCreate, request: Request,
     r = BookableResource(
         user_id=user.id, kind=payload.kind, label=payload.label,
         capacity_seats=payload.capacity_seats, zone=payload.zone,
+        combinable=bool(payload.combinable),
         staff_id=payload.staff_id, sort_order=payload.sort_order,
     )
     db.add(r)
@@ -252,7 +261,7 @@ def update_resource(resource_id: UUID, payload: ResourceUpdate,
     )
     if r is None:
         raise HTTPException(status_code=404, detail={"error": "not_found"})
-    for field in ("label", "capacity_seats", "zone", "is_active", "sort_order"):
+    for field in ("label", "capacity_seats", "zone", "combinable", "is_active", "sort_order"):
         val = getattr(payload, field)
         if val is not None:
             setattr(r, field, val)
@@ -303,9 +312,27 @@ def reservation_book(
         by_status[r.status] = by_status.get(r.status, 0) + 1
         if r.status in ("confirmed", "seated", "completed"):
             covers += r.party_size or 0
+
+    # id → label map so a combined seating can show "Bord 1 + Bord 2" in the
+    # book without a second round-trip. One query, all the owner's tables
+    # (incl. soft-deleted, so historical combos still resolve their labels).
+    label_by_id = {
+        str(res.id): res.label
+        for res in db.query(BookableResource)
+        .filter(BookableResource.user_id == user.id)
+        .all()
+    }
+    dicts = []
+    for r in rows:
+        d = _reservation_dict(r)
+        ids = d.get("combined_resource_ids")
+        if ids:
+            d["combined_resource_labels"] = [label_by_id.get(i, i) for i in ids]
+        dicts.append(d)
+
     return {
         "date": target.isoformat(),
-        "reservations": [_reservation_dict(r) for r in rows],
+        "reservations": dicts,
         "summary": {"total": len(rows), "covers": covers, "by_status": by_status},
     }
 
@@ -384,6 +411,10 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
     )
     if payload.resource_id is not None:
         r.resource_id = payload.resource_id
+        # Owner pinned ONE specific table → this is a single-table booking now;
+        # drop any stale combined-set left over from a prior combo assignment
+        # (keeps the book's "Bord 1 + Bord 2" chip honest).
+        r.combined_resource_ids = None
     if payload.status == "seated":
         r.seated_at = utc_now()
     elif payload.status == "cancelled":
