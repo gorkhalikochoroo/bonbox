@@ -141,6 +141,9 @@ export default function DataTable({
   onToggleAll = null,
   mobileBreakpoint = "md",
   className = "",
+  // Optional: make each row/card clickable (e.g. open a detail drawer).
+  // Row-action buttons already stopPropagation, so they won't double-fire.
+  onRowClick = null,
 }) {
   const tableHide = BREAKPOINT_TABLE_HIDE[mobileBreakpoint] || BREAKPOINT_TABLE_HIDE.md;
   const cardsHide = BREAKPOINT_CARDS_HIDE[mobileBreakpoint] || BREAKPOINT_CARDS_HIDE.md;
@@ -264,15 +267,29 @@ export default function DataTable({
               return (
                 <tr
                   key={key}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onRowClick(row);
+                          }
+                        }
+                      : undefined
+                  }
+                  role={onRowClick ? "button" : undefined}
+                  tabIndex={onRowClick ? 0 : undefined}
                   className={
                     "transition-colors " +
+                    (onRowClick ? "cursor-pointer " : "") +
                     (isSelected
                       ? "bg-gray-100 dark:bg-gray-800"
                       : "hover:bg-gray-50 dark:hover:bg-gray-800/50")
                   }
                 >
                   {selectable && (
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={isSelected}
@@ -348,9 +365,27 @@ export default function DataTable({
                 isSelected ? "ring-1 ring-gray-900 dark:ring-gray-100" : ""
               }
             >
-              <dl className="space-y-2">
+              <dl
+                className={"space-y-2" + (onRowClick ? " cursor-pointer" : "")}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                onKeyDown={
+                  onRowClick
+                    ? (e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onRowClick(row);
+                        }
+                      }
+                    : undefined
+                }
+                role={onRowClick ? "button" : undefined}
+                tabIndex={onRowClick ? 0 : undefined}
+              >
                 {selectable && (
-                  <div className="flex items-center justify-between">
+                  <div
+                    className="flex items-center justify-between"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <label className="text-xs text-gray-500 dark:text-gray-400">
                       Select
                     </label>

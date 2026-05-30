@@ -490,7 +490,22 @@ function DetailRow({ label, value }) {
   );
 }
 
-function ReservationDrawer({ reservation, t, busy, onStatus, onClose }) {
+// Resolve a booking's table(s) to a display label using the resource map —
+// handles a single table (resource_id) and a combined seating
+// (combined_resource_ids → "Bord 4 + Bord 2"). Returns null if unknown.
+function resolveTableLabel(r, labelById) {
+  if (!r || !labelById) return null;
+  const ids =
+    Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length
+      ? r.combined_resource_ids
+      : r.resource_id
+        ? [r.resource_id]
+        : [];
+  const labels = ids.map((id) => labelById[String(id)]).filter(Boolean);
+  return labels.length ? labels.join(" + ") : null;
+}
+
+function ReservationDrawer({ reservation, t, busy, onStatus, onClose, tableLabel = null }) {
   if (!reservation) return null;
   const r = reservation;
   const labels = statusLabels(t);
@@ -517,11 +532,6 @@ function ReservationDrawer({ reservation, t, busy, onStatus, onClose }) {
   } else if (r.status === "seated") {
     actions.push({ id: "completed", label: t("rsvpCompleteAction", "Complete"), to: "completed" });
   }
-
-  const combinedLabels =
-    Array.isArray(r.combined_resource_labels) && r.combined_resource_labels.length > 1
-      ? r.combined_resource_labels.join(" + ")
-      : null;
 
   return (
     <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
@@ -566,8 +576,33 @@ function ReservationDrawer({ reservation, t, busy, onStatus, onClose }) {
         )}
 
         <div className="space-y-1.5">
-          {r.guest_phone && <DetailRow label={t("rsvpPhone", "Phone")} value={r.guest_phone} />}
-          {combinedLabels && <DetailRow label={t("rsvpColTable", "Table")} value={combinedLabels} />}
+          {tableLabel && <DetailRow label={t("rsvpColTable", "Table")} value={tableLabel} />}
+          {r.guest_phone && (
+            <DetailRow
+              label={t("rsvpDetailPhone", "Phone")}
+              value={
+                <a
+                  href={`tel:${String(r.guest_phone).replace(/\s+/g, "")}`}
+                  className="text-gray-900 dark:text-gray-100 underline-offset-2 hover:underline"
+                >
+                  {r.guest_phone}
+                </a>
+              }
+            />
+          )}
+          {r.guest_email && (
+            <DetailRow
+              label={t("rsvpDetailEmail", "Email")}
+              value={
+                <a
+                  href={`mailto:${r.guest_email}`}
+                  className="text-gray-900 dark:text-gray-100 underline-offset-2 hover:underline break-all"
+                >
+                  {r.guest_email}
+                </a>
+              }
+            />
+          )}
           {r.occasion && <DetailRow label={t("rsvpOccasion", "Occasion")} value={r.occasion} />}
         </div>
         {r.guest_notes && (
@@ -878,8 +913,8 @@ function BookSection({ t }) {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [zoneFilter, setZoneFilter] = useState("all");
-  // The reservation open in the detail drawer (from a Plan tile or a
-  // timeline block). null = drawer closed.
+  // The reservation open in the detail drawer (from a Liste row, a Plan
+  // tile, or a timeline block). null = drawer closed.
   const [selected, setSelected] = useState(null);
   // Seat-now: the free table the host is seating a walk-in onto.
   const [seatTarget, setSeatTarget] = useState(null);
@@ -1240,6 +1275,7 @@ function BookSection({ t }) {
             rowKey="id"
             loading={loading}
             rowActions={rowActions}
+            onRowClick={setSelected}
             mobileBreakpoint="md"
             empty={
               <Empty
@@ -1284,11 +1320,12 @@ function BookSection({ t }) {
           />
         ))}
 
-      {/* Shared detail drawer — opened from a Plan tile (and, next phase, a
-          timeline block). Status actions reuse the same optimistic handler. */}
+      {/* Shared detail drawer — opened from a Liste row, a Plan tile, or a
+          timeline block. Status actions reuse the same optimistic handler. */}
       {selected && (
         <ReservationDrawer
           reservation={selected}
+          tableLabel={resolveTableLabel(selected, labelById)}
           t={t}
           busy={actioningId === selected.id}
           onStatus={(r, to) => {
