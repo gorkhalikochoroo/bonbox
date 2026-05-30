@@ -39,6 +39,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Info,
+  Phone,
 } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
@@ -450,6 +451,17 @@ export default function ReservationPublicPage() {
               <MapPin size={14} strokeWidth={1.75} className="shrink-0" />
               <span>{page.address || page.city}</span>
             </div>
+          )}
+          {/* Owner's contact number — a tappable "call us" for big groups or
+              questions. tel: links dial directly on a phone. */}
+          {page.phone && (
+            <a
+              href={`tel:${String(page.phone).replace(/\s+/g, "")}`}
+              className="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
+            >
+              <Phone size={14} strokeWidth={1.75} className="shrink-0" />
+              <span>{t("rsvpCallUs", "Call us")}: {page.phone}</span>
+            </a>
           )}
         </header>
 

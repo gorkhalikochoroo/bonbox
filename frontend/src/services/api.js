@@ -234,11 +234,23 @@ api.interceptors.response.use(
       const isAuthProbe =
         reqUrl.includes("/auth/me") ||
         reqUrl.includes("/billing/me") ||
+        // Entitlements is a silent "what plan are you on?" probe fired by
+        // EntitlementsProvider on EVERY page load (incl. logged-out public
+        // pages). A 401 here just means "not signed in" — it must never
+        // bounce a visitor to /login, exactly like /auth/me + /billing/me.
+        reqUrl.includes("/billing/entitlements") ||
         reqUrl.endsWith("/auth/refresh");
-      // Don't redirect on landing/marketing routes either — those
-      // routes work fine without auth, and bouncing visitors to /login
-      // is bad UX.
-      const isPublicRoute = path === "/" || path === "/landing" || path === "/pricing" || path === "/contact" || path === "/privacy" || path === "/terms";
+      // Don't redirect on landing/marketing OR public deep-link routes —
+      // those work fine without auth, and bouncing visitors to /login is
+      // bad UX. The /r/ (reservation booking), /e/ (event) and /t/ (ticket)
+      // pages are customer-facing: a guest scanning a QR is logged out by
+      // definition, so a 401 from any incidental authed call (entitlements,
+      // features, …) must NOT hijack their booking flow into /login.
+      const isPublicRoute =
+        path === "/" || path === "/landing" || path === "/pricing" ||
+        path === "/contact" || path === "/privacy" || path === "/terms" ||
+        path === "/cookies" ||
+        path.startsWith("/r/") || path.startsWith("/e/") || path.startsWith("/t/");
       if (!isAuthPage && !isAuthProbe && !isPublicRoute) {
         localStorage.removeItem("token");
         window.location.href = "/login";

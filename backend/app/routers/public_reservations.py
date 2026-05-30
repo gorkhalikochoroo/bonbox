@@ -93,7 +93,9 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         "business_type": btype,
         "city": getattr(profile, "city", None),
         "address": getattr(profile, "address", None),
-        "phone": getattr(profile, "phone", None),
+        # Reservation-specific "call us" number wins; falls back to the
+        # business phone on the profile. Owner sets it in Reservations → Settings.
+        "phone": settings.get("contact_phone") or getattr(profile, "phone", None),
         "allergen_set": allergen_set_for(btype),
         "max_party_size": settings.get("max_party_size"),
         "group_request_threshold": settings.get("group_request_threshold"),
@@ -167,6 +169,56 @@ def _send_confirmation(owner: User, profile: BusinessProfile, r: Reservation) ->
         r.confirmation_sent_at = utc_now()
     except Exception as exc:  # noqa: BLE001 — best-effort
         logger.warning("reservation confirmation email failed: %s", exc)
+
+
+def _notify_owner_email(owner: User, profile: BusinessProfile, r: Reservation) -> None:
+    """Best-effort email to the OWNER when a guest books via /r/<slug>.
+
+    This is the dependable companion to the device push (which only fires
+    when the owner has actually enabled notifications + has a subscription).
+    Email always lands, so the owner never misses a booking. Carries the
+    guest's contact details so the owner can call back. Never blocks the
+    booking. Danish (the owner's operational language, like the push)."""
+    owner_email = getattr(owner, "email", None)
+    if not owner_email:
+        return
+    try:
+        from app.services.email_service import send_email
+        biz = getattr(profile, "company_name", None) or "BonBox"
+        when = r.starts_at.strftime("%d/%m/%Y %H:%M") if r.starts_at else ""
+        is_request = r.status == "requested"
+        head = "Ny forespørgsel" if is_request else "Ny reservation"
+        contact_bits = []
+        if r.guest_phone:
+            contact_bits.append(f"Tlf: {r.guest_phone}")
+        if r.guest_email:
+            contact_bits.append(f"E-mail: {r.guest_email}")
+        contact_line = " · ".join(contact_bits) or "Ingen kontaktinfo opgivet"
+        notes_line = (
+            f"<p><strong>Besked:</strong> {r.guest_notes}</p>" if r.guest_notes else ""
+        )
+        allergy_line = ""
+        if r.allergen_tags or r.allergy_note:
+            tags = ", ".join(r.allergen_tags or [])
+            allergy_line = f"<p><strong>Allergi:</strong> {tags} {r.allergy_note or ''}</p>"
+        html = (
+            f"<p><strong>{head} via din bookingside</strong></p>"
+            f"<p><strong>{r.guest_name or 'Gæst'}</strong> · {r.party_size} personer<br>"
+            f"{when}<br>{contact_line}</p>"
+            f"{notes_line}{allergy_line}"
+            f"<p>Åbn reservationsbogen i BonBox for detaljer"
+            + (" og for at bekræfte." if is_request else ".")
+            + "</p>"
+        )
+        send_email(
+            to=owner_email,
+            subject=f"{biz} — {head.lower()}: {r.party_size} pers · {when}",
+            html=html,
+            # Replying goes straight to the guest when they left an email.
+            reply_to=r.guest_email or None,
+        )
+    except Exception as exc:  # noqa: BLE001 — best-effort
+        logger.warning("owner reservation email failed: %s", exc)
 
 
 @router.post("/{slug}")
@@ -282,6 +334,9 @@ def create_reservation(request: Request, slug: str = Path(...),
         notify_owner_new_reservation(db, owner, r)
     except Exception as exc:  # noqa: BLE001
         logger.warning("owner reservation notify failed: %s", exc)
+    # Email the owner too — the reliable channel that lands even when the
+    # owner never enabled push. Has its own try/except (best-effort).
+    _notify_owner_email(owner, profile, r)
     return {"id": str(r.id), "status": r.status, "booking_token": sign_booking_token(str(r.id))}
 
 

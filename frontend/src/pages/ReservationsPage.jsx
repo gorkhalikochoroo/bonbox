@@ -1843,6 +1843,7 @@ function SettingsSection({ t }) {
     default_duration_min: "",
     combine_enabled: true,
     max_combo_size: "",
+    contact_phone: "",
   });
   // SMS reminders (Pro) — kept in its own state so the toggle/sender input
   // are independent of the availability-number form's save lifecycle.
@@ -1872,6 +1873,7 @@ function SettingsSection({ t }) {
       // the owner explicitly disabled combining.
       combine_enabled: s.combine_enabled !== false,
       max_combo_size: s.max_combo_size ?? "",
+      contact_phone: s.contact_phone ?? "",
     });
     setSms({
       enabled: !!s.sms_reminders,
@@ -2002,6 +2004,9 @@ function SettingsSection({ t }) {
     if (toInt(form.max_combo_size) !== undefined) {
       settings.max_combo_size = Math.max(2, Math.min(6, toInt(form.max_combo_size)));
     }
+    // Contact phone shown on the public booking page. Trimmed; blank → null
+    // (clears it, falling back to the business profile phone server-side).
+    settings.contact_phone = form.contact_phone.trim().slice(0, 40) || null;
     try {
       const res = await api.put("/reservations/settings", { settings });
       applyData(res.data || null);
@@ -2368,6 +2373,29 @@ function SettingsSection({ t }) {
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
           {t("rsvpAvailTitle", "Availability rules")}
         </h2>
+        {/* Contact phone — shown on the public booking page so guests can call
+            (big groups, questions). Blank uses the business profile phone. */}
+        <div>
+          <label
+            htmlFor="rsvp-contact-phone"
+            className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+          >
+            {t("rsvpContactPhone", "Contact phone (shown to guests)")}
+          </label>
+          <input
+            id="rsvp-contact-phone"
+            type="tel"
+            inputMode="tel"
+            value={form.contact_phone}
+            onChange={(e) => setForm((f) => ({ ...f, contact_phone: e.target.value }))}
+            placeholder={t("rsvpContactPhonePh", "+45 12 34 56 78")}
+            maxLength={40}
+            className="w-full sm:max-w-[18rem] h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+          />
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+            {t("rsvpContactPhoneHint", "Guests see a tap-to-call link on your booking page. Leave blank to use your business phone.")}
+          </p>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <NumberField
             label={t("rsvpBookingLength", "Booking length (minutes)")}
