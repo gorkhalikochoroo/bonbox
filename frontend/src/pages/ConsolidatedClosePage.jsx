@@ -123,8 +123,12 @@ export default function ConsolidatedClosePage() {
                     "Cross-outlet daily close consolidation is for restaurants and bars with 2-3 locations. It rolls up each branch's daily close into one super-close — same numbers Caro snapped per terminal, summed across every venue."}
                 </p>
                 <p className="text-[13px] text-gray-600 dark:text-gray-300 mt-2 leading-relaxed">
-                  {t("consolidatedProGateAvailability") ||
-                    "Available on Pro (founding 249 kr/mo) and during your 14-day Pro trial."}
+                  {/* Price named on web; price-free on native (Apple 3.1.1). */}
+                  {canPurchaseInApp()
+                    ? (t("consolidatedProGateAvailability") ||
+                       "Available on Pro (founding 249 kr/mo) and during your 14-day Pro trial.")
+                    : (t("consolidatedProGateAvailabilityNative") ||
+                       "Available on Pro and during your 14-day Pro trial.")}
                 </p>
                 {canPurchaseInApp() && (
                   <Link

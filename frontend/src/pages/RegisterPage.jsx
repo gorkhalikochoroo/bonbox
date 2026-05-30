@@ -336,7 +336,9 @@ export default function RegisterPage() {
               {[
                 t("trialBenefit1"),
                 t("trialBenefit2"),
-                t("trialBenefit3"),
+                // trialBenefit3 names the founding subscription price; hidden
+                // on native (Apple 3.1.1 — no subscription pricing in-app).
+                ...(isNative ? [] : [t("trialBenefit3")]),
               ].map((item) => (
                 <li key={item} className="flex items-start gap-2.5">
                   <span className="mt-[7px] w-1 h-1 rounded-full bg-gray-400 dark:bg-gray-500 shrink-0" />
