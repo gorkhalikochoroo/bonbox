@@ -11,6 +11,7 @@ import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { safeImageUrl } from "../utils/safeUrl";
 import { resizeImageIfLarge } from "../utils/resizeImage";
+import { canPurchaseInApp } from "../utils/platform";
 import {
   buildShareMessage,
   buildShareTitle,
@@ -2340,12 +2341,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                         {t("autoEmailToggleStarterGateBody") || "Free still lets you manually tap Send to accountant after locking. Upgrade to Starter for the no-extra-tap version."}
                       </p>
-                      <a
-                        href="/subscription"
-                        className="inline-block mt-2 text-xs font-semibold text-emerald-600 dark:text-gray-300 hover:underline"
-                      >
-                        {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
-                      </a>
+                      {canPurchaseInApp() && (
+                        <a
+                          href="/subscription"
+                          className="inline-block mt-2 text-xs font-semibold text-emerald-600 dark:text-gray-300 hover:underline"
+                        >
+                          {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
+                        </a>
+                      )}
                     </div>
                   </div>
                 )}
@@ -2522,9 +2525,11 @@ function JustLockedCard({ t, close, currency, onDismiss }) {
         <p className="text-amber-800 dark:text-amber-200 font-medium">
           💡 {t("closeLockedFreeUpgradeNudge") || "Want the kasserapport auto-sent to your accountant the moment you lock? Upgrade to Starter."}
         </p>
-        <a href="/subscription" className="inline-block mt-2 text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline">
-          {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
-        </a>
+        {canPurchaseInApp() && (
+          <a href="/subscription" className="inline-block mt-2 text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline">
+            {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
+          </a>
+        )}
       </div>
     );
   }
@@ -3087,9 +3092,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             <span className="flex-1">
               <strong>{planTier === "free" ? "Free" : planTier} {t("planLabelSuffix") || "plan"}</strong>
               {" "}{t("planCapHintMid") || "exports up to"}{" "}<strong>{exportCapDays} {t("planCapHintDays") || "days"}</strong>.
-              <a href="/subscription" className="ml-2 underline font-semibold hover:no-underline">
-                {t("planCapHintCta") || "Upgrade for full year →"}
-              </a>
+              {canPurchaseInApp() && (
+                <a href="/subscription" className="ml-2 underline font-semibold hover:no-underline">
+                  {t("planCapHintCta") || "Upgrade for full year →"}
+                </a>
+              )}
             </span>
           </div>
         )}
@@ -3134,7 +3141,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               if (span > exportCapDays) {
                 return (
                   <p className="mb-2 text-[11px] text-amber-700 dark:text-amber-400">
-                    ⚠️ This range is {span} days — your plan caps at {exportCapDays}. The export will be rejected by the server. <a href="/subscription" className="underline font-semibold">Upgrade?</a>
+                    ⚠️ This range is {span} days — your plan caps at {exportCapDays}. The export will be rejected by the server. {canPurchaseInApp() && (<a href="/subscription" className="underline font-semibold">Upgrade?</a>)}
                   </p>
                 );
               }
@@ -3245,7 +3252,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             <span>{exportErrorIsCap ? "🔒" : "⚠️"}</span>
             <span className="flex-1">
               {exportError}
-              {exportErrorIsCap && (
+              {exportErrorIsCap && canPurchaseInApp() && (
                 <a href="/subscription" className="ml-2 underline font-semibold hover:no-underline">
                   Upgrade →
                 </a>

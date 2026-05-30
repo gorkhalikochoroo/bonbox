@@ -8,6 +8,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, SectionBanner, TabPills, Button } from "../components/ui";
+import { canPurchaseInApp } from "../utils/platform";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -145,9 +146,11 @@ export default function BranchPage() {
           >
             {t("branchCapHitBody") || "Upgrade to Pro for up to 3 branches with cross-outlet daily close consolidation."}
             {" "}
-            <a href="/subscription" className="font-semibold underline whitespace-nowrap">
-              {t("seePlans") || "See plans →"}
-            </a>
+            {canPurchaseInApp() && (
+              <a href="/subscription" className="font-semibold underline whitespace-nowrap">
+                {t("seePlans") || "See plans →"}
+              </a>
+            )}
           </SectionBanner>
         </FadeIn>
       )}

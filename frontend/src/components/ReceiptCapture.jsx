@@ -7,6 +7,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { localIso } from "../utils/dateFormat";
+import { canPurchaseInApp } from "../utils/platform";
 
 /**
  * ReceiptCapture — supports both sale and expense mode.
@@ -203,12 +204,14 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                 <p className="text-xs leading-relaxed">
                   {capError.message || "Upgrade to Starter for 200 receipt scans / month."}
                 </p>
-                <a
-                  href="/subscription"
-                  className="inline-block px-3 py-1.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-lg text-xs font-medium hover:bg-gray-700 dark:hover:bg-gray-200 transition"
-                >
-                  See plans →
-                </a>
+                {canPurchaseInApp() && (
+                  <a
+                    href="/subscription"
+                    className="inline-block px-3 py-1.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-lg text-xs font-medium hover:bg-gray-700 dark:hover:bg-gray-200 transition"
+                  >
+                    See plans →
+                  </a>
+                )}
               </div>
             )}
 

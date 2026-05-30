@@ -7,6 +7,7 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, SectionBanner, Button } from "../components/ui";
+import { canPurchaseInApp } from "../utils/platform";
 
 /**
  * Modules picker — owners enable the vertical modules they actually use.
@@ -188,9 +189,11 @@ export default function ModulesPage() {
             {t("modulesCapHitBody") ||
               "To enable more, upgrade to Pro for ALL modules at once."}
             {" "}
-            <Link to="/subscription" className="font-semibold underline">
-              {t("modulesCapHitCta") || "See plans →"}
-            </Link>
+            {canPurchaseInApp() && (
+              <Link to="/subscription" className="font-semibold underline">
+                {t("modulesCapHitCta") || "See plans →"}
+              </Link>
+            )}
           </SectionBanner>
         </div>
       )}

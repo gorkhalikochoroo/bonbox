@@ -454,6 +454,49 @@ export default function SubscriptionPage() {
     ? Math.max(founderStatus.available, 0)
     : null;
 
+  // ── App Store compliance (Apple Guideline 3.1.1) ────────────────────
+  // The native app must NOT sell, price, or link out to purchase a paid
+  // plan (no IAP wired up, and Apple forbids external-checkout CTAs). Show
+  // the current plan READ-ONLY with an informational, non-tappable note
+  // pointing to the web. No plan cards, prices, buy buttons, or billing
+  // portal here. The web app (bonbox.dk) keeps full self-serve billing.
+  if (isNative) {
+    const planName =
+      currentPlan === "pro"
+        ? "Pro"
+        : currentPlan === "starter"
+          ? "Starter"
+          : currentPlan === "trial"
+            ? "Pro (trial)"
+            : "Free";
+    return (
+      <div className="px-4 sm:px-6 py-6 sm:py-10 pb-32 sm:pb-16 max-w-2xl mx-auto">
+        <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+          {t("planBilling") || "Plan & billing"}
+        </h1>
+        <Card variant="emphasis" className="mt-5">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            {t("currentPlan") || "Current plan"}
+          </div>
+          <div className="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1">
+            {planName}
+          </div>
+          {trialDaysLeft != null && trialDaysLeft > 0 && (
+            <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {(t("pricingTrialEndsIn") || "Your free Pro trial ends in {n} day{s}.")
+                .replace("{n}", trialDaysLeft)
+                .replace("{s}", trialDaysLeft === 1 ? "" : "s")}
+            </div>
+          )}
+        </Card>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-5 leading-relaxed">
+          {t("pricingManageOnWebNote") ||
+            "You can't change your plan in the app. To upgrade or manage your subscription, sign in to BonBox in a web browser at bonbox.dk."}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="px-4 sm:px-6 py-6 sm:py-10 pb-32 sm:pb-16 max-w-6xl mx-auto">
       {/* Locked-in banner — for users with a real Stripe sub */}

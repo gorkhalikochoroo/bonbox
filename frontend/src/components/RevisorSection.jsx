@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { Button, Card, Icon } from "./ui";
+import { canPurchaseInApp } from "../utils/platform";
 
 const INPUT_CLASS =
   "w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 " +
@@ -180,9 +181,11 @@ export default function RevisorSection() {
         {revisorLocked && (
           <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">
             {t("revisorUpgradeHint") || "Upgrade to Starter to invite revisors."}{" "}
-            <a href="/subscription" className="underline font-medium">
-              {t("seePlans") || "See plans"}
-            </a>
+            {canPurchaseInApp() && (
+              <a href="/subscription" className="underline font-medium">
+                {t("seePlans") || "See plans"}
+              </a>
+            )}
           </div>
         )}
         <div className="flex justify-end pt-1">

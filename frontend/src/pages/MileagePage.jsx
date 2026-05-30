@@ -4,6 +4,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
 import { localIso } from "../utils/dateFormat";
+import { canPurchaseInApp } from "../utils/platform";
 
 /**
  * MileagePage — kørselsgodtgørelse log.
@@ -71,9 +72,11 @@ export default function MileagePage() {
             {t("mileageStarterDesc") ||
               "Track business trips for kørselsgodtgørelse. Most owners miss 10-15k kr in deductions per year."}
           </p>
-          <a href="/subscription" className="inline-block px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition">
-            {t("upgrade") || "Upgrade"}
-          </a>
+          {canPurchaseInApp() && (
+            <a href="/subscription" className="inline-block px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition">
+              {t("upgrade") || "Upgrade"}
+            </a>
+          )}
         </div>
       </div>
     );

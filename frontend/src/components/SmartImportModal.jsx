@@ -4,6 +4,7 @@ import api from "../services/api";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
 import { resizeImageIfLarge } from "../utils/resizeImage";
+import { canPurchaseInApp } from "../utils/platform";
 
 /**
  * Smart Inventory Import — frontend for the backend pipeline shipped
@@ -651,12 +652,14 @@ function SupplierUpgradeNudge({ t }) {
               "Upgrade to identify Hørkram / BC Catering / AB Catering and auto-categorize up to 30 items at once."}
           </p>
         </div>
-        <a
-          href="/subscription"
-          className="shrink-0 text-xs font-semibold px-2 py-1 rounded bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:opacity-90"
-        >
-          {t("smartImportSupplierGateCta", "Upgrade") || "Upgrade"}
-        </a>
+        {canPurchaseInApp() && (
+          <a
+            href="/subscription"
+            className="shrink-0 text-xs font-semibold px-2 py-1 rounded bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:opacity-90"
+          >
+            {t("smartImportSupplierGateCta", "Upgrade") || "Upgrade"}
+          </a>
+        )}
       </div>
     </div>
   );

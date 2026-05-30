@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { isNativeApp } from "../utils/platform";
 
 /**
  * TrialFinalStretchTip — single-line conversion nudge in the last 48 hours
@@ -33,6 +34,9 @@ export default function TrialFinalStretchTip() {
     return until > Date.now();
   });
 
+  // App Store compliance (Apple 3.1.1): no upgrade/price conversion nudge
+  // in the native app.
+  if (isNativeApp()) return null;
   if (hidden || ent.loading) return null;
   if (ent.isPaid) return null;
   if (!ent.inTrial) return null;

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { isNativeApp } from "../utils/platform";
 
 /**
  * Trial countdown — thin status strip at the very top of <main>,
@@ -44,6 +45,9 @@ export default function TrialChip() {
     }
   }, []);
 
+  // App Store compliance (Apple 3.1.1): no "see plans" upgrade strip in the
+  // native app.
+  if (isNativeApp()) return null;
   if (hidden || ent.loading) return null;
   if (ent.isPaid) return null;
 

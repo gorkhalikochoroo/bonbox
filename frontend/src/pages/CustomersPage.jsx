@@ -3,6 +3,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
+import { canPurchaseInApp } from "../utils/platform";
 
 /**
  * CustomersPage — debitor management.
@@ -70,12 +71,14 @@ export default function CustomersPage() {
             {t("invoicingStarterDesc") ||
               "Send fakturas, track customers, and log mileage. Upgrade to Starter to unlock."}
           </p>
-          <a
-            href="/subscription"
-            className="inline-block px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition"
-          >
-            {t("upgrade") || "Upgrade"}
-          </a>
+          {canPurchaseInApp() && (
+            <a
+              href="/subscription"
+              className="inline-block px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition"
+            >
+              {t("upgrade") || "Upgrade"}
+            </a>
+          )}
         </div>
       </div>
     );

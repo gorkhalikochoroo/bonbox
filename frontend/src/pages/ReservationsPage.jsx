@@ -66,6 +66,7 @@ import StatCard from "../components/ui/StatCard";
 import FilterBar from "../components/ui/FilterBar";
 import Empty from "../components/ui/Empty";
 import { QRCodeSVG } from "qrcode.react";
+import { canPurchaseInApp } from "../utils/platform";
 
 // Status → colored-dot token for the status pill. Severe = red, the
 // terminal-good states emerald, requests amber, dead states gray.
@@ -2570,7 +2571,7 @@ function SettingsSection({ t }) {
 
         {/* Locked tiers: short upsell line → /subscription (same route as
             other Pro gates, e.g. the sidebar Lock entries + UpgradeNudge). */}
-        {!smsUnlocked && (
+        {!smsUnlocked && canPurchaseInApp() && (
           <Link
             to="/subscription"
             className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300 hover:text-emerald-800 dark:hover:text-emerald-200"

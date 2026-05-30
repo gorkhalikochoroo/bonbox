@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { isNativeApp } from "../utils/platform";
 
 /**
  * Dashboard countdown banner — shown when user has an active trial OR
@@ -26,6 +27,11 @@ export default function TrialBanner() {
     }
   }, []);
 
+  // App Store compliance (Apple 3.1.1): no upgrade/price nudges in the
+  // native app. The trial banner is a pure conversion device + mentions
+  // prices, so it's hidden on native. Trial status is visible read-only
+  // on the Plan page.
+  if (isNativeApp()) return null;
   if (hidden || ent.loading) return null;
   if (ent.isPaid) return null;
 

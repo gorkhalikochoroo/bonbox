@@ -5,6 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { FadeIn } from "../components/AnimationKit";
 import { localIso } from "../utils/dateFormat";
+import { canPurchaseInApp } from "../utils/platform";
 
 /**
  * Consolidated close — multi-branch daily-close roll-up. Pro+ only.
@@ -125,12 +126,14 @@ export default function ConsolidatedClosePage() {
                   {t("consolidatedProGateAvailability") ||
                     "Available on Pro (founding 249 kr/mo) and during your 14-day Pro trial."}
                 </p>
-                <Link
-                  to="/subscription"
-                  className="inline-block mt-4 px-5 py-2.5 bg-[#22c55e] hover:bg-[#16a34a] text-white text-sm font-semibold rounded-lg transition"
-                >
-                  {t("consolidatedProGateCta") || "See Pro plan"}
-                </Link>
+                {canPurchaseInApp() && (
+                  <Link
+                    to="/subscription"
+                    className="inline-block mt-4 px-5 py-2.5 bg-[#22c55e] hover:bg-[#16a34a] text-white text-sm font-semibold rounded-lg transition"
+                  >
+                    {t("consolidatedProGateCta") || "See Pro plan"}
+                  </Link>
+                )}
               </div>
             </div>
           </div>

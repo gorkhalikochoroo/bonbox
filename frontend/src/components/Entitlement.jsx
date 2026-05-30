@@ -32,6 +32,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
+import { canPurchaseInApp } from "../utils/platform";
 
 
 // ─── Plan label + color helpers ─────────────────────────────────────
@@ -246,13 +247,15 @@ export function UpgradePrompt({ feature, forCap = false, open = true, onClose })
               {t("upgradeMaybeLater") || "Maybe later"}
             </button>
           )}
-          <Link
-            to="/subscription"
-            onClick={onClose}
-            className={`px-4 py-2 ${c.button} text-white text-sm font-medium rounded-lg transition shadow-sm`}
-          >
-            {t("upgradeCTA") || "See plans →"}
-          </Link>
+          {canPurchaseInApp() && (
+            <Link
+              to="/subscription"
+              onClick={onClose}
+              className={`px-4 py-2 ${c.button} text-white text-sm font-medium rounded-lg transition shadow-sm`}
+            >
+              {t("upgradeCTA") || "See plans →"}
+            </Link>
+          )}
         </div>
       </div>
     </div>

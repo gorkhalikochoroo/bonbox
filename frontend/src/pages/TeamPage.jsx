@@ -8,6 +8,7 @@ import { Icon } from "../components/ui";
 // Task #204 P2.8 — revisor invite moved from ProfilePage to TeamPage
 // so the people-with-access surfaces all live in one place.
 import RevisorSection from "../components/RevisorSection";
+import { canPurchaseInApp } from "../utils/platform";
 
 const ROLE_COLORS = {
   owner: "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400",
@@ -224,9 +225,11 @@ export default function TeamPage() {
             <span>
               {t("teamCapHitBody")}
             </span>
-            <a href="/subscription" className="font-semibold text-amber-900 dark:text-amber-100 underline whitespace-nowrap">
-              {t("seePlans")}
-            </a>
+            {canPurchaseInApp() && (
+              <a href="/subscription" className="font-semibold text-amber-900 dark:text-amber-100 underline whitespace-nowrap">
+                {t("seePlans")}
+              </a>
+            )}
           </div>
         </FadeIn>
       )}
