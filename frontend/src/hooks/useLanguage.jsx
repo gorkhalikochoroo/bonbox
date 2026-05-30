@@ -116,6 +116,10 @@ const translations = {
     rsvpTileInMin: "in {n} min", rsvpLegUpcoming: "Upcoming",
     rsvpFloorEmptyTitle: "No tables yet",
     rsvpFloorEmptyBody: "Add tables on the Floor tab to see your room here.",
+    // Seat-now (mark a free table occupied)
+    rsvpTileSeat: "Seat", rsvpSeatNowTitle: "Seat guests",
+    rsvpGuestNameOpt: "Name (optional)", rsvpWalkIn: "Walk-in",
+    rsvpSeatNowBtn: "Seat now", rsvpSeatError: "Couldn't seat the guests.",
     // Floor — quick (bulk) setup
     rsvpBulkTitle: "Quick setup",
     rsvpBulkHint: "How many tables of each size? They're created and numbered for you.",
@@ -145,6 +149,8 @@ const translations = {
     rsvpSlugTaken: "That link is taken — try another.",
     rsvpSlugError: "Couldn't update the link.",
     rsvpAvailTitle: "Availability rules",
+    rsvpBookingLength: "Booking length (minutes)",
+    rsvpBookingLengthHint: "How long a table is held per booking. Leave blank to keep your current rules.",
     rsvpMaxParty: "Max party size (online)",
     rsvpMaxPartyHint: "Bigger groups see 'call us'.",
     rsvpGroupThreshold: "Group-request from",
@@ -3978,6 +3984,10 @@ const translations = {
     rsvpTileInMin: "om {n} min", rsvpLegUpcoming: "Snart",
     rsvpFloorEmptyTitle: "Ingen borde endnu",
     rsvpFloorEmptyBody: "Tilføj borde under Borde-fanen for at se din sal her.",
+    // Sæt nu (markér et ledigt bord optaget)
+    rsvpTileSeat: "Sæt", rsvpSeatNowTitle: "Sæt gæster",
+    rsvpGuestNameOpt: "Navn (valgfrit)", rsvpWalkIn: "Gå-ind",
+    rsvpSeatNowBtn: "Sæt nu", rsvpSeatError: "Kunne ikke sætte gæsterne.",
     // Borde — hurtig (bulk) opsætning
     rsvpBulkTitle: "Hurtig opsætning",
     rsvpBulkHint: "Hvor mange borde af hver størrelse? De oprettes og nummereres automatisk.",
@@ -4007,6 +4017,8 @@ const translations = {
     rsvpSlugTaken: "Det link er optaget — prøv et andet.",
     rsvpSlugError: "Kunne ikke opdatere linket.",
     rsvpAvailTitle: "Booking-regler",
+    rsvpBookingLength: "Bookinglængde (minutter)",
+    rsvpBookingLengthHint: "Hvor længe et bord holdes pr. booking. Lad stå tomt for at beholde dine nuværende regler.",
     rsvpMaxParty: "Maks. antal gæster (online)",
     rsvpMaxPartyHint: "Større selskaber ser 'ring til os'.",
     rsvpGroupThreshold: "Forespørgsel fra (antal gæster)",

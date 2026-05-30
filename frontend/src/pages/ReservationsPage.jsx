@@ -64,6 +64,7 @@ import DataTable from "../components/ui/DataTable";
 import StatCard from "../components/ui/StatCard";
 import FilterBar from "../components/ui/FilterBar";
 import Empty from "../components/ui/Empty";
+import { QRCodeSVG } from "qrcode.react";
 
 // Status → colored-dot token for the status pill. Severe = red, the
 // terminal-good states emerald, requests amber, dead states gray.
@@ -75,12 +76,6 @@ const STATUS_DOT = {
   no_show: "bg-red-500",
   cancelled: "bg-red-500",
 };
-
-// QR for the public link — reuses the same client-side generator as
-// WineListPage (api.qrserver.com), so no new dependency is pulled in.
-function qrUrlFor(url, size = 200) {
-  return `https://api.qrserver.com/v1/create-qr-code/?size=${size}x${size}&data=${encodeURIComponent(url)}`;
-}
 
 // Local YYYY-MM-DD for the book's day picker (defaults to today).
 function isoDay(d) {
@@ -328,13 +323,15 @@ const TILE_DOT = {
   inactive: "bg-gray-200 dark:bg-gray-700",
 };
 
-function FloorTile({ cell, t, onSelect }) {
+function FloorTile({ cell, t, onSelect, onSeatNow }) {
   const { res, status, booking, combined } = cell;
   const inactive = status === "inactive";
   const free = status === "free";
-  const clickable = !inactive && !free; // occupied/upcoming tiles open detail
+  const clickable = !inactive; // free → seat walk-in; occupied → open detail
   const handle = () => {
-    if (clickable && booking?.reservation) onSelect(booking.reservation);
+    if (inactive) return;
+    if (free) onSeatNow && onSeatNow(res);
+    else if (booking?.reservation) onSelect(booking.reservation);
   };
   return (
     <button
@@ -346,7 +343,7 @@ function FloorTile({ cell, t, onSelect }) {
         (inactive
           ? "bg-gray-50 dark:bg-gray-900/40 border-dashed border-gray-200 dark:border-gray-700 opacity-60 cursor-default"
           : free
-          ? "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 cursor-default"
+          ? "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700"
           : status === "seated"
           ? "bg-gray-50 dark:bg-gray-800/60 border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500"
           : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700")
@@ -371,7 +368,10 @@ function FloorTile({ cell, t, onSelect }) {
             {t("rsvpTileInactive", "Out of service")}
           </span>
         ) : free ? (
-          <span className="text-[11px] text-gray-400 dark:text-gray-500">{t("rsvpTileFree", "Free")}</span>
+          <span className="text-[11px] text-gray-400 dark:text-gray-500 inline-flex items-center gap-1">
+            <Plus className="w-3 h-3" aria-hidden />
+            {t("rsvpTileSeat", "Seat")}
+          </span>
         ) : (
           <div className="leading-tight">
             <div className="text-[12px] font-medium text-gray-800 dark:text-gray-200 truncate">
@@ -400,7 +400,7 @@ function LegendDot({ cls, label }) {
   );
 }
 
-function FloorView({ reservations, resources, t, onSelect }) {
+function FloorView({ reservations, resources, t, onSelect, onSeatNow }) {
   const cells = useMemo(
     () => deriveFloorState(reservations, resources, Date.now()),
     [reservations, resources],
@@ -432,7 +432,7 @@ function FloorView({ reservations, resources, t, onSelect }) {
           </h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {list.map((c) => (
-              <FloorTile key={c.res.id} cell={c} t={t} onSelect={onSelect} />
+              <FloorTile key={c.res.id} cell={c} t={t} onSelect={onSelect} onSeatNow={onSeatNow} />
             ))}
           </div>
         </div>
@@ -556,6 +556,89 @@ function ReservationDrawer({ reservation, t, busy, onStatus, onClose }) {
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Seat-now (mark a free table occupied with a walk-in) ─────────────
+function SeatNowSheet({ table, t, busy, onSeat, onClose }) {
+  const [party, setParty] = useState(String(table?.capacity_seats || 2));
+  const [name, setName] = useState("");
+  if (!table) return null;
+  const sizes = [1, 2, 3, 4, 5, 6, 8];
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm p-5 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+              {t("rsvpSeatNowTitle", "Seat guests")}
+            </h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {table.label + " · " + table.capacity_seats + " " + t("rsvpCoversHelper", "guests")}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("close", "Close")}
+            className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            {t("rsvpColParty", "Party")}
+          </label>
+          <div className="flex flex-wrap gap-2 mt-1.5">
+            {sizes.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setParty(String(n))}
+                className={
+                  "h-11 min-w-[44px] px-3 rounded-lg border text-sm font-medium tabular-nums " +
+                  (String(n) === party
+                    ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+                    : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600")
+                }
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            {t("rsvpGuestNameOpt", "Name (optional)")}
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={160}
+            placeholder={t("rsvpWalkIn", "Walk-in")}
+            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+          />
+        </div>
+        <Button
+          variant="primary"
+          size="lg"
+          busy={busy}
+          className="w-full justify-center"
+          onClick={() =>
+            onSeat({
+              resource_id: table.id,
+              party_size: Math.max(1, Math.min(100, parseInt(party, 10) || 2)),
+              guest_name: name.trim() || t("rsvpWalkIn", "Walk-in"),
+            })
+          }
+        >
+          {t("rsvpSeatNowBtn", "Seat now")}
+        </Button>
       </div>
     </div>
   );
@@ -761,9 +844,12 @@ function BookSection({ t }) {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [zoneFilter, setZoneFilter] = useState("all");
-  // The reservation open in the detail drawer (from a Plan tile or, later, a
+  // The reservation open in the detail drawer (from a Plan tile or a
   // timeline block). null = drawer closed.
   const [selected, setSelected] = useState(null);
+  // Seat-now: the free table the host is seating a walk-in onto.
+  const [seatTarget, setSeatTarget] = useState(null);
+  const [seating, setSeating] = useState(false);
 
   const pickView = (v) => {
     setView(v);
@@ -848,6 +934,37 @@ function BookSection({ t }) {
       await fetchBook(day);
     } finally {
       setActioningId(null);
+    }
+  };
+
+  // Seat a walk-in NOW on a free table → the table goes occupied (seated).
+  const seatWalkIn = async ({ resource_id, party_size, guest_name }) => {
+    setSeating(true);
+    setError("");
+    try {
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      const startsAt = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:00`;
+      await api.post("/reservations/book", {
+        guest_name,
+        party_size,
+        starts_at: startsAt,
+        resource_id,
+        source: "walk_in",
+        status: "seated",
+      });
+      setSeatTarget(null);
+      // The walk-in is seated NOW (today) — jump to today if viewing another
+      // day so it's visible; otherwise refetch in place.
+      const todayIso = isoDay(new Date());
+      if (day !== todayIso) setDay(todayIso);
+      else await fetchBook(day);
+    } catch (e) {
+      setError(
+        e?.response?.data?.detail?.error || t("rsvpSeatError", "Couldn't seat the guests."),
+      );
+    } finally {
+      setSeating(false);
     }
   };
 
@@ -1115,6 +1232,7 @@ function BookSection({ t }) {
             resources={resources}
             t={t}
             onSelect={setSelected}
+            onSeatNow={setSeatTarget}
           />
         ))}
 
@@ -1144,6 +1262,17 @@ function BookSection({ t }) {
             setSelected(null);
           }}
           onClose={() => setSelected(null)}
+        />
+      )}
+
+      {/* Seat-now sheet — opened by tapping a FREE tile on the Plan view. */}
+      {seatTarget && (
+        <SeatNowSheet
+          table={seatTarget}
+          t={t}
+          busy={seating}
+          onSeat={seatWalkIn}
+          onClose={() => setSeatTarget(null)}
         />
       )}
     </div>
@@ -1677,6 +1806,7 @@ function SettingsSection({ t }) {
     lead_time_min: "",
     max_advance_days: "",
     pacing_max_per_slot: "",
+    default_duration_min: "",
     combine_enabled: true,
     max_combo_size: "",
   });
@@ -1698,6 +1828,7 @@ function SettingsSection({ t }) {
       lead_time_min: s.lead_time_min ?? "",
       max_advance_days: s.max_advance_days ?? "",
       pacing_max_per_slot: s.pacing_max_per_slot ?? "",
+      default_duration_min: s.default_duration_min ?? "",
       // combine_enabled defaults on (matches the backend); only flips off if
       // the owner explicitly disabled combining.
       combine_enabled: s.combine_enabled !== false,
@@ -1817,6 +1948,14 @@ function SettingsSection({ t }) {
     // pacing: blank → null (no cap); a number → that cap.
     settings.pacing_max_per_slot =
       form.pacing_max_per_slot === "" ? null : toInt(form.pacing_max_per_slot) ?? null;
+    // Booking length — how long a table is held per booking. Setting a flat
+    // value clears the per-party-size turn-time tiers so the owner's number
+    // applies to EVERY party (otherwise the tiers would override it). Clamped
+    // 15–360 min. Blank leaves the existing rules untouched.
+    if (toInt(form.default_duration_min) !== undefined) {
+      settings.default_duration_min = Math.max(15, Math.min(360, toInt(form.default_duration_min)));
+      settings.turn_time_tiers = [];
+    }
     // Table combining: always send the on/off flag; cap is clamped to 2–6
     // (blank leaves the backend default of 3).
     settings.combine_enabled = !!form.combine_enabled;
@@ -1941,11 +2080,15 @@ function SettingsSection({ t }) {
           </h2>
           <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
             <div className="bg-white rounded-xl border border-gray-200 dark:border-gray-700 p-3 shrink-0 self-start">
-              <img
-                src={qrUrlFor(publicUrl, 220)}
-                alt={t("rsvpQrAlt", "QR code for your booking page")}
-                width={140}
-                height={140}
+              {/* Generated client-side (qrcode.react) — no dependency on an
+                  external image service, so it always renders + works offline
+                  for a printed table card. */}
+              <QRCodeSVG
+                value={publicUrl}
+                size={140}
+                level="M"
+                marginSize={2}
+                title={t("rsvpQrAlt", "QR code for your booking page")}
                 className="w-[140px] h-[140px]"
               />
             </div>
@@ -2040,6 +2183,12 @@ function SettingsSection({ t }) {
           {t("rsvpAvailTitle", "Availability rules")}
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <NumberField
+            label={t("rsvpBookingLength", "Booking length (minutes)")}
+            hint={t("rsvpBookingLengthHint", "How long a table is held per booking. Leave blank to keep your current rules.")}
+            value={form.default_duration_min}
+            onChange={(v) => setForm((f) => ({ ...f, default_duration_min: v }))}
+          />
           <NumberField
             label={t("rsvpMaxParty", "Max party size (online)")}
             hint={t("rsvpMaxPartyHint", "Bigger groups see 'call us'.")}

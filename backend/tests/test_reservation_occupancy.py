@@ -605,6 +605,32 @@ def test_bulk_create_numbers_continue_after_existing(client, db, engine_and_sess
         _clear_user_override()
 
 
+def test_owner_seat_now_walk_in(client, db, engine_and_session):
+    """Seating a walk-in NOW marks the table occupied (status seated) and holds
+    it with an occupancy row — a nameless walk-in is allowed."""
+    owner, _, resources = _restaurant(db, tables=1)
+    table_id = str(resources[0].id)
+    _override_user(owner)
+    try:
+        resp = client.post(
+            "/api/reservations/book",
+            json={
+                "party_size": 2,
+                "starts_at": "2026-06-12T19:00:00",
+                "resource_id": table_id,
+                "source": "walk_in",
+                "status": "seated",  # mark occupied on the spot, no name
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["status"] == "seated"
+        rid = uuid.UUID(body["id"])
+        assert len(_active_occ(db, rid)) == 1  # the table is held
+    finally:
+        _clear_user_override()
+
+
 # ─── insert-and-catch retry path (service-level, simulated conflict) ───
 def test_insert_and_catch_retries_then_succeeds_on_second_table(db, engine_and_session):
     """Directly exercise the insert-and-catch retry: simulate the first

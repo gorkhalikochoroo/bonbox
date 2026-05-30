@@ -93,7 +93,8 @@ class BulkResourceCreate(BaseModel):
 
 
 class ManualReservation(BaseModel):
-    guest_name: str = Field(min_length=1, max_length=160)
+    # Optional: a walk-in the host seats on the spot may have no name.
+    guest_name: str | None = Field(default=None, max_length=160)
     guest_phone: str | None = Field(default=None, max_length=40)
     guest_email: str | None = Field(default=None, max_length=255)
     party_size: int = Field(default=2, ge=1, le=100)
@@ -102,6 +103,9 @@ class ManualReservation(BaseModel):
     resource_id: UUID | None = None
     service_name: str | None = Field(default=None, max_length=120)
     source: str = Field(default="manual", pattern="^(manual|walk_in)$")
+    # "seated" lets the host mark a table occupied immediately (a walk-in);
+    # default "confirmed" is a booking that hasn't arrived yet.
+    status: str = Field(default="confirmed", pattern="^(confirmed|seated)$")
     guest_notes: str | None = Field(default=None, max_length=2000)
     allergen_tags: list[str] | None = None
     allergy_note: str | None = Field(default=None, max_length=2000)
@@ -438,12 +442,15 @@ def create_manual(payload: ManualReservation, request: Request,
         starts_at=payload.starts_at,
         ends_at=payload.starts_at + timedelta(minutes=duration),
         duration_min=duration, service_name=payload.service_name,
-        status="confirmed", source=payload.source,
+        status=payload.status, source=payload.source,
         guest_notes=payload.guest_notes,
         allergen_tags=sanitize_tags(payload.allergen_tags, btype),
         allergy_note=payload.allergy_note,
         allergy_severity=sanitize_severity(payload.allergy_severity),
     )
+    # Seating a walk-in on the spot → stamp it seated now.
+    if payload.status == "seated":
+        r.seated_at = utc_now()
     settings = rsvc.load_settings(profile)
     r.purge_after = payload.starts_at + timedelta(days=int(settings.get("retention_days", 90)))
 
