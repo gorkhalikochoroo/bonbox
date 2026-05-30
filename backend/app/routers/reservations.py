@@ -31,7 +31,12 @@ from app.models.user import User
 from app.services import audit_service
 from app.services.allergens import allergen_set_for, SEVERITY_LEVELS
 from app.services.auth import get_current_user
-from app.services.billing import enforce_cap, enforce_feature, get_cap
+from app.services.billing import (
+    cap_exceeded_detail,
+    enforce_cap,
+    enforce_feature,
+    get_cap,
+)
 from app.services import reservation_service as rsvc
 from app.services import reservation_occupancy_service as occ_service
 from sqlalchemy.exc import IntegrityError
@@ -69,6 +74,22 @@ class ResourceUpdate(BaseModel):
     combinable: bool | None = None
     is_active: bool | None = None
     sort_order: int | None = None
+
+
+class BulkResourceSpec(BaseModel):
+    # One table size + how many of it: "5 tables that seat 2".
+    capacity_seats: int = Field(ge=1, le=100)
+    count: int = Field(ge=1, le=200)
+
+
+class BulkResourceCreate(BaseModel):
+    # Quick floor setup: a list of (size, count) rows, created in one shot
+    # with auto-numbered labels ("Bord 1", "Bord 2", …). A whole 20-table
+    # floor in one call instead of 20 form submits.
+    specs: list[BulkResourceSpec] = Field(min_length=1, max_length=40)
+    zone: str | None = Field(default=None, max_length=60)
+    combinable: bool = False
+    label_prefix: str = Field(default="Bord", min_length=1, max_length=40)
 
 
 class ManualReservation(BaseModel):
@@ -247,6 +268,70 @@ def create_resource(payload: ResourceCreate, request: Request,
     audit_service.record(db, user, "reservation.resource_created", "bookable_resource", r.id)
     db.commit()
     return _resource_dict(r)
+
+
+@router.post("/resources/bulk", status_code=201)
+def create_resources_bulk(payload: BulkResourceCreate, request: Request,
+                          db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Quick floor setup — create many tables at once from (size, count) rows,
+    auto-numbered ("Bord 1", "Bord 2", …) continuing after any existing tables.
+
+    Respects the plan's table cap with *partial* success: it creates as many as
+    fit under the cap and reports how many were capped (friendlier than an
+    all-or-nothing 402 when someone bulk-adds past their limit). The `cap_info`
+    payload mirrors the single-create 402 so the frontend reuses the same
+    upgrade nudge."""
+    enforce_feature(user, "reservations")
+    if not payload.specs:
+        raise HTTPException(status_code=422, detail={"error": "no_specs"})
+
+    current = (
+        db.query(BookableResource)
+        .filter(BookableResource.user_id == user.id, BookableResource.is_deleted.is_(False))
+        .count()
+    )
+    cap = get_cap(user, "bookable_resources_max")  # -1 = unlimited
+    requested = sum(int(s.count) for s in payload.specs)
+    remaining = requested if cap < 0 else max(0, cap - current)
+
+    prefix = (payload.label_prefix or "Bord").strip() or "Bord"
+    zone = (payload.zone or "").strip() or None
+
+    created: list[BookableResource] = []
+    n = current + 1  # continue the numbering after existing tables
+    for spec in payload.specs:
+        for _ in range(int(spec.count)):
+            if len(created) >= remaining:
+                break
+            r = BookableResource(
+                user_id=user.id, kind="table", label=f"{prefix} {n}",
+                capacity_seats=max(1, min(100, int(spec.capacity_seats))),
+                zone=zone, combinable=bool(payload.combinable), sort_order=n,
+            )
+            db.add(r)
+            created.append(r)
+            n += 1
+        if len(created) >= remaining:
+            break
+
+    if created:
+        db.flush()
+        audit_service.record(
+            db, user, "reservation.resources_bulk_created", "bookable_resource", created[0].id,
+        )
+        db.commit()
+
+    capped = requested - len(created)
+    resp = {
+        "created": [_resource_dict(r) for r in created],
+        "created_count": len(created),
+        "requested": requested,
+        "capped": capped,
+    }
+    if capped > 0:
+        # Same shape as the single-create 402 → reuse the upgrade nudge.
+        resp["cap_info"] = cap_exceeded_detail(user, "bookable_resources_max", current + len(created))
+    return resp
 
 
 @router.patch("/resources/{resource_id}")

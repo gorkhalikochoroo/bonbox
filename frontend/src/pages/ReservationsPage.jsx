@@ -28,10 +28,11 @@
 // `api` client + auth/CSRF path as EventsPage (no bespoke fetch wrapper).
 //
 // DK terminology lock: revisor / MOMS etc. stay Danish across locales.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarCheck,
   Plus,
+  Minus,
   Trash2,
   Copy,
   Check,
@@ -44,6 +45,12 @@ import {
   Download,
   MessageSquare,
   Lock,
+  X,
+  Ban,
+  CheckCircle2,
+  Globe,
+  Footprints,
+  PartyPopper,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
@@ -53,6 +60,10 @@ import { useEntitlements } from "../hooks/useEntitlements";
 import Button from "../components/ui/Button";
 import TabPills from "../components/ui/TabPills";
 import UpgradeNudge from "../components/ui/UpgradeNudge";
+import DataTable from "../components/ui/DataTable";
+import StatCard from "../components/ui/StatCard";
+import FilterBar from "../components/ui/FilterBar";
+import Empty from "../components/ui/Empty";
 
 // Status → colored-dot token for the status pill. Severe = red, the
 // terminal-good states emerald, requests amber, dead states gray.
@@ -168,21 +179,607 @@ function PageTitle({ t }) {
 }
 
 // ─── Reservation book ─────────────────────────────────────────────────
+// Remembers the owner's last-used book view across sessions/devices.
+const RSVP_VIEW_KEY = "bonbox.rsvp.view";
+
+// Status → localized label. Shared by the Liste status column + (later) the
+// floor/timeline. Mirrors the map ReservationRow used.
+function statusLabels(t) {
+  return {
+    requested: t("rsvpStatusRequested", "Requested"),
+    confirmed: t("rsvpStatusConfirmed", "Confirmed"),
+    seated: t("rsvpStatusSeated", "Seated"),
+    completed: t("rsvpStatusCompleted", "Completed"),
+    no_show: t("rsvpStatusNoShow", "No-show"),
+    cancelled: t("rsvpStatusCancelled", "Cancelled"),
+  };
+}
+
+// Table(s) cell — a combined seating shows the "Bord 1 + Bord 2" chip, a
+// single table its label, an unassigned booking a muted dash.
+function TablesCell({ r, labelById, t }) {
+  const combined =
+    Array.isArray(r.combined_resource_labels) && r.combined_resource_labels.length > 1
+      ? r.combined_resource_labels
+      : null;
+  if (combined) {
+    return (
+      <span
+        title={combined.join(" + ")}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 max-w-[9.5rem] truncate"
+      >
+        <Link2 className="w-3.5 h-3.5 shrink-0" aria-hidden />
+        {combined.join(" + ")}
+      </span>
+    );
+  }
+  if (r.resource_id) {
+    return (
+      <span className="text-sm text-gray-700 dark:text-gray-300">
+        {labelById[String(r.resource_id)] || t("rsvpTableFallback", "Table")}
+      </span>
+    );
+  }
+  return <span className="text-sm text-gray-400 dark:text-gray-500">—</span>;
+}
+
+// Flags cell — allergy / occasion / source as compact icon badges (icon-only
+// with title + aria-label; the column is narrow). Allergy is the one signal
+// that earns color: red when severe, amber otherwise.
+function FlagsCell({ r, t }) {
+  const hasAllergy =
+    (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
+    !!r.allergy_note ||
+    !!r.allergy_severity;
+  const severe = r.allergy_severity === "severe";
+  const allergyTitle = [
+    (r.allergen_tags || []).map((k) => t(`allergen_${k}`, k)).join(", "),
+    r.allergy_note,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <div className="flex items-center gap-1.5 text-gray-400 dark:text-gray-500">
+      {hasAllergy && (
+        <AlertTriangle
+          className={"w-4 h-4 " + (severe ? "text-red-600 dark:text-red-400" : "text-amber-500 dark:text-amber-400")}
+          aria-label={severe ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
+          title={allergyTitle || (severe ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy"))}
+        />
+      )}
+      {r.occasion && (
+        <PartyPopper className="w-4 h-4" aria-label={r.occasion} title={r.occasion} />
+      )}
+      {r.source === "public" && (
+        <Globe className="w-4 h-4" aria-label={t("rsvpSourceOnline", "online")} title={t("rsvpSourceOnline", "online")} />
+      )}
+      {r.source === "walk_in" && (
+        <Footprints className="w-4 h-4" aria-label={t("rsvpSourceWalkIn", "walk-in")} title={t("rsvpSourceWalkIn", "walk-in")} />
+      )}
+    </div>
+  );
+}
+
+// Phase-3 lens lands here. Honest placeholder until then.
+function ComingSoonView({ icon, title, body }) {
+  return (
+    <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 py-12 text-center">
+      <div className="text-gray-300 dark:text-gray-600 mb-2 flex justify-center">{icon}</div>
+      <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{title}</p>
+      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-sm mx-auto">{body}</p>
+    </div>
+  );
+}
+
+// ─── Plan (visual floor) ──────────────────────────────────────────────
+// Map the day's holding bookings onto each table and classify it. Status-
+// driven (seated > upcoming > free) so it's correct on any day; the "in N
+// min" eta is only computed when it's meaningful (a future start). Tables
+// only — providers carry their own availability model.
+function deriveFloorState(reservations, resources, nowMs) {
+  const holding = reservations.filter((r) =>
+    ["requested", "confirmed", "seated"].includes(r.status),
+  );
+  return resources
+    .filter((r) => r.kind !== "provider")
+    .map((res) => {
+      const id = String(res.id);
+      if (res.is_active === false) {
+        return { res, status: "inactive", booking: null, combined: false };
+      }
+      const mine = holding.filter((r) => {
+        if (String(r.resource_id) === id) return true;
+        return (r.combined_resource_ids || []).map(String).includes(id);
+      });
+      if (mine.length === 0) {
+        return { res, status: "free", booking: null, combined: false };
+      }
+      const seated = mine.find((r) => r.status === "seated");
+      const current =
+        seated ||
+        mine.slice().sort((a, b) => (a.starts_at < b.starts_at ? -1 : 1))[0];
+      const combined =
+        Array.isArray(current.combined_resource_ids) &&
+        current.combined_resource_ids.length > 1;
+      let eta = null;
+      if (!seated && current.starts_at) {
+        const ms = new Date(current.starts_at).getTime() - nowMs;
+        if (ms > 0 && ms < 1000 * 60 * 120) eta = Math.round(ms / 60000);
+      }
+      return {
+        res,
+        status: seated ? "seated" : "upcoming",
+        combined,
+        booking: {
+          id: current.id,
+          name: current.guest_name,
+          time: fmtTime(current.starts_at),
+          eta,
+          reservation: current,
+        },
+      };
+    });
+}
+
+const TILE_DOT = {
+  free: "bg-gray-300 dark:bg-gray-600",
+  upcoming: "bg-amber-500",
+  seated: "bg-emerald-500",
+  inactive: "bg-gray-200 dark:bg-gray-700",
+};
+
+function FloorTile({ cell, t, onSelect }) {
+  const { res, status, booking, combined } = cell;
+  const inactive = status === "inactive";
+  const free = status === "free";
+  const clickable = !inactive && !free; // occupied/upcoming tiles open detail
+  const handle = () => {
+    if (clickable && booking?.reservation) onSelect(booking.reservation);
+  };
+  return (
+    <button
+      type="button"
+      disabled={!clickable}
+      onClick={handle}
+      className={
+        "text-left rounded-xl border p-3 min-h-[92px] flex flex-col transition-colors " +
+        (inactive
+          ? "bg-gray-50 dark:bg-gray-900/40 border-dashed border-gray-200 dark:border-gray-700 opacity-60 cursor-default"
+          : free
+          ? "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 cursor-default"
+          : status === "seated"
+          ? "bg-gray-50 dark:bg-gray-800/60 border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500"
+          : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700")
+      }
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+          {res.label}
+        </span>
+        <span className={"w-2.5 h-2.5 rounded-full shrink-0 " + (TILE_DOT[status] || TILE_DOT.free)} aria-hidden />
+      </div>
+      <div className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1">
+        <Users className="w-3 h-3" aria-hidden />
+        {res.capacity_seats}
+        {combined && (
+          <Link2 className="w-3 h-3 ml-0.5" aria-hidden title={t("rsvpCombinable", "Can be combined")} />
+        )}
+      </div>
+      <div className="mt-auto pt-1.5 min-h-[1.4rem]">
+        {inactive ? (
+          <span className="text-[11px] text-gray-400 dark:text-gray-500">
+            {t("rsvpTileInactive", "Out of service")}
+          </span>
+        ) : free ? (
+          <span className="text-[11px] text-gray-400 dark:text-gray-500">{t("rsvpTileFree", "Free")}</span>
+        ) : (
+          <div className="leading-tight">
+            <div className="text-[12px] font-medium text-gray-800 dark:text-gray-200 truncate">
+              {booking.time} · {booking.name || t("rsvpGuest", "Guest")}
+            </div>
+            <div className="text-[11px] text-gray-500 dark:text-gray-400">
+              {status === "seated"
+                ? t("rsvpTileSeated", "Seated")
+                : booking.eta != null
+                ? t("rsvpTileInMin", "in {n} min", { n: booking.eta })
+                : t("rsvpStatusConfirmed", "Confirmed")}
+            </div>
+          </div>
+        )}
+      </div>
+    </button>
+  );
+}
+
+function LegendDot({ cls, label }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={"w-2 h-2 rounded-full " + cls} aria-hidden />
+      {label}
+    </span>
+  );
+}
+
+function FloorView({ reservations, resources, t, onSelect }) {
+  const cells = useMemo(
+    () => deriveFloorState(reservations, resources, Date.now()),
+    [reservations, resources],
+  );
+  const byZone = useMemo(() => {
+    const g = {};
+    cells.forEach((c) => {
+      const z = c.res.zone || t("rsvpZoneOther", "Other");
+      (g[z] = g[z] || []).push(c);
+    });
+    return g;
+  }, [cells, t]);
+
+  if (cells.length === 0) {
+    return (
+      <ComingSoonView
+        icon={<Armchair className="w-8 h-8" />}
+        title={t("rsvpFloorEmptyTitle", "No tables yet")}
+        body={t("rsvpFloorEmptyBody", "Add tables on the Floor tab to see your room here.")}
+      />
+    );
+  }
+  return (
+    <div className="space-y-5">
+      {Object.entries(byZone).map(([zone, list]) => (
+        <div key={zone}>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">
+            {zone}
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {list.map((c) => (
+              <FloorTile key={c.res.id} cell={c} t={t} onSelect={onSelect} />
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="flex flex-wrap items-center gap-4 text-[11px] text-gray-500 dark:text-gray-400 pt-1">
+        <LegendDot cls="bg-gray-300 dark:bg-gray-600" label={t("rsvpTileFree", "Free")} />
+        <LegendDot cls="bg-amber-500" label={t("rsvpLegUpcoming", "Upcoming")} />
+        <LegendDot cls="bg-emerald-500" label={t("rsvpTileSeated", "Seated")} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Shared detail drawer (Liste row + Plan tile both open this) ──────
+function DetailRow({ label, value }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 text-sm">
+      <span className="text-gray-500 dark:text-gray-400">{label}</span>
+      <span className="text-gray-900 dark:text-gray-100 text-right">{value}</span>
+    </div>
+  );
+}
+
+function ReservationDrawer({ reservation, t, busy, onStatus, onClose }) {
+  if (!reservation) return null;
+  const r = reservation;
+  const labels = statusLabels(t);
+  const hasAllergy =
+    (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
+    !!r.allergy_note ||
+    !!r.allergy_severity;
+  const severe = r.allergy_severity === "severe";
+  const allergyText = [
+    (r.allergen_tags || []).map((k) => t(`allergen_${k}`, k)).join(", "),
+    r.allergy_note,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const actions = [];
+  if (r.status === "requested") {
+    actions.push({ id: "confirmed", label: t("rsvpConfirmAction", "Confirm"), to: "confirmed" });
+    actions.push({ id: "decline", label: t("rsvpDeclineAction", "Decline"), to: "cancelled", danger: true });
+  } else if (r.status === "confirmed") {
+    actions.push({ id: "seated", label: t("rsvpSeatAction", "Seat"), to: "seated" });
+    actions.push({ id: "no_show", label: t("rsvpNoShowAction", "No-show"), to: "no_show", danger: true });
+    actions.push({ id: "cancel", label: t("rsvpCancelAction", "Cancel"), to: "cancelled", danger: true });
+  } else if (r.status === "seated") {
+    actions.push({ id: "completed", label: t("rsvpCompleteAction", "Complete"), to: "completed" });
+  }
+
+  const combinedLabels =
+    Array.isArray(r.combined_resource_labels) && r.combined_resource_labels.length > 1
+      ? r.combined_resource_labels.join(" + ")
+      : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative ml-auto w-full max-w-md h-full bg-white dark:bg-gray-900 shadow-sm border-l border-gray-200 dark:border-gray-800 overflow-auto p-5 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+              {fmtTime(r.starts_at)}–{fmtTime(r.ends_at)}
+            </div>
+            <div className="text-sm text-gray-600 dark:text-gray-300 truncate">
+              {(r.guest_name || "—") + " · " + r.party_size + " " + t("rsvpCoversHelper", "guests")}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("close", "Close")}
+            className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <StatusPill status={r.status} label={labels[r.status] || r.status} />
+
+        {hasAllergy && (
+          <div
+            className={
+              "rounded-lg px-3 py-2 text-sm " +
+              (severe
+                ? "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                : "bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300")
+            }
+          >
+            <div className="font-semibold flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4" aria-hidden />
+              {severe ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
+            </div>
+            {allergyText && <div className="mt-0.5">{allergyText}</div>}
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          {r.guest_phone && <DetailRow label={t("rsvpPhone", "Phone")} value={r.guest_phone} />}
+          {combinedLabels && <DetailRow label={t("rsvpColTable", "Table")} value={combinedLabels} />}
+          {r.occasion && <DetailRow label={t("rsvpOccasion", "Occasion")} value={r.occasion} />}
+        </div>
+        {r.guest_notes && (
+          <p className="text-sm text-gray-600 dark:text-gray-300">{r.guest_notes}</p>
+        )}
+
+        {actions.length > 0 && (
+          <div className="pt-2 space-y-2">
+            {actions.map((a) => (
+              <Button
+                key={a.id}
+                variant={a.danger ? "ghost" : "primary"}
+                size="lg"
+                disabled={busy}
+                onClick={() => onStatus(r, a.to)}
+                className={"w-full justify-center " + (a.danger ? "text-red-600 hover:text-red-700" : "")}
+              >
+                {a.label}
+              </Button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Tidslinje (service timeline grid) ────────────────────────────────
+// Minutes since midnight for an ISO datetime (the timeline's X axis).
+function minOfDay(iso) {
+  const d = new Date(iso);
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+function TimelineView({ reservations, resources, day, t, onSelect }) {
+  const tables = useMemo(
+    () =>
+      resources
+        .filter((r) => r.kind !== "provider")
+        .slice()
+        .sort((a, b) =>
+          (a.zone || "") === (b.zone || "")
+            ? (a.sort_order || 0) - (b.sort_order || 0)
+            : (a.zone || "").localeCompare(b.zone || ""),
+        ),
+    [resources],
+  );
+  const holding = useMemo(
+    () => reservations.filter((r) => ["requested", "confirmed", "seated"].includes(r.status)),
+    [reservations],
+  );
+
+  // Service window derived from the day's bookings (min start → max end),
+  // hour-aligned and clamped to at least 4h. Empty day falls back to 16–23.
+  const { startMin, endMin } = useMemo(() => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    holding.forEach((r) => {
+      if (!r.starts_at || !r.ends_at) return;
+      let s = minOfDay(r.starts_at);
+      let e = minOfDay(r.ends_at);
+      if (e <= s) e += 1440;
+      lo = Math.min(lo, s);
+      hi = Math.max(hi, e);
+    });
+    if (!isFinite(lo)) {
+      lo = 16 * 60;
+      hi = 23 * 60;
+    }
+    lo = Math.floor(lo / 60) * 60;
+    hi = Math.ceil(hi / 60) * 60;
+    if (hi - lo < 240) hi = lo + 240;
+    return { startMin: lo, endMin: hi };
+  }, [holding]);
+
+  const PX = 1.2; // px per minute
+  const ROW_H = 52;
+  const RAIL_W = 116;
+  const bodyW = (endMin - startMin) * PX;
+  const hours = [];
+  for (let m = startMin; m <= endMin; m += 60) hours.push(m);
+  const labels = statusLabels(t);
+
+  const todayIso = isoDay(new Date());
+  const nowD = new Date();
+  const nowMin = nowD.getHours() * 60 + nowD.getMinutes();
+  const nowX =
+    day === todayIso && nowMin >= startMin && nowMin <= endMin ? (nowMin - startMin) * PX : null;
+
+  if (tables.length === 0) {
+    return (
+      <ComingSoonView
+        icon={<CalendarCheck className="w-8 h-8" />}
+        title={t("rsvpFloorEmptyTitle", "No tables yet")}
+        body={t("rsvpFloorEmptyBody", "Add tables on the Floor tab to see your room here.")}
+      />
+    );
+  }
+
+  // Status carried by fill weight (not hue): seated = inverted gray-900,
+  // requested = dashed/provisional, confirmed = solid bordered.
+  const blockClass = (status) =>
+    status === "seated"
+      ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+      : status === "requested"
+      ? "bg-white dark:bg-gray-900 border-dashed border-gray-400 dark:border-gray-500 text-gray-700 dark:text-gray-200"
+      : "bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100";
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-x-auto">
+      <div style={{ minWidth: RAIL_W + bodyW }}>
+        {/* Time axis */}
+        <div className="flex h-8 border-b border-gray-200 dark:border-gray-800 sticky top-0 bg-gray-50 dark:bg-gray-900/80 z-20">
+          <div
+            style={{ width: RAIL_W }}
+            className="shrink-0 sticky left-0 z-20 bg-gray-50 dark:bg-gray-900/80 border-r border-gray-200 dark:border-gray-800"
+          />
+          <div style={{ width: bodyW }} className="relative">
+            {hours.map((m) => (
+              <span
+                key={m}
+                style={{ left: (m - startMin) * PX }}
+                className="absolute top-1.5 -translate-x-1/2 text-[11px] tabular-nums text-gray-500 dark:text-gray-400"
+              >
+                {String(Math.floor((m % 1440) / 60)).padStart(2, "0")}:00
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Table rows */}
+        {tables.map((tbl) => {
+          const id = String(tbl.id);
+          const blocks = holding.filter(
+            (r) =>
+              String(r.resource_id) === id ||
+              (r.combined_resource_ids || []).map(String).includes(id),
+          );
+          return (
+            <div
+              key={tbl.id}
+              className="flex border-b border-gray-100 dark:border-gray-800 last:border-0"
+              style={{ height: ROW_H }}
+            >
+              <div
+                style={{ width: RAIL_W }}
+                className="shrink-0 sticky left-0 z-10 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 px-2 flex flex-col justify-center"
+              >
+                <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate leading-tight">
+                  {tbl.label}
+                </span>
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate">
+                  {[tbl.zone, tbl.capacity_seats + "p"].filter(Boolean).join(" · ")}
+                </span>
+              </div>
+              <div style={{ width: bodyW }} className="relative">
+                {hours.map((m) => (
+                  <span
+                    key={m}
+                    style={{ left: (m - startMin) * PX }}
+                    className="absolute top-0 bottom-0 border-l border-gray-100 dark:border-gray-800"
+                    aria-hidden
+                  />
+                ))}
+                {nowX != null && (
+                  <span
+                    style={{ left: nowX }}
+                    className="absolute top-0 bottom-0 border-l-2 border-gray-900 dark:border-gray-100 z-[2]"
+                    aria-hidden
+                  />
+                )}
+                {blocks.map((r) => {
+                  let s = minOfDay(r.starts_at);
+                  let e = minOfDay(r.ends_at);
+                  if (e <= s) e += 1440;
+                  const left = Math.max(0, (s - startMin) * PX);
+                  const width = Math.max(30, (Math.min(e, endMin) - Math.max(s, startMin)) * PX - 2);
+                  const combined = (r.combined_resource_ids || []).length > 1;
+                  return (
+                    <button
+                      key={r.id + id}
+                      type="button"
+                      onClick={() => onSelect(r)}
+                      title={`${fmtTime(r.starts_at)} ${r.guest_name || ""} (${r.party_size}) · ${labels[r.status] || r.status}`}
+                      style={{ left, width, top: 5, height: ROW_H - 12 }}
+                      className={"absolute rounded-md border px-1.5 overflow-hidden text-left flex flex-col justify-center " + blockClass(r.status)}
+                    >
+                      <span className="text-[11px] font-semibold leading-none truncate flex items-center gap-0.5">
+                        {fmtTime(r.starts_at)} · {r.party_size}
+                        {combined && <Link2 className="w-3 h-3 shrink-0" aria-hidden />}
+                      </span>
+                      <span className="text-[10px] leading-tight truncate opacity-90 flex items-center gap-0.5 mt-0.5">
+                        {r.allergy_severity === "severe" && (
+                          <AlertTriangle className="w-3 h-3 shrink-0 text-red-500" aria-hidden />
+                        )}
+                        {r.guest_name || t("rsvpGuest", "Guest")}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function BookSection({ t }) {
   const [day, setDay] = useState(() => isoDay(new Date()));
+  const [view, setView] = useState(() => {
+    try {
+      return localStorage.getItem(RSVP_VIEW_KEY) || "liste";
+    } catch {
+      return "liste";
+    }
+  });
   const [data, setData] = useState(null);
+  const [resources, setResources] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actioningId, setActioningId] = useState(null);
+  // Filters (Liste view).
+  const [q, setQ] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [zoneFilter, setZoneFilter] = useState("all");
+  // The reservation open in the detail drawer (from a Plan tile or, later, a
+  // timeline block). null = drawer closed.
+  const [selected, setSelected] = useState(null);
+
+  const pickView = (v) => {
+    setView(v);
+    try {
+      localStorage.setItem(RSVP_VIEW_KEY, v);
+    } catch {
+      /* private mode — non-fatal */
+    }
+  };
 
   const fetchBook = useCallback(
     async (forDay) => {
       setLoading(true);
       setError("");
       try {
-        const res = await api.get("/reservations/book", {
-          params: { day: forDay },
-        });
+        const res = await api.get("/reservations/book", { params: { day: forDay } });
         setData(res.data || null);
       } catch (e) {
         setError(
@@ -197,13 +794,25 @@ function BookSection({ t }) {
     [t],
   );
 
+  // Resources power the zone filter + table-label resolution (and, next
+  // phases, the floor + timeline rails). Soft-fail: the book still works.
+  const fetchResources = useCallback(async () => {
+    try {
+      const res = await api.get("/reservations/resources");
+      setResources(Array.isArray(res.data?.resources) ? res.data.resources : []);
+    } catch {
+      setResources([]);
+    }
+  }, []);
+
   useEffect(() => {
     fetchBook(day);
   }, [day, fetchBook]);
+  useEffect(() => {
+    fetchResources();
+  }, [fetchResources]);
 
   const setStatus = async (r, status) => {
-    // Cancel asks for a reason via confirm — the backend stores it on
-    // the row (cancel_reason) for the audit trail.
     if (status === "cancelled") {
       if (
         !confirm(
@@ -230,7 +839,6 @@ function BookSection({ t }) {
         status,
         cancel_reason: status === "cancelled" ? "owner_cancelled" : null,
       });
-      // Refetch so the summary (covers / by_status) reconciles.
       await fetchBook(day);
     } catch (e) {
       setError(
@@ -245,13 +853,145 @@ function BookSection({ t }) {
 
   const summary = data?.summary || { total: 0, covers: 0, by_status: {} };
   const reservations = Array.isArray(data?.reservations) ? data.reservations : [];
+  const labels = statusLabels(t);
+
+  const zones = useMemo(
+    () => [...new Set(resources.map((r) => r.zone).filter(Boolean))],
+    [resources],
+  );
+  const labelById = useMemo(() => {
+    const m = {};
+    resources.forEach((r) => {
+      m[String(r.id)] = r.label;
+    });
+    return m;
+  }, [resources]);
+
+  const seatedCount = summary.by_status?.seated || 0;
+  const requestedCount = summary.by_status?.requested || 0;
+
+  const filtered = useMemo(() => {
+    let out = reservations;
+    if (statusFilter !== "all") out = out.filter((r) => r.status === statusFilter);
+    if (zoneFilter !== "all") {
+      const ids = new Set(
+        resources.filter((r) => r.zone === zoneFilter).map((r) => String(r.id)),
+      );
+      out = out.filter((r) => r.resource_id && ids.has(String(r.resource_id)));
+    }
+    const needle = q.trim().toLowerCase();
+    if (needle) {
+      out = out.filter(
+        (r) =>
+          (r.guest_name || "").toLowerCase().includes(needle) ||
+          (r.guest_phone || "").includes(q.trim()),
+      );
+    }
+    return out;
+  }, [reservations, statusFilter, zoneFilter, q, resources]);
+
+  const filtersOn = q.trim() !== "" || statusFilter !== "all" || zoneFilter !== "all";
+  const resetFilters = () => {
+    setQ("");
+    setStatusFilter("all");
+    setZoneFilter("all");
+  };
+
+  const columns = [
+    {
+      id: "time",
+      label: t("rsvpColTime", "Time"),
+      width: "w-24",
+      render: (r) => (
+        <div className="leading-tight">
+          <div className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+            {fmtTime(r.starts_at)}
+          </div>
+          <div className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
+            {fmtTime(r.ends_at)}
+          </div>
+        </div>
+      ),
+    },
+    {
+      id: "guest",
+      label: t("rsvpColGuest", "Guest"),
+      render: (r) => (
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+            {r.guest_name || "—"}
+          </div>
+          {r.guest_phone && (
+            <div className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
+              {r.guest_phone}
+            </div>
+          )}
+          {r.allergy_severity === "severe" && (
+            <div className="text-[11px] text-red-600 dark:text-red-400 font-medium truncate">
+              {[
+                (r.allergen_tags || []).map((k) => t(`allergen_${k}`, k)).join(", "),
+                r.allergy_note,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: "party",
+      label: t("rsvpColParty", "Party"),
+      align: "right",
+      width: "w-16",
+      render: (r) => (
+        <span className="inline-flex items-center gap-1 tabular-nums text-gray-700 dark:text-gray-300">
+          <Users className="w-3.5 h-3.5 text-gray-400" aria-hidden />
+          {r.party_size}
+        </span>
+      ),
+    },
+    {
+      id: "tables",
+      label: t("rsvpColTable", "Table"),
+      width: "w-36",
+      render: (r) => <TablesCell r={r} labelById={labelById} t={t} />,
+    },
+    {
+      id: "status",
+      label: t("rsvpColStatus", "Status"),
+      width: "w-32",
+      render: (r) => <StatusPill status={r.status} label={labels[r.status] || r.status} />,
+    },
+    {
+      id: "flags",
+      label: t("rsvpColFlags", "Flags"),
+      width: "w-20",
+      render: (r) => <FlagsCell r={r} t={t} />,
+    },
+  ];
+
+  // Status-aware inline actions, mirroring ReservationRow's transition logic.
+  const rowActions = (r) => {
+    const busy = actioningId === r.id;
+    const out = [];
+    if (r.status === "requested") {
+      out.push({ id: "confirmed", label: t("rsvpConfirmAction", "Confirm"), icon: <Check className="w-4 h-4" />, onClick: () => setStatus(r, "confirmed"), disabled: busy });
+      out.push({ id: "decline", label: t("rsvpDeclineAction", "Decline"), icon: <X className="w-4 h-4" />, onClick: () => setStatus(r, "cancelled"), variant: "danger", disabled: busy });
+    } else if (r.status === "confirmed") {
+      out.push({ id: "seated", label: t("rsvpSeatAction", "Seat"), icon: <Armchair className="w-4 h-4" />, onClick: () => setStatus(r, "seated"), disabled: busy });
+      out.push({ id: "no_show", label: t("rsvpNoShowAction", "No-show"), icon: <Ban className="w-4 h-4" />, onClick: () => setStatus(r, "no_show"), variant: "danger", disabled: busy });
+      out.push({ id: "cancel", label: t("rsvpCancelAction", "Cancel"), icon: <X className="w-4 h-4" />, onClick: () => setStatus(r, "cancelled"), variant: "danger", disabled: busy });
+    } else if (r.status === "seated") {
+      out.push({ id: "completed", label: t("rsvpCompleteAction", "Complete"), icon: <CheckCircle2 className="w-4 h-4" />, onClick: () => setStatus(r, "completed"), disabled: busy });
+    }
+    return out;
+  };
 
   return (
     <div className="space-y-4">
-      {/* Day picker + summary. Host-stand sizing: every control here is a
-          ≥44px tap target so a host behind a podium can hit them fast on a
-          Windows touch PC / tablet (where the global pointer:coarse floor
-          does not apply). */}
+      {/* Toolbar: day controls (left) + view toggle (right). Every control is
+          a ≥44px tap target for the Windows host-stand / tablet. */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap">
           <input
@@ -277,10 +1017,30 @@ function BookSection({ t }) {
             <RefreshCw className="w-5 h-5" />
           </button>
         </div>
-        <div className="flex items-center gap-2 text-sm">
-          <SummaryPill label={t("rsvpTotal", "Bookings")} value={summary.total} />
-          <SummaryPill label={t("rsvpCovers", "Covers")} value={summary.covers} />
-        </div>
+        <TabPills
+          tabs={[
+            { id: "liste", label: t("rsvpViewListe", "List") },
+            { id: "plan", label: t("rsvpViewPlan", "Floor") },
+            { id: "tidslinje", label: t("rsvpViewTimeline", "Timeline") },
+          ]}
+          activeId={view}
+          onChange={pickView}
+          ariaLabel={t("rsvpViewAria", "Reservation views")}
+        />
+      </div>
+
+      {/* Covers strip — the day's vitals. Awaiting goes amber when requests
+          pile up; otherwise the strip is calm gray. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatCard label={t("rsvpTotal", "Bookings")} value={summary.total} helper={fmtDkDate(day)} />
+        <StatCard label={t("rsvpCovers", "Covers")} value={summary.covers} helper={t("rsvpCoversHelper", "guests")} />
+        <StatCard label={t("rsvpSeatedNow", "Seated now")} value={seatedCount} />
+        <StatCard
+          label={t("rsvpAwaiting", "Awaiting")}
+          value={requestedCount}
+          accent={requestedCount > 0 ? "warn" : "neutral"}
+          helper={t("rsvpAwaitingHelper", "to confirm")}
+        />
       </div>
 
       {error && (
@@ -289,172 +1049,104 @@ function BookSection({ t }) {
         </div>
       )}
 
-      {loading ? (
-        <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>
-      ) : reservations.length === 0 ? (
-        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 py-10 text-center">
-          <CalendarCheck className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" aria-hidden />
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {t("rsvpBookEmpty", "No reservations for {date} yet.", {
-              date: fmtDkDate(day),
-            })}
-          </p>
-        </div>
-      ) : (
-        <ul className="space-y-2">
-          {reservations.map((r) => (
-            <ReservationRow
-              key={r.id}
-              r={r}
-              t={t}
-              busy={actioningId === r.id}
-              onStatus={setStatus}
+      {/* ── Liste (the polished data-table) ── */}
+      {view === "liste" && (
+        <>
+          <FilterBar>
+            <FilterBar.Search
+              value={q}
+              onChange={setQ}
+              placeholder={t("rsvpSearchPh", "Search guest or phone")}
             />
-          ))}
-        </ul>
+            <FilterBar.Select
+              label={t("rsvpFilterStatus", "Status")}
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { value: "all", label: t("rsvpFilterAll", "All") },
+                ...["requested", "confirmed", "seated", "completed", "no_show", "cancelled"].map(
+                  (s) => ({ value: s, label: labels[s] }),
+                ),
+              ]}
+            />
+            {zones.length > 0 && (
+              <FilterBar.Select
+                label={t("rsvpFilterZone", "Zone")}
+                value={zoneFilter}
+                onChange={setZoneFilter}
+                options={[
+                  { value: "all", label: t("rsvpFilterAll", "All") },
+                  ...zones.map((z) => ({ value: z, label: z })),
+                ]}
+              />
+            )}
+            {filtersOn && <FilterBar.Reset onClick={resetFilters} label={t("reset", "Reset")} />}
+          </FilterBar>
+
+          <DataTable
+            columns={columns}
+            rows={filtered}
+            rowKey="id"
+            loading={loading}
+            rowActions={rowActions}
+            mobileBreakpoint="md"
+            empty={
+              <Empty
+                icon={<CalendarCheck className="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600" />}
+                title={t("rsvpBookEmpty", "No reservations for {date} yet.", { date: fmtDkDate(day) })}
+                body={
+                  filtersOn
+                    ? t("rsvpNoMatch", "No bookings match your filters.")
+                    : t("rsvpBookEmptyBody", "Bookings will appear here as they come in.")
+                }
+              />
+            }
+          />
+        </>
+      )}
+
+      {/* ── Plan (visual floor) ── */}
+      {view === "plan" &&
+        (loading ? (
+          <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>
+        ) : (
+          <FloorView
+            reservations={reservations}
+            resources={resources}
+            t={t}
+            onSelect={setSelected}
+          />
+        ))}
+
+      {/* ── Tidslinje (service timeline grid) ── */}
+      {view === "tidslinje" &&
+        (loading ? (
+          <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>
+        ) : (
+          <TimelineView
+            reservations={reservations}
+            resources={resources}
+            day={day}
+            t={t}
+            onSelect={setSelected}
+          />
+        ))}
+
+      {/* Shared detail drawer — opened from a Plan tile (and, next phase, a
+          timeline block). Status actions reuse the same optimistic handler. */}
+      {selected && (
+        <ReservationDrawer
+          reservation={selected}
+          t={t}
+          busy={actioningId === selected.id}
+          onStatus={(r, to) => {
+            setStatus(r, to);
+            setSelected(null);
+          }}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
-  );
-}
-
-function SummaryPill({ label, value }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-medium">
-      <span className="tabular-nums font-semibold text-base">{value}</span>
-      <span className="text-gray-500 dark:text-gray-400 text-xs">{label}</span>
-    </span>
-  );
-}
-
-function ReservationRow({ r, t, busy, onStatus }) {
-  // Allergy flag — severe ones go red, everything else gray-with-warn.
-  const hasAllergy =
-    (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
-    !!r.allergy_note ||
-    !!r.allergy_severity;
-  const isSevere = r.allergy_severity === "severe";
-
-  const statusLabel = {
-    requested: t("rsvpStatusRequested", "Requested"),
-    confirmed: t("rsvpStatusConfirmed", "Confirmed"),
-    seated: t("rsvpStatusSeated", "Seated"),
-    completed: t("rsvpStatusCompleted", "Completed"),
-    no_show: t("rsvpStatusNoShow", "No-show"),
-    cancelled: t("rsvpStatusCancelled", "Cancelled"),
-  };
-
-  // Which actions make sense for each status. Terminal states (completed
-  // / cancelled / no_show) get no actions.
-  const actions = [];
-  if (r.status === "requested") {
-    actions.push({ id: "confirmed", label: t("rsvpConfirmAction", "Confirm") });
-    actions.push({ id: "cancelled", label: t("rsvpDeclineAction", "Decline"), variant: "danger" });
-  } else if (r.status === "confirmed") {
-    actions.push({ id: "seated", label: t("rsvpSeatAction", "Seat") });
-    actions.push({ id: "no_show", label: t("rsvpNoShowAction", "No-show"), variant: "danger" });
-    actions.push({ id: "cancelled", label: t("rsvpCancelAction", "Cancel"), variant: "danger" });
-  } else if (r.status === "seated") {
-    actions.push({ id: "completed", label: t("rsvpCompleteAction", "Complete") });
-  }
-
-  return (
-    <li className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3.5">
-      {/* Readable at arm's length across a host stand: the time, guest name
-          and party size are bumped up + given more breathing room so the
-          host can glance the book from a step back. Actions stack below on
-          tablet portrait and sit to the right on wider screens. */}
-      <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-x-3 gap-y-1 flex-wrap">
-            <span className="text-lg sm:text-xl font-semibold tabular-nums text-gray-900 dark:text-gray-100 leading-none">
-              {fmtTime(r.starts_at)}
-            </span>
-            <span className="text-base sm:text-lg font-medium text-gray-800 dark:text-gray-200 truncate">
-              {r.guest_name || "—"}
-            </span>
-            <span className="inline-flex items-center gap-1 text-sm font-medium text-gray-600 dark:text-gray-300">
-              <Users className="w-4 h-4" aria-hidden />
-              {r.party_size}
-            </span>
-            {hasAllergy && (
-              <span
-                title={[r.allergen_tags?.join(", "), r.allergy_note].filter(Boolean).join(" · ")}
-                className={
-                  "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold uppercase tracking-wide " +
-                  (isSevere
-                    ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"
-                    : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300")
-                }
-              >
-                <AlertTriangle className="w-3.5 h-3.5" aria-hidden />
-                {isSevere
-                  ? t("rsvpAllergySevere", "Severe allergy")
-                  : t("rsvpAllergyFlag", "Allergy")}
-              </span>
-            )}
-          </div>
-          <div className="text-sm text-gray-500 dark:text-gray-400 mt-1.5 flex items-center gap-2 flex-wrap">
-            <StatusPill status={r.status} label={statusLabel[r.status] || r.status} />
-            {Array.isArray(r.combined_resource_labels) && r.combined_resource_labels.length > 1 && (
-              <span
-                title={t("rsvpCombinedTablesTitle", "Seated across multiple tables")}
-                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-semibold bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
-              >
-                <Armchair className="w-3.5 h-3.5" aria-hidden />
-                {r.combined_resource_labels.join(" + ")}
-              </span>
-            )}
-            {r.occasion && <span>· {r.occasion}</span>}
-            {r.source === "public" && <span>· {t("rsvpSourceOnline", "online")}</span>}
-            {(r.source === "walk_in") && <span>· {t("rsvpSourceWalkIn", "walk-in")}</span>}
-          </div>
-          {(r.guest_notes || hasAllergy) && (
-            <div className="mt-1.5 space-y-0.5">
-              {hasAllergy && (
-                <p
-                  className={
-                    "text-sm " +
-                    (isSevere
-                      ? "text-red-600 dark:text-red-400 font-medium"
-                      : "text-gray-600 dark:text-gray-300")
-                  }
-                >
-                  {[
-                    (r.allergen_tags || [])
-                      .map((k) => t(`allergen_${k}`, k))
-                      .join(", "),
-                    r.allergy_note,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              )}
-              {r.guest_notes && (
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {r.guest_notes}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-        {actions.length > 0 && (
-          <div className="flex items-center gap-2 flex-wrap shrink-0">
-            {actions.map((a) => (
-              <Button
-                key={a.id}
-                size="lg"
-                variant={a.variant === "danger" ? "ghost" : "primary"}
-                onClick={() => onStatus(r, a.id)}
-                disabled={busy}
-                className={a.variant === "danger" ? "text-red-600 hover:text-red-700" : ""}
-              >
-                {a.label}
-              </Button>
-            ))}
-          </div>
-        )}
-      </div>
-    </li>
   );
 }
 
@@ -481,6 +1173,17 @@ function FloorSection({ t }) {
   const [zone, setZone] = useState("");
   const [combinable, setCombinable] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Bulk "quick setup" — (seats, count) rows created in one call.
+  const [bulkRows, setBulkRows] = useState([
+    { seats: "2", count: "" },
+    { seats: "4", count: "" },
+    { seats: "6", count: "" },
+  ]);
+  const [bulkZone, setBulkZone] = useState("");
+  const [bulkCombinable, setBulkCombinable] = useState(false);
+  const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkDone, setBulkDone] = useState(null); // {created, capped}
 
   const fetchResources = useCallback(async () => {
     setLoading(true);
@@ -549,6 +1252,56 @@ function FloorSection({ t }) {
     }
   };
 
+  // ── Bulk quick-setup ───────────────────────────────────────────────
+  const bulkTotal = bulkRows.reduce((n, r) => n + (parseInt(r.count, 10) || 0), 0);
+  const setBulkRow = (i, patch) =>
+    setBulkRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const bumpCount = (i, delta) =>
+    setBulkRow(i, {
+      count: String(Math.max(0, (parseInt(bulkRows[i].count, 10) || 0) + delta)),
+    });
+  const addBulkRow = () => setBulkRows((prev) => [...prev, { seats: "", count: "" }]);
+  const removeBulkRow = (i) => setBulkRows((prev) => prev.filter((_, idx) => idx !== i));
+
+  const submitBulk = async () => {
+    const specs = bulkRows
+      .map((r) => ({
+        capacity_seats: Math.max(1, Math.min(100, parseInt(r.seats, 10) || 0)),
+        count: Math.max(0, parseInt(r.count, 10) || 0),
+      }))
+      .filter((s) => s.capacity_seats >= 1 && s.count >= 1);
+    if (specs.length === 0) return;
+    setBulkSaving(true);
+    setError("");
+    setCapMsg(null);
+    setBulkDone(null);
+    try {
+      const res = await api.post("/reservations/resources/bulk", {
+        specs,
+        zone: bulkZone.trim() || null,
+        combinable: bulkCombinable,
+      });
+      const created = Array.isArray(res.data?.created) ? res.data.created : [];
+      setResources((prev) => [...prev, ...created]);
+      setBulkDone({
+        created: res.data?.created_count ?? created.length,
+        capped: res.data?.capped ?? 0,
+      });
+      setBulkRows((prev) => prev.map((r) => ({ ...r, count: "" })));
+      // Partial-cap → reuse the existing upgrade nudge (same payload shape).
+      if (res.data?.cap_info) {
+        const d = res.data.cap_info;
+        setCapMsg({ cap: d.cap, current: d.current, limit: d.limit, plan: d.plan, upgrade_to: d.upgrade_to });
+      }
+    } catch (e) {
+      setError(
+        e?.response?.data?.detail?.error || t("rsvpBulkError", "Couldn't add the tables."),
+      );
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
   const saveSeats = async (r, nextSeats) => {
     const capacity_seats = Math.max(1, Math.min(100, parseInt(nextSeats, 10) || 1));
     // Optimistic.
@@ -593,6 +1346,140 @@ function FloorSection({ t }) {
           "Add the tables guests can be seated at. Capacity drives which party sizes a slot can take.",
         )}
       </p>
+
+      {/* Quick setup — bulk-add tables by size. The fast path for a fresh
+          floor: "5 of 2, 4 of 4, 2 of 6" → one click, auto-numbered. */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!bulkSaving) submitBulk();
+        }}
+        className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3"
+      >
+        <div>
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {t("rsvpBulkTitle", "Quick setup")}
+          </h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            {t("rsvpBulkHint", "How many tables of each size? They're created and numbered for you.")}
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          {bulkRows.map((row, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <div className="relative w-24 shrink-0">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={row.seats}
+                  onChange={(e) => setBulkRow(i, { seats: e.target.value.replace(/[^\d]/g, "").slice(0, 3) })}
+                  placeholder={t("rsvpBulkSeatsPh", "Seats")}
+                  aria-label={t("rsvpBulkSeatsAria", "Seats per table")}
+                  className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+                />
+                <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">
+                  {t("rsvpSeatsShort", "pax")}
+                </span>
+              </div>
+              <span className="text-gray-400 text-sm shrink-0">×</span>
+              <div className="inline-flex items-center rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden shrink-0">
+                <button
+                  type="button"
+                  onClick={() => bumpCount(i, -1)}
+                  aria-label={t("rsvpBulkFewer", "Fewer")}
+                  className="h-11 w-11 inline-flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800"
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={row.count}
+                  onChange={(e) => setBulkRow(i, { count: e.target.value.replace(/[^\d]/g, "").slice(0, 3) })}
+                  placeholder="0"
+                  aria-label={t("rsvpBulkCountAria", "How many")}
+                  className="h-11 w-14 text-center border-x border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+                />
+                <button
+                  type="button"
+                  onClick={() => bumpCount(i, 1)}
+                  aria-label={t("rsvpBulkMore", "More")}
+                  className="h-11 w-11 inline-flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+              {bulkRows.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeBulkRow(i)}
+                  aria-label={t("delete", "Delete")}
+                  className="ml-auto h-11 w-11 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={addBulkRow}
+          className="inline-flex items-center gap-1 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100"
+        >
+          <Plus className="w-4 h-4" /> {t("rsvpBulkAddSize", "Add another size")}
+        </button>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <input
+            type="text"
+            value={bulkZone}
+            onChange={(e) => setBulkZone(e.target.value)}
+            maxLength={60}
+            placeholder={t("rsvpTableZonePh", "Zone (optional)")}
+            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+          />
+          <label className="flex items-center gap-2.5 cursor-pointer select-none px-1">
+            <input
+              type="checkbox"
+              checked={bulkCombinable}
+              onChange={(e) => setBulkCombinable(e.target.checked)}
+              className="w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-400"
+            />
+            <span className="text-sm text-gray-700 dark:text-gray-300">
+              {t("rsvpCombinable", "Can be combined")}
+            </span>
+          </label>
+        </div>
+
+        {bulkDone && (
+          <p className="text-sm text-emerald-600 dark:text-emerald-400">
+            {t("rsvpBulkDone", "Added {n} tables.", { n: bulkDone.created })}
+            {bulkDone.capped > 0 &&
+              " " + t("rsvpBulkCapped", "{n} more need a plan upgrade.", { n: bulkDone.capped })}
+          </p>
+        )}
+
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            {bulkTotal > 0
+              ? t("rsvpBulkTotal", "Adding {n} tables", { n: bulkTotal })
+              : t("rsvpBulkPickCounts", "Set how many of each")}
+          </span>
+          <Button
+            type="submit"
+            variant="primary"
+            size="lg"
+            busy={bulkSaving}
+            disabled={bulkTotal === 0}
+            iconLeft={<Plus className="w-4 h-4" />}
+          >
+            {t("rsvpBulkSubmit", "Add tables")}
+          </Button>
+        </div>
+      </form>
 
       {/* Add table — a real <form> so Enter submits from any field
           (keyboard-friendly on a host-stand desktop). Inputs + button are

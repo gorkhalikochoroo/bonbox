@@ -560,6 +560,51 @@ def test_combined_booking_cancel_frees_both_tables(client, db, engine_and_sessio
     assert _post_public(client, slug, time="19:00", party=6).status_code == 200
 
 
+# ─── bulk "quick setup" table creation ────────────────────────────────
+def test_bulk_create_tables(client, db, engine_and_session):
+    """Quick-setup bulk create: (size, count) rows → auto-numbered tables with
+    the batch's zone + combinable flag."""
+    owner, _, _ = _restaurant(db, tables=0, plan="starter")
+    _override_user(owner)
+    try:
+        resp = client.post(
+            "/api/reservations/resources/bulk",
+            json={
+                "specs": [
+                    {"capacity_seats": 2, "count": 2},
+                    {"capacity_seats": 4, "count": 1},
+                    {"capacity_seats": 6, "count": 1},
+                ],
+                "zone": "Indenfor",
+                "combinable": True,
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["created_count"] == 4
+        assert body["capped"] == 0
+        assert sorted(r["capacity_seats"] for r in body["created"]) == [2, 2, 4, 6]
+        assert [r["label"] for r in body["created"]] == ["Bord 1", "Bord 2", "Bord 3", "Bord 4"]
+        assert all(r["zone"] == "Indenfor" and r["combinable"] for r in body["created"])
+    finally:
+        _clear_user_override()
+
+
+def test_bulk_create_numbers_continue_after_existing(client, db, engine_and_session):
+    """Auto-numbering continues after the tables that already exist."""
+    owner, _, _ = _restaurant(db, tables=2, plan="starter")  # Bord 1, Bord 2 exist
+    _override_user(owner)
+    try:
+        resp = client.post(
+            "/api/reservations/resources/bulk",
+            json={"specs": [{"capacity_seats": 2, "count": 2}]},
+        )
+        assert resp.status_code == 201, resp.text
+        assert [r["label"] for r in resp.json()["created"]] == ["Bord 3", "Bord 4"]
+    finally:
+        _clear_user_override()
+
+
 # ─── insert-and-catch retry path (service-level, simulated conflict) ───
 def test_insert_and_catch_retries_then_succeeds_on_second_table(db, engine_and_session):
     """Directly exercise the insert-and-catch retry: simulate the first
