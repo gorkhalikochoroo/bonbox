@@ -174,6 +174,7 @@ def purge_expired_reservations() -> int:
             )
             .all()
         )
+        from app.services import reservation_occupancy_service as occ_service
         for r in rows:
             try:
                 r.guest_name = None
@@ -186,6 +187,11 @@ def purge_expired_reservations() -> int:
                 r.occasion = None
                 r.guest_consent_marketing = False
                 r.purged_at = now
+                # A row past purge_after is well after its service date — the
+                # slot is long gone. Release any still-active occupancy rows so
+                # the exclusion constraint isn't holding a stale future-dated
+                # table hostage (defence-in-depth; normally already inactive).
+                occ_service.release_occupancy(db, r.id)
                 purged += 1
             except Exception as exc:  # noqa: BLE001
                 logger.warning("reservation purge failed for %s: %s", r.id, exc)

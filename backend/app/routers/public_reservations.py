@@ -33,6 +33,7 @@ from app.models.business_profile import BusinessProfile
 from app.models.reservation import Reservation
 from app.models.user import User
 from app.services import audit_service, reservation_service as rsvc
+from app.services import reservation_occupancy_service as occ_service
 from app.services.allergens import allergen_set_for, sanitize_severity, sanitize_tags
 from app.services.billing import at_cap, has_feature
 from app.services.qr_signer import sign_booking_token, verify_booking_token
@@ -216,7 +217,9 @@ def create_reservation(request: Request, slug: str = Path(...),
 
     resource_id = None
     if not is_request:
-        # Confirmed booking — re-check the slot server-side & assign a table.
+        # Confirmed booking — re-check the slot server-side (fast path) &
+        # assign a table. The DB exclusion constraint is the real backstop
+        # (see insert-and-catch below); this just avoids a doomed INSERT.
         resource_id = rsvc.recheck_and_assign(
             db, profile=profile, user_id=owner.id, start=start,
             party_size=payload.party_size, now=_now_local(),
@@ -243,8 +246,32 @@ def create_reservation(request: Request, slug: str = Path(...),
         idempotency_key=idempotency_key,
         purge_after=start + timedelta(days=int(settings.get("retention_days", 90))),
     )
-    db.add(r)
-    db.flush()
+
+    if is_request:
+        # Group request — does NOT hold a table (no occupancy row) until the
+        # owner approves (→ confirmed assigns + occupies). Plain insert.
+        db.add(r)
+        db.flush()
+        db.commit()
+    else:
+        # Confirmed booking — insert reservation + an active occupancy row in
+        # one transaction. On the Postgres exclusion violation (a concurrent
+        # booking won this table) we rollback, re-assign another free table,
+        # and retry; if none survive → 409 slot_unavailable. On SQLite the
+        # constraint can't exist, so this is a plain commit + the app-level
+        # recheck above is the only guard (local-dev caveat, by design).
+        try:
+            occ_service.create_reservation_with_occupancy(
+                db, profile=profile, reservation=r, initial_resource_id=resource_id,
+                party_size=payload.party_size, start=start, duration_min=duration,
+                now=_now_local(),
+            )
+        except occ_service.SlotUnavailable:
+            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+
+    # Audit + confirmation run AFTER the booking is durably committed (the
+    # insert-and-catch helper commits internally and may have retried). The
+    # audit row + the email-sent timestamp commit in their own small txn.
     _send_confirmation(owner, profile, r)
     audit_service.record(db, owner, "reservation.created_public", "reservation", r.id)
     db.commit()
@@ -296,6 +323,9 @@ def visitor_cancel(request: Request, reservation_id: UUID = Path(...),
     r.status = "cancelled"
     r.cancelled_at = utc_now()
     r.cancel_reason = "guest_cancelled"
+    # Free the slot: flip the occupancy row(s) inactive so the exclusion
+    # constraint stops blocking this table for other guests.
+    occ_service.release_occupancy(db, r.id)
     audit_service.record(db, r.user_id, "reservation.cancelled_public", "reservation", r.id)
     db.commit()
     return {"id": str(r.id), "status": r.status}

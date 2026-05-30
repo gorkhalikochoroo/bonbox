@@ -1644,6 +1644,79 @@ _migrations = [
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_business_reservation_slug ON business_profiles (reservation_slug)",
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS reservations_enabled BOOLEAN DEFAULT FALSE",
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS reservation_settings_json TEXT",
+    # ── Migration 055 (2026-05-30): Reservation integrity backbone (P0) ──
+    # The DB-enforced "no double-booking, ever" guarantee. See §2 of
+    # docs/reservations-architecture.md + app/models/reservation_occupancy.py.
+    #
+    # POSTGRES-ONLY. Every statement below uses btree_gist / tsrange / a
+    # PL/pgSQL DO-block — none of which SQLite understands. This is safe
+    # because `_run_migrations()` only iterates this `_migrations` list on
+    # the PostgreSQL branch (the SQLite branch uses the hardcoded `_add()`
+    # column list + a small index list and NEVER touches `_migrations`). On
+    # SQLite the `reservation_occupancy` TABLE is created by
+    # `Base.metadata.create_all()` from the model (columns only, no exclusion
+    # constraint) — local dev relies on the app-level recheck. On Postgres,
+    # each statement runs inside its own SAVEPOINT, so a statement that fails
+    # (e.g. btree_gist unavailable) is rolled back and skipped without
+    # aborting the rest — the per-statement "swallow" the design relies on.
+    #
+    # btree_gist enables the `=` (equality) operator class inside a gist
+    # exclusion alongside the `&&` range-overlap operator.
+    "CREATE EXTENSION IF NOT EXISTS btree_gist",
+    # VARCHAR(36) ids match the GUID() TypeDecorator (native UUID breaks FK
+    # joins inside the SAVEPOINT wrapper — see Migration 018/022 comments).
+    # Mirrors app/models/reservation_occupancy.py.
+    """CREATE TABLE IF NOT EXISTS reservation_occupancy (
+        id VARCHAR(36) PRIMARY KEY,
+        reservation_id VARCHAR(36) NOT NULL REFERENCES reservations(id) ON DELETE CASCADE,
+        resource_id VARCHAR(36) NOT NULL REFERENCES bookable_resources(id),
+        user_id VARCHAR(36) NOT NULL,
+        starts_at TIMESTAMP NOT NULL,
+        ends_at TIMESTAMP NOT NULL,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    # ⭐ The heart of the P0 fix. A party of 6 across two 4-tops = two rows,
+    # each individually overlap-protected. `tsrange(starts_at, ends_at)` is
+    # half-open [start, end) — touching ends DON'T conflict, exactly matching
+    # the engine's `_overlaps` (a 18:00–19:30 booking frees 19:30). The
+    # partial `WHERE (active)` means cancelled/no-show/completed rows (active
+    # = FALSE) stop blocking the slot automatically.
+    #
+    # `ALTER TABLE ... ADD CONSTRAINT` has no `IF NOT EXISTS`, and this list
+    # re-runs on every boot — so we wrap it in a DO-block that swallows the
+    # `duplicate_object` raised on the second+ boot. (The outer SAVEPOINT
+    # would also catch it, but the DO-block keeps the intent local + explicit
+    # and avoids a noisy "Migration N skipped" log line every restart.)
+    """DO $$ BEGIN
+        ALTER TABLE reservation_occupancy
+          ADD CONSTRAINT reservation_occupancy_no_overlap
+          EXCLUDE USING gist (
+            resource_id WITH =,
+            tsrange(starts_at, ends_at) WITH &&
+          ) WHERE (active);
+    EXCEPTION
+        WHEN duplicate_object THEN NULL;
+        WHEN duplicate_table THEN NULL;
+    END $$;""",
+    "CREATE INDEX IF NOT EXISTS ix_reservation_occupancy_user_start ON reservation_occupancy (user_id, starts_at)",
+    "CREATE INDEX IF NOT EXISTS ix_reservation_occupancy_reservation ON reservation_occupancy (reservation_id)",
+    # Backfill: one active occupancy row per existing active reservation that
+    # holds a resource and has no occupancy row yet. Active = status IN
+    # (requested, confirmed, seated) — matching ACTIVE_STATUSES in
+    # reservation_service. Idempotent via the NOT EXISTS guard, so re-running
+    # on every boot is a no-op once backfilled. gen_random_uuid() is built in
+    # on PG 13+ (Supabase). Soft-deleted reservations are excluded.
+    """INSERT INTO reservation_occupancy (id, reservation_id, resource_id, user_id, starts_at, ends_at, active, created_at)
+       SELECT gen_random_uuid()::text, r.id, r.resource_id, r.user_id, r.starts_at, r.ends_at, TRUE, CURRENT_TIMESTAMP
+       FROM reservations r
+       WHERE r.resource_id IS NOT NULL
+         AND r.is_deleted = FALSE
+         AND r.status IN ('requested', 'confirmed', 'seated')
+         AND NOT EXISTS (
+           SELECT 1 FROM reservation_occupancy o
+           WHERE o.reservation_id = r.id AND o.resource_id = r.resource_id
+         )""",
 ]
 
 

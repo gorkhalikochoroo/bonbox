@@ -33,6 +33,8 @@ from app.services.allergens import allergen_set_for, SEVERITY_LEVELS
 from app.services.auth import get_current_user
 from app.services.billing import enforce_cap, enforce_feature, get_cap
 from app.services import reservation_service as rsvc
+from app.services import reservation_occupancy_service as occ_service
+from sqlalchemy.exc import IntegrityError
 from app.utils.time import utc_now
 
 router = APIRouter()
@@ -332,8 +334,28 @@ def create_manual(payload: ManualReservation, request: Request,
     )
     settings = rsvc.load_settings(profile)
     r.purge_after = payload.starts_at + timedelta(days=int(settings.get("retention_days", 90)))
-    db.add(r)
-    db.flush()
+
+    if payload.resource_id is None:
+        # Owner left the table unassigned ("seat later") — no hold, no
+        # occupancy row, plain insert.
+        db.add(r)
+        db.flush()
+    else:
+        # Owner picked a specific table → write reservation + an active
+        # occupancy row atomically. Unlike the public auto-assign path we do
+        # NOT silently re-pick a different table (the owner chose THIS one);
+        # if it's already occupied for the slot the DB exclusion constraint
+        # rejects the insert and we surface a clean 409 slot_unavailable.
+        try:
+            occ_service.create_reservation_with_occupancy(
+                db, profile=profile, reservation=r,
+                initial_resource_id=payload.resource_id,
+                party_size=payload.party_size, start=payload.starts_at,
+                duration_min=duration, now=None, reassign=False,
+            )
+        except occ_service.SlotUnavailable:
+            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+
     audit_service.record(db, user, "reservation.created_manual", "reservation", r.id)
     db.commit()
     return _reservation_dict(r)
@@ -351,7 +373,15 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
     )
     if r is None:
         raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+    prev_resource_id = r.resource_id
     r.status = payload.status
+    # Owner may (re)assign a table as part of the transition. If they move it
+    # to a DIFFERENT resource, free the old occupancy row first so it stops
+    # blocking that table.
+    resource_changed = (
+        payload.resource_id is not None and payload.resource_id != prev_resource_id
+    )
     if payload.resource_id is not None:
         r.resource_id = payload.resource_id
     if payload.status == "seated":
@@ -359,6 +389,31 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
     elif payload.status == "cancelled":
         r.cancelled_at = utc_now()
         r.cancel_reason = payload.cancel_reason
-    audit_service.record(db, user, f"reservation.{payload.status}", "reservation", r.id)
-    db.commit()
+
+    # ── Occupancy lifecycle ───────────────────────────────────────────
+    # Terminal states free the slot; holding states (re)claim it. The DB
+    # exclusion constraint is the backstop — if the owner tries to seat a
+    # party on a table that's already physically occupied for the slot, the
+    # INSERT raises IntegrityError and we surface a clean 409.
+    try:
+        if payload.status in ("cancelled", "no_show", "completed"):
+            # Free this reservation's slot.
+            occ_service.release_occupancy(db, r.id)
+        elif payload.status in occ_service.HOLDING_STATUSES and r.resource_id is not None:
+            if resource_changed:
+                # Moved tables — release the row(s) on the old resource, then
+                # claim the new one.
+                occ_service.release_occupancy(db, r.id)
+                occ_service.add_occupancy_row(db, r, active=True)
+            else:
+                # Approval (requested → confirmed) or seating an already-held
+                # row: ensure exactly one active occupancy row exists.
+                occ_service.sync_occupancy_for_status(db, r)
+        audit_service.record(db, user, f"reservation.{payload.status}", "reservation", r.id)
+        db.commit()
+    except IntegrityError:
+        # The target table is already occupied for this slot (exclusion
+        # constraint). Roll back the whole transition and tell the owner.
+        db.rollback()
+        raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
     return _reservation_dict(r)
