@@ -3458,6 +3458,7 @@ const translations = {
     onbBack: "Back",
     onbNext: "Next",
     // Step 1 — welcome
+    onbStep1Eyebrow: "Welcome",
     onbStep1Headline: "Welcome to BonBox",
     onbStep1Subhead: "Your morning brief, your books, your revisor — one app. Let's get you set up in about 90 seconds.",
     onbStep1Card1Title: "One quick close",
@@ -3468,27 +3469,65 @@ const translations = {
     onbStep1Card3Title: "One-tap to revisor",
     onbStep1Card3Body: "Share a clean export with your accountant.",
     onbStep1Cta: "Get started",
+    onbStep1Reassure: "Takes about 90 seconds — skip anytime.",
     // Step 2 — business
+    onbStep2Eyebrow: "Your business",
     onbStep2Title: "Tell us about your business",
-    onbStep2Subtitle: "Drop in your CVR and we'll fill the rest. No CVR? Type the basics by hand.",
+    onbStep2Subtitle: "Describe what you do in a few words — we'll tune BonBox to match. Then add your name and CVR.",
     onbStep2CvrLabel: "CVR number",
+    onbStep2CvrHint: "Optional — enter 8 digits and we'll auto-fill your name and address.",
     onbStep2CvrLookup: "Auto-fill",
     onbStep2CvrLoaded: "Loaded from {source}",
     onbStep2NameLabel: "Business name",
     onbStep2NamePlaceholder: "e.g. Café Mirabelle ApS",
     onbStep2BranchLabel: "What kind of business?",
+    // "or pick one" — divider above the demoted manual card grid (shown
+    // when nothing has been detected yet). After a detection the grid is
+    // relabelled via onbDetectedOverride ("Not quite? Pick the closest…").
+    onbDescribeOrPick: "or pick one",
+    // Smart free-text detection (Milestone 1) — owner types their trade in
+    // plain words; we POST it to /api/onboarding/detect-archetype and
+    // preselect the matching card. Fully graceful: any error falls back to
+    // the manual cards below, no scary message.
+    onbDescribeLabel: "What kind of business do you run?",
+    onbDescribePlaceholder: "e.g. neighbourhood pizzeria, hair salon, bike repair shop…",
+    onbDescribeHint: "Type it in your own words — we'll set the dashboard up to match. Or just pick a card below.",
+    onbDetecting: "Working out the best setup…",
+    onbDetected: "Looks like a {name} — we'll set things up for that.",
+    // Sub-line under the detection confirmation card — reassures the owner
+    // the tailoring isn't a lock-in (they can still change everything).
+    onbDetectedTuned: "Dashboard, daily close and reports tuned to match.",
+    onbDetectedOverride: "Not quite? Pick the closest below.",
     branchRestaurant: "Restaurant",
     branchCafe: "Café",
     branchBar: "Bar",
     branchRetail: "Retail",
     branchWorkshop: "Workshop",
     branchGeneral: "Other",
+    // ── Business archetype labels + taglines (config/archetypes.js) ──
+    // Resolved by t() from the archetype record's labelKey / taglineKey.
+    // Short labels (fit a card / inline confirmation); one-line taglines.
+    archFoodService: "Restaurant / café",
+    archFoodServiceTagline: "Daily close, MOMS, reservations & rosters.",
+    archBar: "Bar",
+    archBarTagline: "Daily close, MOMS, stock & pour control.",
+    archRetail: "Shop / retail",
+    archRetailTagline: "Stock, daily close, MOMS & expenses.",
+    archSalon: "Salon / barber",
+    archSalonTagline: "Bookings, rosters, MOMS & daily close.",
+    archServices: "Services / workshop",
+    archServicesTagline: "Faktura, expenses & MOMS for project work.",
+    archPersonal: "Personal",
+    archPersonalTagline: "Keep track of expenses & tax, no fuss.",
+    archGeneric: "Other",
+    archGenericTagline: "Daily close, MOMS, expenses & stock.",
     onbBusinessNameRequired: "Add a business name to continue.",
     onbBusinessSaveFailed: "Couldn't save business profile. Try again.",
     onbCvrInvalidLength: "CVR numbers are 8 digits — please double-check.",
     onbCvrNoMatch: "No company found for that CVR. You can still type the details by hand.",
     onbCvrLookupFailed: "Couldn't reach the CVR register. Type the details manually for now.",
     // Step 3 — tax
+    onbStep3Eyebrow: "Tax & timing",
     onbStep3Title: "Tax preferences",
     onbStep3Subtitle: "Defaults are right for most small Danish businesses. You can change any of this in Tax Autopilot later.",
     onbStep3FilingLabel: "How often do you file MOMS?",
@@ -3526,6 +3565,7 @@ const translations = {
     dayCutoffSaved: "Saved",
     dayCutoffFailed: "Couldn't save — try again.",
     // Step 4 — revisor
+    onbStep4Eyebrow: "Almost done",
     onbStep4Title: "Share with your revisor",
     onbStep4Subtitle: "Most Danish small businesses share their books with a revisor. Invite yours now — they'll get read-only access to your reports.",
     onbStep4EmailLabel: "Revisor's email",
@@ -3543,6 +3583,33 @@ const translations = {
     onbRevisorInviteSent: "Invite sent to {email}. They have 7 days to accept.",
     onbRevisorAlreadyActive: "That revisor already has access.",
     onbRevisorInviteFailed: "Couldn't send the invite. You can do it later from Profile.",
+    // ── "Here's what we set up for you" panel (Milestone 1) ──
+    // Shown on the final step; reflects the resolved archetype. Lists the
+    // archetype's leadFeatures (semantic key → label + real route) and makes
+    // its firstWin the primary CTA on finish.
+    onbSetupTitle: "Here's what we set up for you",
+    onbSetupSubtitle: "Tuned for a {name}. You can change any of this later — nothing is locked.",
+    onbSetupFirstWinHint: "Start here — it's the quickest win for your setup.",
+    // Short pill on the first-win row in the concierge setup panel.
+    onbSetupFirstWinBadge: "Start here",
+    onbFinishToFirstWin: "Finish & start",
+    // Lead-feature labels — map archetype semantic keys to owner-facing names.
+    onbFeatDailyClose: "Daily close",
+    onbFeatTax: "MOMS & tax",
+    onbFeatReservations: "Reservations",
+    onbFeatSchedule: "Staff schedule",
+    onbFeatInventory: "Stock",
+    onbFeatFaktura: "Faktura",
+    onbFeatExpenses: "Expenses",
+    // One-line "what this does for you" lines for each setup-panel row —
+    // makes the panel read bespoke/curated, not like a raw checklist.
+    onbFeatDailyCloseDesc: "Snap your kasserapport — we file the day's numbers.",
+    onbFeatTaxDesc: "MOMS countdown and a filing-ready angivelse.",
+    onbFeatReservationsDesc: "Take bookings with no-show reminders.",
+    onbFeatScheduleDesc: "Plan shifts and share them with your team.",
+    onbFeatInventoryDesc: "Track stock, waste and what to reorder.",
+    onbFeatFakturaDesc: "Send invoices and track what's unpaid.",
+    onbFeatExpensesDesc: "Snap receipts — we sort and total them.",
     // Profile re-run link
     onbReRunTitle: "Run the welcome wizard again",
     onbReRunDesc: "Revisit the 4-step setup — useful if you skipped it, changed verticals, or want to invite a new revisor.",
@@ -7803,6 +7870,7 @@ const translations = {
     onbSkipExplore: "Spring over og udforsk",
     onbBack: "Tilbage",
     onbNext: "Næste",
+    onbStep1Eyebrow: "Velkommen",
     onbStep1Headline: "Velkommen til BonBox",
     onbStep1Subhead: "Morgenbriefing, regnskab og revisor — i én app. Vi er færdige om cirka 90 sekunder.",
     onbStep1Card1Title: "Hurtig dagsafslutning",
@@ -7812,25 +7880,63 @@ const translations = {
     onbStep1Card3Title: "Ét tryk til revisor",
     onbStep1Card3Body: "Send en ren eksport til din revisor.",
     onbStep1Cta: "Kom i gang",
+    onbStep1Reassure: "Tager cirka 90 sekunder — spring over når som helst.",
+    onbStep2Eyebrow: "Din virksomhed",
     onbStep2Title: "Lidt om din virksomhed",
-    onbStep2Subtitle: "Indsæt CVR, så fylder vi resten ud. Intet CVR? Indtast bare det basale i hånden.",
+    onbStep2Subtitle: "Beskriv hvad du laver med få ord — så tilpasser vi BonBox. Tilføj derefter navn og CVR.",
     onbStep2CvrLabel: "CVR-nummer",
+    onbStep2CvrHint: "Valgfrit — indtast 8 cifre, så udfylder vi navn og adresse automatisk.",
     onbStep2CvrLookup: "Hent automatisk",
     onbStep2CvrLoaded: "Hentet fra {source}",
     onbStep2NameLabel: "Virksomhedsnavn",
     onbStep2NamePlaceholder: "fx Café Mirabelle ApS",
     onbStep2BranchLabel: "Hvilken slags virksomhed?",
+    // "eller vælg et" — skillelinje over de nedtonede manuelle kort (vises
+    // når intet er genkendt endnu). Efter en genkendelse får gitteret
+    // teksten onbDetectedOverride ("Ikke helt? Vælg det nærmeste…").
+    onbDescribeOrPick: "eller vælg et",
+    // Smart fritekst-genkendelse (Milestone 1) — ejeren skriver sin branche
+    // i egne ord; vi sender den til /api/onboarding/detect-archetype og
+    // forvælger det rette kort. Helt graceful: enhver fejl falder tilbage
+    // til kortene nedenfor uden en skræmmende besked.
+    onbDescribeLabel: "Hvilken slags virksomhed driver du?",
+    onbDescribePlaceholder: "fx pizzeria på hjørnet, frisørsalon, cykelværksted…",
+    onbDescribeHint: "Skriv det med dine egne ord — så sætter vi dashboardet op til at matche. Eller vælg bare et kort nedenfor.",
+    onbDetecting: "Finder den bedste opsætning…",
+    onbDetected: "Det ligner en {name} — det sætter vi op til dig.",
+    // Underlinje i genkendelses-bekræftelseskortet — beroliger ejeren om at
+    // tilpasningen ikke låser noget (alt kan stadig ændres).
+    onbDetectedTuned: "Dashboard, dagsafslutning og rapporter tilpasset.",
+    onbDetectedOverride: "Ikke helt? Vælg det nærmeste nedenfor.",
     branchRestaurant: "Restaurant",
     branchCafe: "Café",
     branchBar: "Bar",
     branchRetail: "Butik",
     branchWorkshop: "Værksted",
     branchGeneral: "Andet",
+    // ── Virksomhedsarketype-labels + taglines (config/archetypes.js) ──
+    // Slås op af t() via arketype-postens labelKey / taglineKey. Korte
+    // labels (passer på et kort / inline-bekræftelse); taglines på én linje.
+    archFoodService: "Restaurant / café",
+    archFoodServiceTagline: "Dagsafslutning, MOMS, reservationer & vagtplan.",
+    archBar: "Bar",
+    archBarTagline: "Dagsafslutning, MOMS, lager & udskænkning.",
+    archRetail: "Butik / detail",
+    archRetailTagline: "Lager, dagsafslutning, MOMS & udgifter.",
+    archSalon: "Salon / frisør",
+    archSalonTagline: "Bookinger, vagtplan, MOMS & dagsafslutning.",
+    archServices: "Service / værksted",
+    archServicesTagline: "Faktura, udgifter & MOMS til projektarbejde.",
+    archPersonal: "Privat",
+    archPersonalTagline: "Hold styr på udgifter & skat — uden besvær.",
+    archGeneric: "Andet",
+    archGenericTagline: "Dagsafslutning, MOMS, udgifter & lager.",
     onbBusinessNameRequired: "Tilføj et virksomhedsnavn for at fortsætte.",
     onbBusinessSaveFailed: "Kunne ikke gemme virksomhedsprofilen. Prøv igen.",
     onbCvrInvalidLength: "CVR-numre er 8 cifre — tjek nummeret.",
     onbCvrNoMatch: "Ingen virksomhed fundet for det CVR. Du kan stadig indtaste detaljerne i hånden.",
     onbCvrLookupFailed: "Kunne ikke nå CVR-registret. Indtast detaljerne i hånden indtil videre.",
+    onbStep3Eyebrow: "Skat & tidspunkt",
     onbStep3Title: "Skat-præferencer",
     onbStep3Subtitle: "Standardværdierne passer til de fleste små danske virksomheder. Du kan altid ændre i Skattecockpittet.",
     onbStep3FilingLabel: "Hvor ofte indberetter du MOMS?",
@@ -7866,6 +7972,7 @@ const translations = {
     dayCutoffHint: "Kl. 06 = dansk restaurantstandard (salg kl. 02 → i går). Kl. 00 = midnatsskifte (kontortid).",
     dayCutoffSaved: "Gemt",
     dayCutoffFailed: "Kunne ikke gemme — prøv igen.",
+    onbStep4Eyebrow: "Næsten færdig",
     onbStep4Title: "Del med din revisor",
     onbStep4Subtitle: "De fleste danske café-ejere deler bøgerne med en revisor. Inviter nu — de får skrivebeskyttet adgang til dine rapporter.",
     onbStep4EmailLabel: "Revisors e-mail",
@@ -7883,6 +7990,33 @@ const translations = {
     onbRevisorInviteSent: "Invitation sendt til {email}. De har 7 dage til at acceptere.",
     onbRevisorAlreadyActive: "Den revisor har allerede adgang.",
     onbRevisorInviteFailed: "Kunne ikke sende invitationen. Du kan gøre det senere fra Profil.",
+    // ── "Her er hvad vi har sat op til dig"-panel (Milestone 1) ──
+    // Vises på sidste trin; afspejler den fundne arketype. Viser arketypens
+    // leadFeatures (semantisk nøgle → label + rigtig rute) og gør dens
+    // firstWin til den primære handling ved afslutning.
+    onbSetupTitle: "Her er hvad vi har sat op til dig",
+    onbSetupSubtitle: "Tilpasset en {name}. Du kan ændre det hele senere — intet er låst.",
+    onbSetupFirstWinHint: "Start her — det er den hurtigste gevinst for din opsætning.",
+    // Kort badge på first-win-rækken i opsætningspanelet.
+    onbSetupFirstWinBadge: "Start her",
+    onbFinishToFirstWin: "Afslut & start",
+    // Lead-feature-labels — oversætter arketypens semantiske nøgler.
+    onbFeatDailyClose: "Dagsafslutning",
+    onbFeatTax: "MOMS & skat",
+    onbFeatReservations: "Reservationer",
+    onbFeatSchedule: "Vagtplan",
+    onbFeatInventory: "Lager",
+    onbFeatFaktura: "Faktura",
+    onbFeatExpenses: "Udgifter",
+    // Én linje "hvad gør det for dig" pr. række i opsætningspanelet — så
+    // panelet føles kurateret, ikke som en rå tjekliste.
+    onbFeatDailyCloseDesc: "Snap din kasserapport — vi fører dagens tal.",
+    onbFeatTaxDesc: "MOMS-nedtælling og en klar MOMS-angivelse.",
+    onbFeatReservationsDesc: "Tag imod bordbestillinger med påmindelser.",
+    onbFeatScheduleDesc: "Planlæg vagter og del dem med dit team.",
+    onbFeatInventoryDesc: "Hold styr på lager, spild og hvad du skal genbestille.",
+    onbFeatFakturaDesc: "Send fakturaer og hold styr på det ubetalte.",
+    onbFeatExpensesDesc: "Snap kvitteringer — vi sorterer og lægger sammen.",
     onbReRunTitle: "Kør velkomstguiden igen",
     onbReRunDesc: "Gennemgå de 4 trin endnu en gang — fx hvis du sprang over, skiftede branche eller vil invitere en ny revisor.",
     onbReRunBtn: "Åbn velkomst",

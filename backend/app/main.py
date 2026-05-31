@@ -108,6 +108,8 @@ from app.routers import tickets as tickets_router
 # /r/<slug> booking surface. Generic bookable-resource engine.
 from app.routers import reservations as reservations_router
 from app.routers import public_reservations as public_reservations_router
+# Onboarding — business-archetype detection (keyword fast-path → AI fallback)
+from app.routers import onboarding as onboarding_router
 from app.database import engine, Base, get_db
 from app.models import *  # noqa: ensure all models are loaded
 
@@ -3454,6 +3456,11 @@ app.include_router(support.router, prefix="/api/support", tags=["Support"])
 app.include_router(output_channel.router, prefix="/api/output-channels", tags=["OutputChannels"])
 app.include_router(order_channel_config.router, prefix="/api/order-channels", tags=["OrderChannels"])
 app.include_router(modules_router.router, prefix="/api/modules", tags=["Modules"])
+# Onboarding — POST /api/onboarding/detect-archetype. Auth-required, rate-
+# limited (10/min/IP, same shape as register); keyword fast-path then at most
+# one AI call (PREMIUM→DEFAULT fallback) to map a free-text business
+# description to a canonical business_type + archetype.
+app.include_router(onboarding_router.router, prefix="/api/onboarding", tags=["Onboarding"])
 # Smart inventory import — paste/CSV/Excel/photo → AI parse + categorize
 # → review draft → commit. Six-layer defense (auth, bounds, rate limit,
 # tenant scope, daily quota, idempotency, audit) — see router docstring.

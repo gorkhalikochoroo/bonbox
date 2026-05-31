@@ -491,6 +491,17 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     db.commit()
     db.refresh(user)
 
+    # Materialise business-archetype signup defaults (day_cutoff_hour,
+    # suggested modules, starter expense categories) now that the user row
+    # exists + the trial is started. Failure-isolated: a defaults hiccup must
+    # NEVER break registration (the function also swallows internally — this
+    # is belt-and-braces).
+    try:
+        from app.services.archetype_defaults import apply_archetype_defaults
+        apply_archetype_defaults(db, user)
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("auth.register: archetype defaults skipped: %s", _e)
+
     # Defense layer 4 (post-success): flag random-looking emails for review.
     # Don't block — the 2026-05-16 attacker's pattern (consonant-vowel-cluster
     # + digits, e.g. "nejesap768") matches a small share of legit usernames
@@ -1181,6 +1192,17 @@ def complete_onboarding(
             db.commit()
         except Exception:  # noqa: BLE001
             db.rollback()
+
+    # Re-apply archetype defaults — onboarding may have changed business_type
+    # since register. Idempotent (won't clobber owner-customised cutoff or
+    # remove modules / re-seed categories). Failure-isolated so a defaults
+    # error never breaks onboarding-complete.
+    try:
+        from app.services.archetype_defaults import apply_archetype_defaults
+        apply_archetype_defaults(db, db_user)
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("auth.onboarding_complete: archetype defaults skipped: %s", _e)
+
     return OnboardingCompleteResponse(
         completed_at=db_user.onboarding_completed_at,
         already_completed=already,

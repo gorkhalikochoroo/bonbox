@@ -36,21 +36,63 @@
  *   • Revisor invite reuses /accountants/invite — already plan-gated;
  *     Free tier sees an UpgradeNudge instead of the input form.
  *
- * Design:
- *   • Stone + emerald palette via existing Card/Button/Icon primitives
- *   • Mobile-first single column, generous touch targets
- *   • Progress chip ("Step 2 of 4") at top right
- *   • Skip link always visible
- *   • Each step has its own validate() so users can't advance with
- *     a half-filled form
+ * Design (premium pass — Linear/Stripe/Vercel onboarding bar):
+ *   • Gray-900 primary; emerald reserved for the "money moment" + success.
+ *     No rainbow, no brand gradients. Accents subtle.
+ *   • Lucide outline icons; Inter; rounded-xl; generous whitespace.
+ *   • Vertically-centred single column, comfortable max-width.
+ *   • Step 2's free-text detection is the signature "magic" moment:
+ *     a calm working state, then a crisp confirmation card with the
+ *     archetype's icon. Manual cards demoted to a tasteful "or pick one".
+ *   • Step 4's "what we set up" reads like a concierge prepared the
+ *     workspace — elegant feature rows, first-win the clear primary.
+ *   • Smooth per-step enter transition keyed on the step index.
+ *   • Mobile/tablet/desktop + notch/safe-area aware, ≥44px tap targets.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { Button, Card, Icon, UpgradeNudge } from "../components/ui";
+import { Button, Icon, UpgradeNudge } from "../components/ui";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { archetypeFor } from "../config/archetypes";
+
+// ── Archetype semantic-key → owner-facing label + real route ─────────
+//
+// The archetype layer (config/archetypes.js) speaks in semantic keys
+// (daily_close | tax | reservations | schedule | inventory | faktura |
+// expenses) for both leadFeatures[] and firstWin. The wizard maps each
+// to (a) an i18n label and (b) a REAL route verified against App.jsx.
+// Anything unmapped degrades to /dashboard so a future archetype key can
+// never produce a dead link.
+//
+// Route verification (App.jsx):
+//   daily_close  → /daily-close   (DailyClosePage; "Today"/close surface)
+//   tax          → /tax           (TaxAutopilotPage)
+//   reservations → /reservations  (ReservationsPage — there is NO /bookings)
+//   schedule     → /staff/schedule (StaffSchedulePage)
+//   inventory    → /inventory     (InventoryPage)
+//   faktura      → /faktura       (FakturaPage)
+//   expenses     → /expenses      (ExpensesPage)
+// icon names below are keys in components/ui/Icon.jsx's ICONS map (Lucide).
+// `descKey` is a one-line "what this does for you" line for the concierge
+// setup panel (Step 4) so each row reads bespoke, not like a raw checklist.
+const LEAD_FEATURE_META = {
+  daily_close:  { labelKey: "onbFeatDailyClose",   icon: "ClipboardList", route: "/daily-close",    descKey: "onbFeatDailyCloseDesc" },
+  tax:          { labelKey: "onbFeatTax",          icon: "Calculator",    route: "/tax",            descKey: "onbFeatTaxDesc" },
+  reservations: { labelKey: "onbFeatReservations", icon: "CalendarClock", route: "/reservations",   descKey: "onbFeatReservationsDesc" },
+  schedule:     { labelKey: "onbFeatSchedule",     icon: "Calendar",      route: "/staff/schedule", descKey: "onbFeatScheduleDesc" },
+  inventory:    { labelKey: "onbFeatInventory",    icon: "Package",       route: "/inventory",      descKey: "onbFeatInventoryDesc" },
+  faktura:      { labelKey: "onbFeatFaktura",      icon: "FileText",      route: "/faktura",        descKey: "onbFeatFakturaDesc" },
+  expenses:     { labelKey: "onbFeatExpenses",     icon: "Receipt",       route: "/expenses",       descKey: "onbFeatExpensesDesc" },
+};
+
+/** Resolve an archetype firstWin / leadFeature semantic key → a real route.
+ *  Unknown keys fall back to /dashboard so we never route nowhere. */
+function routeForFeature(key) {
+  return LEAD_FEATURE_META[key]?.route || "/dashboard";
+}
 
 // ── Branch type catalog ─────────────────────────────────────────────
 //
@@ -113,8 +155,11 @@ const CUTOFF_PRESETS = [
 
 
 // ── Step indicator ──────────────────────────────────────────────────
-
-function ProgressDots({ step, total }) {
+//
+// A refined segmented progress rail (Linear/Stripe flavour) rather than
+// dots: each step is a thin pill that fills to gray-900 once reached, with
+// a subtle emerald tick on completed steps. The active pill is widest.
+function ProgressRail({ step, total }) {
   return (
     <div
       className="flex items-center gap-1.5"
@@ -124,23 +169,83 @@ function ProgressDots({ step, total }) {
       aria-valuemin={1}
       aria-valuemax={total}
     >
-      {Array.from({ length: total }).map((_, i) => (
-        <span
-          key={i}
-          aria-hidden="true"
-          className={
-            "h-1.5 rounded-full transition-all " +
-            (i + 1 === step
-              ? "w-6 bg-gray-900"
-              : i + 1 < step
-                ? "w-1.5 bg-emerald-500/15"
-                : "w-1.5 bg-gray-300 dark:bg-gray-700")
-          }
-        />
-      ))}
+      {Array.from({ length: total }).map((_, i) => {
+        const idx = i + 1;
+        const done = idx < step;
+        const current = idx === step;
+        return (
+          <span
+            key={i}
+            aria-hidden="true"
+            className={
+              "h-1 rounded-full transition-all duration-500 ease-out " +
+              (current
+                ? "w-7 bg-gray-900 dark:bg-gray-100"
+                : done
+                  ? "w-4 bg-gray-900/35 dark:bg-gray-100/35"
+                  : "w-4 bg-gray-200 dark:bg-gray-800")
+            }
+          />
+        );
+      })}
     </div>
   );
 }
+
+
+// ── Step header — one consistent rhythm for every step ───────────────
+//
+// Eyebrow (uppercase tracked, the canonical label treatment) + H2 +
+// optional lede. Keeping this in one component is what gives the wizard
+// its calm, repeatable vertical rhythm across all four steps.
+function StepHeader({ eyebrow, title, lede, center = false }) {
+  return (
+    <div className={center ? "text-center" : ""}>
+      {eyebrow && (
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400 dark:text-gray-500 mb-2">
+          {eyebrow}
+        </p>
+      )}
+      <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-gray-900 dark:text-gray-50">
+        {title}
+      </h2>
+      {lede && (
+        <p className={"text-sm text-gray-500 dark:text-gray-400 mt-1.5 leading-relaxed " + (center ? "max-w-md mx-auto" : "max-w-lg")}>
+          {lede}
+        </p>
+      )}
+    </div>
+  );
+}
+
+
+// ── Field label — shared, calm form-label treatment ──────────────────
+function FieldLabel({ htmlFor, children, required = false }) {
+  return (
+    <label
+      htmlFor={htmlFor}
+      className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+    >
+      {children}
+      {required && (
+        <>
+          <span className="text-red-600 ml-0.5" aria-hidden="true">*</span>
+          <span className="sr-only"> (required)</span>
+        </>
+      )}
+    </label>
+  );
+}
+
+// One field-chrome string so every input in the wizard is pixel-identical
+// (matches the Input primitive's neutral border + gray focus ring without
+// re-deriving it per field). 44px min height satisfies the touch floor.
+const FIELD =
+  "w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border bg-white dark:bg-gray-900 " +
+  "text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 " +
+  "border-gray-200 dark:border-gray-700 transition " +
+  "focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 " +
+  "dark:focus:ring-gray-500 dark:focus:border-gray-500";
 
 
 // ─── Page ───────────────────────────────────────────────────────────
@@ -176,21 +281,63 @@ export default function OnboardingPage() {
   const [cvrSource, setCvrSource] = useState(null);  // 'cvrapi.dk' | 'manual'
   const [savingBusiness, setSavingBusiness] = useState(false);
 
+  // Step 2 — smart free-text archetype detection (Milestone 1).
+  //   detectText:   what the owner typed ("a small bakery", "bike repair")
+  //   detecting:    spinner flag while the endpoint is in flight
+  //   detected:     the resolved archetype `summary` ({id,labelKey,…}) used
+  //                 for the confirmation line. Null until a successful hit.
+  // Everything here is best-effort: if /api/onboarding/detect-archetype is
+  // missing, slow, or errors, we swallow it and leave the manual cards as
+  // the source of truth (never block, never show a scary error).
+  const [detectText, setDetectText] = useState("");
+  const [detecting, setDetecting] = useState(false);
+  const [detected, setDetected] = useState(null);
+  const detectTimer = useRef(null);
+  const detectSeq = useRef(0);  // guards against out-of-order responses
+
+  // Resolved archetype for the CURRENTLY selected branch_type. Drives the
+  // Step 3 cutoff default + the "what we set up" panel + the finish route.
+  // archetypeFor never throws (unknown → generic).
+  const resolvedArchetype = useMemo(
+    () => archetypeFor(biz.branch_type),
+    [biz.branch_type],
+  );
+
   // Step 3 — Tax preferences.
   // day_cutoff_mode: "restaurant" | "office" | "custom" — UI choice that
-  //   maps to an integer hour at save time. Default is currency-aware:
-  //   DKK owners get the restaurant preset (matches the new DB default +
-  //   the b2e227a tz_utils helper); everyone else gets office hours.
+  //   maps to an integer hour at save time. Default is ARCHETYPE-aware
+  //   (Milestone 1): food_service / bar roll over at 06:00 (restaurant
+  //   preset — late service belongs to yesterday), everyone else uses
+  //   office hours (00:00). isDkk is only a last-resort fallback hour in
+  //   resolveCutoffHour() (NaN custom input / unrecognized mode).
   // day_cutoff_custom: 0-23 — only consulted when mode === "custom".
   const isDkk = ((user?.currency || "DKK").toUpperCase() === "DKK");
+  // Which preset does an archetype want? Restaurant 06:00 vs office 00:00.
+  const cutoffModeForArchetype = (arch) =>
+    arch?.id === "food_service" || arch?.id === "bar" ? "restaurant" : "office";
   const [tax, setTax] = useState({
     tax_filing_frequency: "half_yearly",
     prices_include_moms: true,
     accountant_email: "",
-    day_cutoff_mode: isDkk ? "restaurant" : "office",
-    day_cutoff_custom: isDkk ? 6 : 0,
+    day_cutoff_mode: cutoffModeForArchetype(resolvedArchetype),
+    day_cutoff_custom: 6,
   });
   const [savingTax, setSavingTax] = useState(false);
+  // True once the owner explicitly picks a cutoff option. Until then we let
+  // the archetype re-default the cutoff as their detected/selected branch
+  // changes — but we NEVER clobber a deliberate choice.
+  const cutoffTouched = useRef(false);
+
+  // Keep the cutoff default aligned to the resolved archetype as long as the
+  // owner hasn't manually chosen one. food_service/bar → restaurant (06:00),
+  // everything else → office (00:00). Once they tap a preset, this no-ops.
+  useEffect(() => {
+    if (cutoffTouched.current) return;
+    const nextMode = cutoffModeForArchetype(resolvedArchetype);
+    setTax((tx) =>
+      tx.day_cutoff_mode === nextMode ? tx : { ...tx, day_cutoff_mode: nextMode },
+    );
+  }, [resolvedArchetype]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Resolve the UI choice to an integer hour for the API payload. */
   const resolveCutoffHour = () => {
@@ -277,6 +424,74 @@ export default function OnboardingPage() {
       setCvrSearching(false);
     }
   };
+
+  // ── Smart archetype detection (Milestone 1) ────────────────────────
+  // POST the owner's free-text description to /api/onboarding/detect-
+  // archetype and, on a confident hit, preselect the matching branch_type
+  // + show a one-line confirmation. The api client's baseURL already ends
+  // in /api, so we hit the bare path here.
+  //
+  // GRACEFUL BY DESIGN — this is a nice-to-have accelerator, never a gate:
+  //   • <2 chars → no-op (still typing)
+  //   • endpoint missing / 4xx / 5xx / timeout → swallow, keep manual cards
+  //   • out-of-order responses dropped via a sequence guard
+  // The owner can always override by tapping a card; detection never locks
+  // anything in.
+  const detectArchetype = async (raw) => {
+    const text = String(raw || "").trim();
+    if (text.length < 2) return;
+    const seq = ++detectSeq.current;
+    setDetecting(true);
+    try {
+      // _noRetry: a missing/erroring detect endpoint shouldn't spin the
+      // axios retry ladder for ~26s — fail fast and fall back to cards.
+      const res = await api.post(
+        "/onboarding/detect-archetype",
+        { text },
+        { _noRetry: true },
+      );
+      // Ignore a stale response if the owner kept typing (newer call wins).
+      if (seq !== detectSeq.current) return;
+      const data = res?.data || {};
+      const bt = data.business_type;
+      // Only act on a usable response. If the contract isn't met we leave
+      // the manual cards untouched — no error surfaced to the owner.
+      if (bt && typeof bt === "string") {
+        // Preselect the precise detected business_type. archetypeFor()
+        // resolves it for the cutoff / panel / route even when it's not
+        // one of the 6 cards; the card grid highlights by archetype.
+        const localArch = archetypeFor(bt);
+        setBiz((b) => ({ ...b, branch_type: bt.toLowerCase() }));
+        // Confirmation line: resolve the labelKey from the LOCAL archetype
+        // config (guaranteed to be in i18n) rather than trusting the
+        // backend's summary.labelKey — so the line can never leak a raw key.
+        setDetected({ id: localArch.id, labelKey: localArch.labelKey });
+      }
+    } catch {
+      // Endpoint may not exist yet in this build, or upstream is down.
+      // Stay silent — the manual cards remain the source of truth.
+      if (seq === detectSeq.current) setDetected(null);
+    } finally {
+      if (seq === detectSeq.current) setDetecting(false);
+    }
+  };
+
+  // Debounced trigger — fires ~600ms after the owner stops typing. Blur /
+  // Enter call detectArchetype directly (see the input handlers in Step 2).
+  const onDescribeChange = (value) => {
+    setDetectText(value);
+    if (detectTimer.current) clearTimeout(detectTimer.current);
+    if (String(value || "").trim().length < 2) {
+      setDetected(null);
+      return;
+    }
+    detectTimer.current = setTimeout(() => detectArchetype(value), 600);
+  };
+
+  // Clear any pending debounce timer on unmount.
+  useEffect(() => () => {
+    if (detectTimer.current) clearTimeout(detectTimer.current);
+  }, []);
 
   // ── Step actions ────────────────────────────────────────────────────
 
@@ -398,11 +613,16 @@ export default function OnboardingPage() {
         setRevisorSending(false);
       }
     }
-    await finishOnboarding();
+    // Land on the archetype's firstWin (quickest win) instead of an empty
+    // dashboard. routeForFeature() degrades to /dashboard for unknown keys.
+    await finishOnboarding(routeForFeature(resolvedArchetype.firstWin));
   };
 
-  /** POST the completion stamp and redirect to /dashboard. */
-  const finishOnboarding = async () => {
+  /** POST the completion stamp and redirect. Defaults to /dashboard, but
+   *  the "Finish" action passes the resolved archetype's firstWin route so
+   *  the owner lands on their quickest win instead of an empty dashboard.
+   *  `dest` is validated against our known routes by the caller. */
+  const finishOnboarding = async (dest = "/dashboard") => {
     setFinishing(true);
     try {
       await api.post("/auth/onboarding/complete");
@@ -410,11 +630,11 @@ export default function OnboardingPage() {
       // is populated — otherwise a quick back-button click could re-trigger.
       try { await refreshUser?.(); } catch { /* best-effort */ }
     } catch {
-      // Even on failure we don't trap the user — fall through to /dashboard.
-      // Next /auth/me will reveal the real state.
+      // Even on failure we don't trap the user — fall through to the
+      // destination. Next /auth/me will reveal the real state.
     } finally {
       setFinishing(false);
-      navigate("/dashboard", { replace: true });
+      navigate(typeof dest === "string" && dest.startsWith("/") ? dest : "/dashboard", { replace: true });
     }
   };
 
@@ -437,27 +657,35 @@ export default function OnboardingPage() {
 
   const totalSteps = 4;
 
+  // Leadfeatures the panel can actually route to (drops unmapped keys so a
+  // future archetype key can never render a blank row). Computed up here so
+  // both the panel and the finish-CTA copy can reason about the firstWin.
+  const panelFeatures = resolvedArchetype.leadFeatures.filter(
+    (k) => LEAD_FEATURE_META[k],
+  );
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100">
-      {/* Top bar — progress + skip */}
-      <header className="sticky top-0 z-10 bg-gray-50/90 dark:bg-gray-950/90 backdrop-blur border-b border-gray-200 dark:border-gray-800">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between gap-4">
+    <div className="min-h-[100dvh] flex flex-col bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100">
+      {/* Top bar — brand · progress · skip. Sticky + blurred so it stays a
+          quiet anchor while the card area scrolls on small screens. */}
+      <header className="sticky top-0 z-10 bg-gray-50/80 dark:bg-gray-950/80 backdrop-blur-md border-b border-gray-200/70 dark:border-gray-800/70">
+        <div className="max-w-xl mx-auto px-5 sm:px-6 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gray-900 grid place-items-center text-white font-semibold text-sm">
+            <div className="w-7 h-7 rounded-lg bg-gray-900 dark:bg-gray-100 grid place-items-center text-white dark:text-gray-900 font-semibold text-[13px]">
               B
             </div>
             <span className="text-sm font-semibold tracking-tight">BonBox</span>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-xs text-gray-500 dark:text-gray-400 hidden sm:inline">
+          <div className="flex items-center gap-3 sm:gap-4">
+            <span className="text-[11px] font-medium tabular-nums text-gray-400 dark:text-gray-500 hidden sm:inline">
               {t("onbStepCounter", { n: step, total: totalSteps })}
             </span>
-            <ProgressDots step={step} total={totalSteps} />
+            <ProgressRail step={step} total={totalSteps} />
             <button
               type="button"
               onClick={skipWizard}
               disabled={finishing}
-              className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline-offset-2 hover:underline disabled:opacity-50"
+              className="text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 underline-offset-2 hover:underline disabled:opacity-50 transition-colors"
             >
               {t("onbSkipExplore")}
             </button>
@@ -465,566 +693,801 @@ export default function OnboardingPage() {
         </div>
       </header>
 
-      <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        {/* ─── Step 1 — Welcome ──────────────────────────────────── */}
-        {step === 1 && (
-          <Card className="text-center">
-            <div className="mb-4 flex justify-center text-emerald-600" aria-hidden="true">
-              <Icon name="Sparkles" size={36} />
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight mb-2">
-              {t("onbStep1Headline")}
-            </h1>
-            <p className="text-gray-600 dark:text-gray-300 mb-6 max-w-md mx-auto leading-relaxed">
-              {t("onbStep1Subhead")}
-            </p>
+      {/* Vertically-centred single column. `key={step}` re-mounts the inner
+          panel on each step so the enter animation re-fires — a calm, fast
+          fade-up rather than a hard cut. The whole column is capped to a
+          comfortable reading width. */}
+      <main className="flex-1 w-full flex items-start sm:items-center justify-center px-5 sm:px-6 py-8 sm:py-12">
+        <div key={step} className="w-full max-w-xl animate-fadeIn">
 
-            <div className="grid sm:grid-cols-3 gap-3 mb-8 text-left">
-              <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
-                <Icon name="ShoppingBag" size={20} className="text-emerald-600 mb-1.5" />
-                <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">
-                  {t("onbStep1Card1Title")}
-                </p>
-                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                  {t("onbStep1Card1Body")}
-                </p>
+          {/* ─── Step 1 — Welcome ──────────────────────────────────── */}
+          {step === 1 && (
+            <div className="text-center">
+              {/* Brand glyph — a single calm emerald mark (the one sanctioned
+                  brand-color moment), ringed for a touch of depth. */}
+              <div className="mb-6 flex justify-center" aria-hidden="true">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 ring-1 ring-emerald-500/20 grid place-items-center text-emerald-600 dark:text-emerald-400">
+                  <Icon name="Sparkles" size={26} />
+                </div>
               </div>
-              <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
-                <Icon name="Calculator" size={20} className="text-emerald-600 mb-1.5" />
-                <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">
-                  {t("onbStep1Card2Title")}
-                </p>
-                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                  {t("onbStep1Card2Body")}
-                </p>
-              </div>
-              <div className="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
-                <Icon name="Send" size={20} className="text-emerald-600 mb-1.5" />
-                <p className="text-xs font-semibold text-gray-900 dark:text-gray-100">
-                  {t("onbStep1Card3Title")}
-                </p>
-                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                  {t("onbStep1Card3Body")}
-                </p>
-              </div>
-            </div>
 
-            <Button variant="accent" size="lg" onClick={goNext}>
-              {t("onbStep1Cta")}
-              <Icon name="ChevronDown" size={16} className="-rotate-90 ml-1" />
-            </Button>
-          </Card>
-        )}
-
-        {/* ─── Step 2 — Business profile ─────────────────────────── */}
-        {step === 2 && (
-          <Card>
-            <div className="mb-5">
-              <h2 className="text-lg font-semibold tracking-tight">
-                {t("onbStep2Title")}
-              </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {t("onbStep2Subtitle")}
-              </p>
-            </div>
-
-            {/* CVR with one-click lookup */}
-            <div className="mb-4">
-              <label htmlFor="onb-cvr" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                {t("onbStep2CvrLabel")}
-              </label>
-              <div className="flex gap-2">
-                <input
-                  id="onb-cvr"
-                  type="text"
-                  inputMode="numeric"
-                  value={biz.org_number}
-                  onChange={(e) =>
-                    setBiz({ ...biz, org_number: e.target.value })
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      lookupCvr();
-                    }
-                  }}
-                  placeholder="12345678"
-                  maxLength={11}
-                  aria-describedby={cvrError ? "onb-cvr-error" : undefined}
-                  aria-invalid={!!cvrError}
-                  className="flex-1 px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                />
-                <Button
-                  variant="secondary"
-                  onClick={lookupCvr}
-                  busy={cvrSearching}
-                  disabled={cvrSearching}
-                >
-                  {t("onbStep2CvrLookup")}
-                </Button>
-              </div>
-              {cvrSource && (
-                <p className="text-[11px] text-gray-700 dark:text-emerald-400 mt-1.5 flex items-center gap-1">
-                  <Icon name="CheckCircle2" size={12} />
-                  {t("onbStep2CvrLoaded", { source: cvrSource })}
-                </p>
-              )}
-              {cvrError && (
-                <p id="onb-cvr-error" role="alert" aria-live="polite" className="text-[11px] text-amber-700 dark:text-amber-400 mt-1.5">
-                  {cvrError}
-                </p>
-              )}
-            </div>
-
-            {/* Business name (required) */}
-            <div className="mb-4">
-              <label htmlFor="onb-biz-name" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                {t("onbStep2NameLabel")}
-                <span className="text-red-600 ml-0.5" aria-hidden="true">*</span>
-                <span className="sr-only"> (required)</span>
-              </label>
-              <input
-                id="onb-biz-name"
-                type="text"
-                required
-                aria-required="true"
-                value={biz.company_name}
-                onChange={(e) =>
-                  setBiz({ ...biz, company_name: e.target.value })
-                }
-                placeholder={t("onbStep2NamePlaceholder")}
-                className="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+              <StepHeader
+                eyebrow={t("onbStep1Eyebrow")}
+                title={t("onbStep1Headline")}
+                lede={t("onbStep1Subhead")}
+                center
               />
-            </div>
 
-            {/* Branch type — chooser */}
-            <fieldset className="mb-2">
-              <legend className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {t("onbStep2BranchLabel")}
-              </legend>
-              <div
-                className="grid grid-cols-2 sm:grid-cols-3 gap-2"
-                role="radiogroup"
-                aria-label={t("onbStep2BranchLabel")}
-              >
-                {BRANCH_TYPES.map((b) => {
-                  const active = biz.branch_type === b.id;
-                  return (
-                    <button
-                      key={b.id}
-                      type="button"
-                      role="radio"
-                      aria-checked={active}
-                      onClick={() => setBiz({ ...biz, branch_type: b.id })}
-                      className={
-                        "flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
-                        (active
-                          ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50 ring-1 ring-gray-400"
-                          : "border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700")
-                      }
-                    >
-                      <span className="text-gray-600 dark:text-gray-300" aria-hidden="true">
-                        <Icon name={b.iconName} size={20} />
-                      </span>
-                      <span className="text-sm font-medium">
-                        {t(b.labelKey) || b.labelFallback}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </fieldset>
-
-            {stepError && (
-              <p className="text-xs text-red-700 dark:text-red-400 mt-3" role="alert" aria-live="assertive">{stepError}</p>
-            )}
-
-            <div className="flex items-center justify-between gap-3 mt-6 pt-5 border-t border-gray-200 dark:border-gray-800">
-              <Button variant="ghost" onClick={() => setStep(1)}>
-                {t("onbBack")}
-              </Button>
-              <Button
-                variant="accent"
-                onClick={saveBusinessAndNext}
-                busy={savingBusiness}
-              >
-                {t("onbNext")}
-              </Button>
-            </div>
-          </Card>
-        )}
-
-        {/* ─── Step 3 — Tax preferences ──────────────────────────── */}
-        {step === 3 && (
-          <Card>
-            <div className="mb-5">
-              <h2 className="text-lg font-semibold tracking-tight">
-                {t("onbStep3Title")}
-              </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {t("onbStep3Subtitle")}
-              </p>
-            </div>
-
-            {/* Filing frequency */}
-            <fieldset className="mb-5">
-              <legend className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {t("onbStep3FilingLabel")}
-              </legend>
-              <div className="space-y-2" role="radiogroup" aria-label={t("onbStep3FilingLabel")}>
-                {FILING_OPTIONS.map((opt) => {
-                  const active = tax.tax_filing_frequency === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      role="radio"
-                      aria-checked={active}
-                      onClick={() =>
-                        setTax({ ...tax, tax_filing_frequency: opt.id })
-                      }
-                      className={
-                        "w-full text-left flex items-center gap-3 rounded-lg border p-3 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
-                        (active
-                          ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50 ring-1 ring-gray-400"
-                          : "border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700")
-                      }
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={
-                          "w-4 h-4 rounded-full border-2 shrink-0 " +
-                          (active
-                            ? "bg-gray-900 border-gray-900 ring-2 ring-gray-200 dark:ring-gray-700/40"
-                            : "border-gray-400 dark:border-gray-600")
-                        }
-                      />
-                      <span className="text-sm">
-                        {t(opt.labelKey) || opt.labelFallback}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </fieldset>
-
-            {/* Prices include VAT toggle */}
-            <div className="mb-5 flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-800 p-3.5">
-              <div className="min-w-0">
-                <p id="onb-vat-toggle-label" className="text-sm font-medium">
-                  {t("onbStep3VatToggle")}
-                </p>
-                <p id="onb-vat-toggle-hint" className="text-[11px] text-gray-600 dark:text-gray-400 mt-0.5">
-                  {t("onbStep3VatToggleHint")}
-                </p>
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={tax.prices_include_moms}
-                aria-labelledby="onb-vat-toggle-label"
-                aria-describedby="onb-vat-toggle-hint"
-                onClick={() =>
-                  setTax({ ...tax, prices_include_moms: !tax.prices_include_moms })
-                }
-                className={
-                  "shrink-0 w-11 h-6 rounded-full relative transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
-                  (tax.prices_include_moms
-                    ? "bg-gray-900"
-                    : "bg-gray-300 dark:bg-gray-700")
-                }
-              >
-                <span
-                  aria-hidden="true"
-                  className={
-                    "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform " +
-                    (tax.prices_include_moms ? "translate-x-5" : "translate-x-0")
-                  }
-                />
-              </button>
-            </div>
-
-            {/* Day rollover — when does the business day end?
-                Drives kasserapport / daily-close / live-KPI windows. */}
-            <fieldset className="mb-5">
-              <legend className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                {t("onbStep3CutoffLabel")}
-              </legend>
-              <p
-                id="onb-cutoff-hint"
-                className="text-[11px] text-gray-600 dark:text-gray-400 mb-2 leading-relaxed"
-              >
-                {t("onbStep3CutoffHint")}
-              </p>
-              <div
-                className="space-y-2"
-                role="radiogroup"
-                aria-label={t("onbStep3CutoffLabel")}
-                aria-describedby="onb-cutoff-hint"
-              >
-                {CUTOFF_PRESETS.map((opt) => {
-                  const active = tax.day_cutoff_mode === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      role="radio"
-                      aria-checked={active}
-                      onClick={() =>
-                        setTax({ ...tax, day_cutoff_mode: opt.id })
-                      }
-                      className={
-                        "w-full text-left flex items-start gap-3 rounded-lg border p-3 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
-                        (active
-                          ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50 ring-1 ring-gray-400"
-                          : "border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700")
-                      }
-                    >
-                      <span
-                        aria-hidden="true"
-                        className={
-                          "mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 " +
-                          (active
-                            ? "bg-gray-900 border-gray-900 ring-2 ring-gray-200 dark:ring-gray-700/40"
-                            : "border-gray-400 dark:border-gray-600")
-                        }
-                      />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium">
-                          {t(opt.labelKey) || opt.labelFallback}
-                        </span>
-                        <span className="block text-[11px] text-gray-600 dark:text-gray-400 mt-0.5">
-                          {t(opt.descKey) || opt.descFallback}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
-                {/* Custom row — radio + hour input as siblings so the
-                    interactive number input is NOT nested in the radio
-                    button (which would be invalid HTML). Clicking the
-                    number input also flips the mode to custom so the
-                    visual state stays consistent. */}
-                <div
-                  className={
-                    "w-full flex items-center gap-3 rounded-lg border p-3 transition " +
-                    (tax.day_cutoff_mode === "custom"
-                      ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50 ring-1 ring-gray-400"
-                      : "border-gray-200 dark:border-gray-800")
-                  }
-                >
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={tax.day_cutoff_mode === "custom"}
-                    onClick={() => setTax({ ...tax, day_cutoff_mode: "custom" })}
-                    className="flex items-center gap-3 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded"
+              {/* Three value props as quiet rows — icon in a soft tile, label
+                  + body. Reads like a considered list, not a card carousel. */}
+              <div className="mt-8 space-y-2.5 text-left">
+                {[
+                  { icon: "ShoppingBag", title: t("onbStep1Card1Title"), body: t("onbStep1Card1Body") },
+                  { icon: "Calculator",  title: t("onbStep1Card2Title"), body: t("onbStep1Card2Body") },
+                  { icon: "Send",        title: t("onbStep1Card3Title"), body: t("onbStep1Card3Body") },
+                ].map((row) => (
+                  <div
+                    key={row.icon}
+                    className="flex items-start gap-3.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3.5"
                   >
-                    <span
-                      aria-hidden="true"
-                      className={
-                        "w-4 h-4 rounded-full border-2 shrink-0 " +
-                        (tax.day_cutoff_mode === "custom"
-                          ? "bg-gray-900 border-gray-900 ring-2 ring-gray-200 dark:ring-gray-700/40"
-                          : "border-gray-400 dark:border-gray-600")
-                      }
-                    />
-                    <span className="text-sm font-medium">
-                      {t("onbStep3CutoffCustom")}
+                    <span className="shrink-0 mt-0.5 w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 grid place-items-center text-gray-700 dark:text-gray-300" aria-hidden="true">
+                      <Icon name={row.icon} size={18} />
                     </span>
-                  </button>
-                  <input
-                    type="number"
-                    min={0}
-                    max={23}
-                    step={1}
-                    value={tax.day_cutoff_custom}
-                    onChange={(e) =>
-                      setTax({
-                        ...tax,
-                        day_cutoff_mode: "custom",
-                        day_cutoff_custom: e.target.value,
-                      })
-                    }
-                    onFocus={() =>
-                      setTax((tx) => ({ ...tx, day_cutoff_mode: "custom" }))
-                    }
-                    aria-label={t("onbStep3CutoffCustomAria")}
-                    className="w-16 px-2 py-1 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-center focus:outline-none focus:ring-2 focus:ring-gray-400"
-                  />
-                  <span className="text-[11px] text-gray-500 dark:text-gray-400 shrink-0">
-                    {t("onbStep3CutoffCustomSuffix")}
-                  </span>
-                </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {row.title}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
+                        {row.body}
+                      </p>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </fieldset>
 
-            {/* Accountant email (optional) */}
-            <div className="mb-2">
-              <label htmlFor="onb-acct-email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                {t("onbStep3AccountantLabel")}
-              </label>
-              <input
-                id="onb-acct-email"
-                type="email"
-                value={tax.accountant_email}
-                onChange={(e) =>
-                  setTax({ ...tax, accountant_email: e.target.value })
-                }
-                placeholder="revisor@example.dk"
-                autoComplete="off"
-                aria-describedby="onb-acct-email-hint"
-                className="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-              />
-              <p id="onb-acct-email-hint" className="text-[11px] text-gray-600 dark:text-gray-400 mt-1.5">
-                {t("onbStep3AccountantHint")}
-              </p>
-              {/* Task #89 P3-8 — disambiguation note: Step 3 asks for
-                  the "send-to" address used by the Email kasserapport
-                  button, Step 4 invites a revisor to log in directly.
-                  Same accountant 95% of the time, but two different
-                  channels — explicit copy here saves a support ticket
-                  ("Why does it ask for the same email twice?"). */}
-              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5 italic">
-                {t("onbStep3AccountantDisambig")}
-              </p>
-            </div>
-
-            {stepError && (
-              <p className="text-xs text-red-700 dark:text-red-400 mt-3" role="alert" aria-live="assertive">{stepError}</p>
-            )}
-
-            <div className="flex items-center justify-between gap-3 mt-6 pt-5 border-t border-gray-200 dark:border-gray-800">
-              <Button variant="ghost" onClick={() => setStep(2)}>
-                {t("onbBack")}
-              </Button>
               <Button
                 variant="accent"
-                onClick={saveTaxAndNext}
-                busy={savingTax}
+                size="lg"
+                onClick={goNext}
+                className="mt-8 w-full sm:w-auto sm:min-w-[13rem]"
+                iconRight={<Icon name="ChevronDown" size={16} className="-rotate-90" />}
               >
-                {t("onbNext")}
+                {t("onbStep1Cta")}
               </Button>
-            </div>
-          </Card>
-        )}
-
-        {/* ─── Step 4 — Revisor invite (optional) ─────────────────── */}
-        {step === 4 && (
-          <Card>
-            <div className="mb-5">
-              <h2 className="text-lg font-semibold tracking-tight">
-                {t("onbStep4Title")}
-              </h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                {t("onbStep4Subtitle")}
+              <p className="mt-3 text-[11px] text-gray-400 dark:text-gray-500">
+                {t("onbStep1Reassure")}
               </p>
             </div>
+          )}
 
-            {canInviteRevisor === null ? (
-              // Tier-flicker fix: while entitlements are loading, render
-              // a low-contrast skeleton instead of the locked upsell —
-              // trial users would otherwise see the "See Starter" nudge
-              // flash before their real plan arrives.
-              <div className="mb-5 h-32 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" aria-hidden="true" />
-            ) : canInviteRevisor === false ? (
-              <div className="mb-5">
-                <UpgradeNudge
-                  intent="card"
-                  tier="starter"
-                  icon={<Icon name="Users" size={20} />}
-                  benefit={t("onbStep4Upsell")}
-                  ctaLabel={t("onbStep4SeeStarter")}
-                  cta="/subscription"
-                />
-                <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-3">
-                  {t("onbStep4SkipForNow")}
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="mb-4">
-                  <label htmlFor="onb-revisor-email" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                    {t("onbStep4EmailLabel")}
-                  </label>
+          {/* ─── Step 2 — Business profile + the detection "magic" ──── */}
+          {step === 2 && (
+            <div>
+              <StepHeader
+                eyebrow={t("onbStep2Eyebrow")}
+                title={t("onbStep2Title")}
+                lede={t("onbStep2Subtitle")}
+              />
+
+              {/* HERO — free-text detection. This is the signature moment, so
+                  it gets its own elevated panel above everything else. The
+                  owner types in plain words; we quietly understand and adapt.
+                  Graceful: any error just leaves the manual cards as truth. */}
+              <div className="mt-6 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 sm:p-5">
+                <label htmlFor="onb-describe" className="flex items-center gap-2 mb-2.5 text-xs font-medium text-gray-700 dark:text-gray-300">
+                  <span className="text-gray-400 dark:text-gray-500" aria-hidden="true">
+                    <Icon name="Sparkles" size={15} />
+                  </span>
+                  {t("onbDescribeLabel")}
+                </label>
+
+                <div className="relative">
                   <input
-                    id="onb-revisor-email"
-                    type="email"
-                    value={revisor.email}
-                    onChange={(e) =>
-                      setRevisor({ ...revisor, email: e.target.value })
-                    }
-                    placeholder="anna@revision.dk"
+                    id="onb-describe"
+                    type="text"
+                    value={detectText}
+                    onChange={(e) => onDescribeChange(e.target.value)}
+                    onBlur={() => detectArchetype(detectText)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (detectTimer.current) clearTimeout(detectTimer.current);
+                        detectArchetype(detectText);
+                      }
+                    }}
+                    placeholder={t("onbDescribePlaceholder")}
                     autoComplete="off"
-                    aria-invalid={!!revisorError}
-                    aria-describedby={revisorError ? "onb-revisor-error" : undefined}
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                    aria-describedby="onb-describe-hint"
+                    className={
+                      FIELD +
+                      " text-base pr-11 " +
+                      (detected ? " border-emerald-300 dark:border-emerald-500/40 ring-1 ring-emerald-500/20 " : "")
+                    }
+                  />
+                  {/* Calm working state — three pulsing dots rather than a
+                      jarring spinner. Sits inside the field, right-aligned. */}
+                  {detecting && (
+                    <span
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1"
+                      aria-hidden="true"
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 animate-pulse [animation-delay:0ms]" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 animate-pulse [animation-delay:150ms]" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 animate-pulse [animation-delay:300ms]" />
+                    </span>
+                  )}
+                  {/* Settled confirmation — a small emerald tick once we've
+                      understood, paired with the inline confirmation card. */}
+                  {!detecting && detected && (
+                    <span
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-emerald-600 dark:text-emerald-400"
+                      aria-hidden="true"
+                    >
+                      <Icon name="CheckCircle2" size={18} />
+                    </span>
+                  )}
+                </div>
+
+                {/* The confirmation MOMENT. When we've understood, a crisp
+                    card slides in: the archetype's own icon + a confident,
+                    human line ("Looks like a café — we'll set things up for
+                    that."). This is what should feel intelligent + delightful. */}
+                {detected ? (
+                  <div
+                    className="mt-3 flex items-center gap-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 ring-1 ring-emerald-500/20 px-3.5 py-3 animate-fadeIn"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <span className="shrink-0 w-9 h-9 rounded-lg bg-white/70 dark:bg-emerald-500/15 grid place-items-center text-emerald-700 dark:text-emerald-300" aria-hidden="true">
+                      <Icon name={ARCHETYPE_ICON[detected.id] || "Store"} size={18} />
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug">
+                        {t("onbDetected", { name: t(detected.labelKey) })}
+                      </p>
+                      <p className="text-[11px] text-emerald-700/80 dark:text-emerald-300/80 mt-0.5">
+                        {t("onbDetectedTuned")}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p
+                    id="onb-describe-hint"
+                    className="text-[11px] text-gray-500 dark:text-gray-400 mt-2 leading-relaxed"
+                    aria-live="polite"
+                  >
+                    {detecting ? t("onbDetecting") : t("onbDescribeHint")}
+                  </p>
+                )}
+              </div>
+
+              {/* "or pick one" — demoted manual fallback. A hairline divider
+                  with centred label, then clean selectable tiles (icon +
+                  label). After a detection these are the "not quite?" override
+                  surface; a tap wins over the guess. */}
+              <fieldset className="mt-6">
+                <div className="flex items-center gap-3 mb-3" aria-hidden="true">
+                  <span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
+                  <legend className="text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">
+                    {detected ? t("onbDetectedOverride") : t("onbDescribeOrPick")}
+                  </legend>
+                  <span className="h-px flex-1 bg-gray-200 dark:bg-gray-800" />
+                </div>
+                <div
+                  className="grid grid-cols-3 gap-2"
+                  role="radiogroup"
+                  aria-label={t("onbStep2BranchLabel")}
+                >
+                  {BRANCH_TYPES.map((b) => {
+                    // Highlight by exact id, OR by archetype when a precise
+                    // detected business_type (e.g. "bakery") maps to this
+                    // card's archetype (Restaurant). Exact-id match always
+                    // wins so a manual tap is unambiguous.
+                    const active =
+                      biz.branch_type === b.id ||
+                      (!BRANCH_TYPES.some((x) => x.id === biz.branch_type) &&
+                        archetypeFor(biz.branch_type).id === archetypeFor(b.id).id);
+                    return (
+                      <button
+                        key={b.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => {
+                          // Manual override: card wins, drop the detection
+                          // confirmation so the UI reflects the owner's pick.
+                          setBiz({ ...biz, branch_type: b.id });
+                          setDetected(null);
+                        }}
+                        className={
+                          "group flex flex-col items-center justify-center gap-1.5 rounded-xl border p-3 min-h-[76px] text-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-50 dark:focus-visible:ring-offset-gray-950 " +
+                          (active
+                            ? "border-gray-900 dark:border-gray-100 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 shadow-sm"
+                            : "border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50")
+                        }
+                      >
+                        <span aria-hidden="true">
+                          <Icon name={b.iconName} size={20} />
+                        </span>
+                        <span className={"text-xs font-medium " + (active ? "" : "text-gray-700 dark:text-gray-200")}>
+                          {t(b.labelKey) || b.labelFallback}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              {/* Identity fields — name (required) is primary; CVR is the
+                  optional accelerator below it. Putting name first keeps the
+                  one required field unmissable. */}
+              <div className="mt-6 space-y-4">
+                <div>
+                  <FieldLabel htmlFor="onb-biz-name" required>
+                    {t("onbStep2NameLabel")}
+                  </FieldLabel>
+                  <input
+                    id="onb-biz-name"
+                    type="text"
+                    required
+                    aria-required="true"
+                    value={biz.company_name}
+                    onChange={(e) =>
+                      setBiz({ ...biz, company_name: e.target.value })
+                    }
+                    placeholder={t("onbStep2NamePlaceholder")}
+                    className={FIELD}
                   />
                 </div>
-                <div className="mb-2">
-                  <label htmlFor="onb-revisor-name" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                    {t("onbStep4NameLabel")}
-                  </label>
-                  <input
-                    id="onb-revisor-name"
-                    type="text"
-                    value={revisor.name}
-                    onChange={(e) =>
-                      setRevisor({ ...revisor, name: e.target.value })
-                    }
-                    placeholder={t("onbStep4NamePlaceholder")}
-                    aria-describedby="onb-revisor-name-hint"
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent"
-                  />
-                  <p id="onb-revisor-name-hint" className="text-[11px] text-gray-600 dark:text-gray-400 mt-1.5">
-                    {t("onbStep4NameHint")}
+
+                <div>
+                  <FieldLabel htmlFor="onb-cvr">
+                    {t("onbStep2CvrLabel")}
+                  </FieldLabel>
+                  <div className="flex gap-2">
+                    <input
+                      id="onb-cvr"
+                      type="text"
+                      inputMode="numeric"
+                      value={biz.org_number}
+                      onChange={(e) =>
+                        setBiz({ ...biz, org_number: e.target.value })
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          lookupCvr();
+                        }
+                      }}
+                      placeholder="12345678"
+                      maxLength={11}
+                      aria-describedby={cvrError ? "onb-cvr-error" : "onb-cvr-hint"}
+                      aria-invalid={!!cvrError}
+                      className={FIELD + " flex-1"}
+                    />
+                    <Button
+                      variant="secondary"
+                      onClick={lookupCvr}
+                      busy={cvrSearching}
+                      disabled={cvrSearching}
+                    >
+                      {t("onbStep2CvrLookup")}
+                    </Button>
+                  </div>
+                  {cvrSource ? (
+                    <p className="text-[11px] text-emerald-700 dark:text-emerald-400 mt-1.5 flex items-center gap-1.5">
+                      <Icon name="CheckCircle2" size={13} />
+                      {t("onbStep2CvrLoaded", { source: cvrSource })}
+                    </p>
+                  ) : cvrError ? (
+                    <p id="onb-cvr-error" role="alert" aria-live="polite" className="text-[11px] text-amber-700 dark:text-amber-400 mt-1.5">
+                      {cvrError}
+                    </p>
+                  ) : (
+                    <p id="onb-cvr-hint" className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
+                      {t("onbStep2CvrHint")}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {stepError && (
+                <p className="text-xs text-red-700 dark:text-red-400 mt-4" role="alert" aria-live="assertive">{stepError}</p>
+              )}
+
+              <StepFooter
+                onBack={() => setStep(1)}
+                backLabel={t("onbBack")}
+                primaryLabel={t("onbNext")}
+                onPrimary={saveBusinessAndNext}
+                primaryBusy={savingBusiness}
+              />
+            </div>
+          )}
+
+          {/* ─── Step 3 — Tax preferences ──────────────────────────── */}
+          {step === 3 && (
+            <div>
+              <StepHeader
+                eyebrow={t("onbStep3Eyebrow")}
+                title={t("onbStep3Title")}
+                lede={t("onbStep3Subtitle")}
+              />
+
+              {/* Filing frequency — segmented selectable rows */}
+              <fieldset className="mt-6">
+                <legend className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  {t("onbStep3FilingLabel")}
+                </legend>
+                <div className="space-y-2" role="radiogroup" aria-label={t("onbStep3FilingLabel")}>
+                  {FILING_OPTIONS.map((opt) => (
+                    <SelectRow
+                      key={opt.id}
+                      active={tax.tax_filing_frequency === opt.id}
+                      onClick={() => setTax({ ...tax, tax_filing_frequency: opt.id })}
+                      label={t(opt.labelKey) || opt.labelFallback}
+                    />
+                  ))}
+                </div>
+              </fieldset>
+
+              {/* Prices include VAT toggle */}
+              <div className="mt-5 flex items-center justify-between gap-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3.5">
+                <div className="min-w-0">
+                  <p id="onb-vat-toggle-label" className="text-sm font-medium">
+                    {t("onbStep3VatToggle")}
+                  </p>
+                  <p id="onb-vat-toggle-hint" className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
+                    {t("onbStep3VatToggleHint")}
                   </p>
                 </div>
-              </>
-            )}
-
-            {revisorMsg && (
-              <p className="text-xs text-gray-700 dark:text-emerald-400 mt-3 flex items-center gap-1" role="status" aria-live="polite">
-                <Icon name="CheckCircle2" size={12} />
-                {revisorMsg}
-              </p>
-            )}
-            {revisorError && (
-              <p id="onb-revisor-error" className="text-xs text-red-700 dark:text-red-400 mt-3" role="alert" aria-live="assertive">
-                {revisorError}
-              </p>
-            )}
-
-            <div className="flex items-center justify-between gap-3 mt-6 pt-5 border-t border-gray-200 dark:border-gray-800">
-              <Button
-                variant="ghost"
-                onClick={() => setStep(3)}
-                disabled={revisorSending || finishing}
-              >
-                {t("onbBack")}
-              </Button>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={finishOnboarding}
-                  disabled={revisorSending || finishing}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={tax.prices_include_moms}
+                  aria-labelledby="onb-vat-toggle-label"
+                  aria-describedby="onb-vat-toggle-hint"
+                  onClick={() =>
+                    setTax({ ...tax, prices_include_moms: !tax.prices_include_moms })
+                  }
+                  className={
+                    "shrink-0 w-11 h-6 rounded-full relative transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-50 dark:focus-visible:ring-offset-gray-950 " +
+                    (tax.prices_include_moms
+                      ? "bg-gray-900 dark:bg-gray-100"
+                      : "bg-gray-300 dark:bg-gray-700")
+                  }
                 >
-                  {t("onbStep4SkipBtn")}
-                </Button>
-                <Button
-                  variant="accent"
-                  onClick={sendInviteAndFinish}
-                  busy={revisorSending || finishing}
-                >
-                  {revisor.email && canInviteRevisor
-                    ? t("onbStep4Finish")
-                    : t("onbStep4FinishNoInvite")}
-                </Button>
+                  <span
+                    aria-hidden="true"
+                    className={
+                      "absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white dark:bg-gray-900 shadow-sm transition-transform " +
+                      (tax.prices_include_moms ? "translate-x-5" : "translate-x-0")
+                    }
+                  />
+                </button>
               </div>
+
+              {/* Day rollover — when does the business day end?
+                  Drives kasserapport / daily-close / live-KPI windows. */}
+              <fieldset className="mt-5">
+                <legend className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {t("onbStep3CutoffLabel")}
+                </legend>
+                <p
+                  id="onb-cutoff-hint"
+                  className="text-[11px] text-gray-500 dark:text-gray-400 mb-2 leading-relaxed"
+                >
+                  {t("onbStep3CutoffHint")}
+                </p>
+                <div
+                  className="space-y-2"
+                  role="radiogroup"
+                  aria-label={t("onbStep3CutoffLabel")}
+                  aria-describedby="onb-cutoff-hint"
+                >
+                  {CUTOFF_PRESETS.map((opt) => (
+                    <SelectRow
+                      key={opt.id}
+                      active={tax.day_cutoff_mode === opt.id}
+                      onClick={() => {
+                        cutoffTouched.current = true;
+                        setTax({ ...tax, day_cutoff_mode: opt.id });
+                      }}
+                      label={t(opt.labelKey) || opt.labelFallback}
+                      desc={t(opt.descKey) || opt.descFallback}
+                      alignTop
+                    />
+                  ))}
+                  {/* Custom row — radio + hour input as siblings so the
+                      interactive number input is NOT nested in the radio
+                      button (which would be invalid HTML). Clicking the
+                      number input also flips the mode to custom so the
+                      visual state stays consistent. */}
+                  <div
+                    className={
+                      "w-full flex items-center gap-3 rounded-xl border p-3 transition " +
+                      (tax.day_cutoff_mode === "custom"
+                        ? "border-gray-900 dark:border-gray-100 bg-gray-50 dark:bg-gray-800/50 ring-1 ring-gray-900/10 dark:ring-gray-100/10"
+                        : "border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900")
+                    }
+                  >
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={tax.day_cutoff_mode === "custom"}
+                      onClick={() => {
+                        cutoffTouched.current = true;
+                        setTax({ ...tax, day_cutoff_mode: "custom" });
+                      }}
+                      className="flex items-center gap-3 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg"
+                    >
+                      <RadioDot active={tax.day_cutoff_mode === "custom"} />
+                      <span className="text-sm font-medium">
+                        {t("onbStep3CutoffCustom")}
+                      </span>
+                    </button>
+                    <input
+                      type="number"
+                      min={0}
+                      max={23}
+                      step={1}
+                      value={tax.day_cutoff_custom}
+                      onChange={(e) => {
+                        cutoffTouched.current = true;
+                        setTax({
+                          ...tax,
+                          day_cutoff_mode: "custom",
+                          day_cutoff_custom: e.target.value,
+                        });
+                      }}
+                      onFocus={() => {
+                        cutoffTouched.current = true;
+                        setTax((tx) => ({ ...tx, day_cutoff_mode: "custom" }));
+                      }}
+                      aria-label={t("onbStep3CutoffCustomAria")}
+                      className="w-16 px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-center focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                    />
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400 shrink-0">
+                      {t("onbStep3CutoffCustomSuffix")}
+                    </span>
+                  </div>
+                </div>
+              </fieldset>
+
+              {/* Accountant email (optional) */}
+              <div className="mt-5">
+                <FieldLabel htmlFor="onb-acct-email">
+                  {t("onbStep3AccountantLabel")}
+                </FieldLabel>
+                <input
+                  id="onb-acct-email"
+                  type="email"
+                  value={tax.accountant_email}
+                  onChange={(e) =>
+                    setTax({ ...tax, accountant_email: e.target.value })
+                  }
+                  placeholder="revisor@example.dk"
+                  autoComplete="off"
+                  aria-describedby="onb-acct-email-hint"
+                  className={FIELD}
+                />
+                <p id="onb-acct-email-hint" className="text-[11px] text-gray-500 dark:text-gray-400 mt-1.5">
+                  {t("onbStep3AccountantHint")}
+                </p>
+                {/* Task #89 P3-8 — disambiguation note: Step 3 asks for
+                    the "send-to" address used by the Email kasserapport
+                    button, Step 4 invites a revisor to log in directly.
+                    Same accountant 95% of the time, but two different
+                    channels — explicit copy here saves a support ticket
+                    ("Why does it ask for the same email twice?"). */}
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
+                  {t("onbStep3AccountantDisambig")}
+                </p>
+              </div>
+
+              {stepError && (
+                <p className="text-xs text-red-700 dark:text-red-400 mt-4" role="alert" aria-live="assertive">{stepError}</p>
+              )}
+
+              <StepFooter
+                onBack={() => setStep(2)}
+                backLabel={t("onbBack")}
+                primaryLabel={t("onbNext")}
+                onPrimary={saveTaxAndNext}
+                primaryBusy={savingTax}
+              />
             </div>
-          </Card>
-        )}
+          )}
+
+          {/* ─── Step 4 — Revisor invite + concierge setup panel ────── */}
+          {step === 4 && (
+            <div>
+              <StepHeader
+                eyebrow={t("onbStep4Eyebrow")}
+                title={t("onbStep4Title")}
+                lede={t("onbStep4Subtitle")}
+              />
+
+              <div className="mt-6">
+                {canInviteRevisor === null ? (
+                  // Tier-flicker fix: while entitlements are loading, render
+                  // a low-contrast skeleton instead of the locked upsell —
+                  // trial users would otherwise see the "See Starter" nudge
+                  // flash before their real plan arrives.
+                  <div className="h-28 rounded-xl bg-gray-100 dark:bg-gray-800/60 animate-pulse" aria-hidden="true" />
+                ) : canInviteRevisor === false ? (
+                  <div>
+                    <UpgradeNudge
+                      intent="card"
+                      tier="starter"
+                      icon={<Icon name="Users" size={20} />}
+                      benefit={t("onbStep4Upsell")}
+                      ctaLabel={t("onbStep4SeeStarter")}
+                      cta="/subscription"
+                    />
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-3">
+                      {t("onbStep4SkipForNow")}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div>
+                      <FieldLabel htmlFor="onb-revisor-email">
+                        {t("onbStep4EmailLabel")}
+                      </FieldLabel>
+                      <input
+                        id="onb-revisor-email"
+                        type="email"
+                        value={revisor.email}
+                        onChange={(e) =>
+                          setRevisor({ ...revisor, email: e.target.value })
+                        }
+                        placeholder="anna@revision.dk"
+                        autoComplete="off"
+                        aria-invalid={!!revisorError}
+                        aria-describedby={revisorError ? "onb-revisor-error" : undefined}
+                        className={FIELD}
+                      />
+                    </div>
+                    <div>
+                      <FieldLabel htmlFor="onb-revisor-name">
+                        {t("onbStep4NameLabel")}
+                      </FieldLabel>
+                      <input
+                        id="onb-revisor-name"
+                        type="text"
+                        value={revisor.name}
+                        onChange={(e) =>
+                          setRevisor({ ...revisor, name: e.target.value })
+                        }
+                        placeholder={t("onbStep4NamePlaceholder")}
+                        aria-describedby="onb-revisor-name-hint"
+                        className={FIELD}
+                      />
+                    </div>
+                    <p id="onb-revisor-name-hint" className="sm:col-span-2 text-[11px] text-gray-500 dark:text-gray-400 -mt-1">
+                      {t("onbStep4NameHint")}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {revisorMsg && (
+                <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-3 flex items-center gap-1.5" role="status" aria-live="polite">
+                  <Icon name="CheckCircle2" size={13} />
+                  {revisorMsg}
+                </p>
+              )}
+              {revisorError && (
+                <p id="onb-revisor-error" className="text-xs text-red-700 dark:text-red-400 mt-3" role="alert" aria-live="assertive">
+                  {revisorError}
+                </p>
+              )}
+
+              {/* ── "Here's what we set up for you" (Milestone 1) ──
+                  The concierge moment. Reflects the resolved archetype: a
+                  titled panel, then each leadFeature as an elegant row
+                  (soft icon tile + label + what-it-does line). The firstWin
+                  row is lifted: emerald icon tile, a "Start here" pill, and
+                  it's what the accent Finish button below routes to. Degrades
+                  cleanly — unmapped keys are skipped (panelFeatures), so a
+                  future archetype key can't render a blank row. */}
+              <div className="mt-6 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
+                <div className="px-4 sm:px-5 pt-4 pb-3 border-b border-gray-100 dark:border-gray-800/70">
+                  <div className="flex items-center gap-2">
+                    <span className="text-emerald-600 dark:text-emerald-400" aria-hidden="true">
+                      <Icon name="Sparkles" size={15} />
+                    </span>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {t("onbSetupTitle")}
+                    </p>
+                  </div>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-1">
+                    {t("onbSetupSubtitle", { name: t(resolvedArchetype.labelKey) })}
+                  </p>
+                </div>
+
+                <ul className="divide-y divide-gray-100 dark:divide-gray-800/70">
+                  {panelFeatures.map((k) => {
+                    const meta = LEAD_FEATURE_META[k];
+                    const isFirstWin = k === resolvedArchetype.firstWin;
+                    return (
+                      <li
+                        key={k}
+                        className={
+                          "flex items-center gap-3 px-4 sm:px-5 py-3 " +
+                          (isFirstWin ? "bg-emerald-50/50 dark:bg-emerald-500/[0.06]" : "")
+                        }
+                      >
+                        <span
+                          className={
+                            "shrink-0 w-9 h-9 rounded-lg grid place-items-center " +
+                            (isFirstWin
+                              ? "bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                              : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400")
+                          }
+                          aria-hidden="true"
+                        >
+                          <Icon name={meta.icon} size={17} />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={"text-sm " + (isFirstWin ? "font-semibold text-gray-900 dark:text-gray-100" : "font-medium text-gray-800 dark:text-gray-200")}>
+                              {t(meta.labelKey)}
+                            </span>
+                            {isFirstWin && (
+                              <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-500/15 rounded-full px-2 py-0.5">
+                                {t("onbSetupFirstWinBadge")}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
+                            {t(meta.descKey)}
+                          </p>
+                        </div>
+                        {/* Quiet ready-check on the right — signals "already
+                            prepared", reinforcing the concierge framing. */}
+                        <span className={isFirstWin ? "text-emerald-600 dark:text-emerald-400 shrink-0" : "text-gray-300 dark:text-gray-600 shrink-0"} aria-hidden="true">
+                          <Icon name="Check" size={15} />
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+
+              {/* Footer — two clear paths. "Skip to dashboard" is the quiet
+                  secondary; the accent button is the one confident primary and
+                  routes to the firstWin (or sends the invite first). */}
+              <StepFooter
+                onBack={() => setStep(3)}
+                backLabel={t("onbBack")}
+                backDisabled={revisorSending || finishing}
+                secondaryLabel={t("onbStep4SkipBtn")}
+                onSecondary={() => finishOnboarding("/dashboard")}
+                secondaryDisabled={revisorSending || finishing}
+                primaryLabel={
+                  revisor.email && canInviteRevisor
+                    ? t("onbStep4Finish")
+                    : t("onbFinishToFirstWin")
+                }
+                onPrimary={sendInviteAndFinish}
+                primaryBusy={revisorSending || finishing}
+              />
+            </div>
+          )}
+        </div>
       </main>
+    </div>
+  );
+}
+
+
+// ── Archetype id → tile icon (for the detection confirmation card) ───
+// Maps each resolved archetype to a representative Lucide icon (all keys
+// verified present in Icon.jsx's ICONS map). Falls back to Store.
+const ARCHETYPE_ICON = {
+  food_service: "UtensilsCrossed",
+  bar: "Beer",
+  retail: "ShoppingBag",
+  salon: "Sparkles",
+  services: "Wrench",
+  personal: "User",
+  generic: "Store",
+};
+
+
+// ── SelectRow — one selectable radio-style row (filing freq + cutoff) ─
+// Gray-900 selected state (per doctrine: no colored active states), a
+// filled radio dot, optional description line. 44px+ tall.
+function SelectRow({ active, onClick, label, desc, alignTop = false }) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={onClick}
+      className={
+        "w-full text-left flex gap-3 rounded-xl border p-3 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-50 dark:focus-visible:ring-offset-gray-950 " +
+        (alignTop ? "items-start " : "items-center ") +
+        (active
+          ? "border-gray-900 dark:border-gray-100 bg-gray-50 dark:bg-gray-800/50 ring-1 ring-gray-900/10 dark:ring-gray-100/10"
+          : "border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-700")
+      }
+    >
+      <RadioDot active={active} className={alignTop ? "mt-0.5" : ""} />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+          {label}
+        </span>
+        {desc && (
+          <span className="block text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
+            {desc}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
+// ── RadioDot — shared filled-dot indicator ───────────────────────────
+function RadioDot({ active, className = "" }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={
+        "w-4 h-4 rounded-full border-2 shrink-0 grid place-items-center transition-colors " +
+        (active
+          ? "bg-gray-900 border-gray-900 dark:bg-gray-100 dark:border-gray-100"
+          : "border-gray-300 dark:border-gray-600") +
+        (className ? " " + className : "")
+      }
+    >
+      {active && <span className="w-1.5 h-1.5 rounded-full bg-white dark:bg-gray-900" />}
+    </span>
+  );
+}
+
+
+// ── StepFooter — consistent action bar for steps 2-4 ──────────────────
+// One Back (ghost) on the left; an optional secondary + the single accent
+// primary on the right. Centralising this guarantees identical button
+// hierarchy + spacing on every step. On mobile the primary is full-width
+// for an unmissable tap target.
+function StepFooter({
+  onBack,
+  backLabel,
+  backDisabled = false,
+  secondaryLabel,
+  onSecondary,
+  secondaryDisabled = false,
+  primaryLabel,
+  onPrimary,
+  primaryBusy = false,
+}) {
+  return (
+    <div className="mt-8 pt-5 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between gap-3">
+      <Button variant="ghost" onClick={onBack} disabled={backDisabled}>
+        {backLabel}
+      </Button>
+      <div className="flex items-center gap-2">
+        {secondaryLabel && (
+          <Button
+            variant="secondary"
+            onClick={onSecondary}
+            disabled={secondaryDisabled}
+          >
+            {secondaryLabel}
+          </Button>
+        )}
+        <Button
+          variant="accent"
+          onClick={onPrimary}
+          busy={primaryBusy}
+        >
+          {primaryLabel}
+        </Button>
+      </div>
     </div>
   );
 }
