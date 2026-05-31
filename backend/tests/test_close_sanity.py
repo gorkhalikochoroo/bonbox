@@ -20,6 +20,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
+from app.models.daily_close import DailyClose
 from app.models.sale import Sale
 from app.models.user import User
 from app.services.close_sanity import (
@@ -223,3 +224,65 @@ def test_free_users_dont_get_ai_anomaly_detection(db):
     assert has_feature(free, "ai_anomaly_detection") is False
     assert has_feature(starter, "ai_anomaly_detection") is True
     assert has_feature(pro, "ai_anomaly_detection") is True
+
+
+# ─── Close-driven baseline (regression — live finding 2026-05-31) ─────
+#
+# Close-only businesses record revenue in DailyClose, NOT Sale rows. The
+# baseline used to read only Sale rows, so it was always empty for them and
+# the guard silently no-opped — a 1.070 kr close the UI itself flagged
+# "99% below" still locked. _baseline_avg now reads DailyClose history too.
+
+
+def _seed_consistent_friday_closes(db, user, *, total_per_friday=10000.0):
+    """Seed up to 4 same-weekday Friday CLOSES (no Sale rows). Mirrors
+    _seed_consistent_fridays but via DailyClose, the source of truth for
+    close-driven businesses. Returns the target Friday to check on."""
+    today = date.today()
+    days_since_fri = (today.weekday() - 4) % 7
+    if days_since_fri == 0:
+        days_since_fri = 7
+    last_friday = today - timedelta(days=days_since_fri)
+    for week in range(4):
+        d = last_friday - timedelta(weeks=week)
+        if d >= today or (today - d).days > BASELINE_LOOKBACK_DAYS:
+            continue
+        db.add(DailyClose(
+            id=uuid.uuid4(), user_id=user.id, date=d,
+            revenue_total=total_per_friday, status="confirmed",
+        ))
+    db.commit()
+    if today.weekday() == 4:
+        return today
+    return today + timedelta(days=(4 - today.weekday()) % 7)
+
+
+def test_low_fires_from_close_history_with_no_sales(db):
+    """A close-only business (revenue in DailyClose, ZERO Sale rows) must
+    still get a misread caught. 1.500 vs a 10.000 same-weekday close
+    baseline is 85% below → flagged 'low'."""
+    user = _user(db)
+    target = _seed_consistent_friday_closes(db, user, total_per_friday=10000.0)
+    out = check_close_anomaly(db, user=user, today=target, today_total=1500.0)
+    assert out["flagged"] is True, out
+    assert out["reason"] == "low"
+    assert out["baseline_avg"] == 10000.0
+    assert out["baseline_days"] >= 2
+
+
+def test_overall_fallback_when_weekday_history_thin(db):
+    """Thin same-weekday history (<2 days) but >=3 days of any-weekday
+    closes → fall back to an all-days baseline so sparse accounts are still
+    protected. 1.000 vs ~10.000 all-days average → flagged 'low'."""
+    user = _user(db)
+    today = date.today()
+    # 4 consecutive prior days of closes — none share today's weekday.
+    for i in range(1, 5):
+        db.add(DailyClose(
+            id=uuid.uuid4(), user_id=user.id, date=today - timedelta(days=i),
+            revenue_total=10000.0, status="confirmed",
+        ))
+    db.commit()
+    out = check_close_anomaly(db, user=user, today=today, today_total=1000.0)
+    assert out["flagged"] is True, out
+    assert out["reason"] == "low"
