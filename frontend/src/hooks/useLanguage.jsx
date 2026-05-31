@@ -621,6 +621,11 @@ const translations = {
     closeAnomalyHint: "Nothing is saved yet — this is just a quick safety check.",
     closeAnomalyConfirm: "Yes, lock it",
     closeAnomalyCancel: "Let me check",
+    sentToAccountantOk: "✓ Sent to",
+    ccdYou: "you cc'd",
+    noDailyClosesYetHint: "Submit your first end-of-day close to see history here.",
+    noBranchDataHint: "Submit daily closes for multiple branches to see comparisons.",
+    notEnoughDataHint: "Submit a few daily closes to unlock insights about your revenue, tips, and cash handling.",
     // ─── Daily Close wizard (kasserapport flow) — EN ───
     // Scan step
     scanZReportTitle: "Scan your Z-report / kasserapport",
@@ -4628,6 +4633,11 @@ const translations = {
     closeAnomalyHint: "Intet er gemt endnu — det er bare et hurtigt sikkerhedstjek.",
     closeAnomalyConfirm: "Ja, lås den",
     closeAnomalyCancel: "Lad mig tjekke",
+    sentToAccountantOk: "✓ Sendt til",
+    ccdYou: "du fik kopi",
+    noDailyClosesYetHint: "Lav din første kasserapport for at se historik her.",
+    noBranchDataHint: "Lav kasserapporter for flere afdelinger for at se sammenligninger.",
+    notEnoughDataHint: "Lav et par kasserapporter for at låse op for indsigt om omsætning, drikkepenge og kontanthåndtering.",
     // ─── Daglig kasserapport-wizard — DA ───
     // Scan-trin
     scanZReportTitle: "Scan din Z-bon / kasserapport",
