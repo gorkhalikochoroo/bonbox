@@ -1467,6 +1467,21 @@ function FloorSection({ t, businessType }) {
     }
   };
 
+  const saveLabel = async (r, nextLabel) => {
+    const label = String(nextLabel || "").trim().slice(0, 120);
+    // Empty or unchanged → no-op (the input keeps showing the saved name).
+    if (!label || label === r.label) return;
+    // Optimistic.
+    setResources((prev) =>
+      prev.map((x) => (x.id === r.id ? { ...x, label } : x)),
+    );
+    try {
+      await api.patch(`/reservations/resources/${r.id}`, { label });
+    } catch {
+      fetchResources();
+    }
+  };
+
   const toggleCombinable = async (r) => {
     const next = !r.combinable;
     // Optimistic.
@@ -1744,16 +1759,30 @@ function FloorSection({ t, businessType }) {
               key={r.id}
               className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center justify-between gap-3"
             >
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate flex items-center gap-2">
-                  <VenueIcon className="w-4 h-4 text-gray-400" aria-hidden />
-                  {r.label}
-                  {r.zone && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                      {r.zone}
-                    </span>
-                  )}
-                </div>
+              <div className="min-w-0 flex items-center gap-2">
+                <VenueIcon className="w-4 h-4 text-gray-400 shrink-0" aria-hidden />
+                {/* Inline rename — looks like text, reveals a field on hover/focus.
+                    Saves on blur (Enter commits, Esc reverts), same UX as seats. */}
+                <input
+                  type="text"
+                  defaultValue={r.label}
+                  maxLength={120}
+                  onBlur={(e) => saveLabel(r, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                    else if (e.key === "Escape") {
+                      e.currentTarget.value = r.label;
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  aria-label={t("rsvpTableNameAria", "Name of {label}", { label: r.label })}
+                  className="min-w-0 flex-1 h-11 px-2 rounded-lg border border-transparent bg-transparent text-base sm:text-sm font-medium text-gray-800 dark:text-gray-100 hover:border-gray-200 dark:hover:border-gray-700 focus:border-gray-300 focus:bg-white dark:focus:border-gray-600 dark:focus:bg-gray-800 focus:outline-none transition-colors"
+                />
+                {r.zone && (
+                  <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                    {r.zone}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
