@@ -81,6 +81,32 @@ class Settings(BaseSettings):
     ADMIN_LOCKOUT_COOLDOWN_MIN: int = 15
     USE_CLAUDE_API: bool = False  # Enable full Claude AI mode (requires ANTHROPIC_API_KEY)
     ENVIRONMENT: str = "development"  # "production" in deployed env
+    # ── AI model tiers ─────────────────────────────────────────────────
+    # Three tiers, each with graceful fallback so a model outage or bad ID
+    # can never break a flow — it degrades to the next tier down:
+    #   1. ACCURACY_MODEL — money-critical number extraction ONLY
+    #      (kasserapport till/close totals, receipt expense amounts,
+    #      supplier-invoice amounts) where a misread digit = wrong money.
+    #      Falls back to DEFAULT_MODEL on any error.
+    #   2. PREMIUM_MODEL — the two user-facing AI surfaces (the BonBox AI
+    #      chat assistant + the daily brief). Falls back to DEFAULT_MODEL.
+    #   3. DEFAULT_MODEL — everything else (triage, anomaly, menu, sale
+    #      parser, wine, inventory extract/categorize) AND the fallback
+    #      target for the two tiers above.
+    #
+    # VERIFIED IDs (probed live against this account's /v1/models AND the
+    # /v1/messages endpoint — all return HTTP 200; do NOT guess or
+    # substitute, a wrong model ID has 404-broken AI before, task #239):
+    #   • claude-opus-4-8   — accuracy model
+    #   • claude-sonnet-4-6 — premium model
+    #   • claude-sonnet-4-5 — default + fallback model (the bare alias
+    #     resolves fine even though /v1/models lists only the dated
+    #     snapshot claude-sonnet-4-5-20250929)
+    # The BONBOX_*_MODEL env vars let the operator hot-swap any tier
+    # without a redeploy (e.g. pin DEFAULT to the dated snapshot).
+    ACCURACY_MODEL: str = os.environ.get("BONBOX_ACCURACY_MODEL", "claude-opus-4-8")
+    PREMIUM_MODEL: str = os.environ.get("BONBOX_PREMIUM_MODEL", "claude-sonnet-4-6")
+    DEFAULT_MODEL: str = os.environ.get("BONBOX_DEFAULT_MODEL", "claude-sonnet-4-5")
     # ── Stripe subscription billing ──
     # Live keys go in Render env vars (sync: false). Test keys can go in .env
     # for local dev. The webhook secret is per-endpoint (Stripe gives a unique

@@ -585,10 +585,11 @@ def extract_inventory_data(
         Raw image bytes (the router already loaded the upload). Any
         Pillow-supported format including HEIC.
     model
-        Override the Claude model (env: ``AI_MODEL_INVENTORY_OCR``).
-        Defaults to ``claude-sonnet-4-5`` (reverted from
-        ``claude-opus-4-7`` which 404'd — that identifier doesn't
-        exist in the Anthropic API).
+        Legacy per-call model override (env: ``AI_MODEL_INVENTORY_OCR``).
+        Retained for back-compat but SUPERSEDED by the central accuracy
+        tier: this call now runs ``ACCURACY_MODEL`` (claude-opus-4-8)
+        first and auto-falls-back to ``DEFAULT_MODEL`` (claude-sonnet-4-5)
+        on any Anthropic exception. See ``services/model_fallback``.
     timeout
         SDK call timeout in seconds.
     max_tokens
@@ -649,18 +650,25 @@ def extract_inventory_data(
     if not b64:
         return None
 
-    # Model — env override for hot-swap without a deploy
-    effective_model = (
+    # Model — money-critical (supplier-invoice amounts). Runs on the
+    # accuracy tier via call_with_fallback: ACCURACY_MODEL (Opus) first,
+    # auto-fallback to DEFAULT_MODEL (Sonnet) on ANY Anthropic exception
+    # so an Opus outage degrades to today's exact Sonnet behavior. The
+    # `model` arg / AI_MODEL_INVENTORY_OCR env override is retained for
+    # back-compat but the central tier (Settings) governs the model now.
+    _ = (
         (model or "").strip()
         or os.environ.get("AI_MODEL_INVENTORY_OCR", "").strip()
         or "claude-sonnet-4-5"
-    )
+    )  # legacy override — superseded by ACCURACY_MODEL tier below
 
     # ── Call Claude — tool-use forces structured output ──
     try:
+        from app.services.model_fallback import call_with_fallback
         client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
-        resp = client.messages.create(
-            model=effective_model,
+        resp = call_with_fallback(
+            client,
+            _label="inventory_ocr",
             max_tokens=max_tokens,
             system=[{
                 "type": "text",

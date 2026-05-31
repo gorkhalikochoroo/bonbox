@@ -249,6 +249,7 @@ def _call_anthropic_with_image(
     max_tokens: int,
     timeout: float = 30.0,
     max_retries: int = 1,
+    use_accuracy_fallback: bool = False,
 ):
     """Centralized Anthropic call. Returns (tool_input or None, input_tok, output_tok).
 
@@ -263,6 +264,18 @@ def _call_anthropic_with_image(
         handles None as "graceful failure → manual entry fallback".
       • Tool-use forces structured output via the tool schema; even a
         prompt-injected image cannot drift to free-form text.
+
+    use_accuracy_fallback: when True the call runs through the premium
+        accuracy tier — ACCURACY_MODEL (Opus) first, then ONE automatic
+        fallback to DEFAULT_MODEL (Sonnet) on any Anthropic exception
+        (see services/model_fallback.call_with_fallback). The `model`
+        arg is then ignored — the tier is sourced from Settings. This is
+        reserved for the money/number extractor (Layer 3); the classifier
+        and format detector keep their cheaper Sonnet default. The
+        single model-swap retry is nested INSIDE this function's existing
+        transient-retry loop, so a slow/5xx Opus call can still get a
+        backoff retry too, and a clean all-Sonnet outage degrades to
+        exactly the prior behavior.
     """
     try:
         import anthropic
@@ -278,16 +291,24 @@ def _call_anthropic_with_image(
     client = anthropic.Anthropic(api_key=api_key, timeout=timeout)
     last_error: str | None = None
 
+    create_kwargs = dict(
+        max_tokens=max_tokens,
+        system=system,
+        tools=tools,
+        tool_choice={"type": "tool", "name": tools[0]["name"]},
+        messages=[{"role": "user", "content": user_blocks}],
+    )
+
     for attempt in range(max_retries + 1):
         try:
-            resp = client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                system=system,
-                tools=tools,
-                tool_choice={"type": "tool", "name": tools[0]["name"]},
-                messages=[{"role": "user", "content": user_blocks}],
-            )
+            if use_accuracy_fallback:
+                # Opus → Sonnet (identical params, only the model varies).
+                from app.services.model_fallback import call_with_fallback
+                resp = call_with_fallback(
+                    client, _label="kasserapport_extractor", **create_kwargs,
+                )
+            else:
+                resp = client.messages.create(model=model, **create_kwargs)
             break  # success
         except Exception as e:  # noqa: BLE001
             last_error = type(e).__name__
@@ -649,6 +670,10 @@ def extract_kasserapport(
         tools=[_EXTRACTOR_TOOL],
         user_blocks=user_blocks,
         max_tokens=MAX_TOKENS_EXTRACTOR,
+        # Money-critical: till/close totals feed the accountant-grade SKAT
+        # MOMS-angivelse PDF (Bogføringsloven §10). Run on the accuracy
+        # tier — Opus first, auto-fallback to Sonnet on any failure.
+        use_accuracy_fallback=True,
     )
     return (tool_input or {}, in_tok, out_tok)
 
@@ -927,9 +952,14 @@ def extract_kasserapport_full(
 
     result.timing_ms = timing
     result.tokens_used = {"input": tokens_in_total, "output": tokens_out_total}
+    # Reporting only (admin training review). The extractor runs on the
+    # accuracy tier with a Sonnet fallback, so the label is the intended
+    # primary model; the actual model on a given call may have degraded
+    # to DEFAULT_MODEL if Opus errored — that path logs a warning.
     result.models_used = {
         "classifier": getattr(settings, "AI_MODEL_KASSE_CLASSIFIER", _DEFAULT_MODEL_CLASSIFIER),
         "format": getattr(settings, "AI_MODEL_KASSE_FORMAT", _DEFAULT_MODEL_FORMAT),
-        "extractor": getattr(settings, "AI_MODEL_KASSE_EXTRACTOR", _DEFAULT_MODEL_EXTRACTOR),
+        "extractor": getattr(settings, "ACCURACY_MODEL", _DEFAULT_MODEL_EXTRACTOR),
+        "extractor_fallback": getattr(settings, "DEFAULT_MODEL", _DEFAULT_MODEL_EXTRACTOR),
     }
     return result

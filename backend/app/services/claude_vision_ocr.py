@@ -414,14 +414,11 @@ def extract_receipt_data(image_path: str, *, currency_hint: str = "DKK") -> dict
         return None
 
     # ── Model + system prompt ────────────────────────────────────────
-    # claude-sonnet-4-5 — the production Sonnet 4.5 vision model. Was
-    # briefly switched to claude-opus-4-7 on 2026-05-28 for a 90%+
-    # accuracy push, but that model identifier returned 404 from
-    # Anthropic (likely hallucinated by the suggesting agent). Reverted
-    # same day. Env override AI_MODEL_RECEIPT_OCR lets the operator
-    # try a different model without a redeploy when one is available.
-    model = os.environ.get("AI_MODEL_RECEIPT_OCR", "").strip() or "claude-sonnet-4-5"
-
+    # Money-critical: receipt totals become expense amounts. Runs on the
+    # accuracy tier via call_with_fallback — ACCURACY_MODEL (Opus) first,
+    # auto-fallback to DEFAULT_MODEL (Sonnet) on ANY Anthropic exception.
+    # A model outage / bad ID therefore degrades to today's exact Sonnet
+    # behavior rather than breaking the receipt OCR path.
     system_prompt = _build_system_prompt(currency_hint=currency_hint or "DKK")
 
     # ── Call Claude ──────────────────────────────────────────────────
@@ -429,9 +426,11 @@ def extract_receipt_data(image_path: str, *, currency_hint: str = "DKK") -> dict
     # (ephemeral) trims input cost — same trick the kasserapport
     # extractor uses.
     try:
+        from app.services.model_fallback import call_with_fallback
         client = anthropic.Anthropic(api_key=api_key, timeout=30.0)
-        resp = client.messages.create(
-            model=model,
+        resp = call_with_fallback(
+            client,
+            _label="claude_vision_receipt",
             max_tokens=2000,
             system=[{
                 "type": "text",
@@ -1010,19 +1009,22 @@ def extract_z_report_data(image_path: str) -> dict | None:
         return None
 
     # ── Model + system prompt ────────────────────────────────────────
-    # claude-sonnet-4-5 — reverted from claude-opus-4-7 (which was 404).
-    # Z-reports are still served by Sonnet 4.5, the production vision
-    # model. See AI_MODEL_RECEIPT_OCR comment above for the full story.
-    model = os.environ.get("AI_MODEL_ZREPORT_OCR", "").strip() or "claude-sonnet-4-5"
+    # Money-critical: Z-report revenue / MOMS / payment totals feed the
+    # daily close. Runs on the accuracy tier via call_with_fallback —
+    # ACCURACY_MODEL (Opus) first, auto-fallback to DEFAULT_MODEL (Sonnet)
+    # on ANY Anthropic exception, so an Opus outage degrades to today's
+    # exact Sonnet behavior rather than breaking the Z-report path.
 
     # ── Call Claude ──────────────────────────────────────────────────
     # System prompt + tool schema cached (ephemeral). Z-reports are big
     # — output budget bumped to 4000 tokens to cover ~50 line items +
     # per-clerk table + denominations.
     try:
+        from app.services.model_fallback import call_with_fallback
         client = anthropic.Anthropic(api_key=api_key, timeout=45.0)
-        resp = client.messages.create(
-            model=model,
+        resp = call_with_fallback(
+            client,
+            _label="claude_vision_zreport",
             max_tokens=4000,
             system=[{
                 "type": "text",

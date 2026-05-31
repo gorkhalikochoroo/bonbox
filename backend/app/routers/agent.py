@@ -688,6 +688,7 @@ async def _claude_chat(req: ChatRequest, db, user):
     import anthropic as anth
     from sqlalchemy import func as sa_func
     from app.services.agent_tool_defs import AGENT_TOOLS
+    from app.services.model_fallback import call_with_fallback
     from app.models import Sale, Expense, InventoryItem, KhataCustomer, KhataTransaction
     from app.models.staff import StaffMember
 
@@ -905,14 +906,23 @@ async def _claude_chat(req: ChatRequest, db, user):
     async def claude_stream():
         nonlocal messages, _total_input_tokens, _total_output_tokens
         try:
+            _served_model = settings.PREMIUM_MODEL
             while True:
-                response = client.messages.create(
-                    model="claude-sonnet-4-5",
+                # Premium tier: Sonnet 4.6 for the assistant, with an
+                # automatic one-shot fallback to DEFAULT_MODEL (Sonnet 4.5)
+                # if the premium model ever errors — so the chat degrades
+                # to today's behavior instead of breaking (task #239 lesson).
+                response = call_with_fallback(
+                    client,
+                    _label="assistant",
+                    _primary=settings.PREMIUM_MODEL,
+                    _fallback=settings.DEFAULT_MODEL,
                     max_tokens=1024,
                     system=system_prompt,
                     tools=AGENT_TOOLS,
                     messages=messages,
                 )
+                _served_model = getattr(response, "model", None) or settings.PREMIUM_MODEL
 
                 # Token accounting for cost monitoring. Each round is a separate
                 # API call so we accumulate across rounds.
@@ -970,7 +980,7 @@ async def _claude_chat(req: ChatRequest, db, user):
                     detail=json.dumps({
                         "input": _total_input_tokens,
                         "output": _total_output_tokens,
-                        "model": "claude-sonnet-4-5",
+                        "model": _served_model,
                     }),
                 )
                 db.add(ev)

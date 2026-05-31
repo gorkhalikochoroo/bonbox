@@ -1191,7 +1191,11 @@ def _try_llm_polish(
         # Per-user addendum — NOT cached (changes per user). Sent fresh.
         system_blocks.append({"type": "text", "text": addendum})
 
-    model = getattr(settings, "AI_MODEL_DAILY_BRIEF", "claude-sonnet-4-5")
+    # Premium tier: the daily brief uses PREMIUM_MODEL (Sonnet 4.6) by
+    # default. The AI_MODEL_DAILY_BRIEF env override still wins if set, and
+    # the try/except below already degrades to the deterministic brief if
+    # the call fails — so a model issue never breaks the brief.
+    model = getattr(settings, "AI_MODEL_DAILY_BRIEF", None) or settings.PREMIUM_MODEL
 
     try:
         resp = client.messages.create(
