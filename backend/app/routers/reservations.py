@@ -47,6 +47,29 @@ router = APIRouter()
 
 _VALID_STATUS = ("requested", "confirmed", "seated", "completed", "no_show", "cancelled")
 
+# Floor-plan table shapes. Anything else falls back to "round" rather than
+# 422-ing the whole layout save (the map is a low-stakes cosmetic surface —
+# a bad shape value should never block an owner from arranging their room).
+_SHAPES = ("round", "square")
+
+
+def _clamp_pct(v) -> float | None:
+    """Clamp a floor-plan coordinate to the 0–100 canvas percent. Returns
+    None for None/non-numeric input so an un-placed table stays un-placed."""
+    try:
+        if v is None:
+            return None
+        return max(0.0, min(100.0, float(v)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _norm_shape(v) -> str:
+    """Normalise a shape to the allowed set; default 'round' on anything
+    unrecognised (case-insensitive)."""
+    s = (v or "").strip().lower() if isinstance(v, str) else ""
+    return s if s in _SHAPES else "round"
+
 
 # ─── schemas ─────────────────────────────────────────────────────────
 class SettingsUpdate(BaseModel):
@@ -66,6 +89,12 @@ class ResourceCreate(BaseModel):
     combinable: bool = False
     staff_id: UUID | None = None
     sort_order: int = 0
+    # Optional floor-plan placement on create (the bulk layout PUT is the
+    # primary path, but a single-add form may drop a table at a point too).
+    # Clamped / normalised in the handler — see _clamp_pct / _norm_shape.
+    pos_x: float | None = None
+    pos_y: float | None = None
+    shape: str | None = None
 
 
 class ResourceUpdate(BaseModel):
@@ -75,6 +104,10 @@ class ResourceUpdate(BaseModel):
     combinable: bool | None = None
     is_active: bool | None = None
     sort_order: int | None = None
+    # Floor-plan placement may also be edited via the single-resource PATCH.
+    pos_x: float | None = None
+    pos_y: float | None = None
+    shape: str | None = None
 
 
 class BulkResourceSpec(BaseModel):
@@ -91,6 +124,26 @@ class BulkResourceCreate(BaseModel):
     zone: str | None = Field(default=None, max_length=60)
     combinable: bool = False
     label_prefix: str = Field(default="Bord", min_length=1, max_length=40)
+
+
+class LayoutItem(BaseModel):
+    # One table's placement on the room canvas. pos_x/pos_y are a percent
+    # (0–100) of the canvas; they're CLAMPED (not rejected) in the handler so
+    # a frontend rounding error never fails the whole save. shape falls back
+    # to "round" on anything outside {round, square}. We accept pos_x/pos_y as
+    # optional so a partial save (just re-shaping a table) is legal — but in
+    # practice the drag-arrange UI sends both.
+    id: UUID
+    pos_x: float | None = None
+    pos_y: float | None = None
+    shape: str | None = None
+
+
+class LayoutUpdate(BaseModel):
+    # Bulk persist of the whole drag-arranged floor. max_length mirrors a
+    # generous table ceiling (well above any plan's bookable_resources_max)
+    # so the request body itself can't be used as an unbounded-payload vector.
+    layout: list[LayoutItem] = Field(min_length=1, max_length=500)
 
 
 class ManualReservation(BaseModel):
@@ -142,12 +195,20 @@ def _allocate_slug(db: Session, base: str) -> str:
 
 
 def _resource_dict(r: BookableResource) -> dict:
+    # pos_x / pos_y / shape drive the 2D floor-plan map. pos_x/pos_y are a
+    # percent (0–100) of the room canvas; None = not yet placed (frontend
+    # auto-grids it). shape defaults to "round" for rows that predate the
+    # column (server_default also fills it on Postgres). getattr keeps this
+    # robust if a partially-migrated SQLite dev DB lacks the attribute.
     return {
         "id": str(r.id), "kind": r.kind, "label": r.label,
         "capacity_seats": r.capacity_seats, "zone": r.zone,
         "combinable": bool(getattr(r, "combinable", False)),
         "staff_id": str(r.staff_id) if r.staff_id else None,
         "sort_order": r.sort_order, "is_active": r.is_active,
+        "pos_x": getattr(r, "pos_x", None),
+        "pos_y": getattr(r, "pos_y", None),
+        "shape": getattr(r, "shape", None) or "round",
     }
 
 
@@ -267,6 +328,10 @@ def create_resource(payload: ResourceCreate, request: Request,
         capacity_seats=payload.capacity_seats, zone=payload.zone,
         combinable=bool(payload.combinable),
         staff_id=payload.staff_id, sort_order=payload.sort_order,
+        pos_x=_clamp_pct(payload.pos_x), pos_y=_clamp_pct(payload.pos_y),
+        # Only stamp a shape if the caller sent one; otherwise leave it to the
+        # column's server_default ('round') so create and bulk-layout agree.
+        shape=_norm_shape(payload.shape) if payload.shape is not None else None,
     )
     db.add(r)
     db.flush()
@@ -339,6 +404,73 @@ def create_resources_bulk(payload: BulkResourceCreate, request: Request,
     return resp
 
 
+# Declared BEFORE the parameterised /resources/{resource_id} routes so the
+# literal "/resources/layout" path can never be shadowed by a {resource_id}
+# match (FastAPI resolves routes in declaration order). It's a PUT while the
+# param routes are PATCH/DELETE, so there's no real collision — this is just
+# the defensive ordering habit.
+@router.put("/resources/layout")
+def save_layout(payload: LayoutUpdate, request: Request,
+                db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Persist the owner's drag-arranged 2D floor plan in one call.
+
+    Body: ``{ "layout": [ {id, pos_x, pos_y, shape}, … ] }``.
+
+    Multi-barrier, mirroring the other write endpoints in this file:
+      • L1 auth — get_current_user.
+      • L2 tenant scope — we fetch ONLY the caller's own (non-deleted) rows
+        whose id appears in the payload, in a single query. ids the user
+        doesn't own (or that don't exist / are soft-deleted) simply aren't in
+        the map, so they're silently ignored — no cross-tenant write, no info
+        leak via 404-vs-skip.
+      • L3 bounds — Pydantic caps the list at 500 items; pos_x/pos_y are
+        clamped to 0–100 and shape normalised to {round,square} (default
+        round) rather than rejected, so a flaky drag never fails the save.
+      • L8 audit — one summary row per save.
+    """
+    enforce_feature(user, "reservations")
+
+    # De-dupe ids (last write wins for a repeated id) and fetch the caller's
+    # own rows in ONE query — this is both the tenant-scope barrier and the
+    # N+1 avoidance. Anything not returned here (unowned / unknown / deleted)
+    # is dropped.
+    items_by_id = {str(item.id): item for item in payload.layout}
+    if not items_by_id:
+        return {"updated": 0}
+
+    owned = (
+        db.query(BookableResource)
+        .filter(
+            BookableResource.user_id == user.id,
+            BookableResource.is_deleted.is_(False),
+            BookableResource.id.in_(list(items_by_id.keys())),
+        )
+        .all()
+    )
+
+    updated = 0
+    for r in owned:
+        item = items_by_id.get(str(r.id))
+        if item is None:
+            continue
+        # Coordinates are optional per-item; only overwrite when sent so a
+        # shape-only edit doesn't blow away an existing position.
+        if item.pos_x is not None:
+            r.pos_x = _clamp_pct(item.pos_x)
+        if item.pos_y is not None:
+            r.pos_y = _clamp_pct(item.pos_y)
+        if item.shape is not None:
+            r.shape = _norm_shape(item.shape)
+        updated += 1
+
+    if updated:
+        audit_service.record(
+            db, user, "reservation.layout_saved", "bookable_resource", user.id,
+        )
+        db.commit()
+    return {"updated": updated}
+
+
 @router.patch("/resources/{resource_id}")
 def update_resource(resource_id: UUID, payload: ResourceUpdate,
                     db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -355,6 +487,13 @@ def update_resource(resource_id: UUID, payload: ResourceUpdate,
         val = getattr(payload, field)
         if val is not None:
             setattr(r, field, val)
+    # Floor-plan fields go through clamp/normalise rather than a raw copy.
+    if payload.pos_x is not None:
+        r.pos_x = _clamp_pct(payload.pos_x)
+    if payload.pos_y is not None:
+        r.pos_y = _clamp_pct(payload.pos_y)
+    if payload.shape is not None:
+        r.shape = _norm_shape(payload.shape)
     db.commit()
     return _resource_dict(r)
 

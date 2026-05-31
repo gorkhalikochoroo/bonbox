@@ -1737,6 +1737,24 @@ _migrations = [
     # existing floors behave exactly as before until an owner opts a table in.
     "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS combinable BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS combined_resource_ids JSONB",
+
+    # ── Migration 023 (2026-05-31): persistent 2D floor-plan layout ──────
+    # bookable_resources gains position + shape so the owner's drag-arranged
+    # room map persists to the venue. Mirrors app/models/bookable_resource.py
+    # and is documented in alembic 018 (documentation-only). REQUIRED by the
+    # schema-drift self-test: the model now declares pos_x/pos_y/shape, so on
+    # Postgres these three columns MUST exist or strict startup keeps the
+    # readiness gate at 503 and the prior healthy deploy stays live.
+    #
+    # All three are additive + non-locking on PG 11+:
+    #   • pos_x / pos_y — nullable DOUBLE PRECISION, no default. NULL = "not
+    #     placed on the canvas yet" (legacy rows + new tables) — a first-class
+    #     state the frontend renders as an auto-grid until dragged.
+    #   • shape — DEFAULT 'round' is a constant, so the backfill is a
+    #     metadata-only change (no table rewrite). Cosmetic ('round'|'square').
+    "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS pos_x DOUBLE PRECISION",
+    "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS pos_y DOUBLE PRECISION",
+    "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS shape VARCHAR(12) DEFAULT 'round'",
 ]
 
 

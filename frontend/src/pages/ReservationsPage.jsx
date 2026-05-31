@@ -65,6 +65,7 @@ import DataTable from "../components/ui/DataTable";
 import StatCard from "../components/ui/StatCard";
 import FilterBar from "../components/ui/FilterBar";
 import Empty from "../components/ui/Empty";
+import FloorPlan from "../components/FloorPlan";
 import { QRCodeSVG } from "qrcode.react";
 import { canPurchaseInApp } from "../utils/platform";
 
@@ -351,133 +352,47 @@ function deriveFloorState(reservations, resources, nowMs) {
     });
 }
 
-const TILE_DOT = {
-  free: "bg-gray-300 dark:bg-gray-600",
-  upcoming: "bg-amber-500",
-  seated: "bg-emerald-500",
-  inactive: "bg-gray-200 dark:bg-gray-700",
-};
-
-function FloorTile({ cell, t, onSelect, onSeatNow }) {
-  const { res, status, booking, combined } = cell;
-  const inactive = status === "inactive";
-  const free = status === "free";
-  const clickable = !inactive; // free → seat walk-in; occupied → open detail
-  const handle = () => {
-    if (inactive) return;
-    if (free) onSeatNow && onSeatNow(res);
-    else if (booking?.reservation) onSelect(booking.reservation);
-  };
-  return (
-    <button
-      type="button"
-      disabled={!clickable}
-      onClick={handle}
-      className={
-        "text-left rounded-xl border p-3 min-h-[92px] flex flex-col transition-colors " +
-        (inactive
-          ? "bg-gray-50 dark:bg-gray-900/40 border-dashed border-gray-200 dark:border-gray-700 opacity-60 cursor-default"
-          : free
-          ? "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700"
-          : status === "seated"
-          ? "bg-gray-50 dark:bg-gray-800/60 border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500"
-          : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700")
-      }
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
-          {res.label}
-        </span>
-        <span className={"w-2.5 h-2.5 rounded-full shrink-0 " + (TILE_DOT[status] || TILE_DOT.free)} aria-hidden />
-      </div>
-      <div className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1">
-        <Users className="w-3 h-3" aria-hidden />
-        {res.capacity_seats}
-        {combined && (
-          <Link2 className="w-3 h-3 ml-0.5" aria-hidden title={t("rsvpCombinable", "Can be combined")} />
-        )}
-      </div>
-      <div className="mt-auto pt-1.5 min-h-[1.4rem]">
-        {inactive ? (
-          <span className="text-[11px] text-gray-400 dark:text-gray-500">
-            {t("rsvpTileInactive", "Out of service")}
-          </span>
-        ) : free ? (
-          <span className="text-[11px] text-gray-400 dark:text-gray-500 inline-flex items-center gap-1">
-            <Plus className="w-3 h-3" aria-hidden />
-            {t("rsvpTileSeat", "Seat")}
-          </span>
-        ) : (
-          <div className="leading-tight">
-            <div className="text-[12px] font-medium text-gray-800 dark:text-gray-200 truncate">
-              {booking.time} · {booking.name || t("rsvpGuest", "Guest")}
-            </div>
-            <div className="text-[11px] text-gray-500 dark:text-gray-400">
-              {status === "seated"
-                ? t("rsvpTileSeated", "Seated")
-                : booking.eta != null
-                ? t("rsvpTileInMin", "in {n} min", { n: booking.eta })
-                : t("rsvpStatusConfirmed", "Confirmed")}
-            </div>
-          </div>
-        )}
-      </div>
-    </button>
-  );
-}
-
-function LegendDot({ cls, label }) {
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      <span className={"w-2 h-2 rounded-full " + cls} aria-hidden />
-      {label}
-    </span>
-  );
-}
-
+// FloorView — the Floor lens of the book. A thin adapter: it derives the
+// per-table live state (deriveFloorState) and the "your next booking" accent
+// id, then hands them to the premium 2D FloorPlan (the spatial room with
+// draggable tables, chairs, zone bands, and edit/save). The tap + seat-now
+// handlers are passed straight through so FloorPlan reuses the page's shared
+// ReservationDrawer + SeatNowSheet.
 function FloorView({ reservations, resources, t, onSelect, onSeatNow }) {
+  const nowMs = Date.now();
   const cells = useMemo(
-    () => deriveFloorState(reservations, resources, Date.now()),
+    () => deriveFloorState(reservations, resources, nowMs),
+    // nowMs intentionally excluded: a fresh value each render would thrash the
+    // memo; state classification is stable enough for a service view, and the
+    // book refetches on action / refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [reservations, resources],
   );
-  const byZone = useMemo(() => {
-    const g = {};
-    cells.forEach((c) => {
-      const z = c.res.zone || t("rsvpZoneOther", "Other");
-      (g[z] = g[z] || []).push(c);
-    });
-    return g;
-  }, [cells, t]);
 
-  if (cells.length === 0) {
-    return (
-      <ComingSoonView
-        icon={<Armchair className="w-8 h-8" />}
-        title={t("rsvpFloorEmptyTitle", "No tables yet")}
-        body={t("rsvpFloorEmptyBody", "Add tables on the Floor tab to see your room here.")}
-      />
-    );
-  }
+  // "Your next booking" — the soonest still-upcoming (requested/confirmed)
+  // reservation today, accented on the plan so the host's eye lands on it.
+  const nextBookingId = useMemo(() => {
+    const upcoming = reservations
+      .filter(
+        (r) =>
+          ["requested", "confirmed"].includes(r.status) &&
+          r.starts_at &&
+          new Date(r.starts_at).getTime() >= nowMs,
+      )
+      .sort((a, b) => (a.starts_at < b.starts_at ? -1 : 1));
+    return upcoming.length ? upcoming[0].id : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reservations]);
+
   return (
-    <div className="space-y-5">
-      {Object.entries(byZone).map(([zone, list]) => (
-        <div key={zone}>
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">
-            {zone}
-          </h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {list.map((c) => (
-              <FloorTile key={c.res.id} cell={c} t={t} onSelect={onSelect} onSeatNow={onSeatNow} />
-            ))}
-          </div>
-        </div>
-      ))}
-      <div className="flex flex-wrap items-center gap-4 text-[11px] text-gray-500 dark:text-gray-400 pt-1">
-        <LegendDot cls="bg-gray-300 dark:bg-gray-600" label={t("rsvpTileFree", "Free")} />
-        <LegendDot cls="bg-amber-500" label={t("rsvpLegUpcoming", "Upcoming")} />
-        <LegendDot cls="bg-emerald-500" label={t("rsvpTileSeated", "Seated")} />
-      </div>
-    </div>
+    <FloorPlan
+      cells={cells}
+      nowMs={nowMs}
+      t={t}
+      onSelect={onSelect}
+      onSeatNow={onSeatNow}
+      nextBookingId={nextBookingId}
+    />
   );
 }
 

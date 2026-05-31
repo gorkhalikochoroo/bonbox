@@ -21,7 +21,7 @@ floor reshuffle without orphaning the audit trail.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, Index
+from sqlalchemy import String, Integer, Float, Boolean, DateTime, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -71,6 +71,27 @@ class BookableResource(Base):
 
     # Manual ordering in the owner floor list.
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # ── 2D floor-plan position ────────────────────────────────────────
+    # Where this table sits on the owner's drag-arranged room map. Stored
+    # as a PERCENT of the room canvas (0–100 on each axis) so the layout is
+    # resolution-independent — the frontend renders the same arrangement on
+    # a phone, a host-stand tablet, or a desktop without re-pixel-mapping.
+    # NULL = "not placed yet" (legacy rows + freshly-created tables): the
+    # frontend drops un-placed tables into an auto-grow grid until the owner
+    # drags them onto the canvas, so a NULL here is a first-class state, not
+    # a missing value. Hence nullable with NO server default (unlike `shape`).
+    pos_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pos_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    # Render shape on the floor map: 'round' (a round top) or 'square'
+    # (a square/rectangular top). Cosmetic only — does not affect seating
+    # or the availability engine. server_default 'round' so existing rows
+    # adopt a sane default and the ADD COLUMN is a non-locking metadata-only
+    # change on Postgres (constant default, no table rewrite).
+    shape: Mapped[str | None] = mapped_column(
+        String(12), nullable=True, server_default="round", default="round",
+    )
 
     # Active = bookable. Inactive resources stay in history but the engine
     # skips them (e.g. a table pulled for renovation).
