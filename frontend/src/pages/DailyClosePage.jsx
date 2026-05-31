@@ -196,12 +196,12 @@ const PAYMENT_METHODS_BY_TYPE = {
 
 /* Per-type close configuration — controls which steps appear */
 const CLOSE_CONFIG = {
-  restaurant:  { hasTips: true,  hasCashDrawer: true,  stepOneLabel: "Revenue by Category", description: "End-of-day closing — revenue, payments, cash drawer, tips." },
-  workshop:    { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue by Service",  description: "End-of-day closing — parts & labor revenue, payments, cash drawer." },
-  retail:      { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue by Category", description: "End-of-day closing — sales, returns, payments, cash drawer." },
-  grocery:     { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue by Category", description: "End-of-day closing — sales, cash drawer, transactions." },
-  ecommerce:   { hasTips: false, hasCashDrawer: false, stepOneLabel: "Revenue by Channel",  description: "End-of-day closing — online sales, returns, payments." },
-  general:     { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue",             description: "End-of-day closing — revenue, expenses, payments." },
+  restaurant:  { hasTips: true,  hasCashDrawer: true,  stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — revenue, payments, cash drawer, tips." },
+  workshop:    { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue by Service",  stepOneLabelKey: "stepOneRevenueByService",  description: "End-of-day closing — parts & labor revenue, payments, cash drawer." },
+  retail:      { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — sales, returns, payments, cash drawer." },
+  grocery:     { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — sales, cash drawer, transactions." },
+  ecommerce:   { hasTips: false, hasCashDrawer: false, stepOneLabel: "Revenue by Channel",  stepOneLabelKey: "stepOneRevenueByChannel",  description: "End-of-day closing — online sales, returns, payments." },
+  general:     { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue",             stepOneLabelKey: "revenue",                   description: "End-of-day closing — revenue, expenses, payments." },
 };
 
 function getRevenueCats(branchType) {
@@ -1369,20 +1369,20 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             <div className="rounded-xl p-6 text-center"
               style={{ background: "linear-gradient(135deg, #059669 0%, #10b981 50%, #34d399 100%)" }}>
               <div className="text-4xl mb-3">📷</div>
-              <h2 className="text-xl font-bold text-white mb-1">Scan your Z-Report / Kasserapport</h2>
+              <h2 className="text-xl font-bold text-white mb-1">{t("scanZReportTitle", "Scan your Z-report / kasserapport")}</h2>
               <p className="text-gray-100 text-sm mb-5">
-                Take photos or upload images of your Z-report — add multiple pages and we'll merge the results.
+                {t("scanZReportBody", "Take photos or upload images of your Z-report — add multiple pages and we'll merge the results.")}
               </p>
               <div className="flex gap-3 justify-center">
                 <button
                   onClick={() => { if (fileInputRef.current) { fileInputRef.current.setAttribute("capture", "environment"); fileInputRef.current.click(); } }}
                   className="px-5 py-2.5 bg-white text-gray-700 rounded-xl font-semibold shadow-sm hover:shadow-sm transition text-sm">
-                  📸 Take Photo
+                  📸 {t("takePhoto", "Take Photo")}
                 </button>
                 <button
                   onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
                   className="px-5 py-2.5 bg-white/20 text-white border border-white/40 rounded-xl font-semibold hover:bg-white/30 transition text-sm">
-                  📁 Upload Image
+                  📁 {t("uploadImage", "Upload Image")}
                 </button>
               </div>
               {/* MOMS / VAT toggle — owner picks before scan so OCR'd
@@ -1393,7 +1393,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   (gross)" — fixes the #148 MEDIUM-10 mix where this
                   block hardcoded "MOMS" while siblings used `vatName`. */}
               <div className="mt-4 flex items-center gap-2 justify-center">
-                <span className="text-xs text-gray-100">Receipt amounts are:</span>
+                <span className="text-xs text-gray-100">{t("receiptAmountsAre", "Receipt amounts are:")}</span>
                 <button
                   onClick={() => setScanMomsMode("with-moms")}
                   className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
@@ -1401,7 +1401,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       ? "bg-white text-gray-700 shadow"
                       : "bg-white/10 text-white hover:bg-white/20"
                   }`}>
-                  with {vatName} (gross)
+                  {t("withVatGross", "with {vat} (gross)", { vat: vatName })}
                 </button>
                 <button
                   onClick={() => setScanMomsMode("without-moms")}
@@ -1410,7 +1410,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       ? "bg-white text-gray-700 shadow"
                       : "bg-white/10 text-white hover:bg-white/20"
                   }`}>
-                  without {vatName} (net)
+                  {t("withoutVatNet", "without {vat} (net)", { vat: vatName })}
                 </button>
               </div>
             </div>
@@ -1420,7 +1420,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               onDragOver={e => e.preventDefault()}
               onDrop={async e => { e.preventDefault(); const files = Array.from(e.dataTransfer.files || []); for (const f of files) await handleFileSelect(f); }}>
               <p className="text-gray-400 dark:text-gray-500 text-sm">
-                Drag & drop your Z-report images here, or click to browse
+                {t("dragDropZReport", "Drag & drop your Z-report images here, or click to browse")}
               </p>
             </div>
             {scanError && (
@@ -1431,7 +1431,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             <div className="text-center">
               <button onClick={() => { setScanMode("skipped"); setStep(1); }}
                 className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline underline-offset-2 transition">
-                Skip — enter manually
+                {t("skipEnterManually", "Skip — enter manually")}
               </button>
             </div>
           </div>
@@ -1441,8 +1441,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {scanMode === "scanning" && (
           <div className="py-12 text-center space-y-4">
             <div className="inline-block w-10 h-10 border-4 border-gray-100 border-t-green-600 rounded-full animate-spin" />
-            <p className="text-gray-600 dark:text-gray-300 font-medium">Reading your Z-report...</p>
-            <p className="text-sm text-gray-400">OCR is extracting revenue, payments, and {vatName} data</p>
+            <p className="text-gray-600 dark:text-gray-300 font-medium">{t("readingZReport", "Reading your Z-report…")}</p>
+            <p className="text-sm text-gray-400">{t("ocrExtractingData", "OCR is extracting revenue, payments, and {vat} data", { vat: vatName })}</p>
           </div>
         )}
 
@@ -1713,7 +1713,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   : scanFieldsDetected >= 3 ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
                     : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
               }`}>
-                🎯 {scanFieldsDetected >= 5 ? "High" : scanFieldsDetected >= 3 ? "Medium" : "Low"} confidence — {scanFieldsDetected}/{scanFieldsTotal} fields detected
+                🎯 {t("scanConfidenceLevel", "{level} confidence — {detected}/{total} fields detected", {
+                  level: scanFieldsDetected >= 5 ? t("confidenceHigh", "High") : scanFieldsDetected >= 3 ? t("confidenceMedium", "Medium") : t("confidenceLow", "Low"),
+                  detected: scanFieldsDetected,
+                  total: scanFieldsTotal,
+                })}
               </span>
             </div>
 
@@ -1739,15 +1743,15 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   <div>
                     ℹ️ <strong>
                       {allEmpty
-                        ? "We couldn't detect the per-category breakdown"
-                        : `We detected ${detected.length} of ${defaultRevCats.length} revenue categories`}
+                        ? t("scanGapNoBreakdown", "We couldn't detect the per-category breakdown")
+                        : t("scanGapDetectedSome", "We detected {detected} of {total} revenue categories", { detected: detected.length, total: defaultRevCats.length })}
                     </strong>
-                    {" "}from this receipt — total is {scanResult.revenue_total.toLocaleString()} {currency}.
+                    {" "}{t("scanGapTotalIs", "from this receipt — total is {amount}.", { amount: `${scanResult.revenue_total.toLocaleString()} ${currency}` })}
                   </div>
                   <div className="text-xs opacity-90">
                     {allEmpty
-                      ? "Saving the total revenue anyway. Enter the per-category split below if you need it for reports."
-                      : <>Please enter the actual amount for: <strong>{missing.map(m => m.label.split(" / ")[0]).join(", ")}</strong>. Or skip — the total above will save correctly either way.</>}
+                      ? t("scanGapSavingTotal", "Saving the total revenue anyway. Enter the per-category split below if you need it for reports.")
+                      : <>{t("scanGapEnterActualFor", "Please enter the actual amount for:")} <strong>{missing.map(m => m.label.split(" / ")[0]).join(", ")}</strong>. {t("scanGapOrSkip", "Or skip — the total above will save correctly either way.")}</>}
                   </div>
                 </div>
               );
@@ -1756,7 +1760,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {/* Revenue (med moms) */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-3">
               <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
-                Revenue (med moms)
+                {t("revenueMedMoms", "Revenue (med moms)")}
               </h3>
               {defaultRevCats.map(c => {
                 const val = scanResult.revenue?.[c.key];
@@ -1767,12 +1771,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       {val ? <span className="text-emerald-600">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       {c.icon} {c.label}
                       {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
-                      {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">missing</span>}
+                      {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
                     <input type="number" inputMode="decimal"
                       className={`${inputClass} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
                       defaultValue={val || ""}
-                      placeholder={isEmpty ? "enter actual amount" : ""}
+                      placeholder={isEmpty ? t("enterActualAmount", "enter actual amount") : ""}
                       onChange={e => {
                         setScanResult(prev => ({
                           ...prev,
@@ -1809,7 +1813,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 const udenMoms = Math.round((val / vatDivisor) * 100) / 100;
                 return (
                   <div key={c.key} className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                    <span>{c.label.split(" / ")[0]} (uden moms)</span>
+                    <span>{c.label.split(" / ")[0]} {t("udenMomsSuffix", "(uden moms)")}</span>
                     <span>{udenMoms.toLocaleString()} {currency}</span>
                   </div>
                 );
@@ -1828,12 +1832,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       {val ? <span className="text-emerald-600">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       {m.icon} {m.label}
                       {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
-                      {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">missing</span>}
+                      {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
                     <input type="number" inputMode="decimal"
                       className={`${inputClass} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
                       defaultValue={val || ""}
-                      placeholder={isEmpty ? "enter actual amount" : ""}
+                      placeholder={isEmpty ? t("enterActualAmount", "enter actual amount") : ""}
                       onChange={e => {
                         setScanResult(prev => ({
                           ...prev,
@@ -1851,14 +1855,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <div className="flex items-center gap-3">
                 <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
                   {scanResult.tips ? <span className="text-emerald-600">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                  💰 Tips
+                  💰 {t("tipsLabel", "Tips")}
                   {scanResult.tips && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
-                  {!scanResult.tips && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">missing</span>}
+                  {!scanResult.tips && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">{t("scanBadgeMissing", "missing")}</span>}
                 </span>
                 <input type="number" inputMode="decimal"
                   className={`${inputClass} ${!scanResult.tips ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
                   defaultValue={scanResult.tips || ""}
-                  placeholder={!scanResult.tips ? "enter actual amount" : ""}
+                  placeholder={!scanResult.tips ? t("enterActualAmount", "enter actual amount") : ""}
                   onChange={e => {
                     setScanResult(prev => ({ ...prev, tips: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 }));
                   }} />
@@ -1875,10 +1879,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
-                    📷 Receipt photo{scanPhotos.length > 1 ? "s" : ""}
+                    📷 {scanPhotos.length > 1 ? t("receiptPhotosLabel", "Receipt photos") : t("receiptPhotoLabel", "Receipt photo")}
                   </span>
                   <span className="text-xs text-gray-500 dark:text-gray-400">
-                    Tap to view full size
+                    {t("tapToViewFullSize", "Tap to view full size")}
                   </span>
                 </div>
                 <div className="flex gap-3 overflow-x-auto pb-1">
@@ -1900,21 +1904,21 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             <div className="flex flex-col sm:flex-row gap-3">
               <button onClick={() => applyScanValues(true)}
                 className="flex-1 px-6 py-3 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 transition text-sm">
-                ✅ Use these values — jump to review
+                ✅ {t("useTheseValuesJumpReview", "Use these values — jump to review")}
               </button>
               <button onClick={() => applyScanValues(false)}
                 className="flex-1 px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl font-semibold hover:bg-gray-200 dark:hover:bg-gray-600 transition text-sm">
-                ✏️ Continue step-by-step
+                ✏️ {t("continueStepByStep", "Continue step-by-step")}
               </button>
             </div>
             <div className="flex justify-center gap-4">
               <button onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
                 className="text-sm text-emerald-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-300 font-medium">
-                + Add another photo
+                + {t("addAnotherPhoto", "Add another photo")}
               </button>
               <button onClick={() => { setScanResult(null); setScanPhotos([]); setScanMode("idle"); }}
                 className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2">
-                Start over
+                {t("startOver", "Start over")}
               </button>
             </div>
           </div>
@@ -1925,7 +1929,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* Date selector — defaults to today, allows past dates */}
         <div className="mb-4 flex items-center gap-3">
           <label className="text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
-            📅 Date
+            📅 {t("dateLabel", "Date")}
           </label>
           <input type="date" value={businessDate}
             max={getBusinessDate(cutoffHour)}
@@ -1933,13 +1937,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" />
           {businessDate !== getBusinessDate(cutoffHour) && (
             <span className="text-[10px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-full font-semibold">
-              Past date
+              {t("pastDate")}
             </span>
           )}
           {businessDate !== getBusinessDate(cutoffHour) && (
             <button onClick={() => setBusinessDate(getBusinessDate(cutoffHour))}
               className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline">
-              Reset to today
+              {t("resetToToday", "Reset to today")}
             </button>
           )}
         </div>
@@ -1947,14 +1951,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* Draft auto-save indicator */}
         {draftSaved && (
           <div className="mb-3 px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg text-center text-xs text-gray-400 flex items-center justify-center gap-1.5">
-            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Draft saved — you can leave and resume later
+            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> {t("draftSavedResumeLater", "Draft saved — you can leave and resume later")}
           </div>
         )}
 
         {/* Sync indicator */}
         {prefillLoading && (
           <div className="mb-4 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-center text-sm text-gray-400">
-            Loading records...
+            {t("loadingRecords", "Loading records…")}
           </div>
         )}
         {prefill && !prefillLoading && (
@@ -1962,14 +1966,18 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             <div className="flex items-center gap-2 font-medium">
               <span>🔄</span>
               <span>
-                Synced from {prefill.sales.count} sale{prefill.sales.count !== 1 ? "s" : ""}
-                {prefill.expenses.count > 0 && ` & ${prefill.expenses.count} expense${prefill.expenses.count !== 1 ? "s" : ""}`}
+                {prefill.sales.count === 1
+                  ? t("syncedFromSaleOne", "Synced from {n} sale", { n: prefill.sales.count })
+                  : t("syncedFromSaleMany", "Synced from {n} sales", { n: prefill.sales.count })}
+                {prefill.expenses.count > 0 && (prefill.expenses.count === 1
+                  ? t("syncedExpensesOne", " & {n} expense", { n: prefill.expenses.count })
+                  : t("syncedExpensesMany", " & {n} expenses", { n: prefill.expenses.count }))}
               </span>
             </div>
             <div className="flex flex-wrap gap-3 mt-2 text-xs">
-              <span>Revenue: {prefill.sales.total.toLocaleString()} {currency}</span>
-              {prefill.expenses.total > 0 && <span>Expenses: {prefill.expenses.total.toLocaleString()} {currency}</span>}
-              <span>Net: {(prefill.sales.total - prefill.expenses.total).toLocaleString()} {currency}</span>
+              <span>{t("revenueLabel", "Revenue")}: {prefill.sales.total.toLocaleString()} {currency}</span>
+              {prefill.expenses.total > 0 && <span>{t("expensesLabel", "Expenses")}: {prefill.expenses.total.toLocaleString()} {currency}</span>}
+              <span>{t("netLabel", "Net")}: {(prefill.sales.total - prefill.expenses.total).toLocaleString()} {currency}</span>
             </div>
           </div>
         )}
@@ -1979,7 +1987,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl px-3 py-2 flex items-center gap-2 mb-3 border border-indigo-100 dark:border-indigo-800">
             <span className="text-sm">🌙</span>
             <p className="text-xs text-indigo-600 dark:text-indigo-300">
-              <strong>Night shift:</strong> closing for {new Date(businessDate + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })} (cutoff {cutoffHour}:00 AM)
+              <strong>{t("nightShiftLabel", "Night shift:")}</strong> {t("nightShiftClosingFor", "closing for {date} (cutoff {hour}:00 AM)", { date: new Date(businessDate + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }), hour: cutoffHour })}
             </p>
           </div>
         )}
@@ -1987,11 +1995,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* Step header */}
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-bold dark:text-white">
-            {currentStepId === "revenue" && `Step ${step} — ${config.stepOneLabel}`}
-            {currentStepId === "payments" && `Step ${step} — Payment Methods`}
-            {currentStepId === "cash" && `Step ${step} — Cash Drawer Count`}
-            {currentStepId === "tips" && `Step ${step} — Tips`}
-            {currentStepId === "review" && `Step ${step} — Review & Submit`}
+            {currentStepId === "revenue" && t("stepNRevenue", "Step {n} — {label}", { n: step, label: t(config.stepOneLabelKey, config.stepOneLabel) })}
+            {currentStepId === "payments" && t("stepNPayments", "Step {n} — Payment Methods", { n: step })}
+            {currentStepId === "cash" && t("stepNCash", "Step {n} — Cash Drawer Count", { n: step })}
+            {currentStepId === "tips" && t("stepNTips", "Step {n} — Tips", { n: step })}
+            {currentStepId === "review" && t("stepNReview", "Step {n} — Review & Submit", { n: step })}
           </h2>
           <span className="text-sm text-gray-400">{step}/{totalSteps}</span>
         </div>
@@ -2010,10 +2018,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/50 rounded-xl p-3 text-sm">
                 <div className="flex items-start gap-3 justify-between">
                   <div className="text-gray-700 dark:text-gray-300">
-                    <div>POS sales register for this date:
+                    <div>{t("posSalesRegisterForDate", "POS sales register for this date:")}
                       <strong className="ml-1">{prefill.sales.total.toLocaleString()} {currency}</strong>
                       <span className="text-emerald-600/70 dark:text-emerald-400/70 ml-1">
-                        ({prefill.sales.count} sale{prefill.sales.count !== 1 ? "s" : ""})
+                        ({prefill.sales.count === 1
+                          ? t("nSaleOne", "{n} sale", { n: prefill.sales.count })
+                          : t("nSaleMany", "{n} sales", { n: prefill.sales.count })})
                       </span>
                     </div>
                     {Object.keys(prefill.sales.by_item).length > 0 && (
@@ -2061,7 +2071,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       }}
                       className="shrink-0 px-3 py-1.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-xs font-medium rounded-lg transition-colors"
                     >
-                      Use these numbers
+                      {t("useTheseNumbers", "Use these numbers")}
                     </button>
                   )}
                 </div>
@@ -2074,9 +2084,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               if (pctOff <= 0.10) return null;  // <=10% is normal (rounding, etc.)
               return (
                 <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl p-3 text-sm text-amber-700 dark:text-amber-300">
-                  <strong>⚠️ Variance from sales register: {variance > 0 ? "+" : ""}{variance.toLocaleString()} {currency}</strong>
+                  <strong>⚠️ {t("varianceFromRegister", "Variance from sales register: {amount}", { amount: `${variance > 0 ? "+" : ""}${variance.toLocaleString()} ${currency}` })}</strong>
                   <p className="text-xs mt-1 text-amber-600/80 dark:text-amber-400/80">
-                    Your close ({revenueTotal.toLocaleString()}) differs by {Math.round(pctOff * 100)}% from your POS total ({prefill.sales.total.toLocaleString()}). Double-check before locking — this number will be on your accountant's report.
+                    {t("closeDiffersBy", "Your close ({close}) differs by {pct}% from your POS total ({pos}). Double-check before locking — this number will be on your revisor's report.", { close: revenueTotal.toLocaleString(), pct: Math.round(pctOff * 100), pos: prefill.sales.total.toLocaleString() })}
                   </p>
                 </div>
               );
@@ -2093,7 +2103,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <input type="text" placeholder={t("addCategory") || "Add category..."} className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm"
                 value={customRevName} onChange={e => setCustomRevName(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && addCustomRevCat()} />
-              <button onClick={addCustomRevCat} className="px-4 py-2.5 bg-gray-100 dark:bg-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 dark:text-white">+ Add</button>
+              <button onClick={addCustomRevCat} className="px-4 py-2.5 bg-gray-100 dark:bg-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 dark:text-white">+ {t("addBtn", "Add")}</button>
             </div>
             <div className="pt-3 border-t dark:border-gray-700 text-right">
               <span className="text-sm text-gray-500">{t("total") || "Total"}: </span>
@@ -2127,7 +2137,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   Math.abs(balanceDiff) < 1 ? "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                     : "bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400"
                 }`}>
-                  {Math.abs(balanceDiff) < 1 ? "✅ Balanced!" : `⚠️ Difference: ${balanceDiff > 0 ? "+" : ""}${balanceDiff.toLocaleString()} ${currency}`}
+                  {Math.abs(balanceDiff) < 1
+                    ? `✅ ${t("balanced", "Balanced!")}`
+                    : `⚠️ ${t("difference", "Difference")}: ${balanceDiff > 0 ? "+" : ""}${balanceDiff.toLocaleString()} ${currency}`}
                 </div>
               )}
             </div>
@@ -2138,7 +2150,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {currentStepId === "cash" && (
           <div className="space-y-4">
             <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-sm text-blue-700 dark:text-blue-300">
-              Count the physical cash in your drawer and enter the amount below. We'll compare it against what the system expects.
+              {t("countPhysicalCash", "Count the physical cash in your drawer and enter the amount below. We'll compare it against what the system expects.")}
             </div>
             <div>
               <label className={labelClass}>{t("expectedFromPayment")}</label>
@@ -2147,7 +2159,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
             </div>
             <div>
-              <label className={labelClass}>💵 Counted Amount</label>
+              <label className={labelClass}>💵 {t("countedAmount", "Counted Amount")}</label>
               <input type="number" inputMode="decimal" placeholder={t("countYourDrawer")} className={inputClass}
                 value={cashCounted} onChange={e => setCashCounted(e.target.value)} />
             </div>
@@ -2156,8 +2168,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 Math.abs(cashDiff) <= 100 ? "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                   : "bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400"
               }`}>
-                Difference: {cashDiff > 0 ? "+" : ""}{cashDiff.toLocaleString()} {currency}
-                {Math.abs(cashDiff) > 100 && <p className="text-sm font-normal mt-1">⚠️ Off by more than 100 — double-check your count</p>}
+                {t("difference")}: {cashDiff > 0 ? "+" : ""}{cashDiff.toLocaleString()} {currency}
+                {Math.abs(cashDiff) > 100 && <p className="text-sm font-normal mt-1">⚠️ {t("offByMoreThan100", "Off by more than 100 — double-check your count")}</p>}
               </div>
             )}
             {!cashExpected && (
@@ -2170,12 +2182,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {currentStepId === "tips" && (
           <div className="space-y-4">
             <div>
-              <label className={labelClass}>💰 Total Tips</label>
+              <label className={labelClass}>💰 {t("totalTipsLabel", "Total Tips")}</label>
               <input type="number" inputMode="decimal" placeholder="0" className={inputClass}
                 value={tipsTotal} onChange={e => setTipsTotal(e.target.value)} />
             </div>
             <div>
-              <label className={labelClass}>👥 Staff Count</label>
+              <label className={labelClass}>👥 {t("staffCountLabel", "Staff Count")}</label>
               <input type="number" inputMode="numeric" placeholder={t("staffCountPrompt")} className={inputClass}
                 value={staffCount} onChange={e => setStaffCount(e.target.value)} />
             </div>
@@ -2186,7 +2198,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
             )}
             <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-xs text-amber-700 dark:text-amber-300">
-              <strong>Danish tax note:</strong> Tips must be reported via eIndkomst. Share this data with your accountant.
+              <strong>{t("tipsTaxNoteLabel", "Danish tax note:")}</strong> {t("tipsTaxNoteBody", "Tips must be reported via eIndkomst. Share this data with your revisor.")}
             </div>
           </div>
         )}
@@ -2239,17 +2251,17 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 </div>
                 {momsMode === "manual" && (
                   <div>
-                    <label className="text-xs text-indigo-400 mb-1 block">Enter MOMS from your Z-report / receipt</label>
+                    <label className="text-xs text-indigo-400 mb-1 block">{t("enterMomsFromReceipt", "Enter {vat} from your Z-report / receipt", { vat: vatName })}</label>
                     <input type="number" inputMode="decimal" placeholder={t("momsAmountPlaceholder")}
                       className="w-full px-4 py-2.5 border border-indigo-300 dark:border-indigo-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-right text-lg"
                       value={momsManual} onChange={e => setMomsManual(e.target.value)} />
                   </div>
                 )}
                 {momsMode === "auto" && (
-                  <p className="text-xs text-indigo-400">Auto-calculated: Revenue × {vatRatePct}% / {100 + vatRatePct}%</p>
+                  <p className="text-xs text-indigo-400">{t("momsAutoCalc", "Auto-calculated: Revenue × {pct}% / {div}%", { pct: vatRatePct, div: 100 + vatRatePct })}</p>
                 )}
                 <div className="flex justify-between text-sm dark:text-gray-300 py-0.5">
-                  <span>Revenue (med moms)</span>
+                  <span>{t("revenueMedMoms", "Revenue (med moms)")}</span>
                   <span>{revenueTotal.toLocaleString()} {currency}</span>
                 </div>
                 {/* Salg uden moms i dag — exempt rows the owner already
@@ -2264,16 +2276,16 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   </div>
                 )}
                 <div className="flex justify-between text-sm font-semibold py-0.5" style={{ color: "#6366f1" }}>
-                  <span>{vatName} {vatRatePct}%{momsMode === "manual" ? " (from receipt)" : ""}</span>
+                  <span>{vatName} {vatRatePct}%{momsMode === "manual" ? ` ${t("fromReceiptSuffix", "(from receipt)")}` : ""}</span>
                   <span>{momsTotal.toLocaleString()} {currency}</span>
                 </div>
                 <div className="flex justify-between text-sm font-bold pt-2 border-t mt-1 dark:text-white" style={{ borderColor: "rgba(99,102,241,0.2)" }}>
-                  <span>Revenue (uden moms)</span>
+                  <span>{t("revenueUdenMoms", "Revenue (uden moms)")}</span>
                   <span>{revenueExMoms.toLocaleString()} {currency}</span>
                 </div>
                 <div className="pt-2 border-t" style={{ borderColor: "rgba(99,102,241,0.15)" }}>
                   <p className="text-xs text-indigo-400">
-                    📊 Daily Close is your cash-drawer reconciliation. Your Moms filing in <a href="/tax" className="font-bold underline hover:text-indigo-300">Tax Autopilot</a> reads from the POS sales register &mdash; this close adds a cross-check that flags variance.
+                    📊 {t("dailyCloseReconcileNotePre", "Daily Close is your cash-drawer reconciliation. Your moms filing in ")}<a href="/tax" className="font-bold underline hover:text-indigo-300">{t("dailyCloseReconcileNoteLink", "Skat Autopilot")}</a>{t("dailyCloseReconcileNotePost", " reads from the POS sales register — this close adds a cross-check that flags variance.")}
                   </p>
                 </div>
               </div>
@@ -2327,9 +2339,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {/* Tips */}
             {tipsTotal && (
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-                <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">Tips</h3>
+                <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">{t("tipsLabel", "Tips")}</h3>
                 <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("total")}</span><span>{parseFloat(tipsTotal).toLocaleString()} {currency}</span></div>
-                <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("navStaff")}</span><span>{staffCount}</span></div>
+                <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("staffCountLabel", "Staff Count")}</span><span>{staffCount}</span></div>
                 {tipsPP && <div className="flex justify-between font-bold pt-2 border-t dark:border-gray-600 mt-2 dark:text-white"><span>{t("perPerson")}</span><span>{tipsPP.toLocaleString()} {currency}</span></div>}
               </div>
             )}
@@ -2418,19 +2430,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           {step > 1 ? (
             <button onClick={() => setStep(step - 1)}
               className="px-5 py-2.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium">
-              ← Back
+              ← {t("back", "Back")}
             </button>
           ) : (
             <button onClick={() => { setScanMode("idle"); setScanResult(null); setScanPhotos([]); }}
               className="px-5 py-2.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium text-sm">
-              ← Scan Z-Report
+              ← {t("scanZReportBack", "Scan Z-report")}
             </button>
           )}
 
           {step < totalSteps ? (
             <button onClick={() => setStep(step + 1)}
               className="px-6 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition">
-              Next →
+              {t("next", "Next")} →
             </button>
           ) : (() => {
               // Save-preview — show the user the actual amount that will
@@ -2446,13 +2458,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 <div className="flex flex-col items-end gap-1">
                   <button onClick={() => handleSubmit()} disabled={saving || willSave === 0}
                     className="px-6 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition disabled:opacity-50">
-                    {saving ? "Saving..." : !isOnline ? "📤 Queue & Lock (offline)" : "🔒 Confirm & Lock"}
+                    {saving ? t("savingEllipsis", "Saving…") : !isOnline ? `📤 ${t("queueAndLockOffline", "Queue & Lock (offline)")}` : `🔒 ${t("confirmAndLock", "Confirm & Lock")}`}
                   </button>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Will save total: <strong className="text-gray-700 dark:text-gray-200">{willSave.toLocaleString()} {currency}</strong>
+                    {t("willSaveTotal", "Will save total:")} <strong className="text-gray-700 dark:text-gray-200">{willSave.toLocaleString()} {currency}</strong>
                     {usingOverride && (
                       <span className="ml-1 text-amber-600 dark:text-amber-400">
-                        (from receipt — your breakdown sums to {revenueTotal.toLocaleString()})
+                        {t("fromReceiptBreakdownSums", "(from receipt — your breakdown sums to {sum})", { sum: revenueTotal.toLocaleString() })}
                       </span>
                     )}
                   </p>
