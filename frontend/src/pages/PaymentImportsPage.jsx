@@ -322,8 +322,8 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
                   ? <Check size={11} className="text-emerald-600 dark:text-emerald-400" />
                   : <AlertCircle size={11} className="text-amber-500" />}
                 {pasteAck.found === pasteAck.total
-                  ? (t("smartPasteAllFilled") || `All ${pasteAck.total} fields auto-filled — review below and tap Test & Connect`).replace("{n}", pasteAck.total)
-                  : (t("smartPastePartialFilled") || `Found ${pasteAck.found} of ${pasteAck.total} keys — fill the rest below`).replace("{found}", pasteAck.found).replace("{total}", pasteAck.total)
+                  ? t("smartPasteAllFilled", { n: pasteAck.total })
+                  : t("smartPastePartialFilled", { found: pasteAck.found, total: pasteAck.total })
                 }
               </p>
             )}

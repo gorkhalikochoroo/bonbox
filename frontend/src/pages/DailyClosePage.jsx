@@ -555,6 +555,27 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
   // Step 3: Cash drawer
   const [cashCounted, setCashCounted] = useState("");
+  // Register-derived expected cash (POS `kontant`/`cash` total for the
+  // business day, from the /daily-close/prefill suggested_prefill block).
+  // When present this is the REAL baseline for the drawer variance —
+  // counted drawer vs what the register says was taken — instead of the
+  // self-referential "typed cash vs counted cash". null = no synced
+  // register figure for the date, fall back to the owner's typed entry.
+  // Captured at prefill time so it survives the owner editing the cash
+  // line on the payments step (editing payAmounts.cash must NOT move the
+  // register baseline).
+  const [registerCash, setRegisterCash] = useState(null);
+
+  // Edit-resync guard. When the owner unlocks + edits an existing close
+  // (editDraft), the [branchId, businessDate]-keyed prefill effect re-fires
+  // because loading the draft sets businessDate. Without this flag the
+  // sales-sync would call setPayAmounts/setRevAmounts and clobber the saved
+  // breakdown with the day's raw sales totals (card 1850, "Expected cash 0
+  // / +380 off"). A ref (not state) so it's set synchronously before the
+  // prefill effect's async fetch resolves — the prefill still loads `prefill`
+  // for the informational banner + expenses summary, it just won't overwrite
+  // the owner's saved/entered breakdown.
+  const editLoadedRef = useRef(false);
 
   // Step 4: Tips
   const [tipsTotal, setTipsTotal] = useState("");
@@ -622,6 +643,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   useEffect(() => {
     if (!editDraft) return;
     const dc = editDraft;
+    // Mark this as an existing-close edit so the sales-sync prefill (which
+    // re-fires when we set businessDate below) does NOT clobber the saved
+    // payment/revenue breakdown. See registerCash / editLoadedRef notes.
+    editLoadedRef.current = true;
     if (dc.date) setBusinessDate(typeof dc.date === "string" ? dc.date.slice(0, 10) : dc.date);
     if (dc.revenue_breakdown) {
       const rev = {};
@@ -634,6 +659,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       setPayAmounts(pay);
     }
     if (dc.cash_counted != null) setCashCounted(String(dc.cash_counted));
+    // NOTE: registerCash (the "Expected (from register)" baseline) is NOT set
+    // from the saved close here — a close row can't tell us whether its stored
+    // cash_expected was register- or typed-derived. Instead the prefill effect
+    // re-derives it from live Sale rows for this date (authoritative, and what
+    // the backend will use on re-save), so the label stays honest on edit.
     if (dc.tips_total != null) setTipsTotal(String(dc.tips_total));
     if (dc.tips_staff_count != null) setStaffCount(String(dc.tips_staff_count));
     if (dc.closed_by) setClosedBy(dc.closed_by);
@@ -1042,32 +1072,64 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
         if (res.data.has_data) {
           setPrefill(res.data);
-          // Auto-fill payment methods from sales data
-          const payPrefill = res.data.suggested_prefill?.payment_breakdown || {};
-          if (Object.keys(payPrefill).length > 0) {
-            const newPay = {};
-            // Add any payment methods from data that aren't in the default list
-            const existingKeys = new Set(defaultPayMethods.map(m => m.key));
-            Object.entries(payPrefill).forEach(([k, v]) => {
-              newPay[k] = String(v);
-              if (!existingKeys.has(k) && k !== "other") {
-                setPayMethods(prev => {
-                  if (prev.find(m => m.key === k)) return prev;
-                  return [...prev, { key: k, label: k.charAt(0).toUpperCase() + k.slice(1), icon: "💰" }];
-                });
-              }
-            });
-            setPayAmounts(newPay);
+          // Register-derived expected cash for the drawer variance — the REAL
+          // baseline: counted drawer vs what the till says was taken, not the
+          // self-referential typed-cash figure. Register is authoritative
+          // whenever the day has completed sales (a synced POS register exists
+          // to compare against). suggested_prefill.cash_expected is the POS
+          // cash total — backend prefill's by_payment.get("cash") — and is 0
+          // when there were card-only sales (still a real "register says 0
+          // cash" baseline). When the day has NO sales (manual / cash-only
+          // closer), we leave registerCash null → graceful fall back to the
+          // owner's typed cash line on the payments step.
+          //
+          // Runs on BOTH new and edited closes (NOT gated by editLoadedRef):
+          // it's a read that re-confirms the authoritative register for the
+          // date, mirrors the backend's _register_cash_for_date rule exactly
+          // (so the on-screen "Expected (from register)" figure always agrees
+          // with the persisted cash_difference), and never touches the saved
+          // payment/revenue breakdown the edit guard protects below.
+          {
+            const salesCount = Number(res.data.sales?.count || 0);
+            const regCash = res.data.suggested_prefill?.cash_expected;
+            setRegisterCash(
+              salesCount > 0 && regCash != null ? Number(regCash) : null,
+            );
           }
-          // Auto-fill revenue total into the first category (or "revenue" for general)
-          const salesTotal = res.data.suggested_prefill?.revenue_total || 0;
-          if (salesTotal > 0) {
-            const firstCat = defaultRevCats[0]?.key;
-            if (defaultRevCats.length === 1 || branchType === "general") {
-              setRevAmounts({ [firstCat]: String(salesTotal) });
+          // Auto-fill payment methods + revenue from sales data — but ONLY
+          // for a brand-new close. When the owner unlocked + is editing an
+          // existing close (editLoadedRef), this sales-sync would clobber the
+          // saved breakdown (e.g. cash 400/card 500/mp 170 → card 1850), so
+          // we skip the writes. `prefill` is still set above so the
+          // informational sync banner + expenses summary keep rendering.
+          if (!editLoadedRef.current) {
+            // Auto-fill payment methods from sales data
+            const payPrefill = res.data.suggested_prefill?.payment_breakdown || {};
+            if (Object.keys(payPrefill).length > 0) {
+              const newPay = {};
+              // Add any payment methods from data that aren't in the default list
+              const existingKeys = new Set(defaultPayMethods.map(m => m.key));
+              Object.entries(payPrefill).forEach(([k, v]) => {
+                newPay[k] = String(v);
+                if (!existingKeys.has(k) && k !== "other") {
+                  setPayMethods(prev => {
+                    if (prev.find(m => m.key === k)) return prev;
+                    return [...prev, { key: k, label: k.charAt(0).toUpperCase() + k.slice(1), icon: "💰" }];
+                  });
+                }
+              });
+              setPayAmounts(newPay);
             }
-            // For restaurant/workshop with multiple cats, leave revenue blank
-            // so user distributes manually — but show total as hint
+            // Auto-fill revenue total into the first category (or "revenue" for general)
+            const salesTotal = res.data.suggested_prefill?.revenue_total || 0;
+            if (salesTotal > 0) {
+              const firstCat = defaultRevCats[0]?.key;
+              if (defaultRevCats.length === 1 || branchType === "general") {
+                setRevAmounts({ [firstCat]: String(salesTotal) });
+              }
+              // For restaurant/workshop with multiple cats, leave revenue blank
+              // so user distributes manually — but show total as hint
+            }
           }
         }
       } catch {
@@ -1081,7 +1143,16 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const revenueTotal = useMemo(() => Object.values(revAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0), [revAmounts]);
   const paymentTotal = useMemo(() => Object.values(payAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0), [payAmounts]);
   const balanceDiff = revenueTotal - paymentTotal;
-  const cashExpected = parseFloat(payAmounts.cash || 0);
+  // Expected cash baseline for the drawer variance. Prefer the SYNCED POS
+  // register cash (what the till says was taken) over the owner's typed cash
+  // line — typed-vs-counted is self-referential and can't surface a real
+  // shortage/theft. registerCash is null when no POS cash figure exists for
+  // the date, in which case we fall back to the typed entry. The variance
+  // math (counted − expected) and the persisted cash_difference are unchanged
+  // — only the baseline source moves.
+  const typedCash = parseFloat(payAmounts.cash || 0);
+  const cashExpectedFromRegister = registerCash != null && !Number.isNaN(registerCash);
+  const cashExpected = cashExpectedFromRegister ? registerCash : typedCash;
   const cashCountedVal = parseFloat(cashCounted || 0);
   const cashDiff = cashCounted ? cashCountedVal - cashExpected : null;
   const tipsPP = tipsTotal && staffCount && parseInt(staffCount) > 0
@@ -2153,10 +2224,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               {t("countPhysicalCash", "Count the physical cash in your drawer and enter the amount below. We'll compare it against what the system expects.")}
             </div>
             <div>
-              <label className={labelClass}>{t("expectedFromPayment")}</label>
+              <label className={labelClass}>
+                {cashExpectedFromRegister
+                  ? t("expectedFromRegister", "Expected (from register)")
+                  : t("expectedFromEntry", "Expected (from your entry)")}
+              </label>
               <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-right text-lg font-semibold dark:text-gray-300">
                 {cashExpected.toLocaleString()} {currency}
               </div>
+              {cashExpectedFromRegister && (
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                  {t("expectedFromRegisterHint", "From your synced POS register — counting against this flags a real cash shortage, not just a typo.")}
+                </p>
+              )}
             </div>
             <div>
               <label className={labelClass}>💵 {t("countedAmount", "Counted Amount")}</label>
@@ -2309,7 +2389,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {cashCounted && (
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
                 <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">{t("cashDrawer")}</h3>
-                <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("expected")}</span><span>{cashExpected.toLocaleString()} {currency}</span></div>
+                <div className="flex justify-between text-sm dark:text-gray-300"><span>{cashExpectedFromRegister ? t("expectedFromRegister", "Expected (from register)") : t("expectedFromEntry", "Expected (from your entry)")}</span><span>{cashExpected.toLocaleString()} {currency}</span></div>
                 <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("counted")}</span><span>{cashCountedVal.toLocaleString()} {currency}</span></div>
                 <div className={`flex justify-between font-bold pt-2 border-t dark:border-gray-600 mt-2 ${cashDiff < -100 ? "text-red-600" : "dark:text-white"}`}>
                   <span>{t("difference")}</span><span>{cashDiff > 0 ? "+" : ""}{cashDiff?.toLocaleString()} {currency}</span>
@@ -2468,6 +2548,16 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       </span>
                     )}
                   </p>
+                  {/* Lock transparency — heads-up that locking ALSO emails the
+                      kasserapport to the revisor, so it isn't a surprise. Only
+                      when the auto-email toggle is entitled AND on; no blocking
+                      modal — the 30-second close stays fast and the anomaly
+                      guard already gates misreads. */}
+                  {closeAutoEmailEntitled && autoEmailPref && (
+                    <p className="text-xs text-gray-400 dark:text-gray-500 text-right max-w-[16rem]">
+                      📧 {t("lockEmailsRevisorNote", "Locking emails the kasserapport to your revisor.")}
+                    </p>
+                  )}
                 </div>
               );
             })()}

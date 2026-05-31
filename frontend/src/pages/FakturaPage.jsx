@@ -591,7 +591,7 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
   // auto-matches only within 7 days, manual marks always reversible.
   // Backend returns 409 if outside window — we surface the message.
   const handleUnmarkPaid = async () => {
-    if (!confirm(t("confirmUnmarkPaid") || `Unmark ${invoice.fakturanummer_formatted} as paid?`)) return;
+    if (!confirm(t("confirmUnmarkPaid"))) return;
     try {
       await api.post(`/invoices/${invoice.id}/unmark-paid`);
       onChanged();

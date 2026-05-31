@@ -147,9 +147,6 @@ export default function BankConsentExpiryBanner() {
   if (!connection || dismissed) return null;
 
   const days = connection._days_until;
-  const bankLabel = connection.account_label
-    || connection.bank_slug
-    || "your bank";
 
   // Visual urgency: <=3 days is red, otherwise amber.  Doctrine-safe
   // single-accent palette — no rainbow.
@@ -162,10 +159,10 @@ export default function BankConsentExpiryBanner() {
     : "text-amber-600 dark:text-amber-400";
 
   const message = days === 0
-    ? (t("bankExpiryToday") || `Your bank connection to ${bankLabel} expires today. Reconnect to keep syncing.`)
+    ? t("bankExpiryToday")
     : days === 1
-    ? (t("bankExpiryTomorrow") || `Your bank connection to ${bankLabel} expires tomorrow. Reconnect now to avoid a gap.`)
-    : (t("bankExpiryDays") || `Your bank connection to ${bankLabel} expires in ${days} days. Reconnect to keep auto-sync running.`);
+    ? t("bankExpiryTomorrow")
+    : t("bankExpiryDays");
 
   return (
     <div

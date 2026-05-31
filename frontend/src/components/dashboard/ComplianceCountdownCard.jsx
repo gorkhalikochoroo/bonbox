@@ -99,8 +99,8 @@ export default function ComplianceCountdownCard({
   const ctxDeadline = ctx?.compliance?.nextDeadline || null;
 
   // Fallback: when ctx hasn't populated the deadline (legacy DashboardPage
-  // or first wiring pass), pull from /tax/overview the way the original
-  // MomsCountdownCard did. Silent on error — the card hides itself.
+  // or first wiring pass), pull the next MOMS deadline from /tax/overview.
+  // Silent on error — the card hides itself.
   useEffect(() => {
     if (deadlineProp || ctxDeadline) return;
     let alive = true;
@@ -110,23 +110,29 @@ export default function ComplianceCountdownCard({
       .then((r) => {
         if (!alive) return;
         const upcoming = r?.data?.upcoming_deadlines || [];
-        const next =
-          upcoming.find((d) => d?.type === "vat" || d?.type === "moms") ||
-          upcoming[0] ||
-          null;
-        if (!next || !next.date) {
+        // /tax/overview emits each deadline as { deadline: "ISO", days_until,
+        // period_label, estimated_amount, output_vat, input_vat } — there is
+        // no `type` or `date` key. All entries are MOMS/VAT filings, so just
+        // take the soonest (already sorted ascending by the backend).
+        const next = upcoming[0] || null;
+        if (!next || !next.deadline) {
           setFallback(null);
           return;
         }
+        // Prefer the server-computed days_until; fall back to local math only
+        // if it's absent so the card still works against older payloads.
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        const due = new Date(next.date + "T00:00:00");
-        const daysAway = Math.ceil((due - today) / (1000 * 60 * 60 * 24));
+        const due = new Date(next.deadline + "T00:00:00");
+        const daysAway =
+          next.days_until != null
+            ? Number(next.days_until)
+            : Math.ceil((due - today) / (1000 * 60 * 60 * 24));
         setFallback({
-          type: next.type || "moms",
-          date: next.date,
+          type: "moms",
+          date: next.deadline,
           daysAway,
-          label: typeToLabel(t, next.type || "moms"),
+          label: typeToLabel(t, "moms"),
           periodLabel: next.period_label || null,
         });
       })

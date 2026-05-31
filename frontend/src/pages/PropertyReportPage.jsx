@@ -176,12 +176,12 @@ export default function PropertyReportPage() {
       lines.push(
         `${t("grossSalesInclMoms") || "Gross sales (incl. Moms)"}: ${fmt(totals.gross_sales || totals.taxable_sales)} ${currency}`,
         `${t("netSalesKept") || "Net sales (excl. Moms)"}: ${fmt(totals.all_sales_net)} ${currency}`,
-        `${t("momsOwed") || `Moms ${ratePct}% (owed to SKAT)`}: ${fmt(totals.tax_collected)} ${currency}`,
+        `${t("momsOwed", { pct: ratePct })}: ${fmt(totals.tax_collected)} ${currency}`,
       );
     } else if (momsMode === "excl") {
       lines.push(
         `${t("netSalesExclMoms") || "Net sales (excl. Moms)"}: ${fmt(totals.all_sales_net)} ${currency}`,
-        `${t("momsAddedOnTop") || `Moms added on top (${ratePct}%)`}: +${fmt(totals.tax_collected)} ${currency}`,
+        `${t("momsAddedOnTop")}: +${fmt(totals.tax_collected)} ${currency}`,
         `${t("totalCustomerPaid") || "Total customer paid"}: ${fmt(totals.gross_sales)} ${currency}`,
       );
     } else {
@@ -408,7 +408,7 @@ export default function PropertyReportPage() {
                     </div>
                     <div className="flex justify-between items-baseline">
                       <span className="text-sm text-gray-600 dark:text-gray-300">
-                        {t("momsExtracted") || `Moms extracted (${ratePct}%)`}
+                        {t("momsExtracted")}
                       </span>
                       <span className="text-sm font-semibold text-red-600 dark:text-red-400">
                         −{fmt(moms)} {currency}
@@ -436,7 +436,7 @@ export default function PropertyReportPage() {
                     </div>
                     <div className="flex justify-between items-baseline">
                       <span className="text-sm text-gray-600 dark:text-gray-300">
-                        {t("momsAddedOnTop") || `Moms added on top (${ratePct}%)`}
+                        {t("momsAddedOnTop")}
                       </span>
                       <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
                         +{fmt(moms)} {currency}

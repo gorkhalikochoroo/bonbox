@@ -11,6 +11,7 @@
     "open:android": "npx cap open android",
     "lint": "eslint .",
     "lint:doctrine": "bash scripts/check-design-doctrine.sh",
+    "lint:i18n": "node scripts/check-i18n-keys.cjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"

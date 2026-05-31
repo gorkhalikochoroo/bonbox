@@ -4083,6 +4083,171 @@ const translations = {
     bookingMatchesConfidenceHigh: "high",
     bookingMatchesConfidenceMedium: "medium",
     bookingMatchesConfidenceLow: "low",
+    // ─── i18n raw-key-leak backfill ───────────────────────────────────
+    // Keys statically called as bare t("k") / t("k") || "…" across
+    // components + pages that were missing from EN (so t() returned the
+    // raw key string to the user). EN value = the call's own || fallback
+    // where present; inferred clean labels otherwise. DK terminology lock
+    // (MOMS / moms / revisor / kreditnota / faktura / SKAT / kasserapport)
+    // kept Danish in BOTH columns. See scripts/check-i18n-keys.cjs guard.
+    // BusinessLookup
+    vertRestaurant: "Restaurant",
+    // CustomerOutreachModal
+    outreachNoPhone: "Pick at least one customer with a phone number.",
+    outreachNoBody: "Message body is empty.",
+    outreachTitle: "Reach out to regulars",
+    outreachSubtitle: "Pick a template, choose who to text, hit Open SMS. The message goes through your phone — BonBox never sees it.",
+    outreachTemplate: "Template",
+    outreachTplWine: "Wine night invite",
+    outreachTplMissyou: "Miss-you note",
+    outreachTplNewMenu: "New menu launch",
+    outreachTplCustom: "Custom",
+    outreachRecipients: "Recipients",
+    outreachSelectAll: "Select all reachable",
+    outreachLoading: "Loading regulars…",
+    outreachEmpty: "No at-risk regulars right now — keep doing what you're doing.",
+    outreachVisits: "visits",
+    outreachDaysAgo: "{n} days silent",
+    outreachNoPhoneTag: "no phone",
+    outreachMessage: "Message",
+    outreachPlaceholder: "Write your own message…",
+    outreachCharCount: "{n}/500 chars · template auto-fills first names",
+    outreachReadyText: "Ready to text {n} customer{s}",
+    outreachOpenSms: "Open SMS",
+    // DailyBriefCard
+    refreshBrief: "Refresh brief",
+    dismissBriefToday: "Dismiss brief for today",
+    copyBriefClipboard: "Copy brief to clipboard",
+    copy: "Copy",
+    forwardBriefEmail: "Forward brief by email",
+    forward: "Forward",
+    // InstallAppPrompt
+    installPromptIosTitle: "Add BonBox to your home screen",
+    installPromptIosSub: "One tap to launch, no Safari chrome, brief opens on launch.",
+    installPromptIosStep1: "Tap the",
+    installPromptIosShareBtn: "Share button",
+    installPromptIosStep2: "Tap",
+    installPromptIosAdd: "Add to Home Screen",
+    installPromptTitle: "Install BonBox",
+    installPromptSub: "One tap from your phone, no browser tabs, brief opens on launch.",
+    installPromptInstalling: "Installing…",
+    installPromptCta: "Install on this device",
+    // Layout
+    openMenu: "Open menu",
+    primaryNavigation: "Primary navigation",
+    closeMenu: "Close menu",
+    proFeatureUpgrade: "Pro feature — upgrade to unlock",
+    // MobileBottomNav
+    bottomNav: "Primary",
+    // BranchPage
+    howBranchStep3: "Each branch keeps its own books automatically",
+    howBranchStep4: "Get the big picture with a combined view across all branches",
+    // ChannelSettingsPage
+    channelsLoadFailed: "Could not load channels",
+    channelLabelRequired: "Label is required",
+    channelSlugRequired: "Slug is required",
+    channelSaveFailed: "Could not save channel",
+    channelConfirmArchive: "Archive channel “{label}”? Historical sales keep this label, but it disappears from new-sale dropdowns.",
+    channelArchiveFailed: "Could not archive",
+    channelUnarchiveFailed: "Could not restore",
+    channelsPageTitle: "Order Channels",
+    channelsPageSubtitle: "Which apps and counters do orders come through? Add new aggregators yourself — no deploy needed.",
+    addChannel: "Add channel",
+    editChannel: "Edit channel",
+    channelSlug: "Slug",
+    channelSlugExample: "e.g. foodpanda, hungry_dk",
+    channelSlugHint: "Lowercase, letters/digits/underscore only. Cannot be changed later — historical sales reference it by this slug.",
+    channelLabel: "Display name",
+    channelLabelExample: "e.g. Foodpanda, Take-Away Pickup",
+    channelEmoji: "Emoji (optional)",
+    channelColor: "Bar color",
+    channelSortOrder: "Sort order (lower = first)",
+    channelsArchived: "Archived / legacy",
+    channelLegacyTag: "legacy",
+    channelSystemTag: "system",
+    channelArchivedTag: "archived",
+    // CompetitorPage
+    competitorSubtitle: "Discover nearby businesses, track competitors & compare prices.",
+    // CustomersPage / FakturaPage / RegisterPage (shared form labels)
+    email: "Email",
+    zipcode: "Zipcode",
+    city: "City",
+    password: "Password",
+    // FakturaPage
+    noInvoicesYetHint: "Tap + New invoice above to create your first. Customers can be auto-filled from CVR — no manual typing of address or tax number.",
+    noInvoicesConnHint: "Or finish your setup first",
+    invoiceSentDirect: "✓ Faktura emailed to",
+    kreditnotaReasonTooShort: "Reason must be at least 5 characters — your accountant will see this.",
+    kreditnotaReasonTooLong: "Reason is too long (max 200 characters).",
+    voidFailed: "Couldn't create kreditnota — please try again.",
+    kreditnotaTitle: "Create kreditnota",
+    kreditnotaBody: "Sent fakturaer can't be deleted (Bogføringsloven §7). Voiding creates a kreditnota with the next number — the original keeps its place in the audit trail.",
+    kreditnotaReasonLabel: "Reason (visible to your accountant)",
+    kreditnotaReasonPlaceholder: "e.g. Customer canceled order — refunded via MobilePay 18/05",
+    kreditnotaSubmitting: "Creating…",
+    kreditnotaConfirm: "Create kreditnota",
+    fakturaPrivateNameRequired: "Name required",
+    fakturaPrivateEmailRequired: "Valid email required",
+    fakturaPrivateCreateFailed: "Could not create customer. Try again.",
+    fakturaAddPrivateCustomer: "New private customer (Privatperson)",
+    fakturaNewPrivateTitle: "New private customer (Privatperson)",
+    fakturaCreatePrivateCustomer: "Create & select",
+    // InventoryPage
+    adjustStock: "Adjust stock",
+    confirm: "Confirm",
+    decreaseBottles: "Decrease",
+    increaseBottles: "Increase",
+    // MorePage
+    more: "More",
+    // OutletPage
+    noOutletsHint: "Cross-outlet intelligence needs at least 2 team members. Add staff in the Team page to enable comparisons.",
+    // PaymentImportsPage
+    confirmDisconnect: "Remove this connection?",
+    // PricingPage (smart pricing)
+    pricingSubtitle: "Find under-priced items, simulate increases, and benchmark against your neighborhood.",
+    // PropertyReportPage — owed-to-SKAT line (DK terminology: MOMS).
+    // NOTE: call site passes no vars, so {pct} renders literally unless the
+    // page is updated to t("momsOwed", { pct: ratePct }). See guard report.
+    momsOwed: "MOMS {pct}% (owed to SKAT)",
+    noSalesForDateHint: "No sales recorded for this date — no moms to report. Once sales arrive, moms will calculate automatically.",
+    // RegisterPage / VerifyEmailPage
+    pleaseSelectType: "Please choose your business type.",
+    tooManyAttempts: "Too many attempts. Please wait a moment and try again.",
+    slowConnection: "Slow connection — still working on it…",
+    registrationFailed: "Registration failed. Please try again.",
+    // RetentionPage
+    retentionSubtitle: "Spot at-risk customers before they churn.",
+    // SalesPage
+    searchSalesPh: "Search amount, notes, payment...",
+    // StaffingPage
+    staffingSubtitle: "Forecast headcount needs and spot over/under-staffed days.",
+    staffingTabForecast: "Forecast",
+    staffingTabInsights: "Insights",
+    staffingTabLog: "Log Staff",
+    // WeatherPage
+    weatherSubtitle: "Weather-aware forecasting and revenue correlation.",
+    // WineListPage
+    wineWineName: "Wine name",
+    wineStaffDescription: "Staff description",
+    // ─── Daily Close (sibling worker's edits) ─────────────────────────
+    expectedFromRegister: "Expected (from register)",
+    expectedFromEntry: "Expected (from your entry)",
+    expectedFromRegisterHint: "From your synced POS register — counting against this flags a real cash shortage, not just a typo.",
+    lockEmailsRevisorNote: "Locking emails the kasserapport to your revisor.",
+    // ─── Landing trust signals (were DA-only → EN added to stop reverse
+    // leak for EN users). DK legal refs (Bogføringsloven §7/§10) +
+    // terminology lock (MOMS / lønseddel / revisor / SKAT / CVR) kept. ──
+    landingTrustHeader: "Built for the Danish compliance reality",
+    landingTrustBogf7: "Bogføringsloven §7",
+    landingTrustBogf7Body: "Gap-free invoice numbering, kreditnota with the next number, locked books.",
+    landingTrustBogf10: "Bogføringsloven §10",
+    landingTrustBogf10Body: "5-year retention. Immutable audit log on every financial change.",
+    landingTrustGdpr: "GDPR-compliant",
+    landingTrustGdprBody: "EU-hosted infrastructure. Owner-controlled data export and deletion. Your revisor logs in without sharing a password.",
+    landingTrustAudit: "Audit-logged",
+    landingTrustAuditBody: "Every send, void, unlock and schedule publish leaves an append-only trail you can show SKAT.",
+    landingTrustDk: "Built in Denmark",
+    landingTrustDkBody: "Made for Danish small businesses, by people who've sat with a revisor at month-end. MOMS, lønseddel, CVR-aware. Cafés, restaurants, shops, freelancers — all welcome.",
   },
   da: {
     dashboard: "Oversigt", sales: "Salg", expenses: "Udgifter", inventory: "Lager",
@@ -7940,6 +8105,154 @@ const translations = {
     bookingMatchesConfidenceHigh: "høj",
     bookingMatchesConfidenceMedium: "mellem",
     bookingMatchesConfidenceLow: "lav",
+    // ─── i18n raw-key-leak backfill (DA) ──────────────────────────────
+    // Danish for every key added to the EN block above. Café-owner
+    // register, "du" form. DK terminology lock kept (MOMS / moms /
+    // revisor / kreditnota / faktura / SKAT / kasserapport / CVR).
+    // BusinessLookup
+    vertRestaurant: "Restaurant",
+    // CustomerOutreachModal
+    outreachNoPhone: "Vælg mindst én kunde med et telefonnummer.",
+    outreachNoBody: "Beskeden er tom.",
+    outreachTitle: "Skriv til dine stamgæster",
+    outreachSubtitle: "Vælg en skabelon, vælg hvem du vil sms'e, tryk Åbn SMS. Beskeden går gennem din telefon — BonBox ser den aldrig.",
+    outreachTemplate: "Skabelon",
+    outreachTplWine: "Invitation til vinaften",
+    outreachTplMissyou: "Vi savner dig-besked",
+    outreachTplNewMenu: "Ny menu",
+    outreachTplCustom: "Egen tekst",
+    outreachRecipients: "Modtagere",
+    outreachSelectAll: "Vælg alle med nummer",
+    outreachLoading: "Henter stamgæster…",
+    outreachEmpty: "Ingen stamgæster i farezonen lige nu — bliv ved med det du gør.",
+    outreachVisits: "besøg",
+    outreachDaysAgo: "{n} dage uden besøg",
+    outreachNoPhoneTag: "intet nummer",
+    outreachMessage: "Besked",
+    outreachPlaceholder: "Skriv din egen besked…",
+    outreachCharCount: "{n}/500 tegn · skabelon udfylder fornavne automatisk",
+    outreachReadyText: "Klar til at sms'e {n} kunde{s}",
+    outreachOpenSms: "Åbn SMS",
+    // DailyBriefCard
+    refreshBrief: "Opdatér brief",
+    dismissBriefToday: "Skjul brief for i dag",
+    copyBriefClipboard: "Kopiér brief til udklipsholder",
+    copy: "Kopiér",
+    forwardBriefEmail: "Send brief som e-mail",
+    forward: "Send videre",
+    // InstallAppPrompt
+    installPromptIosTitle: "Føj BonBox til din hjemmeskærm",
+    installPromptIosSub: "Ét tryk for at åbne, ingen Safari-kant, brief åbner med det samme.",
+    installPromptIosStep1: "Tryk på",
+    installPromptIosShareBtn: "Del-knappen",
+    installPromptIosStep2: "Tryk på",
+    installPromptIosAdd: "Føj til hjemmeskærm",
+    installPromptTitle: "Installér BonBox",
+    installPromptSub: "Ét tryk fra din telefon, ingen browserfaner, brief åbner med det samme.",
+    installPromptInstalling: "Installerer…",
+    installPromptCta: "Installér på denne enhed",
+    // Layout
+    openMenu: "Åbn menu",
+    primaryNavigation: "Hovednavigation",
+    closeMenu: "Luk menu",
+    proFeatureUpgrade: "Pro-funktion — opgradér for at låse op",
+    // MobileBottomNav
+    bottomNav: "Primær",
+    // BranchPage
+    howBranchStep3: "Hver afdeling fører automatisk sit eget regnskab",
+    howBranchStep4: "Få det store overblik med en samlet visning på tværs af alle afdelinger",
+    // ChannelSettingsPage
+    channelsLoadFailed: "Kunne ikke hente kanaler",
+    channelLabelRequired: "Navn er påkrævet",
+    channelSlugRequired: "Slug er påkrævet",
+    channelSaveFailed: "Kunne ikke gemme kanalen",
+    channelConfirmArchive: "Arkivér kanalen “{label}”? Historiske salg beholder dette navn, men den forsvinder fra dropdowns ved nye salg.",
+    channelArchiveFailed: "Kunne ikke arkivere",
+    channelUnarchiveFailed: "Kunne ikke gendanne",
+    channelsPageTitle: "Salgskanaler",
+    channelsPageSubtitle: "Hvilke apps og kasser kommer ordrer ind via? Tilføj selv nye platforme — uden udrulning.",
+    addChannel: "Tilføj kanal",
+    editChannel: "Redigér kanal",
+    channelSlug: "Slug",
+    channelSlugExample: "f.eks. foodpanda, hungry_dk",
+    channelSlugHint: "Små bogstaver, kun bogstaver/tal/understreg. Kan ikke ændres senere — historiske salg refererer til den via denne slug.",
+    channelLabel: "Visningsnavn",
+    channelLabelExample: "f.eks. Foodpanda, Afhentning",
+    channelEmoji: "Emoji (valgfri)",
+    channelColor: "Søjlefarve",
+    channelSortOrder: "Rækkefølge (lavere = først)",
+    channelsArchived: "Arkiverede / gamle",
+    channelLegacyTag: "gammel",
+    channelSystemTag: "system",
+    channelArchivedTag: "arkiveret",
+    // CompetitorPage
+    competitorSubtitle: "Find virksomheder i nærheden, hold øje med konkurrenter og sammenlign priser.",
+    // CustomersPage / FakturaPage / RegisterPage (delte formularfelter)
+    email: "E-mail",
+    zipcode: "Postnummer",
+    city: "By",
+    password: "Adgangskode",
+    // FakturaPage
+    noInvoicesYetHint: "Tryk + Ny faktura ovenfor for at lave din første. Kunder kan udfyldes automatisk fra CVR — ingen manuel indtastning af adresse eller CVR-nummer.",
+    noInvoicesConnHint: "Eller gør din opsætning færdig først",
+    invoiceSentDirect: "✓ Faktura sendt på e-mail til",
+    kreditnotaReasonTooShort: "Begrundelsen skal være mindst 5 tegn — din revisor kan se den.",
+    kreditnotaReasonTooLong: "Begrundelsen er for lang (maks. 200 tegn).",
+    voidFailed: "Kunne ikke oprette kreditnota — prøv igen.",
+    kreditnotaTitle: "Opret kreditnota",
+    kreditnotaBody: "Sendte fakturaer kan ikke slettes (Bogføringsloven §7). En annullering opretter en kreditnota med det næste nummer — den oprindelige beholder sin plads i revisionssporet.",
+    kreditnotaReasonLabel: "Begrundelse (synlig for din revisor)",
+    kreditnotaReasonPlaceholder: "f.eks. Kunde annullerede ordre — refunderet via MobilePay 18/05",
+    kreditnotaSubmitting: "Opretter…",
+    kreditnotaConfirm: "Opret kreditnota",
+    fakturaPrivateNameRequired: "Navn påkrævet",
+    fakturaPrivateEmailRequired: "Gyldig e-mail påkrævet",
+    fakturaPrivateCreateFailed: "Kunne ikke oprette kunde. Prøv igen.",
+    fakturaAddPrivateCustomer: "Ny privatkunde (Privatperson)",
+    fakturaNewPrivateTitle: "Ny privatkunde (Privatperson)",
+    fakturaCreatePrivateCustomer: "Opret & vælg",
+    // InventoryPage
+    adjustStock: "Justér beholdning",
+    confirm: "Bekræft",
+    decreaseBottles: "Færre",
+    increaseBottles: "Flere",
+    // MorePage
+    more: "Mere",
+    // OutletPage
+    noOutletsHint: "Sammenligning på tværs af afdelinger kræver mindst 2 medarbejdere. Tilføj personale på Team-siden for at slå sammenligninger til.",
+    // PaymentImportsPage
+    confirmDisconnect: "Fjern denne forbindelse?",
+    // PricingPage (smart prissætning)
+    pricingSubtitle: "Find varer der er for billige, simulér prisstigninger og sammenlign med dit nabolag.",
+    // PropertyReportPage — skyldig-til-SKAT linje (DK: MOMS).
+    momsOwed: "MOMS {pct}% (skyldig til SKAT)",
+    noSalesForDateHint: "Ingen salg registreret på denne dato — ingen moms at indberette. Når der kommer salg, beregnes moms automatisk.",
+    // RegisterPage / VerifyEmailPage
+    pleaseSelectType: "Vælg din virksomhedstype.",
+    tooManyAttempts: "For mange forsøg. Vent et øjeblik og prøv igen.",
+    slowConnection: "Langsom forbindelse — arbejder stadig på det…",
+    registrationFailed: "Oprettelse mislykkedes. Prøv igen.",
+    // RetentionPage
+    retentionSubtitle: "Find kunder i farezonen, før de falder fra.",
+    // SalesPage
+    searchSalesPh: "Søg beløb, noter, betaling...",
+    // StaffingPage
+    staffingSubtitle: "Forudsig bemandingsbehov og find dage med over-/underbemanding.",
+    staffingTabForecast: "Prognose",
+    staffingTabInsights: "Indsigt",
+    staffingTabLog: "Registrér personale",
+    // WeatherPage
+    weatherSubtitle: "Vejrbevidst prognose og sammenhæng med omsætning.",
+    // WineListPage
+    wineWineName: "Vinens navn",
+    wineStaffDescription: "Personalebeskrivelse",
+    // ─── Daily Close (sibling worker's edits) ─────────────────────────
+    expectedFromRegister: "Forventet (fra kassen)",
+    expectedFromEntry: "Forventet (fra din indtastning)",
+    expectedFromRegisterHint: "Fra din synkroniserede kasse — optælling mod dette afslører en reel kassedifference, ikke bare en tastefejl.",
+    lockEmailsRevisorNote: "Når du låser, sendes kasserapporten til din revisor.",
+    // ─── orderChannels (was EN-only → DA added) ───────────────────────
+    orderChannels: "Salgskanaler",
   },
   np: {
     dashboard: "ड्यासबोर्ड", sales: "बिक्री", expenses: "खर्च", inventory: "स्टक",

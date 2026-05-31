@@ -651,6 +651,48 @@ def _fire_close_push(db: Session, user: User, dc: DailyClose) -> str:
         return "failed_skipped"
 
 
+def _register_cash_for_date(db: Session, *, user: User, target_date, branch_id) -> float | None:
+    """Cash the POS register says was taken on `target_date`.
+
+    Sums completed, non-deleted `Sale` rows whose payment method maps to
+    cash (`cash` / `kontant`) for the day — the SAME grouping the
+    /daily-close/prefill endpoint uses (kontant → cash). This is the REAL
+    expected-cash baseline for the drawer variance: counted drawer vs what
+    the till recorded, which surfaces a genuine shortage/theft instead of
+    the self-referential "typed cash vs counted cash".
+
+    Returns None when the date has NO completed sales at all — i.e. there is
+    no synced register to compare against (pure manual / cash-only closers).
+    In that case the caller falls back to the payment-breakdown cash the
+    owner typed, preserving the prior behaviour for those users. Returns 0.0
+    when there ARE sales but none were cash (legit "no cash today"), so the
+    variance still anchors on the register.
+
+    Fail-soft: any DB error returns None → graceful fall back to typed cash.
+    """
+    try:
+        q = db.query(Sale).filter(
+            Sale.user_id == user.id,
+            Sale.date == target_date,
+            Sale.is_deleted.isnot(True),
+            Sale.status == "completed",
+        )
+        if branch_id:
+            q = q.filter(Sale.branch_id == branch_id)
+        # No synced register for the day → let the caller fall back.
+        if q.count() == 0:
+            return None
+        cash_methods = ("cash", "kontant")
+        cash_total = (
+            q.filter(func.lower(Sale.payment_method).in_(cash_methods))
+            .with_entities(func.coalesce(func.sum(Sale.amount), 0))
+            .scalar()
+        )
+        return round(float(cash_total or 0), 2)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 # ─── POST — submit daily close ───
 
 @router.post("")
@@ -718,10 +760,25 @@ def create_daily_close(
 
     payment_total = sum((data.payment_breakdown or {}).values())
 
-    # Cash expected — explicit None check so 0 (legitimate "no cash today")
-    # doesn't get treated as missing. The previous `or` chain coerced 0 → None.
+    # Cash expected — the baseline the counted drawer is measured against.
+    # Prefer the SYNCED POS register cash for the date (what the till says
+    # was taken) over the owner's typed cash line: typed-vs-counted is
+    # self-referential and can never reveal a real shortage/theft, whereas
+    # register-vs-drawer can. _register_cash_for_date returns None when the
+    # date has no completed sales (pure manual / cash-only closers) — in
+    # that case we fall back to the typed payment-breakdown cash, preserving
+    # the prior behaviour for those users. This keeps the persisted
+    # cash_difference (and the revisor kasserapport PDF / L7 audit row) in
+    # lockstep with the "Expected (from register)" figure the close screen
+    # now shows. Explicit None checks so 0 ("no cash today") isn't treated
+    # as missing — the previous `or` chain coerced 0 → None.
     pb = data.payment_breakdown or {}
-    if "cash" in pb:
+    register_cash = _register_cash_for_date(
+        db, user=user, target_date=data.date, branch_id=data.branch_id,
+    )
+    if register_cash is not None:
+        cash_expected = register_cash
+    elif "cash" in pb:
         cash_expected = pb["cash"]
     elif "kontant" in pb:
         cash_expected = pb["kontant"]
