@@ -115,24 +115,27 @@ function visualStatus(cell, nowMs) {
 // these are nominal sizes against a ~880px-wide reference room.
 function tableSizePx(seats) {
   const s = Math.max(1, Number(seats) || 2);
-  // 2p → 58, 4p → 72, 6p → 86, 8p → 100, capped.
-  return Math.round(Math.min(116, 50 + s * 7));
+  // Clear visual tiers by capacity so a 2-top reads small and a 6–8-top is a
+  // proper big table — ~20px per 2 seats keeps them distinguishable at a glance.
+  // 1→54, 2→64, 4→84, 6→104, 8→120 (capped).
+  return Math.round(Math.min(120, 44 + s * 10));
 }
 
 // Chair-dot positions around the table perimeter. For a circle we spread
 // evenly on the ring; for a square we distribute across the four edges so
 // it reads like seats pulled up to a table. Returns [{x,y}] in px offsets
 // from the table's center (the table box is sizePx square).
-function chairPositions(count, sizePx, shape) {
+function chairPositions(count, sizePx, shape, chairW = 9) {
   const n = Math.max(0, Math.min(12, Number(count) || 0));
   if (n === 0) return [];
   const out = [];
-  const r = sizePx / 2 + 9; // ring radius: just outside the table edge
+  const pad = chairW / 2 + 5; // gap from the table edge out to the chair
+  const r = sizePx / 2 + pad; // ring radius: just outside the table edge
   if (shape === "square") {
     // Distribute across 4 edges as evenly as possible.
     const perEdge = [0, 0, 0, 0];
     for (let i = 0; i < n; i++) perEdge[i % 4]++;
-    const half = sizePx / 2 + 9;
+    const half = sizePx / 2 + pad;
     // k-th seat of `total` along one edge, centered across the table width.
     const place = (k, total) => {
       const span = sizePx * 0.82;
@@ -248,14 +251,16 @@ function TableNode({
   const status = visualStatus(cell, nowMs);
   const style = STATUS_STYLE[status] || STATUS_STYLE.free;
   const sizePx = tableSizePx(res.capacity_seats);
+  // Chairs scale with the table so big tables get chunky seats, not tiny dots.
+  const chairW = Math.max(9, Math.min(15, Math.round(sizePx * 0.17)));
   const shape = pos.shape;
   // Station-like resources (salon archetype, or any kind === "provider") read
   // as a single person at a chair — one marker, not a ring of N chair dots.
   // Everything else keeps the chair ring sized by capacity.
   const stationLike = profile.stationLike;
   const chairs = useMemo(
-    () => (stationLike ? [] : chairPositions(res.capacity_seats, sizePx, shape)),
-    [res.capacity_seats, sizePx, shape, stationLike],
+    () => (stationLike ? [] : chairPositions(res.capacity_seats, sizePx, shape, chairW)),
+    [res.capacity_seats, sizePx, shape, stationLike, chairW],
   );
   const combined = cell.combined;
   const booking = cell.booking;
@@ -290,8 +295,8 @@ function TableNode({
           aria-hidden
           className={"absolute rounded-full " + style.chair}
           style={{
-            width: 9,
-            height: 9,
+            width: chairW,
+            height: chairW,
             left: "50%",
             top: "50%",
             transform: `translate(calc(-50% + ${c.x}px), calc(-50% + ${c.y}px))`,
