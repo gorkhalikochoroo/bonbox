@@ -438,10 +438,10 @@ export default function FakturaPage() {
             setShowForm(false);
             setUpgradeNudge({
               tier: detail.required_plan || "pro",
-              benefit: t(
-                "nudgeInvoiceCap",
-                `You've issued ${detail.used_this_month} of ${detail.monthly_cap} fakturaer this month. Pro is unlimited.`
-              ),
+              benefit: t("nudgeInvoiceCap", {
+                used_this_month: detail.used_this_month,
+                monthly_cap: detail.monthly_cap,
+              }),
               icon: "🧾",
             });
           }}

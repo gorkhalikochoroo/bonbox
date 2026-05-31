@@ -128,12 +128,7 @@ export default function TerminalsPage() {
       if (status === 402 && detail && typeof detail === "object") {
         const upgradeTo = detail.upgrade_to || "pro";
         const planLabel = upgradeTo === "pro" ? "Pro" : "Starter";
-        setError(
-          t(
-            "terminalsFreeOneCap",
-            `Free includes 1 POS terminal. ${planLabel} unlocks multi-terminal close — see /subscription.`,
-          ),
-        );
+        setError(t("terminalsFreeOneCap", { planLabel }));
       } else {
         const detailMsg = typeof detail === "string" ? detail : null;
         setError(detailMsg || t("terminalSaveFailed") || "Could not save terminal");

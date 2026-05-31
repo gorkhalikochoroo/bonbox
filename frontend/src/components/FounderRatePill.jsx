@@ -37,16 +37,10 @@ export default function FounderRatePill() {
                    bg-amber-50 border border-amber-200/80 rounded-full
                    text-[12px] font-medium text-amber-800 mb-4"
         role="status"
-        aria-label={t(
-          "founderRateSoldOutAria",
-          `Founder rate sold out — ${max_slots} café seats claimed`,
-        )}
+        aria-label={t("founderRateSoldOutAria", { max_slots })}
       >
         <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-        {t(
-          "founderRateSoldOut",
-          `Founder rate sold out · ${max_slots} cafés joined`,
-        )}
+        {t("founderRateSoldOut", { max_slots })}
       </div>
     );
   }
@@ -57,16 +51,10 @@ export default function FounderRatePill() {
                  bg-amber-50 border border-amber-200/80 rounded-full
                  text-[12px] font-medium text-amber-800 mb-4"
       role="status"
-      aria-label={t(
-        "founderRateAvailableAria",
-        `${available} of ${max_slots} founder seats left`,
-      )}
+      aria-label={t("founderRateAvailableAria", { available, max_slots })}
     >
       <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-      {t(
-        "founderRateAvailable",
-        `Founder rate · ${claimed} / ${max_slots} seats taken · 129 DKK locked forever`,
-      )}
+      {t("founderRateAvailable", { claimed, max_slots })}
     </div>
   );
 }
