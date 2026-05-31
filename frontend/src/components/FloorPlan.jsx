@@ -767,7 +767,13 @@ export default function FloorPlan({
             // a dining venue, otherwise it inherits the account profile.
             const cellProfile = venueProfile(businessType, c.res);
             return (
-              <div key={id} className="relative">
+              // NB: NO `relative` here — these children are absolutely
+              // positioned with top/left as a % of the CANVAS. A `relative`
+              // wrapper collapses to height:0 (its only children are absolute),
+              // so `top: %` would resolve against 0 and pin every table to the
+              // top edge (x worked, y didn't). Positioning against the canvas
+              // (which has a real height via aspectRatio) fixes layout + drag-Y.
+              <div key={id} className="contents">
                 <TableNode
                   cell={c}
                   pos={pos}
