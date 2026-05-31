@@ -36,10 +36,10 @@ function addDays(dateStr, days) {
 }
 
 const REASON_OPTIONS = [
-  { value: "sick", label: "Sick", icon: "🤒" },
-  { value: "personal", label: "Personal", icon: "🏠" },
-  { value: "weather", label: "Weather", icon: "🌧️" },
-  { value: "other", label: "Other", icon: "📝" },
+  { value: "sick", labelKey: "sickReasonSick", label: "Sick", icon: "🤒" },
+  { value: "personal", labelKey: "sickReasonPersonal", label: "Personal", icon: "🏠" },
+  { value: "weather", labelKey: "sickReasonWeather", label: "Weather", icon: "🌧️" },
+  { value: "other", labelKey: "sickReasonOther", label: "Other", icon: "📝" },
 ];
 
 /* ═══════════════════════════════════════════════════════════
@@ -355,7 +355,7 @@ export default function StaffPayrollPage() {
         notes: sickForm.notes || null,
       });
       setSickForm({ staff_name: "", date: localIso(), reason: "", notes: "" });
-      setSickSuccess(t("sickCallLogged") || "Sick call logged");
+      setSickSuccess(t("sickCallLogged", "Sick call logged"));
       setTimeout(() => setSickSuccess(""), 2500);
       const [res, statsRes] = await Promise.all([
         api.get("/weather/sick-calls"),
@@ -364,7 +364,7 @@ export default function StaffPayrollPage() {
       setSickCalls(res.data || []);
       setSickStats(statsRes.data);
     } catch {
-      setError(t("couldNotLogSickCall") || "Could not log sick call");
+      setError(t("couldNotLogSickCall", "Could not log sick call"));
     }
   };
 
@@ -376,7 +376,7 @@ export default function StaffPayrollPage() {
           <div className="mb-3 animate-pulse text-gray-400">
             <Icon name="FileText" size={36} className="mx-auto" />
           </div>
-          <p className="text-gray-500 dark:text-gray-400">Loading payroll...</p>
+          <p className="text-gray-500 dark:text-gray-400">{t("loadingPayroll", "Loading payroll...")}</p>
         </div>
       </div>
     );
@@ -389,14 +389,14 @@ export default function StaffPayrollPage() {
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
       <PageHeader
         eyebrow="STAFF"
-        title={t("payroll") || "Payroll"}
-        subtitle="Generate payroll reports for your accountant"
+        title={t("payroll", "Payroll")}
+        subtitle={t("payrollSubtitle", "Generate payroll reports for your revisor")}
       />
 
       <DismissibleTip
         id="payroll-intro-v1"
         icon="💼"
-        title="DK payroll, the easy way"
+        title={t("payrollTipTitle", "DK payroll, the easy way")}
       >
         <p className="mb-1.5">
           BonBox runs <strong>lønhjælp mode</strong> — from the hours you already log, we estimate
@@ -828,7 +828,7 @@ export default function StaffPayrollPage() {
       <FadeIn delay={0.25}>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
           <h2 className="font-bold text-gray-900 dark:text-gray-100 mb-4">
-            {t("sickCallTracker") || "Sick Calls"}
+            {t("sickCallTracker", "Sick Calls")}
           </h2>
 
           {/* Stats cards */}
@@ -845,15 +845,15 @@ export default function StaffPayrollPage() {
             <div className="grid grid-cols-3 gap-3 mb-4">
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-center">
                 <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">{sickStats.this_month ?? 0}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("thisMonth") || "This Month"}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("thisMonth", "This Month")}</p>
               </div>
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-center">
                 <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">{sickStats.last_month ?? 0}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("lastMonth") || "Last Month"}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("lastMonth", "Last Month")}</p>
               </div>
               <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-center">
                 <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">{sickStats.weather_related ?? 0}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("weatherDays") || "Weather Days"}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("weatherDays", "Weather Days")}</p>
               </div>
             </div>
           ) : null}
@@ -861,7 +861,7 @@ export default function StaffPayrollPage() {
           {/* Quick log form */}
           <form onSubmit={logSickCall} className="flex flex-wrap gap-2 mb-4">
             <input
-              placeholder={t("staffName") || "Staff name"}
+              placeholder={t("staffName", "Staff name")}
               value={sickForm.staff_name}
               onChange={e => setSickForm(f => ({ ...f, staff_name: e.target.value }))}
               className="flex-1 min-w-[120px] px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white placeholder-gray-400"
@@ -877,10 +877,10 @@ export default function StaffPayrollPage() {
               onChange={e => setSickForm(f => ({ ...f, reason: e.target.value }))}
               className="px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:text-white"
             >
-              <option value="">{t("reason") || "Reason"}</option>
+              <option value="">{t("reason", "Reason")}</option>
               {REASON_OPTIONS.map(opt => (
                 <option key={opt.value} value={opt.value}>
-                  {opt.icon} {opt.label}
+                  {opt.icon} {t(opt.labelKey, opt.label)}
                 </option>
               ))}
             </select>
@@ -889,7 +889,7 @@ export default function StaffPayrollPage() {
               type="submit"
               disabled={!sickForm.staff_name}
             >
-              {t("log") || "Log"}
+              {t("log", "Log")}
             </Button>
           </form>
           {sickSuccess && (
@@ -931,7 +931,7 @@ export default function StaffPayrollPage() {
             </div>
           ) : (
             <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">
-              {t("noSickCalls") || "No sick calls recorded yet"}
+              {t("noSickCalls", "No sick calls recorded yet")}
             </p>
           )}
         </div>

@@ -121,7 +121,10 @@ def _calc_shift_hours(start_time: str, end_time: str, break_minutes: int) -> flo
         e += 24.0  # overnight shift
     gross = e - s
     net = gross - (break_minutes / 60.0)
-    return round(max(net, 0), 1)
+    # 2 decimals (not 1) so an 07:00–15:20 shift logs as 8.33h, not 8.3h —
+    # 1-decimal rounding systematically shaved minutes off staff pay vs the
+    # exact preview shown in ShiftModal/PublishConfirm.
+    return round(max(net, 0), 2)
 
 
 def _pick_rate(staff: StaffMember, shift_date: date, start_time: Optional[str]) -> float:

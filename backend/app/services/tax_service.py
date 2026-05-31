@@ -419,6 +419,29 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     )
     exempt_sales = round(pos_exempt_total + invoice_exempt_total, 2)
 
+    # Exempt Sales that fall ON a confirmed-close date are EXCLUDED from both
+    # pos_sale_total and pos_exempt_total above (close.revenue_total supersedes
+    # Sale rows on those dates, and a close carries no exempt breakdown).
+    # Consequence: exempt till activity on a close day is folded into that
+    # close's fully-taxable total — overstating box A ("Salg med moms") and
+    # understating "Salg uden moms" for the day. We can't safely re-split it
+    # (the close total may or may not already include these Sales, and a blind
+    # re-derive would risk a worse reconciliation bug), so we MEASURE it and
+    # expose it; the filing PDF surfaces a review note when it's material so a
+    # revisor can adjust. Honest > silently wrong. Typically 0 (cafés/
+    # restaurants have no exempt revenue), so the common path is unaffected.
+    exempt_on_close_dates = 0.0
+    if close_dates:
+        exempt_on_close_dates = round(float(
+            db.query(func.coalesce(func.sum(Sale.amount), 0))
+            .filter(Sale.user_id == user_id,
+                    Sale.date.in_(close_dates),
+                    Sale.is_deleted.isnot(True),
+                    Sale.is_tax_exempt.is_(True),
+                    Sale.invoice_id.is_(None))
+            .scalar()
+        ), 2)
+
     # POS output VAT — extract from Sale rows + add close contribution.
     # The close contribution was already computed above (close.moms_total
     # when set, else extracted via the same formula). Keeping them
@@ -538,6 +561,10 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         "invoice_revenue": round(invoice_total_gross, 2),
         "expenses_total": round(expenses_total, 2),
         "exempt_sales": exempt_sales,
+        # Exempt Sales on confirmed-close dates currently treated as taxable
+        # (folded into close.revenue_total). >0 ⇒ box A may be overstated and
+        # the filing PDF shows a review note. Usually 0.
+        "exempt_on_close_dates": exempt_on_close_dates,
         "output_vat": output_vat,
         "input_vat": input_vat,
         "vat_payable": round(output_vat - input_vat, 2),

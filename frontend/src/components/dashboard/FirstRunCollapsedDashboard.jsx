@@ -23,6 +23,8 @@ import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../ui";
 import { useLanguage } from "../../hooks/useLanguage";
+import { useFeatures } from "../../hooks/useFeatures";
+import DemoDataCard from "../DemoDataCard";
 
 function StepRow({ index, title, body, action, lastItem = false }) {
   return (
@@ -58,6 +60,106 @@ function StepRow({ index, title, body, action, lastItem = false }) {
 export default function FirstRunCollapsedDashboard({ className = "" }) {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  // Bank-connect / MobilePay are fail-closed OFF in prod until a real PSD2
+  // provider is configured (see useFeatures + ConnectionsPage gating). When
+  // off, leading first-run with "Connect your bank" was a dead end — the
+  // tile is hidden on /connections. So we ONLY surface that step when the
+  // backend says the integration is genuinely wired up. The product's real
+  // wedge — the daily kasserapport — leads instead.
+  const { bank_connect_enabled: bankConnectEnabled } = useFeatures();
+
+  // Steps are assembled as a list so numbering stays correct whether or not
+  // the optional bank step is present. The kasserapport snap is ALWAYS the
+  // primary action (step 1, gray-900 Button); sale + expense follow.
+  const steps = [
+    {
+      key: "close",
+      title: t("dashFirstRunCloseTitle", "Snap your first kasserapport"),
+      body: t(
+        "dashFirstRunCloseBody",
+        "Photograph your Z-report or end-of-day total — we read the numbers, calculate MOMS, and your revisor view starts collecting bilag. This is BonBox's daily 2-minute close.",
+      ),
+      action: (
+        <Button
+          variant="primary"
+          size="md"
+          onClick={() => navigate("/daily-close")}
+        >
+          {t("dashFirstRunCloseCta", "Snap your first kasserapport")}
+        </Button>
+      ),
+    },
+    {
+      key: "sale",
+      title: t("dashFirstRunStep2Title", "Log your first sale"),
+      body: t(
+        "dashFirstRunStep2Body",
+        "Tap a quick amount or type it in — your KPIs and Daily Brief unlock as soon as the first sale lands.",
+      ),
+      action: (
+        <Link
+          to="/sales?new=1"
+          className={
+            "inline-flex items-center gap-1 text-xs font-medium " +
+            "text-gray-700 dark:text-gray-300 " +
+            "hover:text-gray-900 dark:hover:text-gray-100 " +
+            "transition-colors"
+          }
+        >
+          {t("dashFirstRunStep2Cta", "Log your first sale")}
+          <span aria-hidden="true">→</span>
+        </Link>
+      ),
+    },
+    {
+      key: "expense",
+      title: t("dashFirstRunStep3Title", "Add an expense"),
+      body: t(
+        "dashFirstRunStep3Body",
+        "Snap a receipt or pick a category — we OCR it and your revisor view starts collecting bilag.",
+      ),
+      action: (
+        <Link
+          to="/expenses?new=1"
+          className={
+            "inline-flex items-center gap-1 text-xs font-medium " +
+            "text-gray-700 dark:text-gray-300 " +
+            "hover:text-gray-900 dark:hover:text-gray-100 " +
+            "transition-colors"
+          }
+        >
+          {t("dashFirstRunStep3Cta", "Snap a receipt")}
+          <span aria-hidden="true">→</span>
+        </Link>
+      ),
+    },
+  ];
+
+  // Bank/MobilePay only when the backend has a real provider configured.
+  if (bankConnectEnabled) {
+    steps.push({
+      key: "bank",
+      title: t("dashFirstRunStep1Title", "Connect MobilePay or your bank"),
+      body: t(
+        "dashFirstRunStep1Body",
+        "Pull in your bank + payment data so reconciliation is automatic — or keep logging manually.",
+      ),
+      action: (
+        <Link
+          to="/connections"
+          className={
+            "inline-flex items-center gap-1 text-xs font-medium " +
+            "text-gray-700 dark:text-gray-300 " +
+            "hover:text-gray-900 dark:hover:text-gray-100 " +
+            "transition-colors"
+          }
+        >
+          {t("dashFirstRunStep1Cta", "Open Connections")}
+          <span aria-hidden="true">→</span>
+        </Link>
+      ),
+    });
+  }
 
   return (
     <div
@@ -75,77 +177,31 @@ export default function FirstRunCollapsedDashboard({ className = "" }) {
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
           {t(
             "dashFirstRunSubtitle",
-            "Three steps to start tracking sales, expenses, and MOMS — your dashboard fills in as you go.",
+            "Start with your daily close — sales, expenses, and MOMS fill your dashboard in as you go.",
           )}
         </p>
       </header>
 
       <ol className="space-y-5">
-        <StepRow
-          index={1}
-          title={t("dashFirstRunStep1Title", "Connect MobilePay or Aiia")}
-          body={t(
-            "dashFirstRunStep1Body",
-            "Pull in your bank + payment data so reconciliation is automatic — or skip and log manually for now.",
-          )}
-          action={
-            <Link
-              to="/connections"
-              className={
-                "inline-flex items-center gap-1 text-xs font-medium " +
-                "text-gray-700 dark:text-gray-300 " +
-                "hover:text-gray-900 dark:hover:text-gray-100 " +
-                "transition-colors"
-              }
-            >
-              {t("dashFirstRunStep1Cta", "Open Connections")}
-              <span aria-hidden="true">→</span>
-            </Link>
-          }
-        />
-
-        <StepRow
-          index={2}
-          title={t("dashFirstRunStep2Title", "Log your first sale")}
-          body={t(
-            "dashFirstRunStep2Body",
-            "Tap a quick amount or type it in — your KPIs and Daily Brief unlock as soon as the first sale lands.",
-          )}
-          action={
-            <Button
-              variant="primary"
-              size="md"
-              onClick={() => navigate("/sales?new=1")}
-            >
-              {t("dashFirstRunStep2Cta", "Log your first sale")}
-            </Button>
-          }
-        />
-
-        <StepRow
-          index={3}
-          title={t("dashFirstRunStep3Title", "Add an expense")}
-          body={t(
-            "dashFirstRunStep3Body",
-            "Snap a receipt or pick a category — we OCR it and your revisor view starts collecting bilag.",
-          )}
-          action={
-            <Link
-              to="/expenses?new=1"
-              className={
-                "inline-flex items-center gap-1 text-xs font-medium " +
-                "text-gray-700 dark:text-gray-300 " +
-                "hover:text-gray-900 dark:hover:text-gray-100 " +
-                "transition-colors"
-              }
-            >
-              {t("dashFirstRunStep3Cta", "Snap a receipt")}
-              <span aria-hidden="true">→</span>
-            </Link>
-          }
-          lastItem
-        />
+        {steps.map((step, i) => (
+          <StepRow
+            key={step.key}
+            index={i + 1}
+            title={step.title}
+            body={step.body}
+            action={step.action}
+            lastItem={i === steps.length - 1}
+          />
+        ))}
       </ol>
+
+      {/* No slip handy? Seed 30 days of realistic sample data in one tap so
+          the owner can explore the dashboard/brief/reports before their
+          first real close. DemoDataCard self-hides once seeded, if the user
+          already has real data, or on dismissal. */}
+      <div className="mt-6">
+        <DemoDataCard />
+      </div>
     </div>
   );
 }

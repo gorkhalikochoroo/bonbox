@@ -548,7 +548,7 @@ def send_single_shift_notification(
     db.commit()
 
 
-def notify_owner_new_reservation(db: Session, owner, reservation) -> dict:
+def notify_owner_new_reservation(db: Session, owner, reservation, *, cancelled: bool = False) -> dict:
     """Best-effort push to the OWNER's devices when a guest books via the
     public /r/<slug> link — the "ping when a table is booked" the host
     stand wants. Pushes to owner subscriptions (staff_id IS NULL), writes
@@ -575,10 +575,17 @@ def notify_owner_new_reservation(db: Session, owner, reservation) -> dict:
 
     when = reservation.starts_at.strftime("%d/%m %H:%M") if reservation.starts_at else ""
     is_request = reservation.status == "requested"
-    title = "BonBox · Ny forespørgsel" if is_request else "BonBox · Ny reservation"
-    body_text = f"{reservation.party_size} pers · {when}"
-    if is_request:
-        body_text += " — afventer svar"
+    if cancelled:
+        # Guest cancelled online — tell the owner the table is free again
+        # (NOT "Ny reservation", which would be misleading). Same tag, so
+        # this push replaces the earlier booking ping on the lock screen.
+        title = "BonBox · Reservation aflyst"
+        body_text = f"{reservation.party_size} pers · {when} — bord frigivet"
+    else:
+        title = "BonBox · Ny forespørgsel" if is_request else "BonBox · Ny reservation"
+        body_text = f"{reservation.party_size} pers · {when}"
+        if is_request:
+            body_text += " — afventer svar"
     tag = f"bonbox-reservation-{reservation.id}"
     payload = {
         "title": title,
@@ -605,7 +612,7 @@ def notify_owner_new_reservation(db: Session, owner, reservation) -> dict:
             user_id=owner.id,
             staff_id=None,
             channel="push",
-            event_type="reservation_created",
+            event_type="reservation_cancelled" if cancelled else "reservation_created",
             subject=title,
             body=body_text,
             status="sent" if result["sent"] else "failed",

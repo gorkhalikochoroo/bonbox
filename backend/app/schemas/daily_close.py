@@ -33,6 +33,13 @@ class DailyCloseCreate(BaseModel):
     # the photo can be re-viewed later. 2000-char cap is well above
     # signed-URL length (~700) but keeps payload bombs out.
     receipt_photo: str | None = Field(None, max_length=2000)
+    # Detective control acknowledgement. Default False → the router runs
+    # the close_sanity anomaly check before committing a *confirmed* close
+    # and, if today's total is far off the recent same-weekday baseline,
+    # returns {requires_confirmation: true} WITHOUT saving so the frontend
+    # can show a soft "double-check" dialog. The owner either fixes the
+    # numbers or re-submits with this set True to skip the guard and lock.
+    acknowledge_anomaly: bool = False
 
 
 class DailyCloseUnlock(BaseModel):

@@ -70,6 +70,11 @@ def _money_dk(value: Any, currency: str = "DKK") -> str:
     except (TypeError, ValueError):
         return "—"
 
+    # Snap sub-half-øre dust (including negative zero) to exactly 0 so a
+    # rounding artifact like -0.001 renders "0,00 kr." and never "-0,00 kr.".
+    if abs(n) < 0.005:
+        n = 0.0
+
     is_dkk = (currency or "").upper() == "DKK"
     sign = "-" if n < 0 else ""
     abs_n = abs(n)
@@ -538,6 +543,10 @@ def build_moms_filing_pdf(
 
     # ─── Section C — Netto (Net to SKAT) ─────────────────────
     moms_til_skat = data["moms_til_skat"]
+    # Snap near-zero dust to exactly 0 so a 1-øre rounding artifact never
+    # renders as a misleading "Tilgode hos SKAT / Refund due" on the filing.
+    if abs(moms_til_skat) < 0.01:
+        moms_til_skat = 0.0
     is_owed = moms_til_skat > 0
     if is_danish:
         story.append(Paragraph("C · TIL BETALING / TILGODE", section_title))
@@ -985,6 +994,10 @@ def _rebuild_filing_story(
     story.append(tb)
 
     moms_til_skat = data["moms_til_skat"]
+    # Snap near-zero dust to exactly 0 so a 1-øre rounding artifact never
+    # renders as a misleading "Tilgode hos SKAT / Refund due" on the filing.
+    if abs(moms_til_skat) < 0.01:
+        moms_til_skat = 0.0
     is_owed = moms_til_skat > 0
     if is_danish:
         story.append(Paragraph("C · TIL BETALING / TILGODE", section_title))

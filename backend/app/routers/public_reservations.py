@@ -384,4 +384,24 @@ def visitor_cancel(request: Request, reservation_id: UUID = Path(...),
     occ_service.release_occupancy(db, r.id)
     audit_service.record(db, r.user_id, "reservation.cancelled_public", "reservation", r.id)
     db.commit()
+
+    # Tell the OWNER a guest just freed a table — same channels the create
+    # path uses (device push + the always-lands email), so the host stand
+    # can re-offer the slot. Runs AFTER the cancel is durably committed and
+    # is strictly best-effort: a notification failure must NEVER turn a
+    # successful self-cancel into an error for the guest.
+    try:
+        owner = db.query(User).filter(User.id == r.user_id).first()
+        if owner is not None:
+            # Push only, with cancel-aware copy ("Reservation aflyst · bord
+            # frigivet"). We deliberately SKIP the email: the create-path
+            # email template reads "Ny reservation/forespørgsel", which is
+            # misleading for a cancellation — and a freed-table heads-up is
+            # exactly what a lock-screen push is for. Same tag, so it
+            # replaces the original booking ping.
+            from app.services.notification_service import notify_owner_new_reservation
+            notify_owner_new_reservation(db, owner, r, cancelled=True)
+    except Exception as exc:  # noqa: BLE001 — best-effort, never break cancel
+        logger.warning("owner reservation cancel notify failed: %s", exc)
+
     return {"id": str(r.id), "status": r.status}

@@ -39,6 +39,7 @@ from app.services.billing import (
 )
 from app.services import reservation_service as rsvc
 from app.services import reservation_occupancy_service as occ_service
+from app.services.tz_utils import now_local
 from sqlalchemy.exc import IntegrityError
 from app.utils.time import utc_now
 
@@ -381,7 +382,13 @@ def reservation_book(
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
     enforce_feature(user, "reservations")
-    target = day or date.today()
+    # Default "today" to the owner's LOCAL calendar date (Europe/Copenhagen by
+    # default via User.timezone), NOT server-UTC. `date.today()` is UTC, so
+    # from 22:00–24:00 local the host stand would jump to TOMORROW's book and
+    # hide tonight's tables. `now_local(user).date()` matches how the public
+    # /availability side computes "today" (public_reservations._now_local), so
+    # owner + guest agree on which day they're looking at.
+    target = day or now_local(user).date()
     lo = datetime.combine(target, datetime.min.time())
     hi = lo + timedelta(days=1)
     rows = (

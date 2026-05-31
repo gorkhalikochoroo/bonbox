@@ -2661,11 +2661,11 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
 
   const handleSave = async () => {
     if (!staffId) {
-      setModalError("Please select a staff member.");
+      setModalError(t("shiftSelectStaffError", "Please select a staff member."));
       return;
     }
     if (!date) {
-      setModalError("Please select a date.");
+      setModalError(t("shiftSelectDateError", "Please select a date."));
       return;
     }
 
@@ -2694,21 +2694,24 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
       onSaved();
     } catch (err) {
       const d = err.response?.data?.detail;
-      setModalError(typeof d === "string" ? d : Array.isArray(d) ? d.map(e => e.msg || e).join(", ") : `Failed to ${isEdit ? "update" : "create"} shift.`);
+      const fallbackMsg = isEdit
+        ? t("shiftUpdateFailed", "Failed to update shift.")
+        : t("shiftCreateFailed", "Failed to create shift.");
+      setModalError(typeof d === "string" ? d : Array.isArray(d) ? d.map(e => e.msg || e).join(", ") : fallbackMsg);
     }
     setSaving(false);
   };
 
   const handleDelete = async () => {
     if (!existingShift?.id) return;
-    if (!window.confirm("Delete this shift?")) return;
+    if (!window.confirm(t("shiftDeleteConfirm", "Delete this shift?"))) return;
     setDeleting(true);
     setModalError("");
     try {
       await api.delete(`/staff/schedules/${existingShift.id}`);
       onSaved();
     } catch (err) {
-      setModalError(err.response?.data?.detail || "Failed to delete shift.");
+      setModalError(err.response?.data?.detail || t("shiftDeleteFailed", "Failed to delete shift."));
     }
     setDeleting(false);
   };
@@ -2728,7 +2731,7 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
       <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 w-full max-w-md p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {isEdit ? "Edit Shift" : "Add Shift"}
+            {isEdit ? t("shiftEditTitle", "Edit Shift") : t("shiftAddTitle", "Add Shift")}
           </h2>
           <button
             onClick={onClose}
@@ -2763,7 +2766,7 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
 
         {/* Date */}
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Date</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t("shiftDateLabel", "Date")}</label>
           <select
             value={date}
             onChange={(e) => setDate(e.target.value)}
@@ -2898,18 +2901,21 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
 
         {/* Preview */}
         <div className="bg-gray-50 dark:bg-gray-750 rounded-lg px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
-          Shift: {startTime} {"\u2013"} {endTime} ({previewHours}h net)
-          {breakMinutes > 0 && ` with ${breakMinutes}min break`}
+          {t("shiftPreview", "Shift: {start} \u2013 {end} ({hours}h net)")
+            .replace("{start}", startTime)
+            .replace("{end}", endTime)
+            .replace("{hours}", previewHours)}
+          {breakMinutes > 0 && " " + t("shiftPreviewBreak", "with {n}min break").replace("{n}", breakMinutes)}
         </div>
 
         {/* Notes */}
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Notes (optional)</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{t("shiftNotesLabel", "Notes (optional)")}</label>
           <input
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g. Training, covering for Anna..."
+            placeholder={t("shiftNotesPlaceholder", "e.g. Training, covering for Anna...")}
             className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
         </div>
@@ -2923,7 +2929,7 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
                 disabled={deleting}
                 className="px-4 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition disabled:opacity-50"
               >
-                {deleting ? "Deleting..." : "Delete Shift"}
+                {deleting ? t("shiftDeleting", "Deleting...") : t("shiftDeleteBtn", "Delete Shift")}
               </button>
             )}
           </div>
@@ -2932,14 +2938,14 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
               onClick={onClose}
               className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
             >
-              Cancel
+              {t("cancel", "Cancel")}
             </button>
             <button
               onClick={handleSave}
               disabled={saving}
               className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
             >
-              {saving ? "Saving..." : isEdit ? "Update Shift" : "Add Shift"}
+              {saving ? t("shiftSaving", "Saving...") : isEdit ? t("shiftUpdateBtn", "Update Shift") : t("shiftAddTitle", "Add Shift")}
             </button>
           </div>
         </div>

@@ -767,6 +767,36 @@ def create_daily_close(
 
     status = data.status if data.status in ("draft", "confirmed") else "confirmed"
 
+    # ─── Detective control — anomaly double-check before the lock ───
+    # close_sanity compares today's total against the recent same-weekday
+    # baseline; a confidently-wrong OCR misread (the classic 2.234 read
+    # instead of 22.340) trips the flag. We return a soft
+    # {requires_confirmation} WITHOUT mutating anything, so the frontend
+    # surfaces a "double-check" dialog; the owner then either fixes the
+    # numbers or re-submits with acknowledge_anomaly=True to lock anyway.
+    # Only gates the LOCK (status=="confirmed"), never a draft auto-save,
+    # and is fully fail-closed — the guard never raises and an error here
+    # must never block a legitimate close.
+    if status == "confirmed" and not data.acknowledge_anomaly:
+        try:
+            from app.services.close_sanity import check_close_anomaly
+            _anomaly = check_close_anomaly(
+                db, user=user, today=data.date, today_total=float(revenue_total),
+            )
+        except Exception:  # noqa: BLE001
+            _anomaly = {"flagged": False}
+        if _anomaly.get("flagged"):
+            return {
+                "requires_confirmation": True,
+                "anomaly": {
+                    "reason": _anomaly.get("reason"),
+                    "today_total": _anomaly.get("today_total"),
+                    "baseline_avg": _anomaly.get("baseline_avg"),
+                    "baseline_days": _anomaly.get("baseline_days"),
+                    "delta_pct": _anomaly.get("delta_pct"),
+                },
+            }
+
     if existing:
         # Block edits to confirmed (locked) entries — must unlock first
         existing_status = getattr(existing, "status", None) or "confirmed"
@@ -1407,9 +1437,14 @@ def prefill_daily_close(
 
     has_data = sales_count > 0 or expenses_count > 0
 
-    # Night shift cutoff from business profile
+    # Night shift cutoff from business profile. DK-first default: an unset
+    # cutoff → 06:00 (Europe/Copenhagen restaurant convention). An explicit
+    # value (including 0) is respected; only a missing/None cutoff falls back
+    # to 6 — the previous `or 0` forced midnight for new DK signups, which
+    # pre-selected the wrong business day for a late-night closer.
     profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
-    cutoff = getattr(profile, "day_cutoff_hour", 0) or 0
+    _cut = getattr(profile, "day_cutoff_hour", None)
+    cutoff = 6 if _cut is None else int(_cut)
 
     return {
         "date": target_date.isoformat(),

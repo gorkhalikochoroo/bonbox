@@ -104,7 +104,9 @@ def _calc_hours(start: str, end: str, brk: int) -> float:
     s, e = _parse_hhmm(start), _parse_hhmm(end)
     if e <= s:
         e += 24.0
-    return round(max(e - s - brk / 60.0, 0), 1)
+    # 2 decimals to match _calc_shift_hours in staff.py — 1-decimal rounding
+    # under-counted hours (and therefore pay) vs the exact owner-side preview.
+    return round(max(e - s - brk / 60.0, 0), 2)
 
 def _get_staff_from_token(token: str, db: Session):
     """Validate magic link token, return (link, staff_member)."""
@@ -222,6 +224,11 @@ def get_portal_schedule(token: str, request: Request, db: Session = Depends(get_
         Schedule.user_id == link.user_id,
         Schedule.date >= week_start,
         Schedule.date <= range_end,
+        # Only PUBLISHED shifts reach the staff's phone — draft shifts the
+        # owner is still editing must never show (mirrors the confirm-
+        # schedule filter below). This is the core promise of the
+        # publish→notify model: Publish is the moment staff find out.
+        Schedule.status == "published",
     ).order_by(Schedule.date, Schedule.start_time).all()
 
     return {

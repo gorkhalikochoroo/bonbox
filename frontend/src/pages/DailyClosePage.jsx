@@ -531,10 +531,18 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const currentStepId = stepSequence[step - 1];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // close_sanity soft guard — holds the anomaly payload when today's
+  // total is far off the recent same-weekday baseline; drives the
+  // "double-check before you lock" dialog. null = no warning pending.
+  const [anomalyCheck, setAnomalyCheck] = useState(null);
 
   // Night shift: business date may differ from calendar date
-  const [businessDate, setBusinessDate] = useState(() => getBusinessDate(0));
-  const [cutoffHour, setCutoffHour] = useState(0);
+  // DK-first default: 06:00 business-day cutoff (Europe/Copenhagen restaurant
+  // convention) until the prefill returns the owner's real day_cutoff_hour.
+  // Was 0 (midnight) → a late-night closer at 01:30 saw today pre-selected
+  // and reconciled against the wrong day's sales.
+  const [businessDate, setBusinessDate] = useState(() => getBusinessDate(6));
+  const [cutoffHour, setCutoffHour] = useState(6);
 
   // Step 1: Revenue
   const [revCats, setRevCats] = useState(defaultRevCats);
@@ -1230,11 +1238,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     return () => clearTimeout(autoSaveRef.current);
   }, [step, revAmounts, payAmounts, cashCounted, tipsTotal]);
 
-  // Final submit — locks the close (with offline queue fallback)
-  const handleSubmit = async () => {
+  // Final submit — locks the close (with offline queue fallback).
+  // opts.acknowledgeAnomaly=true is passed by the "Yes, lock it" button
+  // in the close_sanity double-check dialog to skip the guard and commit.
+  const handleSubmit = async (opts = {}) => {
     setSaving(true);
     setError("");
     const payload = buildPayload("confirmed");
+    if (opts.acknowledgeAnomaly) payload.acknowledge_anomaly = true;
 
     if (!navigator.onLine) {
       addToOfflineQueue(payload);
@@ -1245,6 +1256,16 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
     try {
       const resp = await api.post("/daily-close", payload);
+      // Detective control — when today's total is far off the recent
+      // same-weekday baseline the backend returns this (and saves
+      // NOTHING) instead of a close. Surface the soft "double-check"
+      // dialog; the owner fixes the numbers or confirms to lock anyway.
+      if (resp?.data?.requires_confirmation) {
+        setAnomalyCheck(resp.data.anomaly || {});
+        setSaving(false);
+        return;
+      }
+      setAnomalyCheck(null);
       trackEvent(
         payload.status === "draft" ? "daily_close_draft_saved" : "daily_close_completed",
         "daily-close",
@@ -1289,6 +1310,39 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+      {/* ─── Close anomaly double-check (close_sanity soft guard) ───
+          Shown when today's total is far off the recent same-weekday
+          baseline — catches a misread Z-report total before it locks. */}
+      {anomalyCheck && (() => {
+        const pct = Math.abs(Math.round((anomalyCheck.delta_pct || 0) * 100));
+        const today = Math.round(anomalyCheck.today_total || 0).toLocaleString("da-DK");
+        const avg = Math.round(anomalyCheck.baseline_avg || 0).toLocaleString("da-DK");
+        const msgKey = anomalyCheck.reason === "high" ? "closeAnomalyHighMsg" : "closeAnomalyLowMsg";
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6">
+              <div className="flex items-start gap-3">
+                <div className="shrink-0 w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center text-xl">⚠️</div>
+                <div className="min-w-0">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">{t("closeAnomalyTitle")}</h3>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t(msgKey, { today, pct, avg })}</p>
+                  <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{t("closeAnomalyHint")}</p>
+                </div>
+              </div>
+              <div className="mt-5 flex gap-3 justify-end">
+                <button onClick={() => setAnomalyCheck(null)} disabled={saving}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition disabled:opacity-60">
+                  {t("closeAnomalyCancel")}
+                </button>
+                <button onClick={() => handleSubmit({ acknowledgeAnomaly: true })} disabled={saving}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition disabled:opacity-60">
+                  {saving ? "…" : t("closeAnomalyConfirm")}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* Progress bar */}
       <div className="flex">
         {showScanUI ? (
@@ -2390,7 +2444,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               const usingOverride = ocrTotal > 0 && ocrTotal > revenueTotal;
               return (
                 <div className="flex flex-col items-end gap-1">
-                  <button onClick={handleSubmit} disabled={saving || willSave === 0}
+                  <button onClick={() => handleSubmit()} disabled={saving || willSave === 0}
                     className="px-6 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition disabled:opacity-50">
                     {saving ? "Saving..." : !isOnline ? "📤 Queue & Lock (offline)" : "🔒 Confirm & Lock"}
                   </button>

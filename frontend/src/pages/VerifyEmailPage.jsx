@@ -183,10 +183,10 @@ export default function VerifyEmailPage() {
             </svg>
 
             <h2 className="text-2xl font-bold text-white mb-3">
-              Almost there!
+              {t("verifyAlmostThere", "Almost there!")}
             </h2>
             <p className="text-gray-400 leading-relaxed">
-              We just need to verify your email address to keep your account secure.
+              {t("verifyHeroSubtitle", "We just need to verify your email address to keep your account secure.")}
             </p>
           </div>
         </div>
@@ -207,9 +207,9 @@ export default function VerifyEmailPage() {
                 <span className="text-xl font-bold text-white">Bon<span className="text-gray-300">Box</span></span>
               </div>
 
-              <h1 className="text-3xl font-bold text-white">Verify your email</h1>
+              <h1 className="text-3xl font-bold text-white">{t("verifyEmailHeading", "Verify your email")}</h1>
               <p className="text-gray-400 mt-2">
-                We sent a 6-digit code to{" "}
+                {t("verifyCodeSentTo", "We sent a 6-digit code to")}{" "}
                 <span className="text-white font-medium">{maskedEmail}</span>
               </p>
             </div>
@@ -236,7 +236,7 @@ export default function VerifyEmailPage() {
 
             {/* OTP input boxes */}
             <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-300 mb-3">Verification code</label>
+              <label className="block text-sm font-medium text-gray-300 mb-3">{t("verifyCodeLabel", "Verification code")}</label>
               <div className="flex gap-3 justify-center" onPaste={handlePaste}>
                 {code.map((digit, index) => (
                   <input
@@ -273,7 +273,7 @@ export default function VerifyEmailPage() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                   </svg>
-                  {t("verifying") || "Verifying..."}
+                  {t("verifying", "Verifying...")}
                 </>
               ) : (
                 t("verifyEmailBtn")
@@ -282,7 +282,7 @@ export default function VerifyEmailPage() {
 
             {/* Resend code */}
             <div className="mt-5 text-center">
-              <p className="text-sm text-gray-500 mb-2">Didn't receive the code?</p>
+              <p className="text-sm text-gray-500 mb-2">{t("verifyDidntReceive", "Didn't receive the code?")}</p>
               <button
                 onClick={handleResend}
                 disabled={resendCooldown > 0}
@@ -306,14 +306,13 @@ export default function VerifyEmailPage() {
               }}
               className="w-full mt-5 text-sm text-gray-500 hover:text-gray-300 transition py-2"
             >
-              Skip for now
+              {t("verifySkipForNow", "Skip for now")}
             </button>
 
             {/* Help text */}
             <div className="mt-4 p-4 bg-white/[0.03] border border-white/10 rounded-xl">
               <p className="text-xs text-gray-500 leading-relaxed">
-                Check your inbox and spam folder. The code expires in 30 minutes.
-                If you continue to have issues, try requesting a new code.
+                {t("verifyHelpText", "Check your inbox and spam folder. The code expires in 30 minutes. If you continue to have issues, try requesting a new code.")}
               </p>
             </div>
           </div>

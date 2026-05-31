@@ -38,6 +38,8 @@ import {
   Clock,
   AlertCircle,
   CheckCircle2,
+  XCircle,
+  Loader2,
   Info,
   Phone,
 } from "lucide-react";
@@ -134,6 +136,16 @@ export default function ReservationPublicPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(""); // "" | error-key
   const [result, setResult] = useState(null); // {id, status, booking_token}
+
+  // ── Post-booking live status + self-cancel ───────────────────────
+  // After a successful booking the success screen polls GET /booking/{id}
+  // so a "requested" group booking flips live to confirmed / declined,
+  // and offers an "Aflys reservation" self-cancel (POST .../cancel).
+  // `liveStatus` is the authoritative status once polling starts; before
+  // that we fall back to the create response's status.
+  const [liveStatus, setLiveStatus] = useState(null); // null | backend status
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState(false);
 
   // ── Load the page data ───────────────────────────────────────────
   useEffect(() => {
@@ -291,6 +303,9 @@ export default function ReservationPublicPage() {
       });
       const data = res?.data || null;
       setResult(data);
+      // Seed the live status from the create response; the poll below keeps
+      // it fresh (requested → confirmed/declined) without a manual refresh.
+      setLiveStatus(data?.status || null);
       // Stash the booking token so a return visit can poll the status.
       if (data?.id && data?.booking_token) {
         try {
@@ -316,6 +331,110 @@ export default function ReservationPublicPage() {
       }
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // ── Booking token lookup (for poll + cancel) ─────────────────────
+  // The signed token comes back on the create response; we also stashed it
+  // in localStorage so a return visit on the same device still has it. The
+  // backend's poll/cancel endpoints verify this token against the id (IDOR
+  // -safe: a wrong/absent token → 404).
+  const bookingToken = useCallback(() => {
+    if (result?.booking_token) return result.booking_token;
+    if (result?.id) {
+      try {
+        return localStorage.getItem(`${TOKEN_STORE_PREFIX}${result.id}`) || null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }, [result]);
+
+  // A booking is "settled" once it leaves the pending "requested" state —
+  // confirmed, seated, or any closed state. We only poll while pending.
+  const isPending = liveStatus === "requested";
+
+  // ── Live status poll ─────────────────────────────────────────────
+  // GET /public/reservations/booking/{id}?token= — flips a "requested"
+  // group booking to confirmed (or a closed state) without a manual
+  // refresh. Light touch: every 15s, capped, and immediately on tab
+  // focus. Stops the moment the status settles.
+  useEffect(() => {
+    if (!result?.id || !isPending) return;
+    const token = bookingToken();
+    if (!token) return; // no token (storage blocked) → can't poll; screen still shows the create-time status
+
+    let alive = true;
+    let polls = 0;
+    const MAX_POLLS = 8; // ~2 min of 15s polls, then give up quietly
+
+    const checkOnce = async () => {
+      if (!alive) return;
+      try {
+        const res = await api.get(
+          `/public/reservations/booking/${result.id}`,
+          { params: { token } },
+        );
+        const next = res?.data?.status;
+        if (alive && next) setLiveStatus(next);
+      } catch {
+        /* transient — keep the last known status, try again next tick */
+      }
+    };
+
+    const id = setInterval(() => {
+      polls += 1;
+      if (polls > MAX_POLLS) {
+        clearInterval(id);
+        return;
+      }
+      checkOnce();
+    }, 15000);
+
+    // Re-check the instant the guest returns to the tab (common: they
+    // switch away waiting for the restaurant to confirm).
+    const onFocus = () => checkOnce();
+    window.addEventListener("focus", onFocus);
+
+    return () => {
+      alive = false;
+      clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [result, isPending, bookingToken]);
+
+  // ── Self-cancel ──────────────────────────────────────────────────
+  // POST /public/reservations/booking/{id}/cancel?token= — guest frees
+  // the table; the backend flips status to "cancelled" and notifies the
+  // owner. Idempotent server-side (already-cancelled returns the state).
+  const onCancel = async () => {
+    if (!result?.id || cancelling) return;
+    const token = bookingToken();
+    if (!token) {
+      setCancelError(true);
+      return;
+    }
+    setCancelling(true);
+    setCancelError(false);
+    try {
+      const res = await api.post(
+        `/public/reservations/booking/${result.id}/cancel`,
+        null,
+        { params: { token } },
+      );
+      const next = res?.data?.status || "cancelled";
+      setLiveStatus(next);
+      // Token is spent — drop it so a stale return visit can't reuse it.
+      try {
+        localStorage.removeItem(`${TOKEN_STORE_PREFIX}${result.id}`);
+      } catch {
+        /* storage blocked — non-fatal */
+      }
+    } catch {
+      setCancelError(true);
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -369,36 +488,98 @@ export default function ReservationPublicPage() {
 
   // ── Success screen ─────────────────────────────────────────────────
   if (result) {
-    const isRequest = result.status === "requested";
+    // `liveStatus` is the authoritative status (seeded from the create
+    // response, kept fresh by the poll); fall back to the raw result.
+    const status = liveStatus || result.status;
+    const isRequest = status === "requested";
+    const isConfirmed = status === "confirmed" || status === "seated";
+    const isCancelled = status === "cancelled" || status === "no_show";
+    const isDone = status === "completed";
+    // Self-cancel only makes sense while the booking is still live.
+    const canCancel = isRequest || isConfirmed;
+
+    // Status-driven hero icon + headline + body. Emerald is reserved for the
+    // one confirmed "money moment"; pending/closed states stay gray.
+    let HeroIcon = CheckCircle2;
+    let heroWrap = "bg-emerald-50 dark:bg-emerald-900/20";
+    let heroIconCls = "text-emerald-600 dark:text-emerald-400";
+    let title = t("rsvpConfirmedTitle", "Reservation bekræftet");
+    let body = t(
+      "rsvpConfirmedBody",
+      "Vi glæder os til at se dig. Du modtager en bekræftelse hvis du har angivet en email.",
+    );
+    if (isRequest) {
+      HeroIcon = Clock;
+      heroWrap = "bg-gray-100 dark:bg-gray-800";
+      heroIconCls = "text-gray-500 dark:text-gray-400";
+      title = t("rsvpRequestTitle", "Forespørgsel modtaget");
+      body = t(
+        "rsvpRequestBody",
+        "Vi har modtaget din forespørgsel — stedet vender tilbage for at bekræfte.",
+      );
+    } else if (isCancelled) {
+      HeroIcon = XCircle;
+      heroWrap = "bg-gray-100 dark:bg-gray-800";
+      heroIconCls = "text-gray-500 dark:text-gray-400";
+      title = t("rsvpCancelledTitle", "Reservation aflyst");
+      body = t(
+        "rsvpCancelledBody",
+        "Din reservation er aflyst, og bordet er frigivet. Du er velkommen til at booke igen.",
+      );
+    } else if (isDone) {
+      heroWrap = "bg-gray-100 dark:bg-gray-800";
+      heroIconCls = "text-gray-500 dark:text-gray-400";
+      title = t("rsvpDoneTitle", "Tak for besøget");
+      body = t("rsvpDoneBody", "Denne reservation er afsluttet.");
+    }
+
     return (
       <div className="min-h-screen bg-white dark:bg-gray-950 px-4 py-12">
         <div className="max-w-md mx-auto space-y-6 text-center">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-full bg-emerald-50 dark:bg-emerald-900/20 mx-auto">
-            <CheckCircle2
+          <div
+            className={`inline-flex items-center justify-center w-14 h-14 rounded-full mx-auto ${heroWrap}`}
+          >
+            <HeroIcon
               size={28}
               strokeWidth={1.75}
-              className="text-emerald-600 dark:text-emerald-400"
+              className={heroIconCls}
               aria-hidden="true"
             />
           </div>
           <div className="space-y-1">
             <h1 className="text-[26px] font-semibold tracking-tight text-gray-900 dark:text-gray-100">
-              {isRequest
-                ? t("rsvpRequestTitle", "Forespørgsel modtaget")
-                : t("rsvpConfirmedTitle", "Reservation bekræftet")}
+              {title}
             </h1>
-            <p className="text-sm text-gray-600 dark:text-gray-300">
-              {isRequest
-                ? t(
-                    "rsvpRequestBody",
-                    "Vi har modtaget din forespørgsel — stedet vender tilbage for at bekræfte.",
-                  )
-                : t(
-                    "rsvpConfirmedBody",
-                    "Vi glæder os til at se dig. Du modtager en bekræftelse hvis du har angivet en email.",
-                  )}
-            </p>
+            <p className="text-sm text-gray-600 dark:text-gray-300">{body}</p>
           </div>
+
+          {/* Live status pill — while a group request is pending we poll and
+              flip this to "Bekræftet" the moment the restaurant confirms. */}
+          {isRequest && (
+            <div
+              className="inline-flex items-center gap-2 rounded-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2
+                size={13}
+                strokeWidth={2}
+                className="animate-spin text-gray-400"
+                aria-hidden="true"
+              />
+              {t("rsvpStatusWaiting", "Afventer bekræftelse fra stedet…")}
+            </div>
+          )}
+          {isConfirmed && status !== result.status && (
+            <div
+              className="inline-flex items-center gap-2 rounded-full border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300"
+              role="status"
+              aria-live="polite"
+            >
+              <CheckCircle2 size={13} strokeWidth={2} aria-hidden="true" />
+              {t("rsvpStatusConfirmed", "Bekræftet")}
+            </div>
+          )}
 
           <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 text-left space-y-2">
             <SummaryRow
@@ -424,6 +605,31 @@ export default function ReservationPublicPage() {
               value={guestName.trim()}
             />
           </div>
+
+          {/* Self-cancel — frees the table and notifies the restaurant.
+              Hidden once the booking is cancelled/done. */}
+          {canCancel && (
+            <div className="space-y-2">
+              <Button
+                variant="secondary"
+                size="lg"
+                onClick={onCancel}
+                busy={cancelling}
+                disabled={cancelling}
+                className="w-full"
+              >
+                {t("rsvpCancelBtn", "Aflys reservation")}
+              </Button>
+              {cancelError && (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {t(
+                    "rsvpCancelError",
+                    "Kunne ikke aflyse. Prøv igen, eller kontakt stedet direkte.",
+                  )}
+                </p>
+              )}
+            </div>
+          )}
 
           <p className="text-xs text-gray-400 dark:text-gray-500">
             {page.business_name}

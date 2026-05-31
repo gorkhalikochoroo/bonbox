@@ -174,17 +174,17 @@ export default function StaffHoursPage() {
   // vertical layout per accountant convention.
   const [mobileTab, setMobileTab] = useState("log"); // "summary" | "log" | "recent"
   const mobileTabs = [
-    { id: "summary", label: t("hoursTabSummary") || "Summary" },
-    { id: "log", label: t("hoursTabLog") || "Log" },
-    { id: "recent", label: t("hoursTabRecent") || "Recent", count: entries?.length || undefined },
+    { id: "summary", label: t("hoursTabSummary", "Summary") },
+    { id: "log", label: t("hoursTabLog", "Log") },
+    { id: "recent", label: t("hoursTabRecent", "Recent"), count: entries?.length || undefined },
   ];
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4 sm:space-y-6">
       <PageHeader
         eyebrow="STAFF"
-        title={t("staffHours") || "Staff Hours"}
-        subtitle="Track working hours, clock in/out, and confirm schedules."
+        title={t("staffHours", "Staff Hours")}
+        subtitle={t("staffHoursSubtitle", "Track working hours, clock in/out, and confirm schedules.")}
       />
 
       {/* Period Selector — always visible (the period scopes ALL three
@@ -256,6 +256,7 @@ export default function StaffHoursPage() {
    PERIOD SELECTOR
    ═══════════════════════════════════════════════════════════ */
 function PeriodSelector({ from, to, loading, onPrev, onNext }) {
+  const { t } = useLanguage();
   return (
     // Mobile: arrows only + tight period label. Tablet+: full "Previous
     // Period" / "Next Period" labels. Keeps a 320px viewport readable.
@@ -265,15 +266,15 @@ function PeriodSelector({ from, to, loading, onPrev, onNext }) {
         size="sm"
         onClick={onPrev}
         disabled={loading}
-        title="Previous period"
+        title={t("periodPrev", "Previous period")}
         iconLeft={
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
         }
       >
-        <span className="hidden sm:inline">Previous Period</span>
-        <span className="sm:hidden sr-only">Previous</span>
+        <span className="hidden sm:inline">{t("periodPrev", "Previous period")}</span>
+        <span className="sm:hidden sr-only">{t("periodPrevShort", "Previous")}</span>
       </Button>
 
       <div className="text-center min-w-0 flex-1">
@@ -291,15 +292,15 @@ function PeriodSelector({ from, to, loading, onPrev, onNext }) {
         size="sm"
         onClick={onNext}
         disabled={loading}
-        title="Next period"
+        title={t("periodNext", "Next period")}
         iconRight={
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
           </svg>
         }
       >
-        <span className="hidden sm:inline">Next Period</span>
-        <span className="sm:hidden sr-only">Next</span>
+        <span className="hidden sm:inline">{t("periodNext", "Next period")}</span>
+        <span className="sm:hidden sr-only">{t("periodNextShort", "Next")}</span>
       </Button>
     </div>
   );
@@ -1019,7 +1020,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                     <button
                       onClick={() => { setEditingId(entry.id); setEditHours(String(entry.total_hours || "")); }}
                       className="p-1.5 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition"
-                      title="Edit hours"
+                      title={t("editHours", "Edit hours")}
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -1029,7 +1030,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                       onClick={() => handleDelete(entry.id)}
                       disabled={isDeleting}
                       className="p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition disabled:opacity-40"
-                      title="Delete entry"
+                      title={t("deleteEntry", "Delete entry")}
                     >
                       {isDeleting ? (
                         <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">

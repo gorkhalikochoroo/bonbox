@@ -408,7 +408,12 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed }) {
 }
 
 
-function ScheduleTab({ shifts, staffName, token, onShiftsChanged }) {
+function ScheduleTab({ shifts: rawShifts, staffName, token, onShiftsChanged }) {
+  // Defense-in-depth: the portal API already filters to published shifts
+  // (get_portal_schedule), but never render a draft even if one ever slips
+  // through — the owner's Publish action is the single source of truth for
+  // what staff see, and the "This week" hours KPI must exclude drafts.
+  const shifts = (rawShifts || []).filter((s) => s && s.status === "published");
   const today = toLocalISO(new Date());
   const weekStart = getWeekStart(today);
 

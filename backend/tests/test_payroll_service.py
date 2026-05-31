@@ -35,8 +35,11 @@ def test_personfradrag_is_monthly_2026():
 
 
 def test_atp_full_time_monthly():
-    # 2024+: 284 kr/quarter ÷ 3 = 94.65 kr/month per full-time employee.
-    assert ATP_MONTHLY_FULL_TIME == 94.65
+    # ATP is hours-tiered (see _atp_total_for_hours). The back-compat
+    # ATP_MONTHLY_FULL_TIME alias is the EMPLOYEE 1/3 share of the full
+    # monthly contribution: 284 × ⅓ = 94.67 (derived from the 284 kr base;
+    # the published employee sats is ~94,65, the 2-øre gap is rounding).
+    assert ATP_MONTHLY_FULL_TIME == 94.67
 
 
 def test_feriepenge_rate_is_125_percent():
@@ -48,8 +51,9 @@ def test_feriepenge_rate_is_125_percent():
 # ─────────────────────────────────────────────────────────────────
 def test_calc_employee_30k_full_time():
     """A 30,000 kr/month café manager — typical Copenhagen SMB wage.
-    Defaults to hovedkort (36% A-skat, with personfradrag)."""
-    result = calc_employee_period(gross=30000, contract_type="full")
+    Defaults to hovedkort (36% A-skat, with personfradrag). Full-time
+    hours (160 ≥ 117) → full ATP tier."""
+    result = calc_employee_period(gross=30000, hours=160, contract_type="full")
 
     # AM-bidrag: 8% of 30,000 = 2,400
     assert result["am_bidrag"] == 2400.0
@@ -58,17 +62,22 @@ def test_calc_employee_30k_full_time():
     # A-skat: 36% of 23,200 = 8,352
     assert result["a_skat"] == 8352.0
 
-    # ATP: 94.65 (full time, 2024+ rate)
-    assert result["atp"] == 94.65
+    # ATP — hours-tiered. 160h ≥ 117h → full 284 kr contribution, split
+    # 1/3 employee (94.67, withheld from pay) + 2/3 employer (189.33, on
+    # top). result["atp"] is the EMPLOYER share.
+    assert result["atp_total"] == 284.0
+    assert result["atp_employee"] == 94.67
+    assert result["atp_employer"] == 189.33
+    assert result["atp"] == 189.33
 
     # Feriepenge: 12.5% of 30,000 = 3,750
     assert result["feriepenge"] == 3750.0
 
-    # Net to employee: 30,000 - 2,400 - 8,352 = 19,248
-    assert result["net_pay"] == 19248.0
+    # Net to employee: 30,000 - 2,400 (AM) - 8,352 (A-skat) - 94.67 (own ATP) = 19,153.33
+    assert result["net_pay"] == 19153.33
 
-    # Employer total cost: 30,000 + 94.65 (ATP) + 3,750 (feriepenge) = 33,844.65
-    assert result["employer_total_cost"] == 33844.65
+    # Employer total cost: 30,000 + 189.33 (employer ATP) + 3,750 (feriepenge) = 33,939.33
+    assert result["employer_total_cost"] == 33939.33
 
 
 def test_calc_employee_below_personfradrag():
@@ -119,12 +128,17 @@ def test_personfradrag_can_be_disabled_for_bikort_emulation():
     assert no_allow["a_skat"] > with_allow["a_skat"]
 
 
-def test_part_time_no_atp():
-    """Part-time contracts don't accrue ATP in our simplified model."""
-    full = calc_employee_period(gross=20000, contract_type="full")
-    part = calc_employee_period(gross=20000, contract_type="part")
-    assert full["atp"] == 94.65
-    assert part["atp"] == 0.0
+def test_atp_is_hours_tiered():
+    """ATP accrues by ATP-pligtige HOURS worked in the month, NOT by
+    contract_type. A full-hours employee (≥117h) gets the full 284 kr
+    contribution; a very-low-hours employee (<39h) accrues nothing."""
+    full = calc_employee_period(gross=20000, hours=160)   # ≥117h → full tier
+    low = calc_employee_period(gross=20000, hours=20)     # <39h → below ATP floor
+    assert full["atp_total"] == 284.0
+    assert full["atp_employee"] == 94.67
+    assert full["atp"] == 189.33          # employer share
+    assert low["atp_total"] == 0.0
+    assert low["atp"] == 0.0
 
 
 # ─────────────────────────────────────────────────────────────────
