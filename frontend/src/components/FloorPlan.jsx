@@ -27,6 +27,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Users,
+  User,
   Link2,
   Pencil,
   Check,
@@ -38,6 +39,7 @@ import {
 } from "lucide-react";
 import api from "../services/api";
 import Button from "./ui/Button";
+import { venueProfile } from "../config/venueProfiles";
 
 // ── Status → visual tokens ────────────────────────────────────────────
 // Mirrors deriveFloorState's status vocabulary, mapped onto the brand
@@ -198,17 +200,27 @@ function autoLayout(cells) {
 
 // Build the working layout: each table's effective {pos_x, pos_y, shape}.
 // Server-provided coords win; tables missing coords fall back to autoLayout.
-function buildLayout(cells) {
+// A resource with NO saved shape inherits its venue archetype's default —
+// dining picks round (≤4) / square (≥6), a bar leans square, a salon station
+// is round — so a fresh floor reads right for the business before the owner
+// ever opens "Arrange". An explicit "square" / "round" from the server always
+// wins over the archetype default.
+function buildLayout(cells, businessType) {
   const auto = autoLayout(cells);
   const map = {};
   cells.forEach((c) => {
     const id = String(c.res.id);
     const hasX = c.res.pos_x != null && Number.isFinite(Number(c.res.pos_x));
     const hasY = c.res.pos_y != null && Number.isFinite(Number(c.res.pos_y));
+    const profile = venueProfile(businessType, c.res);
+    const shape =
+      c.res.shape === "square" || c.res.shape === "round"
+        ? c.res.shape
+        : profile.defaultShape(c.res.capacity_seats);
     map[id] = {
       pos_x: hasX ? clampPct(Number(c.res.pos_x)) : auto[id]?.pos_x ?? 50,
       pos_y: hasY ? clampPct(Number(c.res.pos_y)) : auto[id]?.pos_y ?? 50,
-      shape: c.res.shape === "square" ? "square" : "round",
+      shape: shape === "square" ? "square" : "round",
     };
   });
   return map;
@@ -225,6 +237,7 @@ function TableNode({
   pos,
   nowMs,
   t,
+  profile,
   editing,
   selected,
   onTap,
@@ -236,12 +249,17 @@ function TableNode({
   const style = STATUS_STYLE[status] || STATUS_STYLE.free;
   const sizePx = tableSizePx(res.capacity_seats);
   const shape = pos.shape;
+  // Station-like resources (salon archetype, or any kind === "provider") read
+  // as a single person at a chair — one marker, not a ring of N chair dots.
+  // Everything else keeps the chair ring sized by capacity.
+  const stationLike = profile.stationLike;
   const chairs = useMemo(
-    () => chairPositions(res.capacity_seats, sizePx, shape),
-    [res.capacity_seats, sizePx, shape],
+    () => (stationLike ? [] : chairPositions(res.capacity_seats, sizePx, shape)),
+    [res.capacity_seats, sizePx, shape, stationLike],
   );
   const combined = cell.combined;
   const booking = cell.booking;
+  const VenueIcon = profile.icon;
 
   // Label line under the seat count: time + guest for an occupied table.
   const sub =
@@ -263,7 +281,9 @@ function TableNode({
         touchAction: editing ? "none" : "auto",
       }}
     >
-      {/* Chairs (behind the table) */}
+      {/* Chairs (behind the table). Station-like resources skip the ring and
+          show a single seat marker just above the body instead — one person
+          at the chair, not a party around a table. */}
       {chairs.map((c, i) => (
         <span
           key={i}
@@ -278,6 +298,19 @@ function TableNode({
           }}
         />
       ))}
+      {stationLike && (
+        <span
+          aria-hidden
+          className={"absolute rounded-full " + style.chair}
+          style={{
+            width: 11,
+            height: 11,
+            left: "50%",
+            top: "50%",
+            transform: `translate(-50%, calc(-50% - ${sizePx / 2 + 9}px))`,
+          }}
+        />
+      )}
 
       {/* The table body — a button in view mode, a drag handle in edit. */}
       <button
@@ -320,9 +353,16 @@ function TableNode({
             aria-hidden
           />
         )}
+        {/* Faint venue icon centred behind the label — the per-business
+            signature (chair / beer / scissors). Decorative only: very low
+            opacity so the label + count stay the focus, no brand color. */}
+        <VenueIcon
+          className={"absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1/2 h-1/2 opacity-[0.06] pointer-events-none " + style.text}
+          aria-hidden
+        />
         <span
           className={
-            "font-semibold leading-none truncate max-w-full " +
+            "relative font-semibold leading-none truncate max-w-full " +
             style.text +
             " " +
             (sizePx >= 80 ? "text-sm" : "text-xs")
@@ -331,10 +371,19 @@ function TableNode({
           {res.label}
         </span>
         <span
-          className={"inline-flex items-center gap-0.5 leading-none " + style.text}
+          className={"relative inline-flex items-center gap-0.5 leading-none " + style.text}
         >
-          <Users className="w-3 h-3 opacity-70" aria-hidden />
-          <span className="text-[11px] tabular-nums">{res.capacity_seats}</span>
+          {stationLike ? (
+            <>
+              <User className="w-3 h-3 opacity-70" aria-hidden />
+              <span className="text-[10px]">{t(profile.unitKey, "per chair")}</span>
+            </>
+          ) : (
+            <>
+              <Users className="w-3 h-3 opacity-70" aria-hidden />
+              <span className="text-[11px] tabular-nums">{res.capacity_seats}</span>
+            </>
+          )}
         </span>
         {sub && sizePx >= 72 && (
           <span
@@ -390,12 +439,21 @@ export default function FloorPlan({
   cells,
   nowMs,
   t,
+  businessType = null,
   onSelect,
   onSeatNow,
   nextBookingId = null,
 }) {
+  // Account-level venue archetype — drives the section vocabulary (noun,
+  // icon, empty state, hints, zone presets). Per-resource provider overrides
+  // are resolved separately, per cell, inside the render loop.
+  const profile = useMemo(() => venueProfile(businessType), [businessType]);
+
   // Layout for the live (server) data — recomputed when resources change.
-  const baseLayout = useMemo(() => buildLayout(cells), [cells]);
+  const baseLayout = useMemo(
+    () => buildLayout(cells, businessType),
+    [cells, businessType],
+  );
 
   // Working copy edited in "Arrange room" mode. null = not editing.
   const [editing, setEditing] = useState(false);
@@ -577,18 +635,20 @@ export default function FloorPlan({
     [onSeatNow, onSelect],
   );
 
-  // Empty state — no tables at all.
+  // Empty state — no tables/stations/spaces at all. Copy + icon follow the
+  // venue archetype so a salon sees "No stations yet", a bar bar-wording, etc.
   if (!cells || cells.length === 0) {
+    const EmptyIcon = profile.icon;
     return (
       <div className="rounded-2xl border border-dashed border-gray-300 dark:border-gray-700 bg-gradient-to-b from-gray-50 to-white dark:from-gray-900/60 dark:to-gray-900 py-14 text-center">
         <div className="mx-auto mb-3 w-14 h-14 rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center shadow-sm">
-          <Move className="w-6 h-6 text-gray-300 dark:text-gray-600" aria-hidden />
+          <EmptyIcon className="w-6 h-6 text-gray-300 dark:text-gray-600" aria-hidden />
         </div>
         <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
-          {t("rsvpFloorEmptyTitle", "No tables yet")}
+          {t(profile.emptyTitleKey, "No tables yet")}
         </p>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-sm mx-auto">
-          {t("rsvpFloorEmptyBody", "Add tables on the Floor tab to see your room here.")}
+          {t(profile.emptyBodyKey, "Add tables on the Floor tab to see your room here.")}
         </p>
       </div>
     );
@@ -602,11 +662,11 @@ export default function FloorPlan({
           {editing ? (
             <span className="inline-flex items-center gap-1.5 text-gray-700 dark:text-gray-200">
               <Move className="w-3.5 h-3.5" aria-hidden />
-              {t("rsvpPlanDragHint", "Drag tables to arrange. Tap the icon to switch round / square.")}
+              {t(profile.dragHintKey, "Drag tables to arrange. Tap the icon to switch round / square.")}
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5">
-              {t("rsvpPlanTapHint", "Tap a table to seat or open a booking.")}
+              {t(profile.tapHintKey, "Tap a table to seat or open a booking.")}
             </span>
           )}
         </div>
@@ -647,7 +707,7 @@ export default function FloorPlan({
               className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 hover:text-gray-900 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
             >
               <Pencil className="w-4 h-4" aria-hidden />
-              {t("rsvpArrangeRoom", "Arrange room")}
+              {t(profile.arrangeKey, "Arrange room")}
             </button>
           )}
         </div>
@@ -702,6 +762,10 @@ export default function FloorPlan({
               !editing &&
               nextBookingId != null &&
               c.booking?.reservation?.id === nextBookingId;
+            // Resolve the node's archetype with the per-resource override: a
+            // provider station renders salon-style (person marker) even inside
+            // a dining venue, otherwise it inherits the account profile.
+            const cellProfile = venueProfile(businessType, c.res);
             return (
               <div key={id} className="relative">
                 <TableNode
@@ -709,6 +773,7 @@ export default function FloorPlan({
                   pos={pos}
                   nowMs={nowMs}
                   t={t}
+                  profile={cellProfile}
                   editing={editing}
                   selected={isNext || activeId === id}
                   onTap={handleTap}

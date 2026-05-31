@@ -68,6 +68,7 @@ import Empty from "../components/ui/Empty";
 import FloorPlan from "../components/FloorPlan";
 import { QRCodeSVG } from "qrcode.react";
 import { canPurchaseInApp } from "../utils/platform";
+import { venueProfile } from "../config/venueProfiles";
 
 // Status → colored-dot token for the status pill. Severe = red, the
 // terminal-good states emerald, requests amber, dead states gray.
@@ -185,8 +186,8 @@ export default function ReservationsPage() {
         size="lg"
       />
 
-      {tab === "book" && <BookSection t={t} />}
-      {tab === "floor" && <FloorSection t={t} />}
+      {tab === "book" && <BookSection t={t} businessType={user?.business_type} />}
+      {tab === "floor" && <FloorSection t={t} businessType={user?.business_type} />}
       {tab === "settings" && <SettingsSection t={t} user={user} />}
     </div>
   );
@@ -358,7 +359,7 @@ function deriveFloorState(reservations, resources, nowMs) {
 // draggable tables, chairs, zone bands, and edit/save). The tap + seat-now
 // handlers are passed straight through so FloorPlan reuses the page's shared
 // ReservationDrawer + SeatNowSheet.
-function FloorView({ reservations, resources, t, onSelect, onSeatNow }) {
+function FloorView({ reservations, resources, t, businessType, onSelect, onSeatNow }) {
   const nowMs = Date.now();
   const cells = useMemo(
     () => deriveFloorState(reservations, resources, nowMs),
@@ -389,6 +390,7 @@ function FloorView({ reservations, resources, t, onSelect, onSeatNow }) {
       cells={cells}
       nowMs={nowMs}
       t={t}
+      businessType={businessType}
       onSelect={onSelect}
       onSeatNow={onSeatNow}
       nextBookingId={nextBookingId}
@@ -811,7 +813,7 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
   );
 }
 
-function BookSection({ t }) {
+function BookSection({ t, businessType }) {
   const [day, setDay] = useState(() => isoDay(new Date()));
   const [view, setView] = useState(() => {
     try {
@@ -1217,6 +1219,7 @@ function BookSection({ t }) {
             reservations={reservations}
             resources={resources}
             t={t}
+            businessType={businessType}
             onSelect={setSelected}
             onSeatNow={setSeatTarget}
           />
@@ -1277,7 +1280,40 @@ function StatusPill({ status, label }) {
 }
 
 // ─── Floor / resources ────────────────────────────────────────────────
-function FloorSection({ t }) {
+// Suggested-zone chips — tap-to-fill the zone input with one of the venue
+// archetype's preset labels. Purely a convenience / nicer default; the owner
+// can still type anything. Hidden once a zone string is present so it never
+// nags. Matches the FilterBar / chip aesthetic (gray, rounded, soft border).
+function ZonePresetChips({ profile, t, value, onPick }) {
+  if (!profile.zonePresetKeys.length) return null;
+  if (value && value.trim()) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-[11px] text-gray-400 dark:text-gray-500">
+        {t("venueZoneSuggest", "Suggested")}
+      </span>
+      {profile.zonePresetKeys.map((k) => {
+        const label = t(k, "");
+        return (
+          <button
+            key={k}
+            type="button"
+            onClick={() => onPick(label)}
+            className="inline-flex items-center h-7 px-2.5 rounded-full border border-gray-200 dark:border-gray-700 text-[11px] font-medium text-gray-600 hover:text-gray-900 hover:border-gray-300 hover:bg-gray-50 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function FloorSection({ t, businessType }) {
+  // Account venue archetype — drives the section's vocabulary (heading,
+  // intro, empty state, icon) and the suggested zone-preset chips.
+  const profile = venueProfile(businessType);
+  const VenueIcon = profile.icon;
   const [resources, setResources] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -1458,7 +1494,7 @@ function FloorSection({ t }) {
     <div className="space-y-4">
       <p className="text-sm text-gray-500 dark:text-gray-400">
         {t(
-          "rsvpFloorIntro",
+          profile.floorIntroKey,
           "Add the tables guests can be seated at. Capacity drives which party sizes a slot can take.",
         )}
       </p>
@@ -1569,6 +1605,7 @@ function FloorSection({ t }) {
             </span>
           </label>
         </div>
+        <ZonePresetChips profile={profile} t={t} value={bulkZone} onPick={setBulkZone} />
 
         {bulkDone && (
           <p className="text-sm text-emerald-600 dark:text-emerald-400">
@@ -1641,6 +1678,7 @@ function FloorSection({ t }) {
             className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
           />
         </div>
+        <ZonePresetChips profile={profile} t={t} value={zone} onPick={setZone} />
         <label className="flex items-start gap-2.5 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -1694,9 +1732,9 @@ function FloorSection({ t }) {
         <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>
       ) : resources.length === 0 ? (
         <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 py-10 text-center">
-          <Armchair className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" aria-hidden />
+          <VenueIcon className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" aria-hidden />
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            {t("rsvpFloorEmpty", "No tables yet — add your first above.")}
+            {t(profile.floorEmptyKey, "No tables yet — add your first above.")}
           </p>
         </div>
       ) : (
@@ -1708,7 +1746,7 @@ function FloorSection({ t }) {
             >
               <div className="min-w-0">
                 <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate flex items-center gap-2">
-                  <Armchair className="w-4 h-4 text-gray-400" aria-hidden />
+                  <VenueIcon className="w-4 h-4 text-gray-400" aria-hidden />
                   {r.label}
                   {r.zone && (
                     <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
