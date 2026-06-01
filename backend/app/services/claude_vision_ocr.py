@@ -607,8 +607,11 @@ _Z_REPORT_EXTRACTION_TOOL = {
                 "description": (
                     "Per-payment-method totals. Map detected lines into "
                     "the standard keys (cash, card, softpay, visa, "
-                    "mastercard, dankort, mobilepay). Use 'card' as the "
-                    "aggregate Betalingskort if no breakdown is shown."
+                    "mastercard, dankort, mobilepay, faktura). Use 'card' "
+                    "as the aggregate Betalingskort if no breakdown is "
+                    "shown. 'faktura' = credit / account sales not settled "
+                    "at the till — Danish 'Kreditsalg', 'Faktura' or 'På "
+                    "regning' (frequently 0,00)."
                 ),
                 "properties": {
                     "cash": {"type": ["number", "null"]},
@@ -618,6 +621,7 @@ _Z_REPORT_EXTRACTION_TOOL = {
                     "mastercard": {"type": ["number", "null"]},
                     "dankort": {"type": ["number", "null"]},
                     "mobilepay": {"type": ["number", "null"]},
+                    "faktura": {"type": ["number", "null"]},
                 },
             },
             "cash_denominations": {
@@ -758,6 +762,14 @@ _Z_REPORT_EXTRACTION_TOOL = {
 }
 
 
+# Bumped whenever the Z-report system prompt / tool schema changes, so the
+# admin training review can correlate prompt revisions with failure rates
+# ("did errors drop after v2?"). Stored on every persisted extraction row.
+# v2 (2026-06-02): day-total anchor + varegruppe-code guard + faktura
+# payment field + cross-field reconciliation.
+Z_REPORT_PROMPT_VERSION = "zreport-2026-06-02-v2"
+
+
 _Z_REPORT_SYSTEM_PROMPT = (
     "You are extracting data from a Danish restaurant kasserapport "
     "(POS Z-report / day-close report). Your output goes into "
@@ -765,6 +777,22 @@ _Z_REPORT_SYSTEM_PROMPT = (
     "Call the save_z_report_extraction tool with the structured data. "
     "Return JSON only via the tool — never free text.\n\n"
     "Critical rules:\n"
+    "  • THE DAY TOTAL (revenue_total): use the amount on the grand "
+    "'Total:' / 'I alt' line in the totals summary block — the one "
+    "printed together with 'Subtotal:' and 'Moms 25%:' just above the "
+    "payment methods (Betalingskort, Softpay, Kontant). It equals the sum "
+    "of the payment methods and is typically the LARGEST money figure on "
+    "the report. MOMS can NEVER exceed revenue_total — if your candidate "
+    "total is smaller than the MOMS amount, you picked the wrong line.\n"
+    "  • NEVER read a varegruppe/department/PLU code as money. Lines like "
+    "'1011 - Aften', '1012 - Hvidvin', '1012 - Kaffe', '1012 - Vin Glas' "
+    "start with a 3-4 digit GROUP CODE (often repeated dozens of times) "
+    "followed by a category name — that leading number is a CODE, not an "
+    "amount. revenue_total is never one of these codes.\n"
+    "  • Extract only THIS day-close's figures. Ignore cumulative / "
+    "running counters ('siden start', grand-total-since-reset), Z-/bon-"
+    "numbers, terminal IDs, CVR-nr. and date/time stamps — none are "
+    "money amounts.\n"
     "  • Danish number format: period is THOUSANDS separator, comma is "
     "DECIMAL. '1.234,56' = 1234.56. '14.854,00' = 14854.00. Return "
     "numerics, not strings.\n"
@@ -823,16 +851,19 @@ def _validate_z_report_extraction(data: Any) -> dict | None:
         except (ValueError, TypeError):
             pass
 
-    # revenue_total — REQUIRED for a Z-report to be useful.
+    # revenue_total + moms — revenue_total is REQUIRED for a Z-report to be
+    # useful; genuine absence → fall back to the regex chain. The cross-
+    # field reconciliation (incl. the "MOMS can't exceed revenue" guard)
+    # runs at the END via reconcile_z_report, once every field is parsed,
+    # so it can weigh payments + categories together.
     total_raw = data.get("revenue_total")
-    out["revenue_total"] = None
-    if isinstance(total_raw, (int, float)) and total_raw > 0:
-        out["revenue_total"] = float(total_raw)
+    out["revenue_total"] = (
+        float(total_raw) if isinstance(total_raw, (int, float)) and total_raw > 0 else None
+    )
     if out["revenue_total"] is None:
-        # No revenue total → caller should fall back to regex extractor.
+        # No revenue total at all → caller should fall back to regex.
         return None
 
-    # MOMS amount + rate
     moms = data.get("moms_total")
     out["moms_total"] = float(moms) if isinstance(moms, (int, float)) and moms > 0 else None
     moms_rate = data.get("moms_rate")
@@ -855,7 +886,7 @@ def _validate_z_report_extraction(data: Any) -> dict | None:
     pb_raw = data.get("payment_breakdown") or {}
     if isinstance(pb_raw, dict):
         pb: dict[str, float | None] = {}
-        for key in ("cash", "card", "softpay", "visa", "mastercard", "dankort", "mobilepay"):
+        for key in ("cash", "card", "softpay", "visa", "mastercard", "dankort", "mobilepay", "faktura"):
             v = pb_raw.get(key)
             pb[key] = float(v) if isinstance(v, (int, float)) else None
         out["payment_breakdown"] = pb
@@ -950,6 +981,27 @@ def _validate_z_report_extraction(data: Any) -> dict | None:
     # notes
     notes = data.get("notes")
     out["notes"] = notes.strip()[:500] if isinstance(notes, str) and notes.strip() else None
+
+    # ── Cross-field reconciliation (money-critical) ────────────────────
+    # Deterministic bookkeeper's-eye checks now that every field is parsed:
+    # MOMS ≤ revenue (hard → blanks both totals), categories ≤ total,
+    # payments not wildly off revenue. Failed checks blank the implausible
+    # field(s), zero their per-field confidence, lower a derived
+    # consistency score, and are recorded in validator_failures for the
+    # admin training review. See kasserapport_reconciliation.py.
+    from app.services.kasserapport_reconciliation import reconcile_z_report
+    rec = reconcile_z_report(out)
+    for _fld in rec["fields_to_blank"]:
+        out[_fld] = None
+        if _fld in conf:
+            conf[_fld] = 0.0
+    out["confidence"] = conf
+    out["validator_failures"] = rec["validator_failures"]
+    out["consistency_score"] = rec["consistency_score"]
+    out["manual_review_needed"] = rec["manual_review_needed"]
+    out["totals_inconsistent"] = "moms_exceeds_revenue" in rec["failure_codes"]
+    if rec["note"]:
+        out["notes"] = (out["notes"] + " " + rec["note"]) if out.get("notes") else rec["note"]
 
     # POS auto-detect — Commit 2: pass raw header/footer text through so
     # the downstream keyword matcher (terminal_provider_detector.py) can

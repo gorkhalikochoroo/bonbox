@@ -695,6 +695,66 @@ def _register_cash_for_date(db: Session, *, user: User, target_date, branch_id) 
 
 # ─── POST — submit daily close ───
 
+def _capture_extraction_correction(db, user, *, status, final_values):
+    """Close the OCR learning loop: stamp what the owner ACTUALLY saved
+    (final_json) onto the most recent uncommitted scan extraction for this
+    user, plus user_corrected (did they change the model's totals?). The
+    extracted_json ↔ final_json diff is the training signal for which POS
+    layouts / fields the model misreads — fuel for the admin review +
+    prompt/format tuning.
+
+    Matches the latest open (committed_at IS NULL) /scan-report row within
+    24h — a backend-only match so no extraction_id has to be threaded
+    through the frontend (keeps this shippable via Render alone). Precise
+    per-scan linking (multi-terminal days) is a later refinement. Never
+    raises — a logging failure must never block a close.
+    """
+    try:
+        from datetime import timedelta
+        cutoff = utc_now() - timedelta(hours=24)
+        row = (
+            db.query(KasserapportExtraction)
+            .filter(
+                KasserapportExtraction.user_id == user.id,
+                KasserapportExtraction.committed_at.is_(None),
+                KasserapportExtraction.created_at >= cutoff,
+            )
+            .order_by(KasserapportExtraction.created_at.desc())
+            .first()
+        )
+        if row is None:
+            return  # close wasn't created from a scan (pure manual entry)
+
+        row.final_json = final_values
+
+        # user_corrected = did the saved totals differ from what OCR read?
+        ext = row.extracted_json or {}
+
+        def _close(a, b, tol=0.5):
+            if a is None or b is None:
+                return (a is None) == (b is None)
+            try:
+                return abs(float(a) - float(b)) <= tol
+            except (TypeError, ValueError):
+                return a == b
+
+        row.user_corrected = not (
+            _close(ext.get("revenue_total"), final_values.get("revenue_total"))
+            and _close(ext.get("moms_total"), final_values.get("moms_total"))
+        )
+        # Only "close the book" on this extraction when the day is locked;
+        # draft saves leave it open so a later edit can re-stamp final_json.
+        if status == "confirmed":
+            row.committed_at = utc_now()
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("daily_close: extraction correction-capture failed: %s", e)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 @router.post("")
 @_limiter.limit("30/minute")
 def create_daily_close(
@@ -908,6 +968,15 @@ def create_daily_close(
         )
         db.commit()
         db.refresh(existing)
+        _capture_extraction_correction(
+            db, user, status=status,
+            final_values={
+                "revenue_total": revenue_total, "moms_total": moms_total,
+                "payment_breakdown": data.payment_breakdown,
+                "revenue_breakdown": data.revenue_breakdown,
+                "cash_counted": data.cash_counted,
+            },
+        )
         response = _to_response(existing)
         # L3 — Lane A close-ritual auto-email. Only on transition INTO
         # confirmed (i.e. the lock event), not on subsequent draft saves
@@ -962,6 +1031,15 @@ def create_daily_close(
     )
     db.commit()
     db.refresh(dc)
+    _capture_extraction_correction(
+        db, user, status=status,
+        final_values={
+            "revenue_total": revenue_total, "moms_total": moms_total,
+            "payment_breakdown": data.payment_breakdown,
+            "revenue_breakdown": data.revenue_breakdown,
+            "cash_counted": data.cash_counted,
+        },
+    )
     response = _to_response(dc)
     # L3 — Lane A close-ritual auto-email. Only on the lock transition.
     # Drafts (status="draft") do NOT trigger — the email is the "the
@@ -1710,36 +1788,74 @@ async def scan_z_report(
             footer_text=footer_text,
         )
 
-        # Persist scan-level row regardless of detection outcome —
-        # gives the admin review history coverage even on misses.
+        # Persist the FULL scan-level extraction row regardless of detection
+        # outcome — this is the learning loop's raw material: extracted_json
+        # (what the model read) is later compared to final_json (what the
+        # owner saved on close) to reveal which POS layouts / fields get
+        # misread. Reconciliation results (validator_failures / manual_review
+        # / consistency) ride along from kasserapport_reconciliation via
+        # parse_z_report. Wrapped so a persist failure never blocks the scan.
         try:
+            import hashlib as _hashlib
+            from app.services.claude_vision_ocr import Z_REPORT_PROMPT_VERSION
+            _conf = parsed.get("confidence_per_field") or {}
+            _overall = _conf.get("overall") if isinstance(_conf, dict) else None
             extraction_row = KasserapportExtraction(
                 id=uuid.uuid4(),
                 user_id=user.id,
                 image_url=image_url,
                 document_type=parsed.get("doc_type") or "unknown",
-                pos_system="unknown",
+                pos_system=(detection["slug"] if detection else "unknown"),
+                extraction_confidence=_overall,
                 extracted_json={
+                    "revenue_total": parsed.get("revenue_total"),
+                    "moms_total": parsed.get("moms_total"),
+                    "moms_rate": parsed.get("moms_rate"),
+                    "revenue_breakdown": parsed.get("revenue_breakdown"),
+                    "payment_breakdown": parsed.get("payment_breakdown"),
+                    "cash_counted_total": parsed.get("cash_counted_total"),
+                    "cash_denominations": parsed.get("cash_denominations"),
+                    "per_clerk": parsed.get("per_clerk"),
+                    "tips": parsed.get("tips"),
+                    "surcharge": parsed.get("surcharge"),
+                    "doc_type": parsed.get("doc_type"),
+                    "business_date": parsed.get("business_date"),
+                    "totals_inconsistent": parsed.get("totals_inconsistent", False),
+                    "consistency_score": parsed.get("consistency_score"),
+                    "confidence": _conf,
+                    "notes": parsed.get("claude_notes"),
+                    "provider": parsed.get("_provider"),
                     "payment_terminal_header": header_text or None,
                     "payment_terminal_footer": footer_text or None,
                 },
-                manual_review_needed=False,
+                validator_failures=parsed.get("validator_failures") or [],
+                manual_review_needed=bool(parsed.get("manual_review_needed", False)),
+                image_sha256=_hashlib.sha256(file_bytes).hexdigest(),
+                prompt_version=Z_REPORT_PROMPT_VERSION,
                 detected_provider_slug=detection["slug"] if detection else None,
                 detected_provider_confidence=(
                     detection["confidence"] if detection else None
                 ),
             )
             db.add(extraction_row)
-            db.flush()
+            # Commit NOW, independent of detection. Previously the only commit
+            # lived inside the `if detection:` branch below, so a scan with no
+            # detected provider — the common case — silently rolled back and
+            # the table stayed empty. Surface the row id so the close-save can
+            # stamp final_json back onto this exact extraction.
+            db.commit()
+            db.refresh(extraction_row)
+            parsed["extraction_id"] = str(extraction_row.id)
         except Exception as e:  # noqa: BLE001
-            # Persistence failure must NOT block detection visibility —
-            # the owner still gets the chip in the response, we just
-            # lose the audit-history row for this scan.
+            # Persistence failure must NOT block the scan — the owner still
+            # gets their prefill + detection chip; we just lose the audit-
+            # history row for this scan.
             logger.warning(
                 "scan-report: extraction-row persist failed: %s", e,
             )
             db.rollback()
             extraction_row = None
+            parsed["extraction_id"] = None
 
         unlinked_count = 0
         if detection:

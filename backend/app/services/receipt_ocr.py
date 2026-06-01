@@ -493,6 +493,9 @@ def _z_report_to_legacy_shape(z: dict) -> dict:
             "cash": pb.get("cash"),
             "card": card_total,
             "mobilepay": pb.get("mobilepay"),
+            # Credit / account sales (Kreditsalg / Faktura / På regning).
+            # The frontend payment field for this is keyed "invoice".
+            "invoice": pb.get("faktura"),
         },
         "tips": z.get("tip"),
         "moms_total": z.get("moms_total"),
@@ -508,6 +511,14 @@ def _z_report_to_legacy_shape(z: dict) -> dict:
         #     all three steps + the per-clerk cross-check.
         "doc_type": z.get("doc_type", "z_report"),
         "business_date": z.get("business_date"),
+        # Cross-field reconciliation results (kasserapport_reconciliation).
+        # Surfaced so the /scan-report persistence row + the UI know what
+        # failed and whether to prompt for manual entry instead of trusting
+        # the prefill. totals_inconsistent: MOMS > revenue → both blanked.
+        "totals_inconsistent": z.get("totals_inconsistent", False),
+        "validator_failures": z.get("validator_failures") or [],
+        "consistency_score": z.get("consistency_score"),
+        "manual_review_needed": bool(z.get("manual_review_needed", False)),
         "revenue_breakdown": rb,
         "payment_breakdown": pb,
         "cash_denominations": z.get("cash_denominations") or {},
