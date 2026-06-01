@@ -474,12 +474,24 @@ def _z_report_to_legacy_shape(z: dict) -> dict:
     pb = z.get("payment_breakdown") or {}
     conf_overall = float((z.get("confidence") or {}).get("overall", 0.0))
 
-    # Card aggregate — prefer 'card' if Claude returned it, else sum
-    # the breakdown pieces it did return (softpay + visa + mastercard +
-    # dankort). The legacy frontend renders a single 'card' bucket.
-    card_total = pb.get("card")
-    if card_total is None:
-        pieces = [pb.get(k) for k in ("softpay", "visa", "mastercard", "dankort")]
+    # Card aggregate — the single 'card' bucket the legacy frontend renders.
+    # Betalingskort ('card') and Softpay are two SEPARATE card-terminal
+    # channels: when both are present their SUM is the card total (the common
+    # DK case — e.g. Betalingskort 605 + Softpay 14.249 = 14.854, matching the
+    # printed Total). Else 'card' alone, else softpay alone, else the brand
+    # splits (visa/mastercard/dankort) as a last-resort estimate. Brands are
+    # NOT added on top of a channel total — they're how that total split by
+    # scheme, so summing them in would double-count.
+    _card = pb.get("card")
+    _softpay = pb.get("softpay")
+    if _card is not None and _softpay is not None:
+        card_total = _card + _softpay
+    elif _card is not None:
+        card_total = _card
+    elif _softpay is not None:
+        card_total = _softpay
+    else:
+        pieces = [pb.get(k) for k in ("visa", "mastercard", "dankort")]
         card_total = sum(p for p in pieces if p is not None) or None
 
     return {
@@ -521,6 +533,37 @@ def _z_report_to_legacy_shape(z: dict) -> dict:
         "manual_review_needed": bool(z.get("manual_review_needed", False)),
         "revenue_breakdown": rb,
         "payment_breakdown": pb,
+        # ─── payments_view — structured 3-tier model for the redesigned
+        #     close UI (detection-driven dynamic fields). Additive; every
+        #     legacy key above stays for back-compat.
+        #       Tier A (headline)       — the ONLY keys summed into the
+        #                                 payment total. card = legacy-
+        #                                 resolved figure (precise channel
+        #                                 aggregation Betalingskort+Softpay is
+        #                                 a refinement pending captured data).
+        #       Tier B (card_breakdown) — brand/channel splits shown UNDER the
+        #                                 card line; INFORMATIONAL, NEVER
+        #                                 summed (else double-count: e.g.
+        #                                 Betalingskort 605 + Softpay 14.249 =
+        #                                 card, with Dankort/Mastercard the
+        #                                 brand split within).
+        #       Tier C (adjustments)    — tips + surcharge; separate lines,
+        #                                 not summed into the payment total.
+        "payments_view": {
+            "headline": {
+                "cash": pb.get("cash"),
+                "card": card_total,
+                "mobilepay": pb.get("mobilepay"),
+                "faktura": pb.get("faktura"),
+            },
+            "card_breakdown": {
+                k: pb.get(k)
+                for k in ("dankort", "visa", "mastercard", "softpay", "betalingskort")
+                if pb.get(k) is not None
+            },
+            "adjustments": {"tips": z.get("tip"), "surcharge": z.get("surcharge")},
+            "field_confidence": z.get("confidence") or {},
+        },
         "cash_denominations": z.get("cash_denominations") or {},
         "cash_counted_total": z.get("cash_counted_total"),
         "transactions": z.get("transactions") or {},

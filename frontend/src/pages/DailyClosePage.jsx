@@ -728,6 +728,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     if (incoming.cash_counted_total != null) merged.cash_counted_total = incoming.cash_counted_total;
     if (incoming.per_clerk) merged.per_clerk = incoming.per_clerk;
     if (incoming.doc_type) merged.doc_type = incoming.doc_type;
+    // Structured 3-tier payment view (headline / card_breakdown / adjustments)
+    // for the detection-driven breakdown display. Last scan wins.
+    if (incoming.payments_view) merged.payments_view = incoming.payments_view;
     // POS terminal auto-detect (Commit 2) — last scan wins. A re-scan
     // with a clearer header may flip the detection from null to a real
     // provider chip, so we always overwrite (including with null).
@@ -1920,6 +1923,30 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               })}
             </div>
 
+            {/* Card breakdown (Fordeling) — informational brand/channel
+                splits the OCR read, shown UNDER the card line. Read-only +
+                demoted: these are HOW the card total split by scheme, not
+                extra money, so they never enter the payment total. Surfaced
+                so the on-screen close mirrors the paper kasserapport 1:1. */}
+            {scanResult.payments_view?.card_breakdown &&
+              Object.keys(scanResult.payments_view.card_breakdown).length > 0 && (
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl px-4 py-3">
+                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+                  {t("cardBreakdownHeader", "Card breakdown")}
+                </div>
+                <div className="space-y-1 pl-1">
+                  {Object.entries(scanResult.payments_view.card_breakdown).map(([k, v]) => (
+                    <div key={k} className="flex justify-between text-xs text-gray-600 dark:text-gray-300">
+                      <span>{k === "betalingskort"
+                        ? t("brandBetalingskort", "Betalingskort (terminal)")
+                        : k.charAt(0).toUpperCase() + k.slice(1)}</span>
+                      <span className="tabular-nums">{(typeof v === "number" ? v : 0).toLocaleString()} {currency}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Tips — only for types that have tips */}
             {config.hasTips && (
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
@@ -1939,6 +1966,23 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   }} />
               </div>
             </div>
+            )}
+
+            {/* Adjustments — Gebyr (surcharge). A separate line that is NOT
+                part of the payment total (it's a fee, not money taken).
+                Display-only this pass so the owner sees what's on the report;
+                persistence into the accountant export is a tracked follow-up. */}
+            {typeof scanResult.payments_view?.adjustments?.surcharge === "number" &&
+              scanResult.payments_view.adjustments.surcharge !== 0 && (
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl px-4 py-3">
+                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
+                  {t("adjustmentsHeader", "Adjustments")}
+                </div>
+                <div className="flex justify-between text-xs text-gray-600 dark:text-gray-300">
+                  <span>{t("adjSurcharge", "Surcharge")}</span>
+                  <span className="tabular-nums">{scanResult.payments_view.adjustments.surcharge.toLocaleString()} {currency}</span>
+                </div>
+              </div>
             )}
 
             {/* Photo thumbnails — bigger + clickable to view full-size,

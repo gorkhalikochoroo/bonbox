@@ -818,7 +818,17 @@ def create_daily_close(
             data.revenue_breakdown,
         )
 
-    payment_total = sum((data.payment_breakdown or {}).values())
+    # payment_total sums ONLY the headline payment methods. Card brand /
+    # channel splits (dankort/visa/mastercard/softpay/betalingskort) may ride
+    # along in payment_breakdown for accountant fidelity / the kasserapport
+    # PDF, but they are a BREAKDOWN of the card line — summing them would
+    # double-count. Exclude them here: a server-side guarantee that mirrors
+    # the close-UI invariant (brands display under the card line, never add).
+    _CARD_BREAKDOWN_KEYS = {"dankort", "visa", "mastercard", "softpay", "betalingskort"}
+    payment_total = sum(
+        v for k, v in (data.payment_breakdown or {}).items()
+        if k not in _CARD_BREAKDOWN_KEYS and isinstance(v, (int, float))
+    )
 
     # Cash expected — the baseline the counted drawer is measured against.
     # Prefer the SYNCED POS register cash for the date (what the till says
