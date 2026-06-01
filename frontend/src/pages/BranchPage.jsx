@@ -8,7 +8,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, SectionBanner, TabPills, Button } from "../components/ui";
-import { canPurchaseInApp } from "../utils/platform";
+import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from "recharts";
@@ -136,8 +136,10 @@ export default function BranchPage() {
         />
       </FadeIn>
 
-      {/* Cap-hit upgrade prompt — appears below header when at cap */}
-      {branchAtCap && (
+      {/* Cap-hit upgrade prompt — appears below header when at cap.
+          App Store compliance (Apple 3.1.1): this banner is purely an "Upgrade
+          to Pro" prompt, so it's hidden on native. Web unchanged. */}
+      {branchAtCap && !isNativeApp() && (
         <FadeIn delay={0.02}>
           <SectionBanner
             severity="warn"

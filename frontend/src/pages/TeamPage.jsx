@@ -8,7 +8,7 @@ import { Icon } from "../components/ui";
 // Task #204 P2.8 — revisor invite moved from ProfilePage to TeamPage
 // so the people-with-access surfaces all live in one place.
 import RevisorSection from "../components/RevisorSection";
-import { canPurchaseInApp } from "../utils/platform";
+import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
 const ROLE_COLORS = {
   owner: "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400",
@@ -215,8 +215,10 @@ export default function TeamPage() {
         </div>
       </FadeIn>
 
-      {/* Cap-hit banner — appears when at seat cap, even if invite form is closed */}
-      {teamAtCap && isOwner && (
+      {/* Cap-hit banner — appears when at seat cap, even if invite form is closed.
+          App Store compliance (Apple 3.1.1): the body pitches "Upgrade to Pro /
+          Business", so the banner is hidden on native. Web unchanged. */}
+      {teamAtCap && isOwner && !isNativeApp() && (
         <FadeIn>
           <div className="px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 text-[13px] text-amber-800 dark:text-amber-200 flex items-center gap-3 flex-wrap">
             <span className="font-semibold">

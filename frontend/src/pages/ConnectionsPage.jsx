@@ -30,6 +30,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useFeatures } from "../hooks/useFeatures";
+import { isNativeApp } from "../utils/platform";
 // Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
@@ -76,7 +77,10 @@ function ConnectionCard({
             <h3 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100 tracking-tight">
               {title}
             </h3>
-            {badge && (
+            {/* App Store compliance (Apple 3.1.1): the connection tier badge
+                (e.g. "Starter+") is a tier marker — hidden on native, shown on
+                web. The card + its connect action are unchanged either way. */}
+            {badge && !isNativeApp() && (
               <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 font-medium">
                 {badge}
               </span>
@@ -414,11 +418,13 @@ export default function ConnectionsPage() {
     } catch (err) {
       const status = err?.response?.status;
       // 402 = feature locked (Free user) -> bounce to subscription
+      // App Store compliance (Apple 3.1.1): neutral toast on native (no tier).
       if (status === 402) {
         setToast({
           kind: "error",
-          msg: t("mpFreeGate") ||
-               "MobilePay auto-sync is a Starter+ feature.",
+          msg: isNativeApp()
+            ? (t("mpFreeGateNative") || "MobilePay auto-sync isn't part of your current plan.")
+            : (t("mpFreeGate") || "MobilePay auto-sync is a Starter+ feature."),
         });
       } else {
         setToast({

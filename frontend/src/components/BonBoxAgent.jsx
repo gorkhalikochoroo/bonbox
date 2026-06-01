@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { isNativeApp } from "../utils/platform";
 import { trackEvent } from "../hooks/useEventLog";
 import {
   RevenueCard,
@@ -242,10 +243,16 @@ export default function BonBoxAgent() {
             const limit = detail?.limit;
             const upgradeTo = detail?.upgrade_to || "pro";
             const planLabel = upgradeTo === "pro" ? "Pro" : "Starter";
-            const msg =
-              limit != null
-                ? `You've used today's ${limit} BonBox AI messages. ${planLabel} unlocks more — see /subscription.`
-                : `Today's BonBox AI message limit reached. ${planLabel} unlocks more — see /subscription.`;
+            // App Store compliance (Apple 3.1.1): on native, no tier name and no
+            // "/subscription" steering — just a neutral "limit reached" line.
+            // Web keeps the upgrade nudge.
+            const msg = isNativeApp()
+              ? (limit != null
+                  ? `You've used today's ${limit} BonBox AI messages. They reset tomorrow.`
+                  : `Today's BonBox AI message limit reached. It resets tomorrow.`)
+              : (limit != null
+                  ? `You've used today's ${limit} BonBox AI messages. ${planLabel} unlocks more — see /subscription.`
+                  : `Today's BonBox AI message limit reached. ${planLabel} unlocks more — see /subscription.`);
             setMessages((prev) => [
               ...prev,
               { role: "assistant", content: msg, isUpgradeNudge: true },

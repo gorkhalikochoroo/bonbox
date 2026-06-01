@@ -114,72 +114,13 @@ export default function UpgradeNudge({
   }
 
   // ── App Store compliance (Apple Guideline 3.1.1) ────────────────────
-  // On the native app we must NOT show a purchase/upgrade CTA, an external
-  // checkout link, or a price for paid tiers. Render a neutral, link-free,
-  // price-free notice so the user still understands the feature needs a
-  // higher plan — they manage their plan on the web (bonbox.dk).
-  if (isNativeApp()) {
-    if (intent === "card") {
-      return (
-        <div
-          className={
-            "rounded-xl border border-stone-200 dark:border-stone-800 " +
-            "bg-stone-50 dark:bg-stone-900/60 p-5 sm:p-6 " + className
-          }
-        >
-          <div className="flex items-start gap-3">
-            {icon && (
-              <div className="text-stone-400 shrink-0" aria-hidden="true">
-                {icon}
-              </div>
-            )}
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold tracking-wider uppercase text-stone-500 dark:text-stone-400">
-                {tierMeta.name}
-              </p>
-              {benefit && (
-                <h4 className="text-base font-semibold text-stone-900 dark:text-stone-100 mt-1">
-                  {benefit}
-                </h4>
-              )}
-              <p className="text-xs text-stone-500 dark:text-stone-400 mt-1.5">
-                Included on {tierMeta.name}.
-              </p>
-            </div>
-          </div>
-        </div>
-      );
-    }
-    if (intent === "dialog") {
-      return (
-        <UpgradeNudgeDialog
-          native
-          icon={icon}
-          benefit={benefit}
-          tier={tier}
-          tierMeta={tierMeta}
-          className={className}
-          navigate={navigate}
-        />
-      );
-    }
-    // inline — a muted, non-interactive chip (no link, no arrow, no price)
-    return (
-      <span
-        className={
-          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md " +
-          "bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 " +
-          "text-xs font-medium " + className
-        }
-      >
-        {icon && <span aria-hidden="true">{icon}</span>}
-        <span>
-          {benefit ? `${benefit} · ` : ""}
-          <strong>{tierMeta.name}</strong>
-        </span>
-      </span>
-    );
-  }
+  // The native app must carry NO upgrade/purchase surface at all — that
+  // includes the tier NAME ("Included on Pro / Starter"), the price block
+  // (TIER_LABELS / PriceTag), and any /subscription CTA. Approach (a) for
+  // iOS is to HIDE gated features outright, so the nudge has nothing to
+  // say: render null. This also guarantees TIER_LABELS / PriceTag are never
+  // reached on native. Web keeps the full nudge (price + CTA) unchanged.
+  if (isNativeApp()) return null;
 
   const handleClick = (e) => {
     if (onTry) {
@@ -279,8 +220,12 @@ export default function UpgradeNudge({
 }
 
 /** Modal dialog variant — split out so we can wire up Escape + focus
- *  restoration via hooks without touching the simpler chip/card paths. */
-function UpgradeNudgeDialog({ icon, benefit, ctaLabel, cta, handleClick, tier, tierMeta, className, navigate, native = false }) {
+ *  restoration via hooks without touching the simpler chip/card paths.
+ *
+ *  WEB ONLY. The parent <UpgradeNudge> returns null on native (Apple 3.1.1),
+ *  so this dialog — which shows the tier name, price (PriceTag) and a
+ *  /subscription CTA — is never rendered inside the iOS app. */
+function UpgradeNudgeDialog({ icon, benefit, ctaLabel, cta, handleClick, tier, tierMeta, className, navigate }) {
   const dialogRef = useRef(null);
   const previousActiveElementRef = useRef(null);
 
@@ -326,42 +271,23 @@ function UpgradeNudgeDialog({ icon, benefit, ctaLabel, cta, handleClick, tier, t
         <h4 id="upgrade-nudge-title" className="text-lg font-semibold text-stone-900 dark:text-stone-100 mt-1 mb-2">
           {benefit}
         </h4>
-        {/* Native (Apple 3.1.1): no price, no purchase/checkout link — just a
-            neutral note + a single dismiss. Web keeps the price + upgrade CTA. */}
-        {native ? (
-          <>
-            <p className="text-sm text-stone-500 dark:text-stone-400 mb-5">
-              Included on {tierMeta.name}.
-            </p>
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              className="block w-full px-4 h-11 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 text-sm font-medium transition-colors leading-[2.75rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-400"
-            >
-              OK
-            </button>
-          </>
-        ) : (
-          <>
-            <div className="mb-5">
-              <PriceTag tier={tier} />
-            </div>
-            <Link
-              to={cta}
-              onClick={handleClick}
-              className="block w-full px-4 h-11 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors leading-[2.75rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900"
-            >
-              {ctaLabel}
-            </Link>
-            <button
-              type="button"
-              onClick={() => navigate(-1)}
-              className="mt-3 text-xs text-stone-600 dark:text-stone-300 hover:text-stone-800 dark:hover:text-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1"
-            >
-              Maybe later
-            </button>
-          </>
-        )}
+        <div className="mb-5">
+          <PriceTag tier={tier} />
+        </div>
+        <Link
+          to={cta}
+          onClick={handleClick}
+          className="block w-full px-4 h-11 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors leading-[2.75rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900"
+        >
+          {ctaLabel}
+        </Link>
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="mt-3 text-xs text-stone-600 dark:text-stone-300 hover:text-stone-800 dark:hover:text-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1"
+        >
+          Maybe later
+        </button>
       </div>
     </div>
   );

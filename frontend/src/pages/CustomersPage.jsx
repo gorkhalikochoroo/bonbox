@@ -3,7 +3,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
-import { canPurchaseInApp } from "../utils/platform";
+import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
 /**
  * CustomersPage — debitor management.
@@ -64,12 +64,19 @@ export default function CustomersPage() {
       <div className="p-4 md:p-8 max-w-2xl mx-auto">
         <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-6 text-center">
           <div className="text-4xl mb-3">🔒</div>
+          {/* App Store compliance (Apple 3.1.1): on native, no tier name
+              ("Starter plan required") or "Upgrade to Starter" pitch — neutral
+              "not on your plan" copy. Web keeps the full upgrade gate. */}
           <h1 className="text-xl font-bold mb-2 text-amber-900 dark:text-amber-200">
-            {t("invoicingStarterRequired") || "Customers & Invoicing — Starter plan required"}
+            {isNativeApp()
+              ? (t("featureNotOnPlanTitle") || "Not available on this plan")
+              : (t("invoicingStarterRequired") || "Customers & Invoicing — Starter plan required")}
           </h1>
           <p className="text-sm text-amber-800 dark:text-amber-300 mb-4">
-            {t("invoicingStarterDesc") ||
-              "Send fakturas, track customers, and log mileage. Upgrade to Starter to unlock."}
+            {isNativeApp()
+              ? (t("featureNotOnPlanBody") || "This feature isn't part of your current plan.")
+              : (t("invoicingStarterDesc") ||
+                 "Send fakturas, track customers, and log mileage. Upgrade to Starter to unlock.")}
           </p>
           {canPurchaseInApp() && (
             <a

@@ -5,7 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { FadeIn } from "../components/AnimationKit";
 import { localIso } from "../utils/dateFormat";
-import { canPurchaseInApp } from "../utils/platform";
+import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
 /**
  * Consolidated close — multi-branch daily-close roll-up. Pro+ only.
@@ -96,6 +96,24 @@ export default function ConsolidatedClosePage() {
 
   // Free / Starter — render the polite gate
   if (isPro === false) {
+    // App Store compliance (Apple 3.1.1): this nav entry is always reachable
+    // (no requiresFeature), so on native we must NOT render the tier-named
+    // "A Pro feature" / "Available on Pro" gate (it's an upgrade/steering
+    // surface). Show a neutral "not on your plan" state instead — no tier
+    // name, price, lock-as-upsell, or CTA. Web keeps the full Pro gate.
+    if (isNativeApp()) {
+      return (
+        <div className="px-4 sm:px-6 py-6 max-w-2xl mx-auto">
+          <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+            {t("consolidatedNativeUnavailTitle") || "Not available on this plan"}
+          </h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
+            {t("consolidatedNativeUnavailBody") ||
+              "Consolidated daily close isn't part of your current plan."}
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="px-4 sm:px-6 py-6 max-w-3xl mx-auto">
         <FadeIn>

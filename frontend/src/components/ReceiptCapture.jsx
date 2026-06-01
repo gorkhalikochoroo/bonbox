@@ -7,7 +7,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { localIso } from "../utils/dateFormat";
-import { canPurchaseInApp } from "../utils/platform";
+import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
 /**
  * ReceiptCapture — supports both sale and expense mode.
@@ -202,7 +202,12 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   Receipt scans this month: {capError.used} / {capError.cap}
                 </div>
                 <p className="text-xs leading-relaxed">
-                  {capError.message || "Upgrade to Starter for 200 receipt scans / month."}
+                  {/* App Store compliance (Apple 3.1.1): on native, show a
+                      neutral cap line — never the server's "Upgrade to Starter"
+                      pitch. Web keeps the upgrade copy. */}
+                  {isNativeApp()
+                    ? "You've reached this month's receipt scan limit on your plan."
+                    : (capError.message || "Upgrade to Starter for 200 receipt scans / month.")}
                 </p>
                 {canPurchaseInApp() && (
                   <a

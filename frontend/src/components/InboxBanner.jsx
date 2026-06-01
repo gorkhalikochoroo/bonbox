@@ -46,6 +46,7 @@ import { Mail, Copy, Check, AlertCircle, Send, Loader2, ChevronDown, ChevronUp }
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { isNativeApp } from "../utils/platform";
 
 const DISMISS_KEY = "bonbox_inbox_banner_dismissed_v1";
 const EXPANDED_KEY = "bonbox_inbox_banner_expanded_v1";
@@ -458,18 +459,32 @@ export default function InboxBanner({
                             border border-amber-200 dark:border-amber-800/40
                             rounded-lg px-3 py-2">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+              {/* App Store compliance (Apple 3.1.1): native uses factual cap
+                  copy with no "upgrade to Starter" pitch. Web unchanged. */}
               <span>
                 {isAtCap
-                  ? t(
-                      "inboxAtCapHint",
-                      "You've used all {cap} inbox receipts this month — extra mails are held safely for 30 days; upgrade to Starter to release them.",
-                      { cap },
-                    )
-                  : t(
-                      "inboxNearCapHint",
-                      "Only {left} of {cap} inbox receipts left this month — upgrade to Starter for unlimited forwarding.",
-                      { left: cap - count, cap },
-                    )}
+                  ? (isNativeApp()
+                      ? t(
+                          "inboxAtCapHintNative",
+                          "You've used all {cap} inbox receipts this month — extra mails are held safely for 30 days.",
+                          { cap },
+                        )
+                      : t(
+                          "inboxAtCapHint",
+                          "You've used all {cap} inbox receipts this month — extra mails are held safely for 30 days; upgrade to Starter to release them.",
+                          { cap },
+                        ))
+                  : (isNativeApp()
+                      ? t(
+                          "inboxNearCapHintNative",
+                          "Only {left} of {cap} inbox receipts left this month.",
+                          { left: cap - count, cap },
+                        )
+                      : t(
+                          "inboxNearCapHint",
+                          "Only {left} of {cap} inbox receipts left this month — upgrade to Starter for unlimited forwarding.",
+                          { left: cap - count, cap },
+                        ))}
               </span>
             </div>
           )}

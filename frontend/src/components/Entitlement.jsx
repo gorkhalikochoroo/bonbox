@@ -32,7 +32,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
-import { canPurchaseInApp } from "../utils/platform";
+import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
 
 // ─── Plan label + color helpers ─────────────────────────────────────
@@ -92,6 +92,10 @@ function planClasses(plan) {
 export function TierBadge({ plan, className = "" }) {
   const { t } = useLanguage();
   if (!plan) return null;
+  // App Store compliance (Apple 3.1.1): the native app must not surface tier
+  // names ("Pro" / "Starter") as upsell markers next to features. Render
+  // nothing on native — every TierBadge callsite is purely cosmetic.
+  if (isNativeApp()) return null;
   const c = planClasses(plan);
   return (
     <span
@@ -125,6 +129,12 @@ export function UpgradePrompt({ feature, forCap = false, open = true, onClose })
   const { t } = useLanguage();
   const ent = useEntitlements();
   if (!open) return null;
+  // App Store compliance (Apple 3.1.1): no upgrade modal on native — it carries
+  // the "Upgrade to unlock this feature" headline, a tier badge, the plan
+  // benefit list, and a /subscription CTA. None of that may appear in the iOS
+  // app. Gated features are simply hidden on native (see <Locked>), so this
+  // prompt is never opened there; returning null is the belt-and-braces guard.
+  if (isNativeApp()) return null;
 
   const upgradePlan = forCap ? null : ent.minPlanForFeature(feature);
   // Fallback: when min_plan_by_feature returns null (unknown feature) or
@@ -318,6 +328,15 @@ export function Locked({
   }
 
   if (!locked) return <>{children}</>;
+
+  // App Store compliance (Apple 3.1.1) — approach (a): HIDE gated features on
+  // native. The web path below dims the feature + shows a "Pro" lock badge +
+  // opens an upgrade modal; none of that may appear on iOS. So when a feature
+  // is locked (above the user's plan) we render NOTHING on native — the
+  // reviewer simply never sees a feature the account can't use, with no badge,
+  // price, lock, or upgrade path. The server still enforces the cap (invisible
+  // to the reviewer); a Free user couldn't reach the action anyway.
+  if (isNativeApp()) return null;
 
   const targetPlan = atCap
     ? null

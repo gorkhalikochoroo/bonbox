@@ -56,12 +56,23 @@ fi
 
 # Apple's CI environment numbers can collide with manually-uploaded
 # builds. To be safe, bump to a value that's strictly higher than the
-# last manually-uploaded build (244 as of May 2026). Pick max(244+CI,
-# CI_BUILD_NUMBER+244) so we never go backwards.
+# last manually-uploaded build (244 as of May 2026).
 LAST_MANUAL=244
 NEW_BUILD=$((LAST_MANUAL + CI_BUILD_NUMBER))
+
+# Hard floor: the App Store rejected build 536 (Apple Guideline 3.1.1).
+# Every NEW submission for MARKETING_VERSION 1.4.2 must carry a build number
+# strictly greater than 536, regardless of where CI_BUILD_NUMBER happens to
+# sit. Clamp upward so we can never re-upload <= 536 even if the workflow's
+# build counter is reset or runs out of order.
+MIN_BUILD=537
+if [ "$NEW_BUILD" -lt "$MIN_BUILD" ]; then
+    echo "   (NEW_BUILD $NEW_BUILD below floor — clamping up to $MIN_BUILD)"
+    NEW_BUILD=$MIN_BUILD
+fi
 echo "   CI_BUILD_NUMBER     = $CI_BUILD_NUMBER"
 echo "   LAST_MANUAL_OFFSET  = $LAST_MANUAL"
+echo "   MIN_BUILD_FLOOR     = $MIN_BUILD"
 echo "   NEW_BUILD_NUMBER    = $NEW_BUILD"
 
 # Use sed to update every CURRENT_PROJECT_VERSION line in the pbxproj.

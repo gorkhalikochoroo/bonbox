@@ -331,24 +331,15 @@ export default function SubscriptionPage() {
       window.location.href = "/register";
       return;
     }
-    // ── Paid-tier upgrade (Starter or Pro) ──
-    // App Store compliance: native iOS cannot use Stripe for digital goods (Apple's
-    // 30% IAP rule). On native, we open the web subscription page in the system
-    // browser so the user completes payment via web. Backend ALSO blocks (defense
-    // in depth) — both layers must agree before a Stripe session is created.
-    if (isNative && (tierId === "pro" || tierId === "starter")) {
-      try {
-        const url = "https://bonbox.dk/subscription";
-        if (window.Capacitor?.Plugins?.Browser?.open) {
-          await window.Capacitor.Plugins.Browser.open({ url });
-        } else {
-          window.open(url, "_blank");
-        }
-        return;
-      } catch {
-        /* fall through */
-      }
-    }
+    // ── Paid-tier upgrade (Starter or Pro) — WEB ONLY ──
+    // App Store compliance (Apple 3.1.1): the native app carries NO purchase
+    // path and NO steering to an external (web/Stripe) checkout. On native the
+    // component returns a read-only plan-status view above (the `if (isNative)`
+    // block), so this handler — and the Stripe checkout below — is never
+    // reachable inside the iOS app. The old native `Browser.open(bonbox.dk/
+    // subscription)` external-purchase branch was removed so the binary carries
+    // no external-checkout code. Backend ALSO blocks native checkout (defense
+    // in depth).
 
     // Web flow — try real Stripe Checkout. If Stripe isn't configured server-side
     // yet (early launch), fall back to the waitlist-join flow gracefully.
@@ -455,11 +446,12 @@ export default function SubscriptionPage() {
     : null;
 
   // ── App Store compliance (Apple Guideline 3.1.1) ────────────────────
-  // The native app must NOT sell, price, or link out to purchase a paid
-  // plan (no IAP wired up, and Apple forbids external-checkout CTAs). Show
-  // the current plan READ-ONLY with an informational, non-tappable note
-  // pointing to the web. No plan cards, prices, buy buttons, or billing
-  // portal here. The web app (bonbox.dk) keeps full self-serve billing.
+  // The native app must NOT sell, price, link out to purchase, OR steer the
+  // user to the website to buy a paid plan (Apple treats steering-to-web as a
+  // violation too). Show the current plan READ-ONLY with a neutral status note
+  // that names no price, no upgrade path, and no website. No plan cards,
+  // prices, buy buttons, or billing portal here. The web app (bonbox.dk) keeps
+  // full self-serve billing — this branch only runs on native.
   if (isNative) {
     const planName =
       currentPlan === "pro"
@@ -490,8 +482,8 @@ export default function SubscriptionPage() {
           )}
         </Card>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-5 leading-relaxed">
-          {t("pricingManageOnWebNote") ||
-            "You can't change your plan in the app. To upgrade or manage your subscription, sign in to BonBox in a web browser at bonbox.dk."}
+          {t("planNativeStatusNote") ||
+            "This is your current plan. Plans are managed outside the app."}
         </p>
       </div>
     );

@@ -661,6 +661,13 @@ const translations = {
     yourTrial: "Your trial",
     currentPlan: "Current plan",
     pricingManageOnWebNote: "You can't change your plan in the app. To upgrade or manage your subscription, sign in to BonBox in a web browser at bonbox.dk.",
+    // Native-only (Apple 3.1.1): neutral status note with NO upgrade/purchase
+    // steering and NO website direction — the iOS app shows plan status only.
+    planNativeStatusNote: "This is your current plan. Plans are managed outside the app.",
+    // Native-only (Apple 3.1.1): reusable neutral "feature not on your plan"
+    // gate copy — NO tier name, price, "upgrade", or CTA.
+    featureNotOnPlanTitle: "Not available on this plan",
+    featureNotOnPlanBody: "This feature isn't part of your current plan.",
     closeAnomalyTitle: "Double-check before you lock",
     closeAnomalyLowMsg: "Today's total ({today} kr) is {pct}% below your usual {avg} kr. Make sure every terminal was scanned and the totals look right.",
     closeAnomalyHighMsg: "Today's total ({today} kr) is {pct}% above your usual {avg} kr. If that's correct, go ahead — otherwise check for a misread amount.",
@@ -914,6 +921,9 @@ const translations = {
     closeLockedPushSent: "Owner notified via push",
     closeLockedFreeUpgradeNudge:
       "Want the kasserapport auto-sent to your accountant the moment you lock? Upgrade to Starter.",
+    // Native-only (Apple 3.1.1): neutral status line — no upgrade pitch/tier/CTA.
+    closeLockedAutoSendNativeNote:
+      "Auto-send on lock isn't part of your current plan. You can still tap Send to revisor manually.",
     // Bank-drop reminder card (universal — Free + paid)
     bankDropReminderTitle: "Bank-drop reminder",
     bankDropReminderBody:
@@ -1053,6 +1063,10 @@ const translations = {
     consolidatedProGateAvailability: "Available on Pro (founding 249 kr/mo) and during your 14-day Pro trial.",
     consolidatedProGateAvailabilityNative: "Available on Pro and during your 14-day Pro trial.",
     consolidatedProGateCta: "See Pro plan",
+    // Native-only (Apple 3.1.1): neutral "not on your plan" state with NO tier
+    // name, price, lock-upsell, or upgrade path.
+    consolidatedNativeUnavailTitle: "Not available on this plan",
+    consolidatedNativeUnavailBody: "Consolidated daily close isn't part of your current plan.",
     closedBy: "Closed by",
     cashDiff: "Cash diff",
     total: "Total",
@@ -1190,6 +1204,8 @@ const translations = {
     bankReconSkip: "Skip",
     bankReconUndoSkip: "Undo skip",
     bankReconStarterRequired: "Auto-reconcile is a Starter+ feature.",
+    // Native-only (Apple 3.1.1): neutral — no tier name.
+    bankReconStarterRequiredNative: "Auto-reconcile isn't part of your current plan.",
     bankReconCouldNotLoad: "Could not load suggestions",
     bankReconConfirmFailed: "Confirm failed",
     bankReconConfirmedToast: "{n} confirmed ({inv} fakturaer marked paid, {exp} expenses linked)",
@@ -3090,9 +3106,13 @@ const translations = {
     // Plan-cap copy on the export panel + 402 error banner
     planLabelSuffix: "plan",
     planCapHintMid: "exports up to",
+    // Native-only (Apple 3.1.1): neutral cap prefix, no tier name.
+    planCapHintNativePrefix: "Export covers up to",
     planCapHintDays: "days",
     planCapHintCta: "Upgrade for full year →",
     planCapTooltip: "{tier} plan exports up to {days} days. Upgrade to Pro for full year.",
+    // Native-only (Apple 3.1.1): factual cap, no "Upgrade to Pro".
+    planCapTooltipNative: "Your plan exports up to {days} days.",
 
     // ───────────────────────────────────────────────────────────
     // Profile — accountant contact + verified-CVR banner
@@ -3110,6 +3130,9 @@ const translations = {
     revisorEmailLabel: "Revisor email",
     revisorNameLabel: "Name (optional)",
     revisorUpgradeHint: "Upgrade to Starter to invite revisors.",
+    // Native-only (Apple 3.1.1): neutral — no tier name / "upgrade" / CTA.
+    revisorUpgradeHintNative: "Inviting a revisor isn't part of your current plan.",
+    revisorPlanRequiredNative: "Inviting a revisor isn't part of your current plan.",
     revisorSendInvite: "Send invite",
     revisorListTitle: "Active and recent invites",
     revisorEmptyState: "No revisor invites yet. Send one above to give your revisor their own login.",
@@ -3872,6 +3895,8 @@ const translations = {
     mpExpiredTitle: "MobilePay needs re-consent",
     mpExpiredBody: "Your MobilePay sandbox connection lapsed — sign in again to refresh the preview.",
     mpFreeGate: "MobilePay auto-sync (coming when Vipps partnership lands) will be a Starter+ feature.",
+    // Native-only (Apple 3.1.1): neutral — no tier name.
+    mpFreeGateNative: "MobilePay auto-sync isn't part of your current plan.",
     mpInitError: "Could not start MobilePay connection",
     mpSyncError: "Could not sync MobilePay",
     mpSyncedToast: "MobilePay synced",
@@ -4138,6 +4163,11 @@ const translations = {
       "You've used all {cap} inbox receipts this month — extra mails are held safely for 30 days; upgrade to Starter to release them.",
     inboxNearCapHint:
       "Only {left} of {cap} inbox receipts left this month — upgrade to Starter for unlimited forwarding.",
+    // Native-only (Apple 3.1.1): factual cap copy, no "upgrade to Starter".
+    inboxAtCapHintNative:
+      "You've used all {cap} inbox receipts this month — extra mails are held safely for 30 days.",
+    inboxNearCapHintNative:
+      "Only {left} of {cap} inbox receipts left this month.",
     inboxCopy: "Copy",
     inboxCopyAria: "Copy receipt inbox address",
     inboxCopied: "Copied!",
@@ -5390,6 +5420,13 @@ const translations = {
     yourTrial: "Din prøveperiode",
     currentPlan: "Nuværende plan",
     pricingManageOnWebNote: "Du kan ikke ændre din plan i appen. Log ind på BonBox i en webbrowser på bonbox.dk for at opgradere eller administrere dit abonnement.",
+    // Native-only (Apple 3.1.1): neutral statusnote uden opgraderings-/købs-
+    // styring og uden henvisning til websitet — iOS-appen viser kun planstatus.
+    planNativeStatusNote: "Dette er din nuværende plan. Planer administreres uden for appen.",
+    // Native-only (Apple 3.1.1): genbrugelig neutral "funktion ikke på din
+    // plan"-tekst — uden tier-navn, pris, "opgrader" eller CTA.
+    featureNotOnPlanTitle: "Ikke tilgængelig på din plan",
+    featureNotOnPlanBody: "Denne funktion er ikke en del af din nuværende plan.",
     closeAnomalyTitle: "Tjek lige inden du låser",
     closeAnomalyLowMsg: "Dagens total ({today} kr) er {pct}% under dit normale niveau på {avg} kr. Tjek at alle terminaler er scannet, og at tallene ser rigtige ud.",
     closeAnomalyHighMsg: "Dagens total ({today} kr) er {pct}% over dit normale niveau på {avg} kr. Hvis det passer, så fortsæt — ellers tjek for en fejllæst sum.",
@@ -5632,6 +5669,9 @@ const translations = {
     closeLockedPushSent: "Ejer fik push",
     closeLockedFreeUpgradeNudge:
       "Vil du have kasserapporten sendt automatisk til din revisor i samme sekund du låser? Opgrader til Starter.",
+    // Native-only (Apple 3.1.1): neutral statuslinje — ingen opgradering/tier/CTA.
+    closeLockedAutoSendNativeNote:
+      "Automatisk afsendelse ved låsning er ikke en del af din nuværende plan. Du kan stadig trykke Send til revisor manuelt.",
     // Bank-drop påmindelse (universel — Free + betalt)
     bankDropReminderTitle: "Bank-drop påmindelse",
     bankDropReminderBody:
@@ -5761,6 +5801,10 @@ const translations = {
     consolidatedProGateAvailability: "Tilgængelig på Pro (founding 249 kr/md) og under din 14-dages Pro-prøveperiode.",
     consolidatedProGateAvailabilityNative: "Tilgængelig på Pro og under din 14-dages Pro-prøveperiode.",
     consolidatedProGateCta: "Se Pro-planen",
+    // Native-only (Apple 3.1.1): neutral "ikke på din plan"-tilstand uden tier-
+    // navn, pris, lås-upsell eller opgraderingssti.
+    consolidatedNativeUnavailTitle: "Ikke tilgængelig på din plan",
+    consolidatedNativeUnavailBody: "Samlet daglig lukning er ikke en del af din nuværende plan.",
     closedBy: "Lukket af",
     cashDiff: "Kassediff.",
     total: "I alt",
@@ -5892,6 +5936,8 @@ const translations = {
     bankReconSkip: "Spring over",
     bankReconUndoSkip: "Fortryd",
     bankReconStarterRequired: "Auto-afstemning er en Starter+-funktion.",
+    // Native-only (Apple 3.1.1): neutral — uden tier-navn.
+    bankReconStarterRequiredNative: "Auto-afstemning er ikke en del af din nuværende plan.",
     bankReconCouldNotLoad: "Kunne ikke hente forslag",
     bankReconConfirmFailed: "Bekræftelse mislykkedes",
     bankReconConfirmedToast: "{n} bekræftet ({inv} fakturaer markeret betalt, {exp} udgifter linket)",
@@ -7748,9 +7794,13 @@ const translations = {
     accountantHintTail: "så slipper du for at skrive den hver gang.",
     planLabelSuffix: "plan",
     planCapHintMid: "kan eksportere op til",
+    // Native-only (Apple 3.1.1): neutral kvote-præfiks, uden tier-navn.
+    planCapHintNativePrefix: "Eksport dækker op til",
     planCapHintDays: "dage",
     planCapHintCta: "Opgrader til hele året →",
     planCapTooltip: "{tier} plan kan eksportere op til {days} dage. Opgrader til Pro for hele året.",
+    // Native-only (Apple 3.1.1): faktuel kvote, uden "Opgrader til Pro".
+    planCapTooltipNative: "Din plan kan eksportere op til {days} dage.",
 
     // Profile — accountant contact + verified CVR banner
     accountantContact: "Revisor-kontakt",
@@ -7766,6 +7816,9 @@ const translations = {
     revisorEmailLabel: "Revisors email",
     revisorNameLabel: "Navn (valgfrit)",
     revisorUpgradeHint: "Opgrader til Starter for at invitere revisorer.",
+    // Native-only (Apple 3.1.1): neutral — uden tier-navn / "opgrader" / CTA.
+    revisorUpgradeHintNative: "Invitation af revisor er ikke en del af din nuværende plan.",
+    revisorPlanRequiredNative: "Invitation af revisor er ikke en del af din nuværende plan.",
     revisorSendInvite: "Send invitation",
     revisorListTitle: "Aktive og seneste invitationer",
     revisorEmptyState: "Ingen revisor-invitationer endnu. Send en herover for at give din revisor sit eget login.",
@@ -8464,6 +8517,8 @@ const translations = {
     mpExpiredTitle: "MobilePay skal fornyes",
     mpExpiredBody: "Din MobilePay sandkasse-forbindelse er udløbet — log ind igen for at opdatere preview.",
     mpFreeGate: "MobilePay autosync (kommer når Vipps-partnerskabet er på plads) bliver en Starter+ funktion.",
+    // Native-only (Apple 3.1.1): neutral — uden tier-navn.
+    mpFreeGateNative: "MobilePay autosync er ikke en del af din nuværende plan.",
     mpInitError: "Kunne ikke starte MobilePay-forbindelsen",
     mpSyncError: "Kunne ikke synkronisere MobilePay",
     mpSyncedToast: "MobilePay synkroniseret",
@@ -8718,6 +8773,11 @@ const translations = {
       "Du har brugt alle {cap} indbakke-kvitteringer i denne måned — yderligere mails holdes sikkert i 30 dage; opgradér til Starter for at frigive dem.",
     inboxNearCapHint:
       "Kun {left} af {cap} indbakke-kvitteringer tilbage i denne måned — opgradér til Starter for ubegrænset videresendelse.",
+    // Native-only (Apple 3.1.1): faktuel kvote-tekst, uden "opgradér til Starter".
+    inboxAtCapHintNative:
+      "Du har brugt alle {cap} indbakke-kvitteringer i denne måned — yderligere mails holdes sikkert i 30 dage.",
+    inboxNearCapHintNative:
+      "Kun {left} af {cap} indbakke-kvitteringer tilbage i denne måned.",
     inboxCopy: "Kopiér",
     inboxCopyAria: "Kopiér indbakke-adressen",
     inboxCopied: "Kopieret!",

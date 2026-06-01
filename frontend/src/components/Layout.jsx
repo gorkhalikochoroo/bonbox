@@ -5,6 +5,7 @@ import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { getVatTerms } from "../utils/currency";
+import { isNativeApp } from "../utils/platform";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
 import TrialChip from "./TrialChip";
@@ -328,10 +329,18 @@ function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasF
           // the icon + click handler. Items without `requiresFeature`
           // are unchanged.
           if (item.requiresFeature && !passesFeature(item.requiresFeature)) {
+            // App Store compliance (Apple 3.1.1) — approach (a): on the native
+            // app a locked entry would render a Lock icon + a "Pro feature —
+            // upgrade to unlock" tooltip routing to /subscription, i.e. an
+            // upgrade/purchase surface. Hide the entry entirely instead — the
+            // reviewer never sees a feature the account can't use. (Drop here;
+            // filtered out below.) Web keeps the locked-but-visible upsell.
+            if (isNativeApp()) return null;
             return { ...item, locked: true };
           }
           return item;
-        });
+        })
+        .filter(Boolean);
       return itemsWithLockState.length > 0 ? { ...g, items: itemsWithLockState } : null;
     })
     .filter(Boolean);

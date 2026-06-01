@@ -22,7 +22,7 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { Button, Card, Icon } from "./ui";
-import { canPurchaseInApp } from "../utils/platform";
+import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
 const INPUT_CLASS =
   "w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 " +
@@ -106,9 +106,13 @@ export default function RevisorSection() {
       const detail = err?.response?.data?.detail;
       if (err?.response?.status === 402 && detail?.code === "plan_required") {
         setRevisorLocked(true);
+        // App Store compliance (Apple 3.1.1): neutral message on native (no
+        // tier name / "upgrade"). Web keeps the conversion copy.
         setRevisorError(
-          t("revisorPlanRequired") ||
-            "Inviting a revisor is on Starter. Upgrade to unlock read-only revisor access.",
+          isNativeApp()
+            ? (t("revisorPlanRequiredNative") || "Inviting a revisor isn't part of your current plan.")
+            : (t("revisorPlanRequired") ||
+                "Inviting a revisor is on Starter. Upgrade to unlock read-only revisor access."),
         );
       } else if (detail?.code === "already_active_grant") {
         setRevisorError(
@@ -180,7 +184,11 @@ export default function RevisorSection() {
         {revisorError && <Message tone="error">{revisorError}</Message>}
         {revisorLocked && (
           <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">
-            {t("revisorUpgradeHint") || "Upgrade to Starter to invite revisors."}{" "}
+            {/* App Store compliance (Apple 3.1.1): neutral hint on native (no
+                tier name / "upgrade"); the "See plans" link is web-only. */}
+            {isNativeApp()
+              ? (t("revisorUpgradeHintNative") || "Inviting a revisor isn't part of your current plan.")
+              : (t("revisorUpgradeHint") || "Upgrade to Starter to invite revisors.")}{" "}
             {canPurchaseInApp() && (
               <a href="/subscription" className="underline font-medium">
                 {t("seePlans") || "See plans"}

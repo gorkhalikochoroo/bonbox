@@ -7,7 +7,7 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, SectionBanner, Button } from "../components/ui";
-import { canPurchaseInApp } from "../utils/platform";
+import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
 /**
  * Modules picker — owners enable the vertical modules they actually use.
@@ -178,8 +178,10 @@ export default function ModulesPage() {
         </FadeIn>
       )}
 
-      {/* Cap-hit hint — only shown when at cap AND there's an off module */}
-      {data && atCap && data.modules.some((m) => !selectedIds.includes(m.id)) && (
+      {/* Cap-hit hint — only shown when at cap AND there's an off module.
+          App Store compliance (Apple 3.1.1): this banner pitches "upgrade to
+          Pro", so it's hidden on native. Web unchanged. */}
+      {data && atCap && !isNativeApp() && data.modules.some((m) => !selectedIds.includes(m.id)) && (
         <div className="mt-4">
           <SectionBanner
             severity="warn"

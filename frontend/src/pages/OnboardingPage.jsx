@@ -54,6 +54,7 @@ import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { isNativeApp } from "../utils/platform";
 import { Button, Icon, UpgradeNudge } from "../components/ui";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { archetypeFor } from "../config/archetypes";
@@ -579,7 +580,9 @@ export default function OnboardingPage() {
     if (email) {
       if (!canInviteRevisor) {
         // UI already shows the UpgradeNudge — never silently swallow.
-        setRevisorError(t("onbRevisorStarterRequired"));
+        // App Store compliance (Apple 3.1.1): neutral copy on native (no tier
+        // name / "Upgrade"). Web keeps the conversion wording.
+        setRevisorError(isNativeApp() ? t("revisorPlanRequiredNative") : t("onbRevisorStarterRequired"));
         return;
       }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -598,7 +601,9 @@ export default function OnboardingPage() {
         const detail = err?.response?.data?.detail;
         const code = detail && typeof detail === "object" ? detail.code : null;
         if (code === "plan_required") {
-          setRevisorError(t("onbRevisorStarterRequired"));
+          // App Store compliance (Apple 3.1.1): neutral copy on native (no tier
+        // name / "Upgrade"). Web keeps the conversion wording.
+        setRevisorError(isNativeApp() ? t("revisorPlanRequiredNative") : t("onbRevisorStarterRequired"));
         } else if (code === "already_active_grant") {
           // Treat as success — they already share with this revisor
           setRevisorMsg(t("onbRevisorAlreadyActive"));

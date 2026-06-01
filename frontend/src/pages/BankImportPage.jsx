@@ -5,6 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useFeatures } from "../hooks/useFeatures";
 import { displayCurrency } from "../utils/currency";
+import { isNativeApp } from "../utils/platform";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import { Button, Card, Icon, UpgradeNudge } from "../components/ui";
 import { useToast } from "../components/BonBoxPolishKit";
@@ -283,7 +284,8 @@ export default function BankImportPage() {
       if (err.response?.status === 402) {
         // Defensive — should be caught by canAutoReconcile, but
         // if entitlements cache is stale, the server tells us the truth.
-        setError(t("bankReconStarterRequired"));
+        // App Store compliance (Apple 3.1.1): neutral copy on native (no tier).
+        setError(isNativeApp() ? t("bankReconStarterRequiredNative") : t("bankReconStarterRequired"));
       } else {
         setError(detail?.message || detail || t("bankReconCouldNotLoad"));
       }

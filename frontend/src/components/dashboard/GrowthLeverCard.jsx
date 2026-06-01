@@ -37,6 +37,7 @@ import { Link } from "react-router-dom";
 import { TrendingUp } from "lucide-react";
 import { Icon } from "../ui";
 import { useLanguage } from "../../hooks/useLanguage";
+import { isNativeApp } from "../../utils/platform";
 
 export default function GrowthLeverCard({
   ctx = {},
@@ -61,23 +62,28 @@ export default function GrowthLeverCard({
       data-component="GrowthLeverCard"
     >
       {/* Pro tag — corner. Small + amber so it reads as "feature tag",
-          not as a competing focal point. */}
-      <div
-        className={
-          "absolute top-3 right-3 inline-flex items-center gap-1 " +
-          "text-[10px] font-semibold uppercase tracking-wider " +
-          "text-amber-600 dark:text-amber-400"
-        }
-        aria-label={t("dashGrowthProTag", "Pro feature")}
-      >
-        <Icon
-          name="Sparkles"
-          size={14}
-          strokeWidth={2}
-          className="text-amber-500 dark:text-amber-400"
-        />
-        <span>{t("dashGrowthProTagLabel", "Pro")}</span>
-      </div>
+          not as a competing focal point.
+          App Store compliance (Apple 3.1.1): no tier badges in the native app
+          — even on a feature the user already has. Hidden on native; the card
+          content (the actual growth insight) stays. Web keeps the "Pro" tag. */}
+      {!isNativeApp() && (
+        <div
+          className={
+            "absolute top-3 right-3 inline-flex items-center gap-1 " +
+            "text-[10px] font-semibold uppercase tracking-wider " +
+            "text-amber-600 dark:text-amber-400"
+          }
+          aria-label={t("dashGrowthProTag", "Pro feature")}
+        >
+          <Icon
+            name="Sparkles"
+            size={14}
+            strokeWidth={2}
+            className="text-amber-500 dark:text-amber-400"
+          />
+          <span>{t("dashGrowthProTagLabel", "Pro")}</span>
+        </div>
+      )}
 
       <div className="flex items-start gap-3 pr-12">
         <div

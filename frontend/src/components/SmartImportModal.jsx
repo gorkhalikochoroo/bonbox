@@ -4,7 +4,7 @@ import api from "../services/api";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
 import { resizeImageIfLarge } from "../utils/resizeImage";
-import { canPurchaseInApp } from "../utils/platform";
+import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
 /**
  * Smart Inventory Import — frontend for the backend pipeline shipped
@@ -631,6 +631,10 @@ function HistoryList({ history }) {
  * banner is purely about the dictionary-match + auto-category layer.
  */
 function SupplierUpgradeNudge({ t }) {
+  // App Store compliance (Apple 3.1.1): this is a pure upsell ("Supplier auto-
+  // detection — Starter+ · Upgrade to…"). Hide it entirely on native — no
+  // banner, tier name, or upgrade pitch. Web unchanged.
+  if (isNativeApp()) return null;
   return (
     <div className="rounded-lg border px-3 py-2 text-sm bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
       <div className="flex items-start gap-2">

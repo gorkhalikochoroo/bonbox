@@ -11,7 +11,7 @@ import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { safeImageUrl } from "../utils/safeUrl";
 import { resizeImageIfLarge } from "../utils/resizeImage";
-import { canPurchaseInApp } from "../utils/platform";
+import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 import {
   buildShareMessage,
   buildShareTitle,
@@ -2454,6 +2454,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 <div className="h-4 w-2/3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" aria-hidden="true" />
                 <div className="h-3 w-full mt-2 bg-gray-100 dark:bg-gray-800 rounded animate-pulse" aria-hidden="true" />
               </div>
+            ) : (!closeAutoEmailEntitled && isNativeApp()) ? (
+              /* App Store compliance (Apple 3.1.1): the locked-toggle state is
+                 an upsell ("Auto-email on lock is on Starter+ · Upgrade to
+                 Starter"). Hide it entirely on native — the feature is simply
+                 absent, with no tier name or upgrade pitch. Web unchanged. */
+              null
             ) : (
               <div className={`rounded-xl p-4 ${
                 closeAutoEmailEntitled
@@ -2675,8 +2681,14 @@ function JustLockedCard({ t, close, currency, onDismiss }) {
       </p>
     );
   } else if (emailStatus === "skipped_feature_locked") {
-    // Free user — show the upgrade nudge instead
-    emailLine = (
+    // App Store compliance (Apple 3.1.1): on native, show a neutral status line
+    // with NO upgrade pitch / tier name / CTA. Web keeps the "Upgrade to
+    // Starter" conversion nudge below.
+    emailLine = isNativeApp() ? (
+      <p className="text-sm text-gray-500 dark:text-gray-400">
+        ℹ️ {t("closeLockedAutoSendNativeNote") || "Auto-send on lock isn't part of your current plan. You can still tap Send to revisor manually."}
+      </p>
+    ) : (
       <div className="text-sm bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3 border border-amber-200 dark:border-amber-800">
         <p className="text-amber-800 dark:text-amber-200 font-medium">
           💡 {t("closeLockedFreeUpgradeNudge") || "Want the kasserapport auto-sent to your accountant the moment you lock? Upgrade to Starter."}
@@ -3220,9 +3232,14 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 onClick={() => !locked && setRangePreset(p.id)}
                 disabled={locked}
                 title={locked
-                  ? (t("planCapTooltip") || "{tier} plan exports up to {days} days. Upgrade to Pro for full year.")
-                      .replace("{tier}", planTier === "free" ? "Free" : planTier)
-                      .replace("{days}", String(exportCapDays))
+                  // App Store compliance (Apple 3.1.1): native tooltip drops
+                  // the "Upgrade to Pro" pitch — factual cap only.
+                  ? (isNativeApp()
+                      ? (t("planCapTooltipNative") || "Your plan exports up to {days} days.")
+                          .replace("{days}", String(exportCapDays))
+                      : (t("planCapTooltip") || "{tier} plan exports up to {days} days. Upgrade to Pro for full year.")
+                          .replace("{tier}", planTier === "free" ? "Free" : planTier)
+                          .replace("{days}", String(exportCapDays)))
                   : ""}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
                   locked
@@ -3242,18 +3259,27 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         {/* Plan-cap hint — visible when the user's cap is below the
             year ceiling (i.e. Free or Starter). Links to /subscription
             for the upgrade flow. Hidden for Pro/Business/Trial. */}
+        {/* App Store compliance (Apple 3.1.1): on native, drop the tier name
+            ("Free plan") + "Upgrade" CTA — show a neutral cap fact. Web keeps
+            the tier-labelled hint + upgrade link. */}
         {exportCapDays < 366 && (
           <div className="mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-2">
             <span>💡</span>
-            <span className="flex-1">
-              <strong>{planTier === "free" ? "Free" : planTier} {t("planLabelSuffix") || "plan"}</strong>
-              {" "}{t("planCapHintMid") || "exports up to"}{" "}<strong>{exportCapDays} {t("planCapHintDays") || "days"}</strong>.
-              {canPurchaseInApp() && (
-                <a href="/subscription" className="ml-2 underline font-semibold hover:no-underline">
-                  {t("planCapHintCta") || "Upgrade for full year →"}
-                </a>
-              )}
-            </span>
+            {isNativeApp() ? (
+              <span className="flex-1">
+                {t("planCapHintNativePrefix") || "Export covers up to"}{" "}<strong>{exportCapDays} {t("planCapHintDays") || "days"}</strong>.
+              </span>
+            ) : (
+              <span className="flex-1">
+                <strong>{planTier === "free" ? "Free" : planTier} {t("planLabelSuffix") || "plan"}</strong>
+                {" "}{t("planCapHintMid") || "exports up to"}{" "}<strong>{exportCapDays} {t("planCapHintDays") || "days"}</strong>.
+                {canPurchaseInApp() && (
+                  <a href="/subscription" className="ml-2 underline font-semibold hover:no-underline">
+                    {t("planCapHintCta") || "Upgrade for full year →"}
+                  </a>
+                )}
+              </span>
+            )}
           </div>
         )}
 
