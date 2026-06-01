@@ -50,7 +50,12 @@ else
     # If brew didn't work, download Node directly
     if ! command -v node >/dev/null 2>&1; then
         echo "Downloading Node.js directly from nodejs.org..."
-        NODE_VER="v20.18.0"
+        # Must satisfy the current toolchain: Vite 8 needs Node >=20.19,
+        # Capacitor CLI 8 needs Node >=22.0, rolldown needs >=22.12. v20.18
+        # (the old fallback) was BELOW all of these — when brew's download
+        # (ghcr.io) failed transiently, the build broke on the stale fallback
+        # Node. Pin a version that satisfies every engine constraint.
+        NODE_VER="v22.12.0"
         ARCH="$(uname -m)"
         if [ "$ARCH" = "arm64" ]; then
             NODE_DIST="node-${NODE_VER}-darwin-arm64"
@@ -99,8 +104,19 @@ echo "✅ Dependencies installed"
 echo ""
 echo "=== Building frontend ==="
 npm run build 2>&1 || {
-    echo "❌ ERROR: Frontend build failed!"
-    exit 1
+    # A build failure here is most often the npm optional-dependencies bug
+    # (npm/cli#4828): `npm ci` occasionally skips the platform-specific native
+    # binding (e.g. @rolldown/binding-darwin-*), so vite/rolldown can't load
+    # it. The reliable recovery is a clean reinstall — do it once and retry
+    # before giving up.
+    echo "⚠️  Frontend build failed — clean-reinstalling node_modules to repair"
+    echo "    optional native bindings (npm/cli#4828), then retrying once..."
+    rm -rf node_modules
+    npm install 2>&1
+    npm run build 2>&1 || {
+        echo "❌ ERROR: Frontend build failed after clean-reinstall repair!"
+        exit 1
+    }
 }
 echo "✅ Frontend built"
 
