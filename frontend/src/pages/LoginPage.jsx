@@ -706,12 +706,18 @@ export default function LoginPage() {
               </p>
             )}
 
+            {/* Apple Guideline 3.1.1 — no account registration on the iOS
+                app (sign-up is the on-ramp to an off-platform subscription).
+                Native is sign-in only; new businesses register on the web.
+                Hide the "create account" link in the native shell. */}
+            {!isNative && (
             <p className="mt-7 text-center text-[13px] text-gray-500">
               {t("newToBonBox")}{" "}
               <Link to="/register" className="text-gray-900 font-medium underline-offset-2 hover:underline">
                 {t("createAccount")}
               </Link>
             </p>
+            )}
           </div>
         </main>
 

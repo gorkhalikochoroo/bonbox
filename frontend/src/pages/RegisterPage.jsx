@@ -134,6 +134,13 @@ export default function RegisterPage() {
   }, [hasGoogle]);
   const { t, lang, setLang, LANGUAGES } = useLanguage();
   const navigate = useNavigate();
+  // Apple Guideline 3.1.1 — the iOS app must NOT offer account registration
+  // (sign-up is the on-ramp to an off-platform subscription). Native is
+  // sign-in only; new businesses register on the web. Bounce any direct hit
+  // on /register to the login screen.
+  useEffect(() => {
+    if (isNative) navigate("/login", { replace: true });
+  }, [isNative, navigate]);
   const [form, setForm] = useState({
     email: "",
     password: "",
@@ -312,6 +319,10 @@ export default function RegisterPage() {
       setLoading(false);
     }
   };
+
+  // Native shell never renders the registration form — Apple 3.1.1. The
+  // redirect above moves them to /login; this guard stops a one-frame flash.
+  if (isNative) return null;
 
   return (
     <>
