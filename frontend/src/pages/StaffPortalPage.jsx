@@ -1893,28 +1893,63 @@ export default function StaffPortalPage() {
     return () => { document.title = prev; };
   }, [info, t]);
 
-  // Per-staff PWA manifest + iOS home-screen name. Point <link rel="manifest">
-  // at THIS staff's manifest (served same-origin via a Vercel rewrite → backend)
-  // so an Android/Chrome install opens to their schedule and is named after the
-  // restaurant — not the generic owner app. iOS ignores the manifest for
-  // Add-to-Home, so we also set apple-mobile-web-app-title to the restaurant
-  // name. Both restore on unmount (the owner app uses the global values).
+  // Per-staff PWA manifest + iOS home-screen name.
+  //
+  // PLATFORM SPLIT (set by the inline <head> script in index.html, which is
+  // the authority for which manifest the browser binds to on first paint):
+  //
+  //   • iOS  → we deliberately ship NO <link rel="manifest"> on /s/ routes.
+  //            iOS Safari's Add-to-Home does NOT honor a manifest href changed
+  //            by JS after the initial parse; with no manifest it bookmarks the
+  //            CURRENT page URL (= /s/<slug>/<token>) — which is what we want.
+  //            So on iOS we MUST NOT create/restore a manifest link here (doing
+  //            so re-introduces the "icon opens /" bug). We only set the
+  //            apple-mobile-web-app-title, which iOS uses as the icon label.
+  //   • non-iOS (Android/desktop Chrome) → keep the per-staff manifest pointed
+  //            at THIS staff's lang-aware manifest so an install yields a
+  //            separate, schedule-branded app (start_url /s/<token>), not the
+  //            generic owner app.
+  //
+  // window.__BONBOX_IS_IOS is set by that inline script; default to false on
+  // SSR / unexpected absence so Android/desktop behavior is the safe fallback.
   useEffect(() => {
     if (!token || typeof document === "undefined") return;
-    const link = document.querySelector('link[rel="manifest"]');
-    const prevHref = link?.getAttribute("href");
-    // Hand the browser THIS staff's manifest (lang-aware) so an install yields a
-    // separate, schedule-branded app — not the generic owner app.
-    if (link) link.setAttribute("href", `/portal/${token}/app.webmanifest?lang=${lang || "da"}`);
+    const isIOS = typeof window !== "undefined" && window.__BONBOX_IS_IOS === true;
+
+    // --- Manifest: non-iOS only. On iOS we never touch the manifest link. ---
+    let link = null;
+    let prevHref = null;
+    let createdLink = false;
+    if (!isIOS) {
+      link = document.querySelector('link[rel="manifest"]');
+      prevHref = link?.getAttribute("href") ?? null;
+      if (!link) {
+        // The inline script writes the per-staff manifest before React mounts,
+        // but if it's somehow absent on a non-iOS staff route, create it so
+        // Chrome installability still arms.
+        link = document.createElement("link");
+        link.setAttribute("rel", "manifest");
+        document.head.appendChild(link);
+        createdLink = true;
+      }
+      link.setAttribute("href", `/portal/${token}/app.webmanifest?lang=${lang || "da"}`);
+    }
+
+    // --- apple-mobile-web-app-title: both platforms. On iOS this is the icon
+    //     label for the Add-to-Home bookmark of /s/<token>. ---
     const apple = document.querySelector('meta[name="apple-mobile-web-app-title"]');
-    const prevApple = apple?.getAttribute("content");
-    // iOS ignores the manifest for Add-to-Home and uses this as the icon label.
-    // Match the Android short_name (the venue brand) so the installed icon shows
-    // the restaurant name; the full app name ("{venue} · Vagtplan") still marks
-    // it as the separate schedule app.
+    const prevApple = apple?.getAttribute("content") ?? null;
     if (apple && info?.restaurant_name) apple.setAttribute("content", info.restaurant_name);
+
     return () => {
-      if (link && prevHref) link.setAttribute("href", prevHref);
+      // Restore the manifest for the next route (owner app uses /manifest.json).
+      if (link) {
+        if (createdLink) {
+          if (link.parentNode) link.parentNode.removeChild(link);
+        } else if (prevHref) {
+          link.setAttribute("href", prevHref);
+        }
+      }
       if (apple && prevApple) apple.setAttribute("content", prevApple);
     };
   }, [token, info, lang, t]);

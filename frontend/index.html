@@ -16,24 +16,108 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="BonBox" />
-    <link rel="manifest" href="/manifest.json" />
+    <!-- NOTE: the <link rel="manifest"> is NOT shipped statically here.
+         It is written by the inline script below so that on a staff-portal
+         route (/s/<slug>/<token>) the browser NEVER even sees the generic
+         /manifest.json (start_url "/") — on iOS the very first manifest link
+         present in the initial document is what Add-to-Home binds to, and a
+         JS href swap after parse is too late (see the script comment). On
+         every other route the script writes the generic /manifest.json, so
+         the owner app is unchanged. -->
     <script>
-      // PWA install reliability — on a staff-portal route (/s/<slug>/<token>),
-      // point the manifest at THIS staff's per-token manifest BEFORE React
-      // mounts, so the browser evaluates installability against the dedicated
-      // "Schedule" app on first paint and the Install prompt arms reliably.
-      // (React re-sets it with ?lang= once mounted.) Without this, the browser
-      // sees the generic manifest first and the install prompt often never
-      // arms on the staff route — "no way to install" even though it's valid.
-      // Only touches /s/ routes; the owner app keeps the global manifest.
+      // ───────────────────────────────────────────────────────────────────
+      // PWA manifest selection — runs in <head> BEFORE React, before the
+      // browser settles on a manifest, before any Add-to-Home read.
+      //
+      // THE iOS BUG THIS FIXES
+      // On /s/<slug>/<token> (a staff schedule), tapping Share → Add to Home
+      // Screen produced an icon that opened "/" (the generic owner app),
+      // not the staff schedule. Root cause: iOS Safari Add-to-Home does NOT
+      // honor a <link rel="manifest"> whose href is mutated by JavaScript
+      // after the initial HTML parse. It reads the manifest reference present
+      // in the *initial document*. So shipping a static generic manifest
+      // (start_url "/") and "fixing" its href in JS is invisible to iOS — it
+      // bookmarks the generic start_url "/". (Worse for us: iOS standalone
+      // apps have storage ISOLATED from Safari, so the "/" → /s/<token>
+      // localStorage fallback in PublicOrDashboard can't fire from a
+      // standalone launch — localStorage is empty there.)
+      //
+      // THE FIX (per-platform):
+      //   • iOS  → ship NO manifest at all on /s/ routes. With no manifest,
+      //            iOS Add-to-Home falls back to bookmarking the CURRENT page
+      //            URL (= /s/<slug>/<token>) and uses apple-touch-icon +
+      //            apple-mobile-web-app-title for the icon. This is the
+      //            long-stable, documented iOS behavior and makes the icon
+      //            open the schedule. (StaffPortalPage further sets the
+      //            apple title to the venue name; it must NOT re-add a
+      //            manifest on iOS — it guards on this same flag.)
+      //   • non-iOS (Android/desktop Chrome) → write the per-staff manifest
+      //            as the FIRST/only manifest link so installability is
+      //            evaluated against the dedicated schedule app and the
+      //            install prompt arms with start_url /s/<token>.
+      //   • any other route → write the generic /manifest.json (owner app
+      //            install unchanged).
+      //
+      // We expose window.__BONBOX_IS_IOS / __BONBOX_PORTAL_TOKEN so the React
+      // layer stays consistent and never re-introduces a manifest on iOS.
+      // ───────────────────────────────────────────────────────────────────
       (function () {
         try {
+          // iPadOS 13+ reports as "Macintosh" but is touch-capable; treat it
+          // as iOS for A2HS purposes. Covers iPhone/iPad/iPod + iPad-as-Mac.
+          var ua = navigator.userAgent || "";
+          var isIOS =
+            /iphone|ipad|ipod/i.test(ua) ||
+            (navigator.maxTouchPoints > 1 && /Macintosh/i.test(ua));
+          window.__BONBOX_IS_IOS = isIOS;
+
           var m = location.pathname.match(/^\/s\/(?:[^\/]+\/)?([^\/?#]+)/);
-          if (m && m[1]) {
+          var token = m && m[1] ? m[1] : null;
+          window.__BONBOX_PORTAL_TOKEN = token;
+
+          function setManifest(href) {
             var link = document.querySelector('link[rel="manifest"]');
-            if (link) link.setAttribute("href", "/portal/" + m[1] + "/app.webmanifest");
+            if (!href) {
+              // No manifest wanted (iOS staff route) — make sure none exists,
+              // so iOS Add-to-Home uses the current page URL.
+              if (link && link.parentNode) link.parentNode.removeChild(link);
+              return;
+            }
+            if (!link) {
+              link = document.createElement("link");
+              link.setAttribute("rel", "manifest");
+              document.head.appendChild(link);
+            }
+            link.setAttribute("href", href);
           }
-        } catch (e) { /* non-portal route — keep the global manifest */ }
+
+          if (token) {
+            if (isIOS) {
+              // iOS staff route → NO manifest. Icon bookmarks /s/<token>.
+              setManifest(null);
+            } else {
+              // Android/desktop staff route → per-staff manifest, first paint.
+              setManifest("/portal/" + token + "/app.webmanifest");
+            }
+          } else {
+            // Owner / marketing / any non-portal route → generic manifest.
+            setManifest("/manifest.json");
+          }
+        } catch (e) {
+          // Anything unexpected → fall back to the generic manifest so the
+          // owner app still installs. (A stray manifest on a staff route is
+          // harmless on iOS only if it points at "/", which is exactly the
+          // bug — but this catch only runs on a real JS error, not normally.)
+          try {
+            var l = document.querySelector('link[rel="manifest"]');
+            if (!l) {
+              l = document.createElement("link");
+              l.setAttribute("rel", "manifest");
+              document.head.appendChild(l);
+            }
+            l.setAttribute("href", "/manifest.json");
+          } catch (e2) { /* give up — no manifest */ }
+        }
       })();
     </script>
 
