@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell } from "lucide-react";
+import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, Inbox, Thermometer } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 
@@ -167,7 +167,7 @@ function PinGate({ onVerified, token, staffName }) {
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
       <div className="w-full max-w-xs text-center">
         <div className="w-16 h-16 bg-gray-100 border border-gray-200 rounded-xl flex items-center justify-center mx-auto mb-4">
-          <span className="text-3xl">🔐</span>
+          <Lock className="w-7 h-7 text-gray-400" strokeWidth={2} aria-hidden />
         </div>
         <h1 className="text-xl font-bold text-gray-900 mb-1">Enter PIN</h1>
         <p className="text-sm text-gray-500 mb-8">Hi {staffName}, enter your 4-digit PIN</p>
@@ -218,6 +218,7 @@ function PinGate({ onVerified, token, staffName }) {
  *     contains date + reason. UI doesn't even ask for staff_id.
  */
 function SickCallButton({ token, upcomingShifts, onCalledIn }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const todayIso = useState(() => toLocalISO(new Date()))[0];
   const [date, setDate] = useState(todayIso);
@@ -257,7 +258,8 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
         onClick={() => setOpen(true)}
         className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 text-sm font-medium text-gray-700 transition flex items-center justify-center gap-2"
       >
-        🤒 Call in sick
+        <Thermometer className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />
+        {t("portalCallInSick", "Call in sick")}
       </button>
     );
   }
@@ -269,7 +271,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
   return (
     <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <div className="font-semibold text-gray-900 text-sm">🤒 Call in sick</div>
+        <div className="font-semibold text-gray-900 text-sm flex items-center gap-1.5"><Thermometer className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalCallInSick", "Call in sick")}</div>
         <button
           onClick={() => { setOpen(false); setError(""); setReason(""); }}
           className="text-gray-500 hover:text-gray-700 text-lg leading-none w-6 h-6 flex items-center justify-center"
@@ -624,6 +626,7 @@ function ShiftRow({ date: d, shift }) {
 // ─── Hours Tab ────────────────────────────────────────────────────────────
 
 function HoursTab({ data, maxHours }) {
+  const { t } = useLanguage();
   if (!data) return <LoadingSkeleton />;
 
   const pct = maxHours && maxHours > 0 ? Math.min(100, (data.total_hours / maxHours) * 100) : null;
@@ -652,8 +655,9 @@ function HoursTab({ data, maxHours }) {
                 />
               </div>
               {remaining !== null && remaining <= 15 && (
-                <div className={`text-[10px] mt-1 ${remaining <= 5 ? "text-red-400" : "text-amber-400"}`}>
-                  ⚠️ {remaining} hrs remaining
+                <div className={`text-[10px] mt-1 flex items-center gap-1 ${remaining <= 5 ? "text-red-600" : "text-amber-600"}`}>
+                  <AlertTriangle className="w-3 h-3" strokeWidth={2} aria-hidden />
+                  {t("portalHrsRemaining", "{n} hrs remaining", { n: remaining })}
                 </div>
               )}
             </>
@@ -668,9 +672,9 @@ function HoursTab({ data, maxHours }) {
 
       {/* Hours warning for work permits */}
       {maxHours && remaining !== null && remaining <= 10 && (
-        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-[12px] text-amber-300">
-          <strong>⚠️ Work permit limit</strong>
-          <p className="mt-0.5 text-amber-400/80">You have {remaining} hours remaining this period.</p>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[12px] text-amber-800">
+          <strong className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />{t("portalWorkPermitLimit", "Work permit limit")}</strong>
+          <p className="mt-0.5 text-amber-700">You have {remaining} hours remaining this period.</p>
         </div>
       )}
 
@@ -773,6 +777,7 @@ function TipsTab({ data }) {
  *   • Server scrubs reason text + caps to 500 chars
  */
 function SwapTab({ token, ownShifts, onChanged }) {
+  const { t } = useLanguage();
   const [inbox, setInbox] = useState(null);
   const [showPropose, setShowPropose] = useState(false);
 
@@ -800,7 +805,8 @@ function SwapTab({ token, ownShifts, onChanged }) {
           onClick={() => setShowPropose(true)}
           className="w-full px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition flex items-center justify-center gap-2"
         >
-          🔄 Offer to swap a shift
+          <ArrowLeftRight className="w-4 h-4" strokeWidth={2} aria-hidden />
+          {t("portalOfferSwapLong", "Offer to swap a shift")}
         </button>
       )}
       {showPropose && (
@@ -944,6 +950,7 @@ function SwapRow({ swap, token, onChanged }) {
 /** Modal for proposing a new swap. Pulls the team's upcoming shifts
  * via /portal/{token}/team-schedule and the staff's own from a prop. */
 function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
+  const { t } = useLanguage();
   const [teamShifts, setTeamShifts] = useState([]);
   const [fromShiftId, setFromShiftId] = useState("");
   const [toShiftId, setToShiftId] = useState("");
@@ -994,7 +1001,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
   return (
     <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <div className="font-semibold text-gray-900 text-sm">🔄 Offer to swap</div>
+        <div className="font-semibold text-gray-900 text-sm flex items-center gap-1.5"><ArrowLeftRight className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalOfferSwap", "Offer to swap")}</div>
         <button
           onClick={onClose}
           className="text-gray-500 hover:text-gray-700 text-lg w-6 h-6 flex items-center justify-center"
@@ -1075,6 +1082,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
 // ─── Alerts Tab ──────────────────────────────────────────────────────────
 
 function AlertsTab({ token, staffName }) {
+  const { t } = useLanguage();
   const [notifications, setNotifications] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -1093,22 +1101,22 @@ function AlertsTab({ token, staffName }) {
   if (loading) return <LoadingSkeleton />;
 
   const EVENT_ICONS = {
-    schedule_published: { icon: "📅", label: "Schedule published" },
-    shift_changed: { icon: "🔄", label: "Shift changed" },
-    shift_deleted: { icon: "❌", label: "Shift cancelled" },
+    schedule_published: { Icon: Calendar, label: t("portalEvtSchedulePublished", "Schedule published") },
+    shift_changed: { Icon: ArrowLeftRight, label: t("portalEvtShiftChanged", "Shift changed") },
+    shift_deleted: { Icon: X, label: t("portalEvtShiftDeleted", "Shift cancelled") },
   };
 
   const CHANNEL_ICONS = {
-    email: "📧",
-    push: "🔔",
-    whatsapp: "💬",
+    email: Mail,
+    push: Bell,
+    whatsapp: MessageCircle,
   };
 
   if (!notifications || notifications.length === 0) {
     return (
       <div className="space-y-4">
         <div className="text-center py-12">
-          <div className="text-4xl mb-3">🔔</div>
+          <Bell className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
           <h3 className="text-base font-semibold text-gray-900 mb-1">No notifications yet</h3>
           <p className="text-sm text-gray-500">
             You'll see shift reminders, schedule updates, and tip notifications here.
@@ -1125,16 +1133,17 @@ function AlertsTab({ token, staffName }) {
       </div>
       <div className="space-y-1.5">
         {notifications.map((n) => {
-          const evt = EVENT_ICONS[n.event_type] || { icon: "🔔", label: n.event_type };
-          const channelIcon = CHANNEL_ICONS[n.channel] || "🔔";
+          const evt = EVENT_ICONS[n.event_type] || { Icon: Bell, label: n.event_type };
+          const ChannelIcon = CHANNEL_ICONS[n.channel] || Bell;
+          const EvtIcon = evt.Icon;
           const timeAgo = n.created_at ? formatTimeAgo(n.created_at) : "";
           return (
             <div key={n.id} className="flex items-start gap-3 px-3 py-3 rounded-xl bg-white border border-gray-200">
-              <div className="text-lg mt-0.5">{evt.icon}</div>
+              <EvtIcon className="w-4 h-4 text-gray-500 mt-0.5" strokeWidth={2} aria-hidden />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-gray-900">{n.subject || evt.label}</div>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[11px] text-gray-500">{channelIcon} {n.channel}</span>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="text-[11px] text-gray-500 flex items-center gap-1"><ChannelIcon className="w-3 h-3" strokeWidth={2} aria-hidden />{n.channel}</span>
                   <span className="text-[11px] text-gray-400">{timeAgo}</span>
                 </div>
               </div>
@@ -1185,7 +1194,7 @@ function PortalError({ message }) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
       <div className="text-center max-w-xs">
-        <div className="text-4xl mb-3">😕</div>
+        <Inbox className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
         <h1 className="text-xl font-bold text-gray-900 mb-2">Link not working</h1>
         <p className="text-sm text-gray-500">{message || "This link may have expired or been deactivated. Ask your manager for a new one."}</p>
       </div>
@@ -1507,8 +1516,9 @@ function StaffPushOptIn({ token }) {
   if (iosNotInstalled) {
     return (
       <div className="rounded-lg bg-white border border-gray-200 p-3 text-[11px] text-gray-500 leading-relaxed">
-        <div className="font-semibold text-gray-700 mb-1">
-          📲 {t("staffPushIosInstallTitle", "Get push notifications")}
+        <div className="font-semibold text-gray-700 mb-1 inline-flex items-center gap-1.5">
+          <Smartphone className="w-4 h-4" strokeWidth={2} aria-hidden />
+          {t("staffPushIosInstallTitle", "Get push notifications")}
         </div>
         {t("staffPushIosInstallHint", "On iPhone, tap the share icon in Safari and choose Add to Home Screen. Open BonBox from the home-screen icon to enable push.")}
       </div>
@@ -1526,8 +1536,9 @@ function StaffPushOptIn({ token }) {
     return (
       <div className="rounded-lg bg-white border border-gray-200 p-3 flex items-center justify-between gap-3">
         <div className="text-[11px] text-gray-700 min-w-0 flex-1">
-          <div className="font-semibold text-gray-900">
-            🔔 {t("staffPushOnTitle", "Push notifications on")}
+          <div className="font-semibold text-gray-900 inline-flex items-center gap-1.5">
+            <Bell className="w-4 h-4" strokeWidth={2} aria-hidden />
+            {t("staffPushOnTitle", "Push notifications on")}
           </div>
           <div className="text-gray-500">
             {t("staffPushOnHint", "You'll get a tap on this device when your schedule changes.")}
@@ -1547,8 +1558,8 @@ function StaffPushOptIn({ token }) {
 
   if (permission === "denied") {
     return (
-      <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 p-3 text-[11px] text-amber-200 leading-relaxed">
-        <div className="font-semibold mb-1">🔕 {t("staffPushBlockedTitle", "Push blocked")}</div>
+      <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-[11px] text-amber-800 leading-relaxed">
+        <div className="font-semibold mb-1 inline-flex items-center gap-1.5"><BellOff className="w-4 h-4" strokeWidth={2} aria-hidden />{t("staffPushBlockedTitle", "Push blocked")}</div>
         {t("staffPushBlockedHint", "Notifications are blocked in your browser settings. Re-enable them in Settings → Notifications → BonBox to get a tap when your shifts change.")}
       </div>
     );
@@ -1557,8 +1568,9 @@ function StaffPushOptIn({ token }) {
   return (
     <div className="rounded-lg bg-white border border-gray-200 p-3 space-y-2">
       <div className="text-[11px] text-gray-700">
-        <div className="font-semibold text-gray-900">
-          🔔 {t("staffPushOffTitle", "Get push notifications")}
+        <div className="font-semibold text-gray-900 inline-flex items-center gap-1.5">
+          <Bell className="w-4 h-4" strokeWidth={2} aria-hidden />
+          {t("staffPushOffTitle", "Get push notifications")}
         </div>
         <div className="text-gray-500 mt-0.5">
           {t("staffPushOffHint", "Get a tap on this device when your shifts change or the schedule updates.")}
@@ -1715,6 +1727,7 @@ export default function StaffPortalPage() {
   const [phoneInput, setPhoneInput] = useState("");
   const [emailSaving, setEmailSaving] = useState(false);
   const [emailMsg, setEmailMsg] = useState("");
+  const [emailStatus, setEmailStatus] = useState(null); // "ok" | "err"
 
   // 1. Validate token on mount
   useEffect(() => {
@@ -1904,13 +1917,16 @@ export default function StaffPortalPage() {
   const handleContactSave = async () => {
     setEmailSaving(true);
     setEmailMsg("");
+    setEmailStatus(null);
     try {
       const res = await portalApi.put(`/portal/${token}/email`, { email: emailInput.trim(), phone: phoneInput.trim() });
       setInfo({ ...info, email: res.data.email, phone: res.data.phone });
-      setEmailMsg("Saved!");
-      setTimeout(() => { setEmailMsg(""); setShowEmailEdit(false); }, 1500);
+      setEmailStatus("ok");
+      setEmailMsg(t("portalSaved", "Saved"));
+      setTimeout(() => { setEmailMsg(""); setEmailStatus(null); setShowEmailEdit(false); }, 1500);
     } catch (err) {
-      setEmailMsg(err.response?.data?.detail || "Failed to save");
+      setEmailStatus("err");
+      setEmailMsg(err.response?.data?.detail || t("portalSaveFailed", "Couldn't save"));
     } finally {
       setEmailSaving(false);
     }
@@ -1946,7 +1962,7 @@ export default function StaffPortalPage() {
               />
             )}
             <button
-              onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setEmailMsg(""); }}
+              onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setEmailMsg(""); setEmailStatus(null); }}
               className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-sm font-bold text-gray-700"
               title="Edit email"
             >
@@ -1958,9 +1974,9 @@ export default function StaffPortalPage() {
         {showEmailEdit && (
           <div className="max-w-lg mx-auto px-4 pb-3">
             <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-3">
-              <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">Notifications</div>
+              <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">{t("portalNotifications", "Notifications")}</div>
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">Email</label>
+                <label className="text-[10px] text-gray-500 mb-1 block">{t("portalContactEmailLabel", "Email")}</label>
                 <input
                   type="email"
                   value={emailInput}
@@ -1970,7 +1986,7 @@ export default function StaffPortalPage() {
                 />
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">Phone (for WhatsApp)</label>
+                <label className="text-[10px] text-gray-500 mb-1 block">{t("portalContactPhoneLabel", "Phone (for WhatsApp)")}</label>
                 <input
                   type="tel"
                   value={phoneInput}
@@ -1984,15 +2000,25 @@ export default function StaffPortalPage() {
                 disabled={emailSaving}
                 className="w-full px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 transition disabled:opacity-50"
               >
-                {emailSaving ? "Saving..." : "Save"}
+                {emailSaving ? t("portalSaving", "Saving…") : t("portalSave", "Save")}
               </button>
               {emailMsg && (
-                <div className={`text-xs ${emailMsg === "Saved!" ? "text-gray-700" : "text-red-400"}`}>{emailMsg}</div>
+                <div className={`text-xs ${emailStatus === "ok" ? "text-emerald-700" : "text-red-600"}`}>{emailMsg}</div>
               )}
               <div className="text-[10px] text-gray-400">
-                {info?.email || info?.phone
-                  ? `${info.email ? "📧 " + info.email : ""}${info.email && info.phone ? " · " : ""}${info.phone ? "📱 " + info.phone : ""}`
-                  : "Add your email or phone to get notified when your schedule changes."}
+                {info?.email || info?.phone ? (
+                  <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                    {info.email && (
+                      <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" strokeWidth={2} aria-hidden />{info.email}</span>
+                    )}
+                    {info.email && info.phone && <span aria-hidden>·</span>}
+                    {info.phone && (
+                      <span className="inline-flex items-center gap-1"><Smartphone className="w-3 h-3" strokeWidth={2} aria-hidden />{info.phone}</span>
+                    )}
+                  </span>
+                ) : (
+                  t("portalContactEmptyHint", "Add your email or phone to get notified when your schedule changes.")
+                )}
               </div>
               {/* Native Web Push opt-in moved to the prominent
                   InstallNotifyCard on the Schedule tab — far better
