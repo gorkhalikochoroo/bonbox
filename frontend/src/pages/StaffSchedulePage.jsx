@@ -265,9 +265,10 @@ export default function StaffSchedulePage() {
   // Publishing is the "money moment" staff see — owners get one calm glance at
   // what's about to go live before it does.
   const [publishConfirm, setPublishConfirm] = useState(null);
-  // Honest post-publish banner — message built from the server's real
-  // published + notify_count (never fabricated). Auto-dismisses.
-  const [publishToast, setPublishToast] = useState("");
+  // After a successful publish we keep the confirm sheet OPEN and swap it to a
+  // success state (✓ + the server's real published/notify counts) — a durable
+  // "it worked" moment beats a toast that blinks out. null = pre-publish.
+  const [publishResult, setPublishResult] = useState(null);
 
   /* ─── Data fetching ─── */
   const fetchStaff = useCallback(async () => {
@@ -350,9 +351,22 @@ export default function StaffSchedulePage() {
     setCopying(false);
   };
 
+  // Frontend mirror of the backend's _pick_rate: weekend (Sat/Sun) > evening
+  // (≥18:00) > base, using each member's REAL premium rates (null → base). Keeps
+  // the publish summary's labor figure in lockstep with the grid's ≈ per-shift
+  // costs instead of silently billing everything at base.
+  const pickRate = (member, dateStr, startTime) => {
+    const base = Number(member?.base_rate) || 0;
+    const evening = Number(member?.evening_rate) || base;
+    const weekend = Number(member?.weekend_rate) || base;
+    const dow = new Date(`${dateStr}T00:00:00`).getDay(); // 0=Sun … 6=Sat
+    if ((dow === 0 || dow === 6) && weekend > 0) return weekend;
+    if (startTime && parseInt(String(startTime).slice(0, 2), 10) >= 18 && evening > 0) return evening;
+    return base;
+  };
+
   // Summarize the draft shifts that "Publish" will make live — computed from
   // already-loaded shifts + staff, so the confirm sheet is instant (no fetch).
-  // Cost uses each member's base_rate, the same formula the day-stats use.
   const computePublishSummary = () => {
     const drafts = (shifts || []).filter((s) => s.status === "draft");
     const staffIds = new Set();
@@ -365,10 +379,13 @@ export default function StaffSchedulePage() {
       const hrs = calcHours(s.start_time, s.end_time, s.break_minutes || 0);
       hours += hrs;
       const member = staff.find((m) => m.id === sid);
-      const rate = Number(member?.base_rate) || 0;
+      const rate = pickRate(member, s.date, s.start_time);
       if (rate > 0) anyRate = true;
       cost += hrs * rate;
     });
+    // Match the grid's basis: +12.5% feriepenge when "Inkl. feriepenge" is the
+    // active view, so this figure equals the per-shift ≈ costs shown above it.
+    if (costBasis === "loaded") cost *= 1.125;
     return {
       draftCount: drafts.length,
       staffCount: staffIds.size,
@@ -378,9 +395,17 @@ export default function StaffSchedulePage() {
     };
   };
 
+  // Persistent at-a-glance state for the toolbar CTA: how many shifts are still
+  // unpublished. 0 → the week is fully live and the button reads "Published".
+  const draftCount = useMemo(
+    () => (shifts || []).filter((s) => s.status === "draft").length,
+    [shifts],
+  );
+
   // Step 1 — open the confirm sheet (the deliberate gate before going live).
   const requestPublish = () => {
     setError("");
+    setPublishResult(null);
     setPublishConfirm(computePublishSummary());
   };
 
@@ -393,25 +418,14 @@ export default function StaffSchedulePage() {
       const params = { week_start: toISO(weekStart) };
       if (branchId) params.branch_id = branchId;
       const res = await api.post("/staff/schedules/publish", null, { params });
-      setPublishConfirm(null);
       await fetchShifts();
-
       const d = res.data || {};
-      const published = Number(d.published) || 0;
-      const notify = Number(d.notify_count) || 0;
-      let msg;
-      if (published === 0) {
-        msg = t("publishNoChanges", "Schedule is already up to date — nothing new to publish.");
-      } else if (notify > 0) {
-        msg = t("publishedWithNotify", "Published {n} shift(s) — {m} staff emailed about their changes.")
-          .replace("{n}", String(published))
-          .replace("{m}", String(notify));
-      } else {
-        msg = t("publishedNoNotify", "Published {n} shift(s). No affected staff had an email on file to notify.")
-          .replace("{n}", String(published));
-      }
-      setPublishToast(msg);
-      setTimeout(() => setPublishToast(""), 8000);
+      // Keep the sheet OPEN and flip it to a success state built from the
+      // server's real counts — the durable confirmation that was missing.
+      setPublishResult({
+        published: Number(d.published) || 0,
+        notify: Number(d.notify_count) || 0,
+      });
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to publish schedule.");
     }
@@ -952,19 +966,27 @@ export default function StaffSchedulePage() {
                   : t("autopilotButton", "Autopilot")}
               </Button>
               <Button
-                variant="accent"
+                variant={draftCount > 0 ? "accent" : "secondary"}
                 size="sm"
                 onClick={requestPublish}
                 disabled={publishing}
                 busy={publishing}
-                title="Publish week"
+                title={draftCount > 0 ? "Publish week" : "All shifts published"}
               >
-                {publishing
-                  ? "…"
-                  : (<>
-                      <span className="hidden sm:inline">{t("publishConfirmCta", "Publish Week")}</span>
-                      <span className="sm:hidden">{t("publishShort", "Publish")}</span>
-                    </>)}
+                {publishing ? (
+                  "…"
+                ) : draftCount > 0 ? (
+                  <>
+                    <span className="hidden sm:inline">{t("publishConfirmCta", "Publish Week")}</span>
+                    <span className="sm:hidden">{t("publishShort", "Publish")}</span>
+                    <span className="ml-1 tabular-nums opacity-80">· {draftCount}</span>
+                  </>
+                ) : (
+                  <span className="inline-flex items-center gap-1">
+                    <Icon name="CheckCircle2" size={14} />
+                    {t("publishedState", "Published")}
+                  </span>
+                )}
               </Button>
               {/* PDF export — owners print this and pin it on the
                   back-of-house staff board. */}
@@ -3234,8 +3256,17 @@ function StatTile({ icon, value, label }) {
   );
 }
 
-function PublishConfirmModal({ summary, currency, weekStart, publishing, onConfirm, onClose, t }) {
+function PublishConfirmModal({ summary, result, currency, weekStart, publishing, onConfirm, onClose, t }) {
+  const done = !!result; // success state shown after a publish completes
   const nothing = !summary || summary.draftCount === 0;
+  const headerIcon = done ? "CheckCircle2" : "Send";
+  const title = done
+    ? (result.published === 0
+        ? t("publishNothingTitle", "Nothing to publish")
+        : t("publishedTitle", "Week published"))
+    : (nothing
+        ? t("publishNothingTitle", "Nothing to publish")
+        : t("publishConfirmTitle", "Publish this week?"));
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
@@ -3247,13 +3278,11 @@ function PublishConfirmModal({ summary, currency, weekStart, publishing, onConfi
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center shrink-0">
-              <Icon name="Send" size={18} className="text-emerald-600 dark:text-emerald-400" />
+              <Icon name={headerIcon} size={done ? 20 : 18} className="text-emerald-600 dark:text-emerald-400" />
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white leading-tight">
-                {nothing
-                  ? t("publishNothingTitle", "Nothing to publish")
-                  : t("publishConfirmTitle", "Publish this week?")}
+                {title}
               </h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 {formatWeekRange(weekStart)}
@@ -3269,7 +3298,23 @@ function PublishConfirmModal({ summary, currency, weekStart, publishing, onConfi
           </button>
         </div>
 
-        {nothing ? (
+        {done ? (
+          /* ── Success — durable confirmation from the server's real counts ── */
+          <div className="space-y-1.5">
+            <p className="text-sm text-gray-700 dark:text-gray-200 leading-relaxed">
+              {result.published === 0
+                ? t("publishedNothing", "Already up to date — nothing new to publish.")
+                : t("publishedLiveCount", "{n} shift(s) are now live on your team's schedule.").replace("{n}", String(result.published))}
+            </p>
+            {result.published > 0 && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                {result.notify > 0
+                  ? t("publishedNotifyYes", "{m} staff notified about their changes.").replace("{m}", String(result.notify))
+                  : t("publishedNotifyNo", "No affected staff had an email on file — nothing was sent.")}
+              </p>
+            )}
+          </div>
+        ) : nothing ? (
           <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
             {t(
               "publishNothingBody",
@@ -3298,7 +3343,7 @@ function PublishConfirmModal({ summary, currency, weekStart, publishing, onConfi
               {summary.anyRate && (
                 <StatTile
                   icon="Coins"
-                  value={`${summary.cost.toLocaleString()} ${currency}`}
+                  value={`≈ ${summary.cost.toLocaleString()} ${currency}`}
                   label={t("publishStatCost", "est. labor")}
                 />
               )}
@@ -3320,19 +3365,27 @@ function PublishConfirmModal({ summary, currency, weekStart, publishing, onConfi
 
         {/* Actions */}
         <div className="flex justify-end gap-2 pt-1">
-          <Button variant="secondary" size="sm" onClick={onClose}>
-            {nothing ? t("close", "Close") : t("cancel", "Cancel")}
-          </Button>
-          {!nothing && (
-            <Button
-              variant="accent"
-              size="sm"
-              onClick={onConfirm}
-              busy={publishing}
-              iconLeft={<Icon name="Send" size={14} />}
-            >
-              {t("publishConfirmCta", "Publish Week")}
+          {done ? (
+            <Button variant="accent" size="sm" onClick={onClose} iconLeft={<Icon name="Check" size={14} />}>
+              {t("publishDone", "Done")}
             </Button>
+          ) : (
+            <>
+              <Button variant="secondary" size="sm" onClick={onClose}>
+                {nothing ? t("close", "Close") : t("cancel", "Cancel")}
+              </Button>
+              {!nothing && (
+                <Button
+                  variant="accent"
+                  size="sm"
+                  onClick={onConfirm}
+                  busy={publishing}
+                  iconLeft={<Icon name="Send" size={14} />}
+                >
+                  {t("publishConfirmCta", "Publish Week")}
+                </Button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -3706,7 +3759,7 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
           {t("shiftPreview", "Shift: {start} \u2013 {end} ({hours}h net)")
             .replace("{start}", startTime)
             .replace("{end}", endTime)
-            .replace("{hours}", previewHours)}
+            .replace("{hours}", Math.round(previewHours * 10) / 10)}
           {breakMinutes > 0 && " " + t("shiftPreviewBreak", "with {n}min break").replace("{n}", breakMinutes)}
         </div>
 
