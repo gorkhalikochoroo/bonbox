@@ -173,6 +173,15 @@ class Precompute:
     expiry_at_risk_dkk: float = 0.0
     expiry_top_names: list[str] = field(default_factory=list)  # up to 3 for the prose
 
+    # Scheduled labor cost for the CURRENT week (Mon–Sun) — Planday-style
+    # weekly heads-up. Same rate×hours basis as the schedule grid + autopilot
+    # (_staff_hourly_rate × _shift_hours), PUBLISHED shifts only. An estimate
+    # (excl. overtime/premiums/ATP); surfaced as a Monday-only brief nudge so
+    # it never repeats daily.
+    sched_labor_cost_week: float = 0.0
+    sched_labor_hours_week: float = 0.0
+    sched_published_shifts_week: int = 0
+
     def to_dict(self) -> dict:
         return {k: v for k, v in self.__dict__.items()}
 
@@ -566,6 +575,53 @@ def compute_precompute(user: User, db: Session) -> Precompute:
     except Exception as e:  # noqa: BLE001
         logger.debug("daily_brief: close-variance signal unavailable: %s", e)
 
+    # ── Scheduled labor cost, current week (Mon–Sun), PUBLISHED shifts only ──
+    # Reuses the SAME rate/hours helpers as /staff/schedules/week-cost + the
+    # autopilot, so the brief figure matches the schedule grid exactly. Gross
+    # wage estimate (rate × hours). Fail-soft: any error leaves the signal at
+    # zero (→ no brief line) rather than breaking the whole brief.
+    sched_labor_cost_week = 0.0
+    sched_labor_hours_week = 0.0
+    sched_published_shifts_week = 0
+    try:
+        from app.models.staff import Schedule, StaffMember
+        from app.services.schedule_autopilot import (
+            _staff_hourly_rate,
+            _shift_hours,
+            DEFAULT_HOURLY_RATE,
+        )
+
+        _wk_start = today - timedelta(days=today.weekday())  # Monday
+        _wk_end = _wk_start + timedelta(days=6)
+        _shifts = (
+            db.query(Schedule)
+            .filter(
+                Schedule.user_id == user.id,
+                Schedule.date >= _wk_start,
+                Schedule.date <= _wk_end,
+                Schedule.status == "published",
+            )
+            .all()
+        )
+        if _shifts:
+            _rate_by_staff = {
+                s.id: _staff_hourly_rate(s)
+                for s in db.query(StaffMember)
+                .filter(
+                    StaffMember.user_id == user.id,
+                    StaffMember.is_deleted.isnot(True),
+                )
+                .all()
+            }
+            for _sh in _shifts:
+                _hrs = _shift_hours(_sh.start_time, _sh.end_time, _sh.break_minutes or 0)
+                _rate = _rate_by_staff.get(_sh.staff_id, DEFAULT_HOURLY_RATE)
+                sched_labor_hours_week += _hrs
+                sched_labor_cost_week += _hrs * _rate
+                sched_published_shifts_week += 1
+    except Exception as e:  # noqa: BLE001
+        logger.debug("daily_brief: scheduled-labor signal unavailable: %s", e)
+
     return Precompute(
         business_name=user.business_name or "your business",
         currency=user.currency or "DKK",
@@ -605,6 +661,9 @@ def compute_precompute(user: User, db: Session) -> Precompute:
         expiry_items_3d=expiry_items_3d,
         expiry_at_risk_dkk=round(expiry_at_risk_dkk, 2),
         expiry_top_names=expiry_top_names,
+        sched_labor_cost_week=round(sched_labor_cost_week, 2),
+        sched_labor_hours_week=round(sched_labor_hours_week, 1),
+        sched_published_shifts_week=int(sched_published_shifts_week),
     )
 
 
@@ -897,6 +956,34 @@ def generate_candidates(
             facts=[when, _fmt_money(p.recurring_due_soon_total, cur)] + names,
             cta_label="Manage recurring",
             cta_url="/expenses",
+        ))
+
+    # ── Weekly labor heads-up (Monday only) ─────────────────────────
+    # A "plan your week" nudge: this week's published rota costs ≈X in wages.
+    # Monday-only so it never repeats daily (spam discipline). Estimate (rate ×
+    # hours, excl. overtime/premiums/ATP) — matches the schedule grid exactly.
+    # The % is vs a TYPICAL week (week_avg_revenue × 7), labelled "~" + "typical"
+    # so we don't overclaim against revenue this week hasn't earned yet.
+    try:
+        _is_monday = date.fromisoformat(p.today).weekday() == 0
+    except Exception:
+        _is_monday = False
+    if _is_monday and p.sched_published_shifts_week > 0 and p.sched_labor_cost_week > 0:
+        _cost_txt = _fmt_money(p.sched_labor_cost_week, cur)
+        _facts = [_cost_txt, f"{p.sched_labor_hours_week:.0f}h"]
+        _typical_week = (p.week_avg_revenue or 0) * 7
+        _pct_txt = ""
+        if _typical_week > 0:
+            _lp = round(p.sched_labor_cost_week / _typical_week * 100)
+            _pct_txt = f" (~{_lp}% of a typical week)"
+            _facts.append(f"{_lp}%")
+        out.append(Candidate(
+            type="watch",
+            text=f"Planned labor this week: ≈ {_cost_txt} · {p.sched_labor_hours_week:.0f} hrs{_pct_txt}. Estimate — review the rota.",
+            weight=0.6,
+            facts=_facts,
+            cta_label="Open schedule",
+            cta_url="/staff/schedule",
         ))
 
     # ── Brief 2.0: daily close vs POS variance ──────────────────────
