@@ -1232,7 +1232,7 @@ export default function StaffSchedulePage() {
                     )}
                   </div>
                   <div className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                    {weekSummary.cost.toLocaleString()} {currency}
+                    ≈ {weekSummary.cost.toLocaleString()} {currency}
                   </div>
                 </div>
               </div>
@@ -1299,6 +1299,9 @@ export default function StaffSchedulePage() {
               />
             </div>
           </div>
+          <p className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/60 text-[11px] leading-snug text-gray-400 dark:text-gray-500">
+            {t("schedCostEstimateNote")}
+          </p>
         </div>
       </FadeIn>
 
@@ -2507,7 +2510,7 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForSh
             <>
               <span className="text-gray-300 dark:text-gray-600 flex-shrink-0" aria-hidden="true">·</span>
               <span className="text-gray-900 dark:text-gray-100 font-medium tabular-nums flex-shrink-0">
-                {dayStats.cost.toLocaleString()} {currency}
+                ≈ {dayStats.cost.toLocaleString()} {currency}
               </span>
             </>
           )}
@@ -2583,7 +2586,7 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForSh
                     {/* Cost-per-shift — quietest line in the chip (matches grid). */}
                     {showCost && shiftCost != null && (
                       <div className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums mt-px">
-                        {Math.round(shiftCost).toLocaleString()} {currency}
+                        ≈ {Math.round(shiftCost).toLocaleString()} {currency}
                       </div>
                     )}
                   </div>
@@ -2725,7 +2728,7 @@ function ScheduleGrid({
                               grid stays calm at 16 staff × 7 days. */}
                           {showCost && shiftCost != null && (
                             <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-px tabular-nums">
-                              {Math.round(shiftCost).toLocaleString()} {currency}
+                              ≈ {Math.round(shiftCost).toLocaleString()} {currency}
                             </div>
                           )}
                           {isDraft && (
@@ -2768,7 +2771,7 @@ function ScheduleGrid({
                       </div>
                       {showCost && cost != null && (
                         <div className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums mt-px">
-                          {Math.round(cost).toLocaleString()} {currency}
+                          ≈ {Math.round(cost).toLocaleString()} {currency}
                         </div>
                       )}
                       {/* Labor% — the column headline, color-coded vs target. */}
