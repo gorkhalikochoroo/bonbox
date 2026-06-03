@@ -2213,7 +2213,10 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
     name: member.name,
     email: member.email || "",
     phone: member.phone || "",
-    role: member.role,
+    // Normalise to a ROLES option (stored roles can be lowercase "server",
+    // but the <select> options are capitalized "Server") so the dropdown
+    // pre-selects the member's ACTUAL role instead of defaulting to "Chef".
+    role: roleToShiftOption(member.role),
     contract_type: member.contract_type,
     base_rate: member.base_rate || "",
     tax_card_type: member.tax_card_type || "",
@@ -2916,7 +2919,7 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForSh
                       {formatShiftTime(shift.start_time, shift.end_time)}
                     </div>
                     <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      {hrs}h
+                      {Math.round(hrs * 10) / 10}h
                       {isDraft && <span className="ml-1 text-amber-500 dark:text-amber-400 font-medium">· {t("schedDraft")}</span>}
                     </div>
                     {/* Cost-per-shift — quietest line in the chip (matches grid). */}
@@ -3054,7 +3057,7 @@ function ScheduleGrid({
                             {formatShiftTime(shift.start_time, shift.end_time)}
                           </div>
                           <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                            {hrs}h
+                            {Math.round(hrs * 10) / 10}h
                             {shift.role_on_shift && shift.role_on_shift !== member.role && (
                               <span className="ml-1 opacity-70">({shift.role_on_shift.slice(0, 3)})</span>
                             )}
