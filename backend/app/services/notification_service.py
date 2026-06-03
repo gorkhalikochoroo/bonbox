@@ -639,3 +639,90 @@ def notify_owner_new_reservation(db: Session, owner, reservation, *, cancelled: 
     except Exception:  # noqa: BLE001
         db.rollback()
     return result
+
+
+def notify_owner_swap_executed(db: Session, *, owner_id, swap) -> dict:
+    """Best-effort owner notification when a peer-to-peer shift swap
+    auto-executes (both staff accepted → schedules already reassigned).
+
+    The swap is NOT gated on this — it already happened. This is pure
+    awareness for the owner ("Anna and Lars swapped two shifts"), mirroring
+    the push + NotificationLog pattern used for new reservations. Never
+    raises; never blocks. Writes ONE NotificationLog row (channel='push')
+    under the owner's user_id so it surfaces in their notification history.
+
+    Owner-approval UI is a deliberate follow-up (see shift_swap_service
+    respond_to_swap) — for now the owner is informed after the fact, not
+    asked to approve.
+    """
+    result = {"attempted": 0, "sent": 0}
+
+    # Resolve names + a shift date for a human-readable line. Best-effort —
+    # missing rows just yield a terser message.
+    from_staff = (
+        db.query(StaffMember).filter(StaffMember.id == swap.from_staff_id).first()
+        if swap.from_staff_id else None
+    )
+    to_staff = (
+        db.query(StaffMember).filter(StaffMember.id == swap.to_staff_id).first()
+        if swap.to_staff_id else None
+    )
+    from_name = (from_staff.name if from_staff else "Staff")
+    to_name = (to_staff.name if to_staff else "Staff")
+
+    title = "BonBox · Vagtbytte gennemført"
+    body_text = f"{from_name} ↔ {to_name} byttede to vagter"
+
+    owner = db.query(User).filter(User.id == owner_id).first()
+    if owner is None:
+        return result
+
+    # Push to the owner's OWN devices (staff_id IS NULL), if any.
+    try:
+        from app.services.push_sender import send_to_subscription
+
+        subs = (
+            db.query(PushSubscription)
+            .filter(
+                PushSubscription.user_id == owner.id,
+                PushSubscription.staff_id.is_(None),
+            )
+            .all()
+        )
+        payload = {
+            "title": title,
+            "body": body_text,
+            "tag": f"bonbox-swap-{swap.id}",
+            "data": {"url": "/staff/schedule"},
+        }
+        for sub in subs:
+            result["attempted"] += 1
+            try:
+                outcome = send_to_subscription(sub, payload)
+                if outcome.get("ok"):
+                    result["sent"] += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("swap push send threw: %s", exc)
+    except Exception:  # noqa: BLE001
+        # push_sender unavailable (CI / partial checkout) — still log below.
+        pass
+
+    # One NotificationLog row regardless of device count — owner audit
+    # surface. status='sent' only if a push actually landed; otherwise
+    # the row still records that the swap happened (channel push, no sub).
+    try:
+        db.add(NotificationLog(
+            id=uuid.uuid4(),
+            user_id=owner.id,
+            staff_id=None,
+            channel="push",
+            event_type="shift_swapped",
+            subject=title,
+            body=body_text,
+            status="sent" if result["sent"] else "failed",
+            error_message=None if result["sent"] else "no_active_subscription",
+        ))
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+    return result

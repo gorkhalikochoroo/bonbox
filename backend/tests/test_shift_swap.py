@@ -7,13 +7,16 @@ Multi-layer security guarantees pinned by these tests:
   • Same-shift swap blocked (can't swap a shift with itself)
   • Past-shift swap blocked
   • Idempotency on duplicate propose
-  • Lifecycle: only proposed swaps can be responded to; only accepted
-    swaps can be approved
-  • Atomic flip on approve: both Schedule.staff_id values move in one
-    transaction OR neither
-  • Cross-tenant decide rejected
-  • Re-validation at decide-time: if a shift changed since accept,
-    the swap can't auto-flip stale data
+  • Lifecycle: only proposed swaps can be responded to
+  • AUTO-EXECUTE on mutual accept (2026-06): when the target accepts,
+    the swap is EXECUTED immediately (status 'done') — both
+    Schedule.staff_id values flip atomically in one transaction OR
+    neither. There is no owner-approval step on the portal's critical
+    path (no owner UI existed, so accepted swaps used to stall). The
+    legacy decide_swap owner path is retained for a FUTURE owner UI and
+    is still covered below.
+  • Re-validation at accept-time: if a shift drifted since propose,
+    the swap can't auto-flip stale data (it declines instead).
 """
 from __future__ import annotations
 
@@ -130,26 +133,24 @@ def test_propose_creates_proposed_swap(db, owner, sara, lars, sara_shift, lars_s
     assert swap.reason == "family thing"
 
 
-def test_full_happy_path_propose_accept_approve_swaps_schedules(
+def test_full_happy_path_propose_accept_executes_swap(
     db, owner, sara, lars, sara_shift, lars_shift,
 ):
-    """End-to-end: propose → accept → approve → both Schedule.staff_id
-    values flipped atomically."""
+    """End-to-end (new model): propose → accept → swap EXECUTES on the
+    accept. Status becomes 'done' and both Schedule.staff_id values flip
+    atomically — no owner step on the critical path."""
     swap = propose_swap(
         db, owner_id=owner.id,
         from_staff_id=sara.id, from_shift_id=sara_shift.id,
         to_staff_id=lars.id, to_shift_id=lars_shift.id,
     )
-    accepted = respond_to_swap(
+    done = respond_to_swap(
         db, swap_id=swap.id, responder_staff_id=lars.id, accept=True,
     )
-    assert accepted.status == "accepted"
-    approved = decide_swap(
-        db, owner_id=owner.id, swap_id=swap.id, approve=True,
-    )
-    assert approved.status == "approved"
+    assert done.status == "done"
+    assert done.decided_at is not None  # execution timestamp stamped
 
-    # Critical: schedules actually flipped.
+    # Critical: schedules actually flipped on the accept itself.
     db.refresh(sara_shift); db.refresh(lars_shift)
     assert sara_shift.staff_id == lars.id   # was Sara's, now Lars
     assert lars_shift.staff_id == sara.id   # was Lars's, now Sara
@@ -367,7 +368,8 @@ def test_decline_terminates_swap(
 def test_double_accept_is_rejected(
     db, owner, sara, lars, sara_shift, lars_shift,
 ):
-    """Once accepted, can't re-respond — owner is the next gate."""
+    """Once accepted the swap is executed (done) — re-responding to a
+    terminal state is rejected (idempotency / no double-flip)."""
     swap = propose_swap(
         db, owner_id=owner.id,
         from_staff_id=sara.id, from_shift_id=sara_shift.id,
@@ -376,7 +378,7 @@ def test_double_accept_is_rejected(
     respond_to_swap(db, swap_id=swap.id, responder_staff_id=lars.id, accept=True)
     with pytest.raises(ShiftSwapError) as ei:
         respond_to_swap(db, swap_id=swap.id, responder_staff_id=lars.id, accept=True)
-    assert "already accepted" in str(ei.value)
+    assert "already done" in str(ei.value)
 
 
 # ─── Withdraw ────────────────────────────────────────────────────────
@@ -423,7 +425,98 @@ def test_cant_withdraw_after_accept(
     assert "already responded" in str(ei.value)
 
 
-# ─── Decide / atomic schedule flip ───────────────────────────────────
+# ─── Auto-execute on accept (atomic schedule flip) ───────────────────
+
+
+def test_accept_atomically_swaps_schedules(
+    db, owner, sara, lars, sara_shift, lars_shift,
+):
+    """Pre-flip: sara_shift.staff = sara, lars_shift.staff = lars.
+    Post-accept: sara_shift.staff = lars, lars_shift.staff = sara.
+    Both flip in one transaction the moment the target accepts (the new
+    auto-execute model — no owner step)."""
+    sara_shift_id = sara_shift.id
+    lars_shift_id = lars_shift.id
+
+    swap = propose_swap(
+        db, owner_id=owner.id,
+        from_staff_id=sara.id, from_shift_id=sara_shift_id,
+        to_staff_id=lars.id, to_shift_id=lars_shift_id,
+    )
+    done = respond_to_swap(db, swap_id=swap.id, responder_staff_id=lars.id, accept=True)
+    assert done.status == "done"
+
+    # Re-query to bypass any stale ORM state.
+    after_sara_shift = db.query(Schedule).filter(Schedule.id == sara_shift_id).first()
+    after_lars_shift = db.query(Schedule).filter(Schedule.id == lars_shift_id).first()
+    assert after_sara_shift.staff_id == lars.id
+    assert after_lars_shift.staff_id == sara.id
+
+
+def test_decline_does_not_swap_schedules(
+    db, owner, sara, lars, sara_shift, lars_shift,
+):
+    """A declined swap leaves both schedules untouched."""
+    sara_shift_id = sara_shift.id
+    lars_shift_id = lars_shift.id
+    swap = propose_swap(
+        db, owner_id=owner.id,
+        from_staff_id=sara.id, from_shift_id=sara_shift_id,
+        to_staff_id=lars.id, to_shift_id=lars_shift_id,
+    )
+    respond_to_swap(db, swap_id=swap.id, responder_staff_id=lars.id, accept=False)
+    after_sara = db.query(Schedule).filter(Schedule.id == sara_shift_id).first()
+    after_lars = db.query(Schedule).filter(Schedule.id == lars_shift_id).first()
+    assert after_sara.staff_id == sara.id  # unchanged
+    assert after_lars.staff_id == lars.id  # unchanged
+
+
+def test_accept_re_validates_shifts_havent_drifted(
+    db, owner, sara, lars, anna, sara_shift, lars_shift,
+):
+    """If a shift was reassigned (e.g. owner manually edited) between
+    propose and accept, the swap can't auto-flip stale state — it
+    declines instead, leaving the schedule untouched, and asks the staff
+    to re-offer."""
+    sara_shift_id = sara_shift.id
+    swap = propose_swap(
+        db, owner_id=owner.id,
+        from_staff_id=sara.id, from_shift_id=sara_shift.id,
+        to_staff_id=lars.id, to_shift_id=lars_shift.id,
+    )
+
+    # Owner manually reassigns Sara's shift to Anna before Lars accepts.
+    sara_shift.staff_id = anna.id
+    db.commit()
+
+    with pytest.raises(ShiftSwapError) as ei:
+        respond_to_swap(db, swap_id=swap.id, responder_staff_id=lars.id, accept=True)
+    assert "changed since" in str(ei.value).lower()
+
+    # Swap marked declined, and the (already-drifted) shift is untouched
+    # by the swap logic — no half-flip.
+    after = db.query(ShiftSwapRequest).filter(ShiftSwapRequest.id == swap.id).first()
+    assert after.status == "declined"
+    after_sara_shift = db.query(Schedule).filter(Schedule.id == sara_shift_id).first()
+    assert after_sara_shift.staff_id == anna.id  # the owner's edit, not a swap flip
+
+
+# ─── Legacy owner-approval path (decide_swap) — retained for a FUTURE ─
+# owner-approval UI. Not on the portal's critical path anymore, but the
+# function must keep working. We construct the `accepted` precondition
+# directly (respond_to_swap no longer produces it).
+
+
+def _force_accepted(db, swap):
+    """Put a swap into the legacy `accepted` state without going through
+    respond_to_swap (which now auto-executes). Mirrors what an owner-
+    approval flow would set before calling decide_swap."""
+    from app.utils.time import utc_now
+    swap.status = "accepted"
+    swap.responded_at = utc_now()
+    db.commit()
+    db.refresh(swap)
+    return swap
 
 
 def test_decide_requires_accepted_status(
@@ -449,19 +542,18 @@ def test_decide_cross_tenant_rejected(
         from_staff_id=sara.id, from_shift_id=sara_shift.id,
         to_staff_id=lars.id, to_shift_id=lars_shift.id,
     )
-    respond_to_swap(db, swap_id=swap.id, responder_staff_id=lars.id, accept=True)
+    _force_accepted(db, swap)
     with pytest.raises(ShiftSwapError):
         decide_swap(
             db, owner_id=other_owner.id, swap_id=swap.id, approve=True,
         )
 
 
-def test_approve_atomically_swaps_schedules(
+def test_decide_approve_atomically_swaps_schedules(
     db, owner, sara, lars, sara_shift, lars_shift,
 ):
-    """Pre-flip: sara_shift.staff = sara, lars_shift.staff = lars.
-    Post-flip: sara_shift.staff = lars, lars_shift.staff = sara.
-    Both happen in one transaction."""
+    """Legacy path: from the `accepted` state, owner approve flips both
+    Schedule.staff_id values in one transaction."""
     sara_shift_id = sara_shift.id
     lars_shift_id = lars_shift.id
 
@@ -470,20 +562,20 @@ def test_approve_atomically_swaps_schedules(
         from_staff_id=sara.id, from_shift_id=sara_shift_id,
         to_staff_id=lars.id, to_shift_id=lars_shift_id,
     )
-    respond_to_swap(db, swap_id=swap.id, responder_staff_id=lars.id, accept=True)
-    decide_swap(db, owner_id=owner.id, swap_id=swap.id, approve=True)
+    _force_accepted(db, swap)
+    approved = decide_swap(db, owner_id=owner.id, swap_id=swap.id, approve=True)
+    assert approved.status == "approved"
 
-    # Re-query to bypass any stale ORM state.
     after_sara_shift = db.query(Schedule).filter(Schedule.id == sara_shift_id).first()
     after_lars_shift = db.query(Schedule).filter(Schedule.id == lars_shift_id).first()
     assert after_sara_shift.staff_id == lars.id
     assert after_lars_shift.staff_id == sara.id
 
 
-def test_deny_does_not_swap_schedules(
+def test_decide_deny_does_not_swap_schedules(
     db, owner, sara, lars, sara_shift, lars_shift,
 ):
-    """A denied swap leaves both schedules untouched."""
+    """Legacy path: a denied swap leaves both schedules untouched."""
     sara_shift_id = sara_shift.id
     lars_shift_id = lars_shift.id
     swap = propose_swap(
@@ -491,7 +583,7 @@ def test_deny_does_not_swap_schedules(
         from_staff_id=sara.id, from_shift_id=sara_shift_id,
         to_staff_id=lars.id, to_shift_id=lars_shift_id,
     )
-    respond_to_swap(db, swap_id=swap.id, responder_staff_id=lars.id, accept=True)
+    _force_accepted(db, swap)
     decide_swap(
         db, owner_id=owner.id, swap_id=swap.id, approve=False, note="conflict",
     )
@@ -501,18 +593,17 @@ def test_deny_does_not_swap_schedules(
     assert after_lars.staff_id == lars.id  # unchanged
 
 
-def test_approve_re_validates_shifts_havent_drifted(
+def test_decide_approve_re_validates_shifts_havent_drifted(
     db, owner, sara, lars, anna, sara_shift, lars_shift,
 ):
-    """If a shift was reassigned (e.g. owner manually edited) between
-    accept and approve, the swap can't auto-flip stale state. Force
-    the proposer to re-propose."""
+    """Legacy path: if a shift was reassigned between accept and approve,
+    the owner approve can't auto-flip stale state."""
     swap = propose_swap(
         db, owner_id=owner.id,
         from_staff_id=sara.id, from_shift_id=sara_shift.id,
         to_staff_id=lars.id, to_shift_id=lars_shift.id,
     )
-    respond_to_swap(db, swap_id=swap.id, responder_staff_id=lars.id, accept=True)
+    _force_accepted(db, swap)
 
     # Owner manually reassigns Sara's shift to Anna in the meantime.
     sara_shift.staff_id = anna.id
@@ -557,18 +648,41 @@ def test_list_for_staff_includes_outgoing_and_incoming(
     assert len(inbox) == 2
 
 
+def test_done_swap_visible_in_staff_inbox(
+    db, owner, sara, lars, sara_shift, lars_shift,
+):
+    """A just-executed swap (status 'done') stays in the default staff
+    inbox so both staff see the "Byttet/Done" confirmation; the schedule
+    tab already reflects the reassignment."""
+    swap = propose_swap(
+        db, owner_id=owner.id,
+        from_staff_id=sara.id, from_shift_id=sara_shift.id,
+        to_staff_id=lars.id, to_shift_id=lars_shift.id,
+    )
+    respond_to_swap(db, swap_id=swap.id, responder_staff_id=lars.id, accept=True)
+
+    sara_inbox = list_for_staff(db, staff_id=sara.id)  # include_resolved=False
+    lars_inbox = list_for_staff(db, staff_id=lars.id)
+    assert any(s.id == swap.id and s.status == "done" for s in sara_inbox)
+    assert any(s.id == swap.id and s.status == "done" for s in lars_inbox)
+
+
 def test_list_pending_for_owner_only_shows_accepted(
     db, owner, sara, lars, sara_shift, lars_shift,
 ):
-    """Owner card should only see swaps that are accepted (waiting on
-    them); proposed/declined/approved/denied don't clutter."""
-    # accepted — should appear
+    """Legacy owner card (decide_swap path) should only see swaps that
+    are `accepted` (waiting on them); proposed/done/declined/etc. don't
+    clutter. Note: with auto-execute, real swaps no longer reach
+    `accepted` via the portal — this pins the query for the future
+    owner-approval UI by constructing the state directly."""
+    # accepted — should appear (constructed directly; portal no longer
+    # produces `accepted`).
     swap1 = propose_swap(
         db, owner_id=owner.id,
         from_staff_id=sara.id, from_shift_id=sara_shift.id,
         to_staff_id=lars.id, to_shift_id=lars_shift.id,
     )
-    respond_to_swap(db, swap_id=swap1.id, responder_staff_id=lars.id, accept=True)
+    _force_accepted(db, swap1)
 
     # proposed but not yet responded — should NOT appear
     other_sara_shift = _shift(

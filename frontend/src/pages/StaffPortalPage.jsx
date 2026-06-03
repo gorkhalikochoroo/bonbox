@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, Inbox, Thermometer } from "lucide-react";
+import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, Inbox, Thermometer, StickyNote } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 
@@ -573,6 +573,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, onShiftsChanged }) {
 }
 
 function ShiftRow({ date: d, shift }) {
+  const { t } = useLanguage();
   const dt = new Date(d + "T00:00:00");
   const dayName = DAYS[dt.getDay() === 0 ? 6 : dt.getDay() - 1];
   const dayNum = dt.getDate();
@@ -604,8 +605,19 @@ function ShiftRow({ date: d, shift }) {
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold text-gray-900">{shift.start_time} – {shift.end_time}</div>
         <div className="text-[11px] text-gray-500">{shift.role_on_shift || "Staff"}</div>
+        {/* Owner's per-shift note — a quiet line so the time/role stay the
+            focus. Only renders when the owner actually left a note. */}
+        {shift.notes && (
+          <div
+            className="mt-1 flex items-start gap-1 text-[12px] text-gray-500"
+            aria-label={t("portalShiftNote", "Note from your manager")}
+          >
+            <StickyNote className="w-3 h-3 mt-[2px] shrink-0 text-gray-400" strokeWidth={2} aria-hidden />
+            <span className="min-w-0 break-words">{shift.notes}</span>
+          </div>
+        )}
       </div>
-      <div>
+      <div className="shrink-0 self-start">
         {today ? (
           <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-100 border border-gray-200 text-gray-700">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Today
@@ -632,17 +644,31 @@ function HoursTab({ data, maxHours }) {
   const pct = maxHours && maxHours > 0 ? Math.min(100, (data.total_hours / maxHours) * 100) : null;
   const remaining = maxHours ? Math.max(0, maxHours - data.total_hours) : null;
 
+  // Headline can be rostered (from the published schedule) or logged
+  // (actuals the owner recorded). Label honestly so staff know which
+  // number they're looking at. Default to "schedule" for older payloads.
+  const isSchedule = (data.hours_source || "schedule") === "schedule";
+  const hoursLabel = isSchedule
+    ? t("portalHoursRostered", "Rostered hours")
+    : t("portalHoursWorked", "Hours worked");
+  const recentLabel = isSchedule
+    ? t("portalHoursUpcomingShifts", "Your shifts")
+    : t("portalHoursRecentShifts", "Recent shifts");
+  const emptyLabel = isSchedule
+    ? t("portalHoursNoShifts", "No shifts in this period yet")
+    : t("portalHoursNoneLogged", "No hours logged yet this period");
+
   return (
     <div className="space-y-4">
       {/* Period info */}
       <div className="text-[11px] text-gray-500 flex items-center gap-2">
-        <span>Period: {fmtShort(data.period_start)} – {fmtShort(data.period_end)}</span>
+        <span>{t("portalHoursPeriod", "Period")}: {fmtShort(data.period_start)} – {fmtShort(data.period_end)}</span>
       </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3">
         <div className="bg-white border border-gray-200 rounded-xl p-3">
-          <div className="text-[11px] text-gray-500 mb-1">Hours worked</div>
+          <div className="text-[11px] text-gray-500 mb-1">{hoursLabel}</div>
           <div className="text-2xl font-bold text-gray-900">
             {data.total_hours} {maxHours ? <span className="text-sm text-gray-500">/ {maxHours}</span> : null}
           </div>
@@ -664,9 +690,9 @@ function HoursTab({ data, maxHours }) {
           )}
         </div>
         <div className="bg-white border border-gray-200 rounded-xl p-3">
-          <div className="text-[11px] text-gray-500 mb-1">Shifts logged</div>
+          <div className="text-[11px] text-gray-500 mb-1">{t("portalHoursShiftsCount", "Shifts")}</div>
           <div className="text-2xl font-bold text-gray-900">{data.entries.length}</div>
-          <div className="text-[11px] text-gray-500">this period</div>
+          <div className="text-[11px] text-gray-500">{t("portalHoursThisPeriod", "this period")}</div>
         </div>
       </div>
 
@@ -674,23 +700,23 @@ function HoursTab({ data, maxHours }) {
       {maxHours && remaining !== null && remaining <= 10 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[12px] text-amber-800">
           <strong className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />{t("portalWorkPermitLimit", "Work permit limit")}</strong>
-          <p className="mt-0.5 text-amber-700">You have {remaining} hours remaining this period.</p>
+          <p className="mt-0.5 text-amber-700">{t("portalHoursRemainingLong", "You have {n} hours remaining this period.", { n: remaining })}</p>
         </div>
       )}
 
-      {/* Recent shifts */}
+      {/* Recent / upcoming shifts */}
       <div>
-        <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Recent shifts</div>
+        <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">{recentLabel}</div>
         <div className="space-y-1.5">
           {data.entries.length === 0 && (
-            <div className="text-sm text-gray-400 py-4 text-center">No hours logged yet this period</div>
+            <div className="text-sm text-gray-400 py-4 text-center">{emptyLabel}</div>
           )}
           {data.entries.map((h, i) => (
             <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white border border-gray-200">
               <span className="text-sm text-gray-500">
                 {fmtDate(h.date)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
               </span>
-              <span className="text-sm font-semibold text-gray-900">{h.total_hours} hrs</span>
+              <span className="text-sm font-semibold text-gray-900">{h.total_hours} {t("portalHrsShort")}</span>
             </div>
           ))}
         </div>
@@ -819,10 +845,10 @@ function SwapTab({ token, ownShifts, onChanged }) {
       )}
 
       {/* Inbox */}
-      {inbox === null && <div className="text-xs text-gray-500">Loading…</div>}
+      {inbox === null && <div className="text-xs text-gray-500">{t("portalLoading", "Loading…")}</div>}
       {inbox && inbox.length === 0 && !showPropose && (
         <div className="text-center text-xs text-gray-500 py-6">
-          No pending swap requests.
+          {t("portalSwapNonePending", "No pending swap requests.")}
         </div>
       )}
       {inbox && inbox.length > 0 && (
@@ -840,6 +866,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
 /** A row in the Swap inbox. Renders different actions based on
  * direction (incoming = respond, outgoing = withdraw) and status. */
 function SwapRow({ swap, token, onChanged }) {
+  const { t } = useLanguage();
   const [busy, setBusy] = useState(false);
 
   const respond = async (accept) => {
@@ -865,20 +892,37 @@ function SwapRow({ swap, token, onChanged }) {
     }
   };
 
+  // Status pills use STATUS colors only (design system): amber for the
+  // pending "proposed" state, emerald for the completed "done"/byttet
+  // state, neutral gray for everything else (declined/withdrawn/etc.).
   const statusPill = swap.status === "proposed"
-    ? "bg-amber-500/20 text-amber-300"
-    : swap.status === "accepted"
-      ? "bg-gray-100 border border-gray-200 text-gray-700"
-      : "bg-gray-500/20 text-gray-400";
+    ? "bg-amber-50 border border-amber-200 text-amber-700"
+    : swap.status === "done"
+      ? "bg-emerald-50 border border-emerald-200 text-emerald-700"
+      : swap.status === "accepted"
+        ? "bg-gray-100 border border-gray-200 text-gray-700"
+        : "bg-gray-100 border border-gray-200 text-gray-500";
+
+  // Localized status word for the pill. "Byttet" (swapped/done) stays
+  // Danish across all UI languages per the DK terminology lock.
+  const statusLabel = swap.status === "proposed"
+    ? t("portalSwapStatusProposed", "Pending")
+    : swap.status === "done"
+      ? t("portalSwapStatusDone", "Byttet")
+      : swap.status === "declined"
+        ? t("portalSwapStatusDeclined", "Declined")
+        : swap.status === "withdrawn"
+          ? t("portalSwapStatusWithdrawn", "Withdrawn")
+          : swap.status;
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[10px] uppercase tracking-wide font-medium text-gray-500">
-          {swap.direction === "outgoing" ? "Outgoing" : "Incoming"}
+          {swap.direction === "outgoing" ? t("portalSwapOutgoing", "Outgoing") : t("portalSwapIncoming", "Incoming")}
         </span>
         <span className={`text-[10px] uppercase tracking-wide font-medium px-1.5 py-0.5 rounded ${statusPill}`}>
-          {swap.status}
+          {statusLabel}
         </span>
       </div>
       <div className="text-sm text-gray-900">
@@ -888,12 +932,12 @@ function SwapRow({ swap, token, onChanged }) {
       </div>
       <div className="grid grid-cols-2 gap-2 text-[11px]">
         <div className="bg-gray-50 rounded p-1.5">
-          <div className="text-[10px] text-gray-500">Gives</div>
+          <div className="text-[10px] text-gray-500">{t("portalSwapGives", "Gives")}</div>
           <div className="text-gray-900">{swap.from_shift_date}</div>
           <div className="text-gray-500">{swap.from_shift_time}</div>
         </div>
         <div className="bg-gray-50 rounded p-1.5">
-          <div className="text-[10px] text-gray-500">Gets</div>
+          <div className="text-[10px] text-gray-500">{t("portalSwapGets", "Gets")}</div>
           <div className="text-gray-900">{swap.to_shift_date}</div>
           <div className="text-gray-500">{swap.to_shift_time}</div>
         </div>
@@ -915,14 +959,14 @@ function SwapRow({ swap, token, onChanged }) {
             disabled={busy}
             className="text-xs font-medium px-2.5 py-1 rounded bg-gray-900 hover:bg-gray-700 text-white disabled:opacity-50"
           >
-            Accept
+            {t("portalSwapAccept", "Accept")}
           </button>
           <button
             onClick={() => respond(false)}
             disabled={busy}
             className="text-xs font-medium px-2.5 py-1 rounded bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
           >
-            Decline
+            {t("portalSwapDecline", "Decline")}
           </button>
         </div>
       )}
@@ -933,13 +977,25 @@ function SwapRow({ swap, token, onChanged }) {
             disabled={busy}
             className="text-xs font-medium px-2.5 py-1 rounded bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
           >
-            Withdraw
+            {t("portalSwapWithdraw", "Withdraw")}
           </button>
         </div>
       )}
+      {/* Completed: both staff agreed and the shifts have ALREADY been
+          reassigned (auto-execute). Honest, final copy — no "awaiting
+          owner". The schedule tab now shows the new shift. */}
+      {swap.status === "done" && (
+        <div className="flex items-center gap-1.5 text-[12px] text-emerald-700 pt-1">
+          <Check className="w-3.5 h-3.5 shrink-0" strokeWidth={2.5} aria-hidden />
+          <span>{t("portalSwapDoneLine", "Done — shifts swapped. Your schedule is updated.")}</span>
+        </div>
+      )}
+      {/* Legacy/edge: a swap left in `accepted` (e.g. a future owner-
+          approval flow). Calm, non-promising copy. */}
       {swap.status === "accepted" && (
-        <div className="text-[11px] text-gray-700 pt-1">
-          ✓ Both staff agreed — awaiting owner approval
+        <div className="flex items-center gap-1.5 text-[12px] text-gray-700 pt-1">
+          <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600" strokeWidth={2.5} aria-hidden />
+          <span>{t("portalSwapAcceptedLine", "Both staff agreed.")}</span>
         </div>
       )}
     </div>
@@ -1072,7 +1128,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
         {submitting ? "Sending..." : "Send swap request"}
       </button>
       <div className="text-[10px] text-gray-400 text-center leading-snug">
-        Your teammate will see this in their inbox. If they accept, your owner approves.
+        {t("portalSwapProposeHint", "Your teammate will see this in their inbox. If they accept, the two shifts swap automatically.")}
       </div>
     </div>
   );

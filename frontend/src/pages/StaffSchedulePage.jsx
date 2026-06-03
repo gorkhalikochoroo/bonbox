@@ -2060,13 +2060,30 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                     </div>
                   ) : (
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         <div className={`px-2 py-0.5 rounded-md text-xs font-medium ${colors.bg} ${colors.text}`}>
                           {member.role}
                         </div>
-                        <span className="text-sm font-medium text-gray-900 dark:text-white">
-                          {member.name}
-                        </span>
+                        {/* Click the name to open this staff member's details
+                            (reuses the inline edit form, which shows name /
+                            role / contact / base_rate / contract). Disabled
+                            for inactive members (their edit affordances are
+                            hidden below). */}
+                        {isInactive ? (
+                          <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                            {member.name}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => startEdit(member)}
+                            title={t("viewStaffDetails") || "View details"}
+                            aria-label={`${t("viewStaffDetails") || "View details"} — ${member.name}`}
+                            className="text-sm font-medium text-gray-900 dark:text-white truncate cursor-pointer hover:underline underline-offset-2 decoration-gray-300 dark:decoration-gray-600 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400/40 transition"
+                          >
+                            {member.name}
+                          </button>
+                        )}
                         {member.email && (
                           <span className="text-xs text-emerald-600 dark:text-gray-300" title={member.email}>
                             @

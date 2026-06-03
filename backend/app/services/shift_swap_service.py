@@ -2,15 +2,20 @@
 
 State machine (status field on ShiftSwapRequest):
 
-    proposed ──(to_staff accepts)──> accepted ──(owner approves)──> approved
-        │                                │
-        │                                └──(owner denies)──> denied
+    proposed ──(to_staff accepts)──> done   (schedules atomically swapped)
         │
         ├──(to_staff declines)──> declined
         │
         ├──(from_staff withdraws)──> withdrawn
         │
         └──(shift date passes)──> expired
+
+    NOTE (2026-06): a mutual accept now EXECUTES the swap immediately
+    (status `done`) instead of parking at `accepted` for an owner step
+    that had no UI. See respond_to_swap for the full rationale. The
+    legacy `accepted`→`approved`/`denied` owner path (decide_swap) is
+    retained for a future owner-approval UI but is no longer on the
+    portal's critical path.
 
 All transitions are one-way; terminal states never re-enter the flow.
 A new swap requires a new ShiftSwapRequest row.
@@ -216,11 +221,36 @@ def respond_to_swap(
     resolves to responder_staff_id; this service refuses if the swap's
     to_staff_id doesn't match the caller.
 
-    Lifecycle:
-      proposed + accept=True  → accepted (awaits owner)
+    Lifecycle (AUTO-EXECUTE on mutual accept — see note below):
+      proposed + accept=True  → done   (schedules atomically swapped)
       proposed + accept=False → declined (terminal)
     Any other current status raises (re-responding to a settled swap
     is a logic error in the client).
+
+    ─────────────────────────────────────────────────────────────────
+    SWAP MODEL DECISION (2026-06): auto-execute-on-mutual-accept.
+
+    The original design routed accepted swaps through an owner-approval
+    step (`accepted` → owner calls decide_swap → `approved` flips the
+    schedules). But the STAFF PORTAL is the only surface staff have, and
+    there is NO owner-facing approval UI wired anywhere — so every
+    accepted swap *stalled* at `accepted` forever and the two shifts were
+    never reassigned. The portal even told staff "awaiting owner
+    approval", which was a promise nothing could fulfil.
+
+    Both staff explicitly agreeing (proposer offered + target accepted)
+    is a genuine mutual handshake. We therefore EXECUTE the swap the
+    moment the target accepts: flip Schedule.staff_id on both shifts in
+    one transaction (same atomic guarantee decide_swap had), mark the
+    request `done`, and let the router notify the owner (awareness, not a
+    gate). This is what Planday/Deputy call "auto-approve" for P2P swaps.
+
+    A richer owner-approval workflow (owner can veto before execution,
+    cost-delta / max-hours checks) remains a sensible FOLLOW-UP — but it
+    needs an owner UI that doesn't exist yet. Until then, auto-execute is
+    the only way swaps actually work. `decide_swap` is kept intact for
+    that future owner path. Idempotent + tenant-safe (re-accepting a
+    `done`/terminal swap raises; the flip re-validates ownership).
     """
     swap = db.query(ShiftSwapRequest).filter(ShiftSwapRequest.id == swap_id).first()
     if not swap:
@@ -235,11 +265,62 @@ def respond_to_swap(
             f"This swap is already {swap.status}; can't change it."
         )
 
-    swap.status = "accepted" if accept else "declined"
-    swap.responded_at = utc_now()
-    db.commit()
+    now = utc_now()
+
+    if not accept:
+        swap.status = "declined"
+        swap.responded_at = now
+        db.commit()
+        db.refresh(swap)
+        log.info("[shift_swap] respond swap=%s accept=False (declined)", swap_id)
+        return swap
+
+    # accept=True → execute the swap atomically.
+    swap.responded_at = now
+
+    # L5: re-validate BOTH shifts still belong to their pre-swap staff
+    # under the same owner (defense against a race where a shift was
+    # deleted/reassigned between propose and accept). Same check
+    # decide_swap performs before flipping.
+    from_sched = db.query(Schedule).filter(
+        Schedule.id == swap.from_shift_id,
+        Schedule.user_id == swap.user_id,
+        Schedule.staff_id == swap.from_staff_id,
+    ).first()
+    to_sched = db.query(Schedule).filter(
+        Schedule.id == swap.to_shift_id,
+        Schedule.user_id == swap.user_id,
+        Schedule.staff_id == swap.to_staff_id,
+    ).first()
+    if not from_sched or not to_sched:
+        # Don't leave the request stuck at proposed — mark it declined so
+        # the proposer knows to re-offer against the current schedule.
+        swap.status = "declined"
+        db.commit()
+        raise ShiftSwapError(
+            "One of the shifts has changed since this swap was proposed; "
+            "ask the other person to re-offer."
+        )
+
+    # Atomic flip — SQLAlchemy buffers both; the single commit below is
+    # the atomic boundary. Either both reassign or neither.
+    from_sched.staff_id = swap.to_staff_id
+    to_sched.staff_id = swap.from_staff_id
+    swap.status = "done"
+    swap.decided_at = now
+
+    try:
+        db.commit()
+    except Exception:
+        # FK violation / race → abort the whole transaction. No partial
+        # state on either schedule or the swap row.
+        db.rollback()
+        raise
     db.refresh(swap)
-    log.info("[shift_swap] respond swap=%s accept=%s", swap_id, accept)
+    log.info(
+        "[shift_swap] respond swap=%s accept=True EXECUTED (done) "
+        "from_shift=%s↔to_shift=%s", swap_id, swap.from_shift_id, swap.to_shift_id,
+    )
     return swap
 
 
@@ -354,7 +435,13 @@ def list_for_staff(
         | (ShiftSwapRequest.to_staff_id == staff_id)
     )
     if not include_resolved:
-        q = q.filter(ShiftSwapRequest.status.in_(("proposed", "accepted")))
+        # `done` is terminal but we keep it in the default inbox so a
+        # just-executed swap shows its "Byttet/Done" confirmation to both
+        # staff (the schedule tab already reflects the reassignment).
+        # `accepted` is retained for the legacy owner-approval path.
+        q = q.filter(
+            ShiftSwapRequest.status.in_(("proposed", "accepted", "done"))
+        )
     return q.order_by(ShiftSwapRequest.created_at.desc()).all()
 
 

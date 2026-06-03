@@ -79,6 +79,11 @@ class PortalShift(BaseModel):
     role_on_shift: str | None = None
     status: str
     net_hours: float
+    # Owner-written shift note (Schedule.notes). Staff couldn't see these
+    # before — the field was omitted from the serializer entirely. Now the
+    # portal surfaces them so "bring your own knives", "trial shift", etc.
+    # actually reach the person working the shift.
+    notes: str | None = None
 
 class PortalHoursEntry(BaseModel):
     date: date
@@ -260,6 +265,9 @@ def get_portal_schedule(token: str, request: Request, db: Session = Depends(get_
                 "role_on_shift": s.role_on_shift,
                 "status": s.status,
                 "net_hours": _calc_hours(s.start_time, s.end_time, s.break_minutes),
+                # Owner's per-shift note — now passed through to the staff's
+                # phone (previously dropped, so notes were invisible).
+                "notes": s.notes,
                 # Bidirectional confirmation signal — UI lights the
                 # "I've got it" button green if already confirmed.
                 "confirmed_at": s.confirmed_at.isoformat() if s.confirmed_at else None,
@@ -331,7 +339,29 @@ def confirm_schedule(token: str, request: Request, db: Session = Depends(get_db)
 @router.get("/{token}/hours")
 @limiter.limit("30/minute")
 def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)):
-    """Return hours logged for current pay period."""
+    """Return the staff member's hours for the current pay period.
+
+    Source of truth (the original bug): owners build the schedule by
+    creating *Schedule* (shift) rows — they do NOT create HoursLogged
+    rows. The old endpoint summed only HoursLogged, so staff always saw
+    0 hours even with a full published roster. The data staff actually
+    have — and the question they're really asking ("how many hours am I
+    rostered for?") — is the published schedule.
+
+    So:
+      • We compute ROSTERED hours from published/confirmed Schedule rows
+        in the period using `_shift_hours` (the same helper the owner-side
+        schedule uses, so the numbers reconcile to the dollar/krone).
+      • If the owner ALSO logs actual hours (HoursLogged rows exist), we
+        keep those — `total_hours` then reflects the logged actuals
+        (more authoritative than the plan), and we still expose the
+        rostered figure separately.
+      • The headline `total_hours` is therefore never 0 when a roster
+        exists, which is the whole point of the fix. Existing HoursTab
+        fields (`total_hours`, `entries`, `period_start/end`) keep working.
+    """
+    from app.services.schedule_autopilot import _shift_hours, _staff_hourly_rate
+
     link, member = _get_staff_from_token(token, db)
 
     # Get pay period config
@@ -351,6 +381,7 @@ def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)
         last_day = calendar.monthrange(today.year, today.month)[1]
         period_end = today.replace(day=last_day)
 
+    # ── Logged actuals (may be empty — most owners never log these) ──
     hours = db.query(HoursLogged).filter(
         HoursLogged.staff_id == member.id,
         HoursLogged.user_id == link.user_id,
@@ -358,17 +389,48 @@ def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)
         HoursLogged.date <= period_end,
     ).order_by(HoursLogged.date.desc()).all()
 
-    total_hours = sum(float(h.total_hours or 0) for h in hours)
+    logged_hours = sum(float(h.total_hours or 0) for h in hours)
     total_earned = sum(float(h.earned or 0) for h in hours)
 
-    return {
-        "staff_name": member.name,
-        "period_start": period_start.isoformat(),
-        "period_end": period_end.isoformat(),
-        "total_hours": round(total_hours, 1),
-        "total_earned": round(total_earned, 2),
-        "max_hours_month": float(member.max_hours_month) if member.max_hours_month else None,
-        "entries": [
+    # ── Rostered hours from the PUBLISHED schedule (the real data) ──
+    # Only published/confirmed shifts count — drafts the owner is still
+    # editing must never show (mirrors the schedule-tab filter). Tenant-
+    # scoped on user_id like every sibling portal query.
+    scheduled_shifts = db.query(Schedule).filter(
+        Schedule.staff_id == member.id,
+        Schedule.user_id == link.user_id,
+        Schedule.date >= period_start,
+        Schedule.date <= period_end,
+        Schedule.status.in_(("published", "confirmed")),
+    ).order_by(Schedule.date.desc(), Schedule.start_time.desc()).all()
+
+    scheduled_hours = sum(
+        _shift_hours(s.start_time, s.end_time, s.break_minutes or 0)
+        for s in scheduled_shifts
+    )
+
+    # This week (Mon→Sun containing today), rostered — a calmer "right now"
+    # number than the whole pay period, mirrors the schedule tab KPI.
+    week_start = _get_week_start(today)
+    week_end = week_start + timedelta(days=6)
+    this_week_hours = sum(
+        _shift_hours(s.start_time, s.end_time, s.break_minutes or 0)
+        for s in scheduled_shifts
+        if week_start <= s.date <= week_end
+    )
+
+    # Headline: prefer logged actuals when the owner records them
+    # (authoritative), otherwise the rostered plan. This guarantees a
+    # non-zero number whenever a roster exists — the fix.
+    use_logged = len(hours) > 0
+    total_hours = logged_hours if use_logged else scheduled_hours
+
+    # Entries the existing HoursTab renders. When we have logged rows we
+    # show those; otherwise we synthesize entries from the schedule so the
+    # "Recent shifts" list + "Shifts logged" count are populated from the
+    # roster instead of sitting empty.
+    if use_logged:
+        entries = [
             PortalHoursEntry(
                 date=h.date,
                 start_time=h.start_time,
@@ -377,7 +439,42 @@ def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)
                 earned=float(h.earned) if h.earned else None,
             )
             for h in hours
-        ],
+        ]
+    else:
+        rate = _staff_hourly_rate(member)
+        entries = [
+            PortalHoursEntry(
+                date=s.date,
+                start_time=s.start_time,
+                end_time=s.end_time,
+                total_hours=round(
+                    _shift_hours(s.start_time, s.end_time, s.break_minutes or 0), 2
+                ),
+                # Indicative gross at the member's effective rate — same
+                # rate basis the owner schedule uses. Not a payslip.
+                earned=round(
+                    _shift_hours(s.start_time, s.end_time, s.break_minutes or 0) * rate,
+                    2,
+                ) if rate else None,
+            )
+            for s in scheduled_shifts
+        ]
+
+    return {
+        "staff_name": member.name,
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "total_hours": round(total_hours, 1),
+        "total_earned": round(total_earned, 2),
+        "max_hours_month": float(member.max_hours_month) if member.max_hours_month else None,
+        # New, additive fields — let the UI distinguish rostered vs logged
+        # without breaking the existing `total_hours` contract.
+        "scheduled_hours": round(scheduled_hours, 1),
+        "logged_hours": round(logged_hours, 1),
+        "this_week_hours": round(this_week_hours, 1),
+        # "schedule" => headline is the rostered plan; "logged" => actuals.
+        "hours_source": "logged" if use_logged else "schedule",
+        "entries": entries,
     }
 
 
@@ -853,6 +950,18 @@ def portal_respond_to_swap(
         )
     except ShiftSwapError as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+    # When an accept auto-executes the swap (status 'done'), inform the
+    # owner — awareness only, never a gate (the schedules are already
+    # reassigned). Best-effort: a notification failure must not undo or
+    # block the completed swap.
+    if swap.status == "done":
+        try:
+            from app.services.notification_service import notify_owner_swap_executed
+            notify_owner_swap_executed(db, owner_id=member.user_id, swap=swap)
+        except Exception:  # noqa: BLE001
+            pass
+
     return _hydrate_swap(swap, db, viewer_staff_id=member.id)
 
 
