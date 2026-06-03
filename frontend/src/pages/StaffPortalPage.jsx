@@ -3,8 +3,9 @@
  * Mobile-first, dark theme, no login required.
  * Route: /s/:token
  */
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
+import { RefreshCw, CloudOff } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 
@@ -84,6 +85,28 @@ function isToday(dateStr) {
 
 function isPast(dateStr) {
   return dateStr < toLocalISO(new Date());
+}
+
+// Stable, order-independent signature of the PUBLISHED shifts a staff member
+// is shown — used by the "Schedule updated" toast to detect a real change
+// across refetches. We compare date+start+end+status only (Phase 1 keeps the
+// diff generic; no per-field human diffs). Sorting makes it insensitive to
+// row ordering from the API.
+function publishedScheduleSignature(rawShifts) {
+  return (rawShifts || [])
+    .filter((s) => s && s.status === "published")
+    .map((s) => `${s.date}|${s.start_time}|${s.end_time}|${s.status}`)
+    .sort()
+    .join("~");
+}
+
+// HH:MM in the staff's locale, used by the sync pill's "Synced HH:MM" state.
+function fmtClock(d) {
+  try {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
 }
 
 const ROLE_COLORS = {
@@ -409,6 +432,7 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed }) {
 
 
 function ScheduleTab({ shifts: rawShifts, staffName, token, onShiftsChanged }) {
+  const { t } = useLanguage();
   // Defense-in-depth: the portal API already filters to published shifts
   // (get_portal_schedule), but never render a draft even if one ever slips
   // through — the owner's Publish action is the single source of truth for
@@ -452,27 +476,41 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, onShiftsChanged }) {
   const upcoming = shifts.filter((s) => s.date >= today).sort((a, b) => a.date.localeCompare(b.date));
   const nextShift = upcoming[0];
 
+  const nextShiftRole = nextShift?.role_on_shift || "Staff";
+
   return (
     <div className="space-y-4">
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white border border-gray-200 rounded-xl p-3">
-          <div className="text-[11px] text-gray-500 mb-1">This week</div>
-          <div className="text-2xl font-bold text-gray-900">{thisWeekHours} <span className="text-sm text-gray-500">hrs</span></div>
-          <div className="text-[11px] text-gray-500">{thisWeekShifts.length} shifts</div>
+      {/* HERO — the single most-glanceable thing: your next shift. Largest
+          type on the screen, gray-900. Day + time + role + hours. */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4">
+        <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
+          {t("portalNextShiftHero")}
         </div>
+        {nextShift ? (
+          <>
+            <div className="text-3xl font-bold text-gray-900 leading-tight">
+              {isToday(nextShift.date) ? t("portalToday") : fmtDate(nextShift.date)}
+            </div>
+            <div className="mt-1 text-lg font-semibold text-gray-900">
+              {nextShift.start_time} – {nextShift.end_time}
+            </div>
+            <div className="mt-1 flex items-center gap-2 text-[13px] text-gray-500">
+              <span>{nextShiftRole}</span>
+              <span aria-hidden>·</span>
+              <span>{nextShift.net_hours} {t("portalHrsShort")}</span>
+            </div>
+          </>
+        ) : (
+          <div className="text-2xl font-bold text-gray-400">{t("portalNoUpcomingShift")}</div>
+        )}
+      </div>
+
+      {/* This week hrs KPI (kept, but no longer the headline). */}
+      <div className="grid grid-cols-1 gap-3">
         <div className="bg-white border border-gray-200 rounded-xl p-3">
-          <div className="text-[11px] text-gray-500 mb-1">Next shift</div>
-          {nextShift ? (
-            <>
-              <div className="text-lg font-bold text-gray-900">
-                {isToday(nextShift.date) ? "Today" : fmtShort(nextShift.date)}
-              </div>
-              <div className="text-[11px] text-gray-500">{nextShift.start_time} – {nextShift.end_time}</div>
-            </>
-          ) : (
-            <div className="text-lg font-bold text-gray-400">None</div>
-          )}
+          <div className="text-[11px] text-gray-500 mb-1">{t("portalThisWeek")}</div>
+          <div className="text-2xl font-bold text-gray-900">{thisWeekHours} <span className="text-sm text-gray-500">{t("portalHrsShort")}</span></div>
+          <div className="text-[11px] text-gray-500">{thisWeekShifts.length} {t("portalShiftsCount")}</div>
         </div>
       </div>
 
@@ -1512,8 +1550,70 @@ function StaffPushOptIn({ token }) {
 }
 
 
+/**
+ * SyncPill — the honest freshness indicator in the portal header.
+ *
+ * Hard rule (see MEMORY "honest claims"): the pill must reflect REAL state.
+ *   • Offline                       → "Offline", gray, CloudOff. Never "Synced".
+ *   • Online + synced < 45s ago     → "Synced", emerald dot + RefreshCw.
+ *   • Online + synced ≥ 45s ago     → "Synced HH:MM", gray, tap to refetch.
+ *   • Online + never synced yet     → "Synced HH:MM" falls back to a plain
+ *     "Sync" affordance (no lastSynced) so we never imply freshness we lack.
+ *
+ * It's a button so the stale/online state is tappable to force a refetch;
+ * onRefresh is the parent's loadData. Re-renders are driven by the parent's
+ * freshness ticker so the label decays without a new fetch.
+ */
+function SyncPill({ isOnline, lastSynced, onRefresh, t }) {
+  const FRESH_MS = 45000;
+  const ageMs = lastSynced ? Date.now() - lastSynced.getTime() : Infinity;
+  const isFresh = isOnline && lastSynced && ageMs < FRESH_MS;
+
+  if (!isOnline) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-[11px] font-medium text-gray-400"
+        role="status"
+      >
+        <CloudOff className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
+        {t("portalOffline")}
+      </span>
+    );
+  }
+
+  if (isFresh) {
+    return (
+      <button
+        type="button"
+        onClick={onRefresh}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-medium text-emerald-700"
+        title={t("portalSynced")}
+        aria-label={t("portalSynced")}
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden />
+        {t("portalSynced")}
+      </button>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onRefresh}
+      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-[11px] font-medium text-gray-500 hover:bg-gray-200 transition"
+      title={t("portalSynced")}
+    >
+      <RefreshCw className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
+      {lastSynced
+        ? t("portalSyncedAt", { time: fmtClock(lastSynced) })
+        : t("portalSynced")}
+    </button>
+  );
+}
+
 export default function StaffPortalPage() {
   const { token } = useParams();
+  const { t } = useLanguage();
   const [tab, setTab] = useState("schedule");
   const [info, setInfo] = useState(null);
   const [error, setError] = useState(null);
@@ -1524,6 +1624,26 @@ export default function StaffPortalPage() {
   const [shifts, setShifts] = useState([]);
   const [hoursData, setHoursData] = useState(null);
   const [tipsData, setTipsData] = useState(null);
+
+  // ─── Live-sync (Phase 1: dependency-free freshness) ──────────────────────
+  // lastSynced — stamped when the SCHEDULE GET resolves. Drives the header
+  //   sync pill, which must tell the truth: "Synced" only when we actually
+  //   have fresh data AND are online.
+  // isOnline — navigator.onLine, kept live via online/offline listeners. The
+  //   pill shows "Offline" (never "Synced") whenever this is false.
+  // scheduleUpdated — flips true when a refetch returns published shifts that
+  //   differ from what was already on screen → brief bottom toast.
+  // The signature ref holds the last-rendered published-schedule signature so
+  //   we can detect a *real* change without firing on the very first load.
+  const [lastSynced, setLastSynced] = useState(null);
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== "undefined" ? navigator.onLine !== false : true,
+  );
+  const [scheduleUpdated, setScheduleUpdated] = useState(false);
+  const scheduleSigRef = useRef(null);
+  // Ticks every ~15s while mounted so the pill re-renders from "Synced" to
+  // "Synced HH:MM" as the data ages, without depending on a new fetch.
+  const [, setFreshnessTick] = useState(0);
 
   // Email & phone editing
   const [showEmailEdit, setShowEmailEdit] = useState(false);
@@ -1553,10 +1673,25 @@ export default function StaffPortalPage() {
 
   // 2. Load data once verified
   const loadData = useCallback(() => {
-    // Schedule
+    // Schedule — the freshness source of truth. On success we stamp
+    // lastSynced (drives the "Synced" pill) and diff the published shifts
+    // against the last-rendered signature to decide whether to toast.
     portalApi.get(`/portal/${token}/schedule`).then((res) => {
-      setShifts(res.data.shifts || []);
-    }).catch(() => {});
+      const nextShifts = res.data.shifts || [];
+      const nextSig = publishedScheduleSignature(nextShifts);
+      const prevSig = scheduleSigRef.current;
+      // Only toast on a REAL change after we already had data — never on the
+      // first successful load (prevSig === null means we've shown nothing yet).
+      if (prevSig !== null && prevSig !== nextSig) {
+        setScheduleUpdated(true);
+      }
+      scheduleSigRef.current = nextSig;
+      setShifts(nextShifts);
+      setLastSynced(new Date());
+    }).catch(() => {
+      // Fail honest: do NOT advance lastSynced on a failed fetch, so the pill
+      // keeps showing the real last-good time (or Offline) rather than lying.
+    });
 
     // Hours
     portalApi.get(`/portal/${token}/hours`).then((res) => {
@@ -1572,6 +1707,57 @@ export default function StaffPortalPage() {
   useEffect(() => {
     if (pinVerified && info) loadData();
   }, [pinVerified, info, loadData]);
+
+  // 2b. Refetch triggers — keep the schedule fresh without any realtime deps.
+  // All gated on pinVerified && info, all cleaned up on unmount.
+  //   • visibilitychange → refetch when the tab/app becomes visible again
+  //     (the "came back after hours away" case — the biggest freshness win).
+  //   • online → refetch the moment connectivity returns; track isOnline so
+  //     the pill can show the truth.
+  //   • setInterval(~20s) → background poll, but ONLY while the tab is
+  //     visible (respects the 30/min API rate-limit; 20s ≈ 3/min).
+  useEffect(() => {
+    if (!(pinVerified && info)) return;
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadData();
+    };
+    const onOnline = () => {
+      setIsOnline(true);
+      loadData();
+    };
+    const onOffline = () => setIsOnline(false);
+
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+
+    const pollId = setInterval(() => {
+      if (document.visibilityState === "visible") loadData();
+    }, 20000);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+      clearInterval(pollId);
+    };
+  }, [pinVerified, info, loadData]);
+
+  // 2c. Freshness ticker — re-render the pill every 15s so "Synced" decays to
+  // "Synced HH:MM" as data ages, independent of any fetch.
+  useEffect(() => {
+    if (!(pinVerified && info)) return;
+    const id = setInterval(() => setFreshnessTick((n) => n + 1), 15000);
+    return () => clearInterval(id);
+  }, [pinVerified, info]);
+
+  // 2d. Auto-dismiss the "Schedule updated" toast ~5s after it appears.
+  useEffect(() => {
+    if (!scheduleUpdated) return;
+    const id = setTimeout(() => setScheduleUpdated(false), 5000);
+    return () => clearTimeout(id);
+  }, [scheduleUpdated]);
 
   // Loading state
   if (loading) {
@@ -1618,13 +1804,25 @@ export default function StaffPortalPage() {
               <div className="text-[11px] text-gray-500">{info.restaurant_name}</div>
             )}
           </div>
-          <button
-            onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setEmailMsg(""); }}
-            className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-sm font-bold text-gray-700"
-            title="Edit email"
-          >
-            {info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Honest freshness pill — only shown once verified. Tap (when
+                online + stale) forces a refetch. */}
+            {pinVerified && info && (
+              <SyncPill
+                isOnline={isOnline}
+                lastSynced={lastSynced}
+                onRefresh={loadData}
+                t={t}
+              />
+            )}
+            <button
+              onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setEmailMsg(""); }}
+              className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-sm font-bold text-gray-700"
+              title="Edit email"
+            >
+              {info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+            </button>
+          </div>
         </div>
         {/* Email edit panel */}
         {showEmailEdit && (
@@ -1710,6 +1908,28 @@ export default function StaffPortalPage() {
           ))}
         </div>
       </nav>
+
+      {/* "Schedule updated" toast — fires only on a REAL change to the
+          published schedule after data already existed (never on first load).
+          Sits above the bottom nav, notch/safe-area aware, auto-dismisses ~5s.
+          Generic by design (Phase 1) — no per-field human diff. */}
+      {scheduleUpdated && (
+        <div
+          className="fixed inset-x-0 z-30 flex justify-center px-4 pointer-events-none"
+          style={{ bottom: "calc(5rem + env(safe-area-inset-bottom))" }}
+          role="status"
+          aria-live="polite"
+        >
+          <button
+            type="button"
+            onClick={() => { setScheduleUpdated(false); setTab("schedule"); }}
+            className="pointer-events-auto inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-medium shadow-lg"
+          >
+            <RefreshCw className="w-4 h-4" strokeWidth={2} aria-hidden />
+            {t("portalScheduleUpdated")}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
