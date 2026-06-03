@@ -149,7 +149,7 @@ def _send_confirmation(owner: User, profile: BusinessProfile, r: Reservation) ->
         return
     try:
         from app.services.email_service import send_email
-        biz = getattr(profile, "company_name", None) or "BonBox"
+        biz = getattr(owner, "business_name", None) or getattr(profile, "company_name", None) or "BonBox"
         when = r.starts_at.strftime("%d/%m/%Y %H:%M") if r.starts_at else ""
         allergy_line = ""
         if r.allergen_tags or r.allergy_note:
@@ -190,7 +190,7 @@ def _notify_owner_email(owner: User, profile: BusinessProfile, r: Reservation) -
         return
     try:
         from app.services.email_service import send_email
-        biz = getattr(profile, "company_name", None) or "BonBox"
+        biz = getattr(owner, "business_name", None) or getattr(profile, "company_name", None) or "BonBox"
         when = r.starts_at.strftime("%d/%m/%Y %H:%M") if r.starts_at else ""
         is_request = r.status == "requested"
         head = "Ny forespørgsel" if is_request else "Ny reservation"
