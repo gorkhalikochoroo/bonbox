@@ -345,6 +345,9 @@ function AppRoutes() {
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/cookies" element={<CookiePolicyPage />} />
         <Route path="/s/:token" element={<StaffPortalPage />} />
+        {/* Branded staff link — /s/<restaurant-slug>/<token>. Slug is cosmetic;
+            the token is the capability key. StaffPortalPage reads :token in both. */}
+        <Route path="/s/:slug/:token" element={<StaffPortalPage />} />
         {/* Task #49 — Public magic-link landing for revisor invites.
             Token in URL is the only credential; the page collects
             password + name and POSTs to /accountants/signup. */}
