@@ -53,6 +53,9 @@ export default function StaffPayrollPage() {
   // ─── Pay Period ───
   const [period, setPeriod] = useState(null);
   const [periodLoading, setPeriodLoading] = useState(true);
+  // Owner-configurable DK lønperiode (calendar month / 15th→14th / custom day).
+  const [periodCfg, setPeriodCfg] = useState({ period_type: "monthly_1st", custom_start_day: 16 });
+  const [savingCfg, setSavingCfg] = useState(false);
 
   // ─── Staff & Hours ───
   const [staffList, setStaffList] = useState([]);
@@ -123,6 +126,39 @@ export default function StaffPayrollPage() {
         setPeriodLoading(false);
       });
   }, []);
+
+  /* ─── Fetch the saved lønperiode config (type + custom day) ─── */
+  useEffect(() => {
+    api.get("/staff/pay-period")
+      .then((r) => setPeriodCfg({
+        period_type: r.data?.period_type || "monthly_1st",
+        custom_start_day: r.data?.custom_start_day || 16,
+      }))
+      .catch(() => {});
+  }, []);
+
+  /* ─── Save lønperiode config → refetch the computed current period ─── */
+  const savePeriodCfg = async (periodType, customDay) => {
+    const day = Math.min(28, Math.max(1, Number(customDay) || 16));
+    setSavingCfg(true);
+    setPeriodCfg({ period_type: periodType, custom_start_day: day });
+    try {
+      await api.post("/staff/pay-period", {
+        period_type: periodType,
+        custom_start_day: periodType === "custom" ? day : null,
+      });
+      const r = await api.get("/staff/pay-period/current");
+      const d = r.data || {};
+      setPeriod({
+        period_start: d.period_start || d.start_date || null,
+        period_end: d.period_end || d.end_date || null,
+        period_type: d.period_type || periodType,
+      });
+    } catch (e) {
+      /* keep the current period on failure */
+    }
+    setSavingCfg(false);
+  };
 
   /* ─── Fetch staff list ─── */
   useEffect(() => {
@@ -427,6 +463,39 @@ export default function StaffPayrollPage() {
             <Button variant="secondary" size="sm" onClick={() => navigatePeriod("next")}>
               Next →
             </Button>
+          </div>
+          {/* DK lønperiode is often mid-month (16.→15., 25.→24.) rather than the
+              calendar month — let the owner set it. Staff Hours + payroll totals
+              follow automatically (the backend computes from this config). */}
+          <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex flex-wrap items-center justify-center gap-2 text-xs">
+            <span className="text-gray-500 dark:text-gray-400">{t("payPeriodLabel", "Pay period")}:</span>
+            <select
+              value={periodCfg.period_type}
+              onChange={(e) => savePeriodCfg(e.target.value, periodCfg.custom_start_day)}
+              disabled={savingCfg}
+              className="px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs focus:ring-2 focus:ring-gray-400 outline-none disabled:opacity-50"
+              aria-label={t("payPeriodLabel", "Pay period")}
+            >
+              <option value="monthly_1st">{t("payPeriodMonth1", "Calendar month (1st → end)")}</option>
+              <option value="monthly_15th">{t("payPeriodMonth15", "15th → 14th")}</option>
+              <option value="custom">{t("payPeriodCustomOpt", "Custom start day…")}</option>
+            </select>
+            {periodCfg.period_type === "custom" && (
+              <span className="inline-flex items-center gap-1">
+                <span className="text-gray-500 dark:text-gray-400">{t("payPeriodStarts", "starts on the")}</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="28"
+                  value={periodCfg.custom_start_day}
+                  onChange={(e) => setPeriodCfg((c) => ({ ...c, custom_start_day: e.target.value }))}
+                  onBlur={(e) => savePeriodCfg("custom", e.target.value)}
+                  disabled={savingCfg}
+                  className="w-14 px-2 py-1 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 text-xs tabular-nums focus:ring-2 focus:ring-gray-400 outline-none disabled:opacity-50"
+                  aria-label={t("payPeriodStartDay", "Start day of month")}
+                />
+              </span>
+            )}
           </div>
         </div>
       </FadeIn>

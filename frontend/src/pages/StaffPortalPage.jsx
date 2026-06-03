@@ -1213,9 +1213,15 @@ function AlertsTab({ token, staffName }) {
 
 function formatTimeAgo(dateStr) {
   try {
-    const d = new Date(dateStr);
+    // Backend timestamps are UTC but can arrive tz-less; a naive string is
+    // parsed as LOCAL, making everything look offset by the local UTC delta
+    // (e.g. "2h ago" in Denmark/CEST for something that just happened).
+    // Treat a designator-less string as UTC.
+    const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(dateStr) ? dateStr : `${dateStr}Z`;
+    const d = new Date(iso);
     const now = new Date();
     const diff = Math.floor((now - d) / 1000);
+    if (diff < 0) return "just now";
     if (diff < 60) return "just now";
     if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
     if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
