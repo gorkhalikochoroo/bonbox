@@ -1814,6 +1814,17 @@ export default function StaffPortalPage() {
     return () => clearTimeout(id);
   }, [scheduleUpdated]);
 
+  // Browser-tab / share title — genuine + restaurant-branded (not the generic
+  // marketing <title>). Uses the owner's trading name; reverts on unmount.
+  useEffect(() => {
+    if (!info?.restaurant_name) return;
+    const prev = document.title;
+    document.title = t("portalDocTitle", "Your schedule · {restaurant}", {
+      restaurant: info.restaurant_name,
+    });
+    return () => { document.title = prev; };
+  }, [info, t]);
+
   // Loading state
   if (loading) {
     return (

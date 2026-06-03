@@ -195,17 +195,28 @@ def get_portal_info(token: str, request: Request, db: Session = Depends(get_db))
     """Validate magic link and return staff basic info."""
     link, member = _get_staff_from_token(token, db)
 
-    # Get restaurant name from business profile
+    # Restaurant name — prefer the owner's editable trading name
+    # (User.business_name, e.g. "BonBox") over the BusinessProfile fields, which
+    # may still hold the CVR legal entity name ("DukaanAI v/Manoz Chaudhary").
+    # Keeps the portal header, browser tab, and the owner's share message all
+    # reading the same genuine name. Mirrors the public booking page + emails.
     profile = db.query(BusinessProfile).filter(
         BusinessProfile.user_id == link.user_id
     ).first()
+    from app.models.user import User
+    owner = db.query(User).filter(User.id == link.user_id).first()
+    restaurant_name = (
+        (getattr(owner, "business_name", None) if owner else None)
+        or (profile.business_name if profile else None)
+        or (profile.company_name if profile else None)
+    )
 
     return PortalInfo(
         staff_name=member.name,
         role=member.role or "staff",
         email=member.email,
         phone=member.phone,
-        restaurant_name=profile.business_name if profile else None,
+        restaurant_name=restaurant_name,
         has_pin=bool(link.pin_hash),
         max_hours_month=float(member.max_hours_month) if member.max_hours_month else None,
         max_hours_week=float(member.max_hours_week) if member.max_hours_week else None,

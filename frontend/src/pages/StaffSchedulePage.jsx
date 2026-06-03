@@ -1529,10 +1529,16 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
   const shareLink = async () => {
     if (!linkModal?.portalUrl) return;
     if (navigator.share) {
+      const restaurant = user?.business_name || "BonBox";
+      const firstName = (linkModal.staffName || "").trim().split(/\s+/)[0] || linkModal.staffName;
       try {
         await navigator.share({
-          title: `${linkModal.staffName}'s BonBox Schedule`,
-          text: `Hi ${linkModal.staffName}! Here's your BonBox portal link to see your schedule, hours, and tips 👉`,
+          title: t("scheduleShareLinkTitle", "Your schedule · {restaurant}", { restaurant }),
+          text: t(
+            "scheduleShareText",
+            "Hi {name} 👋 Here's your personal link to your shifts, hours and tips at {restaurant}:",
+            { name: firstName, restaurant },
+          ),
           url: linkModal.portalUrl,
         });
       } catch { /* user cancelled */ }
