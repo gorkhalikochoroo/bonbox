@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/portal/:token/app.webmanifest", "destination": "https://api.bonbox.dk/api/portal/:token/manifest.webmanifest" },
     { "source": "/(.*)", "destination": "/" }
   ],
   "headers": [

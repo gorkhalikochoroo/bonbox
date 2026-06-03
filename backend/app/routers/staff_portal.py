@@ -34,6 +34,7 @@ from app.models.staff import (
 )
 from app.models.business_profile import BusinessProfile
 from app.services import portal_events
+from app.utils.text import portal_path
 
 import re
 from app.utils.time import utc_now
@@ -1266,4 +1267,67 @@ async def portal_stream(token: str, request: Request):
             "X-Accel-Buffering": "no",  # disable nginx-style response buffering
             "Connection": "keep-alive",
         },
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  PER-STAFF PWA MANIFEST — install opens to THEIR schedule, named after the venue
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.get("/{token}/manifest.webmanifest")
+@limiter.limit("60/minute")
+def portal_manifest(token: str, request: Request, db: Session = Depends(get_db)):
+    """Per-staff PWA manifest so an installed icon opens straight to THIS
+    staff's schedule and is named after the restaurant — not the generic owner
+    app (whose manifest has start_url "/" + owner shortcuts).
+
+    Served SAME-ORIGIN under www via a Vercel rewrite
+    (/portal/<token>/app.webmanifest → here). Same-origin is required twice
+    over: the page's CSP is `manifest-src 'self'`, and the PWA spec ignores a
+    start_url that isn't same-origin as the manifest. Root-relative start_url
+    ("/s/...") therefore resolves to www. iOS ignores the manifest for
+    Add-to-Home (it uses the page URL + apple-mobile-web-app-title, which the
+    portal page sets) — so this manifest is what makes Android/Chrome correct."""
+    from app.models.user import User
+
+    link, _member = _get_staff_from_token(token, db)
+    owner = db.query(User).filter(User.id == link.user_id).first()
+    profile = db.query(BusinessProfile).filter(
+        BusinessProfile.user_id == link.user_id
+    ).first()
+    name = (
+        (getattr(owner, "business_name", None) if owner else None)
+        or (profile.business_name if profile else None)
+        or (profile.company_name if profile else None)
+        or "BonBox"
+    )
+    start = portal_path(token, name)  # /s/<slug>/<token>
+    manifest = {
+        "name": name,
+        "short_name": (name[:12] or "Vagtplan"),
+        "description": "Din vagtplan, timer og drikkepenge",
+        "id": start,
+        "start_url": start,
+        "scope": "/s/",
+        "display": "standalone",
+        "background_color": "#ffffff",
+        "theme_color": "#111827",
+        "orientation": "portrait-primary",
+        "lang": "da",
+        "icons": [
+            {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+            {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
+            {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+            {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+        ],
+        "shortcuts": [
+            {"name": "Vagtplan", "short_name": "Vagtplan", "url": f"{start}?tab=schedule"},
+            {"name": "Timer", "short_name": "Timer", "url": f"{start}?tab=hours"},
+            {"name": "Drikkepenge", "short_name": "Tips", "url": f"{start}?tab=tips"},
+        ],
+    }
+    return Response(
+        content=json.dumps(manifest),
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "public, max-age=300"},
     )

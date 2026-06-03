@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff } from "lucide-react";
+import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 
@@ -1276,35 +1276,71 @@ function InstallNotifyCard({ token }) {
     setDismissed(true);
   };
 
+  // iOS Safari has no install prompt — it installs via Share → Add to Home
+  // Screen, so we show that as guided steps instead of an Install button.
+  const isIOS = /iphone|ipad|ipod/i.test(
+    typeof navigator !== "undefined" ? navigator.userAgent || "" : ""
+  );
+
   return (
-    <div className="mb-4 rounded-2xl bg-gradient-to-br from-emerald-50 to-blue-50 border border-gray-200 p-4 relative">
+    <div className="mb-4 rounded-xl bg-white border border-gray-200 p-4 relative">
       <button
         type="button"
         onClick={onDismiss}
         aria-label={t("dismiss", "Dismiss")}
-        className="absolute top-2 right-2.5 text-gray-500 hover:text-gray-700 text-lg leading-none"
+        className="absolute top-2.5 right-2.5 text-gray-400 hover:text-gray-600"
       >
-        ×
+        <X className="w-4 h-4" strokeWidth={2} aria-hidden />
       </button>
-      <div className="text-sm font-bold text-gray-900 mb-1">
-        📲 {t("staffInstallTitle", "Keep your schedule one tap away")}
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-lg bg-gray-900 flex items-center justify-center shrink-0">
+          <Smartphone className="w-5 h-5 text-white" strokeWidth={2} aria-hidden />
+        </div>
+        <div className="flex-1 min-w-0 pr-4">
+          <div className="text-sm font-bold text-gray-900">
+            {t("staffInstallTitle", "Keep your schedule one tap away")}
+          </div>
+          <div className="text-[12px] text-gray-500 mt-0.5 leading-relaxed">
+            {t(
+              "staffInstallSub",
+              "Add this to your home screen and turn on alerts — you'll know the moment your shifts change."
+            )}
+          </div>
+
+          {/* Android / Chrome — native install prompt */}
+          {!installed && installPrompt && (
+            <button
+              type="button"
+              onClick={doInstall}
+              className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold bg-gray-900 text-white hover:bg-gray-700 transition"
+            >
+              <Download className="w-4 h-4" strokeWidth={2} aria-hidden />
+              {t("staffInstallBtn", "Install app")}
+            </button>
+          )}
+
+          {/* iOS Safari — guide the Share → Add to Home Screen flow */}
+          {!installed && !installPrompt && isIOS && (
+            <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[12px] text-gray-600">
+              <span>{t("staffInstallIosA", "Tap")}</span>
+              <Share className="w-4 h-4 text-gray-900 shrink-0" strokeWidth={2} aria-hidden />
+              <span>{t("staffInstallIosB", 'then "Add to Home Screen"')}</span>
+            </div>
+          )}
+
+          {/* Installed — confirm it's set up */}
+          {installed && (
+            <div className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-emerald-700">
+              <Check className="w-4 h-4" strokeWidth={2.5} aria-hidden />
+              {t("staffInstalledLabel", "App installed")}
+            </div>
+          )}
+
+          <div className="mt-3">
+            <StaffPushOptIn token={token} />
+          </div>
+        </div>
       </div>
-      <div className="text-[12px] text-gray-500 mb-3 leading-relaxed">
-        {t(
-          "staffInstallSub",
-          "Add this to your home screen and turn on alerts — you'll know the moment your shifts change."
-        )}
-      </div>
-      {!installed && installPrompt && (
-        <button
-          type="button"
-          onClick={doInstall}
-          className="w-full mb-2 px-3 py-2 rounded-lg text-[12px] font-semibold bg-gray-900 text-white hover:bg-gray-700 transition"
-        >
-          ⬇️ {t("staffInstallBtn", "Install app")}
-        </button>
-      )}
-      <StaffPushOptIn token={token} />
     </div>
   );
 }
@@ -1635,7 +1671,16 @@ function SyncPill({ isOnline, live, lastSynced, onRefresh, t }) {
 export default function StaffPortalPage() {
   const { token } = useParams();
   const { t } = useLanguage();
-  const [tab, setTab] = useState("schedule");
+  const [tab, setTab] = useState(() => {
+    // Honor ?tab= so the installed-app shortcuts (Schedule / Hours / Tips) and
+    // any deep link open the right tab.
+    try {
+      const q = new URLSearchParams(window.location.search).get("tab");
+      return ["schedule", "swaps", "hours", "tips", "alerts"].includes(q) ? q : "schedule";
+    } catch {
+      return "schedule";
+    }
+  });
   const [info, setInfo] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1824,6 +1869,26 @@ export default function StaffPortalPage() {
     });
     return () => { document.title = prev; };
   }, [info, t]);
+
+  // Per-staff PWA manifest + iOS home-screen name. Point <link rel="manifest">
+  // at THIS staff's manifest (served same-origin via a Vercel rewrite → backend)
+  // so an Android/Chrome install opens to their schedule and is named after the
+  // restaurant — not the generic owner app. iOS ignores the manifest for
+  // Add-to-Home, so we also set apple-mobile-web-app-title to the restaurant
+  // name. Both restore on unmount (the owner app uses the global values).
+  useEffect(() => {
+    if (!token || typeof document === "undefined") return;
+    const link = document.querySelector('link[rel="manifest"]');
+    const prevHref = link?.getAttribute("href");
+    if (link) link.setAttribute("href", `/portal/${token}/app.webmanifest`);
+    const apple = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    const prevApple = apple?.getAttribute("content");
+    if (apple && info?.restaurant_name) apple.setAttribute("content", info.restaurant_name);
+    return () => {
+      if (link && prevHref) link.setAttribute("href", prevHref);
+      if (apple && prevApple) apple.setAttribute("content", prevApple);
+    };
+  }, [token, info]);
 
   // Loading state
   if (loading) {

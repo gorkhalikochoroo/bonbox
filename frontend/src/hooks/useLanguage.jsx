@@ -4825,6 +4825,9 @@ const translations = {
     staffInstallTitle: 'Keep your schedule one tap away',
     staffInstallSub: 'Add this to your home screen and turn on alerts — you\'ll know the moment your shifts change.',
     staffInstallBtn: 'Install app',
+    staffInstallIosA: 'Tap',
+    staffInstallIosB: 'then "Add to Home Screen"',
+    staffInstalledLabel: 'App installed',
     // Staff portal live-sync (Phase 1) — freshness pill, hero, toast.
     portalSynced: 'Synced',
     portalSyncedAt: 'Synced {time}',
@@ -9513,6 +9516,9 @@ const translations = {
     staffInstallTitle: 'Hav din vagtplan ét tryk væk',
     staffInstallSub: 'Føj dette til din hjemmeskærm og slå notifikationer til — så ved du det med det samme, dine vagter ændrer sig.',
     staffInstallBtn: 'Installér app',
+    staffInstallIosA: 'Tryk på',
+    staffInstallIosB: 'og vælg "Føj til hjemmeskærm"',
+    staffInstalledLabel: 'App installeret',
     // Staff portal live-sync (Phase 1) — freshness pill, hero, toast.
     portalSynced: 'Synket',
     portalSyncedAt: 'Synket {time}',
