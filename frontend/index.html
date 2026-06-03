@@ -17,6 +17,25 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="BonBox" />
     <link rel="manifest" href="/manifest.json" />
+    <script>
+      // PWA install reliability — on a staff-portal route (/s/<slug>/<token>),
+      // point the manifest at THIS staff's per-token manifest BEFORE React
+      // mounts, so the browser evaluates installability against the dedicated
+      // "Schedule" app on first paint and the Install prompt arms reliably.
+      // (React re-sets it with ?lang= once mounted.) Without this, the browser
+      // sees the generic manifest first and the install prompt often never
+      // arms on the staff route — "no way to install" even though it's valid.
+      // Only touches /s/ routes; the owner app keeps the global manifest.
+      (function () {
+        try {
+          var m = location.pathname.match(/^\/s\/(?:[^\/]+\/)?([^\/?#]+)/);
+          if (m && m[1]) {
+            var link = document.querySelector('link[rel="manifest"]');
+            if (link) link.setAttribute("href", "/portal/" + m[1] + "/app.webmanifest");
+          }
+        } catch (e) { /* non-portal route — keep the global manifest */ }
+      })();
+    </script>
 
     <!-- Display type (Task #109 / Task #110, self-hosted 2026-05-24).
          Inter for everything — body, H2, hero H1. Same family, varying
