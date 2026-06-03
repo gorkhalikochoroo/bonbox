@@ -52,8 +52,9 @@ import {
   Footprints,
   PartyPopper,
   Clock,
+  BarChart3,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -66,6 +67,7 @@ import StatCard from "../components/ui/StatCard";
 import FilterBar from "../components/ui/FilterBar";
 import Empty from "../components/ui/Empty";
 import FloorPlan from "../components/FloorPlan";
+import InsightsSection from "../components/reservations/InsightsSection";
 import { QRCodeSVG } from "qrcode.react";
 import { canPurchaseInApp } from "../utils/platform";
 import { venueProfile } from "../config/venueProfiles";
@@ -140,12 +142,68 @@ function serializeBookingHours(hours) {
   return out;
 }
 
+// Tab ids — kept as a const so the ?tab= deep-link (e.g. from the Insights
+// "Turn on SMS reminders" action) can validate against the real set.
+const RSVP_TABS = ["book", "floor", "insights", "settings"];
+
 export default function ReservationsPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const { hasFeature, isReady } = useEntitlements();
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  const [tab, setTab] = useState("book"); // "book" | "floor" | "settings"
+  // The active tab is DERIVED from the URL (?tab=), so the query string is the
+  // single source of truth — a deep-link (e.g. the Insights "Turn on SMS
+  // reminders" action → ?tab=settings) and the browser back/forward button are
+  // honoured for free, with no mirror state to keep in sync. Falls back to
+  // "book" for a missing / unknown value.
+  const tab = useMemo(() => {
+    try {
+      const q = new URLSearchParams(location.search).get("tab");
+      return RSVP_TABS.includes(q) ? q : "book";
+    } catch {
+      return "book";
+    }
+  }, [location.search]);
+
+  // Resources fetched once at page level — only to populate the Insights zone
+  // filter. Soft-fail: the page (and Insights range-only) work without it.
+  const [pageResources, setPageResources] = useState([]);
+  useEffect(() => {
+    if (!isReady || !hasFeature("reservations")) return;
+    let alive = true;
+    api
+      .get("/reservations/resources")
+      .then((res) => {
+        if (alive) setPageResources(Array.isArray(res.data?.resources) ? res.data.resources : []);
+      })
+      .catch(() => {
+        if (alive) setPageResources([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isReady, hasFeature]);
+
+  const insightsZones = useMemo(
+    () => [...new Set(pageResources.map((r) => r.zone).filter(Boolean))],
+    [pageResources],
+  );
+
+  // Switch tab by writing the URL — `tab` re-derives from it on the next
+  // render. Used by the TabPills. (The in-page SMS deep-link is a plain
+  // <Link to="/reservations?tab=settings">, which lands on the same code path.)
+  const changeTab = useCallback(
+    (next) => {
+      const params = new URLSearchParams(location.search);
+      if (next === "book") params.delete("tab");
+      else params.set("tab", next);
+      const qs = params.toString();
+      navigate({ search: qs ? `?${qs}` : "" }, { replace: true });
+    },
+    [location.search, navigate],
+  );
 
   // ── Tier flicker contract ──────────────────────────────────────────
   // Render NOTHING while entitlements are loading, then either the
@@ -178,16 +236,20 @@ export default function ReservationsPage() {
         tabs={[
           { id: "book", label: t("rsvpTabBook", "Reservation book") },
           { id: "floor", label: t("rsvpTabFloor", "Floor") },
+          { id: "insights", label: t("rsvpTabInsights", "Insights") },
           { id: "settings", label: t("rsvpTabSettings", "Settings") },
         ]}
         activeId={tab}
-        onChange={setTab}
+        onChange={changeTab}
         ariaLabel={t("rsvpTabsAria", "Reservation sections")}
         size="lg"
       />
 
       {tab === "book" && <BookSection t={t} businessType={user?.business_type} />}
       {tab === "floor" && <FloorSection t={t} businessType={user?.business_type} />}
+      {/* Insights mounts lazily (only when its tab is open) so it never blocks
+          the Book view's first paint; the fetch fires on mount. */}
+      {tab === "insights" && <InsightsSection t={t} zones={insightsZones} />}
       {tab === "settings" && <SettingsSection t={t} user={user} />}
     </div>
   );
