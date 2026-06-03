@@ -554,6 +554,15 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # frontend-nav concern, not a tier gate.
         "reservations": True,
         "sms_reminders": False,   # SMS is a Pro perk (per-message cost)
+        # 2026-06-03 — Reservations Insights (owner analytics on the booking
+        # book: seat-hour utilization, weekday×day-part heatmap, no-show rate,
+        # source mix, party-size fit, + a trailing-same-weekday forecast).
+        # Free DOES NOT get the Pro layer (forecast + no-show lead-time detail)
+        # — but basic utilization / heatmap / source-mix stay open to ALL tiers
+        # for Free retention (the value moment that drives the upgrade). The
+        # flag gates ONLY the premium analytics; the `reservations` flag (above)
+        # still controls access to the feature surface at all.
+        "reservation_insights": False,
         # 2026-05-24 — Accountant Hours Saved widget (Manoj-confirmed).
         # The "Du har sparet revisoren X timer = ~Y kr" tracker that
         # powers the dashboard widget AND the live tagline on the
@@ -702,6 +711,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "cross_event_analytics": False,    # Pro-only — comparison across events
         "reservations": True,              # Starter = full reservations
         "sms_reminders": True,             # SMS reminders on Starter + Pro
+        "reservation_insights": False,     # Pro-only — forecast + no-show detail
         "inbox_email_capture": True,       # Universal — workflow feature
         # ── Tier 4 Dashboard restructure (Phase F) — see Free comment ──
         "dashboard_accountant_hours": True,        # Starter+ — retention card
@@ -760,6 +770,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "cross_event_analytics": True,          # Trial mirrors Pro
         "reservations": True,                   # Trial mirrors Pro
         "sms_reminders": True,                  # Trial mirrors Pro
+        "reservation_insights": True,           # Trial mirrors Pro
         "inbox_email_capture": True,            # Universal
         # ── Tier 4 Dashboard restructure (Phase F) — trial mirrors Pro ──
         "dashboard_accountant_hours": True,
@@ -813,6 +824,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "cross_event_analytics": True,     # Pro killer for kulturarrangører
         "reservations": True,              # Pro = full reservations
         "sms_reminders": True,             # Pro perk — SMS booking reminders
+        "reservation_insights": True,      # Pro killer — analytics + forecast
         "inbox_email_capture": True,       # Universal
         # ── Tier 4 Dashboard restructure (Phase F) — Pro unlocks all ──
         "dashboard_accountant_hours": True,        # Starter+ — same on Pro

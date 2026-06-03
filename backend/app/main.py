@@ -107,6 +107,7 @@ from app.routers import tickets as tickets_router
 # Reservations (table booking + appointments) — owner CRUD + the public
 # /r/<slug> booking surface. Generic bookable-resource engine.
 from app.routers import reservations as reservations_router
+from app.routers import reservation_insights as reservation_insights_router
 from app.routers import public_reservations as public_reservations_router
 # Onboarding — business-archetype detection (keyword fast-path → AI fallback)
 from app.routers import onboarding as onboarding_router
@@ -3401,6 +3402,10 @@ app.include_router(
 )
 # Reservations — owner CRUD/book + the public /r/<slug> booking surface.
 app.include_router(reservations_router.router, prefix="/api/reservations", tags=["Reservations"])
+# Owner-facing analytics on the booking book — GET /api/reservations/insights.
+# Mounted under the SAME prefix as the owner reservation router (separate file
+# to keep that router from growing further). Authed + tenant-scoped + fail-soft.
+app.include_router(reservation_insights_router.router, prefix="/api/reservations", tags=["Reservations"])
 app.include_router(
     public_reservations_router.router,
     prefix="/api/public/reservations",
