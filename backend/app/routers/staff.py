@@ -1236,6 +1236,23 @@ def publish_week(
 
         background_tasks.add_task(_send_bg)
 
+    # Staff live-sync Phase 2: nudge any connected staff portals to refetch NOW
+    # (instant) instead of waiting for their 20s poll. Best-effort, carries no
+    # schedule data — just a "published" signal keyed by tenant (owner id). If
+    # nothing was published/changed, skip it. The poll remains the fallback.
+    if updated or changes:
+        try:
+            from app.services import portal_events
+            portal_events.publish(
+                str(user.id),
+                {"type": "schedule_published", "week_start": week_start.isoformat()},
+            )
+        except Exception:  # noqa: BLE001 — a nudge must never break publish
+            import logging
+            logging.getLogger(__name__).debug(
+                "portal_events publish failed", exc_info=True
+            )
+
     return {
         "published": updated,
         "week_start": week_start.isoformat(),

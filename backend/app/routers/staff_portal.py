@@ -14,22 +14,26 @@ Endpoints:
   GET    /portal/{token}/notifications — last 30 notification log entries
 """
 
+import asyncio
+import json
 import secrets
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from passlib.context import CryptContext
 
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.models.staff import (
     StaffMember, StaffLink, Schedule, HoursLogged,
     Tip, TipDistribution, PayPeriodConfig, NotificationLog,
 )
 from app.models.business_profile import BusinessProfile
+from app.services import portal_events
 
 import re
 from app.utils.time import utc_now
@@ -1179,3 +1183,76 @@ def portal_push_unsubscribe(
             db.commit()
             deleted = True
     return {"ok": True, "deleted": deleted}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  REALTIME STREAM — Staff live-sync Phase 2 (instant push over SSE)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.get("/{token}/stream")
+@limiter.limit("60/minute")
+async def portal_stream(token: str, request: Request):
+    """Server-Sent Events stream for the staff portal.
+
+    Pushes a tiny "refetch now" nudge the instant the owner publishes a
+    schedule, so the portal updates in real time instead of waiting for the
+    20-second poll (Phase 1, which remains the automatic fallback whenever this
+    stream is unavailable, drops, or is refused).
+
+    Security / privacy:
+      • Auth = the same /api/portal/{token} capability token as every other
+        portal endpoint. Invalid/inactive token → 404, no stream.
+      • The stream carries NO schedule/financial data — only small
+        {"type": ..., "week_start": ...} nudges. The actual data still flows
+        through the tenant-scoped GET the client already calls, so nothing
+        sensitive can leak over this channel even if it were misrouted.
+      • Bounded by portal_events (per-tenant + global connection caps); over
+        the cap → 429 and the client simply keeps polling.
+
+    Token validation uses a SHORT-LIVED DB session closed BEFORE the long-lived
+    streaming loop begins — we never hold a DB connection open for the life of
+    the stream (the loop needs no DB)."""
+    # 1) Validate token + resolve the tenant key, then release the DB session.
+    db = SessionLocal()
+    try:
+        _link, member = _get_staff_from_token(token, db)
+        tenant_key = str(member.user_id)
+    finally:
+        db.close()
+
+    # 2) Register on the bus (bounded). Refusal → 429 → client falls back to poll.
+    queue = portal_events.subscribe(tenant_key)
+    if queue is None:
+        return Response(status_code=429, content="too_many_streams")
+
+    async def _event_stream():
+        # Opening comment starts the stream; `retry:` sets the browser's
+        # EventSource auto-reconnect backoff.
+        yield ": connected\n\n"
+        yield "retry: 5000\n\n"
+        yield 'event: hello\ndata: {"type":"hello"}\n\n'
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=25.0)
+                except asyncio.TimeoutError:
+                    # Keepalive comment — defeats idle proxy/LB timeouts and
+                    # surfaces client disconnects on the next loop iteration.
+                    yield ": keepalive\n\n"
+                    continue
+                etype = (event or {}).get("type", "message")
+                yield f"event: {etype}\ndata: {json.dumps(event)}\n\n"
+        finally:
+            portal_events.unsubscribe(tenant_key, queue)
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",  # disable nginx-style response buffering
+            "Connection": "keep-alive",
+        },
+    )

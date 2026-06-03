@@ -1564,7 +1564,7 @@ function StaffPushOptIn({ token }) {
  * onRefresh is the parent's loadData. Re-renders are driven by the parent's
  * freshness ticker so the label decays without a new fetch.
  */
-function SyncPill({ isOnline, lastSynced, onRefresh, t }) {
+function SyncPill({ isOnline, live, lastSynced, onRefresh, t }) {
   const FRESH_MS = 45000;
   const ageMs = lastSynced ? Date.now() - lastSynced.getTime() : Infinity;
   const isFresh = isOnline && lastSynced && ageMs < FRESH_MS;
@@ -1578,6 +1578,27 @@ function SyncPill({ isOnline, lastSynced, onRefresh, t }) {
         <CloudOff className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
         {t("portalOffline")}
       </span>
+    );
+  }
+
+  // Live — the realtime stream is open, so changes land instantly. A subtle
+  // pulsing dot signals it without shouting. Only shown when truly connected
+  // (honest: never imply "live" when we're actually polling).
+  if (live) {
+    return (
+      <button
+        type="button"
+        onClick={onRefresh}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-medium text-emerald-700"
+        title={t("portalLive")}
+        aria-label={t("portalLive")}
+      >
+        <span className="relative flex w-1.5 h-1.5" aria-hidden>
+          <span className="absolute inline-flex w-full h-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+          <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-500" />
+        </span>
+        {t("portalLive")}
+      </button>
     );
   }
 
@@ -1644,6 +1665,10 @@ export default function StaffPortalPage() {
   // Ticks every ~15s while mounted so the pill re-renders from "Synced" to
   // "Synced HH:MM" as the data ages, without depending on a new fetch.
   const [, setFreshnessTick] = useState(0);
+  // liveConnected — true while the SSE stream (Phase 2) is open. Drives the
+  // "Live" pill and backs the foreground poll off from 20s → 60s (the stream
+  // covers instant schedule pushes; the poll then only keeps hours/tips fresh).
+  const [liveConnected, setLiveConnected] = useState(false);
 
   // Email & phone editing
   const [showEmailEdit, setShowEmailEdit] = useState(false);
@@ -1734,7 +1759,7 @@ export default function StaffPortalPage() {
 
     const pollId = setInterval(() => {
       if (document.visibilityState === "visible") loadData();
-    }, 20000);
+    }, liveConnected ? 60000 : 20000);
 
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
@@ -1742,7 +1767,37 @@ export default function StaffPortalPage() {
       window.removeEventListener("offline", onOffline);
       clearInterval(pollId);
     };
-  }, [pinVerified, info, loadData]);
+  }, [pinVerified, info, loadData, liveConnected]);
+
+  // 2e. Realtime stream (Phase 2) — instant push the moment the owner
+  // publishes. Opens a Server-Sent Events connection to the portal stream; on
+  // a "schedule_published" nudge we refetch immediately (loadData diffs +
+  // toasts as usual). The browser's EventSource auto-reconnects on drop, and
+  // the 20s/60s poll above is the fallback — so the stream is pure speed, never
+  // a correctness dependency. liveConnected drives the "Live" pill + poll backoff.
+  useEffect(() => {
+    if (!(pinVerified && info)) return;
+    if (typeof window === "undefined" || typeof window.EventSource === "undefined") return;
+
+    const base = portalApi.defaults.baseURL || "";
+    let es;
+    try {
+      es = new EventSource(`${base}/portal/${token}/stream`);
+    } catch {
+      return; // EventSource unavailable → poll-only, harmless no-op
+    }
+
+    const onPublished = () => loadData();
+    es.onopen = () => setLiveConnected(true);
+    es.onerror = () => setLiveConnected(false); // browser keeps auto-reconnecting
+    es.addEventListener("schedule_published", onPublished);
+
+    return () => {
+      setLiveConnected(false);
+      try { es.removeEventListener("schedule_published", onPublished); } catch { /* noop */ }
+      try { es.close(); } catch { /* noop */ }
+    };
+  }, [pinVerified, info, token, loadData]);
 
   // 2c. Freshness ticker — re-render the pill every 15s so "Synced" decays to
   // "Synced HH:MM" as data ages, independent of any fetch.
@@ -1810,6 +1865,7 @@ export default function StaffPortalPage() {
             {pinVerified && info && (
               <SyncPill
                 isOnline={isOnline}
+                live={liveConnected}
                 lastSynced={lastSynced}
                 onRefresh={loadData}
                 t={t}
