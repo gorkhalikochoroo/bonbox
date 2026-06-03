@@ -9,6 +9,7 @@ import { useBranch } from "../components/BranchSelector";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
+import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2 } from "lucide-react";
 
 /* ═══════════════════════════════════════════════════════════
    CONSTANTS & HELPERS
@@ -1696,6 +1697,370 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
 
 
 /* ═══════════════════════════════════════════════════════════
+   STAFF DETAIL / EDIT MODAL  (Staff v2, #336)
+   ═══════════════════════════════════════════════════════════
+
+   Owners asked for a real "click a staff member → see + edit their
+   details" surface instead of the cramped inline form that expanded a
+   row. This is that surface: a centred card on desktop, a bottom-sheet /
+   near-full-screen panel on mobile (notch-safe).
+
+   It owns NO save logic of its own — every mutation is delegated to the
+   handlers passed down from StaffPanel (handleUpdate / generateLink /
+   handleDeactivate) so the endpoints + payloads stay byte-identical to
+   the old inline path. The modal only drives `editForm` (the same shared
+   state) via onChange and decides when to call those handlers.
+
+   Props:
+     member     — the staff row being viewed (name, role, email, phone,
+                  contract_type, base_rate, is_active, …). null = closed.
+     editForm   — shared edit state (already populated by openDetail).
+     setEditForm
+     currency   — "DKK" gates the Trækkort row (same rule as inline form).
+     saving     — true while a save/PUT is in flight.
+     rates      — { base, evening, weekend, holiday } from getRateCard.
+     onSave     — () => handleUpdate(member.id) ; resolves true on success.
+     onClose    — close without saving.
+     onShare    — () => generateLink(member).
+     onDeactivate — () => handleDeactivate(member.id).
+     t          — translator from useLanguage.
+*/
+function StaffDetailModal({
+  member,
+  editForm,
+  setEditForm,
+  currency,
+  saving,
+  rates,
+  onSave,
+  onClose,
+  onShare,
+  onDeactivate,
+  t,
+}) {
+  const cardRef = useRef(null);
+  // Hold the latest onClose in a ref so the focus/Esc effect can depend only
+  // on `member` (open/close). Without this, the parent re-renders on every
+  // keystroke (editForm lives in StaffPanel), `onClose` gets a new identity,
+  // the effect re-runs, and focus snaps back to the first field mid-typing.
+  // The ref is updated in an effect (never during render) to satisfy the
+  // react-hooks/refs lint rule.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Esc to close + focus management. We trap focus loosely: on open we
+  // move focus into the dialog (first focusable / the card itself) and a
+  // keydown handler keeps Tab within the card. Restores focus to whatever
+  // was focused before open on unmount.
+  useEffect(() => {
+    if (!member) return undefined;
+    const prevActive = document.activeElement;
+    const card = cardRef.current;
+
+    const focusables = () =>
+      card
+        ? Array.from(
+            card.querySelectorAll(
+              'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ),
+          ).filter((el) => el.offsetParent !== null)
+        : [];
+
+    // Move focus into the dialog (name field if present, else the card).
+    const first = focusables()[0];
+    if (first) first.focus();
+    else if (card) card.focus();
+
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const firstEl = items[0];
+      const lastEl = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === firstEl) {
+        e.preventDefault();
+        lastEl.focus();
+      } else if (!e.shiftKey && document.activeElement === lastEl) {
+        e.preventDefault();
+        firstEl.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown, true);
+    // Lock background scroll while the sheet/dialog is up.
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      document.body.style.overflow = prevOverflow;
+      if (prevActive && typeof prevActive.focus === "function") prevActive.focus();
+    };
+    // Depend only on `member` — onClose is read via onCloseRef so the effect
+    // doesn't tear down on every parent re-render (keystroke).
+  }, [member]);
+
+  if (!member) return null;
+
+  const cat = ROLE_CATEGORY[member.role] || "floor";
+  const colors = ROLE_COLORS[cat];
+  const isInactive = member.is_active === false;
+  const initial = (member.name || "?").trim().charAt(0).toUpperCase() || "?";
+
+  // Shared input styling — rounded-xl, focus ring, dark mode.
+  const inputCls =
+    "w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none transition";
+  const labelCls =
+    "block text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1.5";
+
+  const handleSave = async () => {
+    const ok = await onSave();
+    if (ok) onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/40 sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("staffDetailsTitle", "Staff details") + " — " + member.name}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white dark:bg-gray-800 w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl shadow-xl border border-gray-200 dark:border-gray-700 max-h-[92vh] sm:max-h-[88vh] flex flex-col outline-none"
+      >
+        {/* Header */}
+        <div className="flex items-start gap-3 p-5 border-b border-gray-100 dark:border-gray-700">
+          <div className="flex-shrink-0 w-11 h-11 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center text-base font-semibold">
+            {initial}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-base font-bold text-gray-900 dark:text-white truncate">
+                {member.name}
+              </h2>
+              <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${colors.bg} ${colors.text}`}>
+                {member.role}
+              </span>
+              {isInactive && (
+                <span className="text-xs text-red-500 font-medium">{t("inactive")}</span>
+              )}
+            </div>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+              {CONTRACT_TYPES.find((c) => c.value === member.contract_type)?.label || member.contract_type}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("close", "Close")}
+            className="flex-shrink-0 p-1.5 -mr-1 -mt-1 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Body — scrolls if it overflows */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Name */}
+            <div className="sm:col-span-2">
+              <label className={labelCls} htmlFor="sd-name">{t("staffName", "Name")}</label>
+              <input
+                id="sd-name"
+                type="text"
+                value={editForm.name || ""}
+                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                className={inputCls}
+                placeholder={t("staffName", "Name")}
+              />
+            </div>
+            {/* Role */}
+            <div>
+              <label className={labelCls} htmlFor="sd-role">{t("staffRole", "Role")}</label>
+              <select
+                id="sd-role"
+                value={editForm.role || ""}
+                onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
+                className={inputCls}
+              >
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+            {/* Contract type */}
+            <div>
+              <label className={labelCls} htmlFor="sd-contract">{t("contractType", "Contract type")}</label>
+              <select
+                id="sd-contract"
+                value={editForm.contract_type || ""}
+                onChange={(e) => setEditForm({ ...editForm, contract_type: e.target.value })}
+                className={inputCls}
+              >
+                {CONTRACT_TYPES.map((ct) => (
+                  <option key={ct.value} value={ct.value}>{ct.label}</option>
+                ))}
+              </select>
+            </div>
+            {/* Email */}
+            <div>
+              <label className={labelCls} htmlFor="sd-email">
+                <span className="inline-flex items-center gap-1.5">
+                  <Mail className="w-3 h-3" /> {t("staffEmail", "Email")}
+                </span>
+              </label>
+              <input
+                id="sd-email"
+                type="email"
+                value={editForm.email || ""}
+                onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                className={inputCls}
+                placeholder={t("optional", "Optional")}
+              />
+            </div>
+            {/* Phone */}
+            <div>
+              <label className={labelCls} htmlFor="sd-phone">
+                <span className="inline-flex items-center gap-1.5">
+                  <Phone className="w-3 h-3" /> {t("staffPhone", "Phone")}
+                </span>
+              </label>
+              <input
+                id="sd-phone"
+                type="tel"
+                value={editForm.phone || ""}
+                onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                className={inputCls}
+                placeholder={t("optional", "Optional")}
+              />
+            </div>
+            {/* Base rate */}
+            <div className="sm:col-span-2">
+              <label className={labelCls} htmlFor="sd-rate">{t("baseRate")} ({currency}/hr)</label>
+              <input
+                id="sd-rate"
+                type="number"
+                value={editForm.base_rate ?? ""}
+                onChange={(e) => setEditForm({ ...editForm, base_rate: e.target.value })}
+                min="0"
+                step="0.5"
+                className={`${inputCls} tabular-nums`}
+                placeholder={`${t("baseRate")} (${currency}/hr)`}
+              />
+            </div>
+          </div>
+
+          {/* Trækkort — DK only, same values + conversion as the old inline
+              form. UI shows %, handleUpdate divides by 100 on submit. */}
+          {currency === "DKK" && (
+            <div className="rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-4 space-y-3">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Trækkort
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <select
+                  value={editForm.tax_card_type || ""}
+                  onChange={(e) => setEditForm({ ...editForm, tax_card_type: e.target.value })}
+                  className={inputCls}
+                  title="Trækkort type — affects A-skat estimate"
+                  aria-label="Trækkort type"
+                >
+                  <option value="">{t("auto")}</option>
+                  <option value="hovedkort">Hovedkort (~36%)</option>
+                  <option value="bikort">Bikort (~42%)</option>
+                  <option value="frikort">Frikort (0%)</option>
+                </select>
+                <input
+                  type="number"
+                  value={editForm.tax_card_rate ?? ""}
+                  onChange={(e) => setEditForm({ ...editForm, tax_card_rate: e.target.value })}
+                  placeholder={t("rateOverridePct")}
+                  min="0"
+                  max="60"
+                  step="0.1"
+                  className={`${inputCls} tabular-nums`}
+                  title="Paste exact rate from employee's eSkattekort (0–60%)"
+                  aria-label={t("rateOverridePct")}
+                />
+              </div>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                {t("trækkortHint")}
+              </p>
+            </div>
+          )}
+
+          {/* Read-only rate card — informational. */}
+          <div className="rounded-xl border border-gray-100 dark:border-gray-700 p-4">
+            <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
+              {t("ratesSatser", "Satser / Rates")}
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-y-2 gap-x-3 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+              <div><span className="text-gray-400 dark:text-gray-500">{t("rateBase", "Base")}</span><br />{rates.base}{currency}/hr</div>
+              <div><span className="text-gray-400 dark:text-gray-500">{t("rateEvening", "Evening")}</span><br />{rates.evening}{currency}/hr</div>
+              <div><span className="text-gray-400 dark:text-gray-500">{t("rateWeekend", "Weekend")}</span><br />{rates.weekend}{currency}/hr</div>
+              <div><span className="text-gray-400 dark:text-gray-500">{t("rateHoliday", "Holiday")}</span><br />{rates.holiday}{currency}/hr</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer — primary actions + secondary (share / deactivate).
+            Notch-safe bottom padding for the mobile bottom-sheet. */}
+        <div className="border-t border-gray-100 dark:border-gray-700 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
+            >
+              {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+              {saving ? t("saving", "Saving…") : t("saveChanges", "Save changes")}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+            >
+              {t("cancel", "Cancel")}
+            </button>
+          </div>
+          {!isInactive && (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={onShare}
+                className="flex-1 inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition"
+              >
+                <Link2 className="w-4 h-4" />
+                {t("shareLink", "Share link")}
+              </button>
+              <button
+                type="button"
+                onClick={onDeactivate}
+                className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/40 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
+              >
+                <Trash2 className="w-4 h-4" />
+                {t("deactivate", "Deactivate")}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
    STAFF MANAGEMENT PANEL
    ═══════════════════════════════════════════════════════════ */
 function StaffPanel({ staff, currency, onRefresh, branchId }) {
@@ -1713,8 +2078,10 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
   const [contractType, setContractType] = useState("full");
   const [baseRate, setBaseRate] = useState("");
   const [saving, setSaving] = useState(false);
-  const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
+  // The staff member currently open in the detail/edit modal (#336). The
+  // modal owns the edit now; `editForm` is the shared draft state it drives.
+  const [detailMember, setDetailMember] = useState(null);
   const [panelError, setPanelError] = useState("");
   const [linkModal, setLinkModal] = useState(null); // { staffName, portalUrl, loading }
   const [linkCopied, setLinkCopied] = useState(false);
@@ -1817,13 +2184,15 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
           ? parseFloat(editForm.tax_card_rate) / 100  // UI shows %, backend stores decimal
           : null,
       });
-      setEditingId(null);
       setEditForm({});
       onRefresh();
+      setSaving(false);
+      return true; // signals the detail modal to close on success
     } catch (err) {
       setPanelError(err.response?.data?.detail || "Failed to update staff member.");
     }
     setSaving(false);
+    return false;
   };
 
   const handleDeactivate = async (id) => {
@@ -1837,21 +2206,34 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
     }
   };
 
-  const startEdit = (member) => {
-    setEditingId(member.id);
-    setEditForm({
-      name: member.name,
-      email: member.email || "",
-      phone: member.phone || "",
-      role: member.role,
-      contract_type: member.contract_type,
-      base_rate: member.base_rate || "",
-      tax_card_type: member.tax_card_type || "",
-      // Backend stores decimal (0.36); UI shows percent (36)
-      tax_card_rate: member.tax_card_rate
-        ? Math.round(parseFloat(member.tax_card_rate) * 100 * 10) / 10
-        : "",
-    });
+  // Build the shared `editForm` draft from a member row. Drives the detail/
+  // edit modal (openDetail). Centralises the field set + the percent↔decimal
+  // trækkort conversion so the PUT payload matches what the server expects.
+  const buildEditDraft = (member) => ({
+    name: member.name,
+    email: member.email || "",
+    phone: member.phone || "",
+    role: member.role,
+    contract_type: member.contract_type,
+    base_rate: member.base_rate || "",
+    tax_card_type: member.tax_card_type || "",
+    // Backend stores decimal (0.36); UI shows percent (36)
+    tax_card_rate: member.tax_card_rate
+      ? Math.round(parseFloat(member.tax_card_rate) * 100 * 10) / 10
+      : "",
+  });
+
+  // Open the detail/edit modal (#336). Populates the shared edit draft and
+  // routes everything through the modal — the old cramped inline editor has
+  // been retired, so the name + pencil affordances both land here.
+  const openDetail = (member) => {
+    setEditForm(buildEditDraft(member));
+    setDetailMember(member);
+  };
+
+  const closeDetail = () => {
+    setDetailMember(null);
+    setEditForm({});
   };
 
   const getRateCard = (member) => {
@@ -1944,7 +2326,6 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
           <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("currentStaff")}</h3>
           <div className="divide-y divide-gray-100 dark:divide-gray-700 border border-gray-100 dark:border-gray-700 rounded-xl overflow-hidden">
             {staff.map((member) => {
-              const isEditing = editingId === member.id;
               const cat = ROLE_CATEGORY[member.role] || "floor";
               const colors = ROLE_COLORS[cat];
               const rates = getRateCard(member);
@@ -1955,181 +2336,82 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                   key={member.id}
                   className={`px-4 py-3 bg-white dark:bg-gray-800 ${isInactive ? "opacity-50" : ""}`}
                 >
-                  {isEditing ? (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                        <input
-                          type="text"
-                          value={editForm.name || ""}
-                          onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
-                          placeholder="Name"
-                        />
-                        <input
-                          type="email"
-                          value={editForm.email || ""}
-                          onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
-                          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
-                          placeholder="Email (optional)"
-                        />
-                        <input
-                          type="tel"
-                          value={editForm.phone || ""}
-                          onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
-                          placeholder="Phone (optional)"
-                        />
-                        <select
-                          value={editForm.role || ""}
-                          onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
-                          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
-                        >
-                          {ROLES.map((r) => (
-                            <option key={r} value={r}>{r}</option>
-                          ))}
-                        </select>
-                        <select
-                          value={editForm.contract_type || ""}
-                          onChange={(e) => setEditForm({ ...editForm, contract_type: e.target.value })}
-                          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
-                        >
-                          {CONTRACT_TYPES.map((ct) => (
-                            <option key={ct.value} value={ct.value}>{ct.label}</option>
-                          ))}
-                        </select>
-                        <input
-                          type="number"
-                          value={editForm.base_rate}
-                          onChange={(e) => setEditForm({ ...editForm, base_rate: e.target.value })}
-                          placeholder={`Rate (${currency}/hr)`}
-                          min="0"
-                          step="0.5"
-                          className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
-                        />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`px-2 py-0.5 rounded-md text-xs font-medium ${colors.bg} ${colors.text}`}>
+                        {member.role}
                       </div>
-                      {/* Trækkort row — only relevant for DK users; gracefully ignored
-                          when currency != DKK. UI uses % for friendliness; we convert
-                          to decimal at submit. */}
-                      {currency === "DKK" && (
-                        <div className="flex flex-wrap items-center gap-2">
-                          <label className="text-[11px] text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider">
-                            Trækkort
-                          </label>
-                          <select
-                            value={editForm.tax_card_type || ""}
-                            onChange={(e) => setEditForm({ ...editForm, tax_card_type: e.target.value })}
-                            className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none"
-                            title="Trækkort type — affects A-skat estimate"
-                          >
-                            <option value="">{t("auto") || "Auto (hovedkort)"}</option>
-                            <option value="hovedkort">Hovedkort (~36%)</option>
-                            <option value="bikort">Bikort (~42%)</option>
-                            <option value="frikort">Frikort (0%)</option>
-                          </select>
-                          <input
-                            type="number"
-                            value={editForm.tax_card_rate}
-                            onChange={(e) => setEditForm({ ...editForm, tax_card_rate: e.target.value })}
-                            placeholder={t("rateOverridePct") || "Override % (optional)"}
-                            min="0"
-                            max="60"
-                            step="0.1"
-                            className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm outline-none w-44"
-                            title="Paste exact rate from employee's eSkattekort (0–60%)"
-                          />
-                          <span className="text-[11px] text-gray-400 dark:text-gray-500">
-                            {t("trækkortHint") || "From employee's eSkattekort"}
-                          </span>
-                        </div>
+                      {/* Click the name to open the detail/edit modal (#336).
+                          Disabled for inactive members (their edit affordances
+                          are hidden below). */}
+                      {isInactive ? (
+                        <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                          {member.name}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openDetail(member)}
+                          title={t("viewStaffDetails") || "View details"}
+                          aria-label={`${t("viewStaffDetails") || "View details"} — ${member.name}`}
+                          className="text-sm font-medium text-gray-900 dark:text-white truncate cursor-pointer hover:underline underline-offset-2 decoration-gray-300 dark:decoration-gray-600 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400/40 transition"
+                        >
+                          {member.name}
+                        </button>
                       )}
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleUpdate(member.id)}
-                          disabled={saving}
-                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
-                        >
-                          {saving ? "Saving..." : "Save"}
-                        </button>
-                        <button
-                          onClick={() => { setEditingId(null); setEditForm({}); }}
-                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
-                        >
-                          Cancel
-                        </button>
-                      </div>
+                      {member.email && (
+                        <span className="text-xs text-emerald-600 dark:text-gray-300" title={member.email}>
+                          @
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-400 dark:text-gray-500">
+                        {CONTRACT_TYPES.find((c) => c.value === member.contract_type)?.label || member.contract_type}
+                      </span>
+                      {isInactive && (
+                        <span className="text-xs text-red-500 font-medium">{t("inactive")}</span>
+                      )}
                     </div>
-                  ) : (
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className={`px-2 py-0.5 rounded-md text-xs font-medium ${colors.bg} ${colors.text}`}>
-                          {member.role}
-                        </div>
-                        {/* Click the name to open this staff member's details
-                            (reuses the inline edit form, which shows name /
-                            role / contact / base_rate / contract). Disabled
-                            for inactive members (their edit affordances are
-                            hidden below). */}
-                        {isInactive ? (
-                          <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                            {member.name}
-                          </span>
-                        ) : (
+                    <div className="flex items-center gap-4">
+                      {/* Rate card */}
+                      <div className="hidden sm:flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500 tabular-nums">
+                        <span title={t("baseRate")}>{t("baseRate")}: {rates.base}{currency}/hr</span>
+                        <span title="Evening rate (x1.25)">Eve: {rates.evening}</span>
+                        <span title="Weekend rate (x1.45)">Wknd: {rates.weekend}</span>
+                        <span title="Holiday rate (x2)">Hol: {rates.holiday}</span>
+                      </div>
+                      {!isInactive && (
+                        <div className="flex gap-1">
                           <button
                             type="button"
-                            onClick={() => startEdit(member)}
-                            title={t("viewStaffDetails") || "View details"}
-                            aria-label={`${t("viewStaffDetails") || "View details"} — ${member.name}`}
-                            className="text-sm font-medium text-gray-900 dark:text-white truncate cursor-pointer hover:underline underline-offset-2 decoration-gray-300 dark:decoration-gray-600 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400/40 transition"
+                            onClick={() => generateLink(member)}
+                            title={t("sharePortalLink")}
+                            aria-label={`${t("sharePortalLink")} — ${member.name}`}
+                            className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition"
                           >
-                            {member.name}
+                            <Link2 className="w-4 h-4" />
                           </button>
-                        )}
-                        {member.email && (
-                          <span className="text-xs text-emerald-600 dark:text-gray-300" title={member.email}>
-                            @
-                          </span>
-                        )}
-                        <span className="text-xs text-gray-400 dark:text-gray-500">
-                          {CONTRACT_TYPES.find((c) => c.value === member.contract_type)?.label || member.contract_type}
-                        </span>
-                        {isInactive && (
-                          <span className="text-xs text-red-500 font-medium">{t("inactive")}</span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-4">
-                        {/* Rate card */}
-                        <div className="hidden sm:flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500">
-                          <span title={t("baseRate")}>{t("baseRate")}: {rates.base}{currency}/hr</span>
-                          <span title="Evening rate (x1.25)">Eve: {rates.evening}</span>
-                          <span title="Weekend rate (x1.45)">Wknd: {rates.weekend}</span>
-                          <span title="Holiday rate (x2)">Hol: {rates.holiday}</span>
+                          <button
+                            type="button"
+                            onClick={() => openDetail(member)}
+                            title={t("editStaff", "Edit")}
+                            aria-label={`${t("editStaff", "Edit")} — ${member.name}`}
+                            className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeactivate(member.id)}
+                            title={t("deactivate", "Deactivate")}
+                            aria-label={`${t("deactivate", "Deactivate")} — ${member.name}`}
+                            className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
-                        {!isInactive && (
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => generateLink(member)}
-                              title={t("sharePortalLink")}
-                              className="px-2 py-1 rounded text-xs text-emerald-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition"
-                            >
-                              🔗 Share
-                            </button>
-                            <button
-                              onClick={() => startEdit(member)}
-                              className="px-2 py-1 rounded text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleDeactivate(member.id)}
-                              className="px-2 py-1 rounded text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
-                            >
-                              Deactivate
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
               );
             })}
@@ -2323,6 +2605,23 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
           </div>
         </div>
       )}
+
+      {/* Staff detail / edit modal (#336). Owns the edit; delegates the
+          actual save/share/deactivate to the existing handlers so the
+          endpoints + payloads are unchanged. */}
+      <StaffDetailModal
+        member={detailMember}
+        editForm={editForm}
+        setEditForm={setEditForm}
+        currency={currency}
+        saving={saving}
+        rates={detailMember ? getRateCard(detailMember) : { base: 0, evening: 0, weekend: 0, holiday: 0 }}
+        onSave={() => handleUpdate(detailMember.id)}
+        onClose={closeDetail}
+        onShare={() => generateLink(detailMember)}
+        onDeactivate={() => handleDeactivate(detailMember.id)}
+        t={t}
+      />
     </div>
   );
 }
