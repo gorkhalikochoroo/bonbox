@@ -42,6 +42,7 @@ import {
   Loader2,
   Info,
   Phone,
+  Hash,
 } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
@@ -90,6 +91,72 @@ function fmtDayLabel(isoStr) {
   }
 }
 
+// ── Venue monogram ─────────────────────────────────────────────────
+// There is NO logo / image field on a business. We derive a tasteful
+// 1–2 letter monogram from the venue name purely typographically: first
+// letters of the first two words, else the first two letters. Upper-cased,
+// diacritics preserved (Café → C). Plain text — JSX escapes it.
+function venueMonogram(name) {
+  const clean = String(name || "").trim();
+  if (!clean) return "·";
+  const words = clean.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+  return clean.slice(0, 2).toUpperCase();
+}
+
+// ── Slot period grouping (biggest UX lever) ────────────────────────
+// The backend returns a flat, sorted list of "HH:MM" strings. We bucket
+// them CLIENT-SIDE into three named periods by the hour so a long list
+// reads as a scannable menu instead of a wall of chips:
+//   • Frokost     — before 15:00
+//   • Eftermiddag — 15:00 … 16:59
+//   • Aften       — 17:00 and later
+// Returns an ordered array of { key, slots } — only non-empty groups.
+const SLOT_GROUP_DEFS = [
+  { key: "lunch", labelKey: "rsvpGroupLunch", test: (h) => h < 15 },
+  { key: "afternoon", labelKey: "rsvpGroupAfternoon", test: (h) => h >= 15 && h < 17 },
+  { key: "dinner", labelKey: "rsvpGroupDinner", test: (h) => h >= 17 },
+];
+
+function groupSlots(slots) {
+  const buckets = { lunch: [], afternoon: [], dinner: [] };
+  for (const s of slots) {
+    // Defensive parse — only well-formed "HH:MM" strings are bucketed.
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(s));
+    if (!m) continue;
+    const hour = parseInt(m[1], 10);
+    if (Number.isNaN(hour)) continue;
+    const def = SLOT_GROUP_DEFS.find((g) => g.test(hour));
+    if (def) buckets[def.key].push(s);
+  }
+  return SLOT_GROUP_DEFS.map((g) => ({
+    key: g.key,
+    labelKey: g.labelKey,
+    slots: buckets[g.key],
+  })).filter((g) => g.slots.length > 0);
+}
+
+// ── Safe outbound links ────────────────────────────────────────────
+// SECURITY: build tel:/maps hrefs from venue-supplied strings via
+// encodeURIComponent, never raw concatenation. The phone is stripped to
+// digits + a leading "+" for the tel: scheme; the maps query is a single
+// encoded component. JSX never renders these as HTML.
+function telHref(phone) {
+  if (!phone) return null;
+  // Keep digits and a single leading +. Drop spaces, parens, dashes.
+  const cleaned = String(phone).replace(/[^\d+]/g, "");
+  if (!cleaned) return null;
+  return `tel:${encodeURIComponent(cleaned)}`;
+}
+
+function mapsHref(address, city) {
+  const q = [address, city].filter(Boolean).join(", ").trim();
+  if (!q) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+}
+
 export default function ReservationPublicPage() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
@@ -123,8 +190,13 @@ export default function ReservationPublicPage() {
   const [guestNotes, setGuestNotes] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
 
-  // Optional allergy block (invite, not require).
-  const [allergyOpen, setAllergyOpen] = useState(false);
+  // Step 2 — ONE optional disclosure collapses occasion + notes + the
+  // allergy block. Default closed: only name (+ secondary email/phone) show
+  // first, keeping the form short and the required surface minimal.
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  // Optional allergy block (invite, not require) — lives inside the
+  // disclosure above. allergenTags etc. carry the user's selections.
   const [allergenTags, setAllergenTags] = useState([]); // array of keys
   const [allergySeverity, setAllergySeverity] = useState("preference");
   const [allergyNote, setAllergyNote] = useState("");
@@ -146,6 +218,16 @@ export default function ReservationPublicPage() {
   const [liveStatus, setLiveStatus] = useState(null); // null | backend status
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState(false);
+
+  // Success-hero entrance: a single, brief fade-scale on the status icon
+  // (≤300ms — no confetti). Starts false; flips true one frame after the
+  // success screen mounts so the CSS transition runs once.
+  const [heroIn, setHeroIn] = useState(false);
+  useEffect(() => {
+    if (!result?.id) return;
+    const raf = requestAnimationFrame(() => setHeroIn(true));
+    return () => cancelAnimationFrame(raf);
+  }, [result]);
 
   // ── Load the page data ───────────────────────────────────────────
   useEffect(() => {
@@ -242,6 +324,9 @@ export default function ReservationPublicPage() {
     () => (Array.isArray(page?.allergen_set) ? page.allergen_set : []),
     [page],
   );
+  // Period-grouped slots (Frokost / Eftermiddag / Aften), computed once per
+  // availability response. Only non-empty groups survive.
+  const slotGroups = useMemo(() => groupSlots(slots), [slots]);
   const nameValid = guestName.trim().length >= 1 && guestName.trim().length <= 160;
   // A group request doesn't need a chosen slot (the visitor sends a
   // request for the day; the restaurant confirms a time). A normal
@@ -533,11 +618,25 @@ export default function ReservationPublicPage() {
       body = t("rsvpDoneBody", "Denne reservation er afsluttet.");
     }
 
+    // Human-friendly reference code — first 8 chars of the UUID, upper-cased,
+    // prefixed with #. NOT the full id (that stays hidden; the signed token
+    // is the only handle to the booking). This is a read-aloud reference only.
+    const refCode = result?.id
+      ? `#${String(result.id).replace(/-/g, "").slice(0, 8).toUpperCase()}`
+      : "";
+    // Did the guest leave an email? Drives the honest confirmation line.
+    const emailGiven = guestEmail.trim().length > 0;
+
     return (
       <div className="min-h-screen bg-white dark:bg-gray-950 px-4 py-12">
         <div className="max-w-md mx-auto space-y-6 text-center">
           <div
-            className={`inline-flex items-center justify-center w-14 h-14 rounded-full mx-auto ${heroWrap}`}
+            className={
+              `inline-flex items-center justify-center w-14 h-14 rounded-full mx-auto ${heroWrap} ` +
+              // Single brief fade-scale on mount (≤300ms). No confetti.
+              "transition-all duration-300 ease-out motion-reduce:transition-none " +
+              (heroIn ? "opacity-100 scale-100" : "opacity-0 scale-90")
+            }
           >
             <HeroIcon
               size={28}
@@ -551,6 +650,14 @@ export default function ReservationPublicPage() {
               {title}
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-300">{body}</p>
+            {/* Honest email line — confirms where (or that no) email went. */}
+            <p className="text-sm text-gray-500 dark:text-gray-400 pt-0.5">
+              {emailGiven
+                ? t("rsvpEmailedTo", "We've sent a confirmation to {email}.", {
+                    email: guestEmail.trim(),
+                  })
+                : t("rsvpNoEmailSaved", "Save this page — we don't have your email.")}
+            </p>
           </div>
 
           {/* Live status pill — while a group request is pending we poll and
@@ -582,6 +689,13 @@ export default function ReservationPublicPage() {
           )}
 
           <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 text-left space-y-2">
+            {refCode && (
+              <SummaryRow
+                icon={<Hash size={16} strokeWidth={1.75} />}
+                label={t("rsvpRefLabel", "Reference")}
+                value={refCode}
+              />
+            )}
             <SummaryRow
               icon={<Calendar size={16} strokeWidth={1.75} />}
               label={t("rsvpDateLabel", "Dato")}
@@ -604,6 +718,49 @@ export default function ReservationPublicPage() {
               label={t("rsvpGuestLabel", "Navn")}
               value={guestName.trim()}
             />
+            {/* Restore the venue's location + a tappable number so the guest
+                can find the place and call it from the confirmation. The
+                address is a maps link built via encodeURIComponent (safe). */}
+            {(page.address || page.city) && (
+              <div className="flex items-center gap-3">
+                <span className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true">
+                  <MapPin size={16} strokeWidth={1.75} />
+                </span>
+                <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 w-24 shrink-0">
+                  {t("rsvpAddressLabel", "Address")}
+                </span>
+                {mapsHref(page.address, page.city) ? (
+                  <a
+                    href={mapsHref(page.address, page.city)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300"
+                  >
+                    {[page.address, page.city].filter(Boolean).join(", ")}
+                  </a>
+                ) : (
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {[page.address, page.city].filter(Boolean).join(", ")}
+                  </span>
+                )}
+              </div>
+            )}
+            {telHref(page.phone) && (
+              <div className="flex items-center gap-3">
+                <span className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true">
+                  <Phone size={16} strokeWidth={1.75} />
+                </span>
+                <span className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 w-24 shrink-0">
+                  {t("rsvpCallLabel", "Phone")}
+                </span>
+                <a
+                  href={telHref(page.phone)}
+                  className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300"
+                >
+                  {page.phone}
+                </a>
+              </div>
+            )}
           </div>
 
           {/* Self-cancel — frees the table and notifies the restaurant.
@@ -644,31 +801,58 @@ export default function ReservationPublicPage() {
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 pb-32">
       <div className="max-w-md mx-auto px-4 sm:px-6 pt-8 sm:pt-10 space-y-6">
-        {/* Header */}
-        <header className="space-y-1">
-          <p className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
-            {t("rsvpEyebrow", "Reservation")}
-          </p>
-          <h1 className="text-[26px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 leading-tight">
-            {page.business_name}
-          </h1>
-          {(page.city || page.address) && (
-            <div className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
-              <MapPin size={14} strokeWidth={1.75} className="shrink-0" />
-              <span>{page.address || page.city}</span>
+        {/* ── Venue identity (typographic — there is no logo/image field) ──
+            Monogram tile + eyebrow + venue name H1 + location row with a
+            quiet right-aligned tappable phone. One trust line underneath. */}
+        <header className="space-y-3">
+          <div className="flex items-start gap-3">
+            {/* Monogram tile — the identity moment, within the system.
+                gray-900 fill, dark-mode inverts. Derived from the name. */}
+            <div
+              className="shrink-0 w-12 h-12 rounded-xl bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center text-base font-semibold tracking-tight select-none"
+              aria-hidden="true"
+            >
+              {venueMonogram(page.business_name)}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                {t("rsvpBookATable", "Book a table")}
+              </p>
+              <h1 className="text-[26px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 leading-tight truncate">
+                {page.business_name}
+              </h1>
+            </div>
+          </div>
+
+          {/* Location row + quiet right-aligned call link on the same line. */}
+          {(page.city || page.address || page.phone) && (
+            <div className="flex items-center justify-between gap-3">
+              {(page.city || page.address) ? (
+                <div className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 min-w-0">
+                  <MapPin size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
+                  <span className="truncate">{page.address || page.city}</span>
+                </div>
+              ) : (
+                <span />
+              )}
+              {/* Owner's contact number — tappable "call us" for big groups or
+                  questions. tel: built from digits via encodeURIComponent. */}
+              {telHref(page.phone) && (
+                <a
+                  href={telHref(page.phone)}
+                  className="shrink-0 inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
+                >
+                  <Phone size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
+                  <span>{page.phone}</span>
+                </a>
+              )}
             </div>
           )}
-          {/* Owner's contact number — a tappable "call us" for big groups or
-              questions. tel: links dial directly on a phone. */}
-          {page.phone && (
-            <a
-              href={`tel:${String(page.phone).replace(/\s+/g, "")}`}
-              className="inline-flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
-            >
-              <Phone size={14} strokeWidth={1.75} className="shrink-0" />
-              <span>{t("rsvpCallUs", "Call us")}: {page.phone}</span>
-            </a>
-          )}
+
+          {/* One quiet trust line. */}
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {t("rsvpTrustLine", "No account needed · Free cancellation")}
+          </p>
         </header>
 
         <StepDots step={step} t={t} />
@@ -722,75 +906,103 @@ export default function ReservationPublicPage() {
               </p>
             </div>
 
-            {/* Group-request banner */}
-            {groupRequest && (
+            {/* Time — for a normal booking we show the period-grouped slot
+                grid. For a group request the grid is REPLACED by a calm
+                explainer panel (sets the mental model: no time to pick; the
+                place confirms). The sticky CTA flips to "Send forespørgsel"
+                in the same render. */}
+            {groupRequest ? (
               <div
-                className="rounded-xl bg-gray-50 dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 px-4 py-3 flex items-start gap-2"
+                className="rounded-xl bg-gray-50 dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 p-4 flex items-start gap-3"
                 role="status"
               >
-                <Info
-                  size={16}
+                <Users
+                  size={18}
                   strokeWidth={1.75}
                   className="text-gray-500 shrink-0 mt-0.5"
                   aria-hidden="true"
                 />
-                <p className="text-sm text-gray-700 dark:text-gray-300">
-                  {t(
-                    "rsvpGroupRequest",
-                    "Selskaber på {n} eller flere sendes som en forespørgsel — stedet bekræfter.",
-                    { n: party },
-                  )}
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {t("rsvpGroupPanelTitle", "Bigger group")}
+                  </p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    {t(
+                      "rsvpGroupPanelBody",
+                      "Parties of {n} go to the place as a request — no time to pick. They'll confirm a time and get back to you.",
+                      { n: party },
+                    )}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  {t("rsvpPickTime", "Vælg tidspunkt")}
                 </p>
+                {slotsLoading ? (
+                  <div className="grid grid-cols-4 gap-2">
+                    {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+                      <div
+                        key={i}
+                        className="animate-pulse h-11 rounded-lg bg-gray-100 dark:bg-gray-800"
+                      />
+                    ))}
+                  </div>
+                ) : slotsError ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {slotsError}
+                  </p>
+                ) : slotGroups.length === 0 ? (
+                  // Honest dead-end → offer a call when a number exists. The
+                  // CTA is a real <a href="tel:"> styled as a ghost button
+                  // (an anchor, not a <button>, so it dials on tap).
+                  <div className="space-y-3">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {t("rsvpNoSlotsDay", "Ingen ledige tider denne dag.")}
+                    </p>
+                    {telHref(page.phone) && (
+                      <a
+                        href={telHref(page.phone)}
+                        className="inline-flex items-center justify-center gap-2 h-11 px-5 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
+                      >
+                        <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
+                        <span>
+                          {t("rsvpNoSlotsCall", "Ring til os: {phone}", {
+                            phone: page.phone,
+                          })}
+                        </span>
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  // Period groups — render a label only when the group has
+                  // slots; slots align in a 4-col grid (44px tap height).
+                  <div className="space-y-4">
+                    {slotGroups.map((group) => (
+                      <div key={group.key}>
+                        <p className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1.5">
+                          {t(group.labelKey)}
+                        </p>
+                        <div className="grid grid-cols-4 gap-2">
+                          {group.slots.map((s) => (
+                            <Chip
+                              key={s}
+                              size="md"
+                              selected={slot === s}
+                              onClick={() => setSlot(s)}
+                              className="h-11 w-full"
+                            >
+                              {s}
+                            </Chip>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
-
-            {/* Slots */}
-            <div>
-              <p className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                {t("rsvpPickTime", "Vælg tidspunkt")}
-              </p>
-              {slotsLoading ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {[0, 1, 2, 3, 4, 5].map((i) => (
-                    <div
-                      key={i}
-                      className="animate-pulse h-9 w-16 rounded-lg bg-gray-100 dark:bg-gray-800"
-                    />
-                  ))}
-                </div>
-              ) : slotsError ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {slotsError}
-                </p>
-              ) : groupRequest ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {t(
-                    "rsvpGroupNoSlot",
-                    "Du behøver ikke vælge et tidspunkt — skriv gerne dit ønske i noterne i næste trin.",
-                  )}
-                </p>
-              ) : slots.length === 0 ? (
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {t(
-                    "rsvpNoSlots",
-                    "Ingen ledige tider — prøv en anden dato.",
-                  )}
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {slots.map((s) => (
-                    <Chip
-                      key={s}
-                      size="md"
-                      selected={slot === s}
-                      onClick={() => setSlot(s)}
-                    >
-                      {s}
-                    </Chip>
-                  ))}
-                </div>
-              )}
-            </div>
           </section>
         )}
 
@@ -813,11 +1025,14 @@ export default function ReservationPublicPage() {
               </span>
             </div>
 
-            <div className="space-y-3">
+            {/* Field discipline: NAME is the one first-class field (lg).
+                Email + phone are secondary; email carries a calm "why"
+                helper. Everything else hides behind ONE disclosure. */}
+            <div className="space-y-4">
               <div>
                 <label
                   htmlFor="rsvp-name"
-                  className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                  className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-1.5"
                 >
                   {t("rsvpName", "Navn")}
                 </label>
@@ -839,167 +1054,175 @@ export default function ReservationPublicPage() {
                   required
                 />
               </div>
-              <div>
-                <label
-                  htmlFor="rsvp-email"
-                  className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
-                >
-                  {t("rsvpEmail", "Email (valgfrit)")}
-                </label>
-                <Input
-                  id="rsvp-email"
-                  type="email"
-                  size="lg"
-                  value={guestEmail}
-                  onChange={(e) => setGuestEmail(e.target.value)}
-                  placeholder={t("rsvpEmailPh", "anna@eksempel.dk")}
-                  autoComplete="email"
-                  inputMode="email"
-                  maxLength={255}
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="rsvp-phone"
-                  className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
-                >
-                  {t("rsvpPhone", "Telefon (valgfrit)")}
-                </label>
-                <Input
-                  id="rsvp-phone"
-                  type="tel"
-                  size="lg"
-                  value={guestPhone}
-                  onChange={(e) => setGuestPhone(e.target.value)}
-                  placeholder={t("rsvpPhonePh", "+45 12 34 56 78")}
-                  autoComplete="tel"
-                  inputMode="tel"
-                  maxLength={40}
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="rsvp-occasion"
-                  className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
-                >
-                  {t("rsvpOccasion", "Anledning (valgfrit)")}
-                </label>
-                <Input
-                  id="rsvp-occasion"
-                  size="lg"
-                  value={occasion}
-                  onChange={(e) => setOccasion(e.target.value)}
-                  placeholder={t("rsvpOccasionPh", "Fødselsdag, jubilæum…")}
-                  maxLength={60}
-                />
-              </div>
-              <div>
-                <label
-                  htmlFor="rsvp-notes"
-                  className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
-                >
-                  {t("rsvpNotes", "Besked til stedet (valgfrit)")}
-                </label>
-                <textarea
-                  id="rsvp-notes"
-                  value={guestNotes}
-                  onChange={(e) => setGuestNotes(e.target.value)}
-                  placeholder={t(
-                    "rsvpNotesPh",
-                    "Ønsker du et bestemt bord, en barnestol, eller andet?",
-                  )}
-                  rows={3}
-                  maxLength={2000}
-                  className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 px-3 py-2 text-sm focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 dark:focus:border-gray-500 dark:focus:ring-gray-500"
-                />
+
+              {/* Email + phone — secondary. Email gets the "why" helper. */}
+              <div className="space-y-3">
+                <div>
+                  <label
+                    htmlFor="rsvp-email"
+                    className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                  >
+                    {t("rsvpEmail", "Email (valgfrit)")}
+                  </label>
+                  <Input
+                    id="rsvp-email"
+                    type="email"
+                    size="md"
+                    value={guestEmail}
+                    onChange={(e) => setGuestEmail(e.target.value)}
+                    placeholder={t("rsvpEmailPh", "anna@eksempel.dk")}
+                    hint={t("rsvpEmailWhy", "So we can send your confirmation.")}
+                    autoComplete="email"
+                    inputMode="email"
+                    maxLength={255}
+                  />
+                </div>
+                <div>
+                  <label
+                    htmlFor="rsvp-phone"
+                    className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                  >
+                    {t("rsvpPhone", "Telefon (valgfrit)")}
+                  </label>
+                  <Input
+                    id="rsvp-phone"
+                    type="tel"
+                    size="md"
+                    value={guestPhone}
+                    onChange={(e) => setGuestPhone(e.target.value)}
+                    placeholder={t("rsvpPhonePh", "+45 12 34 56 78")}
+                    autoComplete="tel"
+                    inputMode="tel"
+                    maxLength={40}
+                  />
+                </div>
               </div>
             </div>
 
-            {/* ── Optional allergy block (invite, not require) ───────── */}
-            {allergenSet.length > 0 && (
-              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 space-y-3">
-                {!allergyOpen ? (
-                  <button
-                    type="button"
-                    onClick={() => setAllergyOpen(true)}
-                    className="w-full text-left text-sm text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
-                  >
-                    <span className="font-medium">
-                      {t("rsvpAllergyOpen", "Noget vi skal vide?")}
-                    </span>{" "}
-                    <span className="text-gray-500 dark:text-gray-400">
-                      {t("rsvpAllergyOpenHint", "(allergier, kost) — valgfrit")}
-                    </span>
-                  </button>
-                ) : (
-                  <>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {t("rsvpAllergyTitle", "Allergier eller kost (valgfrit)")}
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        {t(
-                          "rsvpAllergyHint",
-                          "Helt valgfrit — det hjælper køkkenet med at tage hensyn.",
-                        )}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {allergenSet.map((a) => (
-                        <Chip
-                          key={a.key}
-                          size="sm"
-                          selected={allergenTags.includes(a.key)}
-                          onClick={() => toggleAllergen(a.key)}
-                        >
-                          {t(`allergen_${a.key}`, a.en)}
-                        </Chip>
-                      ))}
-                    </div>
-                    <div>
-                      <label
-                        htmlFor="rsvp-severity"
-                        className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
-                      >
-                        {t("rsvpSeverity", "Hvor alvorligt?")}
-                      </label>
-                      <select
-                        id="rsvp-severity"
-                        value={allergySeverity}
-                        onChange={(e) => setAllergySeverity(e.target.value)}
-                        className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 px-3 h-10 text-sm focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 dark:focus:border-gray-500 dark:focus:ring-gray-500"
-                      >
-                        {SEVERITY_KEYS.map((s) => (
-                          <option key={s} value={s}>
-                            {t(`rsvpSeverity_${s}`, severityFallback(s))}
-                          </option>
+            {/* ── ONE optional disclosure: occasion + notes + allergies ──
+                Default closed. A single quiet toggle keeps the form short;
+                the kitchen-relevant fields are an invite, never a barrier. */}
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+              {!detailsOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setDetailsOpen(true)}
+                  aria-expanded="false"
+                  className="w-full text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
+                >
+                  {t("rsvpAddNote", "Add a message or special request (optional)")}
+                </button>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <label
+                      htmlFor="rsvp-occasion"
+                      className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                    >
+                      {t("rsvpOccasion", "Anledning (valgfrit)")}
+                    </label>
+                    <Input
+                      id="rsvp-occasion"
+                      size="md"
+                      value={occasion}
+                      onChange={(e) => setOccasion(e.target.value)}
+                      placeholder={t("rsvpOccasionPh", "Fødselsdag, jubilæum…")}
+                      maxLength={60}
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="rsvp-notes"
+                      className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                    >
+                      {t("rsvpNotes", "Besked til stedet (valgfrit)")}
+                    </label>
+                    <textarea
+                      id="rsvp-notes"
+                      value={guestNotes}
+                      onChange={(e) => setGuestNotes(e.target.value)}
+                      placeholder={t(
+                        "rsvpNotesPh",
+                        "Ønsker du et bestemt bord, en barnestol, eller andet?",
+                      )}
+                      rows={3}
+                      maxLength={2000}
+                      className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 px-3 py-2 text-sm focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 dark:focus:border-gray-500 dark:focus:ring-gray-500"
+                    />
+                  </div>
+
+                  {/* Allergy sub-block (invite, not require) — only when the
+                      venue type defines an allergen set. */}
+                  {allergenSet.length > 0 && (
+                    <div className="space-y-3 pt-1 border-t border-gray-100 dark:border-gray-800">
+                      <div className="pt-3">
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                          {t("rsvpAllergyTitle", "Allergier eller kost (valgfrit)")}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          {t(
+                            "rsvpAllergyHint",
+                            "Helt valgfrit — det hjælper køkkenet med at tage hensyn.",
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {allergenSet.map((a) => (
+                          <Chip
+                            key={a.key}
+                            size="sm"
+                            selected={allergenTags.includes(a.key)}
+                            onClick={() => toggleAllergen(a.key)}
+                          >
+                            {t(`allergen_${a.key}`, a.en)}
+                          </Chip>
                         ))}
-                      </select>
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="rsvp-severity"
+                          className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                        >
+                          {t("rsvpSeverity", "Hvor alvorligt?")}
+                        </label>
+                        <select
+                          id="rsvp-severity"
+                          value={allergySeverity}
+                          onChange={(e) => setAllergySeverity(e.target.value)}
+                          className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 px-3 h-10 text-sm focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 dark:focus:border-gray-500 dark:focus:ring-gray-500"
+                        >
+                          {SEVERITY_KEYS.map((s) => (
+                            <option key={s} value={s}>
+                              {t(`rsvpSeverity_${s}`, severityFallback(s))}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label
+                          htmlFor="rsvp-allergy-note"
+                          className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                        >
+                          {t("rsvpAllergyNote", "Uddyb (valgfrit)")}
+                        </label>
+                        <textarea
+                          id="rsvp-allergy-note"
+                          value={allergyNote}
+                          onChange={(e) => setAllergyNote(e.target.value)}
+                          placeholder={t(
+                            "rsvpAllergyNotePh",
+                            "F.eks. svær nøddeallergi — ingen spor af nødder.",
+                          )}
+                          rows={2}
+                          maxLength={2000}
+                          className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 px-3 py-2 text-sm focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 dark:focus:border-gray-500 dark:focus:ring-gray-500"
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label
-                        htmlFor="rsvp-allergy-note"
-                        className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
-                      >
-                        {t("rsvpAllergyNote", "Uddyb (valgfrit)")}
-                      </label>
-                      <textarea
-                        id="rsvp-allergy-note"
-                        value={allergyNote}
-                        onChange={(e) => setAllergyNote(e.target.value)}
-                        placeholder={t(
-                          "rsvpAllergyNotePh",
-                          "F.eks. svær nøddeallergi — ingen spor af nødder.",
-                        )}
-                        rows={2}
-                        maxLength={2000}
-                        className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 px-3 py-2 text-sm focus:outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-400 dark:focus:border-gray-500 dark:focus:ring-gray-500"
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Marketing consent — default OFF (GDPR) */}
             <div className="space-y-1.5">
@@ -1020,6 +1243,14 @@ export default function ReservationPublicPage() {
                 )}
               </p>
             </div>
+
+            {/* GDPR — a calm data-use line right by the submit action. */}
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {t(
+                "rsvpPrivacyLine",
+                "We only use your details for this reservation.",
+              )}
+            </p>
 
             {/* Submit-error surfaces */}
             {submitError && (
@@ -1065,7 +1296,14 @@ export default function ReservationPublicPage() {
               disabled={!groupRequest && !slot}
               className="flex-1"
             >
-              {t("rsvpNext", "Næste →")}
+              {groupRequest
+                ? // Group request — set the "we'll send a request" mental
+                  // model on step 1 already.
+                  t("rsvpSendRequest", "Send forespørgsel →")
+                : slot
+                  ? // CTA echoes the picked time: "Fortsæt · 19:00 →".
+                    t("rsvpCtaWithTime", "Continue · {time} →", { time: slot })
+                  : t("rsvpNext", "Næste →")}
             </Button>
           ) : (
             <Button

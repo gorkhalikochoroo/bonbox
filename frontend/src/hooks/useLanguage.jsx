@@ -283,6 +283,29 @@ const translations = {
     rsvpErrGeneric: "Something went wrong. Please try again in a moment.",
     rsvpStepAria: "Reservation step",
     rsvpSlugPh: "cafe-mocca",
+    // ── Customer-facing widget polish (premium redesign). Public /r/<slug>
+    //    first-impression surface. Informal "du" in DA, 24h time, Mon-first. ──
+    rsvpBookATable: "Book a table",
+    rsvpTrustLine: "No account needed · Free cancellation",
+    // Slot period groups (client-side bucketing of the flat HH:MM list).
+    rsvpGroupLunch: "Lunch", rsvpGroupAfternoon: "Afternoon", rsvpGroupDinner: "Dinner",
+    // CTA echoes the picked time on step 1: "Continue · 19:00 →".
+    rsvpCtaWithTime: "Continue · {time} →",
+    // Group-request explainer panel (replaces the slot grid on step 1).
+    rsvpGroupPanelTitle: "Bigger group",
+    rsvpGroupPanelBody: "Parties of {n} go to the place as a request — no time to pick. They'll confirm a time and get back to you.",
+    // Step 2 field discipline.
+    rsvpEmailWhy: "So we can send your confirmation.",
+    rsvpAddNote: "Add a message or special request (optional)",
+    rsvpPrivacyLine: "We only use your details for this reservation.",
+    // Confirmation (inline success) reassurance.
+    rsvpRefLabel: "Reference",
+    rsvpEmailedTo: "We've sent a confirmation to {email}.",
+    rsvpNoEmailSaved: "Save this page — we don't have your email.",
+    rsvpAddressLabel: "Address", rsvpCallLabel: "Phone",
+    // No-availability dead-end → turn it into a call.
+    rsvpNoSlotsDay: "No available times on this day.",
+    rsvpNoSlotsCall: "Call us: {phone}",
     // Install-as-app hint (owner Settings tab — host-stand PC/tablet).
     rsvpInstallTitle: "Open the book as an app",
     rsvpInstallBody: "Install BonBox on your host PC / tablet so the reservation book opens as an app.",
@@ -5146,6 +5169,29 @@ const translations = {
     rsvpErrGeneric: "Noget gik galt. Prøv igen om et øjeblik.",
     rsvpStepAria: "Reservationstrin",
     rsvpSlugPh: "cafe-mocca",
+    // ── Kundevendt widget-polish (premium redesign). Offentlig /r/<slug>
+    //    førstehåndsindtryk. Uformelt "du", 24-timers tid, man-først. ──
+    rsvpBookATable: "Book et bord",
+    rsvpTrustLine: "Ingen konto nødvendig · Gratis afbestilling",
+    // Tidsgrupper (klient-side opdeling af den flade HH:MM-liste).
+    rsvpGroupLunch: "Frokost", rsvpGroupAfternoon: "Eftermiddag", rsvpGroupDinner: "Aften",
+    // CTA viser det valgte tidspunkt på trin 1: "Fortsæt · 19:00 →".
+    rsvpCtaWithTime: "Fortsæt · {time} →",
+    // Forespørgsels-panel for store selskaber (erstatter tidsgitteret på trin 1).
+    rsvpGroupPanelTitle: "Større selskab",
+    rsvpGroupPanelBody: "Selskaber på {n} sendes til stedet som en forespørgsel — du behøver ikke vælge tid. De bekræfter et tidspunkt og vender tilbage.",
+    // Trin 2 — feltdisciplin.
+    rsvpEmailWhy: "Så sender vi din bekræftelse.",
+    rsvpAddNote: "Tilføj en besked eller særlige ønsker (valgfrit)",
+    rsvpPrivacyLine: "Vi bruger kun dine oplysninger til denne reservation.",
+    // Bekræftelse (inline kvittering) — tryghed.
+    rsvpRefLabel: "Reference",
+    rsvpEmailedTo: "Vi har sendt en bekræftelse til {email}.",
+    rsvpNoEmailSaved: "Gem denne side — vi har ikke din email.",
+    rsvpAddressLabel: "Adresse", rsvpCallLabel: "Telefon",
+    // Ingen ledige tider → gør det til et opkald.
+    rsvpNoSlotsDay: "Ingen ledige tider denne dag.",
+    rsvpNoSlotsCall: "Ring til os: {phone}",
     // Installér-som-app hint (ejer Indstillinger — vært-PC/tablet).
     rsvpInstallTitle: "Åbn bogen som en app",
     rsvpInstallBody: "Installér BonBox på din vært-PC / tablet, så reservationsbogen åbner som en app.",
