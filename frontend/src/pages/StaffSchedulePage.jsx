@@ -1082,15 +1082,9 @@ export default function StaffSchedulePage() {
           onDismiss={() => setAutopilotToast("")}
         />
       )}
-      {/* Publish-success banner — honest counts from the server (auto-dismiss 8s) */}
-      {publishToast && (
-        <SectionBanner
-          severity="success"
-          title={publishToast}
-          icon="CheckCircle2"
-          onDismiss={() => setPublishToast("")}
-        />
-      )}
+      {/* (Publish success now lives in the PublishConfirmModal's success state —
+          a durable ✓ panel with the server's real counts, not a fleeting toast.
+          The old publishToast SectionBanner was removed with its state.) */}
 
       {/* Autopilot suggestion review panel \u2014 Pro killer feature (Task #50).
           Renders ONLY when a suggestion is loaded. Owner reviews per-day
@@ -1351,11 +1345,15 @@ export default function StaffSchedulePage() {
       {publishConfirm && (
         <PublishConfirmModal
           summary={publishConfirm}
+          result={publishResult}
           currency={currency}
           weekStart={weekStart}
           publishing={publishing}
           onConfirm={confirmPublish}
-          onClose={() => setPublishConfirm(null)}
+          onClose={() => {
+            setPublishConfirm(null);
+            setPublishResult(null);
+          }}
           t={t}
         />
       )}
