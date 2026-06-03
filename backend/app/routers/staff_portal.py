@@ -1311,7 +1311,7 @@ def portal_manifest(token: str, request: Request, db: Session = Depends(get_db))
         "scope": "/s/",
         "display": "standalone",
         "background_color": "#ffffff",
-        "theme_color": "#111827",
+        "theme_color": "#ffffff",
         "orientation": "portrait-primary",
         "lang": "da",
         "icons": [

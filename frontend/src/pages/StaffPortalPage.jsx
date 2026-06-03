@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X } from "lucide-react";
+import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 
@@ -109,19 +109,13 @@ function fmtClock(d) {
   }
 }
 
-const ROLE_COLORS = {
-  bartender: { bg: "bg-amber-500/15", text: "text-amber-400", icon: "🍺" },
-  server: { bg: "bg-blue-500/15", text: "text-blue-400", icon: "🍽" },
-  cook: { bg: "bg-red-500/15", text: "text-red-400", icon: "👨‍🍳" },
-  chef: { bg: "bg-red-500/15", text: "text-red-400", icon: "👨‍🍳" },
-  manager: { bg: "bg-purple-500/15", text: "text-purple-400", icon: "📋" },
-  cleaner: { bg: "bg-teal-500/15", text: "text-teal-400", icon: "🧹" },
-  host: { bg: "bg-pink-500/15", text: "text-pink-400", icon: "🎙" },
-  default: { bg: "bg-gray-500/15", text: "text-gray-400", icon: "👤" },
-};
+// Roles are identity, not status — they render as neutral gray text. Color is
+// reserved for status only (emerald=live, amber=warn, red=error) per the
+// locked design system; a per-role rainbow + emoji read as "vibecoded".
+const ROLE_STYLE = { bg: "bg-gray-100", text: "text-gray-600", icon: "" };
 
-function getRoleStyle(role) {
-  return ROLE_COLORS[(role || "").toLowerCase()] || ROLE_COLORS.default;
+function getRoleStyle() {
+  return ROLE_STYLE;
 }
 
 
@@ -607,7 +601,7 @@ function ShiftRow({ date: d, shift }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold text-gray-900">{shift.start_time} – {shift.end_time}</div>
-        <div className="text-[11px] text-gray-500">{role.icon} {shift.role_on_shift || "Staff"}</div>
+        <div className="text-[11px] text-gray-500">{shift.role_on_shift || "Staff"}</div>
       </div>
       <div>
         {today ? (
@@ -1203,11 +1197,11 @@ function PortalError({ message }) {
 // ─── Main Portal Page ─────────────────────────────────────────────────────
 
 const TABS = [
-  { key: "schedule", icon: "📅", label: "Schedule" },
-  { key: "swaps", icon: "🔄", label: "Swaps" },
-  { key: "hours", icon: "⏱", label: "Hours" },
-  { key: "tips", icon: "💵", label: "Tips" },
-  { key: "alerts", icon: "🔔", label: "Alerts" },
+  { key: "schedule", Icon: Calendar, labelKey: "navSchedule", labelFallback: "Schedule" },
+  { key: "swaps", Icon: ArrowLeftRight, labelKey: "navSwaps", labelFallback: "Swaps" },
+  { key: "hours", Icon: Clock, labelKey: "navHours", labelFallback: "Hours" },
+  { key: "tips", Icon: Banknote, labelKey: "navTips", labelFallback: "Tips" },
+  { key: "alerts", Icon: Bell, labelKey: "navAlerts", labelFallback: "Alerts" },
 ];
 
 /**
@@ -1925,11 +1919,15 @@ export default function StaffPortalPage() {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 pb-24">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-gray-200">
+      <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-gray-200 pt-[env(safe-area-inset-top)]">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-gray-900">
-              {tab === "schedule" ? "My schedule" : tab === "swaps" ? "Swaps" : tab === "hours" ? "My hours" : tab === "tips" ? "My tips" : "Alerts"}
+              {tab === "schedule" ? t("portalTitleSchedule", "My schedule")
+                : tab === "swaps" ? t("portalTitleSwaps", "Swaps")
+                : tab === "hours" ? t("portalTitleHours", "My hours")
+                : tab === "tips" ? t("portalTitleTips", "My tips")
+                : t("portalTitleAlerts", "Alerts")}
             </h1>
             {info?.restaurant_name && (
               <div className="text-[11px] text-gray-500">{info.restaurant_name}</div>
@@ -2026,16 +2024,17 @@ export default function StaffPortalPage() {
       {/* Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-gray-200 z-20">
         <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          {TABS.map((t) => (
+          {TABS.map((item) => (
             <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
+              key={item.key}
+              onClick={() => setTab(item.key)}
+              aria-current={tab === item.key ? "page" : undefined}
               className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${
-                tab === t.key ? "text-gray-900" : "text-gray-400"
+                tab === item.key ? "text-gray-900" : "text-gray-400"
               }`}
             >
-              <span className="text-lg">{t.icon}</span>
-              <span className="text-[10px] font-semibold">{t.label}</span>
+              <item.Icon className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
+              <span className="text-[10px] font-semibold">{t(item.labelKey, item.labelFallback)}</span>
             </button>
           ))}
         </div>
