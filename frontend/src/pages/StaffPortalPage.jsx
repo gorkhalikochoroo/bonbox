@@ -466,7 +466,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, onShiftsChanged }) {
 
   // KPIs
   const thisWeekShifts = shifts.filter((s) => s.date >= weekStart && s.date < nextWeekStart);
-  const thisWeekHours = thisWeekShifts.reduce((a, s) => a + s.net_hours, 0);
+  const thisWeekHours = Math.round(thisWeekShifts.reduce((a, s) => a + s.net_hours, 0) * 100) / 100;
 
   // Next shift
   const upcoming = shifts.filter((s) => s.date >= today).sort((a, b) => a.date.localeCompare(b.date));

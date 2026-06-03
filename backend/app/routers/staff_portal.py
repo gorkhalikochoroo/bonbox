@@ -464,14 +464,14 @@ def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)
         "staff_name": member.name,
         "period_start": period_start.isoformat(),
         "period_end": period_end.isoformat(),
-        "total_hours": round(total_hours, 1),
+        "total_hours": round(total_hours, 2),
         "total_earned": round(total_earned, 2),
         "max_hours_month": float(member.max_hours_month) if member.max_hours_month else None,
         # New, additive fields — let the UI distinguish rostered vs logged
         # without breaking the existing `total_hours` contract.
-        "scheduled_hours": round(scheduled_hours, 1),
-        "logged_hours": round(logged_hours, 1),
-        "this_week_hours": round(this_week_hours, 1),
+        "scheduled_hours": round(scheduled_hours, 2),
+        "logged_hours": round(logged_hours, 2),
+        "this_week_hours": round(this_week_hours, 2),
         # "schedule" => headline is the rostered plan; "logged" => actuals.
         "hours_source": "logged" if use_logged else "schedule",
         "entries": entries,

@@ -3014,7 +3014,7 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForSh
                       {formatShiftTime(shift.start_time, shift.end_time)}
                     </div>
                     <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      {Math.round(hrs * 10) / 10}h
+                      {Math.round(hrs * 100) / 100}h
                       {isDraft && <span className="ml-1 text-amber-500 dark:text-amber-400 font-medium">· {t("schedDraft")}</span>}
                     </div>
                     {/* Cost-per-shift — quietest line in the chip (matches grid). */}
@@ -3152,7 +3152,7 @@ function ScheduleGrid({
                             {formatShiftTime(shift.start_time, shift.end_time)}
                           </div>
                           <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                            {Math.round(hrs * 10) / 10}h
+                            {Math.round(hrs * 100) / 100}h
                             {shift.role_on_shift && shift.role_on_shift !== member.role && (
                               <span className="ml-1 opacity-70">({shift.role_on_shift.slice(0, 3)})</span>
                             )}
@@ -3201,7 +3201,7 @@ function ScheduleGrid({
                     <td key={i} className="px-1 py-3 text-center align-top leading-tight">
                       {/* Per-day total hours — quiet context above the labor%. */}
                       <div className="text-[11px] text-gray-700 dark:text-gray-300 tabular-nums">
-                        {Math.round(hrs * 10) / 10}h
+                        {Math.round(hrs * 100) / 100}h
                       </div>
                       {showCost && cost != null && (
                         <div className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums mt-px">
@@ -3757,7 +3757,7 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
           {t("shiftPreview", "Shift: {start} \u2013 {end} ({hours}h net)")
             .replace("{start}", startTime)
             .replace("{end}", endTime)
-            .replace("{hours}", Math.round(previewHours * 10) / 10)}
+            .replace("{hours}", Math.round(previewHours * 100) / 100)}
           {breakMinutes > 0 && " " + t("shiftPreviewBreak", "with {n}min break").replace("{n}", breakMinutes)}
         </div>
 
