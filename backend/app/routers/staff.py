@@ -952,9 +952,10 @@ def schedule_week_cost(
 
     Returns gross wage (hourly rate x worked hours) per shift, per staff, per
     day, and for the week — plus an "inkl. feriepenge" loaded estimate (+12.5%)
-    and labor% vs effective revenue (locked DailyClose wins). Uses the SAME
-    rate/hours helpers the autopilot uses, so the displayed cost and the
-    autopilot's labor target never disagree.
+    and labor% vs effective revenue (locked DailyClose wins). The hourly rate
+    is resolved PER SHIFT via _pick_rate, so a staff member's evening/weekend
+    premium (when set) lifts that shift's cost; staff with no premium are
+    billed at base — identical to before.
 
     OWNER-ONLY by construction: every query is scoped to user.id and the staff
     portal never calls this. Raw wage rates stay server-side — only computed
@@ -995,7 +996,7 @@ def schedule_week_cost(
         )
         .all()
     )
-    rate_by_staff = {s.id: _staff_hourly_rate(s) for s in staff_rows}
+    staff_by_id = {s.id: s for s in staff_rows}
     name_by_staff = {s.id: s.name for s in staff_rows}
 
     per_shift: dict[str, dict] = {}
@@ -1003,7 +1004,17 @@ def schedule_week_cost(
     day_acc: dict[str, dict] = {}
 
     for sh in shifts:
-        rate = rate_by_staff.get(sh.staff_id, DEFAULT_HOURLY_RATE)
+        st = staff_by_id.get(sh.staff_id)
+        # Per-shift rate: _pick_rate applies the member's evening/weekend
+        # premium WHEN configured, else returns base. Guard the no-rate case
+        # (base unset) with the autopilot's DEFAULT-backed floor, so a venue
+        # that never sets a premium sees identical numbers to before.
+        if st is not None:
+            rate = _pick_rate(st, sh.date, sh.start_time)
+            if rate <= 0:
+                rate = _staff_hourly_rate(st)
+        else:
+            rate = DEFAULT_HOURLY_RATE
         hours = _shift_hours(sh.start_time, sh.end_time, sh.break_minutes or 0)
         gross = hours * rate
         loaded = gross * (1.0 + FERIE_UPLIFT)

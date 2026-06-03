@@ -1960,6 +1960,65 @@ function StaffDetailModal({
             </div>
           </div>
 
+          {/* Premium rates — OPTIONAL. Empty = paid at base (what most small
+              DK venues do). A real kr/hr figure here flows into the schedule's
+              ≈ labor cost (evening after 18:00, weekend Sat/Sun). The suggested
+              values are a starting point, never auto-applied. Holiday is
+              deliberately omitted until a DK helligdag calendar lands. */}
+          <div className="rounded-xl border border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-4 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                {t("premiumRatesTitle", "Premium rates (optional)")}
+              </p>
+              {Number(editForm.base_rate) > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setEditForm({
+                      ...editForm,
+                      evening_rate: Math.round(Number(editForm.base_rate) * 1.25),
+                      weekend_rate: Math.round(Number(editForm.base_rate) * 1.45),
+                    })
+                  }
+                  className="text-[11px] font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2 hover:opacity-70"
+                >
+                  {t("premiumUseSuggested", "Use suggested")}
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls} htmlFor="sd-evening">{t("rateEvening", "Evening")} ({currency}/hr)</label>
+                <input
+                  id="sd-evening"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={editForm.evening_rate ?? ""}
+                  onChange={(e) => setEditForm({ ...editForm, evening_rate: e.target.value })}
+                  className={`${inputCls} tabular-nums`}
+                  placeholder={rates.suggestedEvening ? `${t("egAbbrev", "e.g.")} ${rates.suggestedEvening}` : t("optional", "Optional")}
+                />
+              </div>
+              <div>
+                <label className={labelCls} htmlFor="sd-weekend">{t("rateWeekend", "Weekend")} ({currency}/hr)</label>
+                <input
+                  id="sd-weekend"
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={editForm.weekend_rate ?? ""}
+                  onChange={(e) => setEditForm({ ...editForm, weekend_rate: e.target.value })}
+                  className={`${inputCls} tabular-nums`}
+                  placeholder={rates.suggestedWeekend ? `${t("egAbbrev", "e.g.")} ${rates.suggestedWeekend}` : t("optional", "Optional")}
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500">
+              {t("premiumRatesHint", "Leave blank to pay base rate. Evening applies after 18:00, weekend on Sat/Sun — and flows into the schedule's labor cost.")}
+            </p>
+          </div>
+
           {/* Trækkort — DK only, same values + conversion as the old inline
               form. UI shows %, handleUpdate divides by 100 on submit. */}
           {currency === "DKK" && (
@@ -1999,18 +2058,10 @@ function StaffDetailModal({
             </div>
           )}
 
-          {/* Read-only rate card — informational. */}
-          <div className="rounded-xl border border-gray-100 dark:border-gray-700 p-4">
-            <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">
-              {t("ratesSatser", "Satser / Rates")}
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-y-2 gap-x-3 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
-              <div><span className="text-gray-400 dark:text-gray-500">{t("rateBase", "Base")}</span><br />{rates.base}{currency}/hr</div>
-              <div><span className="text-gray-400 dark:text-gray-500">{t("rateEvening", "Evening")}</span><br />{rates.evening}{currency}/hr</div>
-              <div><span className="text-gray-400 dark:text-gray-500">{t("rateWeekend", "Weekend")}</span><br />{rates.weekend}{currency}/hr</div>
-              <div><span className="text-gray-400 dark:text-gray-500">{t("rateHoliday", "Holiday")}</span><br />{rates.holiday}{currency}/hr</div>
-            </div>
-          </div>
+          {/* (Read-only rate card removed — base + evening/weekend are now
+              editable inputs above, and Holiday is deferred until a DK
+              helligdag calendar lands, so we never show a rate we can't
+              honestly apply to the schedule's cost.) */}
         </div>
 
         {/* Footer — primary actions + secondary (share / deactivate).
@@ -2169,6 +2220,11 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
   const handleUpdate = async (id) => {
     setSaving(true);
     setPanelError("");
+    // Premium rates: "" (field cleared) -> null = remove the premium; a number
+    // -> set it; undefined (untouched) -> omitted from the JSON so the server
+    // keeps the stored value. (axios/JSON.stringify drops undefined keys.)
+    const rateOrNull = (v) =>
+      v === undefined ? undefined : v === "" || v === null ? null : parseFloat(v);
     try {
       await api.put(`/staff/members/${id}`, {
         name: editForm.name?.trim() || undefined,
@@ -2177,6 +2233,8 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
         role: editForm.role || undefined,
         contract_type: editForm.contract_type || undefined,
         base_rate: editForm.base_rate !== undefined ? parseFloat(editForm.base_rate) : undefined,
+        evening_rate: rateOrNull(editForm.evening_rate),
+        weekend_rate: rateOrNull(editForm.weekend_rate),
         // Trækkort fields — null/empty maps to NULL on server (treated as
         // hovedkort default by payroll service).
         tax_card_type: editForm.tax_card_type || null,
@@ -2219,6 +2277,8 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
     role: roleToShiftOption(member.role),
     contract_type: member.contract_type,
     base_rate: member.base_rate || "",
+    evening_rate: member.evening_rate ?? "",
+    weekend_rate: member.weekend_rate ?? "",
     tax_card_type: member.tax_card_type || "",
     // Backend stores decimal (0.36); UI shows percent (36)
     tax_card_rate: member.tax_card_rate
@@ -2241,11 +2301,20 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
 
   const getRateCard = (member) => {
     const base = member.base_rate || 0;
+    // Premiums are REAL stored values, not derived — null means "not set"
+    // (the shift is paid at base). We never fabricate a premium the owner
+    // didn't enter, and the schedule's ≈ cost reads these same fields.
+    const num = (v) =>
+      v === null || v === undefined || v === "" ? null : Number(v);
     return {
       base,
-      evening: Math.round(base * 1.25),
-      weekend: Math.round(base * 1.45),
-      holiday: Math.round(base * 2),
+      evening: num(member.evening_rate),
+      weekend: num(member.weekend_rate),
+      holiday: num(member.holiday_rate),
+      // Suggested DK starting points — shown only as the input placeholder +
+      // "Use suggested"; never applied until the owner saves a real rate.
+      suggestedEvening: base ? Math.round(base * 1.25) : null,
+      suggestedWeekend: base ? Math.round(base * 1.45) : null,
     };
   };
 
@@ -2378,9 +2447,15 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                       {/* Rate card */}
                       <div className="hidden sm:flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500 tabular-nums">
                         <span title={t("baseRate")}>{t("baseRate")}: {rates.base}{currency}/hr</span>
-                        <span title="Evening rate (x1.25)">Eve: {rates.evening}</span>
-                        <span title="Weekend rate (x1.45)">Wknd: {rates.weekend}</span>
-                        <span title="Holiday rate (x2)">Hol: {rates.holiday}</span>
+                        {rates.evening != null && (
+                          <span title={t("rateEvening", "Evening")}>{t("rateEveShort", "Eve")}: {rates.evening}</span>
+                        )}
+                        {rates.weekend != null && (
+                          <span title={t("rateWeekend", "Weekend")}>{t("rateWkndShort", "Wknd")}: {rates.weekend}</span>
+                        )}
+                        {rates.evening == null && rates.weekend == null && (
+                          <span className="text-gray-300 dark:text-gray-600">{t("noPremiumSet", "No premium")}</span>
+                        )}
                       </div>
                       {!isInactive && (
                         <div className="flex gap-1">

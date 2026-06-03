@@ -2210,6 +2210,13 @@ const translations = {
     roleOnShift: "Role on shift",
     loadingSchedule: "Loading schedule…",
     baseRate: "Base rate",
+    rateEveShort: "Eve",
+    rateWkndShort: "Wknd",
+    noPremiumSet: "No premium",
+    premiumRatesTitle: "Premium rates (optional)",
+    premiumUseSuggested: "Use suggested",
+    premiumRatesHint: "Leave blank to pay base rate. Evening applies after 18:00, weekend on Sat/Sun — and flows into the schedule's labor cost.",
+    egAbbrev: "e.g.",
     // Live labor-cost layer (week-cost endpoint). "feriepenge" stays Danish
     // in all UI languages per the DK terminology lock.
     schedCostShow: "Show cost",
@@ -7124,6 +7131,13 @@ const translations = {
     roleOnShift: "Rolle på vagten",
     loadingSchedule: "Indlæser tidsplan…",
     baseRate: "Grundsats",
+    rateEveShort: "Aften",
+    rateWkndShort: "Weekend",
+    noPremiumSet: "Intet tillæg",
+    premiumRatesTitle: "Tillæg (valgfrit)",
+    premiumUseSuggested: "Brug forslag",
+    premiumRatesHint: "Lad stå tomt for at betale grundsats. Aften gælder efter 18:00, weekend lør/søn — og indgår i vagtplanens lønomkostning.",
+    egAbbrev: "fx",
     // Live lønomkostnings-lag (week-cost endpoint). "feriepenge" forbliver
     // dansk i alle UI-sprog jf. DK-terminologilåsen.
     schedCostShow: "Vis lønkroner",
