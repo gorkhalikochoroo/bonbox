@@ -89,7 +89,13 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
     settings = rsvc.load_settings(profile)
     btype = getattr(owner, "business_type", None) or "restaurant"
     return {
-        "business_name": getattr(profile, "company_name", None) or "BonBox",
+        # Consumer-facing venue name: prefer the owner's editable trading name
+        # (Profile → business_name — what they manage and expect guests to see),
+        # then the CVR/legal company_name as a fallback. The legal name stays on
+        # invoices / revisor documents, not the public booking page.
+        "business_name": getattr(owner, "business_name", None)
+            or getattr(profile, "company_name", None)
+            or "BonBox",
         "business_type": btype,
         "city": getattr(profile, "city", None),
         "address": getattr(profile, "address", None),
