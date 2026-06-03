@@ -365,10 +365,19 @@ def send_shift_notifications(
 
     # Get restaurant name
     try:
+        from app.models.user import User
+        owner = db.query(User).filter(User.id == user_id).first()
         profile = db.query(BusinessProfile).filter(
             BusinessProfile.user_id == user_id
         ).first()
-        restaurant_name = profile.business_name if profile else "BonBox"
+        # Prefer the owner's editable trading name over the BusinessProfile
+        # fields (which may still hold the CVR legal name). Staff see this.
+        restaurant_name = (
+            (getattr(owner, "business_name", None) if owner else None)
+            or (profile.business_name if profile else None)
+            or (getattr(profile, "company_name", None) if profile else None)
+            or "BonBox"
+        )
     except Exception:  # noqa: BLE001
         # Even profile lookup shouldn't kill the batch — fall back to
         # a generic sender name and continue.
@@ -508,10 +517,17 @@ def send_single_shift_notification(
     if not member or not member.email:
         return
 
+    from app.models.user import User
+    owner = db.query(User).filter(User.id == user_id).first()
     profile = db.query(BusinessProfile).filter(
         BusinessProfile.user_id == user_id
     ).first()
-    restaurant_name = profile.business_name if profile else "BonBox"
+    restaurant_name = (
+        (getattr(owner, "business_name", None) if owner else None)
+        or (profile.business_name if profile else None)
+        or (getattr(profile, "company_name", None) if profile else None)
+        or "BonBox"
+    )
 
     link = db.query(StaffLink).filter(
         StaffLink.staff_id == staff_id,

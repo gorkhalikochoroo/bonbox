@@ -71,7 +71,11 @@ def send_reservation_reminders() -> int:
                 profile = profiles[r.user_id]
                 if owner is None:
                     continue
-                biz = getattr(profile, "company_name", None) or "BonBox"
+                biz = (
+                    getattr(owner, "business_name", None)
+                    or getattr(profile, "company_name", None)
+                    or "BonBox"
+                )
                 when = r.starts_at.strftime("%d/%m %H:%M")
                 settings = rsvc.load_settings(profile)
 
