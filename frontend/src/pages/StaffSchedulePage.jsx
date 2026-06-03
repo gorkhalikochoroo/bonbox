@@ -1516,12 +1516,25 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
             <span>
               {t("autopilotLabor", "Suggested labor")}:{" "}
               <strong className="text-gray-900 dark:text-white">
-                {Math.round(suggestion.week_total_cost).toLocaleString()} {currency}
+                ≈ {Math.round(suggestion.week_total_cost).toLocaleString()} {currency}
               </strong>{" "}
               <span className="text-gray-500">
                 · {suggestion.week_total_hours.toFixed(1)}h
               </span>
             </span>
+            {totalRevenue > 0 && (
+              <span>
+                {t("schedLaborPct", "Labor %")}:{" "}
+                <strong className={laborTone(suggestion.week_total_cost / totalRevenue, suggestion.basis?.target_labor_pct ?? null)}>
+                  {pctLabel(suggestion.week_total_cost / totalRevenue)}
+                </strong>
+                {(suggestion.basis?.target_labor_pct ?? null) != null && (
+                  <span className="text-gray-500">
+                    {" "}· {t("schedLaborTarget", "target")} {pctLabel(suggestion.basis.target_labor_pct)}
+                  </span>
+                )}
+              </span>
+            )}
             {compared.savings_label && (
               <span
                 className={
@@ -1649,7 +1662,7 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
                       )}
                     </span>
                     <span className="text-gray-600 dark:text-gray-400 shrink-0">
-                      {Math.round(s.cost)} {currency}
+                      ≈ {Math.round(s.cost)} {currency}
                     </span>
                   </li>
                 ))}
@@ -1661,7 +1674,7 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
             )}
             <div className="text-[11px] font-medium text-gray-700 dark:text-gray-300 border-t border-gray-100 dark:border-gray-700 pt-1.5">
               {t("autopilotTotal", "Total")}:{" "}
-              {Math.round(day.total_cost).toLocaleString()} {currency}
+              ≈ {Math.round(day.total_cost).toLocaleString()} {currency}
               <span className="text-gray-400 font-normal">
                 {" "}
                 · {day.total_hours.toFixed(1)}h
