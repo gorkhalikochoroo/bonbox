@@ -942,6 +942,166 @@ def list_schedules(
     return shifts
 
 
+@router.get("/schedules/week-cost")
+def schedule_week_cost(
+    week_start: date = Query(..., description="Monday of the target week (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Labor-cost rollup for the owner's weekly schedule grid (Planday-style).
+
+    Returns gross wage (hourly rate x worked hours) per shift, per staff, per
+    day, and for the week — plus an "inkl. feriepenge" loaded estimate (+12.5%)
+    and labor% vs effective revenue (locked DailyClose wins). Uses the SAME
+    rate/hours helpers the autopilot uses, so the displayed cost and the
+    autopilot's labor target never disagree.
+
+    OWNER-ONLY by construction: every query is scoped to user.id and the staff
+    portal never calls this. Raw wage rates stay server-side — only computed
+    costs cross the wire.
+
+    Multi-barrier: L1 auth (get_current_user) - L5 tenant scope (user.id on
+    every query) - L4 fail-soft (missing rate -> autopilot default; missing
+    revenue -> labor% null, never 500) - honest (loaded cost is flagged a
+    feriepenge estimate; ATP is excluded since it is monthly-tiered, not
+    per-shift, and would mislead).
+    """
+    from app.services.schedule_autopilot import (
+        _staff_hourly_rate,
+        _shift_hours,
+        DEFAULT_HOURLY_RATE,
+    )
+    from app.services.revenue_resolver import effective_revenue_by_date
+
+    FERIE_UPLIFT = 0.125  # feriepenge — the clean, dominant employer on-cost
+
+    week_end = week_start + timedelta(days=6)
+
+    shifts = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == user.id,
+            Schedule.date >= week_start,
+            Schedule.date <= week_end,
+        )
+        .all()
+    )
+
+    staff_rows = (
+        db.query(StaffMember)
+        .filter(
+            StaffMember.user_id == user.id,
+            StaffMember.is_deleted.isnot(True),
+        )
+        .all()
+    )
+    rate_by_staff = {s.id: _staff_hourly_rate(s) for s in staff_rows}
+    name_by_staff = {s.id: s.name for s in staff_rows}
+
+    per_shift: dict[str, dict] = {}
+    staff_acc: dict[str, dict] = {}
+    day_acc: dict[str, dict] = {}
+
+    for sh in shifts:
+        rate = rate_by_staff.get(sh.staff_id, DEFAULT_HOURLY_RATE)
+        hours = _shift_hours(sh.start_time, sh.end_time, sh.break_minutes or 0)
+        gross = hours * rate
+        loaded = gross * (1.0 + FERIE_UPLIFT)
+
+        per_shift[str(sh.id)] = {
+            "hours": round(hours, 2),
+            "cost_gross": round(gross, 2),
+            "cost_loaded": round(loaded, 2),
+        }
+
+        sa = staff_acc.setdefault(
+            str(sh.staff_id),
+            {
+                "staff_id": str(sh.staff_id),
+                "name": name_by_staff.get(sh.staff_id) or "—",
+                "hours": 0.0,
+                "cost_gross": 0.0,
+                "cost_loaded": 0.0,
+            },
+        )
+        sa["hours"] += hours
+        sa["cost_gross"] += gross
+        sa["cost_loaded"] += loaded
+
+        di = sh.date.isoformat()
+        da = day_acc.setdefault(
+            di, {"hours": 0.0, "cost_gross": 0.0, "cost_loaded": 0.0}
+        )
+        da["hours"] += hours
+        da["cost_gross"] += gross
+        da["cost_loaded"] += loaded
+
+    try:
+        rev_by_date = effective_revenue_by_date(db, user.id, week_start, week_end)
+    except Exception:
+        rev_by_date = {}
+
+    daily = []
+    week_hours = week_gross = week_loaded = week_rev = 0.0
+    for i in range(7):
+        d = week_start + timedelta(days=i)
+        di = d.isoformat()
+        da = day_acc.get(di, {"hours": 0.0, "cost_gross": 0.0, "cost_loaded": 0.0})
+        rev = float(rev_by_date.get(d, 0.0) or 0.0)
+        week_hours += da["hours"]
+        week_gross += da["cost_gross"]
+        week_loaded += da["cost_loaded"]
+        week_rev += rev
+        daily.append({
+            "date": di,
+            "hours": round(da["hours"], 2),
+            "cost_gross": round(da["cost_gross"], 2),
+            "cost_loaded": round(da["cost_loaded"], 2),
+            "revenue": round(rev, 2) if rev > 0 else None,
+            "labor_pct_gross": round(da["cost_gross"] / rev, 4) if rev > 0 else None,
+            "labor_pct_loaded": round(da["cost_loaded"] / rev, 4) if rev > 0 else None,
+        })
+
+    per_staff = sorted(
+        (
+            {
+                "staff_id": v["staff_id"],
+                "name": v["name"],
+                "hours": round(v["hours"], 2),
+                "cost_gross": round(v["cost_gross"], 2),
+                "cost_loaded": round(v["cost_loaded"], 2),
+            }
+            for v in staff_acc.values()
+        ),
+        key=lambda r: r["cost_gross"],
+        reverse=True,
+    )
+
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    target_pct = float(getattr(profile, "target_labor_pct", None) or 0.30)
+
+    return {
+        "week_start": week_start.isoformat(),
+        "ferie_uplift": FERIE_UPLIFT,
+        "target_labor_pct": round(target_pct, 4),
+        "per_shift": per_shift,
+        "per_staff": per_staff,
+        "daily": daily,
+        "week": {
+            "hours": round(week_hours, 2),
+            "cost_gross": round(week_gross, 2),
+            "cost_loaded": round(week_loaded, 2),
+            "revenue": round(week_rev, 2) if week_rev > 0 else None,
+            "labor_pct_gross": round(week_gross / week_rev, 4) if week_rev > 0 else None,
+            "labor_pct_loaded": round(week_loaded / week_rev, 4) if week_rev > 0 else None,
+        },
+    }
+
+
 @router.post("/schedules", response_model=ScheduleResponse)
 def create_schedule(
     data: ScheduleCreate,

@@ -165,6 +165,34 @@ function mostRecentShiftFor(shiftList, id) {
   return mine[0] || null;
 }
 
+/* ─── Live labor-cost helpers (shared by page + grid + mobile) ─── */
+
+/** Pick the cost field for a per-shift / daily / week record by basis.
+    Returns a number, or null when the record/field is absent. */
+function costByBasis(rec, basis) {
+  if (!rec) return null;
+  const v = basis === "loaded" ? rec.cost_loaded : rec.cost_gross;
+  return typeof v === "number" ? v : null;
+}
+
+/** Whole-percent string from a 0..1 ratio, e.g. 0.285 → "29%". */
+function pctLabel(ratio) {
+  if (ratio == null || Number.isNaN(ratio)) return "—";
+  return `${Math.round(ratio * 100)}%`;
+}
+
+/** Tailwind text-color classes for a labor% vs target, per the locked
+    status-color rule: ≤target emerald, ≤target×1.15 amber, else red.
+    target/ratio are 0..1. Returns gray when either is missing. */
+function laborTone(ratio, target) {
+  if (ratio == null || target == null || Number.isNaN(ratio) || Number.isNaN(target)) {
+    return "text-gray-400 dark:text-gray-500";
+  }
+  if (ratio <= target) return "text-emerald-600 dark:text-emerald-400";
+  if (ratio <= target * 1.15) return "text-amber-600 dark:text-amber-400";
+  return "text-red-600 dark:text-red-400";
+}
+
 /* ═══════════════════════════════════════════════════════════
    MAIN PAGE
    ═══════════════════════════════════════════════════════════ */
@@ -183,6 +211,39 @@ export default function StaffSchedulePage() {
   const [shifts, setShifts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  // Live labor-cost layer (server-computed, loaded/gross + labor% vs target).
+  // Null when the endpoint fails — the UI falls back to the client `stats`
+  // memo so the grid + summary still render. Never blocks shift rendering.
+  const [weekCost, setWeekCost] = useState(null);
+
+  // Owner display prefs (persisted so the choice sticks across sessions):
+  //   showCost  — show per-shift lønkroner in grid/mobile cells (default on)
+  //   costBasis — 'gross' (Løn) vs 'loaded' (Inkl. feriepenge) for all costs
+  const [showCost, setShowCost] = useState(() => {
+    try {
+      return localStorage.getItem("bonbox_sched_showcost") !== "false";
+    } catch {
+      return true;
+    }
+  });
+  const [costBasis, setCostBasis] = useState(() => {
+    try {
+      return localStorage.getItem("bonbox_sched_costbasis") === "loaded" ? "loaded" : "gross";
+    } catch {
+      return "gross";
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("bonbox_sched_showcost", showCost ? "true" : "false");
+    } catch { /* storage unavailable (private mode) — pref just won't persist */ }
+  }, [showCost]);
+  useEffect(() => {
+    try {
+      localStorage.setItem("bonbox_sched_costbasis", costBasis);
+    } catch { /* storage unavailable */ }
+  }, [costBasis]);
 
   // Staff management panel
   const [showManageStaff, setShowManageStaff] = useState(false);
@@ -221,13 +282,23 @@ export default function StaffSchedulePage() {
   }, [branchId]);
 
   const fetchShifts = useCallback(async () => {
+    const params = { week_start: toISO(weekStart) };
+    if (branchId) params.branch_id = branchId;
     try {
-      const params = { week_start: toISO(weekStart) };
-      if (branchId) params.branch_id = branchId;
       const res = await api.get("/staff/schedules", { params });
       setShifts(res.data || []);
     } catch {
       setShifts([]);
+    }
+    // Live labor cost — fetched alongside shifts so every refresh path
+    // (initial load, copy-week, publish, autopilot-apply, modal save) keeps
+    // the cost layer in sync. Fail-soft: on error null it out and let the
+    // client `stats` fallback cover the summary. Does NOT block the grid.
+    try {
+      const costRes = await api.get("/staff/schedules/week-cost", { params });
+      setWeekCost(costRes.data || null);
+    } catch {
+      setWeekCost(null);
     }
   }, [weekStart, branchId]);
 
@@ -655,6 +726,36 @@ export default function StaffSchedulePage() {
     };
   }, [shifts, staff, activeStaff]);
 
+  /* ─── Live labor-cost derivations ─── */
+  // Per-shift cost lookup for grid + mobile cells. Returns null (render
+  // nothing) when the cost layer is off, missing, or the shift isn't priced.
+  const costForShift = useCallback(
+    (shiftId) => {
+      if (!showCost || !weekCost?.per_shift) return null;
+      return costByBasis(weekCost.per_shift[shiftId], costBasis);
+    },
+    [showCost, weekCost, costBasis]
+  );
+
+  // Headline week summary — prefers the server's cost layer; falls back to the
+  // client `stats` for hours/cost when the endpoint is unavailable. Labor% is
+  // ONLY shown from the server (it needs revenue we don't compute client-side).
+  const targetPct = typeof weekCost?.target_labor_pct === "number" ? weekCost.target_labor_pct : null;
+  const weekSummary = useMemo(() => {
+    const w = weekCost?.week || null;
+    const hours = typeof w?.hours === "number" ? w.hours : stats.totalHours;
+    const cost = w ? costByBasis(w, costBasis) : stats.totalCost;
+    const laborPct = w
+      ? (costBasis === "loaded" ? w.labor_pct_loaded : w.labor_pct_gross)
+      : null;
+    return {
+      hours: Math.round((hours || 0) * 10) / 10,
+      cost: Math.round(cost ?? 0),
+      laborPct: typeof laborPct === "number" ? laborPct : null,
+      hasRevenue: w ? w.revenue != null : false,
+    };
+  }, [weekCost, costBasis, stats.totalHours, stats.totalCost]);
+
   // ─── Unified Share sheet helpers (this component owns the toolbar + state) ──
   const shareActiveStaff = () => activeStaff;
 
@@ -1056,6 +1157,13 @@ export default function StaffSchedulePage() {
                 staff={activeStaff}
                 weekDates={weekDates}
                 getShiftForCell={getShiftForCell}
+                costForShift={costForShift}
+                showCost={showCost}
+                currency={currency}
+                dailyCost={weekCost?.daily || null}
+                costBasis={costBasis}
+                targetPct={targetPct}
+                t={t}
                 onCellClick={(staffId, date, existingShift) =>
                   setShiftModal({ staffId, date: toISO(date), shift: existingShift || null })
                 }
@@ -1071,6 +1179,12 @@ export default function StaffSchedulePage() {
                 weekDates={weekDates}
                 getShiftForCell={getShiftForCell}
                 currency={currency}
+                costForShift={costForShift}
+                showCost={showCost}
+                weekCost={weekCost}
+                costBasis={costBasis}
+                targetPct={targetPct}
+                t={t}
                 onCellClick={(staffId, date, existingShift) =>
                   setShiftModal({ staffId, date: toISO(date), shift: existingShift || null })
                 }
@@ -1080,22 +1194,110 @@ export default function StaffSchedulePage() {
         )}
       </FadeIn>
 
-      {/* Bottom stats — hidden on mobile; MobileSchedule embeds per-day
-          stats inline above the staff list, so this would be redundant. */}
+      {/* Week summary bar — the live labor-cost headline. Hidden on mobile;
+          MobileSchedule embeds the per-day cost + labor% strip inline, so a
+          second summary here would be redundant. Hours/cost fall back to the
+          client `stats` when the cost endpoint is unavailable; labor% only
+          shows when the server returned revenue (never fabricated). */}
       <FadeIn delay={0.2}>
-        <div className="hidden md:block bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-          <div className="flex flex-wrap items-center justify-center gap-6 text-sm">
-            <span className="text-gray-600 dark:text-gray-300">
-              Total scheduled: <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{stats.totalHours} hrs</strong>
-            </span>
-            <span className="text-gray-300 dark:text-gray-600">|</span>
-            <span className="text-gray-600 dark:text-gray-300">
-              Estimated cost: <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{stats.totalCost.toLocaleString()} {currency}</strong>
-            </span>
-            <span className="text-gray-300 dark:text-gray-600">|</span>
-            <span className="text-gray-600 dark:text-gray-300">
-              Staff: <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{stats.activeCount} active</strong>
-            </span>
+        <div className="hidden md:block bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 px-5 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-5">
+            {/* Left: quiet KPI strip — scheduled hours · labor cost · staff.
+                Stacked micro-label/value pairs so they read as calm context
+                under the labor% hero, not a run-on sentence. */}
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-4">
+              <div className="flex items-center gap-2.5">
+                <Icon name="Clock" size={16} className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                <div className="leading-tight">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                    {t("schedTotalHours")}
+                  </div>
+                  <div className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                    {weekSummary.hours}h
+                  </div>
+                </div>
+              </div>
+
+              <span className="hidden sm:block w-px h-9 bg-gray-200 dark:bg-gray-700" aria-hidden="true" />
+
+              <div className="flex items-center gap-2.5">
+                <Icon name="Banknote" size={16} className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                <div className="leading-tight">
+                  <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                    <span>{t("schedTotalCost")}</span>
+                    {costBasis === "loaded" && (
+                      <span className="normal-case tracking-normal font-normal text-gray-400 dark:text-gray-500">
+                        · {t("schedCostLoadedNote")}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                    {weekSummary.cost.toLocaleString()} {currency}
+                  </div>
+                </div>
+              </div>
+
+              <span className="hidden sm:block w-px h-9 bg-gray-200 dark:bg-gray-700" aria-hidden="true" />
+
+              <div className="flex items-center gap-2.5">
+                <Icon name="Users" size={16} className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                <div className="leading-tight">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                    {t("schedStaffActive")}
+                  </div>
+                  <div className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                    {stats.activeCount}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: labor% hero + cost controls */}
+            <div className="flex items-center gap-5">
+              {/* Labor % — the hero number, color-coded vs target. Set off by a
+                  divider and sized well above the context metrics so it reads
+                  first. */}
+              <div className="text-right border-l border-gray-200 dark:border-gray-700 pl-5">
+                <div className="flex items-center justify-end gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                  <Icon name="TrendingUp" size={13} />
+                  <span>{t("schedLaborPct")}</span>
+                </div>
+                {weekSummary.hasRevenue && weekSummary.laborPct != null ? (
+                  <>
+                    <div
+                      className={`text-4xl font-bold leading-none tracking-tight tabular-nums mt-1 ${laborTone(
+                        weekSummary.laborPct,
+                        targetPct
+                      )}`}
+                    >
+                      {pctLabel(weekSummary.laborPct)}
+                    </div>
+                    {targetPct != null && (
+                      <div className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums mt-1">
+                        {t("schedLaborTarget")} {pctLabel(targetPct)}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="text-4xl font-bold leading-none tracking-tight tabular-nums text-gray-300 dark:text-gray-600 mt-1">
+                      —
+                    </div>
+                    <div className="text-[11px] text-gray-400 dark:text-gray-500 max-w-[13rem] leading-snug mt-1">
+                      {t("schedLaborNoRev")}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <CostControls
+                showCost={showCost}
+                onToggleShowCost={() => setShowCost((v) => !v)}
+                costBasis={costBasis}
+                onCostBasis={setCostBasis}
+                t={t}
+              />
+            </div>
           </div>
         </div>
       </FadeIn>
@@ -2103,7 +2305,73 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
    stays identical — owners can switch from phone to laptop mid-week
    without rebuilding mental model.
 */
-function MobileSchedule({ staff, weekDates, getShiftForCell, currency, onCellClick }) {
+/* ═══════════════════════════════════════════════════════════
+   COST CONTROLS  (owner toggles in the week summary bar)
+   Two calm, status-color-free controls:
+     • "Show cost" switch — per-shift lønkroner in grid/mobile cells.
+     • Løn / Inkl. feriepenge segmented control — gross vs holiday-loaded.
+   Both persist to localStorage at the page level; this is pure UI.
+   ═══════════════════════════════════════════════════════════ */
+function CostControls({ showCost, onToggleShowCost, costBasis, onCostBasis, t }) {
+  return (
+    <div className="flex items-center gap-3">
+      {/* Show-cost switch — h-9 hit area keeps it touch-friendly and on the
+          same baseline as the segmented control beside it. */}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={showCost}
+        onClick={onToggleShowCost}
+        className="flex items-center gap-2 h-9 px-1 text-xs font-medium text-gray-600 dark:text-gray-300 rounded-lg hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
+      >
+        <span
+          className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
+            showCost ? "bg-gray-900 dark:bg-white" : "bg-gray-200 dark:bg-gray-600"
+          }`}
+        >
+          <span
+            className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white dark:bg-gray-900 shadow-sm transition-transform ${
+              showCost ? "translate-x-[1.125rem]" : "translate-x-1"
+            }`}
+          />
+        </span>
+        <span>{t("schedCostShow")}</span>
+      </button>
+
+      {/* Gross / loaded segmented control — matched h-9 height, clean inset
+          active state (gray-900 text on white), muted inactive. */}
+      <div
+        className="inline-flex h-9 items-center rounded-lg border border-gray-200 dark:border-gray-600 p-1 bg-gray-100 dark:bg-gray-700/50"
+        role="group"
+        aria-label={t("schedTotalCost")}
+      >
+        {[
+          { v: "gross", label: t("schedCostGross") },
+          { v: "loaded", label: t("schedCostLoaded") },
+        ].map((opt) => {
+          const active = costBasis === opt.v;
+          return (
+            <button
+              key={opt.v}
+              type="button"
+              onClick={() => onCostBasis(opt.v)}
+              aria-pressed={active}
+              className={`h-full px-3 text-xs font-medium rounded-md transition-colors ${
+                active
+                  ? "bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForShift, showCost, weekCost, costBasis, targetPct, t, onCellClick }) {
   // Default to today within the current week range. If the user navigated
   // to a different week (Previous/Next), today falls outside — pick the
   // middle of the week (Thursday) as a sensible default.
@@ -2124,7 +2392,14 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, onCellCli
   const selectedISO = toISO(selectedDate);
   const isSelectedToday = selectedISO === todayISO;
 
-  // Per-day stats — hours, cost, staff-on-shift count.
+  // Per-day stats — hours, cost, staff-on-shift count. Prefers the server's
+  // daily cost (loaded/gross + labor%); falls back to a client estimate from
+  // base_rate when the cost layer is unavailable. Labor% only shows when the
+  // server returned revenue for that day (never fabricated).
+  const serverDay = useMemo(
+    () => (weekCost?.daily || []).find((d) => d.date === selectedISO) || null,
+    [weekCost, selectedISO]
+  );
   const dayStats = useMemo(() => {
     let totalHours = 0;
     let totalCost = 0;
@@ -2138,12 +2413,18 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, onCellCli
       totalCost += hrs * rate;
       staffOn += 1;
     });
+    const cost = serverDay ? costByBasis(serverDay, costBasis) : null;
+    const laborPct = serverDay
+      ? (costBasis === "loaded" ? serverDay.labor_pct_loaded : serverDay.labor_pct_gross)
+      : null;
     return {
-      hours: Math.round(totalHours * 10) / 10,
-      cost: Math.round(totalCost),
+      hours: Math.round((serverDay && typeof serverDay.hours === "number" ? serverDay.hours : totalHours) * 10) / 10,
+      cost: Math.round(cost ?? totalCost),
       staffOn,
+      laborPct: typeof laborPct === "number" ? laborPct : null,
+      hasRevenue: serverDay ? serverDay.revenue != null : false,
     };
-  }, [staff, selectedDate, getShiftForCell]);
+  }, [staff, selectedDate, getShiftForCell, serverDay, costBasis]);
 
   const goPrev = () => setDayIdx((i) => Math.max(0, i - 1));
   const goNext = () => setDayIdx((i) => Math.min(6, i + 1));
@@ -2168,7 +2449,7 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, onCellCli
             </div>
             {isSelectedToday && (
               <div className="text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-semibold">
-                Today
+                {t("schedToday")}
               </div>
             )}
           </div>
@@ -2210,21 +2491,38 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, onCellCli
         </div>
       </div>
 
-      {/* ── Per-day stats strip ── */}
+      {/* ── Per-day stats strip — staff · hours · (cost) · labor%. The labor%
+          is pushed right and weighted as the day's headline; staff/hours/cost
+          are quiet context. whitespace-nowrap + min-w-0 keep it on one line at
+          320px even with a long cost figure. ── */}
       <div className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-700 bg-gray-50/40 dark:bg-gray-900/30">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-gray-600 dark:text-gray-300">
-            <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{dayStats.staffOn}</strong> on shift
+        <div className="flex items-center gap-2.5 text-xs whitespace-nowrap">
+          {/* "N on shift" — least-important, truncates first if space is tight. */}
+          <span className="text-gray-500 dark:text-gray-400 min-w-0 truncate">
+            <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{dayStats.staffOn}</strong> {t("schedOnShift")}
           </span>
-          <span className="text-gray-400 dark:text-gray-600">·</span>
-          <span className="text-gray-600 dark:text-gray-300">
-            <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{dayStats.hours}h</strong>
-          </span>
-          <span className="text-gray-400 dark:text-gray-600">·</span>
-          <span className="text-gray-600 dark:text-gray-300">
-            <strong className="text-gray-900 dark:text-gray-100 tabular-nums">
-              {dayStats.cost.toLocaleString()} {currency}
-            </strong>
+          <span className="text-gray-300 dark:text-gray-600 flex-shrink-0" aria-hidden="true">·</span>
+          <span className="text-gray-900 dark:text-gray-100 font-medium tabular-nums flex-shrink-0">{dayStats.hours}h</span>
+          {showCost && (
+            <>
+              <span className="text-gray-300 dark:text-gray-600 flex-shrink-0" aria-hidden="true">·</span>
+              <span className="text-gray-900 dark:text-gray-100 font-medium tabular-nums flex-shrink-0">
+                {dayStats.cost.toLocaleString()} {currency}
+              </span>
+            </>
+          )}
+          {/* Labor% — the day headline, pushed to the right edge; never shrinks. */}
+          <span className="ml-auto flex items-center gap-1 pl-1 flex-shrink-0">
+            <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+              {t("schedLaborPct")}
+            </span>
+            {dayStats.hasRevenue && dayStats.laborPct != null ? (
+              <span className={`text-sm font-bold tabular-nums ${laborTone(dayStats.laborPct, targetPct)}`}>
+                {pctLabel(dayStats.laborPct)}
+              </span>
+            ) : (
+              <span className="text-sm font-bold text-gray-300 dark:text-gray-600 tabular-nums">—</span>
+            )}
           </span>
         </div>
       </div>
@@ -2244,6 +2542,7 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, onCellCli
             const shiftColors = ROLE_COLORS[shiftCat];
             const hrs = shift ? calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0) : 0;
             const isDraft = shift?.status === "draft";
+            const shiftCost = shift ? costForShift?.(shift.id) : null;
 
             return (
               <button
@@ -2270,7 +2569,7 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, onCellCli
                 {/* Shift chip OR "OFF / Add" */}
                 {shift ? (
                   <div
-                    className={`px-2.5 py-1.5 rounded-lg border tabular-nums text-right ${shiftColors.bg} ${shiftColors.border} ${
+                    className={`px-2.5 py-1.5 rounded-lg border tabular-nums text-right leading-tight ${shiftColors.bg} ${shiftColors.border} ${
                       isDraft ? "border-dashed" : ""
                     }`}
                   >
@@ -2279,8 +2578,14 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, onCellCli
                     </div>
                     <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
                       {hrs}h
-                      {isDraft && <span className="ml-1 text-amber-500 dark:text-amber-400 font-medium">· Draft</span>}
+                      {isDraft && <span className="ml-1 text-amber-500 dark:text-amber-400 font-medium">· {t("schedDraft")}</span>}
                     </div>
+                    {/* Cost-per-shift — quietest line in the chip (matches grid). */}
+                    {showCost && shiftCost != null && (
+                      <div className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums mt-px">
+                        {Math.round(shiftCost).toLocaleString()} {currency}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="text-[11px] text-gray-400 dark:text-gray-500 flex items-center gap-1">
@@ -2300,7 +2605,26 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, onCellCli
 }
 
 
-function ScheduleGrid({ staff, weekDates, getShiftForCell, onCellClick }) {
+function ScheduleGrid({
+  staff,
+  weekDates,
+  getShiftForCell,
+  onCellClick,
+  costForShift,
+  showCost,
+  currency,
+  dailyCost,
+  costBasis,
+  targetPct,
+  t,
+}) {
+  // Map server `daily` entries by date for O(1) footer lookups.
+  const dailyByDate = useMemo(() => {
+    const m = {};
+    for (const d of dailyCost || []) m[d.date] = d;
+    return m;
+  }, [dailyCost]);
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       <div className="overflow-x-auto">
@@ -2308,7 +2632,7 @@ function ScheduleGrid({ staff, weekDates, getShiftForCell, onCellClick }) {
           <thead>
             <tr className="border-b border-gray-100 dark:border-gray-700">
               <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider w-40">
-                Staff
+                {t("schedStaffCol")}
               </th>
               {weekDates.map((date, i) => {
                 const isToday = toISO(date) === toISO(new Date());
@@ -2362,7 +2686,7 @@ function ScheduleGrid({ staff, weekDates, getShiftForCell, onCellClick }) {
                           onClick={() => onCellClick(member.id, date, null)}
                         >
                           <div className="h-10 flex items-center justify-center">
-                            <span className="text-gray-300 dark:text-gray-600 text-xs">OFF</span>
+                            <span className="text-gray-300 dark:text-gray-600 text-xs">{t("schedOff")}</span>
                           </div>
                         </td>
                       );
@@ -2372,6 +2696,7 @@ function ScheduleGrid({ staff, weekDates, getShiftForCell, onCellClick }) {
                     const shiftColors = ROLE_COLORS[shiftCat];
                     const hrs = calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0);
                     const isDraft = shift.status === "draft";
+                    const shiftCost = costForShift?.(shift.id);
 
                     return (
                       <td
@@ -2382,7 +2707,7 @@ function ScheduleGrid({ staff, weekDates, getShiftForCell, onCellClick }) {
                         onClick={() => onCellClick(member.id, date, shift)}
                       >
                         <div
-                          className={`rounded-lg px-2 py-1.5 border ${shiftColors.bg} ${shiftColors.border} ${
+                          className={`rounded-lg px-2 py-1.5 border leading-tight ${shiftColors.bg} ${shiftColors.border} ${
                             isDraft ? "border-dashed" : ""
                           }`}
                         >
@@ -2395,9 +2720,17 @@ function ScheduleGrid({ staff, weekDates, getShiftForCell, onCellClick }) {
                               <span className="ml-1 opacity-70">({shift.role_on_shift.slice(0, 3)})</span>
                             )}
                           </div>
+                          {/* Cost-per-shift is the quietest line in the cell —
+                              kept smaller + lighter than the hours above so the
+                              grid stays calm at 16 staff × 7 days. */}
+                          {showCost && shiftCost != null && (
+                            <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-px tabular-nums">
+                              {Math.round(shiftCost).toLocaleString()} {currency}
+                            </div>
+                          )}
                           {isDraft && (
-                            <div className="text-[9px] text-amber-500 dark:text-amber-400 mt-0.5 font-medium">
-                              Draft
+                            <div className="text-[9px] text-amber-500 dark:text-amber-400 mt-0.5 font-medium uppercase tracking-wide">
+                              {t("schedDraft")}
                             </div>
                           )}
                         </div>
@@ -2408,6 +2741,52 @@ function ScheduleGrid({ staff, weekDates, getShiftForCell, onCellClick }) {
               );
             })}
           </tbody>
+          {/* Per-day footer — hours + (cost) + labor% per column, aligned to
+              the day cells above. Only rendered when the server returned the
+              daily cost layer; labor% color-codes vs target and shows "—" with
+              no revenue. Compact + tabular-nums to stay calm under 16 rows. */}
+          {dailyCost && dailyCost.length > 0 && (
+            <tfoot>
+              <tr className="border-t border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/40">
+                <td className="px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 align-top">
+                  {t("schedDayTotals")}
+                </td>
+                {weekDates.map((date, i) => {
+                  const iso = toISO(date);
+                  const d = dailyByDate[iso];
+                  const hrs = d && typeof d.hours === "number" ? d.hours : 0;
+                  const cost = d ? costByBasis(d, costBasis) : null;
+                  const laborPct = d
+                    ? (costBasis === "loaded" ? d.labor_pct_loaded : d.labor_pct_gross)
+                    : null;
+                  const hasRev = d ? d.revenue != null : false;
+                  return (
+                    <td key={i} className="px-1 py-3 text-center align-top leading-tight">
+                      {/* Per-day total hours — quiet context above the labor%. */}
+                      <div className="text-[11px] text-gray-700 dark:text-gray-300 tabular-nums">
+                        {Math.round(hrs * 10) / 10}h
+                      </div>
+                      {showCost && cost != null && (
+                        <div className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums mt-px">
+                          {Math.round(cost).toLocaleString()} {currency}
+                        </div>
+                      )}
+                      {/* Labor% — the column headline, color-coded vs target. */}
+                      <div className="mt-1">
+                        {hasRev && typeof laborPct === "number" ? (
+                          <span className={`text-sm font-bold tabular-nums ${laborTone(laborPct, targetPct)}`}>
+                            {pctLabel(laborPct)}
+                          </span>
+                        ) : (
+                          <span className="text-sm font-bold text-gray-300 dark:text-gray-600 tabular-nums">—</span>
+                        )}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
