@@ -302,17 +302,17 @@ function PublicOrDashboard() {
   const { user, loading } = useAuth();
   if (loading) return <PageLoader />;
   if (user) return <Navigate to="/dashboard" />;
-  // Installed-PWA staff: if the app was launched from the home-screen icon
-  // (standalone) and we saved their portal link, open straight to their
-  // schedule instead of the owner login. Their magic link IS their app.
-  // Owners (authed above) and normal web visitors are unaffected.
+  // Staff fallback: if THIS device has a saved staff-portal token and the
+  // visitor is NOT an authenticated owner (handled above), a landing on "/"
+  // should go to THEIR schedule — not the marketing/owner app. This covers a
+  // stale-bundle bounce, an old global-manifest PWA opening at its start_url,
+  // or staff just typing the bare domain. Their portal token IS their
+  // credential. (Previously gated on display-mode: standalone, which missed
+  // staff who tap the link in a normal browser tab — the common case.)
+  // Prospects who never opened a portal have no token and see the landing page.
   try {
     const portalToken = localStorage.getItem("bonbox_portal_token");
-    const standalone =
-      (typeof window !== "undefined" &&
-        (window.matchMedia?.("(display-mode: standalone)").matches ||
-          window.navigator?.standalone === true));
-    if (portalToken && standalone) {
+    if (portalToken) {
       return <Navigate to={`/s/${portalToken}`} replace />;
     }
   } catch { /* private mode / SSR — fall through to normal flow */ }

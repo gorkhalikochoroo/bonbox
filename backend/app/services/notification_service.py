@@ -416,7 +416,7 @@ def send_shift_notifications(
                 StaffLink.user_id == user_id,
                 StaffLink.active.is_(True),
             ).first()
-            portal_url = f"https://bonbox.dk{portal_path(link.token, restaurant_name)}" if link else None
+            portal_url = f"https://www.bonbox.dk{portal_path(link.token, restaurant_name)}" if link else None
 
             subject = f"Schedule updated - {week_label}"
 
@@ -535,7 +535,7 @@ def send_single_shift_notification(
         StaffLink.user_id == user_id,
         StaffLink.active.is_(True),
     ).first()
-    portal_url = f"https://bonbox.dk{portal_path(link.token, restaurant_name)}" if link else None
+    portal_url = f"https://www.bonbox.dk{portal_path(link.token, restaurant_name)}" if link else None
 
     week_label = _format_date_nice(change.date)
     subject = f"Shift {'cancelled' if change.change_type == 'removed' else 'updated'} - {week_label}"

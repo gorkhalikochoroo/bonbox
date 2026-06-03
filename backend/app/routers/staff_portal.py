@@ -1276,7 +1276,7 @@ async def portal_stream(token: str, request: Request):
 
 @router.get("/{token}/manifest.webmanifest")
 @limiter.limit("60/minute")
-def portal_manifest(token: str, request: Request, db: Session = Depends(get_db)):
+def portal_manifest(token: str, request: Request, lang: str = "da", db: Session = Depends(get_db)):
     """Per-staff PWA manifest so an installed icon opens straight to THIS
     staff's schedule and is named after the restaurant — not the generic owner
     app (whose manifest has start_url "/" + owner shortcuts).
@@ -1301,11 +1301,28 @@ def portal_manifest(token: str, request: Request, db: Session = Depends(get_db))
         or (profile.company_name if profile else None)
         or "BonBox"
     )
+    # Schedule-branded, language-aware identity so the installed app is clearly a
+    # SEPARATE "Vagtplan/Schedule" app (own icon + name) — not the generic owner
+    # app. DK-first default. The schedule word IS translatable (unlike locked
+    # terms kasserapport/MOMS/faktura), so EN staff get "Schedule".
+    _L = {
+        "da": {"sched": "Vagtplan", "hours": "Timer", "tips": "Drikkepenge",
+               "tips_short": "Tips", "desc": "Din vagtplan, timer og drikkepenge"},
+        "en": {"sched": "Schedule", "hours": "Hours", "tips": "Tips",
+               "tips_short": "Tips", "desc": "Your shifts, hours and tips"},
+    }
+    code = (lang or "da")[:2].lower()
+    L = _L.get(code, _L["da"])
+    sched = L["sched"]
     start = portal_path(token, name)  # /s/<slug>/<token>
     manifest = {
-        "name": name,
-        "short_name": (name[:12] or "Vagtplan"),
-        "description": "Din vagtplan, timer og drikkepenge",
+        "name": f"{name} · {sched}",
+        # Icon label = venue brand (Manoj's call); the full `name` above still
+        # marks it as the separate "· Vagtplan/Schedule" app in the install
+        # dialog + app switcher, and the distinct id/start_url/scope keep it a
+        # separate installed app from the owner app.
+        "short_name": (name[:12] or sched),
+        "description": L["desc"],
         "id": start,
         "start_url": start,
         "scope": "/s/",
@@ -1313,7 +1330,7 @@ def portal_manifest(token: str, request: Request, db: Session = Depends(get_db))
         "background_color": "#ffffff",
         "theme_color": "#ffffff",
         "orientation": "portrait-primary",
-        "lang": "da",
+        "lang": code,
         "icons": [
             {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
             {"src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable"},
@@ -1321,9 +1338,9 @@ def portal_manifest(token: str, request: Request, db: Session = Depends(get_db))
             {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
         ],
         "shortcuts": [
-            {"name": "Vagtplan", "short_name": "Vagtplan", "url": f"{start}?tab=schedule"},
-            {"name": "Timer", "short_name": "Timer", "url": f"{start}?tab=hours"},
-            {"name": "Drikkepenge", "short_name": "Tips", "url": f"{start}?tab=tips"},
+            {"name": sched, "short_name": sched, "url": f"{start}?tab=schedule"},
+            {"name": L["hours"], "short_name": L["hours"], "url": f"{start}?tab=hours"},
+            {"name": L["tips"], "short_name": L["tips_short"], "url": f"{start}?tab=tips"},
         ],
     }
     return Response(

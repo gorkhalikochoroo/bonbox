@@ -1676,7 +1676,7 @@ function SyncPill({ isOnline, live, lastSynced, onRefresh, t }) {
 
 export default function StaffPortalPage() {
   const { token } = useParams();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [tab, setTab] = useState(() => {
     // Honor ?tab= so the installed-app shortcuts (Schedule / Hours / Tips) and
     // any deep link open the right tab.
@@ -1887,15 +1887,21 @@ export default function StaffPortalPage() {
     if (!token || typeof document === "undefined") return;
     const link = document.querySelector('link[rel="manifest"]');
     const prevHref = link?.getAttribute("href");
-    if (link) link.setAttribute("href", `/portal/${token}/app.webmanifest`);
+    // Hand the browser THIS staff's manifest (lang-aware) so an install yields a
+    // separate, schedule-branded app — not the generic owner app.
+    if (link) link.setAttribute("href", `/portal/${token}/app.webmanifest?lang=${lang || "da"}`);
     const apple = document.querySelector('meta[name="apple-mobile-web-app-title"]');
     const prevApple = apple?.getAttribute("content");
+    // iOS ignores the manifest for Add-to-Home and uses this as the icon label.
+    // Match the Android short_name (the venue brand) so the installed icon shows
+    // the restaurant name; the full app name ("{venue} · Vagtplan") still marks
+    // it as the separate schedule app.
     if (apple && info?.restaurant_name) apple.setAttribute("content", info.restaurant_name);
     return () => {
       if (link && prevHref) link.setAttribute("href", prevHref);
       if (apple && prevApple) apple.setAttribute("content", prevApple);
     };
-  }, [token, info]);
+  }, [token, info, lang, t]);
 
   // Loading state
   if (loading) {

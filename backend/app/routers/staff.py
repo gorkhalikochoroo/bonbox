@@ -746,7 +746,7 @@ def share_with_staff(
                 skipped_no_email += 1
                 continue
 
-            portal_url = f"https://bonbox.dk{portal_path(link.token, user.business_name)}"
+            portal_url = f"https://www.bonbox.dk{portal_path(link.token, user.business_name)}"
             first_name = (member.name or "").split(" ")[0] or member.name or ""
             # DK-first niche email — restaurant/butik/værksted markets in DK
             # expect Danish.  Keep brand-locked vocabulary (vagtplan, push,
