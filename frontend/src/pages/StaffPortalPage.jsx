@@ -1331,6 +1331,22 @@ function InstallNotifyCard({ token }) {
             </div>
           )}
 
+          {/* Any other context (desktop Chrome, Android before the prompt has
+              fired, Firefox, or an in-app browser like WhatsApp/Mail) — never a
+              dead end. Tell them exactly where the install lives so the
+              dedicated app can always be added. */}
+          {!installed && !installPrompt && !isIOS && (
+            <div className="mt-3 flex items-start gap-1.5 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[12px] text-gray-600 leading-relaxed">
+              <Download className="w-4 h-4 text-gray-900 shrink-0 mt-0.5" strokeWidth={2} aria-hidden />
+              <span>
+                {t(
+                  "staffInstallMenuHint",
+                  "No install button? Open this page in Chrome or Safari, then use the browser menu → “Install app” / “Add to Home Screen”."
+                )}
+              </span>
+            </div>
+          )}
+
           {/* Installed — confirm it's set up */}
           {installed && (
             <div className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-emerald-700">

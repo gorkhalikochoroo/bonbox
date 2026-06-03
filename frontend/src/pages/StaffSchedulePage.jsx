@@ -1491,12 +1491,13 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
   const compared = suggestion.compared_to_last_week || {};
   const dayCount = suggestion.days.length;
   return (
-    <div className="bg-gray-50 dark:bg-gray-800/50 border border-violet-200 dark:border-violet-800 rounded-xl p-4 sm:p-6 space-y-3 sm:space-y-4">
+    <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4 sm:p-6 space-y-3 sm:space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold tracking-wider uppercase text-violet-700 dark:text-violet-400">
-            ✨ {t("autopilotHeading", "Autopilot Suggestion")} ·{" "}
+          <p className="text-[10px] font-semibold tracking-wider uppercase text-gray-500 dark:text-gray-400">
+            <Icon name="Sparkles" size={12} className="inline-block -mt-0.5 mr-1 text-gray-400 dark:text-gray-500" />
+            {t("autopilotHeading", "Autopilot Suggestion")} ·{" "}
             {suggestion.confidence === "high"
               ? t("autopilotConfidenceHigh", "High confidence")
               : suggestion.confidence === "medium"
@@ -1561,11 +1562,16 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
             type="button"
             onClick={onApply}
             disabled={applying}
-            className="flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
+            className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
           >
-            {applying
-              ? t("autopilotApplying", "Applying…")
-              : "✓ " + t("autopilotApply", "Apply schedule")}
+            {applying ? (
+              t("autopilotApplying", "Applying…")
+            ) : (
+              <>
+                <Icon name="Check" size={15} />
+                {t("autopilotApply", "Apply schedule")}
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -1578,7 +1584,8 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
               key={i}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs"
             >
-              ⚠️ {w}
+              <Icon name="AlertTriangle" size={13} className="shrink-0 text-amber-600 dark:text-amber-400" />
+              {w}
             </span>
           ))}
         </div>
