@@ -453,17 +453,37 @@ function ClockCard({ token }) {
     return () => clearInterval(id);
   }, [load]);
 
+  // Resolve device location (only when the venue lock is on). Denied / no-fix
+  // → resolves null; the server then allows the punch but flags it unverified.
+  const getPos = () =>
+    new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+      );
+    });
+
   const act = async (dir) => {
     setBusy(true);
     setErr("");
     try {
-      const res = await portalApi.post(`/portal/${token}/clock-${dir}`);
+      let payload = {};
+      if (dir === "in" && st?.geofence_on) {
+        const pos = await getPos();
+        if (pos) payload = pos;
+      }
+      const res = await portalApi.post(`/portal/${token}/clock-${dir}`, payload);
       setSt(res.data || null);
     } catch (e) {
+      const code = e?.response?.data?.detail?.error;
       setErr(
-        e?.response?.data?.detail?.error === "not_clocked_in"
-          ? t("portalClockErrOut", "You're not clocked in.")
-          : t("portalClockErr", "Couldn't update the clock. Try again."),
+        code === "too_far"
+          ? t("portalClockTooFar", "You're too far from the venue to clock in.")
+          : code === "not_clocked_in"
+            ? t("portalClockErrOut", "You're not clocked in.")
+            : t("portalClockErr", "Couldn't update the clock. Try again."),
       );
       load();
     } finally {
@@ -533,6 +553,11 @@ function ClockCard({ token }) {
           {clockedIn ? t("portalClockOut", "Clock out") : t("portalClockIn", "Clock in")}
         </button>
       </div>
+      {st?.geofence_on && !clockedIn && (
+        <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
+          {t("portalClockGeoNote", "We check you're at the venue when you clock in. Your location isn't stored.")}
+        </div>
+      )}
       {err && <div className="mt-2 text-[12px] text-red-500 dark:text-red-300">{err}</div>}
     </div>
   );

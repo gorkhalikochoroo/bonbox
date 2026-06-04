@@ -183,6 +183,12 @@ class BusinessProfile(Base):
     # request threshold, booking lead time / advance window, GDPR
     # retention_days). JSON so config evolves without a migration.
     reservation_settings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Clock-in geofence (JSON-as-text, no migration churn):
+    #   {"enabled": bool, "lat": float, "lng": float, "radius_m": int}
+    # When enabled, staff portal clock-in verifies the device is within radius
+    # of the venue. Location is checked at the INSTANT of clock-in only — never
+    # stored or tracked (GDPR). NULL = off (the default).
+    clock_settings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)

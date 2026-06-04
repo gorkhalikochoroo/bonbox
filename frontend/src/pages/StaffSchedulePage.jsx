@@ -259,6 +259,86 @@ function ClockedInStrip() {
   );
 }
 
+// Clock-in geofence (location lock) setup — opt-in. Owner taps "use my
+// current location" while standing at the venue to set the anchor; staff
+// clock-in then verifies device distance. Staff location is checked only at
+// the punch, never stored (GDPR) — the staff card shows that notice.
+function ClockGeofenceSettings() {
+  const { t } = useLanguage();
+  const [cfg, setCfg] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    let alive = true;
+    api.get("/staff/clock-geofence")
+      .then((r) => { if (alive) setCfg(r.data || null); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  if (!cfg) return null;
+
+  const save = async (patch) => {
+    setBusy(true);
+    setMsg("");
+    try {
+      const res = await api.post("/staff/clock-geofence", { enabled: cfg.enabled, ...patch });
+      setCfg(res.data);
+    } catch {
+      setMsg(t("schedGeoErr", "Couldn't save. Try again."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setHere = () => {
+    if (!navigator.geolocation) {
+      setMsg(t("schedGeoNoGps", "Location unavailable on this device."));
+      return;
+    }
+    setBusy(true);
+    setMsg("");
+    navigator.geolocation.getCurrentPosition(
+      (p) => save({ enabled: true, lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => {
+        setBusy(false);
+        setMsg(t("schedGeoDenied", "Allow location to set the venue."));
+      },
+      { enableHighAccuracy: true, timeout: 8000 },
+    );
+  };
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={!!cfg.enabled}
+          disabled={busy || !cfg.has_location}
+          onChange={(e) => save({ enabled: e.target.checked })}
+          className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900 disabled:opacity-50"
+        />
+        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          {t("schedGeoTitle", "Only clock in at the venue")}
+        </span>
+      </label>
+      <span className="text-[12px] text-gray-500 dark:text-gray-400 tabular-nums">
+        {cfg.has_location
+          ? t("schedGeoSet", "Venue set · within {m} m", { m: cfg.radius_m })
+          : t("schedGeoUnset", "No venue location set")}
+      </span>
+      <button
+        type="button"
+        onClick={setHere}
+        disabled={busy}
+        className="ml-auto inline-flex items-center justify-center min-h-[36px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+      >
+        {cfg.has_location ? t("schedGeoReset", "Update location") : t("schedGeoUseHere", "Use my current location")}
+      </button>
+      {msg && <span className="w-full text-[12px] text-red-500 dark:text-red-400">{msg}</span>}
+    </div>
+  );
+}
+
 export default function StaffSchedulePage() {
   const { user } = useAuth();
   const { t, lang } = useLanguage();
@@ -956,6 +1036,9 @@ export default function StaffSchedulePage() {
       {/* Live punch-clock — who's on the clock right now (staff self-clock
           from their portal, auto-updates ~30s). Hides when nobody's in. */}
       <ClockedInStrip />
+
+      {/* Clock-in location lock (opt-in geofence). */}
+      <ClockGeofenceSettings />
 
       {/* Week navigation + actions */}
       <FadeIn delay={0.05}>

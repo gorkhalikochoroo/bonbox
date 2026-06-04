@@ -52,6 +52,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
+import json
 from pydantic import BaseModel, EmailStr
 
 from app.database import get_db
@@ -2064,6 +2065,73 @@ def get_clocked_in_staff(
         })
     out.sort(key=lambda x: x["since"] or "")
     return {"clocked_in": out, "count": len(out)}
+
+
+# ── Clock-in geofence (Stempelur location lock) ───────────────────────────
+# Config lives in BusinessProfile.clock_settings_json (no migration churn).
+# Privacy: a staff device's location is checked at the INSTANT of clock-in
+# only (staff_portal), never stored or tracked. The owner sets the venue
+# coordinates from their own device ("use current location") at the venue.
+
+def _load_clock_settings(profile):
+    raw = getattr(profile, "clock_settings_json", None) if profile else None
+    try:
+        d = json.loads(raw) if raw else {}
+    except (ValueError, TypeError):
+        d = {}
+    return {
+        "enabled": bool(d.get("enabled")),
+        "lat": d.get("lat"),
+        "lng": d.get("lng"),
+        "radius_m": int(d.get("radius_m") or 150),
+    }
+
+
+class ClockGeofenceUpdate(BaseModel):
+    enabled: bool = False
+    lat: float | None = None
+    lng: float | None = None
+    radius_m: int | None = None
+
+
+@router.get("/clock-geofence")
+def get_clock_geofence(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Owner reads the clock-in geofence config (venue location + radius + on/off)."""
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    cfg = _load_clock_settings(profile)
+    cfg["has_location"] = cfg["lat"] is not None and cfg["lng"] is not None
+    return cfg
+
+
+@router.post("/clock-geofence")
+def set_clock_geofence(
+    payload: ClockGeofenceUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner sets venue location (captured from their device at the venue),
+    radius, and on/off. Coordinates kept only as the geofence anchor."""
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail={"error": "no_profile"})
+    cur = _load_clock_settings(profile)
+    lat = payload.lat if payload.lat is not None else cur["lat"]
+    lng = payload.lng if payload.lng is not None else cur["lng"]
+    if lat is not None and not (-90 <= float(lat) <= 90):
+        lat = None
+    if lng is not None and not (-180 <= float(lng) <= 180):
+        lng = None
+    radius = max(25, min(2000, int(payload.radius_m or cur["radius_m"] or 150)))
+    profile.clock_settings_json = json.dumps({
+        "enabled": bool(payload.enabled),
+        "lat": lat,
+        "lng": lng,
+        "radius_m": radius,
+    })
+    db.commit()
+    out = _load_clock_settings(profile)
+    out["has_location"] = out["lat"] is not None and out["lng"] is not None
+    return out
 
 
 @router.post("/hours/confirm-schedule")

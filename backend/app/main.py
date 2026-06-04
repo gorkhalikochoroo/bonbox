@@ -120,6 +120,7 @@ _db_ready = threading.Event()
 # Run schema migrations (idempotent — safe to run multiple times)
 _migrations = [
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payment_method VARCHAR(20) DEFAULT 'card'",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS clock_settings_json TEXT",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS notes TEXT",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",

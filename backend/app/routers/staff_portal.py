@@ -490,6 +490,44 @@ def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)
 #  never trust a client clock.
 # ═══════════════════════════════════════════════════════════════════════════
 
+class ClockInBody(BaseModel):
+    lat: float | None = None
+    lng: float | None = None
+
+
+def _haversine_m(lat1, lng1, lat2, lng2):
+    """Great-circle distance in metres."""
+    from math import radians, sin, cos, asin, sqrt
+    dlat = radians(float(lat2) - float(lat1))
+    dlng = radians(float(lng2) - float(lng1))
+    a = (
+        sin(dlat / 2) ** 2
+        + cos(radians(float(lat1))) * cos(radians(float(lat2))) * sin(dlng / 2) ** 2
+    )
+    return 2 * 6371000.0 * asin(sqrt(a))
+
+
+def _clock_geofence(db: Session, owner) -> dict:
+    """Owner's clock-in geofence config. enabled is only effective once a
+    venue location is set (can't enforce distance to nothing)."""
+    prof = (
+        db.query(BusinessProfile).filter(BusinessProfile.user_id == owner.id).first()
+        if owner else None
+    )
+    raw = getattr(prof, "clock_settings_json", None) if prof else None
+    try:
+        d = json.loads(raw) if raw else {}
+    except (ValueError, TypeError):
+        d = {}
+    has_loc = d.get("lat") is not None and d.get("lng") is not None
+    return {
+        "enabled": bool(d.get("enabled")) and has_loc,
+        "lat": d.get("lat"),
+        "lng": d.get("lng"),
+        "radius_m": int(d.get("radius_m") or 150),
+    }
+
+
 def _open_punch(db: Session, member):
     """The staff's current open clock-in (clocked in, not yet out), if any."""
     return (
@@ -528,15 +566,17 @@ def _clock_status_dict(db: Session, member, owner) -> dict:
         .all()
     )
     today_hours = round(sum(float(r.total_hours or 0) for r in today_rows), 2)
+    geofence_on = _clock_geofence(db, owner)["enabled"]
     punch = _open_punch(db, member)
     if not punch:
         return {"clocked_in": False, "since": None, "elapsed_min": None,
-                "today_hours": today_hours}
+                "today_hours": today_hours, "geofence_on": geofence_on}
     return {
         "clocked_in": True,
         "since": punch.start_time,
         "elapsed_min": _elapsed_min(punch.start_time, now_dt),
         "today_hours": today_hours,
+        "geofence_on": geofence_on,
     }
 
 
@@ -551,12 +591,36 @@ def get_portal_clock(token: str, request: Request, db: Session = Depends(get_db)
 
 @router.post("/{token}/clock-in")
 @limiter.limit("20/minute")
-def portal_clock_in(token: str, request: Request, db: Session = Depends(get_db)):
-    """Staff clocks IN. Server-stamped; idempotent (already-in → returns state)."""
+def portal_clock_in(
+    token: str,
+    request: Request,
+    body: ClockInBody | None = None,
+    db: Session = Depends(get_db),
+):
+    """Staff clocks IN. Server-stamped; idempotent (already-in → returns state).
+    If the owner enabled the location lock, the device must be within radius of
+    the venue — outside → 403; GPS off/denied → allowed but flagged."""
     link, member = _get_staff_from_token(token, db)
     owner = db.query(User).filter(User.id == member.user_id).first()
     if _open_punch(db, member):
         return _clock_status_dict(db, member, owner)  # already clocked in — no dupe
+    geo_note = None
+    cfg = _clock_geofence(db, owner)
+    if cfg["enabled"]:
+        lat = body.lat if body else None
+        lng = body.lng if body else None
+        if lat is not None and lng is not None:
+            dist = _haversine_m(lat, lng, cfg["lat"], cfg["lng"])
+            if dist > cfg["radius_m"]:
+                raise HTTPException(status_code=403, detail={
+                    "error": "too_far",
+                    "distance_m": int(round(dist)),
+                    "radius_m": cfg["radius_m"],
+                })
+        else:
+            # GPS off/denied → allow but flag (never lock a real worker out
+            # over flaky indoor GPS; the owner sees the "unverified" marker).
+            geo_note = "Location unverified"
     now_dt = now_local(owner)
     db.add(HoursLogged(
         user_id=member.user_id,
@@ -567,6 +631,7 @@ def portal_clock_in(token: str, request: Request, db: Session = Depends(get_db))
         break_minutes=0,
         total_hours=0,
         entry_method="clock",
+        notes=geo_note,
     ))
     db.commit()
     return _clock_status_dict(db, member, owner)
