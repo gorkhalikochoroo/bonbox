@@ -427,6 +427,117 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed }) {
 }
 
 
+// ── Punch-clock (Stempelur) — staff self-clock from the portal. Writes the
+// SAME HoursLogged rows the owner sees, so a clock-in/out flows straight to
+// the owner's "clocked in now" strip + hours. Server-stamps the time; the card
+// just reflects + polls state (auto-updates ~30s). Goes dark gray-900 while
+// clocked in — same "in use = dark" language as an occupied floor table.
+function ClockCard({ token }) {
+  const { t } = useLanguage();
+  const [st, setSt] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const res = await portalApi.get(`/portal/${token}/clock`);
+      setSt(res.data || null);
+    } catch {
+      /* soft — leave last-known state */
+    }
+  }, [token]);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(load, 30000); // live-ish sync to the owner view
+    return () => clearInterval(id);
+  }, [load]);
+
+  const act = async (dir) => {
+    setBusy(true);
+    setErr("");
+    try {
+      const res = await portalApi.post(`/portal/${token}/clock-${dir}`);
+      setSt(res.data || null);
+    } catch (e) {
+      setErr(
+        e?.response?.data?.detail?.error === "not_clocked_in"
+          ? t("portalClockErrOut", "You're not clocked in.")
+          : t("portalClockErr", "Couldn't update the clock. Try again."),
+      );
+      load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const fmtDur = (min) => {
+    if (min == null) return "—";
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return h > 0 ? `${h}t ${m}m` : `${m}m`;
+  };
+
+  const clockedIn = !!st?.clocked_in;
+  const today = st?.today_hours;
+
+  return (
+    <div
+      className={
+        "rounded-xl border p-4 " +
+        (clockedIn ? "bg-gray-900 border-gray-900 text-white" : "bg-white border-gray-200")
+      }
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div
+            className={
+              "text-[11px] font-semibold uppercase tracking-wider " +
+              (clockedIn ? "text-gray-300" : "text-gray-500")
+            }
+          >
+            {t("portalClockTitle", "Time clock")}
+          </div>
+          {clockedIn ? (
+            <>
+              <div className="mt-1 flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                </span>
+                <span className="text-lg font-bold tabular-nums">{fmtDur(st.elapsed_min)}</span>
+              </div>
+              <div className="mt-0.5 text-[12px] text-gray-300 tabular-nums">
+                {t("portalClockedInSince", "Clocked in · since {t}", { t: st.since || "—" })}
+              </div>
+            </>
+          ) : (
+            <div className="mt-1 text-sm text-gray-600">
+              {today
+                ? t("portalClockToday", "{h} t today", { h: today })
+                : t("portalClockReady", "Tap to start your shift.")}
+            </div>
+          )}
+        </div>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => act(clockedIn ? "out" : "in")}
+          className={
+            "shrink-0 inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 " +
+            (clockedIn
+              ? "bg-white text-gray-900 hover:bg-gray-100 focus-visible:ring-white focus-visible:ring-offset-gray-900"
+              : "bg-gray-900 text-white hover:bg-gray-800 focus-visible:ring-gray-900 focus-visible:ring-offset-white")
+          }
+        >
+          {clockedIn ? t("portalClockOut", "Clock out") : t("portalClockIn", "Clock in")}
+        </button>
+      </div>
+      {err && <div className="mt-2 text-[12px] text-red-500 dark:text-red-300">{err}</div>}
+    </div>
+  );
+}
+
 function ScheduleTab({ shifts: rawShifts, staffName, token, onShiftsChanged }) {
   const { t } = useLanguage();
   // Defense-in-depth: the portal API already filters to published shifts
@@ -500,6 +611,9 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, onShiftsChanged }) {
           <div className="text-2xl font-bold text-gray-400">{t("portalNoUpcomingShift")}</div>
         )}
       </div>
+
+      {/* Punch-clock — the on-arrival action, right under the next-shift hero. */}
+      {token && <ClockCard token={token} />}
 
       {/* This week hrs KPI (kept, but no longer the headline). */}
       <div className="grid grid-cols-1 gap-3">

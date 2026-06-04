@@ -90,7 +90,7 @@ from app.services.notification_service import (
     ShiftChange,
 )
 from app.services import audit_service
-from app.services.tz_utils import business_today_local
+from app.services.tz_utils import business_today_local, now_local
 from app.database import SessionLocal
 from app.utils.time import utc_now
 from app.utils.text import portal_path
@@ -2023,6 +2023,47 @@ def log_hours(
     db.commit()
     db.refresh(entry)
     return entry
+
+
+@router.get("/clocked-in")
+def get_clocked_in_staff(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Who's on the clock right now — open punches (clock-in without a clock-out).
+    Powers the owner's live "clocked in now" strip. Read-only + owner-scoped;
+    these rows only exist for owners who use the staff portal (already gated)."""
+    rows = (
+        db.query(HoursLogged)
+        .filter(
+            HoursLogged.user_id == user.id,
+            HoursLogged.entry_method == "clock",
+            HoursLogged.end_time.is_(None),
+        )
+        .all()
+    )
+    now_dt = now_local(user)
+    out = []
+    for r in rows:
+        m = db.query(StaffMember).filter(StaffMember.id == r.staff_id).first()
+        elapsed = None
+        if r.start_time:
+            try:
+                hh, mm = (int(x) for x in r.start_time.split(":"))
+                start_dt = now_dt.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                if start_dt > now_dt:
+                    start_dt -= timedelta(days=1)
+                elapsed = max(0, int((now_dt - start_dt).total_seconds() // 60))
+            except Exception:
+                elapsed = None
+        out.append({
+            "staff_id": str(r.staff_id),
+            "name": (m.name if m else None) or "—",
+            "since": r.start_time,
+            "elapsed_min": elapsed,
+        })
+    out.sort(key=lambda x: x["since"] or "")
+    return {"clocked_in": out, "count": len(out)}
 
 
 @router.post("/hours/confirm-schedule")

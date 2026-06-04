@@ -38,6 +38,8 @@ from app.utils.text import portal_path
 
 import re
 from app.utils.time import utc_now
+from app.models.user import User
+from app.services.tz_utils import now_local, business_today_local
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -476,6 +478,129 @@ def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)
         "hours_source": "logged" if use_logged else "schedule",
         "entries": entries,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Punch-clock — staff self-clock from the portal. A clock-in/out writes the
+#  SAME HoursLogged rows the owner already sees (entry_method="clock"), so it
+#  flows straight into the owner's hours + payroll with zero extra wiring.
+#  An OPEN punch = a HoursLogged row with entry_method="clock" AND end_time
+#  IS NULL. (Owner-logged clock rows always carry both times, so they never
+#  read as "open".) Times are SERVER-stamped in the owner's local tz — we
+#  never trust a client clock.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _open_punch(db: Session, member):
+    """The staff's current open clock-in (clocked in, not yet out), if any."""
+    return (
+        db.query(HoursLogged)
+        .filter(
+            HoursLogged.staff_id == member.id,
+            HoursLogged.entry_method == "clock",
+            HoursLogged.end_time.is_(None),
+        )
+        .order_by(HoursLogged.created_at.desc())
+        .first()
+    )
+
+
+def _elapsed_min(start_hhmm, now_dt):
+    """Minutes from an 'HH:MM' start (owner-local) to now; wraps a start that
+    is 'after' now back to yesterday (overnight shift)."""
+    if not start_hhmm:
+        return None
+    try:
+        hh, mm = (int(x) for x in start_hhmm.split(":"))
+    except (ValueError, AttributeError):
+        return None
+    start_dt = now_dt.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if start_dt > now_dt:
+        start_dt -= timedelta(days=1)
+    return max(0, int((now_dt - start_dt).total_seconds() // 60))
+
+
+def _clock_status_dict(db: Session, member, owner) -> dict:
+    now_dt = now_local(owner)
+    bday = business_today_local(owner)
+    today_rows = (
+        db.query(HoursLogged)
+        .filter(HoursLogged.staff_id == member.id, HoursLogged.date == bday)
+        .all()
+    )
+    today_hours = round(sum(float(r.total_hours or 0) for r in today_rows), 2)
+    punch = _open_punch(db, member)
+    if not punch:
+        return {"clocked_in": False, "since": None, "elapsed_min": None,
+                "today_hours": today_hours}
+    return {
+        "clocked_in": True,
+        "since": punch.start_time,
+        "elapsed_min": _elapsed_min(punch.start_time, now_dt),
+        "today_hours": today_hours,
+    }
+
+
+@router.get("/{token}/clock")
+@limiter.limit("60/minute")
+def get_portal_clock(token: str, request: Request, db: Session = Depends(get_db)):
+    """Current clock state — clocked in since when, minutes elapsed, today's hours."""
+    link, member = _get_staff_from_token(token, db)
+    owner = db.query(User).filter(User.id == member.user_id).first()
+    return _clock_status_dict(db, member, owner)
+
+
+@router.post("/{token}/clock-in")
+@limiter.limit("20/minute")
+def portal_clock_in(token: str, request: Request, db: Session = Depends(get_db)):
+    """Staff clocks IN. Server-stamped; idempotent (already-in → returns state)."""
+    link, member = _get_staff_from_token(token, db)
+    owner = db.query(User).filter(User.id == member.user_id).first()
+    if _open_punch(db, member):
+        return _clock_status_dict(db, member, owner)  # already clocked in — no dupe
+    now_dt = now_local(owner)
+    db.add(HoursLogged(
+        user_id=member.user_id,
+        staff_id=member.id,
+        date=business_today_local(owner),
+        start_time=now_dt.strftime("%H:%M"),
+        end_time=None,
+        break_minutes=0,
+        total_hours=0,
+        entry_method="clock",
+    ))
+    db.commit()
+    return _clock_status_dict(db, member, owner)
+
+
+@router.post("/{token}/clock-out")
+@limiter.limit("20/minute")
+def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)):
+    """Staff clocks OUT — close the open punch, compute hours + (premium-aware) pay."""
+    link, member = _get_staff_from_token(token, db)
+    owner = db.query(User).filter(User.id == member.user_id).first()
+    punch = _open_punch(db, member)
+    if not punch:
+        raise HTTPException(status_code=409, detail={"error": "not_clocked_in"})
+    end_str = now_local(owner).strftime("%H:%M")
+    total = (
+        0.0 if end_str == (punch.start_time or "")
+        else _calc_shift_hours(punch.start_time, end_str, punch.break_minutes or 0)
+    )
+    punch.end_time = end_str
+    punch.total_hours = total
+    try:
+        from app.routers.staff import _pick_rate
+        rate = _pick_rate(member, punch.date, punch.start_time)
+        if rate is not None:
+            punch.rate_applied = rate
+            punch.earned = round(total * float(rate), 2)
+    except Exception:
+        pass  # pay can be filled owner-side; never block a clock-out on it
+    db.commit()
+    out = _clock_status_dict(db, member, owner)
+    out["clocked_out"] = True
+    out["worked_hours"] = round(total, 2)
+    return out
 
 
 @router.get("/{token}/tips")

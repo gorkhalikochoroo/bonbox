@@ -197,6 +197,68 @@ function laborTone(ratio, target) {
 /* ═══════════════════════════════════════════════════════════
    MAIN PAGE
    ═══════════════════════════════════════════════════════════ */
+
+// Live "clocked in now" strip — who's currently on the clock (open punches),
+// auto-updating ~30s. Staff self-clock from their portal → they appear here in
+// near-real-time. Dark gray-900 chips = "in use", same language as the floor.
+function ClockedInStrip() {
+  const { t } = useLanguage();
+  const [rows, setRows] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await api.get("/staff/clocked-in");
+        if (alive) setRows(Array.isArray(res.data?.clocked_in) ? res.data.clocked_in : []);
+      } catch {
+        /* soft — strip just hides on error */
+      }
+    };
+    load();
+    const id = setInterval(load, 30000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+  if (!rows.length) return null;
+  const fmtDur = (min) => {
+    if (min == null) return "";
+    const h = Math.floor(min / 60);
+    const m = min % 60;
+    return h > 0 ? `${h}t ${m}m` : `${m}m`;
+  };
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="relative flex h-2.5 w-2.5" aria-hidden>
+          <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+        </span>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          {t("schedClockedInNow", "Clocked in now")} · {rows.length}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {rows.map((r) => (
+          <span
+            key={r.staff_id}
+            className="inline-flex items-center gap-2 rounded-lg bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 px-2.5 py-1 text-sm"
+          >
+            <span className="font-medium truncate max-w-[10rem]">{r.name}</span>
+            <span className="text-[12px] opacity-80 tabular-nums">{r.since}</span>
+            {r.elapsed_min != null && (
+              <span className="text-[11px] font-semibold tabular-nums opacity-90">
+                {fmtDur(r.elapsed_min)}
+              </span>
+            )}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function StaffSchedulePage() {
   const { user } = useAuth();
   const { t, lang } = useLanguage();
@@ -890,6 +952,10 @@ export default function StaffSchedulePage() {
         title={t("staffSchedule") || "Staff Schedule"}
         subtitle={t("staffScheduleDesc") || "Plan weekly shifts, manage staff, and track labor costs."}
       />
+
+      {/* Live punch-clock — who's on the clock right now (staff self-clock
+          from their portal, auto-updates ~30s). Hides when nobody's in. */}
+      <ClockedInStrip />
 
       {/* Week navigation + actions */}
       <FadeIn delay={0.05}>
