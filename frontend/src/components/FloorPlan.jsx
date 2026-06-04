@@ -36,6 +36,7 @@ import {
   Square,
   Move,
   RotateCcw,
+  LayoutGrid,
 } from "lucide-react";
 import api from "../services/api";
 import Button from "./ui/Button";
@@ -518,6 +519,17 @@ export default function FloorPlan({
     return zones;
   }, [cells]);
 
+  // Room capacity — how many guests fit at one seating (sum of active table
+  // seats) + the table count. The "total size that fits at one time".
+  const capacity = useMemo(() => {
+    const active = cells.filter((c) => c.status !== "inactive");
+    const seats = active.reduce(
+      (s, c) => s + (Number(c.res?.capacity_seats) || 0),
+      0,
+    );
+    return { tables: active.length, seats };
+  }, [cells]);
+
   // ── Edit lifecycle ───────────────────────────────────────────────────
   const enterEdit = useCallback(() => {
     setDraft(JSON.parse(JSON.stringify(baseLayout)));
@@ -536,6 +548,20 @@ export default function FloorPlan({
   const resetDraft = useCallback(() => {
     setDraft(JSON.parse(JSON.stringify(baseLayout)));
   }, [baseLayout]);
+
+  // Auto-arrange — tidy every table into the zone-banded grid in one tap
+  // (keeps each table's round/square shape; the owner can still nudge + Save).
+  const autoArrange = useCallback(() => {
+    const positions = autoLayout(cells);
+    setDraft((prev) => {
+      const base = prev || JSON.parse(JSON.stringify(baseLayout));
+      const next = { ...base };
+      Object.entries(positions).forEach(([id, pos]) => {
+        next[id] = { ...(base[id] || {}), pos_x: pos.pos_x, pos_y: pos.pos_y };
+      });
+      return next;
+    });
+  }, [cells, baseLayout]);
 
   const toggleShape = useCallback((id) => {
     setDraft((prev) => {
@@ -693,7 +719,14 @@ export default function FloorPlan({
     <div className="space-y-3">
       {/* Toolbar: title + edit controls */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="flex items-center gap-2 text-[11px] font-medium text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-2.5 text-[11px] font-medium text-gray-500 dark:text-gray-400 flex-wrap">
+          {/* Room capacity — what fits at one seating. */}
+          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 tabular-nums">
+            <Users className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" aria-hidden />
+            {t("rsvpFloorSeats", "{n} seats", { n: capacity.seats })}
+            <span className="text-gray-300 dark:text-gray-600" aria-hidden>·</span>
+            {t("rsvpFloorTables", "{n} tables", { n: capacity.tables })}
+          </span>
           {editing ? (
             <span className="inline-flex items-center gap-1.5 text-gray-700 dark:text-gray-200">
               <Move className="w-3.5 h-3.5" aria-hidden />
@@ -710,8 +743,16 @@ export default function FloorPlan({
             <>
               <button
                 type="button"
+                onClick={autoArrange}
+                className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
+              >
+                <LayoutGrid className="w-4 h-4" aria-hidden />
+                {t("rsvpAutoArrange", "Auto-arrange")}
+              </button>
+              <button
+                type="button"
                 onClick={resetDraft}
-                className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+                className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
               >
                 <RotateCcw className="w-4 h-4" aria-hidden />
                 {t("rsvpPlanReset", "Reset")}
