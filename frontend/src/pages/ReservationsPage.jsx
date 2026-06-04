@@ -52,6 +52,9 @@ import {
   Footprints,
   PartyPopper,
   Clock,
+  Phone,
+  ChevronLeft,
+  ChevronRight,
   BarChart3,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -77,7 +80,8 @@ import { venueProfile } from "../config/venueProfiles";
 const STATUS_DOT = {
   requested: "bg-amber-500",
   confirmed: "bg-emerald-500",
-  seated: "bg-emerald-500",
+  // Seated = occupied → gray-900, matching the floor's "dark = in use" doctrine.
+  seated: "bg-gray-900 dark:bg-gray-100",
   completed: "bg-gray-400",
   no_show: "bg-red-500",
   cancelled: "bg-red-500",
@@ -104,6 +108,33 @@ function fmtTime(iso) {
       hour: "2-digit",
       minute: "2-digit",
     });
+  } catch {
+    return "";
+  }
+}
+
+// Step a YYYY-MM-DD day by ±n calendar days (local, DST-safe).
+function shiftDay(iso, delta) {
+  const [y, m, d] = (iso || "").split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + delta);
+  return isoDay(dt);
+}
+
+// Friendly label for the date stepper: "I dag" / "I morgen" / "I går" for the
+// immediate neighbours, otherwise the capitalised weekday in the active locale.
+function relativeDayLabel(iso, t, locale) {
+  const today = isoDay(new Date());
+  if (iso === today) return t("rsvpToday", "Today");
+  if (iso === shiftDay(today, 1)) return t("rsvpDayTomorrow", "Tomorrow");
+  if (iso === shiftDay(today, -1)) return t("rsvpDayYesterday", "Yesterday");
+  try {
+    const [y, m, d] = iso.split("-").map(Number);
+    const wd = new Date(y, m - 1, d).toLocaleDateString(locale || "en", {
+      weekday: "long",
+    });
+    return wd.charAt(0).toUpperCase() + wd.slice(1);
   } catch {
     return "";
   }
@@ -501,108 +532,134 @@ function ReservationDrawer({ reservation, t, busy, onStatus, onClose, tableLabel
     .filter(Boolean)
     .join(" · ");
 
-  const actions = [];
+  // One state-matched primary action (the natural next step) carries the
+  // focus; destructive / secondary actions demote to a quiet text row — no
+  // more five equal-weight buttons competing for the tap.
+  let primary = null;
+  const secondary = [];
   if (r.status === "requested") {
-    actions.push({ id: "confirmed", label: t("rsvpConfirmAction", "Confirm"), to: "confirmed" });
-    actions.push({ id: "decline", label: t("rsvpDeclineAction", "Decline"), to: "cancelled", danger: true });
+    primary = { label: t("rsvpConfirmAction", "Confirm"), to: "confirmed", icon: Check };
+    secondary.push({ id: "decline", label: t("rsvpDeclineAction", "Decline"), to: "cancelled" });
   } else if (r.status === "confirmed") {
-    actions.push({ id: "seated", label: t("rsvpSeatAction", "Seat"), to: "seated" });
-    actions.push({ id: "no_show", label: t("rsvpNoShowAction", "No-show"), to: "no_show", danger: true });
-    actions.push({ id: "cancel", label: t("rsvpCancelAction", "Cancel"), to: "cancelled", danger: true });
+    primary = { label: t("rsvpSeatAction", "Seat"), to: "seated", icon: Armchair };
+    secondary.push({ id: "no_show", label: t("rsvpNoShowAction", "No-show"), to: "no_show" });
+    secondary.push({ id: "cancel", label: t("rsvpCancelAction", "Cancel"), to: "cancelled" });
   } else if (r.status === "seated") {
-    actions.push({ id: "completed", label: t("rsvpCompleteAction", "Complete"), to: "completed" });
+    primary = { label: t("rsvpCompleteAction", "Complete"), to: "completed", icon: CheckCircle2 };
   }
+  const PrimaryIcon = primary?.icon || null;
 
   return (
     <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative ml-auto w-full max-w-md h-full bg-white dark:bg-gray-900 shadow-sm border-l border-gray-200 dark:border-gray-800 overflow-auto p-5 space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">
-              {fmtTime(r.starts_at)}–{fmtTime(r.ends_at)}
+      <div className="absolute inset-0 bg-black/40 animate-fadeIn" onClick={onClose} />
+      <div className="relative ml-auto w-full max-w-md h-full bg-white dark:bg-gray-900 shadow-2xl border-l border-gray-200 dark:border-gray-800 flex flex-col animate-slideIn">
+        {/* Scrollable detail — the action bar below stays pinned. */}
+        <div className="flex-1 overflow-auto p-5 space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                {fmtTime(r.starts_at)}–{fmtTime(r.ends_at)}
+              </div>
+              <div className="text-sm text-gray-600 dark:text-gray-300 truncate">
+                {(r.guest_name || "—") + " · " + r.party_size + " " + t("rsvpCoversHelper", "guests")}
+              </div>
             </div>
-            <div className="text-sm text-gray-600 dark:text-gray-300 truncate">
-              {(r.guest_name || "—") + " · " + r.party_size + " " + t("rsvpCoversHelper", "guests")}
-            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={t("close", "Close")}
+              className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label={t("close", "Close")}
-            className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800"
-          >
-            <X className="w-5 h-5" />
-          </button>
+
+          <StatusPill status={r.status} label={labels[r.status] || r.status} />
+
+          {hasAllergy && (
+            <div
+              className={
+                "rounded-lg px-3 py-2 text-sm " +
+                (severe
+                  ? "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+                  : "bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300")
+              }
+            >
+              <div className="font-semibold flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4" aria-hidden />
+                {severe ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
+              </div>
+              {allergyText && <div className="mt-0.5">{allergyText}</div>}
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            {tableLabel && <DetailRow label={t("rsvpColTable", "Table")} value={tableLabel} />}
+            {r.guest_phone && (
+              <DetailRow
+                label={t("rsvpDetailPhone", "Phone")}
+                value={
+                  <a
+                    href={`tel:${String(r.guest_phone).replace(/\s+/g, "")}`}
+                    className="inline-flex items-center gap-1.5 text-gray-900 dark:text-gray-100 underline-offset-2 hover:underline"
+                  >
+                    <Phone className="w-3.5 h-3.5 text-gray-400" aria-hidden />
+                    {r.guest_phone}
+                  </a>
+                }
+              />
+            )}
+            {r.guest_email && (
+              <DetailRow
+                label={t("rsvpDetailEmail", "Email")}
+                value={
+                  <a
+                    href={`mailto:${r.guest_email}`}
+                    className="text-gray-900 dark:text-gray-100 underline-offset-2 hover:underline break-all"
+                  >
+                    {r.guest_email}
+                  </a>
+                }
+              />
+            )}
+            {r.occasion && <DetailRow label={t("rsvpOccasion", "Occasion")} value={r.occasion} />}
+          </div>
+          {r.guest_notes && (
+            <p className="text-sm text-gray-600 dark:text-gray-300">{r.guest_notes}</p>
+          )}
         </div>
 
-        <StatusPill status={r.status} label={labels[r.status] || r.status} />
-
-        {hasAllergy && (
-          <div
-            className={
-              "rounded-lg px-3 py-2 text-sm " +
-              (severe
-                ? "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300"
-                : "bg-amber-50 text-amber-800 dark:bg-amber-900/20 dark:text-amber-300")
-            }
-          >
-            <div className="font-semibold flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4" aria-hidden />
-              {severe ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
-            </div>
-            {allergyText && <div className="mt-0.5">{allergyText}</div>}
-          </div>
-        )}
-
-        <div className="space-y-1.5">
-          {tableLabel && <DetailRow label={t("rsvpColTable", "Table")} value={tableLabel} />}
-          {r.guest_phone && (
-            <DetailRow
-              label={t("rsvpDetailPhone", "Phone")}
-              value={
-                <a
-                  href={`tel:${String(r.guest_phone).replace(/\s+/g, "")}`}
-                  className="text-gray-900 dark:text-gray-100 underline-offset-2 hover:underline"
-                >
-                  {r.guest_phone}
-                </a>
-              }
-            />
-          )}
-          {r.guest_email && (
-            <DetailRow
-              label={t("rsvpDetailEmail", "Email")}
-              value={
-                <a
-                  href={`mailto:${r.guest_email}`}
-                  className="text-gray-900 dark:text-gray-100 underline-offset-2 hover:underline break-all"
-                >
-                  {r.guest_email}
-                </a>
-              }
-            />
-          )}
-          {r.occasion && <DetailRow label={t("rsvpOccasion", "Occasion")} value={r.occasion} />}
-        </div>
-        {r.guest_notes && (
-          <p className="text-sm text-gray-600 dark:text-gray-300">{r.guest_notes}</p>
-        )}
-
-        {actions.length > 0 && (
-          <div className="pt-2 space-y-2">
-            {actions.map((a) => (
+        {/* Pinned action bar — one primary next-step, destructive demoted to
+            a quiet text row so the obvious action is unmistakable. */}
+        {(primary || secondary.length > 0) && (
+          <div className="shrink-0 border-t border-gray-200 dark:border-gray-800 p-4 space-y-3 bg-white/90 dark:bg-gray-900/90 backdrop-blur">
+            {primary && (
               <Button
-                key={a.id}
-                variant={a.danger ? "ghost" : "primary"}
+                variant="primary"
                 size="lg"
                 disabled={busy}
-                onClick={() => onStatus(r, a.to)}
-                className={"w-full justify-center " + (a.danger ? "text-red-600 hover:text-red-700" : "")}
+                onClick={() => onStatus(r, primary.to)}
+                className="w-full justify-center gap-2"
               >
-                {a.label}
+                {PrimaryIcon && <PrimaryIcon className="w-4 h-4" aria-hidden />}
+                {primary.label}
               </Button>
-            ))}
+            )}
+            {secondary.length > 0 && (
+              <div className="flex items-center justify-center gap-3">
+                {secondary.map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onStatus(r, a.to)}
+                    className="text-sm font-medium px-2 py-1.5 rounded-md text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-colors disabled:opacity-50"
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -793,6 +850,14 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
                 {String(Math.floor((m % 1440) / 60)).padStart(2, "0")}:00
               </span>
             ))}
+            {nowX != null && (
+              <span
+                style={{ left: nowX }}
+                className="absolute top-1 -translate-x-1/2 inline-flex items-center rounded-full bg-gray-900 dark:bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white dark:text-gray-900 z-30 tabular-nums"
+              >
+                {t("rsvpNow", "Now")}
+              </span>
+            )}
           </div>
         </div>
 
@@ -875,7 +940,46 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
   );
 }
 
+// Loading skeletons — calm pulsing placeholders shaped like each view, so the
+// layout holds its frame while data lands (premium beats a bare "Loading…").
+function FloorSkeleton() {
+  const tables = [64, 64, 84, 64, 104, 84, 64];
+  return (
+    <div className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-950 p-6 min-h-[300px]">
+      <div className="flex flex-wrap gap-x-12 gap-y-10 animate-pulse">
+        {tables.map((s, i) => (
+          <div
+            key={i}
+            className="rounded-full bg-gray-200/80 dark:bg-gray-800"
+            style={{ width: s, height: s }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TimelineSkeleton() {
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
+      <div className="h-8 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/80" />
+      <div className="p-3 space-y-3 animate-pulse">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="flex items-center gap-3">
+            <div className="h-9 w-20 shrink-0 rounded bg-gray-100 dark:bg-gray-800" />
+            <div
+              className="h-9 rounded bg-gray-100 dark:bg-gray-800"
+              style={{ width: `${35 + ((i * 17) % 55)}%` }}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function BookSection({ t, businessType }) {
+  const { lang } = useLanguage();
   const [day, setDay] = useState(() => isoDay(new Date()));
   const [view, setView] = useState(() => {
     try {
@@ -1205,20 +1309,51 @@ function BookSection({ t, businessType }) {
           a ≥44px tap target for the Windows host-stand / tablet. */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <input
-            type="date"
-            value={day}
-            onChange={(e) => setDay(e.target.value)}
-            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-base sm:text-sm text-gray-900 dark:text-gray-100"
-            aria-label={t("rsvpBookDay", "Reservation date")}
-          />
-          <button
-            type="button"
-            onClick={() => setDay(isoDay(new Date()))}
-            className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
-          >
-            {t("rsvpToday", "Today")}
-          </button>
+          {/* Date stepper — ◂ step a day ▸, tap the centre to jump via the
+              native picker. The relative label ("I dag" / "I morgen") gives
+              instant orientation; the numeric date sits quietly beneath. */}
+          <div className="inline-flex items-stretch rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setDay(shiftDay(day, -1))}
+              aria-label={t("rsvpPrevDay", "Previous day")}
+              className="w-10 inline-flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <label className="relative h-11 flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors">
+              <span className="text-[13px] font-semibold leading-none text-gray-900 dark:text-gray-100">
+                {relativeDayLabel(day, t, lang)}
+              </span>
+              <span className="text-[11px] leading-none text-gray-500 dark:text-gray-400 tabular-nums mt-1">
+                {fmtDkDate(day)}
+              </span>
+              <input
+                type="date"
+                value={day}
+                onChange={(e) => e.target.value && setDay(e.target.value)}
+                aria-label={t("rsvpBookDay", "Reservation date")}
+                className="absolute inset-0 opacity-0 cursor-pointer"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => setDay(shiftDay(day, 1))}
+              aria-label={t("rsvpNextDay", "Next day")}
+              className="w-10 inline-flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
+          </div>
+          {day !== isoDay(new Date()) && (
+            <button
+              type="button"
+              onClick={() => setDay(isoDay(new Date()))}
+              className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+            >
+              {t("rsvpToday", "Today")}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => fetchBook(day)}
@@ -1349,7 +1484,7 @@ function BookSection({ t, businessType }) {
       {/* ── Plan (visual floor) ── */}
       {view === "plan" &&
         (loading ? (
-          <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>
+          <FloorSkeleton />
         ) : (
           <FloorView
             reservations={reservations}
@@ -1364,7 +1499,7 @@ function BookSection({ t, businessType }) {
       {/* ── Tidslinje (service timeline grid) ── */}
       {view === "tidslinje" &&
         (loading ? (
-          <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>
+          <TimelineSkeleton />
         ) : (
           <TimelineView
             reservations={reservations}

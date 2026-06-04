@@ -269,13 +269,29 @@ function TableNode({
   const booking = cell.booking;
   const VenueIcon = profile.icon;
 
-  // Label line under the seat count: time + guest for an occupied table.
+  // Occupied/upcoming detail line, glanceable from across the room:
+  //   • upcoming → ETA ("om 25 min") when the guest is due soon, else time + guest
+  //   • seated   → the booking time + guest name
+  //   • overdue  → how far past the table has run ("+12 min over") — the
+  //                "turn this table" nudge, shown bold so it reads as urgent
+  const partySize = booking?.reservation?.party_size ?? null;
+  const overMin =
+    status === "overdue" && booking?.reservation?.ends_at
+      ? Math.max(
+          0,
+          Math.round((nowMs - new Date(booking.reservation.ends_at).getTime()) / 60000),
+        )
+      : null;
   const sub =
     status === "free"
       ? null
-      : booking
-        ? `${booking.time}${booking.name ? " · " + booking.name : ""}`
-        : null;
+      : status === "overdue"
+        ? t("rsvpOverBy", "+{n}m over", { n: overMin ?? 0 })
+        : status === "upcoming" && booking?.eta != null
+          ? t("rsvpEtaIn", "in {n}m", { n: booking.eta })
+          : booking
+            ? `${booking.time}${booking.name ? " · " + booking.name : ""}`
+            : null;
 
   return (
     <div
@@ -389,13 +405,22 @@ function TableNode({
           ) : (
             <>
               <Users className="w-3 h-3 opacity-70" aria-hidden />
-              <span className="text-[11px] tabular-nums">{res.capacity_seats}</span>
+              <span className="text-[11px] tabular-nums">
+                {status !== "free" && partySize != null
+                  ? `${partySize}/${res.capacity_seats}`
+                  : res.capacity_seats}
+              </span>
             </>
           )}
         </span>
         {sub && sizePx >= 72 && (
           <span
-            className={"text-[10px] leading-tight truncate max-w-full opacity-90 " + style.text}
+            className={
+              "text-[10px] leading-tight truncate max-w-full tabular-nums " +
+              style.text +
+              " " +
+              (status === "overdue" ? "font-bold" : "opacity-90")
+            }
           >
             {sub}
           </span>
