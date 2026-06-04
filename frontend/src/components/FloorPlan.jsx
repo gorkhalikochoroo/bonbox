@@ -45,10 +45,10 @@ import { venueProfile } from "../config/venueProfiles";
 // Mirrors deriveFloorState's status vocabulary, mapped onto the brand
 // palette. "overdue" is derived here (a seated booking past its end time),
 // so the room can flag a table that's running long in red.
-//   free      → emerald  (open, invite to seat)
-//   upcoming  → amber     (booked / holding, guest due)
-//   seated    → blue      (occupied now)
-//   overdue   → red       (seated past end — needs turning)
+//   free      → emerald   (open, invite to seat)
+//   upcoming  → amber      (booked / holding, guest due)
+//   seated    → gray-900   (occupied now — solid, committed)
+//   overdue   → solid red  (seated past end — needs turning)
 //   inactive  → muted gray (out of service)
 const STATUS_STYLE = {
   free: {
@@ -79,12 +79,14 @@ const STATUS_STYLE = {
     glow: "shadow-[0_0_0_4px_rgba(17,24,39,0.12)]",
   },
   overdue: {
-    fill: "bg-red-50 dark:bg-red-950/40",
-    ring: "ring-red-300/80 dark:ring-red-600/60",
-    dot: "bg-red-500",
-    text: "text-red-900 dark:text-red-100",
-    chair: "bg-red-300/80 dark:bg-red-700/70",
-    glow: "shadow-[0_0_0_4px_rgba(239,68,68,0.14)]",
+    // Running long → SOLID red (alarm), mirroring seated=solid-dark. The one
+    // urgent state inverts to white-on-red for maximum across-room legibility.
+    fill: "bg-red-600 dark:bg-red-600",
+    ring: "ring-red-600 dark:ring-red-500",
+    dot: "bg-white",
+    text: "text-white",
+    chair: "bg-red-300 dark:bg-red-800",
+    glow: "shadow-[0_0_0_4px_rgba(239,68,68,0.20)]",
   },
   inactive: {
     fill: "bg-gray-100 dark:bg-gray-800/60",

@@ -453,14 +453,18 @@ function deriveFloorState(reservations, resources, nowMs) {
 // handlers are passed straight through so FloorPlan reuses the page's shared
 // ReservationDrawer + SeatNowSheet.
 function FloorView({ reservations, resources, t, businessType, onSelect, onSeatNow }) {
-  const nowMs = Date.now();
+  // Tick every 60s so the floor is LIVE, not a snapshot: a seated table that
+  // crosses its end-time flips to "overdue" (red) on its own, and upcoming
+  // ETAs ("om 25 min") count down — no manual refresh. This is the difference
+  // between a pretty diagram and a tool a host trusts mid-service.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
   const cells = useMemo(
     () => deriveFloorState(reservations, resources, nowMs),
-    // nowMs intentionally excluded: a fresh value each render would thrash the
-    // memo; state classification is stable enough for a service view, and the
-    // book refetches on action / refresh.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [reservations, resources],
+    [reservations, resources, nowMs],
   );
 
   // "Your next booking" — the soonest still-upcoming (requested/confirmed)
@@ -551,7 +555,7 @@ function ReservationDrawer({ reservation, t, busy, onStatus, onClose, tableLabel
 
   return (
     <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/40 animate-fadeIn" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
       <div className="relative ml-auto w-full max-w-md h-full bg-white dark:bg-gray-900 shadow-2xl border-l border-gray-200 dark:border-gray-800 flex flex-col animate-slideIn">
         {/* Scrollable detail — the action bar below stays pinned. */}
         <div className="flex-1 overflow-auto p-5 space-y-4">
@@ -560,8 +564,11 @@ function ReservationDrawer({ reservation, t, busy, onStatus, onClose, tableLabel
               <div className="text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">
                 {fmtTime(r.starts_at)}–{fmtTime(r.ends_at)}
               </div>
-              <div className="text-sm text-gray-600 dark:text-gray-300 truncate">
-                {(r.guest_name || "—") + " · " + r.party_size + " " + t("rsvpCoversHelper", "guests")}
+              <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                {r.guest_name || "—"}
+              </div>
+              <div className="text-[13px] text-gray-500 dark:text-gray-400 tabular-nums">
+                {r.party_size + " " + t("rsvpCoversHelper", "guests")}
               </div>
             </div>
             <button
@@ -632,7 +639,10 @@ function ReservationDrawer({ reservation, t, busy, onStatus, onClose, tableLabel
         {/* Pinned action bar — one primary next-step, destructive demoted to
             a quiet text row so the obvious action is unmistakable. */}
         {(primary || secondary.length > 0) && (
-          <div className="shrink-0 border-t border-gray-200 dark:border-gray-800 p-4 space-y-3 bg-white/90 dark:bg-gray-900/90 backdrop-blur">
+          <div
+            className="shrink-0 border-t border-gray-200 dark:border-gray-800 p-4 space-y-3 bg-white/90 dark:bg-gray-900/90 backdrop-blur"
+            style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}
+          >
             {primary && (
               <Button
                 variant="primary"
@@ -653,7 +663,7 @@ function ReservationDrawer({ reservation, t, busy, onStatus, onClose, tableLabel
                     type="button"
                     disabled={busy}
                     onClick={() => onStatus(r, a.to)}
-                    className="text-sm font-medium px-2 py-1.5 rounded-md text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-colors disabled:opacity-50"
+                    className="text-sm font-medium px-2 py-1.5 rounded-md text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
                   >
                     {a.label}
                   </button>
@@ -675,8 +685,11 @@ function SeatNowSheet({ table, t, busy, onSeat, onClose }) {
   const sizes = [1, 2, 3, 4, 5, 6, 8];
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm p-5 space-y-4">
+      <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
+      <div
+        className="relative w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-gray-800 shadow-2xl p-5 space-y-4 animate-fadeIn"
+        style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
@@ -1317,11 +1330,11 @@ function BookSection({ t, businessType }) {
               type="button"
               onClick={() => setDay(shiftDay(day, -1))}
               aria-label={t("rsvpPrevDay", "Previous day")}
-              className="w-10 inline-flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+              className="w-10 inline-flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
-            <label className="relative h-11 flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors">
+            <label className="relative h-11 flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors focus-within:ring-2 focus-within:ring-inset focus-within:ring-gray-900 dark:focus-within:ring-gray-100">
               <span className="text-[13px] font-semibold leading-none text-gray-900 dark:text-gray-100">
                 {relativeDayLabel(day, t, lang)}
               </span>
@@ -1340,7 +1353,7 @@ function BookSection({ t, businessType }) {
               type="button"
               onClick={() => setDay(shiftDay(day, 1))}
               aria-label={t("rsvpNextDay", "Next day")}
-              className="w-10 inline-flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+              className="w-10 inline-flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
             >
               <ChevronRight className="w-5 h-5" />
             </button>
@@ -1349,7 +1362,7 @@ function BookSection({ t, businessType }) {
             <button
               type="button"
               onClick={() => setDay(isoDay(new Date()))}
-              className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+              className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
             >
               {t("rsvpToday", "Today")}
             </button>
@@ -1358,7 +1371,7 @@ function BookSection({ t, businessType }) {
             type="button"
             onClick={() => fetchBook(day)}
             aria-label={t("rsvpRefresh", "Refresh")}
-            className="inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+            className="inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
           >
             <RefreshCw className="w-5 h-5" />
           </button>
@@ -1408,6 +1421,7 @@ function BookSection({ t, businessType }) {
           selected={view === "liste" && statusFilter === "requested"}
         />
         <StatCard
+          className="col-span-2 sm:col-span-1"
           label={t("rsvpUtilization", "Occupancy")}
           value={utilizationPct == null ? "—" : `${utilizationPct}%`}
           helper={

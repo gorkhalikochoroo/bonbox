@@ -93,6 +93,10 @@ body {
 
 .animate-fadeIn { animation: fadeIn 0.4s ease-out; }
 .animate-slideIn { animation: slideIn 0.3s ease-out; }
+/* Pure opacity fade for scrims/backdrops — no transform, so it doesn't fight
+   a panel that's sliding in on another axis (e.g. the reservation drawer). */
+@keyframes backdropFade { from { opacity: 0; } to { opacity: 1; } }
+.animate-backdropFade { animation: backdropFade 0.2s ease-out; }
 .animate-scaleIn { animation: scaleIn 0.2s ease-out; }
 .animate-numberPulse { animation: numberPulse 0.6s ease-out; }
 
