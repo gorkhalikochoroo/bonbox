@@ -68,12 +68,15 @@ const STATUS_STYLE = {
     glow: "shadow-[0_0_0_4px_rgba(245,158,11,0.12)]",
   },
   seated: {
-    fill: "bg-blue-50 dark:bg-blue-950/40",
-    ring: "ring-blue-300/80 dark:ring-blue-600/60",
-    dot: "bg-blue-500",
-    text: "text-blue-900 dark:text-blue-100",
-    chair: "bg-blue-300/80 dark:bg-blue-700/70",
-    glow: "shadow-[0_0_0_4px_rgba(59,130,246,0.12)]",
+    // Occupied = solid gray-900 (committed — "this table is in use"), so the
+    // room reads by contrast: dark = seated, emerald = open, amber = arriving,
+    // red = running long. (Blue was off the locked palette.)
+    fill: "bg-gray-900 dark:bg-gray-100",
+    ring: "ring-gray-900 dark:ring-gray-100",
+    dot: "bg-emerald-400",
+    text: "text-white dark:text-gray-900",
+    chair: "bg-gray-700 dark:bg-gray-300",
+    glow: "shadow-[0_0_0_4px_rgba(17,24,39,0.12)]",
   },
   overdue: {
     fill: "bg-red-50 dark:bg-red-950/40",
@@ -731,8 +734,9 @@ export default function FloorPlan({
           ref={canvasRef}
           className={
             "relative w-full min-w-[560px] rounded-2xl border overflow-hidden " +
-            "bg-[radial-gradient(circle_at_1px_1px,rgba(0,0,0,0.05)_1px,transparent_0)] [background-size:22px_22px] " +
-            "bg-gray-50 dark:bg-gray-900 " +
+            // Calm, near-flat surface so the status-coloured tables pop — a
+            // premium room reads by the tables, not a loud wireframe dot-grid.
+            "bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-950 " +
             (editing
               ? "border-gray-300 dark:border-gray-600 ring-2 ring-gray-900/5 dark:ring-gray-100/5"
               : "border-gray-200 dark:border-gray-800")
@@ -814,10 +818,10 @@ export default function FloorPlan({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-gray-500 dark:text-gray-400 pt-0.5">
         <LegendItem dotCls="bg-emerald-500" label={t("rsvpTileFree", "Free")} />
         <LegendItem dotCls="bg-amber-500" label={t("rsvpLegUpcoming", "Upcoming")} />
-        <LegendItem dotCls="bg-blue-500" label={t("rsvpTileSeated", "Seated")} />
+        <LegendItem dotCls="bg-gray-900 dark:bg-gray-100" label={t("rsvpTileSeated", "Seated")} />
         <LegendItem dotCls="bg-red-500" label={t("rsvpPlanOverdue", "Overdue")} />
         {nextBookingId != null && (
-          <LegendItem dotCls="bg-gray-900 dark:bg-gray-100" label={t("rsvpPlanNext", "Your next booking")} />
+          <LegendItem dotCls="bg-transparent ring-2 ring-gray-900 dark:ring-gray-100" label={t("rsvpPlanNext", "Your next booking")} />
         )}
       </div>
 
