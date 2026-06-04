@@ -3436,6 +3436,7 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
   const [notes, setNotes] = useState(existingShift?.notes || "");
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [modalError, setModalError] = useState("");
   // True once the owner edits any time/break field — stops auto re-seeding
   // on staff change so we never clobber a value they typed themselves.
@@ -3555,18 +3556,20 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
     setSaving(false);
   };
 
+  // Two-step delete: the "Delete Shift" button flips an in-modal confirm
+  // (setConfirmDelete) instead of a native window.confirm() — consistent with
+  // the rest of BonBox's dialogs, and (unlike the OS popup) actually testable.
   const handleDelete = async () => {
     if (!existingShift?.id) return;
-    if (!window.confirm(t("shiftDeleteConfirm", "Delete this shift?"))) return;
     setDeleting(true);
     setModalError("");
     try {
       await api.delete(`/staff/schedules/${existingShift.id}`);
-      onSaved();
+      onSaved(); // closes the modal on success
     } catch (err) {
       setModalError(err.response?.data?.detail || t("shiftDeleteFailed", "Failed to delete shift."));
+      setDeleting(false);
     }
-    setDeleting(false);
   };
 
   // Date options for the dropdown: all 7 days of the current week
@@ -3774,34 +3777,60 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-between pt-2">
-          <div>
-            {isEdit && (
+        {confirmDelete ? (
+          /* In-app delete confirmation — replaces the native window.confirm()
+             so it matches BonBox's dialog style and is automatable/testable. */
+          <div className="flex items-center justify-between gap-3 pt-3 mt-1 border-t border-gray-100 dark:border-gray-700">
+            <span className="text-sm text-gray-700 dark:text-gray-200">
+              {t("shiftDeleteConfirm", "Delete this shift?")}
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmDelete(false)}
+                disabled={deleting}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition disabled:opacity-50"
+              >
+                {t("cancel", "Cancel")}
+              </button>
               <button
                 onClick={handleDelete}
                 disabled={deleting}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition disabled:opacity-50"
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-50"
               >
                 {deleting ? t("shiftDeleting", "Deleting...") : t("shiftDeleteBtn", "Delete Shift")}
               </button>
-            )}
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
-            >
-              {t("cancel", "Cancel")}
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
-            >
-              {saving ? t("shiftSaving", "Saving...") : isEdit ? t("shiftUpdateBtn", "Update Shift") : t("shiftAddTitle", "Add Shift")}
-            </button>
+        ) : (
+          <div className="flex items-center justify-between pt-2">
+            <div>
+              {isEdit && (
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  disabled={deleting}
+                  className="px-4 py-2 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition disabled:opacity-50"
+                >
+                  {t("shiftDeleteBtn", "Delete Shift")}
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={onClose}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+              >
+                {t("cancel", "Cancel")}
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
+              >
+                {saving ? t("shiftSaving", "Saving...") : isEdit ? t("shiftUpdateBtn", "Update Shift") : t("shiftAddTitle", "Add Shift")}
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
