@@ -1036,6 +1036,51 @@ function BookSection({ t, businessType }) {
   const seatedCount = summary.by_status?.seated || 0;
   const requestedCount = summary.by_status?.requested || 0;
 
+  // ── Cockpit metrics — the day's vitals, host-stand style ───────────────
+  // "Next arrival" is the earliest still-live booking yet to come (relative
+  // to now when viewing today; the day's earliest otherwise) — the single
+  // most host-relevant read. Belægning/utilization = covers booked against
+  // total seat capacity: a calm fill gauge, honest about turns (a multi-turn
+  // service can read >100%, which is simply the truth, not an error).
+  const isViewingToday = day === isoDay(new Date());
+  const totalCapacity = useMemo(
+    () => resources.reduce((s, r) => s + (Number(r.capacity_seats) || 0), 0),
+    [resources],
+  );
+  const utilizationPct =
+    totalCapacity > 0 ? Math.round((summary.covers / totalCapacity) * 100) : null;
+  const nextArrival = useMemo(() => {
+    const live = reservations.filter(
+      (r) => !["completed", "cancelled", "no_show", "seated"].includes(r.status),
+    );
+    if (live.length === 0) return null;
+    let pool = live;
+    if (isViewingToday) {
+      const cutoff = new Date().getTime() - 5 * 60 * 1000; // 5-min grace
+      const ahead = live.filter((r) => {
+        const ts = new Date(r.starts_at).getTime();
+        return !Number.isNaN(ts) && ts >= cutoff;
+      });
+      if (ahead.length > 0) pool = ahead;
+    }
+    return (
+      [...pool].sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at))[0] ||
+      null
+    );
+  }, [reservations, isViewingToday]);
+  const nextArrivalHelper = useMemo(() => {
+    if (!nextArrival) return t("rsvpNothingUpcoming", "Nothing upcoming");
+    const name = (nextArrival.guest_name || "").trim();
+    return name
+      ? `${name} · ${nextArrival.party_size}`
+      : t("rsvpPartyOf", "Party of {n}", { n: nextArrival.party_size });
+  }, [nextArrival, t]);
+  // Click a status tile → jump to the list, filtered to that status.
+  const focusStatus = (status) => {
+    pickView("liste");
+    setStatusFilter(status);
+  };
+
   const filtered = useMemo(() => {
     let out = reservations;
     if (statusFilter !== "all") out = out.filter((r) => r.status === statusFilter);
@@ -1195,17 +1240,46 @@ function BookSection({ t, businessType }) {
         />
       </div>
 
-      {/* Covers strip — the day's vitals. Awaiting goes amber when requests
-          pile up; otherwise the strip is calm gray. */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <StatCard label={t("rsvpTotal", "Bookings")} value={summary.total} helper={fmtDkDate(day)} />
-        <StatCard label={t("rsvpCovers", "Covers")} value={summary.covers} helper={t("rsvpCoversHelper", "guests")} />
-        <StatCard label={t("rsvpSeatedNow", "Seated now")} value={seatedCount} />
+      {/* Cockpit — the day's vitals as a host-stand command center. Covers
+          is the headline (booking count folded into its helper); Seated and
+          Awaiting are click-to-filter into the list; Next arrival opens that
+          booking; Belægning is a calm fill gauge. Awaiting goes amber when
+          requests pile up — otherwise the whole row stays calm gray. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <StatCard
+          label={t("rsvpCovers", "Covers")}
+          value={summary.covers}
+          helper={t("rsvpCoversBookings", "{n} bookings", { n: summary.total })}
+        />
+        <StatCard
+          label={t("rsvpSeatedNow", "Seated now")}
+          value={seatedCount}
+          helper={t("rsvpSeatedHelper", "in the room")}
+          onClick={() => focusStatus("seated")}
+          selected={view === "liste" && statusFilter === "seated"}
+        />
+        <StatCard
+          label={t("rsvpNextArrival", "Next arrival")}
+          value={nextArrival ? fmtTime(nextArrival.starts_at) : "—"}
+          helper={nextArrivalHelper}
+          onClick={nextArrival ? () => setSelected(nextArrival) : null}
+        />
         <StatCard
           label={t("rsvpAwaiting", "Awaiting")}
           value={requestedCount}
           accent={requestedCount > 0 ? "warn" : "neutral"}
           helper={t("rsvpAwaitingHelper", "to confirm")}
+          onClick={() => focusStatus("requested")}
+          selected={view === "liste" && statusFilter === "requested"}
+        />
+        <StatCard
+          label={t("rsvpUtilization", "Occupancy")}
+          value={utilizationPct == null ? "—" : `${utilizationPct}%`}
+          helper={
+            totalCapacity > 0
+              ? t("rsvpUtilHelper", "of {n} seats", { n: totalCapacity })
+              : t("rsvpUtilNoSeats", "set table seats")
+          }
         />
       </div>
 
