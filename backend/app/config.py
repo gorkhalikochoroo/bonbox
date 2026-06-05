@@ -299,6 +299,10 @@ if settings.ANTHROPIC_API_KEY:
 print(f"[Config] ANTHROPIC_API_KEY={'set' if settings.ANTHROPIC_API_KEY else 'empty'} | USE_CLAUDE={settings.USE_CLAUDE_API}")
 
 # Warn if running with auto-generated secret in production
-if settings.ENVIRONMENT == "production" and settings.SECRET_KEY == _default_secret.__doc__:
+if settings.ENVIRONMENT == "production" and not os.environ.get("SECRET_KEY"):
+    # The previous check compared SECRET_KEY to a function docstring and
+    # could never be true, so a prod deploy that forgot to set SECRET_KEY
+    # ran on a per-process random key with NO warning (tokens invalidate
+    # on every restart). Check the env var directly instead.
     import warnings
     warnings.warn("SECRET_KEY not set! Using random key — tokens will invalidate on restart.")

@@ -1169,6 +1169,17 @@ def update_schedule(
     old_staff_id = shift.staff_id
     old_date = str(shift.date)
 
+    # Validate the (possibly reassigned) staff_id belongs to this owner.
+    # create_schedule already does this; update must too, or an owner could
+    # point their shift at another tenant's staff member (IDOR parity).
+    new_staff = db.query(StaffMember).filter(
+        StaffMember.id == data.staff_id,
+        StaffMember.user_id == user.id,
+        StaffMember.is_deleted.isnot(True),
+    ).first()
+    if not new_staff:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
     shift.staff_id = data.staff_id
     shift.date = data.date
     shift.start_time = data.start_time
@@ -2707,6 +2718,7 @@ def export_payroll_csv(
     import csv
     import io
     from app.services.payroll_service import estimate_period_payroll
+    from app.utils.csv_safe import csv_safe
 
     try:
         est = estimate_period_payroll(db, user.id, period_start, period_end)
@@ -2721,9 +2733,9 @@ def export_payroll_csv(
     ])
     for s in est.get("per_staff", []):
         writer.writerow([
-            s.get("name", ""),
-            s.get("role", ""),
-            s.get("contract_type", ""),
+            csv_safe(s.get("name", "")),
+            csv_safe(s.get("role", "")),
+            csv_safe(s.get("contract_type", "")),
             f"{float(s.get('hours', 0)):.2f}",
             f"{float(s.get('gross', 0)):.2f}",
             f"{float(s.get('am_bidrag', 0)):.2f}",

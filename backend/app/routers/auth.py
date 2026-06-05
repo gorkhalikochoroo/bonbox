@@ -32,6 +32,28 @@ from app.models.whatsapp import WhatsAppUser
 from app.models.weather import SickCall
 from app.models.business_profile import BusinessProfile
 from app.models.payment_connection import PaymentConnection
+# Additional personal-data models — used by the GDPR Art. 17 erasure path.
+from app.models.staff import (
+    StaffMember, Schedule, HoursLogged, Tip, TipDistribution,
+    StaffLink, NotificationLog, PayPeriodConfig,
+)
+from app.models.staff_role_target import StaffRoleTarget
+from app.models.staffing import DailyStaffing
+from app.models.shift_swap import ShiftSwapRequest
+from app.models.absence import StaffAbsence
+from app.models.customer import Customer
+from app.models.invoice import Invoice
+from app.models.reservation import Reservation
+from app.models.bookable_resource import BookableResource
+from app.models.event import Event
+from app.models.booking import Booking
+from app.models.event_customer import EventCustomer
+from app.models.mileage import MileageEntry
+from app.models.recurring_expense import RecurringExpense
+from app.models.push_subscription import PushSubscription
+from app.models.support_ticket import SupportTicket
+from app.models.magic_link_token import MagicLinkToken
+from app.models.daily_close import DailyClose
 from app.schemas.auth import (
     UserRegister, UserLogin, Token, UserResponse, UserUpdate, PasswordChange,
     ForgotPasswordRequest, ResetPasswordRequest, VerifyEmailRequest,
@@ -518,7 +540,7 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
             _verification_email_html(verification_code),
         )
     except Exception:
-        logger.warning(f"Failed to send verification email to {user.email}")
+        logger.warning(f"Failed to send verification email to user {user.id}")
 
     # Send welcome email (non-blocking)
     try:
@@ -589,6 +611,7 @@ def google_auth(request: Request, response: Response, data: GoogleAuthRequest, d
             business_type="",
             currency="DKK",
             email_verified=True,
+            oauth_provider="google",  # mark origin so it's distinguishable from a password account
         )
         # Start the 14-day Pro trial for new Google sign-ups too
         from app.services.billing import start_trial
@@ -790,6 +813,12 @@ def apple_auth(
             # Existing email-based user signing in with Apple for the
             # first time — link the apple_user_id so future sign-ins
             # find them by sub.
+            # NOTE (security audit 2026-06): the new /api/auth/oauth/apple
+            # endpoint refuses to link Apple onto a pre-existing PASSWORD
+            # account (account-takeover guard, Task #75). Porting that same
+            # refusal here would change this tested legacy flow, so it's a
+            # deliberate product decision left to Manoj rather than changed
+            # silently. The active /oauth/* path is already guarded.
             user.apple_user_id = apple_sub
             db.commit()
             db.refresh(user)
@@ -899,7 +928,10 @@ def verify_email(
     if current_user.verification_code_expires and current_user.verification_code_expires < utc_now():
         raise HTTPException(status_code=400, detail="Verification code has expired. Please request a new one.")
 
-    if current_user.verification_code != data.code:
+    if not secrets.compare_digest(
+        (current_user.verification_code or "").encode("utf-8"),
+        (data.code or "").encode("utf-8"),
+    ):
         raise HTTPException(status_code=400, detail="Invalid verification code")
 
     current_user.email_verified = True
@@ -1058,6 +1090,7 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
     code = f"{secrets.randbelow(900000) + 100000}"
     user.reset_token = code
     user.reset_token_expires = utc_now() + timedelta(minutes=15)
+    user.reset_attempts = 0  # fresh code → reset the brute-force counter
     db.commit()
 
     email_sent = send_email(
@@ -1080,7 +1113,7 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
     )
     if not email_sent:
         # Log failure but return 200 to prevent email enumeration
-        logger.error(f"Failed to send password reset email to {user.email}")
+        logger.error(f"Failed to send password reset email to user {user.id}")
     return {"message": "If an account exists with that email, we've sent a reset code."}
 
 
@@ -1100,18 +1133,31 @@ def reset_password(request: Request, data: ResetPasswordRequest, db: Session = D
     invalid = HTTPException(status_code=400, detail="Invalid or expired reset code")
     if not user or not user.reset_token:
         raise invalid
+    # Per-account brute-force cap. The 6-digit code is only ~900k wide, so a
+    # per-IP limit (5/min) alone won't stop a distributed/botnet spray inside
+    # the 15-min window. After 5 wrong guesses we burn the code so it can no
+    # longer be brute-forced; the user simply requests a fresh one.
+    if (user.reset_attempts or 0) >= 5:
+        user.reset_token = None
+        user.reset_token_expires = None
+        db.commit()
+        raise invalid
+    # Expiry check (cheap) before the constant-time compare.
+    if user.reset_token_expires and user.reset_token_expires < utc_now():
+        raise invalid
     # Constant-time comparison — bytes form to satisfy compare_digest contract
     if not secrets.compare_digest(
         (user.reset_token or "").encode("utf-8"),
         (data.reset_token or "").encode("utf-8"),
     ):
-        raise invalid
-    if user.reset_token_expires and user.reset_token_expires < utc_now():
+        user.reset_attempts = (user.reset_attempts or 0) + 1
+        db.commit()
         raise invalid
 
     user.password_hash = hash_password(data.new_password)
     user.reset_token = None
     user.reset_token_expires = None
+    user.reset_attempts = 0
     db.commit()
     return {"message": "Password reset successfully. You can now log in."}
 
@@ -1286,12 +1332,15 @@ def set_monthly_goal(
 # GDPR: Right to Data Portability (Article 20)
 # ============================================================
 def _write_csv_section(writer, title: str, headers: list, rows: list):
-    """Write a labeled section into the CSV export."""
+    """Write a labeled section into the CSV export. Every cell is passed
+    through csv_safe() so a stored value like '=HYPERLINK(...)' can't
+    execute as a formula when the owner opens the export in Excel."""
+    from app.utils.csv_safe import csv_safe
     writer.writerow([])
     writer.writerow([f"=== {title} ==="])
     writer.writerow(headers)
     for row in rows:
-        writer.writerow(row)
+        writer.writerow([csv_safe(c) for c in row])
 
 
 @router.get("/export-data")
@@ -1511,6 +1560,54 @@ def delete_account(
             status_code=400,
             detail=f"You have {team_members} team member(s). Remove all team members before deleting your account.",
         )
+
+    # ── GDPR Art. 17 completeness ──────────────────────────────────────
+    # Delete the personal-data tables the original list missed (staff,
+    # customers, reservations, invoices, notifications, …). Ordered
+    # children-before-parents; the method commits once at the very end, so
+    # any failure rolls the WHOLE thing back atomically — no half-deleted
+    # account. Financial AUDIT rows (audit_logs / security_events /
+    # error_logs) are intentionally RETAINED under the Bogføringsloven
+    # 5-year retention legal basis (GDPR Art. 17(3)(b)).
+
+    # Staff chain — every staff-referencing child before StaffMember.
+    db.query(ShiftSwapRequest).filter(ShiftSwapRequest.user_id == uid).delete(synchronize_session=False)
+    db.query(StaffAbsence).filter(StaffAbsence.user_id == uid).delete(synchronize_session=False)
+    db.query(Schedule).filter(Schedule.user_id == uid).delete(synchronize_session=False)
+    db.query(HoursLogged).filter(HoursLogged.user_id == uid).delete(synchronize_session=False)
+    tip_ids = [t.id for t in db.query(Tip.id).filter(Tip.user_id == uid).all()]
+    if tip_ids:
+        db.query(TipDistribution).filter(TipDistribution.tip_id.in_(tip_ids)).delete(synchronize_session=False)
+    db.query(Tip).filter(Tip.user_id == uid).delete(synchronize_session=False)
+    db.query(NotificationLog).filter(NotificationLog.user_id == uid).delete(synchronize_session=False)
+    db.query(StaffLink).filter(StaffLink.user_id == uid).delete(synchronize_session=False)
+    db.query(StaffRoleTarget).filter(StaffRoleTarget.user_id == uid).delete(synchronize_session=False)
+    db.query(PayPeriodConfig).filter(PayPeriodConfig.user_id == uid).delete(synchronize_session=False)
+    db.query(DailyStaffing).filter(DailyStaffing.user_id == uid).delete(synchronize_session=False)
+    db.query(StaffMember).filter(StaffMember.user_id == uid).delete(synchronize_session=False)
+
+    # Invoicing / mileage / recurring — before customers + (existing) expense categories.
+    db.query(MileageEntry).filter(MileageEntry.user_id == uid).delete(synchronize_session=False)
+    db.query(Invoice).filter(Invoice.user_id == uid).delete(synchronize_session=False)  # InvoiceLine FK cascades
+    db.query(RecurringExpense).filter(RecurringExpense.user_id == uid).delete(synchronize_session=False)
+
+    # Reservations (occupancy rows cascade on the reservation FK), then the resources.
+    db.query(Reservation).filter(Reservation.user_id == uid).delete(synchronize_session=False)
+    db.query(BookableResource).filter(BookableResource.user_id == uid).delete(synchronize_session=False)
+
+    # Event-booking — bookings + visitors before events.
+    db.query(Booking).filter(Booking.organizer_user_id == uid).delete(synchronize_session=False)
+    db.query(EventCustomer).filter(EventCustomer.organizer_user_id == uid).delete(synchronize_session=False)
+    db.query(Event).filter(Event.user_id == uid).delete(synchronize_session=False)
+
+    # Customers — after invoices (invoices.customer_id → customers).
+    db.query(Customer).filter(Customer.user_id == uid).delete(synchronize_session=False)
+
+    # Remaining personal data.
+    db.query(SupportTicket).filter(SupportTicket.user_id == uid).delete(synchronize_session=False)
+    db.query(MagicLinkToken).filter(MagicLinkToken.user_id == uid).delete(synchronize_session=False)
+    db.query(PushSubscription).filter(PushSubscription.user_id == uid).delete(synchronize_session=False)
+    db.query(DailyClose).filter(DailyClose.user_id == uid).delete(synchronize_session=False)
 
     # Delete all user data in dependency order (children first)
     # --- Inventory logs (via inventory items) ---

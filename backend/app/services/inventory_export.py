@@ -23,6 +23,7 @@ from datetime import date, datetime, timedelta
 from collections import defaultdict
 
 from app.models.inventory import InventoryItem
+from app.utils.csv_safe import csv_safe
 
 
 # ─── CSV export ────────────────────────────────────────────────────────
@@ -46,16 +47,16 @@ def items_to_csv_bytes(items: list[InventoryItem]) -> bytes:
     for it in items:
         writer.writerow([
             str(it.id) if it.id else "",
-            it.name or "",
-            it.category or "",
+            csv_safe(it.name or ""),
+            csv_safe(it.category or ""),
             float(it.quantity or 0),
-            it.unit or "",
+            csv_safe(it.unit or ""),
             float(it.cost_per_unit or 0),
             float(it.min_threshold or 0),
             float(it.sell_price) if it.sell_price is not None else "",
             "Yes" if it.is_perishable else "No",
             it.expiry_date.isoformat() if it.expiry_date else "",
-            it.barcode or "",
+            csv_safe(it.barcode or ""),
             str(it.branch_id) if it.branch_id else "",
             it.created_at.isoformat() if it.created_at else "",
             it.updated_at.isoformat() if it.updated_at else "",

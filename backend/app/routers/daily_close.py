@@ -318,28 +318,66 @@ def _build_close_email_html(
     return subject, html
 
 
+def _is_safe_scan_url(url: str) -> bool:
+    """SSRF guard for the Z-report photo fetch.
+
+    The receipt_photo value is always either a local uploads/ path
+    (handled separately) or a Supabase storage URL. We therefore allow
+    ONLY https URLs whose host matches the configured Supabase project
+    host (falling back to the managed *.supabase.co domain when
+    SUPABASE_URL is unset, e.g. local dev). This blocks an owner from
+    coercing the server into fetching internal/metadata endpoints
+    (169.254.169.254, localhost, 10.x, …) and exfiltrating the response
+    body as a revisor email attachment.
+    """
+    try:
+        from urllib.parse import urlparse
+        from app.config import settings
+        p = urlparse(url)
+        if p.scheme != "https" or not p.hostname:
+            return False
+        host = p.hostname.lower()
+        configured = urlparse((settings.SUPABASE_URL or "").strip()).hostname
+        if configured:
+            return host == configured.lower()
+        return host == "supabase.co" or host.endswith(".supabase.co")
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def _fetch_scan_bytes_best_effort(receipt_url: str | None) -> tuple[bytes | None, str | None]:
     """Best-effort fetch of the Z-report photo for email attachment.
     Returns (bytes, filename) or (None, None) on any failure — never
     raises into the close-confirm path. L8 — graceful degradation.
 
     Supports two storage shapes:
-      • Supabase URL (starts with "http"): GET it
+      • Supabase URL (https, allow-listed host): GET it  — SSRF-guarded
       • Local path (uploads/...): read from disk
     """
     if not receipt_url:
         return None, None
     try:
         if receipt_url.startswith("http"):
-            # Supabase signed URL or public path. urlopen is fine for
-            # the small JPEGs we deal with; httpx is already in the
-            # service stack but keeping the import local.
+            # SSRF guard — only fetch from the allow-listed Supabase host.
+            if not _is_safe_scan_url(receipt_url):
+                logger.warning(
+                    "scan_image fetch refused (host not allow-listed): %s",
+                    receipt_url[:80],
+                )
+                return None, None
             from urllib.request import Request, urlopen
             req = Request(receipt_url, headers={"User-Agent": "BonBox/1.0"})
-            with urlopen(req, timeout=8) as resp:  # noqa: S310 — internal URL only
+            with urlopen(req, timeout=8) as resp:  # noqa: S310 — host allow-listed above
                 data = resp.read()
             return data, "z_report.jpg"
-        # Local path branch — read from disk
+        # Local path branch — read from disk.
+        # NOTE (security audit 2026-06): in prod, storage is Supabase so
+        # receipt_photo is always an https URL and this branch isn't reached.
+        # A confine-to-uploads-root guard here was reverted because the
+        # intended local-storage path can be absolute (see test_close_auto_
+        # email) — hardening the local read needs to be done together with a
+        # test update + uploads-root confinement, so it's deferred rather
+        # than shipped in a way that breaks the close→revisor scan attach.
         from pathlib import Path
         p = Path(receipt_url)
         if p.is_file():

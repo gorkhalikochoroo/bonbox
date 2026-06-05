@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.branch import Branch
 from app.models.customer import Customer
 from app.models.user import User
 from app.routers.auth import get_current_user
@@ -56,6 +57,16 @@ def create_customer(
     user: User = Depends(_require_invoicing_plan),
 ):
     """Create a debitor record."""
+    # Tenant + ownership check on the optional branch — an owner must not
+    # be able to attach another tenant's branch_id to their customer.
+    if data.branch_id is not None:
+        owns_branch = (
+            db.query(Branch.id)
+            .filter(Branch.id == data.branch_id, Branch.user_id == user.id)
+            .first()
+        )
+        if owns_branch is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Branch not found")
     c = Customer(
         user_id=user.id,
         branch_id=data.branch_id,

@@ -133,6 +133,7 @@ _migrations = [
     "ALTER TABLE cash_transactions ADD COLUMN IF NOT EXISTS reference_id VARCHAR(100)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(100)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_attempts INTEGER DEFAULT 0",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS is_personal BOOLEAN DEFAULT false",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS reference_id VARCHAR(100)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_digest_enabled BOOLEAN DEFAULT false",
@@ -2739,7 +2740,7 @@ async def csrf_protect(request: Request, call_next):
     if auth_header.lower().startswith("bearer "):
         return await call_next(request)
     path = request.url.path
-    if path in _CSRF_EXEMPT_PATHS or path.startswith("/api/staff-portal"):
+    if path in _CSRF_EXEMPT_PATHS or path.startswith("/api/portal"):
         return await call_next(request)
     # Only enforce on authenticated cookie-based requests. If there's no
     # session cookie, there's nothing to protect — the underlying handler

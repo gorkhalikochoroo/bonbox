@@ -6,6 +6,10 @@ venv/
 .env
 .env.*
 *.db
+*.db.bak.*
+*.db-journal
+*.sqlite
+*.sqlite3
 .vite/
 
 # Node
@@ -25,3 +29,7 @@ uploads/
 # Misc local files
 misc/
 .vercel
+.Rhistory
+.pytest_cache/
+# Local-only dev seed script (currently untracked). Delete this line to commit it.
+backend/seed_e2e.py

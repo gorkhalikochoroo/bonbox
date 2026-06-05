@@ -27,6 +27,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.daily_close import DailyClose, decode_breakdown
+from app.utils.csv_safe import csv_safe
 
 
 # ─── CSV ──────────────────────────────────────────────────────────────
@@ -62,11 +63,11 @@ def closes_to_csv_bytes(closes: list[DailyClose]) -> bytes:
         writer.writerow([
             c.date.isoformat() if c.date else "",
             str(c.branch_id) if c.branch_id else "",
-            getattr(c, "status", "") or "",
+            csv_safe(getattr(c, "status", "") or ""),
             _opt(c.revenue_total),
             _opt(c.revenue_ex_moms),
             _opt(c.moms_total),
-            getattr(c, "moms_mode", "") or "",
+            csv_safe(getattr(c, "moms_mode", "") or ""),
             _opt(c.payment_total),
             _opt(c.cash_expected),
             _opt(c.cash_counted),
@@ -74,15 +75,15 @@ def closes_to_csv_bytes(closes: list[DailyClose]) -> bytes:
             _opt(c.tips_total),
             c.tips_staff_count if c.tips_staff_count is not None else "",
             _opt(c.tips_per_person),
-            c.revenue_categories or "",
-            c.payment_categories or "",
-            c.closed_by or "",
+            csv_safe(c.revenue_categories or ""),
+            csv_safe(c.payment_categories or ""),
+            csv_safe(c.closed_by or ""),
             c.closed_at.isoformat() if c.closed_at else "",
-            getattr(c, "unlock_reason", "") or "",
-            getattr(c, "unlocked_by", "") or "",
+            csv_safe(getattr(c, "unlock_reason", "") or ""),
+            csv_safe(getattr(c, "unlocked_by", "") or ""),
             (c.unlocked_at.isoformat() if getattr(c, "unlocked_at", None) else ""),
-            c.notes or "",
-            getattr(c, "receipt_photo", "") or "",
+            csv_safe(c.notes or ""),
+            csv_safe(getattr(c, "receipt_photo", "") or ""),
         ])
     return buf.getvalue().encode("utf-8")
 

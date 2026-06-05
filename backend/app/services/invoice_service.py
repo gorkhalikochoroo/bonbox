@@ -22,6 +22,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.models.branch import Branch
 from app.models.customer import Customer
 from app.models.invoice import Invoice, InvoiceLine
 from app.models.user import User
@@ -110,6 +111,21 @@ class InvoiceService:
                 status.HTTP_404_NOT_FOUND,
                 "Customer not found",
             )
+
+        # 1b. Tenant + ownership check on the optional branch. Without this
+        # an owner could pass another tenant's branch_id and pollute that
+        # branch's gap-less fakturanummer sequence (Bogføringsloven weight).
+        if branch_id is not None:
+            owns_branch = (
+                db.query(Branch.id)
+                .filter(Branch.id == branch_id, Branch.user_id == user.id)
+                .first()
+            )
+            if owns_branch is None:
+                raise HTTPException(
+                    status.HTTP_404_NOT_FOUND,
+                    "Branch not found",
+                )
 
         # 2. Resolve dates — must use the user's local TZ, not UTC, otherwise
         # a Danish user creating a draft at 23:30 CET stamps it with tomorrow's

@@ -572,11 +572,30 @@ def reservation_book(
     }
 
 
+def _assert_owned_resource(db: Session, user: User, resource_id: UUID) -> None:
+    """404 unless `resource_id` is a live BookableResource owned by `user`.
+    Prevents an owner from attaching another tenant's table to a
+    reservation (cross-tenant FK reference + table-availability interference)."""
+    owns = (
+        db.query(BookableResource.id)
+        .filter(
+            BookableResource.id == resource_id,
+            BookableResource.user_id == user.id,
+            BookableResource.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if owns is None:
+        raise HTTPException(status_code=404, detail={"error": "resource_not_found"})
+
+
 @router.post("/book", status_code=201)
 def create_manual(payload: ManualReservation, request: Request,
                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     enforce_feature(user, "reservations")
     profile = _profile(db, user)
+    if payload.resource_id is not None:
+        _assert_owned_resource(db, user, payload.resource_id)
     duration = rsvc.resolve_duration(profile, payload.party_size, payload.duration_min)
     from app.services.allergens import sanitize_tags, sanitize_severity
     btype = getattr(user, "business_type", None) or "restaurant"
@@ -648,6 +667,7 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         payload.resource_id is not None and payload.resource_id != prev_resource_id
     )
     if payload.resource_id is not None:
+        _assert_owned_resource(db, user, payload.resource_id)
         r.resource_id = payload.resource_id
         # Owner pinned ONE specific table → this is a single-table booking now;
         # drop any stale combined-set left over from a prior combo assignment

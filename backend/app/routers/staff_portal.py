@@ -1002,8 +1002,10 @@ class TeamShift(BaseModel):
 
 
 @router.get("/{token}/team-schedule", response_model=list[TeamShift])
+@limiter.limit("30/minute")
 def portal_team_schedule(
     token: str,
+    request: Request,
     days_ahead: int = 21,
     db: Session = Depends(get_db),
 ):

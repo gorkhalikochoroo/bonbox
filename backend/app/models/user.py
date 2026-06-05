@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, Numeric, Boolean, ForeignKey, Text
+from sqlalchemy import String, DateTime, Numeric, Boolean, ForeignKey, Text, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, GUID
@@ -88,6 +88,10 @@ class User(Base):
     owner_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)  # NULL for owners
     reset_token: Mapped[str | None] = mapped_column(String(100), nullable=True)
     reset_token_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Per-account failed-attempt counter for the password-reset code. The
+    # 6-digit code is only ~900k wide, so the per-IP rate limit alone isn't
+    # enough against a botnet — after N misses we burn the code.
+    reset_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # ── Migration 017 — team magic-link invite tokens ──
     # Replaces the old plaintext temp_password flow on POST /api/team/invite.
     # `invite_token_hash` is sha256(raw_token); the raw 32-byte url-safe
