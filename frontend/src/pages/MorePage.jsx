@@ -108,7 +108,7 @@ export default function MorePage() {
           <h3 className="text-xs text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider mb-2 px-1">
             {section.title}
           </h3>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
             {section.items.map((item) => (
               <Link
                 key={item.to}

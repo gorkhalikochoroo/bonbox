@@ -746,8 +746,15 @@ async def _claude_chat(req: ChatRequest, db, user):
         .filter(Sale.user_id == user.id, Sale.is_deleted.isnot(True), Sale.date == today)
         .first()
     )
-    today_rev = float(today_agg.rev)
     sale_count = int(today_agg.cnt)
+    # Reconcile with confirmed daily-closes (kasserapport) — same precedence as the
+    # Dashboard (#225). A close-driven restaurant logs revenue in daily_closes, not
+    # individual sales, so a Sale-only sum showed 0 in the AI's ambient context.
+    from app.services.revenue_resolver import (
+        effective_revenue_for_date,
+        effective_revenue_total,
+    )
+    today_rev = effective_revenue_for_date(db, user.id, today)
 
     # Month revenue
     month_rev_agg = (
@@ -756,7 +763,7 @@ async def _claude_chat(req: ChatRequest, db, user):
                 Sale.date >= month_start, Sale.date <= today)
         .scalar()
     )
-    month_rev = float(month_rev_agg)
+    month_rev = effective_revenue_total(db, user.id, month_start, today)
 
     # Month expenses
     month_exp_agg = (

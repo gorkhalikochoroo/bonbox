@@ -28,8 +28,16 @@ button:disabled,
   cursor: not-allowed;
 }
 
+html {
+  /* Never let the page scroll sideways on mobile. `clip` (not `hidden`) so
+     position: sticky headers/toolbars keep working, and it degrades to no-op
+     on older browsers (= today's behaviour, no regression). Mobile-fit fix. */
+  overflow-x: clip;
+}
+
 body {
   margin: 0;
+  overflow-x: clip;
   /* Inter loaded via Google Fonts in index.html; system stack is the
      swap-in fallback while the web font lands. Task #109. */
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,

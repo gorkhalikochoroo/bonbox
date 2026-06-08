@@ -413,14 +413,17 @@ export default function BonBoxAgent() {
                 }
               `}
             >
-              {/* render markdown-like bold with ** */}
+              {/* render markdown-like bold with **. Only treat **x** as bold
+                  when x is non-empty (length > 4), and strip any stray/unpaired
+                  ** from plain spans so the model emitting an empty or unbalanced
+                  bold (e.g. a blank number) never shows a literal "**" to the user. */}
               {msg.content.split(/(\*\*.*?\*\*)/).map((part, pi) =>
-                part.startsWith("**") && part.endsWith("**") ? (
+                part.startsWith("**") && part.endsWith("**") && part.length > 4 ? (
                   <strong key={pi} className="font-semibold">
                     {part.slice(2, -2)}
                   </strong>
                 ) : (
-                  <span key={pi}>{part}</span>
+                  <span key={pi}>{part.replace(/\*\*/g, "")}</span>
                 )
               )}
             </div>

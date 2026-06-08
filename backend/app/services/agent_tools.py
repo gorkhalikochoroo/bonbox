@@ -29,6 +29,10 @@ from app.models import (
     User,
 )
 from app.models.staff import StaffMember, Schedule
+from app.services.revenue_resolver import (
+    effective_revenue_total,
+    effective_revenue_by_date,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -152,8 +156,12 @@ def query_revenue(
         )
         .first()
     )
-    total_revenue = float(totals.total)
     sale_count = int(totals.count)
+    # Effective revenue reconciles confirmed daily-closes (kasserapport) with raw
+    # Sale rows, per date — a close-driven restaurant logs revenue in daily_closes,
+    # not individual sales, so a Sale-only sum returned 0 for "last month". Mirrors
+    # the Dashboard reconciliation (#225) so the AI quotes the number the owner sees.
+    total_revenue = effective_revenue_total(db, user_id, start, end)
 
     # -- Previous period totals for comparison --
     prev_totals = (
@@ -164,7 +172,7 @@ def query_revenue(
         )
         .first()
     )
-    prev_revenue = float(prev_totals.total)
+    prev_revenue = effective_revenue_total(db, user_id, prev_start, prev_end)
     change_pct = _pct_change(total_revenue, prev_revenue)
 
     # -- Daily breakdown --
@@ -179,9 +187,13 @@ def query_revenue(
         .order_by(Sale.date)
         .all()
     )
+    # Reconciled per-date totals (confirmed close wins) so the breakdown sums to
+    # the headline total. Counts come from Sale rows (a close has no per-sale count).
+    rev_by_date = effective_revenue_by_date(db, user_id, start, end)
+    count_by_date = {r.date: int(r.count) for r in daily_rows}
     daily_breakdown = [
-        {"date": str(r.date), "total": float(r.total), "count": int(r.count)}
-        for r in daily_rows
+        {"date": str(d), "total": round(rev_by_date[d], 2), "count": count_by_date.get(d, 0)}
+        for d in sorted(rev_by_date)
     ]
 
     # -- Payment method split --
@@ -211,10 +223,10 @@ def query_revenue(
         direction = "up" if change_pct >= 0 else "down"
         change_str = f" ({direction} {abs(change_pct)}% vs previous period)"
 
-    summary = (
-        f"{period_label} revenue: {_fmt(total_revenue, currency)} "
-        f"from {sale_count} sales{change_str}"
-    )
+    # When revenue comes from daily closes there may be no per-sale rows, so only
+    # mention the sale count when there actually is one (avoids "X DKK from 0 sales").
+    src = f" from {sale_count} sales" if sale_count else ""
+    summary = f"{period_label} revenue: {_fmt(total_revenue, currency)}{src}{change_str}"
 
     return {
         "summary": summary,
