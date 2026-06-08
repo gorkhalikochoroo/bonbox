@@ -110,6 +110,21 @@ export default function SalesPage() {
   const pendingReturnCount = sales.filter(s => s.status === "return-pending").length;
   const returnCount = sales.filter(s => ["returned", "exchanged", "return-pending"].includes(s.status || "completed")).length;
 
+  // Period summary for the currently-filtered sales — so an owner can read
+  // e.g. "last month" totals + averages straight from the Sales list (not the
+  // AI). Computed over the same rows shown in the table below.
+  const periodTotal = filtered.reduce((acc, s) => acc + (parseFloat(s.amount) || 0), 0);
+  const periodAvgSale = filtered.length ? periodTotal / filtered.length : 0;
+  const periodSpanDays = (() => {
+    if (filterFrom && filterTo) {
+      return Math.max(1, Math.round((new Date(filterTo) - new Date(filterFrom)) / 86400000) + 1);
+    }
+    const ds = filtered.map((s) => s.date).filter(Boolean).sort();
+    if (!ds.length) return 1;
+    return Math.max(1, Math.round((new Date(ds[ds.length - 1]) - new Date(ds[0])) / 86400000) + 1);
+  })();
+  const periodAvgDay = periodTotal / periodSpanDays;
+
   // Has any filter been touched compared to defaults?
   const hasActiveFilter = !!(eventFilter || filterFrom || filterTo || search);
 
@@ -1036,6 +1051,27 @@ export default function SalesPage() {
             <FilterBar.Reset onClick={clearAllFilters} />
           )}
         </FilterBar>
+
+        {/* Period summary — total + averages for the filtered set (e.g. last month) */}
+        {filtered.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/40 px-4 py-2.5 text-sm">
+            <span className="font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+              {t("total")}: {Math.round(periodTotal).toLocaleString()} {currency}
+            </span>
+            <span className="text-gray-300 dark:text-gray-700" aria-hidden="true">·</span>
+            <span className="text-gray-600 dark:text-gray-300 tabular-nums">
+              {filtered.length} {filtered.length === 1 ? t("saleCount") : t("salesCount")}
+            </span>
+            <span className="text-gray-300 dark:text-gray-700" aria-hidden="true">·</span>
+            <span className="text-gray-600 dark:text-gray-300 tabular-nums">
+              {t("avgDailySales")}: {Math.round(periodAvgDay).toLocaleString()} {currency}
+            </span>
+            <span className="text-gray-300 dark:text-gray-700" aria-hidden="true">·</span>
+            <span className="text-gray-600 dark:text-gray-300 tabular-nums">
+              {t("avgPerSale")}: {Math.round(periodAvgSale).toLocaleString()} {currency}
+            </span>
+          </div>
+        )}
 
         <DataTable
           columns={columns}
