@@ -35,7 +35,7 @@
 //   • DK terminology lock — MOMS, revisor, faktura stay Danish even in
 //     EN UI (the existing FX / smart-scan strings already honour this).
 //   • All strings via t(key, "fallback") with new keys in useLanguage.
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -234,8 +234,11 @@ export default function ExpensesPage() {
   }, [fxOpen, fxCurrency, fxConvertedAccount]);
 
   // Filtered + sorted list — drives both the DataTable AND the
-  // one-line "this month" summary below the form.
-  const filtered = expenses.filter(e => {
+  // one-line "this month" summary below the form. Memoized so the
+  // filter + sort only re-runs when its inputs actually change
+  // (expenses / search / showFilter / categoryFilter) — not on every
+  // keystroke in the edit panel or every focus-refetch re-render.
+  const filtered = useMemo(() => expenses.filter(e => {
     if (search) {
       const needle = search.toLowerCase();
       const haystack = [
@@ -253,12 +256,12 @@ export default function ExpensesPage() {
     const d = b.date.localeCompare(a.date);
     if (d !== 0) return d;
     return (b.created_at || "").localeCompare(a.created_at || "");
-  });
+  }), [expenses, search, showFilter, categoryFilter]);
 
   // This-month summary — replaces the 4-tile period KPI right-rail.
   // We scope to month of today (or latest expense when a date filter
   // is active, matching the previous behaviour).
-  const monthSummary = (() => {
+  const monthSummary = useMemo(() => {
     if (expenses.length === 0) {
       return { total: 0, count: 0 };
     }
@@ -271,7 +274,19 @@ export default function ExpensesPage() {
     const monthExpenses = hasFilter ? expenses : expenses.filter(e => e.date?.startsWith(monthPrefix));
     const total = monthExpenses.reduce((s, x) => s + parseFloat(x.amount), 0);
     return { total, count: monthExpenses.length };
-  })();
+  }, [expenses, filterFrom, filterTo]);
+
+  // The edit form renders as a card BELOW the table (see ~line 1213). On a
+  // long expense list, clicking Edit on a row near the top would open that
+  // form off-screen below the fold — it looked like "the edit button does
+  // nothing". Scroll the form into view whenever it opens. Mirrors the same
+  // fix on the Sales page.
+  const editPanelRef = useRef(null);
+  useEffect(() => {
+    if (editId && editPanelRef.current) {
+      editPanelRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [editId]);
 
   const startVoice = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1211,7 +1226,7 @@ export default function ExpensesPage() {
               concerned only with display and works on mobile too
               (the table renders as stacked cards there). */}
           {editId && (
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 sm:p-5 space-y-3">
+            <div ref={editPanelRef} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 sm:p-5 space-y-3 scroll-mt-24">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                 {t("edit", "Edit")} · {editData.description || ""}
               </h3>

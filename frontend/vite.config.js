@@ -14,6 +14,23 @@ export default defineConfig({
   esbuild: {
     jsx: 'automatic',
   },
+  // ── Single React instance (guards "Invalid hook call") ───────────
+  // React's hook dispatcher is module-level state: if any dependency
+  // resolves a SECOND copy of react/react-dom, every hook in the app
+  // throws "Invalid hook call … more than one copy of React" and the
+  // whole authed tree fails to mount. This happens in dev when the
+  // pre-bundler optimizes a large interop dep (e.g. an optional
+  // @sentry/react) into its own chunk that doesn't share the app's
+  // React. `dedupe` forces every `react`/`react-dom` import to the one
+  // physical copy; `optimizeDeps.include` keeps them in a single
+  // pre-bundled instance so dev matches the production single-vendor
+  // build. Both are no-ops once there's only one copy — safe to keep.
+  resolve: {
+    dedupe: ['react', 'react-dom'],
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+  },
   // ── Vitest test config (May 2026) ────────────────────────────────
   // We deliberately keep the test runner inside the existing Vite
   // config (rather than a separate vitest.config.js) so the test

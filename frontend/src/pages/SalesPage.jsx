@@ -93,7 +93,12 @@ export default function SalesPage() {
   // Right-rail mode — see DEFAULT_RIGHT_RAIL_MODE above.
   const rightRailMode = DEFAULT_RIGHT_RAIL_MODE;
 
-  const filtered = sales.filter(s => {
+  // Memoized so the filter + sort only re-runs when its inputs actually
+  // change (sales / statusFilter / search) — NOT on every keystroke in the
+  // edit panel, every focus-refetch, or every selection toggle. On a long
+  // sales list the unmemoized version re-filtered + re-sorted the whole
+  // array on each render, which is the "laggy" feel Manoj reported.
+  const filtered = useMemo(() => sales.filter(s => {
     if (statusFilter === "completed" && (s.status || "completed") !== "completed") return false;
     if (statusFilter === "returns" && !["returned", "exchanged", "return-pending"].includes(s.status || "completed")) return false;
     if (search && !(s.notes?.toLowerCase().includes(search.toLowerCase()) || s.payment_method?.toLowerCase().includes(search.toLowerCase()) || String(s.amount).includes(search) || (s.item_name || "").toLowerCase().includes(search.toLowerCase()))) return false;
@@ -105,25 +110,29 @@ export default function SalesPage() {
     const d = b.date.localeCompare(a.date);
     if (d !== 0) return d;
     return (b.created_at || "").localeCompare(a.created_at || "");
-  });
+  }), [sales, statusFilter, search]);
 
-  const pendingReturnCount = sales.filter(s => s.status === "return-pending").length;
-  const returnCount = sales.filter(s => ["returned", "exchanged", "return-pending"].includes(s.status || "completed")).length;
+  const pendingReturnCount = useMemo(() => sales.filter(s => s.status === "return-pending").length, [sales]);
+  const returnCount = useMemo(() => sales.filter(s => ["returned", "exchanged", "return-pending"].includes(s.status || "completed")).length, [sales]);
 
   // Period summary for the currently-filtered sales — so an owner can read
   // e.g. "last month" totals + averages straight from the Sales list (not the
-  // AI). Computed over the same rows shown in the table below.
-  const periodTotal = filtered.reduce((acc, s) => acc + (parseFloat(s.amount) || 0), 0);
-  const periodAvgSale = filtered.length ? periodTotal / filtered.length : 0;
-  const periodSpanDays = (() => {
-    if (filterFrom && filterTo) {
-      return Math.max(1, Math.round((new Date(filterTo) - new Date(filterFrom)) / 86400000) + 1);
-    }
-    const ds = filtered.map((s) => s.date).filter(Boolean).sort();
-    if (!ds.length) return 1;
-    return Math.max(1, Math.round((new Date(ds[ds.length - 1]) - new Date(ds[0])) / 86400000) + 1);
-  })();
-  const periodAvgDay = periodTotal / periodSpanDays;
+  // AI). Computed over the same rows shown in the table below. Memoized on
+  // the same inputs as `filtered` (+ the date range) so the reduce/span work
+  // doesn't repeat every render.
+  const { periodTotal, periodAvgSale, periodSpanDays, periodAvgDay } = useMemo(() => {
+    const total = filtered.reduce((acc, s) => acc + (parseFloat(s.amount) || 0), 0);
+    const avgSale = filtered.length ? total / filtered.length : 0;
+    const spanDays = (() => {
+      if (filterFrom && filterTo) {
+        return Math.max(1, Math.round((new Date(filterTo) - new Date(filterFrom)) / 86400000) + 1);
+      }
+      const ds = filtered.map((s) => s.date).filter(Boolean).sort();
+      if (!ds.length) return 1;
+      return Math.max(1, Math.round((new Date(ds[ds.length - 1]) - new Date(ds[0])) / 86400000) + 1);
+    })();
+    return { periodTotal: total, periodAvgSale: avgSale, periodSpanDays: spanDays, periodAvgDay: total / spanDays };
+  }, [filtered, filterFrom, filterTo]);
 
   // Has any filter been touched compared to defaults?
   const hasActiveFilter = !!(eventFilter || filterFrom || filterTo || search);
@@ -300,6 +309,18 @@ export default function SalesPage() {
     fetchSales(filterFrom, filterTo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventFilter, user?.id]);
+
+  // The edit / return panels render above the FilterBar + table (so the row
+  // renderer stays declarative). On a long sales list, clicking Edit / Return
+  // on a row the owner had scrolled down to would open the form off-screen
+  // above the fold — it looked like "the edit button does nothing". Scroll
+  // the active panel into view whenever it opens.
+  const panelRef = useRef(null);
+  useEffect(() => {
+    if ((editId || returnMode) && panelRef.current) {
+      panelRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [editId, returnMode]);
 
   const submit = async (amt) => {
     const value = amt || parseFloat(amount);
@@ -980,9 +1001,16 @@ export default function SalesPage() {
         </div>
       )}
 
-      {/* Inline edit / return panels (replace the in-row forms) */}
-      {editPanel}
-      {returnPanel}
+      {/* Inline edit / return panels (replace the in-row forms). Wrapped so
+          panelRef can scroll the active panel into view when it opens — see
+          the panelRef effect above. The wrapper only mounts while a panel is
+          open, so there's no phantom gap in the page rhythm when it's closed. */}
+      {(editPanel || returnPanel) && (
+        <div ref={panelRef} className="scroll-mt-24">
+          {editPanel}
+          {returnPanel}
+        </div>
+      )}
 
       {/* Recent sales section — title + FilterBar + DataTable */}
       <section className="space-y-4">
