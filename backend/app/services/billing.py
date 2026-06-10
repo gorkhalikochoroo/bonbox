@@ -652,6 +652,10 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # still has the existing "Email staff" semantic (text-only
         # change-summary email) — no schedule-portal URL is included.
         "staff_portal_link": False,
+        # `time_registration` — Tidsregistrering (DK working-time compliance,
+        # Arbejdstidsloven, mandatory since 2024). Compliance view + register
+        # export sit with the rest of the staff section → Starter+.
+        "time_registration": False,
         # `schedule_publish_push` — Starter+ fan-out of a web push
         # notification on `schedule_published` to every staff member who
         # subscribed via the portal. Free keeps the email path; push is
@@ -732,6 +736,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # Staff v2 (2026-05-28) — Starter+ unlocks the staff-facing portal
         # + push fan-out on schedule_published. See Free comment above.
         "staff_portal_link": True,
+        "time_registration": True,
         "schedule_publish_push": True,
     },
     "trial": {  # = full Pro
@@ -786,6 +791,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "growth_intelligence": True,            # Trial mirrors Pro — growth signals
         # Staff v2 (2026-05-28) — trial mirrors Pro
         "staff_portal_link": True,
+        "time_registration": True,
         "schedule_publish_push": True,
     },
     "pro": {
@@ -842,6 +848,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # extensions (arbejdstidsloven_block_publish, 4-mo report) ship
         # in Commit 3.
         "staff_portal_link": True,
+        "time_registration": True,
         "schedule_publish_push": True,
     },
 }

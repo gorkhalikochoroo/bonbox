@@ -480,6 +480,49 @@ def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)
     }
 
 
+@router.get("/{token}/time-registration")
+@limiter.limit("30/minute")
+def get_portal_time_registration(token: str, request: Request, db: Session = Depends(get_db)):
+    """The staff member's own working-time register (Tidsregistrering).
+
+    Arbejdstidsloven requires employees to be able to access their own
+    recorded working time. This returns their daily register — built from the
+    same HoursLogged rows the Stempelur clock + owner logging write — for the
+    current calendar month, so they can verify it. Compliance flags
+    (rest/cap) stay owner-side; staff just see their own registered time.
+    """
+    link, member = _get_staff_from_token(token, db)
+    from app.services import time_registration as tr
+    import calendar as _cal
+    today = date.today()
+    start = today.replace(day=1)
+    end = today.replace(day=_cal.monthrange(today.year, today.month)[1])
+    rows = (
+        db.query(HoursLogged)
+        .filter(
+            HoursLogged.user_id == link.user_id,
+            HoursLogged.staff_id == member.id,
+            HoursLogged.date >= start,
+            HoursLogged.date <= end,
+        )
+        .order_by(HoursLogged.date)
+        .all()
+    )
+    register = [
+        {"date": e.date, "start": e.start, "end": e.end,
+         "break_minutes": e.break_minutes, "hours": e.hours, "source": e.source}
+        for e in tr.daily_register(rows)
+    ]
+    return {
+        "staff_name": member.name,
+        "period_start": start.isoformat(),
+        "period_end": end.isoformat(),
+        "total_hours": round(sum(r["hours"] for r in register), 1),
+        "days_registered": len(register),
+        "register": register,
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  Punch-clock — staff self-clock from the portal. A clock-in/out writes the
 #  SAME HoursLogged rows the owner already sees (entry_method="clock"), so it

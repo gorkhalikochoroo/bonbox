@@ -153,6 +153,7 @@ const navGroups = [
     items: [
       { to: "/staff/schedule", icon: "Calendar", labelKey: "staffSchedule" },
       { to: "/staff/hours", icon: "Timer", labelKey: "staffHours" },
+      { to: "/staff/time-registration", icon: "Clock", labelKey: "staffTimeReg" },
       { to: "/staff/tips", icon: "Coins", labelKey: "staffTips" },
       { to: "/staff/payroll", icon: "FileSpreadsheet", labelKey: "staffPayroll" },
     ],

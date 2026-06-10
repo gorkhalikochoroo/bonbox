@@ -1989,6 +1989,103 @@ def list_hours(
     return q.order_by(HoursLogged.date, HoursLogged.staff_id).all()
 
 
+# ─── Tidsregistrering — DK working-time compliance (Arbejdstidsloven) ───
+# Reads the existing HoursLogged rows (Stempelur clock + manual logs) and
+# returns the per-employee register + 11h-rest / 48h-weekly-cap compliance
+# view an Arbejdstilsynet inspection needs. No new data is captured — this is
+# the interpretation/export layer over hours you already record.
+# Starter+ (sits with the rest of the staff section).
+# Route order matters: the literal /export.csv MUST come before /{staff_id}
+# or FastAPI matches "export.csv" as a staff_id (the route-shadow trap).
+def _require_time_registration(user: User):
+    from app.services.billing import has_feature, feature_locked_detail
+    if not has_feature(user, "time_registration"):
+        raise HTTPException(status_code=402, detail={
+            "error": "feature_locked",
+            **feature_locked_detail(user, "time_registration"),
+        })
+
+
+def _active_staff(db: Session, user_id) -> list[StaffMember]:
+    return (
+        db.query(StaffMember)
+        .filter(
+            StaffMember.user_id == user_id,
+            StaffMember.active.is_(True),
+            StaffMember.is_deleted.isnot(True),
+        )
+        .order_by(StaffMember.name)
+        .all()
+    )
+
+
+@router.get("/time-registration")
+def time_registration_summary(
+    from_date: date = Query(..., alias="from"),
+    to_date: date = Query(..., alias="to"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner overview — one compliance scan-line per active employee."""
+    _require_time_registration(user)
+    from app.services import time_registration as tr
+    members = _active_staff(db, user.id)
+    return tr.venue_compliance_summary(db, user.id, members, from_date, to_date)
+
+
+@router.get("/time-registration/export.csv")
+def time_registration_csv(
+    from_date: date = Query(..., alias="from"),
+    to_date: date = Query(..., alias="to"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Machine-readable register for the whole venue — inspection-ready CSV."""
+    _require_time_registration(user)
+    import csv as _csv
+    import io as _io
+    from app.services import time_registration as tr
+    from app.utils.csv_safe import csv_safe
+    members = _active_staff(db, user.id)
+    buf = _io.StringIO()
+    w = _csv.writer(buf, delimiter=";")
+    w.writerow(["Medarbejder", "Dato", "Start", "Slut", "Pause (min)", "Timer", "Kilde"])
+    for m in members:
+        ec = tr.employee_compliance(db, user.id, m, from_date, to_date)
+        for e in ec["register"]:
+            w.writerow([
+                csv_safe(ec["staff_name"]), e["date"], e["start"] or "", e["end"] or "",
+                e["break_minutes"], f"{e['hours']:.1f}".replace(".", ","), e["source"],
+            ])
+    buf.seek(0)
+    fname = f"tidsregistrering_{from_date.isoformat()}_{to_date.isoformat()}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
+    )
+
+
+@router.get("/time-registration/{staff_id}")
+def time_registration_employee(
+    staff_id: str,
+    from_date: date = Query(..., alias="from"),
+    to_date: date = Query(..., alias="to"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Full register + compliance detail for one employee."""
+    _require_time_registration(user)
+    from app.services import time_registration as tr
+    member = db.query(StaffMember).filter(
+        StaffMember.id == staff_id,
+        StaffMember.user_id == user.id,
+    ).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+    return tr.employee_compliance(db, user.id, member, from_date, to_date)
+
+
 @router.post("/hours", response_model=HoursLogResponse)
 def log_hours(
     data: HoursLogCreate,

@@ -200,6 +200,7 @@ const NewJobPage = lazyRetry(() => import("./pages/JobCardPage").then(m => ({ de
 const PrivacyPolicyPage = lazyRetry(() => import("./pages/PrivacyPolicyPage"));
 const StaffSchedulePage = lazyRetry(() => import("./pages/StaffSchedulePage"));
 const StaffHoursPage = lazyRetry(() => import("./pages/StaffHoursPage"));
+const TimeRegistrationPage = lazyRetry(() => import("./pages/TimeRegistrationPage"));
 const StaffTipsPage = lazyRetry(() => import("./pages/StaffTipsPage"));
 const StaffPayrollPage = lazyRetry(() => import("./pages/StaffPayrollPage"));
 const MorePage = lazyRetry(() => import("./pages/MorePage"));
@@ -429,6 +430,7 @@ function AppRoutes() {
           <Route path="/team" element={<TeamPage />} />
           <Route path="/staff/schedule" element={<StaffSchedulePage />} />
           <Route path="/staff/hours" element={<StaffHoursPage />} />
+          <Route path="/staff/time-registration" element={<TimeRegistrationPage />} />
           <Route path="/staff/tips" element={<StaffTipsPage />} />
           <Route path="/staff/payroll" element={<StaffPayrollPage />} />
           <Route path="/more" element={<MorePage />} />
