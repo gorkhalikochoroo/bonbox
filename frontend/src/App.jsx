@@ -462,6 +462,11 @@ function AppRoutes() {
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/admin/training" element={<AdminTrainingPage />} />
         </Route>
+        {/* Catch-all — any unknown / mistyped / stale-bookmark URL routes to
+            "/", which renders the landing page (logged-out) or the dashboard
+            (logged-in). Without this, an unmatched path rendered a blank
+            white screen with no redirect. (Audit 2026-06-10) */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
   );

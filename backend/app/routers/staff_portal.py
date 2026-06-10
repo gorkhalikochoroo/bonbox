@@ -647,6 +647,11 @@ def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)
     if not punch:
         raise HTTPException(status_code=409, detail={"error": "not_clocked_in"})
     end_str = now_local(owner).strftime("%H:%M")
+    # _calc_shift_hours lives in routers/staff.py. Imported locally (like
+    # _pick_rate just below) to avoid a module-level circular import — it
+    # was previously referenced here but never imported, which 500'd every
+    # staff clock-out. (Audit 2026-06-10)
+    from app.routers.staff import _calc_shift_hours
     total = (
         0.0 if end_str == (punch.start_time or "")
         else _calc_shift_hours(punch.start_time, end_str, punch.break_minutes or 0)

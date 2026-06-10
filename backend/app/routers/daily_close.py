@@ -3025,6 +3025,7 @@ def daily_close_pdf(
 @router.delete("/{close_id}", status_code=204)
 def delete_daily_close(
     close_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -3034,6 +3035,29 @@ def delete_daily_close(
     ).first()
     if not dc:
         raise HTTPException(status_code=404, detail="Daily close not found")
+    # A locked (status=="confirmed") close is the legal kasserapport for
+    # that day under Bogføringsloven §10 — it must NOT be deletable without
+    # an explicit unlock first. Refuse and tell the owner to unlock.
+    # (Audit 2026-06-10 — previously any close could be soft-deleted with
+    # no lock check and no audit row.)
+    if (dc.status or "").lower() == "confirmed":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "close_locked",
+                "message": "This close is locked. Unlock it first, then delete.",
+            },
+        )
     dc.is_deleted = True
     dc.deleted_at = utc_now()
+    # L7 — every delete leaves an audit trail (who, when, which date).
+    audit_service.record(
+        db, user=user,
+        action="close.deleted",
+        entity_type="daily_close",
+        entity_id=dc.id,
+        before={"date": dc.date.isoformat() if dc.date else None, "status": dc.status},
+        after={"is_deleted": True},
+        ip_address=getattr(request.client, "host", None) if request.client else None,
+    )
     db.commit()

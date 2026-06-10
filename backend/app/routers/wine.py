@@ -17,6 +17,7 @@ Endpoints:
 """
 
 import io
+import html
 import json
 import os
 import uuid
@@ -283,6 +284,17 @@ def wine_summary(
         "low_stock_wines": [{"name": w.name, "qty": w.stock_qty} for w in low_stock[:5]],
         "top_sellers": top_sellers,
     }
+
+
+# NOTE: literal routes (/menu-token) MUST be declared BEFORE the
+# parameterized /{wine_id} route. FastAPI matches in definition order, so
+# if /{wine_id} comes first it captures "menu-token" as a wine_id and this
+# endpoint 404s — which silently killed the QR-menu feature. (Audit 2026-06-10)
+@router.get("/menu-token")
+def get_menu_token(user: User = Depends(get_current_user)):
+    """Get the public menu token + URL for QR code generation."""
+    token = _menu_token(str(user.id))
+    return {"token": token, "url": f"/api/wines/menu/{token}"}
 
 
 @router.get("/{wine_id}")
@@ -883,13 +895,6 @@ def _menu_token(user_id: str) -> str:
     return hashlib.sha256(f"bonbox-wine-{user_id}".encode()).hexdigest()[:16]
 
 
-@router.get("/menu-token")
-def get_menu_token(user: User = Depends(get_current_user)):
-    """Get the public menu token + URL for QR code generation."""
-    token = _menu_token(str(user.id))
-    return {"token": token, "url": f"/api/wines/menu/{token}"}
-
-
 @router.get("/menu/{token}")
 def public_wine_menu(token: str, db: Session = Depends(get_db)):
     """Public-facing HTML wine menu — no auth, shareable via QR."""
@@ -912,7 +917,12 @@ def public_wine_menu(token: str, db: Session = Depends(get_db)):
     )
 
     currency = owner.currency or "DKK"
-    biz_name = owner.business_name or "Wine Menu"
+    # html.escape EVERY owner-controlled string before it lands in the
+    # public menu HTML — wine names / notes / pairings are free-text the
+    # owner types, so without escaping a saved `<script>` would run on
+    # every customer who opens the QR menu (stored XSS). (Audit 2026-06-10)
+    esc = html.escape
+    biz_name = esc(owner.business_name or "Wine Menu")
 
     # Group by type
     type_labels = {
@@ -930,24 +940,24 @@ def public_wine_menu(token: str, db: Session = Depends(get_db)):
     for wtype in type_order:
         if wtype not in grouped:
             continue
-        sections_html += f'<div class="section"><h2>{type_labels.get(wtype, wtype.title())}</h2>'
+        sections_html += f'<div class="section"><h2>{esc(type_labels.get(wtype, wtype.title()))}</h2>'
         for w in grouped[wtype]:
             detail_parts = []
             if w.grape_variety:
-                detail_parts.append(w.grape_variety)
+                detail_parts.append(esc(w.grape_variety))
             if w.region:
-                detail_parts.append(f"{w.region}, {w.country}" if w.country else w.region)
+                detail_parts.append(esc(f"{w.region}, {w.country}" if w.country else w.region))
             if w.vintage:
-                detail_parts.append(str(w.vintage))
+                detail_parts.append(esc(str(w.vintage)))
             detail = " · ".join(detail_parts)
-            notes = f'<p class="notes">"{w.tasting_notes}"</p>' if w.tasting_notes else ""
-            pairing = f'<p class="pair">Pairs with: {w.food_pairing}</p>' if w.food_pairing else ""
-            price = f"{float(w.sell_price):,.0f} {currency}"
+            notes = f'<p class="notes">"{esc(w.tasting_notes)}"</p>' if w.tasting_notes else ""
+            pairing = f'<p class="pair">Pairs with: {esc(w.food_pairing)}</p>' if w.food_pairing else ""
+            price = f"{float(w.sell_price):,.0f} {esc(currency)}"
             sections_html += f'''
             <div class="wine">
               <div class="wine-header">
-                <div><span class="name">{w.name}</span>
-                {f'<span class="winery"> — {w.winery}</span>' if w.winery else ''}</div>
+                <div><span class="name">{esc(w.name)}</span>
+                {f'<span class="winery"> — {esc(w.winery)}</span>' if w.winery else ''}</div>
                 <span class="price">{price}</span>
               </div>
               <p class="detail">{detail}</p>
