@@ -77,6 +77,10 @@ import {
   // POS terminal auto-detect (Commit 2, 2026-05-28) — Cpu conveys
   // "device identified" on the Daily Close detected-terminal chip.
   Cpu,
+  // Tidsregistrering (DK working-time, 2026-06) — month-nav chevrons +
+  // Scale for the Arbejdstidsloven legal note. ChevronUp pairs with the
+  // already-mapped ChevronDown on the expandable employee register rows.
+  ChevronLeft, ChevronRight, ChevronUp, Scale,
   // Misc / fallback
   Circle, ChevronDown,
 } from "lucide-react";
@@ -132,6 +136,8 @@ const ICONS = {
   Coffee, UtensilsCrossed, Beer, Crown, Eye,
   // POS terminal auto-detect chip (Commit 2)
   Cpu,
+  // Tidsregistrering — working-time nav + legal note (2026-06)
+  ChevronLeft, ChevronRight, ChevronUp, Scale,
   // Utility
   ChevronDown,
 };

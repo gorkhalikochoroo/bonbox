@@ -47,6 +47,8 @@ const translations = {
   en: {
     // Tidsregistrering (DK working-time compliance — Arbejdstidsloven)
     staffTimeReg: "Tidsregistrering",
+    yes: "Yes",
+    no: "No",
     tregTitle: "Tidsregistrering",
     tregSubtitle: "Legal working-time register — ready for Arbejdstilsynet",
     tregDownload: "Download register",
@@ -5116,6 +5118,8 @@ const translations = {
   da: {
     // Tidsregistrering (DK arbejdstidskompliance)
     staffTimeReg: "Tidsregistrering",
+    yes: "Ja",
+    no: "Nej",
     tregTitle: "Tidsregistrering",
     tregSubtitle: "Lovpligtig arbejdstidsregistrering — klar til Arbejdstilsynet",
     tregDownload: "Hent register",

@@ -2047,6 +2047,9 @@ def time_registration_csv(
     from app.services import time_registration as tr
     from app.utils.csv_safe import csv_safe
     members = _active_staff(db, user.id)
+    # Kilde stays Danish — this CSV is an Arbejdstilsynet-facing artifact,
+    # so raw entry_method enums ("clock") must not leak into it.
+    kilde = {"clock": "Stempelur", "schedule": "Vagtplan"}
     buf = _io.StringIO()
     w = _csv.writer(buf, delimiter=";")
     w.writerow(["Medarbejder", "Dato", "Start", "Slut", "Pause (min)", "Timer", "Kilde"])
@@ -2055,7 +2058,8 @@ def time_registration_csv(
         for e in ec["register"]:
             w.writerow([
                 csv_safe(ec["staff_name"]), e["date"], e["start"] or "", e["end"] or "",
-                e["break_minutes"], f"{e['hours']:.1f}".replace(".", ","), e["source"],
+                e["break_minutes"], f"{e['hours']:.1f}".replace(".", ","),
+                kilde.get(e["source"], "Manuel"),
             ])
     buf.seek(0)
     fname = f"tidsregistrering_{from_date.isoformat()}_{to_date.isoformat()}.csv"
