@@ -965,7 +965,10 @@ def public_wine_menu(token: str, db: Session = Depends(get_db)):
             </div>'''
         sections_html += "</div>"
 
-    html = f"""<!DOCTYPE html>
+    # NB: named html_doc (not `html`) so it doesn't shadow the module-level
+    # `import html` used by esc=html.escape above — a local `html = ...`
+    # makes `html` function-local for the whole scope → UnboundLocalError.
+    html_doc = f"""<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{biz_name} — Wine Menu</title>
 <style>
@@ -992,7 +995,7 @@ h2{{font-size:15px;color:#722f37;text-transform:uppercase;letter-spacing:2px;bor
 <p class="footer">Powered by BonBox · {len(wines)} wines available</p>
 </body></html>"""
 
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=html_doc)
 
 
 # ── AI Sommelier ─────────────────────────────────────────────
