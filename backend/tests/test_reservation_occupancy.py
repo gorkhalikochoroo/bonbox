@@ -477,7 +477,10 @@ def test_owner_manual_explicit_table_writes_occupancy(client, db, engine_and_ses
 
 
 def test_owner_manual_unassigned_no_occupancy(client, db, engine_and_session):
-    """Owner-manual booking with NO table ('seat later') holds nothing."""
+    """Owner-manual booking with NO table and auto_assign explicitly OFF
+    ('seat later') holds nothing. (The default is now auto_assign=true, which
+    picks a table like the public path — covered in
+    test_owner_booking_capacity.py.)"""
     owner, profile, _ = _restaurant(db, tables=1)
     _override_user(owner)
     try:
@@ -486,6 +489,7 @@ def test_owner_manual_unassigned_no_occupancy(client, db, engine_and_session):
             json={
                 "guest_name": "Later", "party_size": 2,
                 "starts_at": "2026-06-12T19:00:00", "source": "manual",
+                "auto_assign": False,
             },
         )
         assert resp.status_code == 201, resp.text

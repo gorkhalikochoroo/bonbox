@@ -21,12 +21,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.bookable_resource import BookableResource
 from app.models.business_profile import BusinessProfile
 from app.models.reservation import Reservation
+from app.models.reservation_occupancy import ReservationOccupancy
 from app.models.user import User
 from app.services import audit_service
 from app.services.allergens import allergen_set_for, SEVERITY_LEVELS
@@ -164,6 +166,20 @@ class ManualReservation(BaseModel):
     allergen_tags: list[str] | None = None
     allergy_note: str | None = Field(default=None, max_length=2000)
     allergy_severity: str | None = None
+    # Capacity awareness for the owner path. auto_assign=True (default): when
+    # no table is picked, run the SAME auto-pick the public widget uses so a
+    # phone booking holds real inventory (occupancy row) instead of silently
+    # overbooking the room. allow_overflow=True lets the owner deliberately
+    # accept the booking unassigned when no table fits (they know their floor —
+    # bar seats, an extra chair); the response then carries "overflow": true.
+    auto_assign: bool = True
+    allow_overflow: bool = False
+
+
+class TableAssign(BaseModel):
+    # PATCH /reservations/{id}/table body. A UUID assigns/moves the booking to
+    # that table; explicit null clears the assignment and releases the hold.
+    resource_id: UUID | None = None
 
 
 class StatusUpdate(BaseModel):
@@ -589,6 +605,23 @@ def _assert_owned_resource(db: Session, user: User, resource_id: UUID) -> None:
         raise HTTPException(status_code=404, detail={"error": "resource_not_found"})
 
 
+def _room_full_detail(db: Session, user: User, party_size: int) -> dict:
+    """Cheap capacity context for the 409 room_full payload: how many seats
+    the room has in total (active, non-deleted tables/rooms — providers carry
+    appointment capacity, not covers). One aggregate query."""
+    total_seats = (
+        db.query(func.coalesce(func.sum(BookableResource.capacity_seats), 0))
+        .filter(
+            BookableResource.user_id == user.id,
+            BookableResource.is_deleted.is_(False),
+            BookableResource.is_active.is_(True),
+            BookableResource.kind != "provider",
+        )
+        .scalar()
+    ) or 0
+    return {"error": "room_full", "requested": party_size, "total_seats": int(total_seats)}
+
+
 @router.post("/book", status_code=201)
 def create_manual(payload: ManualReservation, request: Request,
                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -619,11 +652,52 @@ def create_manual(payload: ManualReservation, request: Request,
     settings = rsvc.load_settings(profile)
     r.purge_after = payload.starts_at + timedelta(days=int(settings.get("retention_days", 90)))
 
+    overflow = False
     if payload.resource_id is None:
-        # Owner left the table unassigned ("seat later") — no hold, no
-        # occupancy row, plain insert.
-        db.add(r)
-        db.flush()
+        assigned = False
+        if payload.auto_assign:
+            # Mirror the public widget's auto-pick exactly (same combo-aware
+            # recheck + same duration resolution) so an owner phone booking
+            # holds real inventory like a public one. now=None on purpose:
+            # the host may take a call for "tonight in 20 minutes" — the
+            # guest-facing lead-time rule doesn't bind the owner (matches the
+            # existing owner explicit-table path, which also passes now=None).
+            resource_ids = rsvc.recheck_and_assign_combo(
+                db, profile=profile, user_id=user.id, start=payload.starts_at,
+                party_size=payload.party_size, now=None, duration_min=duration,
+            )
+            if resource_ids:
+                try:
+                    # Same insert-and-catch as the public path: reassign=True
+                    # re-picks a different free table if this one loses a race.
+                    occ_service.create_reservation_with_occupancy(
+                        db, profile=profile, reservation=r,
+                        initial_resource_ids=resource_ids,
+                        party_size=payload.party_size, start=payload.starts_at,
+                        duration_min=duration, now=None, reassign=True,
+                    )
+                    assigned = True
+                except occ_service.SlotUnavailable:
+                    assigned = False
+            if not assigned and not payload.allow_overflow:
+                # No table (or combination) fits this party for the slot and
+                # the owner didn't opt into overbooking → honest 409 with
+                # cheap capacity context instead of a silent phantom booking.
+                raise HTTPException(
+                    status_code=409,
+                    detail=_room_full_detail(db, user, payload.party_size),
+                )
+        if not assigned:
+            # Plain unassigned insert — either auto_assign was off (legacy
+            # "seat later") or the room is full and the owner explicitly chose
+            # to overflow. The helper above may have stamped a failed
+            # candidate on the object before rolling back — clear it so the
+            # booking is saved honestly unassigned (no phantom table).
+            overflow = bool(payload.auto_assign)  # only when we tried + failed
+            r.resource_id = None
+            r.combined_resource_ids = None
+            db.add(r)
+            db.flush()
     else:
         # Owner picked a specific table → write reservation + an active
         # occupancy row atomically. Unlike the public auto-assign path we do
@@ -642,6 +716,85 @@ def create_manual(payload: ManualReservation, request: Request,
 
     audit_service.record(db, user, "reservation.created_manual", "reservation", r.id)
     db.commit()
+    out = _reservation_dict(r)
+    if overflow:
+        # The owner knowingly overbooked — flag it so the UI can badge the
+        # booking (and the Timeline's unassigned lane can explain itself).
+        out["overflow"] = True
+    return out
+
+
+@router.patch("/reservations/{reservation_id}/table")
+def assign_table(reservation_id: UUID, payload: TableAssign, request: Request,
+                 db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Assign / move / clear the table on an existing reservation.
+
+    body {"resource_id": "<uuid>"} → (re)assign: release any previous hold,
+    claim the new table atomically (409 slot_unavailable if it's taken for the
+    booking's window). body {"resource_id": null} → clear the assignment and
+    release the hold. Tenant-scoped on BOTH the reservation and the resource.
+    """
+    enforce_feature(user, "reservations")
+    r = (
+        db.query(Reservation)
+        .filter(Reservation.id == reservation_id, Reservation.user_id == user.id,
+                Reservation.is_deleted.is_(False))
+        .first()
+    )
+    if r is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+    if payload.resource_id is None:
+        # Clear the assignment + free the slot (mirrors the terminal-status
+        # release in update_status, but the booking itself stays live).
+        occ_service.release_occupancy(db, r.id)
+        r.resource_id = None
+        r.combined_resource_ids = None
+        audit_service.record(db, user, "reservation.table_assigned", "reservation", r.id)
+        db.commit()
+        return _reservation_dict(r)
+
+    _assert_owned_resource(db, user, payload.resource_id)
+
+    # App-level fast path: refuse a target table that already has an active,
+    # overlapping hold from ANOTHER reservation (half-open [start, end)).
+    # On Postgres the exclusion constraint is the real backstop (caught below);
+    # on SQLite (dev/tests) this check IS the guard — same caveat as the
+    # create paths.
+    ends_at = r.ends_at or (r.starts_at + timedelta(minutes=int(r.duration_min or 90)))
+    if r.status in occ_service.HOLDING_STATUSES:
+        clash = (
+            db.query(ReservationOccupancy.id)
+            .filter(
+                ReservationOccupancy.user_id == user.id,
+                ReservationOccupancy.resource_id == payload.resource_id,
+                ReservationOccupancy.reservation_id != r.id,
+                ReservationOccupancy.active.is_(True),
+                ReservationOccupancy.starts_at < ends_at,
+                ReservationOccupancy.ends_at > r.starts_at,
+            )
+            .first()
+        )
+        if clash is not None:
+            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+
+    r.resource_id = payload.resource_id
+    # Owner pinned ONE specific table — drop any stale combined-set (same
+    # rule as update_status's reassign branch).
+    r.combined_resource_ids = None
+    try:
+        # Release the hold(s) on the previous table(s), then claim the new
+        # one — but only holding statuses physically occupy (a completed or
+        # cancelled booking just gets the label corrected, no hold).
+        occ_service.release_occupancy(db, r.id)
+        if r.status in occ_service.HOLDING_STATUSES:
+            occ_service.add_occupancy_row(db, r, active=True)
+        audit_service.record(db, user, "reservation.table_assigned", "reservation", r.id)
+        db.commit()
+    except IntegrityError:
+        # Lost the race for the target table (Postgres exclusion constraint).
+        db.rollback()
+        raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
     return _reservation_dict(r)
 
 

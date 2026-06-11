@@ -498,12 +498,29 @@ export default function FloorPlan({
   const [savedAt, setSavedAt] = useState(0); // toast trigger
   const [saveError, setSaveError] = useState("");
   const [activeId, setActiveId] = useState(null); // table being dragged
+  // Layout we just PUT to the server. baseLayout is memoized on `cells`
+  // identity, so until the parent hands us fresh resources it still returns
+  // the PRE-drag positions — rendering from it after save makes every table
+  // snap back even though the save succeeded. Prefer this override until
+  // cells actually change.
+  const [savedLayout, setSavedLayout] = useState(null);
 
   const canvasRef = useRef(null);
   const dragRef = useRef(null); // {id, pointerId}
 
-  // Effective layout: draft when editing, else the server-derived base.
-  const layout = editing && draft ? draft : baseLayout;
+  // Freshest known server-truth layout (post-save override wins over the
+  // memoized base until the parent re-derives cells).
+  const currentLayout = savedLayout || baseLayout;
+
+  // Effective layout: draft when editing, else the freshest known layout.
+  const layout = editing && draft ? draft : currentLayout;
+
+  // Fresh server data supersedes the post-save override (the in-place res
+  // patch in saveLayout means a re-derive from the same resources already
+  // carries the saved positions).
+  useEffect(() => {
+    setSavedLayout(null);
+  }, [cells]);
 
   // Zone bands — soft labels behind the room so tables read as clusters.
   const zoneBands = useMemo(() => {
@@ -532,10 +549,10 @@ export default function FloorPlan({
 
   // ── Edit lifecycle ───────────────────────────────────────────────────
   const enterEdit = useCallback(() => {
-    setDraft(JSON.parse(JSON.stringify(baseLayout)));
+    setDraft(JSON.parse(JSON.stringify(currentLayout)));
     setSaveError("");
     setEditing(true);
-  }, [baseLayout]);
+  }, [currentLayout]);
 
   // Exit WITHOUT saving → revert (draft discarded).
   const cancelEdit = useCallback(() => {
@@ -546,22 +563,22 @@ export default function FloorPlan({
   }, []);
 
   const resetDraft = useCallback(() => {
-    setDraft(JSON.parse(JSON.stringify(baseLayout)));
-  }, [baseLayout]);
+    setDraft(JSON.parse(JSON.stringify(currentLayout)));
+  }, [currentLayout]);
 
   // Auto-arrange — tidy every table into the zone-banded grid in one tap
   // (keeps each table's round/square shape; the owner can still nudge + Save).
   const autoArrange = useCallback(() => {
     const positions = autoLayout(cells);
     setDraft((prev) => {
-      const base = prev || JSON.parse(JSON.stringify(baseLayout));
+      const base = prev || JSON.parse(JSON.stringify(currentLayout));
       const next = { ...base };
       Object.entries(positions).forEach(([id, pos]) => {
         next[id] = { ...(base[id] || {}), pos_x: pos.pos_x, pos_y: pos.pos_y };
       });
       return next;
     });
-  }, [cells, baseLayout]);
+  }, [cells, currentLayout]);
 
   const toggleShape = useCallback((id) => {
     setDraft((prev) => {
@@ -651,9 +668,11 @@ export default function FloorPlan({
     };
     try {
       await api.put("/reservations/resources/layout", body);
-      // Mutate the in-memory resources so the saved layout sticks without a
-      // refetch (the parent passes resources by reference into deriveFloorState;
-      // we patch res objects so the base layout recomputes to match the draft).
+      // Patch the in-memory res objects so the NEXT parent re-derive of cells
+      // (poll/refetch) rebuilds baseLayout with the saved positions. This
+      // alone is not enough for the current render — baseLayout is memoized
+      // on cells identity and still holds pre-drag positions — so we also
+      // keep the draft as savedLayout and render from it until cells change.
       cells.forEach((c) => {
         const l = draft[String(c.res.id)];
         if (l) {
@@ -662,6 +681,7 @@ export default function FloorPlan({
           c.res.shape = l.shape;
         }
       });
+      setSavedLayout(draft);
       setSavedAt(Date.now());
       setEditing(false);
       setDraft(null);

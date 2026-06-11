@@ -520,7 +520,18 @@ function resolveTableLabel(r, labelById) {
   return labels.length ? labels.join(" + ") : null;
 }
 
-function ReservationDrawer({ reservation, t, busy, onStatus, onClose, tableLabel = null }) {
+function ReservationDrawer({
+  reservation,
+  t,
+  busy,
+  onStatus,
+  onClose,
+  tableLabel = null,
+  tables = [],
+  onAssign = null,
+  assignBusy = false,
+  assignError = "",
+}) {
   if (!reservation) return null;
   const r = reservation;
   const labels = statusLabels(t);
@@ -631,6 +642,43 @@ function ReservationDrawer({ reservation, t, busy, onStatus, onClose, tableLabel
             )}
             {r.occasion && <DetailRow label={t("rsvpOccasion", "Occasion")} value={r.occasion} />}
           </div>
+
+          {/* Assign / move table — for live bookings (not combined seatings,
+              which span multiple tables and are managed by the engine).
+              Picking a table PATCHes immediately; 409 slot_unavailable shows
+              an honest inline error and leaves the booking untouched. */}
+          {onAssign &&
+            tables.length > 0 &&
+            ["requested", "confirmed", "seated"].includes(r.status) &&
+            !(Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length > 1) && (
+              <div>
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  {t("rsvpAssignTable", "Assign table")}
+                </label>
+                <select
+                  value={r.resource_id ? String(r.resource_id) : ""}
+                  disabled={busy || assignBusy}
+                  onChange={(e) => onAssign(r, e.target.value || null)}
+                  aria-label={t("rsvpAssignTable", "Assign table")}
+                  className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm disabled:opacity-50"
+                >
+                  <option value="">
+                    {r.resource_id
+                      ? t("rsvpNoTable", "No table")
+                      : t("rsvpChooseTable", "Choose a table…")}
+                  </option>
+                  {tables.map((tb) => (
+                    <option key={tb.id} value={String(tb.id)}>
+                      {tb.label} · {tb.capacity_seats} {t("rsvpSeats", "seats")}
+                    </option>
+                  ))}
+                </select>
+                {assignError && (
+                  <p className="mt-1.5 text-sm text-red-600 dark:text-red-400">{assignError}</p>
+                )}
+              </div>
+            )}
+
           {r.guest_notes && (
             <p className="text-sm text-gray-600 dark:text-gray-300">{r.guest_notes}</p>
           )}
@@ -763,6 +811,226 @@ function SeatNowSheet({ table, t, busy, onSeat, onClose }) {
   );
 }
 
+// ─── New booking (owner takes a phone booking for a future slot) ──────
+// 15-minute slot options for the time select, 12:00–23:45 — matches the
+// public widget's granularity without pretending to be the availability
+// engine (the backend's auto-assign is the source of truth on submit).
+const QUARTER_TIMES = (() => {
+  const out = [];
+  const pad = (n) => String(n).padStart(2, "0");
+  for (let m = 12 * 60; m <= 23 * 60 + 45; m += 15) {
+    out.push(`${pad(Math.floor(m / 60))}:${pad(m % 60)}`);
+  }
+  return out;
+})();
+
+// Default time for a new booking: the evening service start (18:00) — or,
+// when the host is taking a booking for later TODAY and the evening is
+// already underway, the next quarter-hour from now (clamped to 23:45).
+function defaultBookingTime(forDay) {
+  let m = 18 * 60;
+  if (forDay === isoDay(new Date())) {
+    const now = new Date();
+    const next = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 15) * 15;
+    if (next > m) m = next;
+  }
+  if (m > 23 * 60 + 45) m = 23 * 60 + 45;
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+}
+
+// NewBookingSheet — the host takes a future (phone) booking: date, time,
+// party, name, optional phone. Submits through the page-level handler so
+// the 409 room_full warning ("honest pushback") can keep the sheet open
+// and offer "book anyway (no table)" vs "pick another time".
+function NewBookingSheet({ day, t, busy, warning, onClearWarning, error, onSubmit, onClose }) {
+  const [date, setDate] = useState(day);
+  const [time, setTime] = useState(() => defaultBookingTime(day));
+  const [party, setParty] = useState("2");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [nameMissing, setNameMissing] = useState(false);
+  const sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+  const submit = (allowOverflow) => {
+    const guest_name = name.trim();
+    if (!guest_name) {
+      setNameMissing(true);
+      return;
+    }
+    onSubmit(
+      {
+        guest_name,
+        guest_phone: phone.trim() || null,
+        party_size: Math.max(1, Math.min(100, parseInt(party, 10) || 2)),
+        date,
+        time,
+      },
+      allowOverflow,
+    );
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
+      <div
+        className="relative w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-gray-800 shadow-2xl p-5 space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto"
+        style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            {t("rsvpNewBooking", "New booking")}
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("close", "Close")}
+            className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              {t("rsvpDateLabel", "Date")}
+            </label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => {
+                if (e.target.value) setDate(e.target.value);
+                if (warning) onClearWarning();
+              }}
+              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              {t("rsvpTimeLabel", "Time")}
+            </label>
+            <select
+              value={time}
+              onChange={(e) => {
+                setTime(e.target.value);
+                if (warning) onClearWarning();
+              }}
+              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+            >
+              {QUARTER_TIMES.map((tm) => (
+                <option key={tm} value={tm}>
+                  {tm}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            {t("rsvpPartySize", "Party size")}
+          </label>
+          <div className="flex flex-wrap gap-2 mt-1.5">
+            {sizes.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => {
+                  setParty(String(n));
+                  if (warning) onClearWarning();
+                }}
+                className={
+                  "h-11 min-w-[44px] px-3 rounded-lg border text-sm font-medium tabular-nums " +
+                  (String(n) === party
+                    ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+                    : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600")
+                }
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            {t("rsvpNbGuestName", "Guest name")}
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (nameMissing && e.target.value.trim()) setNameMissing(false);
+            }}
+            maxLength={160}
+            placeholder={t("rsvpNamePh", "Anna Hansen")}
+            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+          />
+          {nameMissing && (
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+              {t("rsvpNameRequired", "Enter your name.")}
+            </p>
+          )}
+        </div>
+
+        <div>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            {t("rsvpPhone", "Phone (optional)")}
+          </label>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            maxLength={40}
+            placeholder={t("rsvpPhonePh", "+45 12 34 56 78")}
+            className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+          />
+        </div>
+
+        {/* Honest room-full pushback — the room can't seat this party at that
+            time. The host decides: take it anyway (waitlist-style, no table)
+            or pick another time. */}
+        {warning && (
+          <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300 space-y-2.5">
+            <div className="font-semibold flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden />
+              {warning.seats != null
+                ? t("rsvpRoomFullWarn", "That time is full — {n} seats.", { n: warning.seats })
+                : t("rsvpRoomFullShort", "That time is full.")}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" size="md" disabled={busy} onClick={() => submit(true)}>
+                {t("rsvpBookAnyway", "Book anyway (no table)")}
+              </Button>
+              <Button variant="ghost" size="md" disabled={busy} onClick={onClearWarning}>
+                {t("rsvpPickAnotherTime", "Pick another time")}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+        <Button
+          variant="primary"
+          size="lg"
+          busy={busy}
+          className="w-full justify-center"
+          onClick={() => submit(false)}
+        >
+          {t("rsvpCreateBooking", "Create booking")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Tidslinje (service timeline grid) ────────────────────────────────
 // Minutes since midnight for an ISO datetime (the timeline's X axis).
 function minOfDay(iso) {
@@ -787,6 +1055,40 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
     () => reservations.filter((r) => ["requested", "confirmed", "seated"].includes(r.status)),
     [reservations],
   );
+
+  // Bookings with NO table yet (requested/confirmed) — without this lane
+  // they'd be invisible on the timeline, which is how overbookings hide.
+  // Greedy interval-packing into sub-lanes so overlapping blocks never
+  // cover each other.
+  const unassigned = useMemo(() => {
+    const blocks = holding
+      .filter(
+        (r) =>
+          !r.resource_id &&
+          !(Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length) &&
+          ["requested", "confirmed"].includes(r.status) &&
+          r.starts_at,
+      )
+      .map((r) => {
+        let s = minOfDay(r.starts_at);
+        let e = r.ends_at ? minOfDay(r.ends_at) : s + 90;
+        if (e <= s) e += 1440;
+        return { r, s, e, lane: 0 };
+      })
+      .sort((a, b) => a.s - b.s || a.e - b.e);
+    const laneEnds = [];
+    blocks.forEach((b) => {
+      let li = laneEnds.findIndex((end) => end <= b.s);
+      if (li === -1) {
+        laneEnds.push(b.e);
+        li = laneEnds.length - 1;
+      } else {
+        laneEnds[li] = b.e;
+      }
+      b.lane = li;
+    });
+    return { blocks, laneCount: Math.max(1, laneEnds.length) };
+  }, [holding]);
 
   // Service window derived from the day's bookings (min start → max end),
   // hour-aligned and clamped to at least 4h. Empty day falls back to 16–23.
@@ -873,6 +1175,69 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
             )}
           </div>
         </div>
+
+        {/* Unassigned lane — bookings still without a table, ABOVE the room
+            so the host can't miss them. Amber = needs attention. Click a
+            block → same detail drawer (where the Assign-table control is). */}
+        {unassigned.blocks.length > 0 && (
+          <div
+            className="flex border-b border-gray-200 dark:border-gray-800"
+            style={{ height: unassigned.laneCount * 44 }}
+          >
+            <div
+              style={{ width: RAIL_W }}
+              className="shrink-0 sticky left-0 z-10 bg-amber-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 px-2 flex flex-col justify-center"
+            >
+              <span className="text-sm font-semibold text-amber-700 dark:text-amber-400 truncate leading-tight">
+                {t("rsvpUnassignedLane", "Unassigned")}
+              </span>
+              <span className="text-[10px] text-amber-600/80 dark:text-amber-500/80 tabular-nums">
+                {unassigned.blocks.length}
+              </span>
+            </div>
+            <div style={{ width: bodyW }} className="relative bg-amber-50/40 dark:bg-amber-900/10">
+              {hours.map((m) => (
+                <span
+                  key={m}
+                  style={{ left: (m - startMin) * PX }}
+                  className="absolute top-0 bottom-0 border-l border-gray-100 dark:border-gray-800"
+                  aria-hidden
+                />
+              ))}
+              {nowX != null && (
+                <span
+                  style={{ left: nowX }}
+                  className="absolute top-0 bottom-0 border-l-2 border-gray-900 dark:border-gray-100 z-[2]"
+                  aria-hidden
+                />
+              )}
+              {unassigned.blocks.map(({ r, s, e, lane }) => {
+                const left = Math.max(0, (s - startMin) * PX);
+                const width = Math.max(30, (Math.min(e, endMin) - Math.max(s, startMin)) * PX - 2);
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => onSelect(r)}
+                    title={`${fmtTime(r.starts_at)} ${r.guest_name || ""} (${r.party_size}) · ${labels[r.status] || r.status}`}
+                    style={{ left, width, top: lane * 44 + 5, height: 34 }}
+                    className="absolute rounded-md border border-dashed border-amber-500 dark:border-amber-500 bg-amber-50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 px-1.5 overflow-hidden text-left flex flex-col justify-center"
+                  >
+                    <span className="text-[11px] font-semibold leading-none truncate">
+                      {fmtTime(r.starts_at)} · {r.party_size}
+                    </span>
+                    <span className="text-[10px] leading-tight truncate opacity-90 mt-0.5 flex items-center gap-0.5">
+                      {r.allergy_severity === "severe" && (
+                        <AlertTriangle className="w-3 h-3 shrink-0 text-red-500" aria-hidden />
+                      )}
+                      {r.guest_name || t("rsvpGuest", "Guest")}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Table rows */}
         {tables.map((tbl) => {
@@ -1016,6 +1381,14 @@ function BookSection({ t, businessType }) {
   // Seat-now: the free table the host is seating a walk-in onto.
   const [seatTarget, setSeatTarget] = useState(null);
   const [seating, setSeating] = useState(false);
+  // New booking (owner takes a phone booking for a future slot).
+  const [newOpen, setNewOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [roomFull, setRoomFull] = useState(null); // {seats} on 409 room_full
+  const [createError, setCreateError] = useState("");
+  // Assign/move table from the detail drawer.
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState("");
 
   const pickView = (v) => {
     setView(v);
@@ -1134,8 +1507,93 @@ function BookSection({ t, businessType }) {
     }
   };
 
+  // Take a future (phone) booking. auto_assign:true lets the backend pick a
+  // table via the availability engine; a 409 room_full keeps the sheet open
+  // with an honest warning and the explicit "book anyway (no table)" path
+  // (allow_overflow:true → saved unassigned with overflow:true).
+  const createBooking = async (form, allowOverflow = false) => {
+    setCreating(true);
+    setCreateError("");
+    if (!allowOverflow) setRoomFull(null);
+    try {
+      await api.post("/reservations/book", {
+        guest_name: form.guest_name,
+        guest_phone: form.guest_phone,
+        party_size: form.party_size,
+        starts_at: `${form.date}T${form.time}:00`,
+        resource_id: null,
+        source: "manual",
+        status: "confirmed",
+        auto_assign: true,
+        ...(allowOverflow ? { allow_overflow: true } : {}),
+      });
+      setNewOpen(false);
+      setRoomFull(null);
+      // Jump the book to the booked date so the new booking is visible.
+      if (form.date !== day) setDay(form.date);
+      else await fetchBook(day);
+    } catch (e) {
+      const d = e?.response?.data?.detail || {};
+      if (e?.response?.status === 409 && d.error === "room_full") {
+        const seats = d.seats ?? d.total_seats ?? d.capacity ?? (totalCapacity || null);
+        setRoomFull({ seats });
+      } else {
+        setCreateError(
+          d.error || t("rsvpCreateError", "Couldn't create the booking."),
+        );
+      }
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const openNewBooking = () => {
+    setRoomFull(null);
+    setCreateError("");
+    setNewOpen(true);
+  };
+
+  // Assign / move / clear the booking's table from the detail drawer.
+  // PATCH then refetch (no in-place object patching — the memo-on-identity
+  // trap) and re-point the drawer at the fresh row so it shows the new table.
+  const assignTable = async (r, resourceId) => {
+    const current = r.resource_id ? String(r.resource_id) : null;
+    const next = resourceId ? String(resourceId) : null;
+    if (current === next) return;
+    setAssigning(true);
+    setAssignError("");
+    try {
+      await api.patch(`/reservations/reservations/${r.id}/table`, { resource_id: next });
+      const res = await api.get("/reservations/book", { params: { day } });
+      setData(res.data || null);
+      const fresh = (res.data?.reservations || []).find((x) => x.id === r.id);
+      if (fresh) setSelected(fresh);
+    } catch (e) {
+      const d = e?.response?.data?.detail || {};
+      if (e?.response?.status === 409 && d.error === "slot_unavailable") {
+        const label = (next && labelById[next]) || t("rsvpTableFallback", "Table");
+        setAssignError(t("rsvpTableTaken", "{label} is taken at that time.", { label }));
+      } else {
+        setAssignError(d.error || t("rsvpAssignError", "Couldn't assign the table."));
+      }
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  // Open the detail drawer with a clean assign-error slate.
+  const openDrawer = (r) => {
+    setAssignError("");
+    setSelected(r);
+  };
+
   const summary = data?.summary || { total: 0, covers: 0, by_status: {} };
-  const reservations = Array.isArray(data?.reservations) ? data.reservations : [];
+  // Stable identity so the memos below ([reservations]) only recompute when
+  // the data actually changes — not on every render while data is null.
+  const reservations = useMemo(
+    () => (Array.isArray(data?.reservations) ? data.reservations : []),
+    [data],
+  );
   const labels = statusLabels(t);
 
   const zones = useMemo(
@@ -1149,6 +1607,12 @@ function BookSection({ t, businessType }) {
     });
     return m;
   }, [resources]);
+  // Tables offered by the drawer's assign-table control — real, in-service
+  // tables only (no providers, no deactivated ones).
+  const assignableTables = useMemo(
+    () => resources.filter((r) => r.kind !== "provider" && r.is_active !== false),
+    [resources],
+  );
 
   const seatedCount = summary.by_status?.seated || 0;
   const requestedCount = summary.by_status?.requested || 0;
@@ -1164,8 +1628,41 @@ function BookSection({ t, businessType }) {
     () => resources.reduce((s, r) => s + (Number(r.capacity_seats) || 0), 0),
     [resources],
   );
-  const utilizationPct =
-    totalCapacity > 0 ? Math.round((summary.covers / totalCapacity) * 100) : null;
+  // Honest occupancy = PEAK CONCURRENT covers vs seats, not daily covers /
+  // seats (204 covers over a whole day on 18 seats is several turns, not
+  // 1133%). Sweep start/end events of the day's active bookings and take the
+  // max simultaneous party-size sum; at the same minute departures are
+  // processed before arrivals so back-to-back turns don't double-count.
+  const { peakPct, peakTime } = useMemo(() => {
+    if (totalCapacity <= 0) return { peakPct: null, peakTime: null };
+    const events = [];
+    reservations.forEach((r) => {
+      if (!["requested", "confirmed", "seated"].includes(r.status) || !r.starts_at) return;
+      let s = minOfDay(r.starts_at);
+      let e = r.ends_at ? minOfDay(r.ends_at) : s + 90;
+      if (e <= s) e += 1440;
+      const size = Number(r.party_size) || 0;
+      events.push([s, size]);
+      events.push([e, -size]);
+    });
+    if (events.length === 0) return { peakPct: 0, peakTime: null };
+    events.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    let cur = 0;
+    let peak = 0;
+    let at = null;
+    events.forEach(([m, delta]) => {
+      cur += delta;
+      if (cur > peak) {
+        peak = cur;
+        at = m;
+      }
+    });
+    const pad = (n) => String(n).padStart(2, "0");
+    return {
+      peakPct: Math.min(999, Math.round((peak / totalCapacity) * 100)),
+      peakTime: at == null ? null : `${pad(Math.floor((at % 1440) / 60))}:${pad(at % 60)}`,
+    };
+  }, [reservations, totalCapacity]);
   const nextArrival = useMemo(() => {
     const live = reservations.filter(
       (r) => !["completed", "cancelled", "no_show", "seated"].includes(r.status),
@@ -1376,16 +1873,26 @@ function BookSection({ t, businessType }) {
             <RefreshCw className="w-5 h-5" />
           </button>
         </div>
-        <TabPills
-          tabs={[
-            { id: "liste", label: t("rsvpViewListe", "List") },
-            { id: "plan", label: t("rsvpViewPlan", "Floor") },
-            { id: "tidslinje", label: t("rsvpViewTimeline", "Timeline") },
-          ]}
-          activeId={view}
-          onChange={pickView}
-          ariaLabel={t("rsvpViewAria", "Reservation views")}
-        />
+        <div className="flex items-center gap-2 flex-wrap">
+          <TabPills
+            tabs={[
+              { id: "liste", label: t("rsvpViewListe", "List") },
+              { id: "plan", label: t("rsvpViewPlan", "Floor") },
+              { id: "tidslinje", label: t("rsvpViewTimeline", "Timeline") },
+            ]}
+            activeId={view}
+            onChange={pickView}
+            ariaLabel={t("rsvpViewAria", "Reservation views")}
+          />
+          <Button
+            variant="primary"
+            size="lg"
+            iconLeft={<Plus className="w-4 h-4" />}
+            onClick={openNewBooking}
+          >
+            {t("rsvpNewBooking", "New booking")}
+          </Button>
+        </div>
       </div>
 
       {/* Cockpit — the day's vitals as a host-stand command center. Covers
@@ -1410,7 +1917,7 @@ function BookSection({ t, businessType }) {
           label={t("rsvpNextArrival", "Next arrival")}
           value={nextArrival ? fmtTime(nextArrival.starts_at) : "—"}
           helper={nextArrivalHelper}
-          onClick={nextArrival ? () => setSelected(nextArrival) : null}
+          onClick={nextArrival ? () => openDrawer(nextArrival) : null}
         />
         <StatCard
           label={t("rsvpAwaiting", "Awaiting")}
@@ -1423,11 +1930,13 @@ function BookSection({ t, businessType }) {
         <StatCard
           className="col-span-2 sm:col-span-1"
           label={t("rsvpUtilization", "Occupancy")}
-          value={utilizationPct == null ? "—" : `${utilizationPct}%`}
+          value={peakPct == null ? "—" : `${peakPct}%`}
           helper={
-            totalCapacity > 0
-              ? t("rsvpUtilHelper", "of {n} seats", { n: totalCapacity })
-              : t("rsvpUtilNoSeats", "set table seats")
+            totalCapacity <= 0
+              ? t("rsvpUtilNoSeats", "set table seats")
+              : peakTime
+                ? t("rsvpUtilPeakAt", "peak {time}", { time: peakTime })
+                : t("rsvpUtilHelper", "of {n} seats", { n: totalCapacity })
           }
         />
       </div>
@@ -1478,7 +1987,7 @@ function BookSection({ t, businessType }) {
             rowKey="id"
             loading={loading}
             rowActions={rowActions}
-            onRowClick={setSelected}
+            onRowClick={openDrawer}
             mobileBreakpoint="md"
             empty={
               <Empty
@@ -1505,7 +2014,7 @@ function BookSection({ t, businessType }) {
             resources={resources}
             t={t}
             businessType={businessType}
-            onSelect={setSelected}
+            onSelect={openDrawer}
             onSeatNow={setSeatTarget}
           />
         ))}
@@ -1520,7 +2029,7 @@ function BookSection({ t, businessType }) {
             resources={resources}
             day={day}
             t={t}
-            onSelect={setSelected}
+            onSelect={openDrawer}
           />
         ))}
 
@@ -1532,11 +2041,18 @@ function BookSection({ t, businessType }) {
           tableLabel={resolveTableLabel(selected, labelById)}
           t={t}
           busy={actioningId === selected.id}
+          tables={assignableTables}
+          onAssign={assignTable}
+          assignBusy={assigning}
+          assignError={assignError}
           onStatus={(r, to) => {
             setStatus(r, to);
             setSelected(null);
           }}
-          onClose={() => setSelected(null)}
+          onClose={() => {
+            setSelected(null);
+            setAssignError("");
+          }}
         />
       )}
 
@@ -1548,6 +2064,24 @@ function BookSection({ t, businessType }) {
           busy={seating}
           onSeat={seatWalkIn}
           onClose={() => setSeatTarget(null)}
+        />
+      )}
+
+      {/* New booking sheet — the host takes a future (phone) booking. */}
+      {newOpen && (
+        <NewBookingSheet
+          day={day}
+          t={t}
+          busy={creating}
+          warning={roomFull}
+          onClearWarning={() => setRoomFull(null)}
+          error={createError}
+          onSubmit={createBooking}
+          onClose={() => {
+            setNewOpen(false);
+            setRoomFull(null);
+            setCreateError("");
+          }}
         />
       )}
     </div>
