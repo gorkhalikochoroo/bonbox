@@ -37,6 +37,7 @@ import {
   Move,
   RotateCcw,
   LayoutGrid,
+  Plus,
 } from "lucide-react";
 import api from "../services/api";
 import Button from "./ui/Button";
@@ -479,6 +480,9 @@ export default function FloorPlan({
   onSelect,
   onSeatNow,
   nextBookingId = null,
+  // Parent refetch hook — called after this component creates a table from
+  // the arrange toolbar so the page's resources state picks it up.
+  onResourcesChanged = null,
 }) {
   // Account-level venue archetype — drives the section vocabulary (noun,
   // icon, empty state, hints, zone presets). Per-resource provider overrides
@@ -504,6 +508,11 @@ export default function FloorPlan({
   // snap back even though the save succeeded. Prefer this override until
   // cells actually change.
   const [savedLayout, setSavedLayout] = useState(null);
+  // Quick-add table (arrange mode): seats picker + busy/error state.
+  const [adding, setAdding] = useState(false);
+  const [addSeats, setAddSeats] = useState("4");
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState("");
 
   const canvasRef = useRef(null);
   const dragRef = useRef(null); // {id, pointerId}
@@ -703,6 +712,48 @@ export default function FloorPlan({
     return () => clearTimeout(id);
   }, [savedAt]);
 
+  // ── Quick-add table (arrange mode) → POST /reservations/resources ─────
+  // Auto-labels "Bord N", drops the new table mid-room already selected so
+  // the owner drags it into place and hits Save. Caps (free tier = 3 tables)
+  // surface as an honest upgrade message, not a silent failure.
+  const addTable = useCallback(async () => {
+    setAddBusy(true);
+    setAddError("");
+    try {
+      const nums = cells.map((c) => {
+        const m = /^Bord (\d+)$/.exec((c.res.label || "").trim());
+        return m ? parseInt(m[1], 10) : 0;
+      });
+      const label = `Bord ${Math.max(0, ...nums, cells.length) + 1}`;
+      const res = await api.post("/reservations/resources", {
+        kind: "table",
+        label,
+        capacity_seats: parseInt(addSeats, 10) || 2,
+        pos_x: 50,
+        pos_y: 45,
+        shape: "round",
+      });
+      const id = String(res.data?.id ?? "");
+      if (id) {
+        setDraft((prev) => ({
+          ...(prev || JSON.parse(JSON.stringify(currentLayout))),
+          [id]: { pos_x: 50, pos_y: 45, shape: "round" },
+        }));
+        setActiveId(id);
+      }
+      setAdding(false);
+      if (onResourcesChanged) await onResourcesChanged();
+    } catch (e) {
+      if (e?.response?.status === 402) {
+        setAddError(t("rsvpTableCapMsg", "Table limit reached on your plan."));
+      } else {
+        setAddError(t("rsvpAddTableErr", "Couldn't add the table."));
+      }
+    } finally {
+      setAddBusy(false);
+    }
+  }, [cells, addSeats, currentLayout, onResourcesChanged, t]);
+
   // Tap router (view mode): free → seat walk-in; occupied → open booking.
   const handleTap = useCallback(
     (cell) => {
@@ -763,6 +814,17 @@ export default function FloorPlan({
             <>
               <button
                 type="button"
+                onClick={() => {
+                  setAdding((v) => !v);
+                  setAddError("");
+                }}
+                className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
+              >
+                <Plus className="w-4 h-4" aria-hidden />
+                {t("rsvpAddTable", "Add table")}
+              </button>
+              <button
+                type="button"
                 onClick={autoArrange}
                 className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
               >
@@ -812,6 +874,37 @@ export default function FloorPlan({
       {saveError && (
         <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-2.5 rounded-xl text-sm">
           {saveError}
+        </div>
+      )}
+
+      {/* Quick-add table — seats picker inline under the arrange toolbar.
+          The new table lands mid-room, pre-selected, ready to drag. */}
+      {editing && adding && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3">
+          <span className="text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            {t("rsvpSeats", "Seats")}
+          </span>
+          {["2", "4", "6", "8"].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setAddSeats(n)}
+              className={
+                "h-10 min-w-[40px] px-3 rounded-lg border text-sm font-medium tabular-nums transition-colors " +
+                (addSeats === n
+                  ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+                  : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600")
+              }
+            >
+              {n}
+            </button>
+          ))}
+          <Button variant="primary" size="sm" busy={addBusy} onClick={addTable} iconLeft={<Plus className="w-4 h-4" />}>
+            {t("rsvpAddTable", "Add table")}
+          </Button>
+          {addError && (
+            <span className="text-sm text-red-600 dark:text-red-400">{addError}</span>
+          )}
         </div>
       )}
 

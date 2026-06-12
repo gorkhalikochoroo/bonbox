@@ -230,6 +230,9 @@ const translations = {
     rsvpTableTaken: "{label} is taken at that time.",
     rsvpAssignError: "Couldn't assign the table.",
     rsvpUtilPeakAt: "peak {time}",
+    rsvpAddTable: "Add table",
+    rsvpAddTableErr: "Couldn't add the table.",
+    rsvpTableCapMsg: "Table limit reached on your plan.",
     // Floor — quick (bulk) setup
     rsvpBulkTitle: "Quick setup",
     rsvpBulkHint: "How many tables of each size? They're created and numbered for you.",
@@ -5314,6 +5317,9 @@ const translations = {
     rsvpTableTaken: "{label} er optaget på det tidspunkt.",
     rsvpAssignError: "Kunne ikke tildele bordet.",
     rsvpUtilPeakAt: "højest kl. {time}",
+    rsvpAddTable: "Tilføj bord",
+    rsvpAddTableErr: "Kunne ikke tilføje bordet.",
+    rsvpTableCapMsg: "Bordgrænsen på din plan er nået.",
     // Borde — hurtig (bulk) opsætning
     rsvpBulkTitle: "Hurtig opsætning",
     rsvpBulkHint: "Hvor mange borde af hver størrelse? De oprettes og nummereres automatisk.",

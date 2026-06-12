@@ -452,7 +452,7 @@ function deriveFloorState(reservations, resources, nowMs) {
 // draggable tables, chairs, zone bands, and edit/save). The tap + seat-now
 // handlers are passed straight through so FloorPlan reuses the page's shared
 // ReservationDrawer + SeatNowSheet.
-function FloorView({ reservations, resources, t, businessType, onSelect, onSeatNow }) {
+function FloorView({ reservations, resources, t, businessType, onSelect, onSeatNow, onResourcesChanged }) {
   // Tick every 60s so the floor is LIVE, not a snapshot: a seated table that
   // crosses its end-time flips to "overdue" (red) on its own, and upcoming
   // ETAs ("om 25 min") count down — no manual refresh. This is the difference
@@ -491,6 +491,7 @@ function FloorView({ reservations, resources, t, businessType, onSelect, onSeatN
       onSelect={onSelect}
       onSeatNow={onSeatNow}
       nextBookingId={nextBookingId}
+      onResourcesChanged={onResourcesChanged}
     />
   );
 }
@@ -2016,6 +2017,7 @@ function BookSection({ t, businessType }) {
             businessType={businessType}
             onSelect={openDrawer}
             onSeatNow={setSeatTarget}
+            onResourcesChanged={fetchResources}
           />
         ))}
 
