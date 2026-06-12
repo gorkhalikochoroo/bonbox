@@ -38,6 +38,7 @@ import {
   RotateCcw,
   LayoutGrid,
   Plus,
+  AlertTriangle,
 } from "lucide-react";
 import api from "../services/api";
 import Button from "./ui/Button";
@@ -273,6 +274,20 @@ function TableNode({
   const booking = cell.booking;
   const VenueIcon = profile.icon;
 
+  // Allergy on the table's current booking — the floor is where the kitchen
+  // and runners look mid-service, so the warning must live ON the tile:
+  // red badge = severe, amber = any other recorded allergy.
+  const ares = booking?.reservation;
+  const allergy =
+    ares &&
+    ((Array.isArray(ares.allergen_tags) && ares.allergen_tags.length > 0) ||
+      ares.allergy_note ||
+      ares.allergy_severity)
+      ? ares.allergy_severity === "severe"
+        ? "severe"
+        : "other"
+      : null;
+
   // Occupied/upcoming detail line, glanceable from across the room:
   //   • upcoming → ETA ("om 25 min") when the guest is due soon, else time + guest
   //   • seated   → the booking time + guest name
@@ -375,6 +390,20 @@ function TableNode({
           className={"absolute top-1 right-1 w-2.5 h-2.5 rounded-full " + style.dot}
           aria-hidden
         />
+        {/* Allergy badge — hangs off the tile edge so it reads from across
+            the room. Red = severe, amber = any other recorded allergy. */}
+        {allergy && !editing && (
+          <span
+            className={
+              "absolute -top-2 -left-2 w-5 h-5 rounded-full flex items-center justify-center shadow-sm ring-2 ring-white dark:ring-gray-900 pointer-events-none " +
+              (allergy === "severe" ? "bg-red-500" : "bg-amber-500")
+            }
+            aria-label={allergy === "severe" ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
+            role="img"
+          >
+            <AlertTriangle className="w-3 h-3 text-white" aria-hidden />
+          </span>
+        )}
         {combined && (
           <Link2
             className="absolute top-1 left-1 w-3 h-3 opacity-70"

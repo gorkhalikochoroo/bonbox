@@ -1039,6 +1039,37 @@ function minOfDay(iso) {
   return d.getHours() * 60 + d.getMinutes();
 }
 
+// Allergy signal for a reservation: "severe" | "other" | null. Severity
+// drives color everywhere a booking renders (red = severe, amber = any
+// other recorded allergy/intolerance) — staff must never have to open a
+// booking to learn it carries an allergy.
+function allergyLevel(r) {
+  const has =
+    (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
+    !!r.allergy_note ||
+    !!r.allergy_severity;
+  if (!has) return null;
+  return r.allergy_severity === "severe" ? "severe" : "other";
+}
+
+// Hover tooltip for a timeline block — includes the allergy detail so the
+// host can read tags/notes without opening the drawer.
+function blockTitle(r, labels, t) {
+  const base = `${fmtTime(r.starts_at)} ${r.guest_name || ""} (${r.party_size}) · ${labels[r.status] || r.status}`;
+  if (!allergyLevel(r)) return base;
+  const detail = [
+    (r.allergen_tags || []).map((k) => t(`allergen_${k}`, k)).join(", "),
+    r.allergy_note,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const label =
+    r.allergy_severity === "severe"
+      ? t("rsvpAllergySevere", "Severe allergy")
+      : t("rsvpAllergyFlag", "Allergy");
+  return `${base}\n⚠ ${label}${detail ? ": " + detail : ""}`;
+}
+
 function TimelineView({ reservations, resources, day, t, onSelect }) {
   const tables = useMemo(
     () =>
@@ -1215,21 +1246,28 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
               {unassigned.blocks.map(({ r, s, e, lane }) => {
                 const left = Math.max(0, (s - startMin) * PX);
                 const width = Math.max(30, (Math.min(e, endMin) - Math.max(s, startMin)) * PX - 2);
+                const allergy = allergyLevel(r);
                 return (
                   <button
                     key={r.id}
                     type="button"
                     onClick={() => onSelect(r)}
-                    title={`${fmtTime(r.starts_at)} ${r.guest_name || ""} (${r.party_size}) · ${labels[r.status] || r.status}`}
+                    title={blockTitle(r, labels, t)}
                     style={{ left, width, top: lane * 44 + 5, height: 34 }}
-                    className="absolute rounded-md border border-dashed border-amber-500 dark:border-amber-500 bg-amber-50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 px-1.5 overflow-hidden text-left flex flex-col justify-center"
+                    className={
+                      "absolute rounded-md border border-dashed border-amber-500 dark:border-amber-500 bg-amber-50 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200 px-1.5 overflow-hidden text-left flex flex-col justify-center" +
+                      (allergy === "severe" ? " ring-2 ring-inset ring-red-500 dark:ring-red-400" : "")
+                    }
                   >
                     <span className="text-[11px] font-semibold leading-none truncate">
                       {fmtTime(r.starts_at)} · {r.party_size}
                     </span>
                     <span className="text-[10px] leading-tight truncate opacity-90 mt-0.5 flex items-center gap-0.5">
-                      {r.allergy_severity === "severe" && (
-                        <AlertTriangle className="w-3 h-3 shrink-0 text-red-500" aria-hidden />
+                      {allergy && (
+                        <AlertTriangle
+                          className={"w-3 h-3 shrink-0 " + (allergy === "severe" ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
+                          aria-hidden
+                        />
                       )}
                       {r.guest_name || t("rsvpGuest", "Guest")}
                     </span>
@@ -1288,22 +1326,34 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
                   const left = Math.max(0, (s - startMin) * PX);
                   const width = Math.max(30, (Math.min(e, endMin) - Math.max(s, startMin)) * PX - 2);
                   const combined = (r.combined_resource_ids || []).length > 1;
+                  const allergy = allergyLevel(r);
                   return (
                     <button
                       key={r.id + id}
                       type="button"
                       onClick={() => onSelect(r)}
-                      title={`${fmtTime(r.starts_at)} ${r.guest_name || ""} (${r.party_size}) · ${labels[r.status] || r.status}`}
+                      title={blockTitle(r, labels, t)}
                       style={{ left, width, top: 5, height: ROW_H - 12 }}
-                      className={"absolute rounded-md border px-1.5 overflow-hidden text-left flex flex-col justify-center " + blockClass(r.status)}
+                      className={
+                        "absolute rounded-md border px-1.5 overflow-hidden text-left flex flex-col justify-center " +
+                        blockClass(r.status) +
+                        (allergy === "severe"
+                          ? " ring-2 ring-inset ring-red-500 dark:ring-red-400"
+                          : allergy
+                            ? " ring-2 ring-inset ring-amber-400 dark:ring-amber-500"
+                            : "")
+                      }
                     >
                       <span className="text-[11px] font-semibold leading-none truncate flex items-center gap-0.5">
                         {fmtTime(r.starts_at)} · {r.party_size}
                         {combined && <Link2 className="w-3 h-3 shrink-0" aria-hidden />}
                       </span>
                       <span className="text-[10px] leading-tight truncate opacity-90 flex items-center gap-0.5 mt-0.5">
-                        {r.allergy_severity === "severe" && (
-                          <AlertTriangle className="w-3 h-3 shrink-0 text-red-500" aria-hidden />
+                        {allergy && (
+                          <AlertTriangle
+                            className={"w-3 h-3 shrink-0 " + (allergy === "severe" ? "text-red-500" : "text-amber-600 dark:text-amber-400")}
+                            aria-hidden
+                          />
                         )}
                         {r.guest_name || t("rsvpGuest", "Guest")}
                       </span>
