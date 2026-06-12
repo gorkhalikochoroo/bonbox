@@ -566,7 +566,7 @@ function ReservationDrawer({
   const PrimaryIcon = primary?.icon || null;
 
   return (
-    <div className="fixed inset-0 z-50 flex" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
       <div className="relative ml-auto w-full max-w-md h-full bg-white dark:bg-gray-900 shadow-2xl border-l border-gray-200 dark:border-gray-800 flex flex-col animate-slideIn">
         {/* Scrollable detail — the action bar below stays pinned. */}
@@ -733,7 +733,7 @@ function SeatNowSheet({ table, t, busy, onSeat, onClose }) {
   if (!table) return null;
   const sizes = [1, 2, 3, 4, 5, 6, 8];
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
       <div
         className="relative w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-gray-800 shadow-2xl p-5 space-y-4 animate-fadeIn"
@@ -873,7 +873,7 @@ function NewBookingSheet({ day, t, busy, warning, onClearWarning, error, onSubmi
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center sm:justify-center"
+      className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center"
       role="dialog"
       aria-modal="true"
     >
