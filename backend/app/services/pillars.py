@@ -62,6 +62,100 @@ PILLARS: tuple[str, ...] = (
 _PILLAR_IDS: frozenset[str] = frozenset(PILLARS)
 
 
+# ─── Onboarding presets — the DK OFF-list per business type ─────────────
+#
+# The RELEVANCE axis seeded ONCE at onboarding (C12, panel-approved June
+# 2026). A preset is a SUGGESTION shown as pre-checked chips, never a
+# silent default and NEVER retroactive — it is applied exactly once, only
+# when the owner's hidden_pillars is still NULL (the grandfather state),
+# and only on the onboarding-completion path. An existing account, or one
+# the owner has already shaped, is never touched. See the apply-once guard
+# in routers/auth.complete_onboarding and routers/pillars.preset endpoint.
+#
+# Each value is the set of pillars HIDDEN by default for that type (the
+# "my venue doesn't do this" list). The remainder stay visible. The spine
+# (Home/Today/Sales/Expenses/Reports & MOMS/Settings) is never a pillar so
+# can never appear here. Mapping is LOCKED (founder + panel verdict):
+#
+#   restaurant                  → {} (full-service: nothing hidden)
+#   cafe / bakery / tea_shop    → {events, insights}      (DK brunch booking
+#                                  culture keeps Reservations ON)
+#   takeaway / kiosk            → {reservations, events, inventory, insights}
+#                                  (counter trade — Staff stays on)
+#   bar                         → {events, insights}      (Reservations +
+#                                  Inventory stay on; bar_pour is a separate
+#                                  capped module, untouched here)
+#   salon / retail / service /  → {events}
+#     general
+#   unknown / null / anything   → {} (FAIL-OPEN: hide nothing — a mis-typed
+#     else                         or blank type must never lose surfaces)
+#
+# Two-layer resolution (so the full real RegisterPage token set is covered
+# without re-listing every retail/services variant here):
+#   1. Exact raw-token table below — the locked, hand-tuned tokens whose
+#      OFF-list the panel pinned specifically (restaurant/cafe/bakery/
+#      tea_shop/takeaway/kiosk/bar/salon/retail/service/general).
+#   2. Fallback to the canonical ARCHETYPE OFF-list — so sibling tokens that
+#      resolve to the same archetype get the same treatment automatically
+#      (clothing/grocery/electronics/… → retail archetype → {events};
+#      mobile_repair/laundry/workshop/… → services archetype → {events}).
+#   3. Anything still unresolved → {} (fail-open).
+_PRESET_OFF_LISTS: dict[str, frozenset[str]] = {
+    "restaurant": frozenset(),
+    "cafe": frozenset({"events", "insights"}),
+    "bakery": frozenset({"events", "insights"}),
+    "tea_shop": frozenset({"events", "insights"}),
+    "takeaway": frozenset({"reservations", "events", "inventory", "insights"}),
+    "kiosk": frozenset({"reservations", "events", "inventory", "insights"}),
+    "bar": frozenset({"events", "insights"}),
+    "salon": frozenset({"events"}),
+    "retail": frozenset({"events"}),
+    "service": frozenset({"events"}),
+    "general": frozenset({"events"}),
+}
+
+# Archetype-level fallback (canonical ids from services/archetype.py). Keeps
+# the locked retail/services verdict ({events}) applying to every sibling
+# token of those archetypes without enumerating them all above. food_service
+# is deliberately ABSENT — restaurant vs cafe vs takeaway diverge sharply, so
+# food-service tokens must hit the exact table or fail open, never a blanket
+# archetype default. generic/personal/bar also stay out of the fallback (bar
+# is pinned exactly; generic/personal fail open).
+_PRESET_OFF_LISTS_BY_ARCHETYPE: dict[str, frozenset[str]] = {
+    "retail": frozenset({"events"}),
+    "services": frozenset({"events"}),
+    "salon": frozenset({"events"}),
+}
+
+
+def preset_hidden_pillars(business_type: str | None) -> set[str]:
+    """The suggested OFF-list (set of pillar IDs to hide) for a NEW account
+    of this business type — the C12 onboarding preset.
+
+    PURE + total: never raises, never touches the DB. Resolution is exact
+    raw token first, then canonical archetype fallback, then empty set
+    (FAIL-OPEN: hide nothing — a mis-typed / blank / unmapped type must
+    never lose surfaces). The returned set is always a subset of PILLARS by
+    construction (every table value references only valid IDs), and a fresh
+    mutable copy so callers can union/diff it freely.
+
+    This is the SUGGESTION only. Whether/when it is persisted is the
+    caller's concern — see the apply-once NULL guard at the onboarding
+    wire-in. An owner override is honoured: the endpoint commits whatever
+    final set the owner confirms, not necessarily this preset.
+    """
+    if not business_type:
+        return set()
+    key = business_type.strip().lower()
+    if key in _PRESET_OFF_LISTS:
+        return set(_PRESET_OFF_LISTS[key])
+    # Fall back to the canonical archetype OFF-list for sibling tokens.
+    from app.services.archetype import archetype_id_for  # model-free, no cycle
+
+    archetype = archetype_id_for(key)
+    return set(_PRESET_OFF_LISTS_BY_ARCHETYPE.get(archetype, frozenset()))
+
+
 def is_valid_pillar_id(pillar_id: str | None) -> bool:
     """O(1) check against the allowlist. None / empty / unknown → False."""
     if not pillar_id:

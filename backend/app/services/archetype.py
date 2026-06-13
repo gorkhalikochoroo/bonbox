@@ -155,6 +155,7 @@ BUSINESS_TYPE_TO_ARCHETYPE: dict[str, str] = {
     "bakery": "food_service",
     "tea_shop": "food_service",
     "food_truck": "food_service",
+    "takeaway": "food_service",
     # bar
     "bar": "bar",
     # retail / shop
