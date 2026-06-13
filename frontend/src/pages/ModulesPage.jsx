@@ -5,9 +5,116 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { usePillars } from "../hooks/usePillars";
+import { useUndoToast } from "../hooks/useUndoToast";
 import { FadeIn } from "../components/AnimationKit";
-import { PageHeader, StatCard, SectionBanner, Button } from "../components/ui";
+import { PageHeader, StatCard, SectionBanner, Button, Icon } from "../components/ui";
+import { PILLAR_DISPLAY } from "../config/navManifest";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
+
+/**
+ * FunktionerSection (C11) — the RELEVANCE-axis toggle UI.
+ *
+ * The 5 owner pillars (Reservations / Events / Inventory / Staff / Insights)
+ * as plain on/off switches. Kept visually DISTINCT and ABOVE the capped
+ * vertical-module section below: pillars are FREE + uncapped (no tier lock,
+ * no cap, no UpgradeNudge) — a pure "show only what your business uses"
+ * relevance filter. Wired to the pillar context (usePillars), so flipping a
+ * toggle updates the sidebar / More / ⌘K immediately (context-driven), and
+ * an OFF pillar's deep links resolve to the calm PillarGate interstitial.
+ *
+ * "On" = visible (the grandfather default). "Off" = hidden = setPillarHidden
+ * (pillar, true). Optimistic with rollback + an undo toast, inherited from
+ * the usePillars setter.
+ */
+function FunktionerSection() {
+  const { t } = useLanguage();
+  const { hiddenPillars, isReady, setPillarHidden } = usePillars();
+  const { show: showUndo, ToastUI } = useUndoToast();
+  const [busyId, setBusyId] = useState(null);
+  const [error, setError] = useState("");
+
+  const toggle = async (pillar) => {
+    setError("");
+    // Currently visible? Then this tap HIDES it (makeHidden = true).
+    const makeHidden = !hiddenPillars.has(pillar.id);
+    setBusyId(pillar.id);
+    try {
+      await setPillarHidden(pillar.id, makeHidden);
+      showUndo({
+        message: makeHidden ? t("funktionerHiddenToast") : t("funktionerShownToast"),
+        onUndo: async () => { await setPillarHidden(pillar.id, !makeHidden); },
+      });
+    } catch (e) {
+      setError(e?.response?.data?.detail || t("funktionerToggleFailed"));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <FadeIn delay={0.02}>
+      <section className="mb-8">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">
+          {t("funktionerSectionTitle")}
+        </h2>
+        <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mt-1 mb-3 leading-relaxed">
+          {t("funktionerSectionSubtitle")}
+        </p>
+        <div className="space-y-2">
+          {PILLAR_DISPLAY.map((p) => {
+            // While the pillar state is still resolving, treat every pillar as
+            // ON (the grandfather default) so we never flash a pillar as OFF.
+            const on = isReady ? !hiddenPillars.has(p.id) : true;
+            const busy = busyId === p.id;
+            return (
+              <div
+                key={p.id}
+                className="flex items-center gap-4 rounded-xl border border-gray-200 dark:border-gray-700
+                  bg-white dark:bg-gray-800/60 px-5 py-4"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                  <Icon name={p.icon} size={18} strokeWidth={1.75} />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-gray-900 dark:text-white">
+                    {t(p.labelKey)}
+                  </div>
+                </div>
+                {/* Switch — a real toggle button. gray-900 fill when ON
+                    (matches the design-system Chip/primary intent); neutral
+                    track when OFF. Free + uncapped: no lock, no nudge. */}
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={on}
+                  aria-label={`${t(p.labelKey)} — ${on ? t("funktionerOn") : t("funktionerOff")}`}
+                  disabled={busy || !isReady}
+                  onClick={() => toggle(p)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2
+                    focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900 disabled:opacity-50
+                    ${on ? "bg-gray-900 dark:bg-gray-100" : "bg-gray-200 dark:bg-gray-700"}`}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow-sm transition-transform
+                      ${on ? "translate-x-5" : "translate-x-0.5"}`}
+                  />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {error && (
+          <p className="mt-2 text-xs text-red-600 dark:text-red-400" role="alert">
+            {error}
+          </p>
+        )}
+        {ToastUI}
+      </section>
+    </FadeIn>
+  );
+}
 
 /**
  * Modules picker — owners enable the vertical modules they actually use.
@@ -108,10 +215,25 @@ export default function ModulesPage() {
       <FadeIn>
         <PageHeader
           eyebrow="MANAGE"
-          title={t("modulesPageTitle") || "Vertical modules"}
-          subtitle={t("modulesPageSubtitle") ||
-            "Pick the feature areas relevant to your business. Hidden modules don't appear in the sidebar — keeps the app focused on what you actually use."}
+          title={t("featuresModulesPageTitle")}
+          subtitle={t("featuresModulesPageSubtitle")}
         />
+      </FadeIn>
+
+      {/* FUNKTIONER (C11) — the RELEVANCE-axis pillar toggles. FREE +
+          uncapped, kept visually distinct ABOVE the capped vertical-module
+          section below. Context-driven, so the nav updates immediately. */}
+      <FunktionerSection />
+
+      {/* ─── Vertikalmoduler — the capped opt-in section (unchanged) ─── */}
+      <FadeIn delay={0.03}>
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+          {t("modulesPageTitle") || "Vertical modules"}
+        </h2>
+        <p className="text-[12.5px] text-gray-500 dark:text-gray-400 mb-4 leading-relaxed">
+          {t("modulesPageSubtitle") ||
+            "Pick the feature areas relevant to your business. Hidden modules don't appear in the sidebar — keeps the app focused on what you actually use."}
+        </p>
       </FadeIn>
 
       {/* Plan summary — two-tile strip using StatCard primitive */}
