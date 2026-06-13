@@ -108,6 +108,10 @@ const BRANCH_TYPES = [
   { id: "restaurant", iconName: "UtensilsCrossed", labelKey: "branchRestaurant", labelFallback: "Restaurant" },
   { id: "cafe",       iconName: "Coffee",          labelKey: "branchCafe",       labelFallback: "Café" },
   { id: "bar",        iconName: "Beer",            labelKey: "branchBar",        labelFallback: "Bar" },
+  // C12: takeaway / fast food — counter trade, no table reservations. A real
+  // signup business_type with its own DK preset (hides reservations/events/
+  // inventory/insights; Staff stays on). Bike reads as takeaway/delivery.
+  { id: "takeaway",   iconName: "Bike",            labelKey: "branchTakeaway",   labelFallback: "Takeaway" },
   { id: "retail",     iconName: "ShoppingBag",     labelKey: "branchRetail",     labelFallback: "Retail" },
   { id: "workshop",   iconName: "Wrench",          labelKey: "branchWorkshop",   labelFallback: "Workshop" },
   { id: "general",    iconName: "Package",         labelKey: "branchGeneral",    labelFallback: "Other" },

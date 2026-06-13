@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { GoogleLogin } from "@react-oauth/google";
@@ -628,6 +629,7 @@ export default function RegisterPage() {
                       <option value="cafe">{t("btCafe")}</option>
                       <option value="bar">{t("btBar")}</option>
                       <option value="bakery">{t("btBakery")}</option>
+                      <option value="takeaway">{t("btTakeaway")}</option>
                       <option value="food_truck">{t("btFoodTruck")}</option>
                       <option value="tea_shop">{t("btTeaShop")}</option>
                     </optgroup>
