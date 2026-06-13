@@ -12,9 +12,15 @@ import { NAV_MANIFEST } from "../config/navManifest";
  * (config/navManifest.js) so the phone tab bar can never drift from the
  * sidebar / More page / ⌘K for the same route.
  *
- * The center "+" FAB (→ /expenses) and the "More" tab (→ /more) are pure
- * bottom-nav affordances, not owner destinations, so they stay defined
- * inline rather than in the manifest.
+ * The center "+" FAB (opens the QuickAdd action sheet) and the "More" tab
+ * (→ /more) are pure bottom-nav affordances, not owner destinations, so they
+ * stay defined inline rather than in the manifest.
+ *
+ * C4 (FAB merge): the center "+" no longer navigates to /expenses. It now
+ * opens the existing QuickAdd sheet (log sale / add expense / Smart skan) by
+ * dispatching a click to QuickAdd's hidden [data-quickadd-toggle] trigger —
+ * so phones have a single "+" affordance (the tab bar) instead of a floating
+ * QuickAdd FAB stacked over it.
  */
 
 // Resolve a manifest entry by route path → { to, icon, labelKey }. Falls back
@@ -52,8 +58,8 @@ function getTabsForType(branchType) {
   return [
     manifestTab("/dashboard", { to: "/dashboard", icon: "Home", labelKey: "navHome" }),
     manifestTab("/sales", { to: "/sales", icon: "ShoppingBag", labelKey: "sales" }),
-    // Center FAB — bottom-nav chrome, not a manifest destination.
-    { to: "/expenses", icon: "Plus", labelKey: "add", isCenter: true },
+    // Center "+" — bottom-nav chrome. Opens the QuickAdd sheet (no `to`).
+    { icon: "Plus", labelKey: "add", isCenter: true },
     manifestTab(typeTo, { to: "/daily-close", icon: "Moon", labelKey: "navToday" }),
     // More — bottom-nav chrome.
     { to: "/more", icon: "Menu", labelKey: "more" },
@@ -80,12 +86,19 @@ export default function MobileBottomNav() {
           const label = t(tab.labelKey) || tab.labelKey;
 
           if (tab.isCenter) {
-            // Center FAB uses Plus directly — larger size + white stroke
-            // to contrast against the emerald background.
+            // Center "+" opens the QuickAdd action sheet (log sale / add
+            // expense / Smart skan) by clicking QuickAdd's hidden trigger.
+            // It's a button, not a link — no route change. Uses Plus directly
+            // (larger + white stroke) to contrast against the dark/emerald fill.
             return (
-              <NavLink
+              <button
                 key={`center-${i}`}
-                to={tab.to}
+                type="button"
+                onClick={() => {
+                  document
+                    .querySelector("[data-quickadd-toggle]")
+                    ?.click();
+                }}
                 className="relative -top-3 flex items-center justify-center
                   w-12 h-12 bg-gray-900 dark:bg-emerald-500 rounded-full
                   text-white shadow-sm active:scale-95 transition-transform
@@ -95,7 +108,7 @@ export default function MobileBottomNav() {
                 aria-label={label}
               >
                 <Plus size={22} strokeWidth={2.25} aria-hidden="true" />
-              </NavLink>
+              </button>
             );
           }
 

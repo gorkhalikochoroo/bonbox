@@ -579,17 +579,23 @@ export default function BonBoxAgent() {
         className="hidden"
       />
 
-      {/* ============== ORB BUTTON (collapsed state) ============== */}
+      {/* ============== ORB BUTTON (collapsed state) ==============
+          DESKTOP ONLY (hidden md:flex). On phones the floating orb is
+          replaced by a Sparkles button in the mobile header (Layout.jsx),
+          which opens this same panel via the hidden [data-bonbox-agent-toggle]
+          trigger above — so phones carry zero floating buttons except the
+          bottom tab bar (C4). */}
       {!isOpen && (
         <button
           onClick={handleOpen}
           aria-label={t("openBonBoxAi")}
           className="
+            hidden md:flex
             fixed md:bottom-6 right-6 z-[9999]
             w-14 h-14 rounded-full
             bg-gradient-to-br from-emerald-500 to-emerald-600
             shadow-lg shadow-emerald-500/30
-            flex items-center justify-center
+            items-center justify-center
             cursor-pointer select-none
             transition-transform duration-300 ease-out
             hover:scale-110 active:scale-95

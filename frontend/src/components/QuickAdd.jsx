@@ -151,15 +151,35 @@ export default function QuickAdd() {
   const incomeCats = categories.filter((c) => INCOME_CATS.includes(c.name));
   const spendCats = categories.filter((c) => !INCOME_CATS.includes(c.name));
 
+  // Open the QuickAdd sheet, resetting to the default tab for the mode. Shared
+  // by the visible desktop FAB AND the hidden external trigger below (the
+  // mobile bottom-tab center "+" dispatches a click to that trigger so phones
+  // have a single "+" affordance — the tab bar — instead of a floating FAB).
+  const openSheet = () => {
+    setOpen(true);
+    setTab(mode === "personal" ? "personal_income" : "sale");
+  };
+
   return (
     <>
+      {/* Hidden external trigger — always in the DOM so MobileBottomNav's
+          center "+" tab can open QuickAdd without QuickAdd needing to render
+          its own mobile FAB. Mirrors BonBoxAgent's data-*-toggle pattern. */}
       <button
-        onClick={() => { setOpen(true); setTab(mode === "personal" ? "personal_income" : "sale"); }}
-        // bottom is computed inline so we lift above the bottom nav AND the
-        // iPhone safe-area-inset-bottom (home indicator). Without the inline
-        // calc, FAB sits behind the nav on devices with a home indicator.
-        style={{ bottom: "calc(5rem + env(safe-area-inset-bottom, 0px))" }}
-        className={`fixed md:bottom-6 left-6 z-40 w-10 h-10 ${mode === "personal" ? "bg-purple-600 hover:bg-purple-700" : "bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"} text-white rounded-full shadow-sm hover:scale-105 transition-all flex items-center justify-center text-xl font-light`}
+        data-quickadd-toggle
+        onClick={openSheet}
+        aria-hidden="true"
+        tabIndex={-1}
+        className="hidden"
+      />
+
+      {/* Visible floating FAB — DESKTOP ONLY (md:flex). On phones the bottom
+          tab bar's center "+" is the single add affordance, so we no longer
+          stack a floating "+" over the tab bar there (C4 FAB merge). */}
+      <button
+        onClick={openSheet}
+        aria-label={t("quickEntry")}
+        className={`hidden md:flex fixed md:bottom-6 left-6 z-40 w-10 h-10 ${mode === "personal" ? "bg-purple-600 hover:bg-purple-700" : "bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"} text-white rounded-full shadow-sm hover:scale-105 transition-all items-center justify-center text-xl font-light`}
       >
         +
       </button>

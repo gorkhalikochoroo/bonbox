@@ -24,10 +24,10 @@ const QuickAdd = lazy(() => import("./QuickAdd"));
 const BonBoxAgent = lazy(() => import("./BonBoxAgent"));
 const SupportChip = lazy(() => import("./SupportChip"));
 const SmartLanguageToast = lazy(() => import("./SmartLanguageToast"));
-// Smart Scan — mobile-only FAB that opens the unified "snap anything"
-// classifier modal. Routes to Expenses / Daily Close / Inventory based
-// on the backend's doc_type guess.
-const SmartScanFAB = lazy(() => import("./SmartScanFAB"));
+// Smart Scan — the standalone mobile FAB was removed in C4 (FAB merge).
+// "Snap anything" now lives inside the QuickAdd sheet (Smart skan is its
+// first option), which the mobile bottom-tab center "+" opens. Desktop
+// reaches Smart skan the same way via the QuickAdd "+".
 // Task #49 — Accountant read-only banner. Renders only for accountant
 // sessions; no-ops otherwise so the import cost is negligible.
 const AccountantViewBanner = lazy(() => import("./AccountantViewBanner"));
@@ -457,6 +457,20 @@ export default function Layout() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
             </svg>
           </button>
+          {/* BonBox AI — mobile entry. The floating orb is desktop-only now
+              (C4); on phones the AI lives here in the header beside search +
+              bell. Clicking dispatches to BonBoxAgent's hidden
+              [data-bonbox-agent-toggle] trigger, opening the same chat panel.
+              emerald-600 keeps the brand-AI moment recognizable as the orb. */}
+          <button
+            onClick={() => {
+              document.querySelector("[data-bonbox-agent-toggle]")?.click();
+            }}
+            aria-label={t("openBonBoxAi")}
+            className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition"
+          >
+            <Icon name="Sparkles" size={20} strokeWidth={2} />
+          </button>
           <NotificationCenter />
         </div>
       </div>
@@ -802,11 +816,10 @@ export default function Layout() {
         <Suspense fallback={null}>
           <QuickAdd />
           <BonBoxAgent />
-          {/* Smart Scan FAB — mobile-only "snap anything" entry. Sits
-              above the BonBoxAgent orb in the bottom-right column. The
-              QuickAdd menu also exposes Smart skan as its first option,
-              so both surfaces reach the same modal. */}
-          <SmartScanFAB />
+          {/* Smart Scan FAB removed in C4 (FAB merge): "snap anything" now
+              lives as the first option inside the QuickAdd sheet, reached on
+              mobile via the bottom-tab center "+" and on desktop via the
+              QuickAdd "+". One fewer floating button on phones. */}
           {/* SupportChip — bottom-left "?" so the founder hears
               from owners before they churn. */}
           <SupportChip />
