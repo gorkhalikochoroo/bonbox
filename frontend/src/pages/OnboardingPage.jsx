@@ -58,6 +58,7 @@ import { isNativeApp } from "../utils/platform";
 import { Button, Icon, UpgradeNudge } from "../components/ui";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { archetypeFor } from "../config/archetypes";
+import { PILLAR_DISPLAY } from "../config/navManifest";
 
 // ── Archetype semantic-key → owner-facing label + real route ─────────
 //
@@ -308,6 +309,93 @@ export default function OnboardingPage() {
     [biz.branch_type],
   );
 
+  // ── C12 — onboarding pillar preset as VISIBLE pre-checked chips ──────
+  //
+  // The ONE settings moment ~95% of owners ever see. Instead of silently
+  // applying the DK preset, we show it: "Based on [type] we turned on…"
+  // with the ON pillars as checked chips (the owner can uncheck) and the
+  // OFF-by-preset pillars as unchecked chips they can add (e.g. a café
+  // gets Reservations as an easy add — DK brunch booking).
+  //
+  //   pillarOff   Set<string>  the LIVE owner selection of HIDDEN pillars
+  //                            (the OFF-list). A pillar IN this set = chip
+  //                            unchecked (hidden); NOT in it = checked (on).
+  //   presetOff   Set<string>  the resolved suggestion (for the "reset to
+  //                            suggested" telemetry framing + headline copy).
+  //   pillarReady bool         false until the preset resolves the first time
+  //                            for the current type (chips render skeleton).
+  // Source of truth is the committed preset endpoint GET /api/pillars/preset
+  // (?business_type=…) — pure read, never writes. On continue we commit the
+  // possibly-overridden OFF-list via PUT /api/pillars (saveBusinessAndNext).
+  // Fail-soft: an erroring endpoint just leaves an empty suggestion (nothing
+  // pre-hidden) and the backend onboarding-complete auto-apply still covers
+  // the owner who skips. Skippable — continuing with defaults is fine.
+  const [pillarOff, setPillarOff] = useState(new Set());
+  const [presetOff, setPresetOff] = useState(new Set());
+  const [pillarReady, setPillarReady] = useState(false);
+  // Once the owner edits a chip for the CURRENT type, stop letting a late
+  // preset fetch re-seed and clobber their choice. Reset when type changes.
+  const pillarTouched = useRef(false);
+  const presetSeq = useRef(0);
+
+  // Re-resolve the preset whenever the selected/detected branch_type changes.
+  // A new type is a fresh suggestion, so we reset the owner's touched flag and
+  // re-seed both sets — UNLESS they've already shaped chips for THIS type.
+  useEffect(() => {
+    const bt = (biz.branch_type || "").trim();
+    pillarTouched.current = false;
+    setPillarReady(false);
+    const seq = ++presetSeq.current;
+    api
+      .get("/pillars/preset", { params: { business_type: bt }, _noRetry: true })
+      .then((res) => {
+        if (seq !== presetSeq.current) return; // a newer type won
+        const suggested = Array.isArray(res.data?.suggested)
+          ? res.data.suggested
+          : [];
+        const off = new Set(suggested);
+        setPresetOff(off);
+        // Only seed the live selection if the owner hasn't touched chips for
+        // this type yet (guards an out-of-order resolve after a quick edit).
+        if (!pillarTouched.current) setPillarOff(new Set(off));
+        setPillarReady(true);
+      })
+      .catch(() => {
+        // Fail-soft — empty suggestion (nothing pre-hidden). The backend
+        // auto-apply at onboarding-complete still seeds the preset for an
+        // owner who never sees / touches these chips.
+        if (seq !== presetSeq.current) return;
+        setPresetOff(new Set());
+        if (!pillarTouched.current) setPillarOff(new Set());
+        setPillarReady(true);
+      });
+  }, [biz.branch_type]);
+
+  /** Toggle a pillar chip. `on` = the desired ON state (checked). ON means
+   *  REMOVE from the OFF-list; OFF means ADD to it. */
+  const togglePillar = (pillarId, on) => {
+    pillarTouched.current = true;
+    setPillarOff((prev) => {
+      const next = new Set(prev);
+      if (on) next.delete(pillarId);
+      else next.add(pillarId);
+      return next;
+    });
+  };
+
+  // The preset's OFF set, ordered by the canonical PILLAR_DISPLAY order, split
+  // into the chips that are ON by preset (shown first, pre-checked) and the
+  // ones the preset turned OFF (shown after, as easy adds). Both are derived
+  // from the SUGGESTION so the layout is stable while the owner toggles.
+  const presetOnPillars = useMemo(
+    () => PILLAR_DISPLAY.filter((p) => !presetOff.has(p.id)),
+    [presetOff],
+  );
+  const presetOffPillars = useMemo(
+    () => PILLAR_DISPLAY.filter((p) => presetOff.has(p.id)),
+    [presetOff],
+  );
+
   // Step 3 — Tax preferences.
   // day_cutoff_mode: "restaurant" | "office" | "custom" — UI choice that
   //   maps to an integer hour at save time. Default is ARCHETYPE-aware
@@ -531,6 +619,17 @@ export default function OnboardingPage() {
       if (biz.industry)   payload.industry = biz.industry;
       if (biz.industry_code) payload.industry_code = biz.industry_code;
       await api.put("/business", payload);
+
+      // C12 — commit the (possibly-overridden) pillar preset. Full-set
+      // semantics: the list IS the new OFF-list. This sets hidden_pillars
+      // non-NULL, which short-circuits the backend's onboarding-complete
+      // auto-apply guard so the owner's CONFIRMED selection wins over the
+      // blind preset. Fail-soft — a PUT error must never block onboarding;
+      // the backend auto-apply then seeds the plain preset at /complete.
+      try {
+        await api.put("/pillars", { hidden: [...pillarOff] });
+      } catch { /* non-blocking — backend auto-apply covers this owner */ }
+
       goNext();
     } catch (err) {
       setStepError(err?.response?.data?.detail || t("onbBusinessSaveFailed"));
@@ -926,6 +1025,22 @@ export default function OnboardingPage() {
                   })}
                 </div>
               </fieldset>
+
+              {/* C12 — preset pillars as VISIBLE pre-checked chips. The one
+                  settings moment ~95% of owners ever see: "Based on [type]
+                  we turned on…" with the ON pillars pre-checked (uncheck to
+                  hide) and the preset-OFF pillars as easy adds (e.g. a café
+                  sees Reservations with a "do you take bookings?" nudge).
+                  One glance, one tap, skippable. */}
+              <PresetPillarChips
+                typeLabel={t(resolvedArchetype.labelKey)}
+                ready={pillarReady}
+                onPillars={presetOnPillars}
+                offPillars={presetOffPillars}
+                pillarOff={pillarOff}
+                onToggle={togglePillar}
+                t={t}
+              />
 
               {/* Identity fields — name (required) is primary; CVR is the
                   optional accelerator below it. Putting name first keeps the
@@ -1454,6 +1569,131 @@ function RadioDot({ active, className = "" }) {
     >
       {active && <span className="w-1.5 h-1.5 rounded-full bg-white dark:bg-gray-900" />}
     </span>
+  );
+}
+
+
+// ── PresetPillarChips (C12) — the visible onboarding preset moment ────
+//
+// Shows the DK relevance preset for the chosen business type as chips the
+// owner can tweak in one glance, instead of applying it silently:
+//   • ON-by-preset pillars   → pre-checked chips (gray-900 fill = on, per
+//     design doctrine). Tap to uncheck = "my venue doesn't do this".
+//   • OFF-by-preset pillars  → unchecked outline chips offered as easy adds.
+//     A café's Reservations add carries an extra "do you take bookings?"
+//     nudge line (DK brunch booking culture — the panel correction).
+// Renders null when the preset would hide/show nothing meaningful (e.g. the
+// restaurant preset = everything on, no OFF adds) so we never show an empty
+// section. While the preset resolves it shows a calm skeleton.
+//
+// Each chip is a role="switch" — `checked` reflects ON state (NOT in the OFF
+// set). FREE + uncapped: this is the RELEVANCE axis, never an entitlement.
+function PillarChip({ icon, label, on, sublabel, onToggle, ariaLabel }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={ariaLabel}
+      onClick={() => onToggle(!on)}
+      className={
+        "inline-flex items-center gap-2 rounded-xl border px-3 py-2 min-h-[44px] text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-50 dark:focus-visible:ring-offset-gray-950 " +
+        (on
+          ? "border-gray-900 dark:border-gray-100 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 shadow-sm"
+          : "border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 hover:border-gray-300 dark:hover:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50")
+      }
+    >
+      <span aria-hidden="true" className={on ? "" : "text-gray-500 dark:text-gray-400"}>
+        <Icon name={on ? "Check" : (icon || "Plus")} size={15} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-sm font-medium leading-tight">{label}</span>
+        {sublabel && (
+          <span className={"block text-[11px] leading-tight mt-0.5 " + (on ? "opacity-80" : "text-gray-500 dark:text-gray-400")}>
+            {sublabel}
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
+function PresetPillarChips({ typeLabel, ready, onPillars, offPillars, pillarOff, onToggle, t }) {
+  // Nothing to show if the preset neither hides nor offers anything (e.g. the
+  // restaurant preset = all on with no OFF adds). Showing all-5-on-no-adds is
+  // noise; the discovery floor + /modules already cover later changes.
+  const nothingToShow = ready && onPillars.length === 5 && offPillars.length === 0;
+  if (nothingToShow) return null;
+
+  return (
+    <div className="mt-6 rounded-2xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 sm:p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-gray-400 dark:text-gray-500" aria-hidden="true">
+          <Icon name="Sparkles" size={15} />
+        </span>
+        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+          {t("onbPresetTitle", { type: typeLabel })}
+        </p>
+      </div>
+      <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3 leading-relaxed">
+        {t("onbPresetSubtitle")}
+      </p>
+
+      {!ready ? (
+        // Calm skeleton while the preset resolves — no chip flash.
+        <div className="flex flex-wrap gap-2" aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <span key={i} className="h-[44px] w-28 rounded-xl bg-gray-100 dark:bg-gray-800/60 animate-pulse" />
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2" role="group" aria-label={t("onbPresetOnGroup")}>
+            {onPillars.map((p) => {
+              const on = !pillarOff.has(p.id);
+              return (
+                <PillarChip
+                  key={p.id}
+                  icon={p.icon}
+                  label={t(p.labelKey)}
+                  on={on}
+                  onToggle={(next) => onToggle(p.id, next)}
+                  ariaLabel={t(p.labelKey)}
+                />
+              );
+            })}
+          </div>
+
+          {offPillars.length > 0 && (
+            <>
+              <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500 mt-4 mb-2">
+                {t("onbPresetAddTitle")}
+              </p>
+              <div className="flex flex-wrap gap-2" role="group" aria-label={t("onbPresetAddTitle")}>
+                {offPillars.map((p) => {
+                  const on = !pillarOff.has(p.id);
+                  // Café/takeaway brunch-booking nudge: Reservations gets an
+                  // extra "do you take bookings?" line when offered as an add.
+                  const sublabel =
+                    p.id === "reservations" ? t("onbPresetReservationsNudge") : undefined;
+                  return (
+                    <PillarChip
+                      key={p.id}
+                      icon={p.icon}
+                      label={t(p.labelKey)}
+                      on={on}
+                      sublabel={sublabel}
+                      onToggle={(next) => onToggle(p.id, next)}
+                      ariaLabel={t(p.labelKey)}
+                    />
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

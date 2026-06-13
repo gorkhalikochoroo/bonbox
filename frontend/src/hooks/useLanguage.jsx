@@ -4035,6 +4035,12 @@ const translations = {
     // the tailoring isn't a lock-in (they can still change everything).
     onbDetectedTuned: "Dashboard, daily close and reports tuned to match.",
     onbDetectedOverride: "Not quite? Pick the closest below.",
+    // C12 — onboarding pillar preset as visible pre-checked chips.
+    onbPresetTitle: "Based on {type}, we turned on:",
+    onbPresetSubtitle: "Tap to uncheck anything you don't need — you can change this anytime in Settings.",
+    onbPresetOnGroup: "Turned on for you",
+    onbPresetAddTitle: "Also add?",
+    onbPresetReservationsNudge: "Do you take table bookings?",
     branchRestaurant: "Restaurant",
     branchCafe: "Café",
     branchBar: "Bar",
@@ -9023,6 +9029,12 @@ const translations = {
     // tilpasningen ikke låser noget (alt kan stadig ændres).
     onbDetectedTuned: "Dashboard, dagsafslutning og rapporter tilpasset.",
     onbDetectedOverride: "Ikke helt? Vælg det nærmeste nedenfor.",
+    // C12 — onboarding-preset som synlige forvalgte chips.
+    onbPresetTitle: "Baseret på {type} har vi slået til:",
+    onbPresetSubtitle: "Tryk for at fjerne det, I ikke bruger — det kan altid ændres i Indstillinger.",
+    onbPresetOnGroup: "Slået til for jer",
+    onbPresetAddTitle: "Tilføj også?",
+    onbPresetReservationsNudge: "Tager I også imod bordbestilling?",
     branchRestaurant: "Restaurant",
     branchCafe: "Café",
     branchBar: "Bar",
