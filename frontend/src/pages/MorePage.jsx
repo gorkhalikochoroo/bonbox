@@ -5,6 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { usePillars } from "../hooks/usePillars";
 import { useTheme, THEMES } from "../hooks/useTheme";
 import Icon from "../components/ui/Icon";
 import { NAV_MANIFEST, NAV_GROUPS, filterDestinations } from "../config/navManifest";
@@ -39,6 +40,7 @@ export default function MorePage() {
   const { t } = useLanguage();
   const { user, logout } = useAuth();
   const { hasFeature, isReady: entReady } = useEntitlements();
+  const { hiddenPillars } = usePillars();
   const [dark, toggleDark] = useDarkMode();
   const [theme, setTheme] = useTheme();
   const navigate = useNavigate();
@@ -80,7 +82,9 @@ export default function MorePage() {
     enabledModules,
     hasFeature,
     featReady: entReady !== false,
-    hiddenPillars: new Set(), // no frontend pillar state yet (later batch)
+    // RELEVANCE axis (C9) — OFF pillars' tiles drop from the More grid. Empty
+    // Set while loading / logged-out / accountant-view (usePillars no-ops).
+    hiddenPillars,
   };
 
   const visible = NAV_GROUPS

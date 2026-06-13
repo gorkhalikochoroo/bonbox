@@ -4,6 +4,7 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "./BranchSelector";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { usePillars } from "../hooks/usePillars";
 import { Icon } from "./ui";
 import { NAV_MANIFEST, filterDestinations } from "../config/navManifest";
 import { isNativeApp } from "../utils/platform";
@@ -52,6 +53,14 @@ export default function GlobalSearchModal({ open, onClose }) {
   const navigate = useNavigate();
   const { branchType, businessTypes } = useBranch();
   const { hasFeature, isReady: entReady } = useEntitlements();
+  // RELEVANCE axis (C9). ⌘K is the highest-intent discovery surface, so a
+  // page whose pillar is OFF must NEVER vanish from search (that would make
+  // a real capability un-findable). We deliberately do NOT pass hiddenPillars
+  // into filterDestinations here — instead we keep the page visible and tag
+  // it `pillarOff` so C10 can render the "Slået fra — tryk Enter for at slå
+  // til" enable-action treatment. This commit keeps the rows enterable
+  // (deep-link → PillarGate interstitial, one tap to re-enable).
+  const { hiddenPillars } = usePillars();
   const inputRef = useRef(null);
   const debounceRef = useRef(null);
 
@@ -112,10 +121,10 @@ export default function GlobalSearchModal({ open, onClose }) {
   // legacy emoji page-icons are gone (server-result rows keep their own
   // emoji from /api/search, distinguished by `kind` at render time).
   //
-  // hiddenPillars is empty for now (no frontend pillar state — backend C8
-  // only). Per the pillar spec, ⌘K is the highest-intent discovery signal
-  // and will eventually surface OFF pillars as enable-actions; until that
-  // state exists this is a no-op and pages index normally.
+  // hiddenPillars (C9): NOT passed into filterDestinations — ⌘K keeps OFF
+  // pillars findable (an OFF pillar's page still resolves; the deep-link
+  // shows the PillarGate interstitial). We tag matching rows `pillarOff` so
+  // C10 can render the enable-action treatment without re-deriving state.
   const PAGES = useMemo(() => {
     const activeTypes = branchType ? [branchType] : (businessTypes || []);
     const searchItems = NAV_MANIFEST.filter((d) => d.surfaces.includes("search"));
@@ -135,6 +144,9 @@ export default function GlobalSearchModal({ open, onClose }) {
       icon: d.icon,            // Lucide name (string) — rendered via <Icon>
       to: d.to,
       locked: !!d.locked,
+      // RELEVANCE tag — true when this page's pillar is toggled OFF. Kept
+      // visible (per spec), surfaced for the C10 enable-action UX.
+      pillarOff: !!d.pillar && hiddenPillars.has(d.pillar),
       aliases: d.aliases || [],
     }));
     const extraPages = SEARCH_EXTRAS.map((d) => ({
@@ -146,7 +158,7 @@ export default function GlobalSearchModal({ open, onClose }) {
       aliases: d.aliases || [],
     }));
     return [...manifestPages, ...extraPages];
-  }, [t, branchType, businessTypes, enabledModules, hasFeature, entReady]);
+  }, [t, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars]);
 
   const matchedPages = useMemo(() => {
     const q = query.trim().toLowerCase();

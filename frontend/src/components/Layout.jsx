@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { usePillars } from "../hooks/usePillars";
 import { getVatTerms } from "../utils/currency";
 import { isNativeApp } from "../utils/platform";
 import { NAV_MANIFEST, NAV_GROUPS, filterDestinations } from "../config/navManifest";
@@ -81,10 +82,13 @@ const navGroups = buildSidebarGroups();
  *      caller decides whether to render or suppress the lock)
  *    • dropping a group once all its items are filtered out
  *
- *  `hiddenPillars` is passed empty for now — there is no frontend pillar
- *  state yet (backend C8 only). Wiring it in is a one-line change later.
+ *  `hiddenPillars` (the RELEVANCE axis) is now threaded in from usePillars
+ *  (C9). An OFF pillar's destinations drop out of the sidebar entirely —
+ *  while staying reachable via a deep link (PillarGate interstitial) and ⌘K.
+ *  Accountant-view / logged-out yield an empty Set upstream, so a revisor
+ *  always sees the full nav.
  */
-function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasFeature, entReady = true) {
+function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasFeature, entReady = true, hiddenPillars = new Set()) {
   const activeTypes = branchType ? [branchType] : businessTypes;
   const enabled = enabledModules instanceof Set ? enabledModules : new Set();
   const featReady = entReady !== false;
@@ -101,14 +105,14 @@ function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasF
     return reqAny.some((m) => enabled.has(m));
   };
 
-  // Shared per-item context for filterDestinations. hiddenPillars stays
-  // empty until a later batch wires users.hidden_pillars into the frontend.
+  // Shared per-item context for filterDestinations. hiddenPillars is the
+  // owner's OFF-list (usePillars); an OFF pillar's items are dropped here.
   const ctx = {
     businessTypes: activeTypes,
     enabledModules: enabled,
     hasFeature,
     featReady,
-    hiddenPillars: new Set(),
+    hiddenPillars: hiddenPillars instanceof Set ? hiddenPillars : new Set(),
   };
 
   return groups
@@ -317,10 +321,15 @@ export default function Layout() {
   // the locked-state flicker during the cold-load window.
   const { hasFeature, isReady: entReady } = useEntitlements();
 
+  // RELEVANCE axis (C9) — the owner's OFF-list of pillars. Empty Set for
+  // accountant-view / logged-out (the provider no-ops those), so a revisor
+  // never loses a nav entry to a pillar toggle.
+  const { hiddenPillars } = usePillars();
+
   // Filter sidebar groups by both business_type (branch) and enabled modules
   const baseVisible = isAccountant
     ? accountantNavGroups
-    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature, entReady);
+    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars);
   // For super_admin owners, show an extra "Platform" group with the admin
   // dashboard. Frontend gating is cosmetic — real enforcement is server-side
   // (services/admin_security.py). A non-admin clicking this link sees an empty
