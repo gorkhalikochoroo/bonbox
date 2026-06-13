@@ -1249,6 +1249,44 @@ def complete_onboarding(
     except Exception as _e:  # noqa: BLE001
         logger.warning("auth.onboarding_complete: archetype defaults skipped: %s", _e)
 
+    # ── C12 pillar preset — APPLY ONCE, NEVER retroactively ──────────────
+    # Seed the DK relevance preset (hide the pillars this business type
+    # doesn't do) the FIRST time onboarding completes, and ONLY when the
+    # owner's hidden_pillars is still NULL (the grandfather state). Two
+    # guards, both required:
+    #   • `not already` — first completion only; re-running the wizard never
+    #     re-seeds (the owner may have intentionally re-enabled a pillar).
+    #   • `hidden_pillars is None` — never overwrite a value the owner has
+    #     already shaped (e.g. via the settings toggle or the onboarding
+    #     chips POSTing PUT /api/pillars before /complete).
+    # Existing accounts are untouched on deploy: they completed onboarding
+    # long ago (`already=True`), so this branch never fires for them.
+    # The committed value is the SUGGESTION; an owner who un-checked chips in
+    # C12 has already PUT their override, which sets hidden_pillars non-NULL
+    # and short-circuits this guard. Failure-isolated — a preset hiccup must
+    # never break onboarding-complete.
+    try:
+        if not already and db_user.hidden_pillars is None:
+            from app.services.pillars import preset_hidden_pillars, set_hidden
+            suggested = preset_hidden_pillars(getattr(db_user, "business_type", None))
+            if suggested:
+                # before is the grandfather state ([] — guard guarantees NULL).
+                persisted = set_hidden(db, db_user, suggested)
+                # L7 audit — preset-override telemetry rail.
+                try:
+                    audit_service.record(
+                        db, db_user, "pillars.preset_applied",
+                        entity_type="user", entity_id=db_user.id,
+                        before={"hidden": [], "business_type": db_user.business_type},
+                        after={"hidden": sorted(persisted)},
+                        ip_address=getattr(request.client, "host", None),
+                    )
+                    db.commit()
+                except Exception:  # noqa: BLE001
+                    db.rollback()
+    except Exception as _e:  # noqa: BLE001
+        logger.warning("auth.onboarding_complete: pillar preset skipped: %s", _e)
+
     return OnboardingCompleteResponse(
         completed_at=db_user.onboarding_completed_at,
         already_completed=already,

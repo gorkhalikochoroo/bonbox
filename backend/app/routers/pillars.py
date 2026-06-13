@@ -55,6 +55,7 @@ from app.services.pillars import (
     PILLARS,
     get_hidden,
     is_valid_pillar_id,
+    preset_hidden_pillars,
     set_hidden,
 )
 
@@ -103,6 +104,35 @@ def get_pillars_endpoint(
     # is always reflected (identity-map hit in production — free).
     row = db.get(User, user.id) or user
     return _payload(get_hidden(row))
+
+
+@router.get("/preset")
+def get_preset_endpoint(
+    business_type: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Suggested onboarding OFF-list for C12 pre-checked chips.
+
+    Pure read — never writes hidden_pillars (the commit happens via PUT
+    /api/pillars once the owner confirms / overrides the chips). Resolves
+    the business_type from the ?business_type query param if supplied
+    (so the onboarding wizard can preview presets as the owner picks a
+    type before it's saved), else falls back to the caller's stored
+    business_type. Unknown / blank type → suggested: [] (fail-open).
+
+    Shape:
+      {"business_type": "cafe",
+       "suggested": ["events", "insights"],   # PILLARS order
+       "available": [...PILLARS]}
+    """
+    bt = (business_type or "").strip() or getattr(user, "business_type", None)
+    suggested = preset_hidden_pillars(bt)
+    return {
+        "business_type": bt or None,
+        "suggested": [p for p in PILLARS if p in suggested],
+        "available": list(PILLARS),
+    }
 
 
 @router.put("")
