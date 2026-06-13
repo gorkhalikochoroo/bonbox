@@ -41,15 +41,21 @@ function manifestTab(to, fallback) {
  * route. Icons are Lucide names (see ui/Icon.jsx).
  */
 function getTabsForType(branchType) {
-  // type → route for the 4th (vertical-specific) tab.
+  // type → route for the 4th (vertical-specific) contextual tab.
+  //
+  // C5 nav diet: hospitality branches (restaurant / cafe / bar) now claim
+  // the contextual slot for RESERVATIONS — the table book is the surface a
+  // service owner reaches for most during a shift. ("Today" / daily-close
+  // is no longer parked here; it moved to the core spine and is reachable
+  // from the sidebar / More / ⌘K.) Other verticals keep their best-fit slot.
   const typeRoute = {
-    restaurant: "/daily-close",
-    bar:        "/wine-list",
-    cafe:       "/daily-close",
+    restaurant: "/reservations",
+    bar:        "/reservations",
+    cafe:       "/reservations",
     retail:     "/inventory",
     workshop:   "/workshop",
     salon:      "/staff/schedule",
-    hotel:      "/daily-close",
+    hotel:      "/reservations",
     freelance:  "/cashflow",
     general:    "/daily-close",
   };

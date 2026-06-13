@@ -966,7 +966,7 @@ export default function PaymentImportsPage() {
               ))}
             </ol>
             <div className="pt-2">
-              <Link to="/bank-import">
+              <Link to="/imports?tab=bank">
                 <Button variant="primary" size="lg" iconRight={<ArrowRight size={14} />}>
                   {t("uploadCsv", "Upload CSV")}
                 </Button>

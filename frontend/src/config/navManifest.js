@@ -95,6 +95,19 @@ export const NAV_MANIFEST = [
     surfaces: ["sidebar", "search", "bottomnav"],
   },
   {
+    // "Today" — the merged daily-close page (#150). C5 nav diet promotes it
+    // from the Reports group to the top-level ungrouped (core) spine, right
+    // after Sales — it's the daily ritual, not a once-a-period report.
+    to: "/daily-close",
+    icon: "Moon",
+    labelKey: "navToday",
+    group: "core",
+    pillar: null,
+    frequency: "daily",
+    surfaces: ["sidebar", "more", "search", "bottomnav"],
+    aliases: ["today", "daily close", "close", "end of day", "today's floor", "daily report", "floor", "ops"],
+  },
+  {
     to: "/events",
     icon: "CalendarDays",
     labelKey: "events",
@@ -106,6 +119,9 @@ export const NAV_MANIFEST = [
   },
   {
     // Reservations — Starter+ feature: stays VISIBLE-BUT-LOCKED for Free.
+    // C5: also a 'bottomnav' surface so MobileBottomNav can resolve its
+    // icon/label when it claims the contextual 4th slot for restaurant /
+    // cafe / bar branches (see getTabsForType).
     to: "/reservations",
     icon: "CalendarCheck",
     labelKey: "reservations",
@@ -113,7 +129,7 @@ export const NAV_MANIFEST = [
     pillar: "reservations",
     requiresFeature: "reservations",
     frequency: "daily",
-    surfaces: ["sidebar", "more", "search"],
+    surfaces: ["sidebar", "more", "search", "bottomnav"],
     aliases: ["reservations", "booking", "table", "bordbestilling"],
   },
   {
@@ -156,22 +172,18 @@ export const NAV_MANIFEST = [
     aliases: ["budget", "budgets"],
   },
   {
-    to: "/bank-import",
+    // Imports — C5 merge of the old /bank-import + /payment-imports into one
+    // destination (a TabPills wrapper: Bank · Payments). The legacy paths
+    // still resolve (App.jsx redirects them into the right tab) and ⌘K still
+    // matches "bank import" / "payment imports" via aliases.
+    to: "/imports",
     icon: "Landmark",
-    labelKey: "bankImport",
+    labelKey: "imports",
     group: "money",
     pillar: null,
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
-  },
-  {
-    to: "/payment-imports",
-    icon: "CreditCard",
-    labelKey: "paymentImports",
-    group: "money",
-    pillar: null,
-    frequency: "weekly",
-    surfaces: ["sidebar", "more"],
+    aliases: ["imports", "bank import", "payment imports", "csv", "mobilepay", "bankimport", "betalingsimport"],
   },
   {
     // Khata = customer credit ledger. Lives in Money.
@@ -273,18 +285,8 @@ export const NAV_MANIFEST = [
     aliases: ["waste", "spild"],
   },
 
-  // ─── REPORTS ────────────────────────────────────────────────────────
-  {
-    // "Today" — the merged daily close page (#150).
-    to: "/daily-close",
-    icon: "Moon",
-    labelKey: "navToday",
-    group: "reports",
-    pillar: null,
-    frequency: "daily",
-    surfaces: ["sidebar", "more", "search", "bottomnav"],
-    aliases: ["today", "daily close", "close", "end of day", "today's floor", "daily report", "floor", "ops"],
-  },
+  // ─── REPORTS & MOMS ─────────────────────────────────────────────────
+  // ("Today" / daily-close moved to the core spine in C5 — see above.)
   {
     to: "/reports",
     icon: "ClipboardList",
@@ -561,13 +563,14 @@ export const NAV_MANIFEST = [
     frequency: "rare",
     surfaces: ["sidebar"],
   },
-
-  // ─── ACCOUNT ────────────────────────────────────────────────────────
   {
+    // Plan & billing — C5 folds the old one-item ACCOUNT group into the
+    // rare SETTINGS group (manage). One settings home instead of two
+    // bottom-of-sidebar groups.
     to: "/subscription",
     icon: "Sparkles",
     labelKey: "planBilling",
-    group: "account",
+    group: "manage",
     pillar: null,
     frequency: "rare",
     surfaces: ["sidebar", "more", "search"],
@@ -669,14 +672,22 @@ export function filterDestinations(items, ctx = {}) {
  * builds its grouped structure from this + the manifest so the group
  * order / labels live in ONE place too.
  *
- * Mirrors the legacy navGroups headers exactly (zero visual change).
+ * C5 nav diet (regroup): the order + labels here drive the sidebar.
+ *   • core    — spine: + Today now lives here (after Sales), still headerless.
+ *   • Money / Stock / Staff come first (the everyday operator groups).
+ *   • reports group relabeled "Reports & MOMS" (navReportsMoms) — Today left
+ *     it for the spine; it now holds Reports / Tax / Send-to-revisor etc.
+ *   • intel + workshop stay business-type-scoped verticals after that.
+ *   • manage relabeled "Settings" (navSettings) and ABSORBS the old one-item
+ *     ACCOUNT group (plan & billing) — one rare settings home at the bottom.
+ *     The standalone `account` group is gone.
  */
 export const NAV_GROUPS = [
   { id: "core",     labelKey: null,             icon: null,        visibleFor: null },
   { id: "money",    labelKey: "navMoney",       icon: "Wallet",    visibleFor: null },
   { id: "stock",    labelKey: "navStock",       icon: "Boxes",     visibleFor: null },
-  { id: "reports",  labelKey: "navReports",     icon: "BarChart3", visibleFor: null },
   { id: "staff",    labelKey: "navStaff",       icon: "UsersRound", visibleFor: null },
+  { id: "reports",  labelKey: "navReportsMoms", icon: "BarChart3", visibleFor: null },
   // Intelligence group is itself business-type scoped (legacy parity).
   { id: "intel",    labelKey: "navIntel",       icon: "Brain",
     visibleFor: ["restaurant", "retail", "service", "general"] },
@@ -684,6 +695,7 @@ export const NAV_GROUPS = [
   // is enabled (legacy `requiresAnyModule: ['workshop']`).
   { id: "workshop", labelKey: "navWorkshop",    icon: "Wrench",
     visibleFor: ["workshop"], requiresAnyModule: ["workshop"] },
-  { id: "manage",   labelKey: "navManage",      icon: "Settings",  visibleFor: null },
-  { id: "account",  labelKey: "navAccount",     icon: "Sparkles",  visibleFor: null },
+  // Settings — the rare group: connections, terminals, branches, team,
+  // modules, channels, plan & billing, etc. (absorbed ACCOUNT in C5).
+  { id: "manage",   labelKey: "navSettings",    icon: "Settings",  visibleFor: null },
 ];

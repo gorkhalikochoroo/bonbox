@@ -770,7 +770,7 @@ export default function ConnectionsPage() {
               </p>
             </div>
             <Link
-              to="/bank-import"
+              to="/imports?tab=bank"
               className="text-xs text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 underline"
             >
               + Connect another

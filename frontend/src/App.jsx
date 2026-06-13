@@ -174,8 +174,12 @@ const ReservationsPage = lazyRetry(() => import("./pages/ReservationsPage"));
 const MileagePage = lazyRetry(() => import("./pages/MileagePage"));
 const LoanTrackerPage = lazyRetry(() => import("./pages/LoanTrackerPage"));
 const WeatherPage = lazyRetry(() => import("./pages/WeatherPage"));
-const BankImportPage = lazyRetry(() => import("./pages/BankImportPage"));
-const PaymentImportsPage = lazyRetry(() => import("./pages/PaymentImportsPage"));
+// C5 nav-diet (Imports merge): /bank-import + /payment-imports are now ONE
+// 'Imports' destination — a thin TabPills wrapper. The legacy routes stay
+// registered but redirect into the right tab (below). The two underlying
+// pages are still imported by ImportsPage, so no dynamic-import is needed
+// for them here anymore.
+const ImportsPage = lazyRetry(() => import("./pages/ImportsPage"));
 const BudgetPage = lazyRetry(() => import("./pages/BudgetPage"));
 const TeamPage = lazyRetry(() => import("./pages/TeamPage"));
 const CashFlowPage = lazyRetry(() => import("./pages/CashFlowPage"));
@@ -424,8 +428,12 @@ function AppRoutes() {
           <Route path="/customers" element={<CustomersPage />} />
           <Route path="/mileage" element={<MileagePage />} />
           <Route path="/loans" element={<LoanTrackerPage />} />
-          <Route path="/bank-import" element={<BankImportPage />} />
-          <Route path="/payment-imports" element={<PaymentImportsPage />} />
+          {/* C5 Imports merge — one destination, two tabs. The legacy paths
+              stay registered but redirect into the matching tab so old
+              bookmarks / deep links / Connections-page links don't break. */}
+          <Route path="/imports" element={<ImportsPage />} />
+          <Route path="/bank-import" element={<Navigate to="/imports?tab=bank" replace />} />
+          <Route path="/payment-imports" element={<Navigate to="/imports?tab=payments" replace />} />
           <Route path="/budgets" element={<BudgetPage />} />
           <Route path="/team" element={<TeamPage />} />
           <Route path="/staff/schedule" element={<StaffSchedulePage />} />
