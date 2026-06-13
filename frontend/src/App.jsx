@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { EntitlementsProvider } from "./hooks/useEntitlements";
 import { FeaturesProvider } from "./hooks/useFeatures";
+import { PillarsProvider } from "./hooks/usePillars";
 import { BranchProvider } from "./components/BranchSelector";
 import { LanguageProvider } from "./hooks/useLanguage";
 import { GoogleOAuthProvider } from "@react-oauth/google";
@@ -97,6 +98,13 @@ class ErrorBoundary extends Component {
 // so it stays statically imported — lazy-loading it would flash the
 // banner in late after first paint.
 import CookieConsent from "./components/CookieConsent";
+// PillarGate — RELEVANCE-axis interstitial. Wraps ONLY owner pillar pages
+// (reservations / events / inventory / staff / insights). A deactivated
+// pillar deep link renders a one-tap "turn back on" card instead of the
+// page — never a 404, never a redirect. Statically imported (tiny) so the
+// gate decision happens before the lazy page chunk is even fetched.
+// NEVER wraps public (/r, /e, /s, /scan), spine, accountant, or auth routes.
+import PillarGate from "./components/PillarGate";
 
 /**
  * Self-contained ErrorBoundary for the cookie banner. If anything inside the
@@ -386,17 +394,22 @@ function AppRoutes() {
         >
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/sales" element={<SalesPage />} />
-          <Route path="/events" element={<EventsPage />} />
+          {/* EVENTS pillar. A hidden pillar shows the PillarGate interstitial
+              (one tap to re-enable) instead of the page. */}
+          <Route path="/events" element={<PillarGate pillar="events"><EventsPage /></PillarGate>} />
           {/* Reservations owner book — table bookings + appointments.
-              Starter+ feature; the page renders its own UpgradeNudge for
-              Free-tier users. */}
-          <Route path="/reservations" element={<ReservationsPage />} />
+              RESERVATIONS pillar + Starter+ feature: pillar-hide (interstitial)
+              and tier-lock (the page's own UpgradeNudge) are independent. */}
+          <Route path="/reservations" element={<PillarGate pillar="reservations"><ReservationsPage /></PillarGate>} />
           {/* Organizer-only door-scan PWA page — opens camera, scans QR
               codes against the selected event's tickets. Capacitor 8
-              and web both go through getUserMedia. */}
+              and web both go through getUserMedia. NOT pillar-gated: door-scan
+              is an operational capability surface (HARD INVARIANT). */}
           <Route path="/scan" element={<DoorScanPage />} />
           <Route path="/expenses" element={<ExpensesPage />} />
-          <Route path="/inventory" element={<InventoryPage />} />
+          {/* INVENTORY pillar — covers stock + its sub-surfaces (waste,
+              expiry) and the opt-in verticals (wine-list, bar-pour). */}
+          <Route path="/inventory" element={<PillarGate pillar="inventory"><InventoryPage /></PillarGate>} />
           {/* C7 Intelligence collapse — smart-staffing + weather-smart folded
               into the Schedule page's forecast panel. Legacy routes stay
               registered as permanent redirects so old bookmarks / push links
@@ -404,7 +417,7 @@ function AppRoutes() {
               there via the /staff/schedule manifest aliases). */}
           <Route path="/staffing" element={<Navigate to="/staff/schedule" replace />} />
           <Route path="/weather" element={<Navigate to="/staff/schedule" replace />} />
-          <Route path="/waste" element={<WastePage />} />
+          <Route path="/waste" element={<PillarGate pillar="inventory"><WastePage /></PillarGate>} />
           <Route path="/weekly-report" element={<WeeklyReportPage />} />
           <Route path="/vat-report" element={<VatReportPage />} />
           <Route path="/reports" element={<ReportsPage />} />
@@ -418,7 +431,7 @@ function AppRoutes() {
               bookmarks / deep links survive. */}
           <Route path="/pricing" element={<Navigate to="/insights?tab=pricing" replace />} />
           <Route path="/retention" element={<Navigate to="/insights?tab=guests" replace />} />
-          <Route path="/expiry" element={<ExpiryPage />} />
+          <Route path="/expiry" element={<PillarGate pillar="inventory"><ExpiryPage /></PillarGate>} />
           <Route path="/outlets" element={<OutletPage />} />
           <Route path="/competitors" element={<Navigate to="/insights?tab=pricing" replace />} />
           <Route path="/branches" element={<BranchPage />} />
@@ -429,8 +442,8 @@ function AppRoutes() {
           <Route path="/share-recipients" element={<ShareRecipientsPage />} />
           <Route path="/daily-close" element={<DailyClosePage />} />
           <Route path="/workshop" element={<WorkshopPage />} />
-          <Route path="/wine-list" element={<WineListPage />} />
-          <Route path="/bar" element={<BarPage />} />
+          <Route path="/wine-list" element={<PillarGate pillar="inventory"><WineListPage /></PillarGate>} />
+          <Route path="/bar" element={<PillarGate pillar="inventory"><BarPage /></PillarGate>} />
           <Route path="/workshop/job/:id" element={<JobCardPage />} />
           <Route path="/workshop/new-job" element={<NewJobPage />} />
           <Route path="/recently-deleted" element={<RecentlyDeletedPage />} />
@@ -450,15 +463,18 @@ function AppRoutes() {
           <Route path="/payment-imports" element={<Navigate to="/imports?tab=payments" replace />} />
           <Route path="/budgets" element={<BudgetPage />} />
           <Route path="/team" element={<TeamPage />} />
-          <Route path="/staff/schedule" element={<StaffSchedulePage />} />
-          <Route path="/staff/hours" element={<StaffHoursPage />} />
-          <Route path="/staff/time-registration" element={<TimeRegistrationPage />} />
-          <Route path="/staff/tips" element={<StaffTipsPage />} />
-          <Route path="/staff/payroll" element={<StaffPayrollPage />} />
+          {/* STAFF pillar — every /staff/* owner page. (The PUBLIC staff
+              portal /s/:token is a separate, NON-gated route above.) */}
+          <Route path="/staff/schedule" element={<PillarGate pillar="staff"><StaffSchedulePage /></PillarGate>} />
+          <Route path="/staff/hours" element={<PillarGate pillar="staff"><StaffHoursPage /></PillarGate>} />
+          <Route path="/staff/time-registration" element={<PillarGate pillar="staff"><TimeRegistrationPage /></PillarGate>} />
+          <Route path="/staff/tips" element={<PillarGate pillar="staff"><StaffTipsPage /></PillarGate>} />
+          <Route path="/staff/payroll" element={<PillarGate pillar="staff"><StaffPayrollPage /></PillarGate>} />
           <Route path="/more" element={<MorePage />} />
           <Route path="/subscription" element={<SubscriptionPage />} />
           <Route path="/bookkeeping-export" element={<BookkeepingExportPage />} />
-          <Route path="/insights" element={<InsightsHubPage />} />
+          {/* INSIGHTS pillar — the InsightsHub (AI · Priser & marked · Gæster). */}
+          <Route path="/insights" element={<PillarGate pillar="insights"><InsightsHubPage /></PillarGate>} />
           {/* Today's Floor merged into End-of-Day Close (#150). The
               page now lives at /daily-close — top of page shows the
               live KPIs that used to be at /daily-report. We keep the
@@ -513,16 +529,23 @@ function AppInner() {
                   inside Auth so it can use the same axios instance,
                   but the endpoint is public — works pre-login too. */}
               <FeaturesProvider>
-                <BranchProvider>
-                  <AppRoutes />
-                  {/* Cookie consent renders on top of any route, including landing/
-                      login/register where pre-auth visitors must see it.
-                      Wrapped in its own boundary so a failure here NEVER breaks the
-                      rest of the app. */}
-                  <CookieConsentBoundary>
-                    <CookieConsent />
-                  </CookieConsentBoundary>
-                </BranchProvider>
+                {/* PillarsProvider — the RELEVANCE axis (per-account pillar
+                    toggles). Sits inside Auth (it reads user.role to no-op for
+                    accountant-view) and wraps Branch + the routes so Layout,
+                    MorePage, the ⌘K palette, and PillarGate all read the same
+                    hiddenPillars Set. Free + uncapped — no entitlement coupling. */}
+                <PillarsProvider>
+                  <BranchProvider>
+                    <AppRoutes />
+                    {/* Cookie consent renders on top of any route, including landing/
+                        login/register where pre-auth visitors must see it.
+                        Wrapped in its own boundary so a failure here NEVER breaks the
+                        rest of the app. */}
+                    <CookieConsentBoundary>
+                      <CookieConsent />
+                    </CookieConsentBoundary>
+                  </BranchProvider>
+                </PillarsProvider>
               </FeaturesProvider>
             </EntitlementsProvider>
           </AuthProvider>
