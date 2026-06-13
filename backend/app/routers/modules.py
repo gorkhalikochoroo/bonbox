@@ -28,8 +28,11 @@ Endpoint contract:
                                 returns 403 if over cap, 400 on unknown ID,
                                 429 if rate-limit exceeded, 422 on bounds.
 """
-from __future__ import annotations
-
+# NOTE: no `from __future__ import annotations` — PUT /modules/select is
+# slowapi-rate-limited, and PEP 563 string annotations make FastAPI resolve
+# the body param through slowapi's wrapper globals (where SelectModulesRequest
+# doesn't exist), silently demoting it to a required query param → 422 on every
+# save. Eager annotations avoid the resolution step. (Same in pillars.py.)
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request

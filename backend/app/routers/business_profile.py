@@ -14,8 +14,12 @@ Endpoints:
   GET    /api/business                  — get the user's saved profile
   PUT    /api/business                  — save / update profile
 """
-from __future__ import annotations
-
+# NOTE: no `from __future__ import annotations` — verify-address / logo are
+# slowapi-rate-limited, and under PEP 563 string annotations FastAPI resolves
+# their body / UploadFile params through slowapi's wrapper globals, fails to
+# find the request model, and demotes the param to a required query param →
+# 422 on every call. Eager annotations avoid the resolution step. (Same in
+# pillars.py / modules.py.)
 import uuid
 from datetime import datetime, timedelta
 

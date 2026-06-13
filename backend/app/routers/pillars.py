@@ -37,8 +37,14 @@ Endpoint contract:
 NULL semantics: a user who has never touched the toggles has
 hidden_pillars = NULL → GET returns hidden: [] → everything visible.
 """
-from __future__ import annotations
-
+# NOTE: deliberately NO `from __future__ import annotations` here.
+# This router rate-limits its state-changing endpoint with slowapi's
+# @_limiter.limit(...), which wraps the handler. Under PEP 563 string
+# annotations, FastAPI resolves the body parameter's annotation through the
+# WRAPPER's module globals (slowapi's), can't find SetPillarsRequest, and
+# silently demotes `body` to a required *query* param → every PUT 422s with
+# loc=["query","body"]. Eager (real-object) annotations sidestep the whole
+# resolution step. Same reason modules.py / business_profile.py omit it.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request

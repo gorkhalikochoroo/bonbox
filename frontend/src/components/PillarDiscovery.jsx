@@ -35,6 +35,7 @@ import { usePillars } from "../hooks/usePillars";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { Icon } from "./ui";
 import { PILLAR_DISPLAY } from "../config/navManifest";
+import { errText } from "../utils/errText";
 
 export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
   const { t } = useLanguage();
@@ -69,7 +70,9 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
         onUndo: async () => { await setPillarHidden(pillar.id, true); },
       });
     } catch (e) {
-      setError(e?.response?.data?.detail || t("pillarDiscoveryEnableFailed"));
+      // Coerce to a string — a raw 422 detail-array rendered as a child
+      // would throw React #31 and crash the app (see utils/errText).
+      setError(errText(e, t("pillarDiscoveryEnableFailed")));
     } finally {
       setEnablingId(null);
     }

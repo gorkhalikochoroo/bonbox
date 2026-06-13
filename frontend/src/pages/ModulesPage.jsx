@@ -11,6 +11,7 @@ import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, SectionBanner, Button, Icon } from "../components/ui";
 import { PILLAR_DISPLAY } from "../config/navManifest";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
+import { errText } from "../utils/errText";
 
 /**
  * FunktionerSection (C11) — the RELEVANCE-axis toggle UI.
@@ -46,7 +47,10 @@ function FunktionerSection() {
         onUndo: async () => { await setPillarHidden(pillar.id, !makeHidden); },
       });
     } catch (e) {
-      setError(e?.response?.data?.detail || t("funktionerToggleFailed"));
+      // errText() coerces a 422 detail-array (and any object detail) to a
+      // string — rendering the raw array as a child throws React #31 and
+      // white-screens the whole app (the batch-2 pillar P0).
+      setError(errText(e, t("funktionerToggleFailed")));
     } finally {
       setBusyId(null);
     }
