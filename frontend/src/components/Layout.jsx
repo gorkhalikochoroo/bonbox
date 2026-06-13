@@ -17,6 +17,7 @@ import { Icon } from "./ui";
 const GlobalSearchModal = lazy(() => import("./GlobalSearchModal"));
 import BranchSelector, { useBranch } from "./BranchSelector";
 import MobileBottomNav from "./MobileBottomNav";
+import PillarDiscovery from "./PillarDiscovery";
 import { useAppLifecycle } from "../hooks/useAppLifecycle";
 import { useKeyboardAvoidance } from "../hooks/useKeyboardAvoidance";
 
@@ -722,6 +723,15 @@ export default function Layout() {
                   </div>
                 );
               })}
+              {/* DISCOVERY FLOOR (C10) — pinned "Tilføj funktioner" at the
+                  bottom of the nav. Lists the owner's OFF pillars as muted
+                  one-tap "Slå til" rows so a hidden pillar is always re-
+                  findable. Renders null when nothing is hidden, and for
+                  accountant-view (empty hiddenPillars Set upstream), so a
+                  revisor never sees it. */}
+              {!isAccountant && (
+                <PillarDiscovery variant="sidebar" onNavigate={closeSidebar} />
+              )}
             </div>
           )}
         </nav>

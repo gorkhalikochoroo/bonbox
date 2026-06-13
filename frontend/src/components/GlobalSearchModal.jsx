@@ -53,14 +53,15 @@ export default function GlobalSearchModal({ open, onClose }) {
   const navigate = useNavigate();
   const { branchType, businessTypes } = useBranch();
   const { hasFeature, isReady: entReady } = useEntitlements();
-  // RELEVANCE axis (C9). ⌘K is the highest-intent discovery surface, so a
-  // page whose pillar is OFF must NEVER vanish from search (that would make
+  // RELEVANCE axis (C9 + C10). ⌘K is the highest-intent discovery surface, so
+  // a page whose pillar is OFF must NEVER vanish from search (that would make
   // a real capability un-findable). We deliberately do NOT pass hiddenPillars
-  // into filterDestinations here — instead we keep the page visible and tag
-  // it `pillarOff` so C10 can render the "Slået fra — tryk Enter for at slå
-  // til" enable-action treatment. This commit keeps the rows enterable
-  // (deep-link → PillarGate interstitial, one tap to re-enable).
-  const { hiddenPillars } = usePillars();
+  // into filterDestinations — instead we keep the page visible and tag it
+  // `pillarOff` so C10 renders the "Slået fra — tryk Enter for at slå til"
+  // enable-action treatment: Enter (or tap) re-enables the pillar via
+  // setPillarHidden, THEN navigates to the now-live page (no PillarGate
+  // bounce). setPillarHidden is the optimistic toggle from the pillar context.
+  const { hiddenPillars, setPillarHidden } = usePillars();
   const inputRef = useRef(null);
   const debounceRef = useRef(null);
 
@@ -145,7 +146,9 @@ export default function GlobalSearchModal({ open, onClose }) {
       to: d.to,
       locked: !!d.locked,
       // RELEVANCE tag — true when this page's pillar is toggled OFF. Kept
-      // visible (per spec), surfaced for the C10 enable-action UX.
+      // visible (per spec), surfaced for the C10 enable-action UX. `pillar`
+      // is carried so Enter can re-enable the right pillar before navigating.
+      pillar: d.pillar || null,
       pillarOff: !!d.pillar && hiddenPillars.has(d.pillar),
       aliases: d.aliases || [],
     }));
@@ -155,6 +158,8 @@ export default function GlobalSearchModal({ open, onClose }) {
       icon: d.icon,
       to: d.to,
       locked: false,
+      pillar: null,
+      pillarOff: false,
       aliases: d.aliases || [],
     }));
     return [...manifestPages, ...extraPages];
@@ -215,6 +220,13 @@ export default function GlobalSearchModal({ open, onClose }) {
           // (the UpgradeNudge funnel), same as the sidebar / More page.
           to: p.locked ? "/subscription" : p.to,
           locked: p.locked,
+          // RELEVANCE enable-action (C10): an OFF-pillar page stays findable.
+          // Carry the pillar id + the OFF flag so the row renders the
+          // "Slået fra" treatment and Enter re-enables before navigating.
+          // (Tier-lock takes precedence — a locked page routes to upgrade;
+          // pillarOff only matters for an otherwise-reachable page.)
+          pillar: p.pillar || null,
+          pillarOff: !p.locked && !!p.pillarOff,
         });
       }
     }
@@ -260,8 +272,32 @@ export default function GlobalSearchModal({ open, onClose }) {
     try { localStorage.setItem("bonbox_search_recents", JSON.stringify(next)); } catch { /* ignore */ }
   };
 
-  const goTo = (item) => {
+  // Tracks an in-flight pillar re-enable (C10 enable-action) so the row can
+  // show a busy state. Holds the row's `to` while the PUT is in flight.
+  const [enablingTo, setEnablingTo] = useState(null);
+
+  const goTo = async (item) => {
     if (!item) return;
+    // C10 enable-action: an OFF-pillar page re-enables its pillar FIRST, then
+    // navigates to the now-live page (so the owner lands on the page, never
+    // the PillarGate interstitial). Optimistic; setPillarHidden rolls back on
+    // error, in which case we still navigate — the deep link then resolves to
+    // the PillarGate interstitial, which has its own one-tap re-enable (never
+    // a dead end).
+    if (item.pillarOff && item.pillar) {
+      persistRecent(query);
+      setEnablingTo(item.to);
+      try {
+        await setPillarHidden(item.pillar, false);
+      } catch {
+        /* fail-soft — fall through to navigation; PillarGate catches it */
+      } finally {
+        setEnablingTo(null);
+      }
+      onClose();
+      navigate(item.to);
+      return;
+    }
     persistRecent(query);
     onClose();
     navigate(item.to);
@@ -462,15 +498,21 @@ export default function GlobalSearchModal({ open, onClose }) {
                     item._idx === selectedIdx
                       ? "bg-gray-50 dark:bg-gray-800/50"
                       : "hover:bg-gray-50 dark:hover:bg-gray-700/40"
-                  } ${item.locked ? "opacity-60" : ""}`}
+                  } ${item.locked || item.pillarOff ? "opacity-60" : ""}`}
                 >
                   {/* Page rows render Lucide glyphs via the <Icon> registry
                       (manifest icon = a string name); a locked page shows the
-                      Lock glyph. Server-result (entity) rows keep their emoji
-                      from /api/search. */}
+                      Lock glyph. An OFF-pillar page (enable-action, C10) keeps
+                      its own icon but spins a Loader while re-enabling. Server-
+                      result (entity) rows keep their emoji from /api/search. */}
                   {item.kind === "page" ? (
                     <span className="shrink-0 text-gray-700 dark:text-gray-300">
-                      <Icon name={item.locked ? "Lock" : item.icon} size={18} strokeWidth={1.75} />
+                      <Icon
+                        name={item.locked ? "Lock" : (enablingTo === item.to ? "Loader" : item.icon)}
+                        size={18}
+                        strokeWidth={1.75}
+                        className={enablingTo === item.to ? "animate-spin" : ""}
+                      />
                     </span>
                   ) : (
                     <span className="text-base shrink-0">{item.icon}</span>
@@ -479,7 +521,15 @@ export default function GlobalSearchModal({ open, onClose }) {
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
                       {item.label}
                     </p>
-                    {item.sublabel && (
+                    {/* OFF-pillar rows replace the route sublabel with the
+                        enable-action hint so the row reads as "turn this on",
+                        not "go here". Per spec: NEVER let ⌘K return empty for a
+                        real BonBox capability. */}
+                    {item.pillarOff ? (
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
+                        {t("pillarSearchEnableHint")}
+                      </p>
+                    ) : item.sublabel && (
                       <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
                         {item.sublabel}
                       </p>
@@ -488,6 +538,13 @@ export default function GlobalSearchModal({ open, onClose }) {
                   {item.amount != null && (
                     <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 shrink-0">
                       {item.amount.toLocaleString("da-DK")}
+                    </span>
+                  )}
+                  {/* OFF-pillar suffix chip — "Slået fra". Muted, quiet, so it
+                      reads as a state badge, not a CTA. */}
+                  {item.pillarOff && (
+                    <span className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700/60 rounded shrink-0">
+                      {t("pillarSearchOffChip")}
                     </span>
                   )}
                   {item._idx === selectedIdx && (

@@ -1819,6 +1819,22 @@ const translations = {
     pillarGateEnabledToast: "Turned back on",
     pillarGateEnableFailed: "Couldn't turn it on. Try again.",
     pillarGateManageHint: "You can always turn features on and off in Settings.",
+    // Pillar display labels — the RELEVANCE axis names shown in the discovery
+    // floor (C10) + the Settings toggle section (C11). Short chrome labels,
+    // distinct from the longer PillarGate interstitial copy.
+    pillarLabelReservations: "Reservations",
+    pillarLabelEvents: "Events",
+    pillarLabelInventory: "Inventory",
+    pillarLabelStaff: "Staff",
+    pillarLabelInsights: "Insights",
+    // Discovery floor (C10a) — "Add features" re-find affordance.
+    pillarDiscoveryTitle: "Add features",
+    pillarDiscoveryEnableCta: "Turn on",
+    pillarDiscoveryEnabledToast: "Turned back on",
+    pillarDiscoveryEnableFailed: "Couldn't turn it on. Try again.",
+    // Cmd-K enable-action rows (C10b) — an OFF pillar's page stays findable.
+    pillarSearchOffChip: "Off",
+    pillarSearchEnableHint: "Turned off — press Enter to turn on",
     branches: "Branches",
     workshop: "Workshop",
     wineList: "Wine List", wineListDesc: "Manage your wine catalog, track stock & margins, export menus.",
@@ -6876,6 +6892,20 @@ const translations = {
     pillarGateEnabledToast: "Slået til igen",
     pillarGateEnableFailed: "Kunne ikke slå til. Prøv igen.",
     pillarGateManageHint: "Du kan altid slå funktioner til og fra under Indstillinger.",
+    // Pillar-visningsnavne — RELEVANCE-aksen (C10 opdagelsesgulv + C11 Indstillinger).
+    pillarLabelReservations: "Reservationer",
+    pillarLabelEvents: "Arrangementer",
+    pillarLabelInventory: "Lager",
+    pillarLabelStaff: "Personale",
+    pillarLabelInsights: "Indsigt",
+    // Opdagelsesgulv (C10a) — "Tilføj funktioner" gen-find-affordance.
+    pillarDiscoveryTitle: "Tilføj funktioner",
+    pillarDiscoveryEnableCta: "Slå til",
+    pillarDiscoveryEnabledToast: "Slået til igen",
+    pillarDiscoveryEnableFailed: "Kunne ikke slå til. Prøv igen.",
+    // Cmd-K slå-til-handlinger (C10b) — en fravalgt pillar forbliver søgbar.
+    pillarSearchOffChip: "Slået fra",
+    pillarSearchEnableHint: "Slået fra — tryk Enter for at slå til",
     branches: "Filialer",
     workshop: "Værksted",
     wineList: "Vinkort", wineListDesc: "Administrer dit vinkatalog, følg lager og marginer, eksportér menuer.",

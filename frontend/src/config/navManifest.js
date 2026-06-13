@@ -643,6 +643,41 @@ export function filterDestinations(items, ctx = {}) {
 }
 
 /**
+ * PILLAR_DISPLAY — the RELEVANCE-axis catalog as DISPLAY metadata.
+ *
+ * The 5 owner pillars in a stable order, each with a Lucide icon NAME +
+ * an i18n labelKey for a SHORT human label (the pillar's name, not a page
+ * title). This is the single source of truth for "how do I name + draw a
+ * pillar in chrome" — consumed by:
+ *   • PillarDiscovery  (C10a) — the "Tilføj funktioner" re-find affordance
+ *     (sidebar footer tile-strip + a More-page section) lists the OFF
+ *     pillars as one-tap "Slå til" tiles.
+ *   • ModulesPage      (C11)  — the new "Funktioner" toggle section.
+ * (PillarGate keeps its OWN per-pillar title/body copy — that's interstitial
+ * prose, a different register than these one-word chrome labels.)
+ *
+ * Order matches GET /api/pillars `available` and the onboarding presets so
+ * the toggle list reads the same everywhere. `labelKey` resolves to a real
+ * EN + DA entry in useLanguage.jsx (the pillarLabel* block).
+ */
+export const PILLAR_DISPLAY = [
+  { id: "reservations", icon: "CalendarCheck", labelKey: "pillarLabelReservations" },
+  { id: "events",       icon: "CalendarDays",  labelKey: "pillarLabelEvents" },
+  { id: "inventory",    icon: "Package",       labelKey: "pillarLabelInventory" },
+  { id: "staff",        icon: "UsersRound",    labelKey: "pillarLabelStaff" },
+  { id: "insights",     icon: "Sparkles",      labelKey: "pillarLabelInsights" },
+];
+
+/** The canonical ordered list of the 5 pillar ids (RELEVANCE axis). */
+export const PILLAR_IDS = PILLAR_DISPLAY.map((p) => p.id);
+
+/** id → display metadata lookup (icon + labelKey). */
+export const PILLAR_DISPLAY_BY_ID = PILLAR_DISPLAY.reduce((acc, p) => {
+  acc[p.id] = p;
+  return acc;
+}, {});
+
+/**
  * Convenience: the ordered list of sidebar group ids + their header
  * labelKey + icon. The 'core' group is headerless (flat list). Layout
  * builds its grouped structure from this + the manifest so the group

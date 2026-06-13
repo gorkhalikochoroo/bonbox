@@ -8,6 +8,7 @@ import { useEntitlements } from "../hooks/useEntitlements";
 import { usePillars } from "../hooks/usePillars";
 import { useTheme, THEMES } from "../hooks/useTheme";
 import Icon from "../components/ui/Icon";
+import PillarDiscovery from "../components/PillarDiscovery";
 import { NAV_MANIFEST, NAV_GROUPS, filterDestinations } from "../config/navManifest";
 import { isNativeApp } from "../utils/platform";
 
@@ -156,6 +157,11 @@ export default function MorePage() {
           </div>
         </div>
       ))}
+
+      {/* DISCOVERY FLOOR (C10) — "Tilføj funktioner" section listing the
+          owner's OFF pillars as one-tap "Slå til" tiles. Renders null when
+          nothing is hidden (the steady state for most accounts). */}
+      <PillarDiscovery variant="more" />
 
       {/* Theme picker — accent only, doesn't change light/dark mode */}
       <div className="mt-2 mb-2">
