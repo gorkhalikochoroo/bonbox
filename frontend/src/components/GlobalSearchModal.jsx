@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useBranch } from "./BranchSelector";
+import { useEntitlements } from "../hooks/useEntitlements";
+import { Icon } from "./ui";
+import { NAV_MANIFEST, filterDestinations } from "../config/navManifest";
+import { isNativeApp } from "../utils/platform";
 
 /**
  * Claude-style ⌘K command palette.
@@ -27,11 +32,48 @@ import { useLanguage } from "../hooks/useLanguage";
  *   • Persisted in localStorage (last 5)
  *   • Shown as quick-access chips when the input is empty
  */
+// Search-only pages the nav manifest deliberately does NOT own — they're
+// reachable sub-pages / personal-mode routes / footer destinations, not owner
+// PRIMARY nav entries, so they have no place in the sidebar / More grid. We
+// still want ⌘K to find them (it's the highest-intent discovery surface), so
+// they're listed here with Lucide icon names + label keys, appended after the
+// manifest pages. Mirrors MorePage's MORE_EXTRAS pattern.
+const SEARCH_EXTRAS = [
+  { to: "/vat-report",    icon: "ClipboardList", labelKey: "vatReport",    aliases: ["vat", "moms report"] },
+  { to: "/weekly-report", icon: "Calendar",      labelKey: "weeklyReport", aliases: ["weekly", "week"] },
+  { to: "/loans",         icon: "Banknote",      labelKey: "loans",        aliases: ["loan", "lån"] },
+  { to: "/profile",       icon: "Settings",      labelKey: "profile",      aliases: ["profile", "settings", "account"] },
+  { to: "/personal",      icon: "User",          labelKey: "personal",     aliases: ["personal"] },
+  { to: "/feedback",      icon: "MessageCircle", labelKey: "feedback",     aliases: ["feedback", "support"] },
+];
+
 export default function GlobalSearchModal({ open, onClose }) {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { branchType, businessTypes } = useBranch();
+  const { hasFeature, isReady: entReady } = useEntitlements();
   const inputRef = useRef(null);
   const debounceRef = useRef(null);
+
+  // Owner's enabled vertical modules — keeps any module-gated page (Bar /
+  // Wine) out of search results for owners who haven't opted in, matching
+  // the sidebar / More page. Fetched only while the palette is open (it's a
+  // lazy modal); empty Set = strict default until /api/modules resolves.
+  const [enabledModules, setEnabledModules] = useState(() => new Set());
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    api.get("/modules")
+      .then((res) => {
+        if (cancelled) return;
+        const enabledIds = (res.data?.modules || [])
+          .filter((m) => m.enabled)
+          .map((m) => m.id);
+        setEnabledModules(new Set(enabledIds));
+      })
+      .catch(() => { /* silent — strict default */ });
+    return () => { cancelled = true; };
+  }, [open]);
 
   const [query, setQuery] = useState("");
   const [serverGroups, setServerGroups] = useState([]);  // from /api/search
@@ -60,51 +102,60 @@ export default function GlobalSearchModal({ open, onClose }) {
     });
   };
 
-  // ─── Static page list — filtered client-side ───────────────────
-  // Source of truth: the routes registered in App.jsx. Each entry has
-  // a label key (translated), an icon, and a route. Filtering is just
-  // a substring match on the LABEL — fast and good enough for nav.
-  const PAGES = useMemo(() => [
-    // Search palette labels track the sidebar Option-A rename — owners
-    // typing "close" or "floor" find the same page they see in the nav.
-    // Keep the legacy keys (dashboard / dailyClose / dailyReport) as
-    // secondary aliases so existing muscle memory still works.
-    { key: "dashboard", label: t("navHome") || "Home",                icon: "📊", to: "/dashboard", aliases: ["dashboard", "home", "overview"] },
-    { key: "sales",     label: t("sales") || "Sales",                 icon: "💰", to: "/sales" },
-    { key: "expenses",  label: t("expenses") || "Expenses",           icon: "💸", to: "/expenses" },
-    { key: "inventory", label: t("inventory") || "Inventory",         icon: "📦", to: "/inventory" },
-    // Today (#150) — the merged daily page. Aliases include the
-    // old "Today's Floor" / "Daily Close" terms so typing either
-    // muscle-memory phrase still surfaces the right page.
-    { key: "today", label: t("navToday") || "Today", icon: "🌙", to: "/daily-close",
-      aliases: ["today", "daily close", "close", "end of day", "today's floor", "daily report", "floor", "ops"] },
-    { key: "reports",   label: t("navReportsTax") || "Reports & Tax", icon: "📋", to: "/reports", aliases: ["reports", "tax", "books"] },
-    { key: "cashbook",  label: t("cashBook") || "Cash Book",         icon: "📒", to: "/cashbook" },
-    { key: "cashflow",  label: t("cashFlow") || "Cash Flow",         icon: "📈", to: "/cashflow" },
-    { key: "vat",       label: t("vatReport") || "VAT Report",       icon: "🧾", to: "/vat-report" },
-    { key: "tax",       label: t("taxAutopilot") || "Tax",           icon: "📑", to: "/tax" },
-    { key: "weekly",    label: t("weeklyReport") || "Weekly Report", icon: "📅", to: "/weekly-report" },
-    { key: "khata",     label: t("khata") || "Khata",                icon: "📓", to: "/khata" },
-    { key: "loans",     label: t("loans") || "Loans",                icon: "💳", to: "/loans" },
-    { key: "budget",    label: t("budget") || "Budget",              icon: "🎯", to: "/budgets" },
-    { key: "expiry",    label: t("expiry") || "Expiry",              icon: "⏳", to: "/expiry" },
-    { key: "waste",     label: t("waste") || "Waste",                icon: "🗑️", to: "/waste" },
-    { key: "weather",   label: t("weather") || "Weather",            icon: "🌤️", to: "/weather" },
-    { key: "competitors",label: t("competitors") || "Competitors",   icon: "🏪", to: "/competitors" },
-    { key: "branches",  label: t("branches") || "Branches",          icon: "🏢", to: "/branches" },
-    { key: "team",      label: t("team") || "Team",                  icon: "👥", to: "/team" },
-    { key: "subscription",label: t("subscription") || "Subscription",icon: "💎", to: "/subscription" },
-    { key: "profile",   label: t("profile") || "Profile",            icon: "⚙️", to: "/profile" },
-    { key: "bankImport",label: t("bankImport") || "Bank Import",     icon: "🏦", to: "/bank-import" },
-    { key: "personal",  label: t("personal") || "Personal",          icon: "🧑", to: "/personal" },
-    { key: "feedback",  label: t("feedback") || "Feedback",          icon: "💬", to: "/feedback" },
-  ], [t]);
+  // ─── Static page list — MANIFEST-DRIVEN ────────────────────────
+  // Source of truth: config/navManifest.js (entries whose `surfaces`
+  // includes 'search'). filterDestinations applies the same three
+  // visibility axes the sidebar / More page use, so search never offers
+  // a page the account can't reach for product-fit reasons — while
+  // KEEPING tier-locked pages (e.g. Reservations) visible-but-locked, the
+  // UpgradeNudge funnel. Icons are Lucide NAMES rendered via <Icon>; the
+  // legacy emoji page-icons are gone (server-result rows keep their own
+  // emoji from /api/search, distinguished by `kind` at render time).
+  //
+  // hiddenPillars is empty for now (no frontend pillar state — backend C8
+  // only). Per the pillar spec, ⌘K is the highest-intent discovery signal
+  // and will eventually surface OFF pillars as enable-actions; until that
+  // state exists this is a no-op and pages index normally.
+  const PAGES = useMemo(() => {
+    const activeTypes = branchType ? [branchType] : (businessTypes || []);
+    const searchItems = NAV_MANIFEST.filter((d) => d.surfaces.includes("search"));
+    let resolved = filterDestinations(searchItems, {
+      businessTypes: activeTypes,
+      enabledModules,
+      hasFeature,
+      featReady: entReady !== false,
+      hiddenPillars: new Set(),
+    });
+    // App Store compliance (Apple 3.1.1): the native shell drops locked
+    // (purchase-surface) entries; web keeps them locked-but-visible.
+    if (isNativeApp()) resolved = resolved.filter((d) => !d.locked);
+    const manifestPages = resolved.map((d) => ({
+      key: d.to,
+      label: t(d.labelKey) || d.labelKey,
+      icon: d.icon,            // Lucide name (string) — rendered via <Icon>
+      to: d.to,
+      locked: !!d.locked,
+      aliases: d.aliases || [],
+    }));
+    const extraPages = SEARCH_EXTRAS.map((d) => ({
+      key: d.to,
+      label: t(d.labelKey) || d.labelKey,
+      icon: d.icon,
+      to: d.to,
+      locked: false,
+      aliases: d.aliases || [],
+    }));
+    return [...manifestPages, ...extraPages];
+  }, [t, branchType, businessTypes, enabledModules, hasFeature, entReady]);
 
   const matchedPages = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
     return PAGES
-      .filter(p => p.label.toLowerCase().includes(q) || p.key.toLowerCase().includes(q))
+      .filter(p =>
+        p.label.toLowerCase().includes(q) ||
+        p.key.toLowerCase().includes(q) ||
+        p.aliases.some((a) => a.toLowerCase().includes(q)))
       .slice(0, 5);
   }, [PAGES, query]);
 
@@ -147,7 +198,11 @@ export default function GlobalSearchModal({ open, onClose }) {
       for (const p of matchedPages) {
         out.push({
           kind: "page", group: "Pages", icon: p.icon,
-          label: p.label, sublabel: p.to, to: p.to,
+          label: p.label, sublabel: p.to,
+          // Tier-locked page → tapping routes to the upgrade surface
+          // (the UpgradeNudge funnel), same as the sidebar / More page.
+          to: p.locked ? "/subscription" : p.to,
+          locked: p.locked,
         });
       }
     }
@@ -395,9 +450,19 @@ export default function GlobalSearchModal({ open, onClose }) {
                     item._idx === selectedIdx
                       ? "bg-gray-50 dark:bg-gray-800/50"
                       : "hover:bg-gray-50 dark:hover:bg-gray-700/40"
-                  }`}
+                  } ${item.locked ? "opacity-60" : ""}`}
                 >
-                  <span className="text-base shrink-0">{item.icon}</span>
+                  {/* Page rows render Lucide glyphs via the <Icon> registry
+                      (manifest icon = a string name); a locked page shows the
+                      Lock glyph. Server-result (entity) rows keep their emoji
+                      from /api/search. */}
+                  {item.kind === "page" ? (
+                    <span className="shrink-0 text-gray-700 dark:text-gray-300">
+                      <Icon name={item.locked ? "Lock" : item.icon} size={18} strokeWidth={1.75} />
+                    </span>
+                  ) : (
+                    <span className="text-base shrink-0">{item.icon}</span>
+                  )}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">
                       {item.label}
