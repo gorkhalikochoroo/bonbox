@@ -140,7 +140,9 @@ const DashboardPage = lazyRetry(() => import("./pages/DashboardPage"));
 const SalesPage = lazyRetry(() => import("./pages/SalesPage"));
 const ExpensesPage = lazyRetry(() => import("./pages/ExpensesPage"));
 const InventoryPage = lazyRetry(() => import("./pages/InventoryPage"));
-const StaffingPage = lazyRetry(() => import("./pages/StaffingPage"));
+// StaffingPage / WeatherPage (C7) are no longer routed here — they render
+// embedded inside ScheduleForecastPanel on /staff/schedule, which imports
+// them itself. /staffing + /weather are redirects (see the routes below).
 const WastePage = lazyRetry(() => import("./pages/WastePage"));
 const WeeklyReportPage = lazyRetry(() => import("./pages/WeeklyReportPage"));
 const VatReportPage = lazyRetry(() => import("./pages/VatReportPage"));
@@ -173,7 +175,6 @@ const ReservationPublicPage = lazyRetry(() => import("./pages/ReservationPublicP
 const ReservationsPage = lazyRetry(() => import("./pages/ReservationsPage"));
 const MileagePage = lazyRetry(() => import("./pages/MileagePage"));
 const LoanTrackerPage = lazyRetry(() => import("./pages/LoanTrackerPage"));
-const WeatherPage = lazyRetry(() => import("./pages/WeatherPage"));
 // C5 nav-diet (Imports merge): /bank-import + /payment-imports are now ONE
 // 'Imports' destination — a thin TabPills wrapper. The legacy routes stay
 // registered but redirect into the right tab (below). The two underlying
@@ -184,11 +185,11 @@ const BudgetPage = lazyRetry(() => import("./pages/BudgetPage"));
 const TeamPage = lazyRetry(() => import("./pages/TeamPage"));
 const CashFlowPage = lazyRetry(() => import("./pages/CashFlowPage"));
 const TaxAutopilotPage = lazyRetry(() => import("./pages/TaxAutopilotPage"));
-const PricingPage = lazyRetry(() => import("./pages/PricingPage"));
-const RetentionPage = lazyRetry(() => import("./pages/RetentionPage"));
+// PricingPage / RetentionPage / CompetitorPage (C7) are no longer routed here —
+// they render as embedded tab bodies inside InsightsHubPage, which imports
+// them itself. /pricing, /retention, /competitors are redirects (below).
 const ExpiryPage = lazyRetry(() => import("./pages/ExpiryPage"));
 const OutletPage = lazyRetry(() => import("./pages/OutletPage"));
-const CompetitorPage = lazyRetry(() => import("./pages/CompetitorPage"));
 const BranchPage = lazyRetry(() => import("./pages/BranchPage"));
 const TerminalsPage = lazyRetry(() => import("./pages/TerminalsPage"));
 const ModulesPage = lazyRetry(() => import("./pages/ModulesPage"));
@@ -396,8 +397,13 @@ function AppRoutes() {
           <Route path="/scan" element={<DoorScanPage />} />
           <Route path="/expenses" element={<ExpensesPage />} />
           <Route path="/inventory" element={<InventoryPage />} />
-          <Route path="/staffing" element={<StaffingPage />} />
-          <Route path="/weather" element={<WeatherPage />} />
+          {/* C7 Intelligence collapse — smart-staffing + weather-smart folded
+              into the Schedule page's forecast panel. Legacy routes stay
+              registered as permanent redirects so old bookmarks / push links
+              land on the new home (Cmd-K "weather"/"staffing" also routes
+              there via the /staff/schedule manifest aliases). */}
+          <Route path="/staffing" element={<Navigate to="/staff/schedule" replace />} />
+          <Route path="/weather" element={<Navigate to="/staff/schedule" replace />} />
           <Route path="/waste" element={<WastePage />} />
           <Route path="/weekly-report" element={<WeeklyReportPage />} />
           <Route path="/vat-report" element={<VatReportPage />} />
@@ -406,11 +412,15 @@ function AppRoutes() {
           <Route path="/cashbook" element={<CashBookPage />} />
           <Route path="/cashflow" element={<CashFlowPage />} />
           <Route path="/tax" element={<TaxAutopilotPage />} />
-          <Route path="/pricing" element={<PricingPage />} />
-          <Route path="/retention" element={<RetentionPage />} />
+          {/* C7 Intelligence collapse — pricing + competitors + retention are
+              now TABS of the InsightsHub at /insights. Legacy routes stay
+              registered as permanent redirects into the matching tab so old
+              bookmarks / deep links survive. */}
+          <Route path="/pricing" element={<Navigate to="/insights?tab=pricing" replace />} />
+          <Route path="/retention" element={<Navigate to="/insights?tab=guests" replace />} />
           <Route path="/expiry" element={<ExpiryPage />} />
           <Route path="/outlets" element={<OutletPage />} />
-          <Route path="/competitors" element={<CompetitorPage />} />
+          <Route path="/competitors" element={<Navigate to="/insights?tab=pricing" replace />} />
           <Route path="/branches" element={<BranchPage />} />
           <Route path="/terminals" element={<TerminalsPage />} />
           <Route path="/modules" element={<ModulesPage />} />

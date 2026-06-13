@@ -38,10 +38,17 @@ const STATUS_BADGE = {
 
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "—"; }
 
-export default function StaffingPage() {
+// `embedded` (C7 forecast panel) — when true this page renders as the
+// smart-staffing body inside the Schedule page's collapsed forecast panel
+// (ScheduleForecastPanel): it drops its own page chrome (outer gutters +
+// PageHeader) so the host panel owns the shell. Standalone /staffing is
+// gone (redirects to /staff/schedule), so non-embedded use is vestigial
+// but kept intact in case the route is ever restored.
+export default function StaffingPage({ embedded = false }) {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
+  const wrapCls = embedded ? "space-y-6" : "p-4 sm:p-6 space-y-6 max-w-5xl mx-auto";
   // Task #204 P2.7 — gate the "Apply this schedule" CTA on
   // entitlements being ready.  The autopilot endpoint is Pro+; we
   // don't render the button at all for non-Pro users, but we ALSO
@@ -222,14 +229,17 @@ export default function StaffingPage() {
     }));
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto">
-      <FadeIn>
-        <PageHeader
-          eyebrow="INTEL"
-          title={t("smartStaffing")}
-          subtitle={t("staffingSubtitle") || "Forecast headcount needs and spot over/under-staffed days."}
-        />
-      </FadeIn>
+    <div className={wrapCls}>
+      {/* Header — suppressed when embedded in the Schedule forecast panel. */}
+      {!embedded && (
+        <FadeIn>
+          <PageHeader
+            eyebrow="INTEL"
+            title={t("smartStaffing")}
+            subtitle={t("staffingSubtitle") || "Forecast headcount needs and spot over/under-staffed days."}
+          />
+        </FadeIn>
+      )}
 
       <TabPills
         tabs={[

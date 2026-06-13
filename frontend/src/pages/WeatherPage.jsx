@@ -19,10 +19,16 @@ function formatTemp(t) {
   return t != null ? `${Math.round(t)}°C` : "—";
 }
 
-export default function WeatherPage() {
+// `embedded` (C7 forecast panel) — when true this page renders as the
+// weather body inside the Schedule page's collapsed forecast panel
+// (ScheduleForecastPanel): it drops its own page chrome (outer gutters +
+// PageHeader) so the host panel owns the shell. Standalone /weather is
+// gone (redirects to /staff/schedule); non-embedded use is vestigial.
+export default function WeatherPage({ embedded = false }) {
   const { user } = useAuth();
   const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
+  const wrapCls = embedded ? "space-y-6" : "p-4 md:p-8 space-y-6 max-w-5xl mx-auto";
 
   const [forecast, setForecast] = useState(null);
   const [insights, setInsights] = useState([]);
@@ -137,7 +143,7 @@ export default function WeatherPage() {
   // ─── LOADING ───
   if (loading) {
     return (
-      <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
+      <div className={`${embedded ? "" : "p-4 md:p-8"} flex items-center justify-center min-h-[400px]`}>
         <div className="text-center">
           <div className="text-4xl mb-3 animate-pulse">🌤️</div>
           <p className="text-gray-500 dark:text-gray-400">{t("loadingWeather")}</p>
@@ -149,7 +155,7 @@ export default function WeatherPage() {
   // ─── LOCATION SETUP ───
   if (!hasLocation) {
     return (
-      <div className="p-4 md:p-8 max-w-lg mx-auto">
+      <div className={`${embedded ? "" : "p-4 md:p-8"} max-w-lg mx-auto`}>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-8 shadow-sm text-center">
           <div className="text-6xl mb-4">🌦️</div>
           <h1 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">{t("weatherSmart")}</h1>
@@ -202,20 +208,29 @@ export default function WeatherPage() {
   const progressPct = intelStatus?.progress_pct || 0;
 
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
-      {/* Header */}
-      <FadeIn>
-        <PageHeader
-          eyebrow="INTEL"
-          title={t("weatherSmart")}
-          subtitle={t("weatherSubtitle") || "Weather-aware forecasting and revenue correlation."}
-          actions={
-            <Button variant="ghost" onClick={fetchAll}>
-              {t("refresh")}
-            </Button>
-          }
-        />
-      </FadeIn>
+    <div className={wrapCls}>
+      {/* Header — suppressed when embedded; the Schedule forecast panel owns
+          the chrome. The Refresh action is re-surfaced inline below. */}
+      {embedded ? (
+        <div className="flex justify-end">
+          <Button variant="ghost" onClick={fetchAll}>
+            {t("refresh")}
+          </Button>
+        </div>
+      ) : (
+        <FadeIn>
+          <PageHeader
+            eyebrow="INTEL"
+            title={t("weatherSmart")}
+            subtitle={t("weatherSubtitle") || "Weather-aware forecasting and revenue correlation."}
+            actions={
+              <Button variant="ghost" onClick={fetchAll}>
+                {t("refresh")}
+              </Button>
+            }
+          />
+        </FadeIn>
+      )}
 
       {/* ─── INTELLIGENCE ALERTS (Top Priority) ─── */}
       {alerts.length > 0 && (

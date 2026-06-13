@@ -700,6 +700,11 @@ const translations = {
     navMoney: "Money", navStock: "Stock", navStaff: "Staff", navReports: "Reports",
     navIntel: "Intelligence", navWorkshop: "Workshop", navManage: "Manage", navAccount: "Account", navPlatform: "Platform",
     navReportsMoms: "Reports & MOMS", navSettings: "Settings", imports: "Imports",
+    // C7 — Schedule-page forecast panel (weather + smart-staffing collapsed).
+    forecastPanelTitle: "Forecast & demand",
+    forecastPanelHint: "weather + staffing",
+    forecastTabWeather: "Weather",
+    forecastTabStaffing: "Staffing",
     recommendedHeadcount: "Recommended headcount", staffShort: "Staff", peopleAbbrev: "ppl", precip: "Precip",
     tapDayForDetails: "Tap any day for details", viewFullForecast: "View full forecast",
     day_mon_short: "Mon", day_tue_short: "Tue", day_wed_short: "Wed", day_thu_short: "Thu", day_fri_short: "Fri", day_sat_short: "Sat", day_sun_short: "Sun",
@@ -5771,6 +5776,11 @@ const translations = {
     navMoney: "Penge", navStock: "Lager", navStaff: "Personale", navReports: "Rapporter",
     navIntel: "Intelligens", navWorkshop: "Værksted", navManage: "Administrer", navAccount: "Konto", navPlatform: "Platform",
     navReportsMoms: "Rapporter & MOMS", navSettings: "Indstillinger", imports: "Import",
+    // C7 — vagtplan-sidens prognosepanel (vejr + smart bemanding, sammenfoldet).
+    forecastPanelTitle: "Prognose & efterspørgsel",
+    forecastPanelHint: "vejr + bemanding",
+    forecastTabWeather: "Vejr",
+    forecastTabStaffing: "Bemanding",
     recommendedHeadcount: "Anbefalet bemanding", staffShort: "Personale", peopleAbbrev: "pers.", precip: "Nedbør",
     tapDayForDetails: "Tryk på en dag for detaljer", viewFullForecast: "Se fuld prognose",
     day_mon_short: "Man", day_tue_short: "Tir", day_wed_short: "Ons", day_thu_short: "Tor", day_fri_short: "Fre", day_sat_short: "Lør", day_sun_short: "Søn",

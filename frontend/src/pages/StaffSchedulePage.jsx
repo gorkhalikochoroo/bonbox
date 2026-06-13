@@ -10,6 +10,10 @@ import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
 import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2 } from "lucide-react";
+// C7 Intelligence collapse — weather + smart-staffing forecasts fold into a
+// collapsed panel right here on the Schedule page (where shift decisions are
+// made), replacing the standalone /weather + /staffing Intelligence pages.
+import ScheduleForecastPanel from "../components/ScheduleForecastPanel";
 
 /* ═══════════════════════════════════════════════════════════
    CONSTANTS & HELPERS
@@ -1193,6 +1197,14 @@ export default function StaffSchedulePage() {
             </div>
           </div>
         </div>
+      </FadeIn>
+
+      {/* C7 — Forecast & demand (weather-smart + smart-staffing), collapsed
+          by default. Sits between the week toolbar and the grid so the
+          owner can glance at next week's weather + recommended headcount
+          while planning, without it dominating the page. */}
+      <FadeIn delay={0.07}>
+        <ScheduleForecastPanel />
       </FadeIn>
 
       {/* Error banner */}

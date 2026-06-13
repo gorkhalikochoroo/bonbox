@@ -49,10 +49,12 @@
  *                 string is correct for sidebar, More, bottom-nav AND the
  *                 ⌘K palette. Add new names to the Icon registry, not here.
  *   labelKey      i18n key resolved by t(). Must have a real EN + DA entry.
- *   group         sidebar group id ('core'|'money'|'stock'|'reports'|
- *                 'staff'|'intel'|'workshop'|'manage'|'account'). Drives the
- *                 desktop sidebar grouping + the More-page section. The core
- *                 group has no header (flat list at the top of the sidebar).
+ *   group         sidebar group id ('core'|'money'|'stock'|'staff'|
+ *                 'reports'|'workshop'|'manage'). Drives the desktop sidebar
+ *                 grouping + the More-page section. The core group has no
+ *                 header (flat list at the top of the sidebar). (The 'intel'
+ *                 group was removed in C7 — its Insights survivor lives in
+ *                 'reports'.)
  *   pillar        'reservations'|'events'|'inventory'|'staff'|'insights' or
  *                 null (= spine, always relevant). RELEVANCE axis only.
  *   requiresModule        single vertical-module id that must be enabled.
@@ -338,7 +340,15 @@ export const NAV_MANIFEST = [
     pillar: "staff",
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search", "bottomnav"],
-    aliases: ["schedule", "vagtplan", "rota"],
+    // C7: weather + staffing forecasts now live in the collapsed forecast
+    // panel ON this page, so Cmd-K "weather" / "staffing" / "vejr" /
+    // "bemanding" lands here (their old /weather, /staffing routes redirect
+    // here too).
+    aliases: [
+      "schedule", "vagtplan", "rota",
+      "weather", "vejr", "forecast",
+      "staffing", "smart staffing", "bemanding", "bemandings-prognose",
+    ],
   },
   {
     to: "/staff/hours",
@@ -379,70 +389,36 @@ export const NAV_MANIFEST = [
   },
 
   // ─── INTELLIGENCE ──────────────────────────────────────────────────
-  // Group is restricted to data-rich business types (matches the legacy
-  // navGroups + MorePage `visibleFor` on the whole section).
+  // C7 Intelligence collapse: the six-entry Intelligence cluster is gone.
+  // ONE "Insights" destination remains — the InsightsHub at /insights with
+  // tabs (AI Insights · Priser & marked · Gæster). The `intel` group header
+  // was removed from NAV_GROUPS too, so Insights now lives in the
+  // "Reports & MOMS" group (group:'reports') — it reads as the analytical
+  // surface alongside Reports / Tax. Where the old entries now resolve:
+  //   • pricing + competitors  → /insights?tab=pricing  (App.jsx redirects)
+  //   • retention              → /insights?tab=guests   (App.jsx redirects)
+  //   • weather + staffing     → /staff/schedule forecast panel (redirects)
+  // Cmd-K reach for the old names is preserved via the union of aliases
+  // here (pricing/market/competitors/retention/guests) + weather/staffing
+  // aliases added to the /staff/schedule entry. Still visibleFor data-rich
+  // business types (the legacy Intelligence-group gate).
   {
     to: "/insights",
     icon: "Sparkles",
-    labelKey: "insightsInbox",
-    group: "intel",
+    labelKey: "insightsHubTitle",
+    group: "reports",
     pillar: "insights",
     visibleFor: ["restaurant", "retail", "service", "general"],
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
-    aliases: ["insights", "ai", "patterns"],
-  },
-  {
-    to: "/weather",
-    icon: "CloudSun",
-    labelKey: "weatherSmart",
-    group: "intel",
-    pillar: "insights",
-    visibleFor: ["restaurant", "retail", "service", "general"],
-    frequency: "weekly",
-    surfaces: ["sidebar", "more", "search"],
-    aliases: ["weather", "vejr"],
-  },
-  {
-    to: "/staffing",
-    icon: "CalendarClock",
-    labelKey: "staffingForecast",
-    group: "intel",
-    pillar: "insights",
-    visibleFor: ["restaurant", "retail", "service", "general"],
-    frequency: "weekly",
-    surfaces: ["sidebar", "more"],
-  },
-  {
-    to: "/pricing",
-    icon: "BadgePercent",
-    labelKey: "priceOptimization",
-    group: "intel",
-    pillar: "insights",
-    visibleFor: ["restaurant", "retail", "service", "general"],
-    frequency: "rare",
-    surfaces: ["sidebar", "more"],
-  },
-  {
-    to: "/retention",
-    icon: "Heart",
-    labelKey: "customerRetention",
-    group: "intel",
-    pillar: "insights",
-    visibleFor: ["restaurant", "retail", "service", "general"],
-    frequency: "rare",
-    surfaces: ["sidebar", "more"],
-  },
-  {
-    to: "/competitors",
-    icon: "Telescope",
-    labelKey: "competitorScan",
-    group: "intel",
-    pillar: "insights",
-    visibleFor: ["restaurant", "retail", "service", "general"],
-    frequency: "rare",
-    surfaces: ["sidebar", "more", "search"],
-    aliases: ["competitors", "konkurrent"],
+    aliases: [
+      "insights", "ai", "patterns", "indsigt",
+      // pricing + market (now /insights?tab=pricing)
+      "pricing", "price", "priser", "marked", "market",
+      "competitors", "competitor", "konkurrent", "konkurrentscan",
+      // retention / guests (now /insights?tab=guests)
+      "retention", "churn", "loyalty", "guests", "gæster", "kundefastholdelse",
+    ],
   },
 
   // ─── WORKSHOP (vertical) ───────────────────────────────────────────
@@ -676,8 +652,10 @@ export function filterDestinations(items, ctx = {}) {
  *   • core    — spine: + Today now lives here (after Sales), still headerless.
  *   • Money / Stock / Staff come first (the everyday operator groups).
  *   • reports group relabeled "Reports & MOMS" (navReportsMoms) — Today left
- *     it for the spine; it now holds Reports / Tax / Send-to-revisor etc.
- *   • intel + workshop stay business-type-scoped verticals after that.
+ *     it for the spine; it now holds Reports / Tax / Send-to-revisor + (C7)
+ *     the Insights hub absorbed from the dissolved Intelligence group.
+ *   • workshop stays a business-type-scoped vertical after that. (C7: the
+ *     'intel' group is gone — see the NAV_GROUPS comment below.)
  *   • manage relabeled "Settings" (navSettings) and ABSORBS the old one-item
  *     ACCOUNT group (plan & billing) — one rare settings home at the bottom.
  *     The standalone `account` group is gone.
@@ -688,9 +666,12 @@ export const NAV_GROUPS = [
   { id: "stock",    labelKey: "navStock",       icon: "Boxes",     visibleFor: null },
   { id: "staff",    labelKey: "navStaff",       icon: "UsersRound", visibleFor: null },
   { id: "reports",  labelKey: "navReportsMoms", icon: "BarChart3", visibleFor: null },
-  // Intelligence group is itself business-type scoped (legacy parity).
-  { id: "intel",    labelKey: "navIntel",       icon: "Brain",
-    visibleFor: ["restaurant", "retail", "service", "general"] },
+  // C7 Intelligence collapse: the standalone `intel` group is GONE. Its lone
+  // survivor — the Insights hub — moved into the `reports` group above (it's
+  // still business-type-gated via the destination's own visibleFor). All the
+  // other former members (weather/staffing → Schedule panel; pricing/
+  // competitors/retention → InsightsHub tabs) are no longer sidebar/More
+  // destinations.
   // Workshop group shows for workshop branches OR when the workshop module
   // is enabled (legacy `requiresAnyModule: ['workshop']`).
   { id: "workshop", labelKey: "navWorkshop",    icon: "Wrench",
