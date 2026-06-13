@@ -21,10 +21,14 @@ const STATUS_CONFIG = {
   churned: { label: "Churned",  color: "#ef4444", bg: "bg-gray-100 dark:bg-gray-800", text: "text-gray-700 dark:text-gray-300", dot: "bg-red-500" },
 };
 
-export default function RetentionPage() {
+// `embedded` (C6 InsightsHub) — when true this page renders as a TAB BODY
+// inside InsightsHubPage (the "Gæster" tab): it drops its own page chrome
+// (outer gutters + PageHeader) so the hub owns the shell.
+export default function RetentionPage({ embedded = false }) {
   const { user } = useAuth();
   const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
+  const wrapCls = embedded ? "space-y-6" : "p-4 md:p-8 space-y-6 max-w-5xl mx-auto";
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -44,7 +48,7 @@ export default function RetentionPage() {
 
   if (loading) {
     return (
-      <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
+      <div className={`${embedded ? "" : "p-4 md:p-8"} flex items-center justify-center min-h-[400px]`}>
         <div className="text-center">
           <div className="text-4xl mb-3 animate-pulse">🤝</div>
           <p className="text-gray-500 dark:text-gray-400">Analyzing customer retention...</p>
@@ -55,7 +59,7 @@ export default function RetentionPage() {
 
   if (error || !data) {
     return (
-      <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
+      <div className={`${embedded ? "" : "p-4 md:p-8"} max-w-lg mx-auto text-center`}>
         <div className="text-4xl mb-4">🤝</div>
         <p className="text-red-500">{error}</p>
         <Button variant="secondary" onClick={fetchData} className="mt-4">
@@ -85,14 +89,17 @@ export default function RetentionPage() {
   ];
 
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
-      <FadeIn>
-        <PageHeader
-          eyebrow="INTEL"
-          title={t("customerRetention") || "Customer Retention"}
-          subtitle={t("retentionSubtitle") || "Spot at-risk customers before they churn."}
-        />
-      </FadeIn>
+    <div className={wrapCls}>
+      {/* Header — suppressed when embedded (the InsightsHub tab owns chrome). */}
+      {!embedded && (
+        <FadeIn>
+          <PageHeader
+            eyebrow="INTEL"
+            title={t("customerRetention") || "Customer Retention"}
+            subtitle={t("retentionSubtitle") || "Spot at-risk customers before they churn."}
+          />
+        </FadeIn>
+      )}
 
       {/* ─── ALERTS ─── */}
       {alerts?.length > 0 && (

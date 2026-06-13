@@ -216,7 +216,11 @@ const AdminPage = lazyRetry(() => import("./pages/AdminPage"));
 const AdminTrainingPage = lazyRetry(() => import("./pages/AdminTrainingPage"));
 const SubscriptionPage = lazyRetry(() => import("./pages/SubscriptionPage"));
 const BookkeepingExportPage = lazyRetry(() => import("./pages/BookkeepingExportPage"));
-const InsightsPage = lazyRetry(() => import("./pages/InsightsPage"));
+// C6 — /insights is now the InsightsHub (TabPills over the AI-insights,
+// pricing+market, and retention pages as embedded tab bodies). The hub
+// lazy-loads InsightsPage / PricingPage / CompetitorPage / RetentionPage
+// itself, so App.jsx only needs the hub here.
+const InsightsHubPage = lazyRetry(() => import("./pages/InsightsHubPage"));
 // Property Financial Report — the legacy "Today's Floor" page.
 // Merged into End-of-Day Close (#150); /daily-report now redirects
 // to /daily-close. The component file is kept for back-compat but
@@ -444,7 +448,7 @@ function AppRoutes() {
           <Route path="/more" element={<MorePage />} />
           <Route path="/subscription" element={<SubscriptionPage />} />
           <Route path="/bookkeeping-export" element={<BookkeepingExportPage />} />
-          <Route path="/insights" element={<InsightsPage />} />
+          <Route path="/insights" element={<InsightsHubPage />} />
           {/* Today's Floor merged into End-of-Day Close (#150). The
               page now lives at /daily-close — top of page shows the
               live KPIs that used to be at /daily-report. We keep the

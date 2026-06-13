@@ -24,10 +24,16 @@ function marginColor(m) {
   return MARGIN_COLORS.low;
 }
 
-export default function PricingPage() {
+// `embedded` (C6 InsightsHub) — when true this page renders as a TAB BODY
+// inside InsightsHubPage: it drops its own page chrome (the outer
+// p-4/md:p-8 max-w-5xl gutters + the PageHeader) and lets the hub own the
+// shell. Standalone route usage (/pricing redirect aside) keeps full chrome.
+export default function PricingPage({ embedded = false }) {
   const { user } = useAuth();
   const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
+  // Outer wrapper: full page gutters standalone, bare stack when embedded.
+  const wrapCls = embedded ? "space-y-6" : "p-4 md:p-8 space-y-6 max-w-5xl mx-auto";
 
   const [data, setData] = useState(null);
   const [sim, setSim] = useState(null);
@@ -78,7 +84,7 @@ export default function PricingPage() {
 
   if (loading) {
     return (
-      <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
+      <div className={`${embedded ? "" : "p-4 md:p-8"} flex items-center justify-center min-h-[400px]`}>
         <div className="text-center">
           <div className="text-4xl mb-3 animate-pulse">💰</div>
           <p className="text-gray-500 dark:text-gray-400">Analyzing pricing...</p>
@@ -89,7 +95,7 @@ export default function PricingPage() {
 
   if (error || !data) {
     return (
-      <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
+      <div className={`${embedded ? "" : "p-4 md:p-8"} max-w-lg mx-auto text-center`}>
         <div className="text-4xl mb-4">💰</div>
         <p className="text-red-500">{error}</p>
         <Button variant="secondary" onClick={fetchInsights} className="mt-4">
@@ -109,15 +115,18 @@ export default function PricingPage() {
   const trendColor = ticket_trend === "up" ? "text-green-600" : ticket_trend === "down" ? "text-red-600" : "text-gray-500";
 
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
-      {/* Header */}
-      <FadeIn>
-        <PageHeader
-          eyebrow="INTEL"
-          title={t("priceOptimization") || "Price Optimization"}
-          subtitle={t("pricingSubtitle") || "Find under-priced items, simulate increases, and benchmark against your neighborhood."}
-        />
-      </FadeIn>
+    <div className={wrapCls}>
+      {/* Header — suppressed when embedded (the InsightsHub tab owns the
+          page chrome; a second PageHeader inside a tab body would double up). */}
+      {!embedded && (
+        <FadeIn>
+          <PageHeader
+            eyebrow="INTEL"
+            title={t("priceOptimization") || "Price Optimization"}
+            subtitle={t("pricingSubtitle") || "Find under-priced items, simulate increases, and benchmark against your neighborhood."}
+          />
+        </FadeIn>
+      )}
 
       {/* ─── MARKET COMPARISON (Smart Pricing, Task #64) ─── */}
       {/* Lives at the top: Day-1 owners see this BEFORE any sales-derived

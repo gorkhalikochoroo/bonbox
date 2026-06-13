@@ -12,7 +12,11 @@ import { trackEvent } from "../hooks/useEventLog";
  * The "Refresh insights" button re-runs detection on demand. Cheap call —
  * the heavy lifting is statistical, not LLM.
  */
-export default function InsightsPage() {
+// `embedded` (C6 InsightsHub) — when true this page renders as the default
+// "AI Insights" TAB BODY inside InsightsHubPage: it drops its own outer page
+// gutters + the local header block (title + "Refresh insights") so the hub
+// owns the shell. The Refresh action is re-surfaced inline in embedded mode.
+export default function InsightsPage({ embedded = false }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("active"); // active | dismissed | acted | expired | all
@@ -145,27 +149,40 @@ export default function InsightsPage() {
   ];
 
   return (
-    <div className="px-4 sm:px-6 py-6 sm:py-8 max-w-4xl mx-auto pb-24">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <span>✨</span> Insights
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
-            Patterns BonBox AI detected about your business — anomalies, routines,
-            dormant features. Your 👍/👎 feedback teaches the system which
-            insights are worth surfacing again.
-          </p>
+    <div className={embedded ? "" : "px-4 sm:px-6 py-6 sm:py-8 max-w-4xl mx-auto pb-24"}>
+      {/* Header — full title block standalone; when embedded the hub owns the
+          page title, so we surface only the Refresh action in a compact row. */}
+      {embedded ? (
+        <div className="flex justify-end mb-4">
+          <button
+            onClick={refreshNow}
+            disabled={refreshing}
+            className="px-4 py-2 bg-gray-900 text-white dark:bg-white dark:text-gray-900 text-sm font-medium rounded-lg shadow-sm disabled:opacity-50"
+          >
+            {refreshing ? "Refreshing…" : "Refresh insights"}
+          </button>
         </div>
-        <button
-          onClick={refreshNow}
-          disabled={refreshing}
-          className="self-start sm:self-end px-4 py-2 bg-gray-50 dark:bg-gray-800/50 text-white text-sm font-medium rounded-lg shadow-sm disabled:opacity-50"
-        >
-          {refreshing ? "Refreshing…" : "Refresh insights"}
-        </button>
-      </div>
+      ) : (
+        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <span>✨</span> Insights
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
+              Patterns BonBox AI detected about your business — anomalies, routines,
+              dormant features. Your 👍/👎 feedback teaches the system which
+              insights are worth surfacing again.
+            </p>
+          </div>
+          <button
+            onClick={refreshNow}
+            disabled={refreshing}
+            className="self-start sm:self-end px-4 py-2 bg-gray-900 text-white dark:bg-white dark:text-gray-900 text-sm font-medium rounded-lg shadow-sm disabled:opacity-50"
+          >
+            {refreshing ? "Refreshing…" : "Refresh insights"}
+          </button>
+        </div>
+      )}
 
       {refreshMsg && (
         <div className="mb-4 text-sm bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 rounded-lg px-3 py-2">

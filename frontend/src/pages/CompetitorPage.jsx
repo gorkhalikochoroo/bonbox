@@ -13,10 +13,16 @@ function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "\u2014"; 
 
 const PRICE_LABELS = ["", "$", "$$", "$$$", "$$$$"];
 
-export default function CompetitorPage() {
+// `embedded` (C6 InsightsHub) — when true this page renders as a TAB BODY
+// inside InsightsHubPage (the "Priser & marked" tab): it drops its own
+// page chrome (outer gutters + PageHeader) and surfaces the header's
+// "+ Add Manually" action as a compact inline button instead, so the hub
+// owns the shell without losing the action.
+export default function CompetitorPage({ embedded = false }) {
   const { user } = useAuth();
   const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
+  const wrapCls = embedded ? "space-y-6" : "p-4 md:p-8 space-y-6 max-w-5xl mx-auto";
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -309,7 +315,7 @@ export default function CompetitorPage() {
 
   if (loading) {
     return (
-      <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
+      <div className={`${embedded ? "" : "p-4 md:p-8"} flex items-center justify-center min-h-[400px]`}>
         <div className="text-center">
           <div className="text-4xl mb-3 animate-pulse">🔍</div>
           <p className="text-gray-500 dark:text-gray-400">Loading competitors...</p>
@@ -320,7 +326,7 @@ export default function CompetitorPage() {
 
   if (error || !data) {
     return (
-      <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
+      <div className={`${embedded ? "" : "p-4 md:p-8"} max-w-lg mx-auto text-center`}>
         <div className="text-4xl mb-4">🔍</div>
         <p className="text-red-500">{error}</p>
         <Button variant="secondary" onClick={fetchData} className="mt-4">
@@ -345,19 +351,30 @@ export default function CompetitorPage() {
   ];
 
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
-      <FadeIn>
-        <PageHeader
-          eyebrow="INTEL"
-          title={t("competitorScan") || "Competitor Scan"}
-          subtitle={t("competitorSubtitle") || "Discover nearby businesses, track competitors & compare prices."}
-          actions={
-            <Button variant="secondary" onClick={() => setShowManual(!showManual)}>
-              + Add Manually
-            </Button>
-          }
-        />
-      </FadeIn>
+    <div className={wrapCls}>
+      {/* Header — suppressed when embedded; the hub tab owns the chrome.
+          The "+ Add Manually" action is re-surfaced inline below so it
+          isn't lost when the PageHeader's actions slot goes away. */}
+      {embedded ? (
+        <div className="flex justify-end">
+          <Button variant="secondary" onClick={() => setShowManual(!showManual)}>
+            + Add Manually
+          </Button>
+        </div>
+      ) : (
+        <FadeIn>
+          <PageHeader
+            eyebrow="INTEL"
+            title={t("competitorScan") || "Competitor Scan"}
+            subtitle={t("competitorSubtitle") || "Discover nearby businesses, track competitors & compare prices."}
+            actions={
+              <Button variant="secondary" onClick={() => setShowManual(!showManual)}>
+                + Add Manually
+              </Button>
+            }
+          />
+        </FadeIn>
+      )}
 
       {/* ─── MANUAL ADD (collapsible) ─── */}
       {showManual && (
