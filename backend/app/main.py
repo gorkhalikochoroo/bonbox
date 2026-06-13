@@ -39,7 +39,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, event_log as event_log_router, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router, smart_pricing as smart_pricing_router
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, event_log as event_log_router, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router, smart_pricing as smart_pricing_router, pillars as pillars_router
 # Invoicing — Customer/Invoice/Mileage. Gated to Starter+ at the route level.
 from app.routers import customers as customers_router, invoices as invoices_router, mileage as mileage_router
 from app.routers import payment_suggestions as payment_suggestions_router
@@ -1760,6 +1760,23 @@ _migrations = [
     "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS pos_x DOUBLE PRECISION",
     "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS pos_y DOUBLE PRECISION",
     "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS shape VARCHAR(12) DEFAULT 'round'",
+
+    # ── Migration (2026-06-13): users.hidden_pillars — pillar visibility ──
+    # The RELEVANCE axis of the 3-axis IA model (panel-approved declutter,
+    # June 2026). CSV OFF-list of pillar IDs from app/services/pillars.py:
+    # PILLARS ('reservations','events','inventory','staff','insights').
+    # Mirrors app/models/user.py:User.hidden_pillars — REQUIRED by the
+    # schema-drift self-test: the model declares the column, so on
+    # Postgres it MUST exist or strict startup keeps the readiness gate
+    # at 503 (the exact 2026-05-26 invite_token_hash failure mode).
+    #
+    # Nullable TEXT, NO default → additive + non-locking on prod, and
+    # NULL = nothing hidden — every existing account is grandfathered
+    # ALL-visible on deploy day with zero backfill ("where did Events
+    # go?" is structurally impossible). Deliberately NOT reusing
+    # enabled_modules: that column is the tier-capped vertical-module
+    # vocabulary; pillars are free + uncapped (founder decision).
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS hidden_pillars TEXT",
 ]
 
 
@@ -3463,6 +3480,10 @@ app.include_router(support.router, prefix="/api/support", tags=["Support"])
 app.include_router(output_channel.router, prefix="/api/output-channels", tags=["OutputChannels"])
 app.include_router(order_channel_config.router, prefix="/api/order-channels", tags=["OrderChannels"])
 app.include_router(modules_router.router, prefix="/api/modules", tags=["Modules"])
+# Pillar visibility — GET/PUT /api/pillars. The RELEVANCE axis of the
+# 3-axis IA model (free + uncapped; see services/pillars.py). Owner-UI
+# nav preference only — never read by public surfaces or crons.
+app.include_router(pillars_router.router, prefix="/api/pillars", tags=["Pillars"])
 # Onboarding — POST /api/onboarding/detect-archetype. Auth-required, rate-
 # limited (10/min/IP, same shape as register); keyword fast-path then at most
 # one AI call (PREMIUM→DEFAULT fallback) to map a free-text business

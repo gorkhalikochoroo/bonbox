@@ -73,6 +73,18 @@ class User(Base):
     # Starter pick 1 (cap = PLAN_CAPS["modules"]); Pro/trial unlimited.
     # NULL or empty = no modules picked yet (UI shows core close-flow only).
     enabled_modules: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Pillar visibility — the RELEVANCE axis of the 3-axis IA model
+    # (2026-06 declutter). Comma-separated OFF-list of pillar IDs from
+    # app/services/pillars.py:PILLARS ('reservations','events',
+    # 'inventory','staff','insights'). NULL = NOTHING hidden — every
+    # pre-feature account is grandfathered all-visible on deploy day
+    # with zero backfill. DELIBERATELY separate from enabled_modules
+    # above: that column carries the tier-CAPPED vertical-module
+    # vocabulary; pillars are free + uncapped at every tier, and mixing
+    # the vocabularies would let the cap layer 403 pillar presets.
+    # Owner-UI only — public surfaces (/r/, /e/, /s/, door scan),
+    # crons and revisor exports NEVER read this column.
+    hidden_pillars: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Stripe subscription state — source-of-truth for paid plan is the webhook.
     # Code never trusts a client-side claim about plan; plan only flips to
     # "starter"/"pro" when Stripe sends customer.subscription.updated and we
