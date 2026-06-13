@@ -453,7 +453,9 @@ export const NAV_MANIFEST = [
     visibleFor: ["workshop"],
     requiresModule: "workshop",
     frequency: "daily",
-    surfaces: ["sidebar"],
+    // bottomnav: the per-business-type 4th tab for workshop branches
+    // resolves its icon/label from this entry (MobileBottomNav).
+    surfaces: ["sidebar", "bottomnav"],
   },
 
   // ─── MANAGE ─────────────────────────────────────────────────────────

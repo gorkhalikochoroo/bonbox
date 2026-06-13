@@ -3,31 +3,60 @@ import { useBranch } from "./BranchSelector";
 import { useLanguage } from "../hooks/useLanguage";
 import { Icon } from "./ui";
 import { Plus, Menu } from "lucide-react";
+import { NAV_MANIFEST } from "../config/navManifest";
+
+/**
+ * iOS-style 5-tab bottom bar. The slot LAYOUT is bottom-nav chrome (fixed:
+ * Home · Sales · center "+" FAB · type-specific · More) but the icon + label
+ * for each real destination is now resolved from the shared nav manifest
+ * (config/navManifest.js) so the phone tab bar can never drift from the
+ * sidebar / More page / ⌘K for the same route.
+ *
+ * The center "+" FAB (→ /expenses) and the "More" tab (→ /more) are pure
+ * bottom-nav affordances, not owner destinations, so they stay defined
+ * inline rather than in the manifest.
+ */
+
+// Resolve a manifest entry by route path → { to, icon, labelKey }. Falls back
+// to a literal tab spec if the route isn't a manifest destination (keeps the
+// component robust if a type-tab points somewhere off-manifest).
+const byPath = (to) => NAV_MANIFEST.find((d) => d.to === to);
+function manifestTab(to, fallback) {
+  const m = byPath(to);
+  if (!m) return fallback;
+  return { to: m.to, icon: m.icon, labelKey: m.labelKey };
+}
 
 /**
  * Returns 5 bottom nav tabs based on the active branch's business type.
  * Common: Home, Sales, Quick Add (center FAB), [type-specific], More.
- * Icons are Lucide names (see ui/Icon.jsx for the map).
+ * The type-specific 4th tab maps business_type → the route an owner of that
+ * vertical hits most; its icon/label come from the manifest entry for that
+ * route. Icons are Lucide names (see ui/Icon.jsx).
  */
 function getTabsForType(branchType) {
-  const typeTab = {
-    restaurant: { to: "/daily-close", icon: "Moon", labelKey: "navToday" },
-    bar:        { to: "/wine-list",   icon: "Wine", labelKey: "wineList" },
-    cafe:       { to: "/daily-close", icon: "Moon", labelKey: "navToday" },
-    retail:     { to: "/inventory",   icon: "Package", labelKey: "inventory" },
-    workshop:   { to: "/workshop",    icon: "Wrench", labelKey: "workshop" },
-    salon:      { to: "/staff/schedule", icon: "Calendar", labelKey: "staffSchedule" },
-    hotel:      { to: "/daily-close", icon: "Moon", labelKey: "navToday" },
-    freelance:  { to: "/cashflow",    icon: "LineChart", labelKey: "cashFlow" },
-    general:    { to: "/daily-close", icon: "Moon", labelKey: "navToday" },
+  // type → route for the 4th (vertical-specific) tab.
+  const typeRoute = {
+    restaurant: "/daily-close",
+    bar:        "/wine-list",
+    cafe:       "/daily-close",
+    retail:     "/inventory",
+    workshop:   "/workshop",
+    salon:      "/staff/schedule",
+    hotel:      "/daily-close",
+    freelance:  "/cashflow",
+    general:    "/daily-close",
   };
+  const typeTo = typeRoute[branchType] || typeRoute.general;
 
   return [
-    { to: "/dashboard", icon: "Home", labelKey: "navHome" },
-    { to: "/sales",     icon: "ShoppingBag", labelKey: "sales" },
-    { to: "/expenses",  icon: "Plus", labelKey: "add", isCenter: true },
-    typeTab[branchType] || typeTab.general,
-    { to: "/more",      icon: "Menu", labelKey: "more" },
+    manifestTab("/dashboard", { to: "/dashboard", icon: "Home", labelKey: "navHome" }),
+    manifestTab("/sales", { to: "/sales", icon: "ShoppingBag", labelKey: "sales" }),
+    // Center FAB — bottom-nav chrome, not a manifest destination.
+    { to: "/expenses", icon: "Plus", labelKey: "add", isCenter: true },
+    manifestTab(typeTo, { to: "/daily-close", icon: "Moon", labelKey: "navToday" }),
+    // More — bottom-nav chrome.
+    { to: "/more", icon: "Menu", labelKey: "more" },
   ];
 }
 
