@@ -6,6 +6,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { getVatTerms } from "../utils/currency";
 import { isNativeApp } from "../utils/platform";
+import { NAV_MANIFEST, NAV_GROUPS, filterDestinations } from "../config/navManifest";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
 import TrialChip from "./TrialChip";
@@ -38,311 +39,92 @@ const SoftErrorBanner = lazy(() => import("./SoftErrorBanner"));
 const InstallAppPrompt = lazy(() => import("./InstallAppPrompt"));
 
 /* ─── Grouped sidebar navigation ───
-   visibleFor: array of business_types that see this group.
-   null = always visible regardless of branch type.
-   Items with visibleFor on individual items are filtered too.
-*/
-const navGroups = [
-  {
-    id: "core",
-    visibleFor: null, // always
-    items: [
-      // Sidebar labels follow the job-to-be-done renaming (Option A,
-      // May 2026): Dashboard → Home, Daily Report → Today's Floor,
-      // Reports → Reports & Tax, Daily Close → End-of-Day. The original
-      // `dashboard`/`dailyReport`/`dailyClose` translation keys still
-      // exist for tooltip / button copy elsewhere — only the SIDEBAR
-      // uses the shorter job-to-be-done labels.
-      //
-      // Icons are Lucide names (see components/ui/Icon.jsx for the map).
-      // Each item gets a UNIQUE icon — no duplicates across categories.
-      { to: "/dashboard", icon: "Home", labelKey: "navHome" },
-      { to: "/sales", icon: "ShoppingBag", labelKey: "sales" },
-      // Cultural events (migration 013, kulturarrangør sprint) — sits
-      // directly under Sales because event-tagged sales are the core
-      // flow. Visible to everyone; for non-event owners it stays empty
-      // (no nag). DK-first label key is "events" — same English-loaned
-      // word works in both EN and DK UI per Manoj's Sudip interviews.
-      { to: "/events", icon: "CalendarDays", labelKey: "events" },
-      // Reservations (table booking + appointments) — sits directly after
-      // Events as its own top-level entry (IA decision: NOT nested under
-      // Events). Starter+ feature, so we gate it with requiresFeature; the
-      // item stays visible-but-locked for Free tier (the conversion signal
-      // we want, same as Faktura) and the page renders its own UpgradeNudge.
-      { to: "/reservations", icon: "CalendarCheck", labelKey: "reservations", requiresFeature: "reservations" },
-      { to: "/expenses", icon: "Receipt", labelKey: "expenses" },
-    ],
-  },
-  {
-    id: "money",
-    labelKey: "navMoney",
-    icon: "Wallet",
-    visibleFor: null,
-    items: [
-      { to: "/cashbook", icon: "BookOpen", labelKey: "cashBook" },
-      { to: "/cashflow", icon: "LineChart", labelKey: "cashFlow" },
-      { to: "/budgets", icon: "Target", labelKey: "budgetOverview" },
-      { to: "/bank-import", icon: "Landmark", labelKey: "bankImport" },
-      { to: "/payment-imports", icon: "CreditCard", labelKey: "paymentImports" },
-      // Khata = customer credit ledger. Lives in Money (it IS money
-      // owed to/by the business), not Manage. Moved here May 2026.
-      { to: "/khata", icon: "BookText", labelKey: "khata" },
-      // Invoicing — Starter-tier feature. Pages render their own upgrade
-      // prompt for Free-tier users, so we keep these in nav for visibility
-      // (the conversion signal we want).
-      { to: "/faktura", icon: "FileText", labelKey: "faktura" },
-      { to: "/customers", icon: "Users", labelKey: "customers" },
-      { to: "/mileage", icon: "Car", labelKey: "mileage" },
-    ],
-  },
-  {
-    id: "stock",
-    labelKey: "navStock",
-    icon: "Boxes",
-    visibleFor: null,
-    items: [
-      // Inventory always visible — it's the general kitchen / shop / pantry stock.
-      { to: "/inventory", icon: "Package", labelKey: "inventory" },
-      // Bar Pour — extracted from inventory in this commit. Gated on the
-      // bar_pour vertical module so non-bar businesses (takeaways, retail,
-      // workshops) never see it cluttering their nav.
-      { to: "/bar", icon: "Martini", labelKey: "bar", requiresModule: "bar_pour" },
-      // Wine list — gated on wine_sommelier module instead of business_type
-      // so a Pro restaurant that doesn't sell wine can hide it, and a wine
-      // bar (technically business_type=restaurant) gets it without fuss.
-      { to: "/wine-list", icon: "Wine", labelKey: "wineList", requiresModule: "wine_sommelier" },
-      { to: "/expiry", icon: "AlarmClock", labelKey: "expiryForecasting", visibleFor: ["restaurant", "retail", "general"] },
-      { to: "/waste", icon: "Trash2", labelKey: "wasteTracker", visibleFor: ["restaurant", "retail", "general"] },
-    ],
-  },
-  // Reports placed BEFORE Staff in the sidebar — matches the owner's
-  // operational rhythm: every night ends with a close + daily report,
-  // staff scheduling is a weekly cadence (less frequent). Putting
-  // Reports right after Stock keeps the close-the-day workflow as
-  // a continuous downward scan in the nav.
-  {
-    id: "reports",
-    labelKey: "navReports",
-    icon: "BarChart3",
-    visibleFor: null,
-    items: [
-      // Today (#150) — single daily page that lives with the owner
-      // through the shift: live KPIs on top → close wizard in the
-      // middle → locked summary after confirm. The legacy
-      // "Today's Floor" entry was dropped here; /daily-report now
-      // redirects to /daily-close to keep bookmarks working.
-      { to: "/daily-close", icon: "Moon", labelKey: "navToday" },
-      { to: "/reports", icon: "ClipboardList", labelKey: "navReportsTax" },
-      // Multi-terminal close — Pro entitlement (P5 honesty fix).
-      // Previously hidden behind a `multi_terminal` module flag that
-      // wasn't in the modules allowlist (services/modules.py) — i.e.
-      // the entry was effectively dead for everyone. Now gated on the
-      // canonical `multi_terminal_close` feature flag so it appears
-      // for Pro/Trial users (matching the "manage up to 3 branches"
-      // marketing claim) and stays hidden for Free + Starter.
-      { to: "/daily-close/multi", icon: "Store", labelKey: "multiClose", requiresFeature: "multi_terminal_close" },
-      { to: "/tax", icon: "Calculator", labelKey: "taxAutopilot" },
-      { to: "/bookkeeping-export", icon: "Send", labelKey: "sendToAccountant" },
-    ],
-  },
-  {
-    id: "staff",
-    labelKey: "navStaff",
-    icon: "UsersRound",
-    visibleFor: null,
-    items: [
-      { to: "/staff/schedule", icon: "Calendar", labelKey: "staffSchedule" },
-      { to: "/staff/hours", icon: "Timer", labelKey: "staffHours" },
-      { to: "/staff/time-registration", icon: "Clock", labelKey: "staffTimeReg" },
-      { to: "/staff/tips", icon: "Coins", labelKey: "staffTips" },
-      { to: "/staff/payroll", icon: "FileSpreadsheet", labelKey: "staffPayroll" },
-    ],
-  },
-  {
-    id: "intel",
-    labelKey: "navIntel",
-    icon: "Brain",
-    visibleFor: ["restaurant", "retail", "service", "general"],
-    items: [
-      // Task #204 P2.9 — Insights inbox was an orphan route; promote
-      // it into the Intelligence group so owners can actually find the
-      // patterns surface.
-      { to: "/insights", icon: "Sparkles", labelKey: "insightsInbox" },
-      { to: "/weather", icon: "CloudSun", labelKey: "weatherSmart" },
-      { to: "/staffing", icon: "CalendarClock", labelKey: "staffingForecast" },
-      { to: "/pricing", icon: "BadgePercent", labelKey: "priceOptimization" },
-      { to: "/retention", icon: "Heart", labelKey: "customerRetention" },
-      { to: "/competitors", icon: "Telescope", labelKey: "competitorScan" },
-    ],
-  },
-  {
-    id: "workshop",
-    labelKey: "navWorkshop",
-    icon: "Wrench",
-    // Show the group when EITHER the branch is workshop-typed OR the
-    // owner has explicitly enabled the workshop module via /modules.
-    // The latter lets a multi-business owner with one workshop branch
-    // see the group regardless of which branch they're viewing.
-    visibleFor: ["workshop"],
-    requiresAnyModule: ["workshop"],
-    items: [
-      { to: "/workshop", icon: "Wrench", labelKey: "workshop", requiresModule: "workshop" },
-    ],
-  },
-  {
-    id: "manage",
-    labelKey: "navManage",
-    icon: "Settings",
-    visibleFor: null,
-    items: [
-      // Connections hub leads the Manage group — owners reach it
-      // most often (new bank, new revisor, new sales channel).
-      { to: "/connections", icon: "Link2", labelKey: "navConnections" },
-      { to: "/branches", icon: "Building2", labelKey: "branches" },
-      { to: "/terminals", icon: "Monitor", labelKey: "terminals" },
-      { to: "/channel-settings", icon: "Bike", labelKey: "orderChannels" },
-      { to: "/modules", icon: "LayoutGrid", labelKey: "modules" },
-      { to: "/share-recipients", icon: "Mail", labelKey: "shareRecipients" },
-      { to: "/outlets", icon: "Network", labelKey: "crossOutlet" },
-      { to: "/consolidated-close", icon: "Building", labelKey: "consolidatedClose" },
-      { to: "/team", icon: "UserCog", labelKey: "team" },
-      // Khata moved to Money group below — it's customer credit, not a Manage concern.
-      // Feedback page retired — replaced by the in-app SupportChip (bottom-left "?")
-      // which routes to /api/support/tickets and is consistently visible across pages.
-      // /feedback route still exists as a backstop URL but isn't surfaced in primary nav.
-      { to: "/recently-deleted", icon: "Trash", labelKey: "recentlyDeleted" },
-      { to: "/contact", icon: "MessageCircle", labelKey: "contact" },
-    ],
-  },
-  {
-    id: "account",
-    labelKey: "navAccount",
-    icon: "Sparkles",
-    visibleFor: null,
-    items: [
-      { to: "/subscription", icon: "Sparkles", labelKey: "planBilling" },
-    ],
-  },
-];
+   The owner sidebar is now MANIFEST-DRIVEN. The single source of truth for
+   every owner-facing destination (route, icon, labelKey, group, the three
+   visibility axes, and which surfaces it appears on) lives in
+   config/navManifest.js. This module just PROJECTS the manifest into the
+   grouped shape the sidebar renderer expects.
 
-/** Filter nav groups based on active branch business_type AND the owner's
- *  enabled vertical modules.
+   `buildSidebarGroups()` walks NAV_GROUPS (the ordered list of group
+   headers — id + labelKey + icon + group-level visibleFor/module gate) and,
+   for each, collects the manifest entries whose `group` matches AND whose
+   `surfaces` includes 'sidebar'. The resulting array is byte-for-byte the
+   same grouped shape the old hand-written `navGroups` produced — same order,
+   same icons, same labelKeys, same per-item gates — so this is a pure
+   refactor with ZERO visual change.
+*/
+function buildSidebarGroups() {
+  const sidebarItems = NAV_MANIFEST.filter((d) => d.surfaces.includes("sidebar"));
+  return NAV_GROUPS.map((g) => ({
+    id: g.id,
+    labelKey: g.labelKey,
+    icon: g.icon,
+    visibleFor: g.visibleFor,
+    requiresAnyModule: g.requiresAnyModule,
+    items: sidebarItems.filter((d) => d.group === g.id),
+  }));
+}
+const navGroups = buildSidebarGroups();
+
+/** Filter nav groups based on active branch business_type, the owner's
+ *  enabled vertical modules, tier entitlements, and (later) pillar
+ *  relevance toggles.
  *
- *  Two-layer filter:
- *    1. business_type (existing) — branch-scoped relevance ("workshop only
- *       shows for workshop branches")
- *    2. enabled module (new) — owner explicitly opted into this vertical
- *       via /modules. Gates Bar / Wine / Workshop / Staff Payroll so
- *       non-bar / non-wine / non-workshop businesses get a calm sidebar.
+ *  This is now a thin wrapper over filterDestinations() from the manifest:
+ *  per-item visibility (business_type + module hide, requiresFeature
+ *  locked-but-visible, hidden-pillar relevance hide) is resolved there.
+ *  This function keeps the Layout-specific concerns the manifest is
+ *  deliberately surface-agnostic about:
+ *    • group-level visibleFor / requiresAnyModule gating
+ *    • App-Store native compliance (drop locked entries entirely on the
+ *      native shell — the manifest never hides a tier-locked item; the
+ *      caller decides whether to render or suppress the lock)
+ *    • dropping a group once all its items are filtered out
  *
- *  An item is shown iff:
- *    • visibleFor is null OR matches active business types, AND
- *    • requiresModule is null OR is in enabledModules
- *
- *  Default state for a new owner = no modules enabled = clean sidebar
- *  with just core + general inventory. The /modules picker is the
- *  single explicit place to opt in.
+ *  `hiddenPillars` is passed empty for now — there is no frontend pillar
+ *  state yet (backend C8 only). Wiring it in is a one-line change later.
  */
 function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasFeature, entReady = true) {
   const activeTypes = branchType ? [branchType] : businessTypes;
   const enabled = enabledModules instanceof Set ? enabledModules : new Set();
-  // Default to a fail-closed `hasFeature` when none is provided (e.g.
-  // tests rendering Layout without an EntitlementsProvider). Mirrors
-  // the backend's fail-closed semantics: unknown feature → false →
-  // sidebar entry stays hidden.
-  const hasFeat = typeof hasFeature === "function" ? hasFeature : () => false;
-  // Tier-flicker fix: while entitlements are still loading, `hasFeat`
-  // returns false for everything (fail-closed Free default), which
-  // would mark Pro-only sidebar entries as `locked: true` for the
-  // ~150-300ms cold-load window — a trial user briefly sees their
-  // Pro-only entries flagged as locked.  We treat the loading state
-  // as "assume unlocked for cosmetic purposes" — the backend still
-  // gates the actual endpoint, so this is purely about not flashing
-  // a lock icon. Same multi-barrier rationale as <Locked> doing
-  // pass-through children during loading.
   const featReady = entReady !== false;
 
-  // Helper — does this nav element pass both filters?
+  // Group-level gate (mirrors the legacy group filter): the group's own
+  // visibleFor + requiresAnyModule must pass before we look at its items.
   const passesType = (vf) => {
     if (!vf) return true;
-    // No active branch context → don't gate by type (e.g. fresh signup
-    // with no branches yet). The module gate still applies.
     if (!activeTypes || activeTypes.length === 0) return true;
     return vf.some((t) => activeTypes.includes(t));
   };
-  const passesModule = (req, reqAny) => {
-    if (!req && !reqAny) return true;
-    if (req && !enabled.has(req)) return false;
-    if (reqAny && !reqAny.some((m) => enabled.has(m))) return false;
-    return true;
-  };
-  // P5 — entitlement-level visibility. Used by the multi-terminal close
-  // entry (and any future Pro-only nav). Cosmetic gate only — the
-  // backend re-checks via enforce_feature() on every call. Frontend
-  // cache changes can only HIDE links, never grant access.
-  //
-  // Tier-flicker fix: while entitlements are still loading, return
-  // `true` so locked-but-visible items render UNLOCKED.  Once the
-  // payload lands the next render will lock them if appropriate.
-  // A trial user briefly seeing an unlocked Pro link is strictly
-  // better than seeing it flash as locked — and the backend gate
-  // is the actual security boundary.
-  const passesFeature = (feat) => {
-    if (!feat) return true;
-    if (!featReady) return true;
-    return hasFeat(feat);
+  const passesAnyModule = (reqAny) => {
+    if (!reqAny) return true;
+    return reqAny.some((m) => enabled.has(m));
   };
 
-  // L1 — UI Visibility:
-  //   • `visibleFor` (business_type) + `requiresModule` items that don't
-  //     match are HIDDEN — they're a wrong-product-fit signal (a bar
-  //     nav item doesn't belong in a retail-only sidebar).
-  //   • `requiresFeature` items that the user doesn't have access to
-  //     are SHOWN BUT LOCKED. Owners see what their next tier unlocks
-  //     (growth signal). Click navigates to /subscription via the lock
-  //     handler in the render block below.
-  //
-  // The locked-but-visible behavior is the L1 multi-barrier defense
-  // for tier-gated features — if a future refactor accidentally drops
-  // the backend gate, the frontend still pops a polite "Pro feature,
-  // upgrade to unlock" experience instead of letting a Free user click
-  // through to a 402-after-the-fact toast.
+  // Shared per-item context for filterDestinations. hiddenPillars stays
+  // empty until a later batch wires users.hidden_pillars into the frontend.
+  const ctx = {
+    businessTypes: activeTypes,
+    enabledModules: enabled,
+    hasFeature,
+    featReady,
+    hiddenPillars: new Set(),
+  };
+
   return groups
-    .filter(
-      (g) =>
-        passesType(g.visibleFor) &&
-        passesModule(g.requiresModule, g.requiresAnyModule),
-      // NOTE: group-level requiresFeature still hides the whole group —
-      // a locked group with no clickable items would be confusing. We
-      // don't currently use group-level requiresFeature; if we add it
-      // later, decide per-feature whether to hide or lock.
-    )
+    .filter((g) => passesType(g.visibleFor) && passesAnyModule(g.requiresAnyModule))
     .map((g) => {
-      const itemsWithLockState = g.items
-        .filter(
-          (item) =>
-            passesType(item.visibleFor) &&
-            passesModule(item.requiresModule, item.requiresAnyModule),
-        )
-        .map((item) => {
-          // L1 — for `requiresFeature` items the user lacks, KEEP the
-          // entry visible but mark it `locked` so the renderer can swap
-          // the icon + click handler. Items without `requiresFeature`
-          // are unchanged.
-          if (item.requiresFeature && !passesFeature(item.requiresFeature)) {
-            // App Store compliance (Apple 3.1.1) — approach (a): on the native
-            // app a locked entry would render a Lock icon + a "Pro feature —
-            // upgrade to unlock" tooltip routing to /subscription, i.e. an
-            // upgrade/purchase surface. Hide the entry entirely instead — the
-            // reviewer never sees a feature the account can't use. (Drop here;
-            // filtered out below.) Web keeps the locked-but-visible upsell.
-            if (isNativeApp()) return null;
-            return { ...item, locked: true };
-          }
-          return item;
-        })
-        .filter(Boolean);
-      return itemsWithLockState.length > 0 ? { ...g, items: itemsWithLockState } : null;
+      // filterDestinations returns survivors with a resolved `locked` flag.
+      // It NEVER drops a tier-locked entry — that's the UpgradeNudge funnel.
+      let items = filterDestinations(g.items, ctx);
+      // App Store compliance (Apple 3.1.1): the native shell must not show a
+      // feature the account can't use (the lock would link to a purchase
+      // surface). Drop locked entries entirely on native; web keeps the
+      // locked-but-visible upsell.
+      if (isNativeApp()) {
+        items = items.filter((item) => !item.locked);
+      }
+      return items.length > 0 ? { ...g, items } : null;
     })
     .filter(Boolean);
 }

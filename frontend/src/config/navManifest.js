@@ -1,0 +1,687 @@
+/**
+ * navManifest.js — the SINGLE source of truth for every owner-facing
+ * navigation destination in BonBox.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * Before this file, the same destinations were hand-listed in FOUR places
+ * that drifted apart:
+ *   • Layout.jsx        — the desktop grouped sidebar (`navGroups`)
+ *   • MorePage.jsx      — the mobile "More" grid (`sections`)
+ *   • MobileBottomNav   — the 5-tab bottom bar (`getTabsForType`)
+ *   • GlobalSearchModal — the ⌘K command-palette page list (`PAGES`)
+ * Drift meant a page could be reachable from the sidebar but missing from
+ * More / search, gated one way on desktop and another on mobile (the
+ * wine-list `requiresModule` vs `visibleFor` split), or surfaced with a
+ * different icon per device. This manifest collapses all of that into one
+ * array; each surface filters + projects the same data.
+ *
+ * THE THREE ORTHOGONAL VISIBILITY AXES (architecture_pillar_visibility.md)
+ * -----------------------------------------------------------------------
+ *   1. RELEVANCE  — per-account pillar toggles (`hiddenPillars`). Free,
+ *      owner-controlled. A destination with `pillar: 'reservations'` is
+ *      hidden from chrome when that pillar is toggled OFF. `pillar: null`
+ *      means "spine" — always relevant, never pillar-hideable.
+ *      NOTE: there is NO frontend pillar state yet (backend C8 only). Every
+ *      caller passes an empty `hiddenPillars` set today, so this axis is a
+ *      no-op until a later batch wires `users.hidden_pillars` into context.
+ *   2. ENTITLEMENT — PLAN_FEATURES tier locks (`requiresFeature`). These
+ *      stay VISIBLE-BUT-LOCKED (the UpgradeNudge conversion funnel). They
+ *      are NEVER hidden by filterDestinations — instead each entry is
+ *      flagged `locked: true` and the surface renders the lock treatment.
+ *      (The lone exception is App-Store native compliance, handled by the
+ *      caller, not here — see Layout's isNativeApp() branch.)
+ *   3. BUSINESS TYPE — `visibleFor` hides truly irrelevant surfaces
+ *      (a workshop board has no place in a retail-only sidebar) and
+ *      `requiresModule` / `requiresAnyModule` hide opted-out verticals
+ *      (Bar / Wine / Workshop). These are HARD hides — wrong-product-fit
+ *      signal, not a conversion funnel.
+ *
+ * Hide (axes 1 + 3) and locked (axis 2) are different outcomes and must
+ * never be conflated. filterDestinations returns the kept items with a
+ * `locked` boolean already resolved; it never drops a tier-locked entry.
+ *
+ * FIELD CONTRACT
+ * --------------
+ *   to            route path (string) — also the stable key.
+ *   icon          Lucide icon NAME (string). Every consumer renders via the
+ *                 <Icon name="…"> registry (components/ui/Icon.jsx), so a
+ *                 string is correct for sidebar, More, bottom-nav AND the
+ *                 ⌘K palette. Add new names to the Icon registry, not here.
+ *   labelKey      i18n key resolved by t(). Must have a real EN + DA entry.
+ *   group         sidebar group id ('core'|'money'|'stock'|'reports'|
+ *                 'staff'|'intel'|'workshop'|'manage'|'account'). Drives the
+ *                 desktop sidebar grouping + the More-page section. The core
+ *                 group has no header (flat list at the top of the sidebar).
+ *   pillar        'reservations'|'events'|'inventory'|'staff'|'insights' or
+ *                 null (= spine, always relevant). RELEVANCE axis only.
+ *   requiresModule        single vertical-module id that must be enabled.
+ *   requiresAnyModule     array — at least one must be enabled.
+ *   requiresFeature       PLAN_FEATURES flag — locked-but-visible if absent.
+ *   visibleFor    array of business_types that may see this, or null = all.
+ *   frequency     'daily'|'weekly'|'rare' — usage cadence hint (ordering /
+ *                 future bottom-nav promotion logic).
+ *   surfaces      subset of ['sidebar','more','search','bottomnav'] — which
+ *                 chrome this destination appears on. A surface filters the
+ *                 manifest to its own subset before rendering.
+ *   aliases       (search only) extra substrings ⌘K matches against.
+ *   dynamic       (sidebar only) label comes from vatTerms, not labelKey.
+ *
+ * SCOPE: owner-facing destinations ONLY. The personal-mode nav, the
+ * accountant read-only nav, and the super_admin Platform group are
+ * deliberately NOT manifest-driven — they live in their own surfaces and
+ * stay decoupled (accountant nav is a security-adjacent allowlist).
+ */
+
+export const NAV_MANIFEST = [
+  // ─── CORE (spine — flat, headerless top of the sidebar) ───────────────
+  {
+    to: "/dashboard",
+    icon: "Home",
+    labelKey: "navHome",
+    group: "core",
+    pillar: null,
+    frequency: "daily",
+    surfaces: ["sidebar", "search", "bottomnav"],
+    aliases: ["dashboard", "home", "overview"],
+  },
+  {
+    to: "/sales",
+    icon: "ShoppingBag",
+    labelKey: "sales",
+    group: "core",
+    pillar: null,
+    frequency: "daily",
+    surfaces: ["sidebar", "search", "bottomnav"],
+  },
+  {
+    to: "/events",
+    icon: "CalendarDays",
+    labelKey: "events",
+    group: "core",
+    pillar: "events",
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["events", "tickets", "arrangement"],
+  },
+  {
+    // Reservations — Starter+ feature: stays VISIBLE-BUT-LOCKED for Free.
+    to: "/reservations",
+    icon: "CalendarCheck",
+    labelKey: "reservations",
+    group: "core",
+    pillar: "reservations",
+    requiresFeature: "reservations",
+    frequency: "daily",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["reservations", "booking", "table", "bordbestilling"],
+  },
+  {
+    to: "/expenses",
+    icon: "Receipt",
+    labelKey: "expenses",
+    group: "core",
+    pillar: null,
+    frequency: "daily",
+    surfaces: ["sidebar", "search"],
+  },
+
+  // ─── MONEY ────────────────────────────────────────────────────────────
+  {
+    to: "/cashbook",
+    icon: "BookOpen",
+    labelKey: "cashBook",
+    group: "money",
+    pillar: null,
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+  },
+  {
+    to: "/cashflow",
+    icon: "LineChart",
+    labelKey: "cashFlow",
+    group: "money",
+    pillar: null,
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search", "bottomnav"],
+  },
+  {
+    to: "/budgets",
+    icon: "Target",
+    labelKey: "budgetOverview",
+    group: "money",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["budget", "budgets"],
+  },
+  {
+    to: "/bank-import",
+    icon: "Landmark",
+    labelKey: "bankImport",
+    group: "money",
+    pillar: null,
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+  },
+  {
+    to: "/payment-imports",
+    icon: "CreditCard",
+    labelKey: "paymentImports",
+    group: "money",
+    pillar: null,
+    frequency: "weekly",
+    surfaces: ["sidebar", "more"],
+  },
+  {
+    // Khata = customer credit ledger. Lives in Money.
+    to: "/khata",
+    icon: "BookText",
+    labelKey: "khata",
+    group: "money",
+    pillar: null,
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+  },
+  {
+    // Faktura — Starter-tier; page renders its own UpgradeNudge for Free.
+    to: "/faktura",
+    icon: "FileText",
+    labelKey: "faktura",
+    group: "money",
+    pillar: null,
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["faktura", "invoice", "invoicing"],
+  },
+  {
+    to: "/customers",
+    icon: "Users",
+    labelKey: "customers",
+    group: "money",
+    pillar: null,
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+  },
+  {
+    to: "/mileage",
+    icon: "Car",
+    labelKey: "mileage",
+    group: "money",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar"],
+  },
+
+  // ─── STOCK ──────────────────────────────────────────────────────────
+  {
+    to: "/inventory",
+    icon: "Package",
+    labelKey: "inventory",
+    group: "stock",
+    pillar: "inventory",
+    frequency: "daily",
+    surfaces: ["sidebar", "more", "search", "bottomnav"],
+  },
+  {
+    // Bar Pour — gated on the bar_pour vertical module.
+    to: "/bar",
+    icon: "Martini",
+    labelKey: "bar",
+    group: "stock",
+    pillar: "inventory",
+    requiresModule: "bar_pour",
+    frequency: "daily",
+    surfaces: ["sidebar"],
+  },
+  {
+    // Wine list — STRICTER UNION GATE (panel-flagged drift fix). Both the
+    // wine_sommelier module AND a wine-friendly business_type must hold.
+    // Previously Layout gated only on requiresModule and MorePage only on
+    // visibleFor — a wine bar saw it on one surface and not the other.
+    to: "/wine-list",
+    icon: "Wine",
+    labelKey: "wineList",
+    group: "stock",
+    pillar: "inventory",
+    requiresModule: "wine_sommelier",
+    visibleFor: ["restaurant", "bar", "cafe", "hotel", "general"],
+    frequency: "weekly",
+    surfaces: ["sidebar", "more"],
+    aliases: ["wine", "sommelier", "vin"],
+  },
+  {
+    to: "/expiry",
+    icon: "AlarmClock",
+    labelKey: "expiryForecasting",
+    group: "stock",
+    pillar: "inventory",
+    visibleFor: ["restaurant", "retail", "general"],
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["expiry", "expiring", "udløb"],
+  },
+  {
+    to: "/waste",
+    icon: "Trash2",
+    labelKey: "wasteTracker",
+    group: "stock",
+    pillar: "inventory",
+    visibleFor: ["restaurant", "retail", "general"],
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["waste", "spild"],
+  },
+
+  // ─── REPORTS ────────────────────────────────────────────────────────
+  {
+    // "Today" — the merged daily close page (#150).
+    to: "/daily-close",
+    icon: "Moon",
+    labelKey: "navToday",
+    group: "reports",
+    pillar: null,
+    frequency: "daily",
+    surfaces: ["sidebar", "more", "search", "bottomnav"],
+    aliases: ["today", "daily close", "close", "end of day", "today's floor", "daily report", "floor", "ops"],
+  },
+  {
+    to: "/reports",
+    icon: "ClipboardList",
+    labelKey: "navReportsTax",
+    group: "reports",
+    pillar: null,
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["reports", "tax", "books"],
+  },
+  {
+    // Multi-terminal close — Pro entitlement; locked-but-visible.
+    to: "/daily-close/multi",
+    icon: "Store",
+    labelKey: "multiClose",
+    group: "reports",
+    pillar: null,
+    requiresFeature: "multi_terminal_close",
+    frequency: "rare",
+    surfaces: ["sidebar"],
+  },
+  {
+    to: "/tax",
+    icon: "Calculator",
+    labelKey: "taxAutopilot",
+    group: "reports",
+    pillar: null,
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["tax", "moms", "vat", "skat"],
+  },
+  {
+    to: "/bookkeeping-export",
+    icon: "Send",
+    labelKey: "sendToAccountant",
+    group: "reports",
+    pillar: null,
+    frequency: "weekly",
+    surfaces: ["sidebar", "more"],
+    aliases: ["accountant", "revisor", "export", "bookkeeping"],
+  },
+
+  // ─── STAFF ──────────────────────────────────────────────────────────
+  {
+    to: "/staff/schedule",
+    icon: "Calendar",
+    labelKey: "staffSchedule",
+    group: "staff",
+    pillar: "staff",
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search", "bottomnav"],
+    aliases: ["schedule", "vagtplan", "rota"],
+  },
+  {
+    to: "/staff/hours",
+    icon: "Timer",
+    labelKey: "staffHours",
+    group: "staff",
+    pillar: "staff",
+    frequency: "weekly",
+    surfaces: ["sidebar", "more"],
+  },
+  {
+    to: "/staff/time-registration",
+    icon: "Clock",
+    labelKey: "staffTimeReg",
+    group: "staff",
+    pillar: "staff",
+    frequency: "weekly",
+    surfaces: ["sidebar", "more"],
+  },
+  {
+    to: "/staff/tips",
+    icon: "Coins",
+    labelKey: "staffTips",
+    group: "staff",
+    pillar: "staff",
+    frequency: "weekly",
+    surfaces: ["sidebar", "more"],
+  },
+  {
+    to: "/staff/payroll",
+    icon: "FileSpreadsheet",
+    labelKey: "staffPayroll",
+    group: "staff",
+    pillar: "staff",
+    frequency: "rare",
+    surfaces: ["sidebar", "more"],
+    aliases: ["payroll", "løn", "lønseddel"],
+  },
+
+  // ─── INTELLIGENCE ──────────────────────────────────────────────────
+  // Group is restricted to data-rich business types (matches the legacy
+  // navGroups + MorePage `visibleFor` on the whole section).
+  {
+    to: "/insights",
+    icon: "Sparkles",
+    labelKey: "insightsInbox",
+    group: "intel",
+    pillar: "insights",
+    visibleFor: ["restaurant", "retail", "service", "general"],
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["insights", "ai", "patterns"],
+  },
+  {
+    to: "/weather",
+    icon: "CloudSun",
+    labelKey: "weatherSmart",
+    group: "intel",
+    pillar: "insights",
+    visibleFor: ["restaurant", "retail", "service", "general"],
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["weather", "vejr"],
+  },
+  {
+    to: "/staffing",
+    icon: "CalendarClock",
+    labelKey: "staffingForecast",
+    group: "intel",
+    pillar: "insights",
+    visibleFor: ["restaurant", "retail", "service", "general"],
+    frequency: "weekly",
+    surfaces: ["sidebar", "more"],
+  },
+  {
+    to: "/pricing",
+    icon: "BadgePercent",
+    labelKey: "priceOptimization",
+    group: "intel",
+    pillar: "insights",
+    visibleFor: ["restaurant", "retail", "service", "general"],
+    frequency: "rare",
+    surfaces: ["sidebar", "more"],
+  },
+  {
+    to: "/retention",
+    icon: "Heart",
+    labelKey: "customerRetention",
+    group: "intel",
+    pillar: "insights",
+    visibleFor: ["restaurant", "retail", "service", "general"],
+    frequency: "rare",
+    surfaces: ["sidebar", "more"],
+  },
+  {
+    to: "/competitors",
+    icon: "Telescope",
+    labelKey: "competitorScan",
+    group: "intel",
+    pillar: "insights",
+    visibleFor: ["restaurant", "retail", "service", "general"],
+    frequency: "rare",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["competitors", "konkurrent"],
+  },
+
+  // ─── WORKSHOP (vertical) ───────────────────────────────────────────
+  {
+    to: "/workshop",
+    icon: "Wrench",
+    labelKey: "workshop",
+    group: "workshop",
+    pillar: null,
+    visibleFor: ["workshop"],
+    requiresModule: "workshop",
+    frequency: "daily",
+    surfaces: ["sidebar"],
+  },
+
+  // ─── MANAGE ─────────────────────────────────────────────────────────
+  {
+    to: "/connections",
+    icon: "Link2",
+    labelKey: "navConnections",
+    group: "manage",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar", "more"],
+    aliases: ["connections", "integrations", "bank"],
+  },
+  {
+    to: "/branches",
+    icon: "Building2",
+    labelKey: "branches",
+    group: "manage",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar", "more", "search"],
+  },
+  {
+    to: "/terminals",
+    icon: "Monitor",
+    labelKey: "terminals",
+    group: "manage",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar", "more"],
+  },
+  {
+    to: "/channel-settings",
+    icon: "Bike",
+    labelKey: "orderChannels",
+    group: "manage",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar"],
+  },
+  {
+    // Features & modules — the /modules opt-in picker.
+    to: "/modules",
+    icon: "LayoutGrid",
+    labelKey: "modules",
+    group: "manage",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["modules", "features"],
+  },
+  {
+    to: "/share-recipients",
+    icon: "Mail",
+    labelKey: "shareRecipients",
+    group: "manage",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar"],
+  },
+  {
+    to: "/outlets",
+    icon: "Network",
+    labelKey: "crossOutlet",
+    group: "manage",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar"],
+  },
+  {
+    to: "/consolidated-close",
+    icon: "Building",
+    labelKey: "consolidatedClose",
+    group: "manage",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar"],
+  },
+  {
+    to: "/team",
+    icon: "UserCog",
+    labelKey: "team",
+    group: "manage",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar", "more", "search"],
+  },
+  {
+    to: "/recently-deleted",
+    icon: "Trash",
+    labelKey: "recentlyDeleted",
+    group: "manage",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar"],
+  },
+  {
+    to: "/contact",
+    icon: "MessageCircle",
+    labelKey: "contact",
+    group: "manage",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar"],
+  },
+
+  // ─── ACCOUNT ────────────────────────────────────────────────────────
+  {
+    to: "/subscription",
+    icon: "Sparkles",
+    labelKey: "planBilling",
+    group: "account",
+    pillar: null,
+    frequency: "rare",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["subscription", "plan", "billing", "upgrade"],
+  },
+];
+
+/**
+ * filterDestinations(items, ctx)
+ * ------------------------------
+ * Apply the three visibility axes to a list of manifest entries and return
+ * the survivors with a resolved `locked` flag. Pure + surface-agnostic — a
+ * surface first narrows the manifest to its own `surfaces` subset, then
+ * passes that slice here.
+ *
+ * ctx = {
+ *   businessTypes : string[]                 active branch types (or all
+ *                                            owned types when no branch)
+ *   plan          : string                   (informational; gating is via
+ *                                            hasFeature so the frontend can
+ *                                            never out-grant the backend)
+ *   hasFeature    : (flag) => boolean        PLAN_FEATURES check
+ *   hiddenPillars : Set<string>              RELEVANCE axis (default empty)
+ *   featReady     : boolean (default true)   while entitlements load, treat
+ *                                            locked-but-visible items as
+ *                                            UNLOCKED to avoid a lock-flicker
+ *                                            (matches Layout's prior behavior)
+ * }
+ *
+ * Outcome per axis:
+ *   • RELEVANCE  (hiddenPillars)            → HIDE (dropped from result)
+ *   • BUSINESS   (visibleFor / module)      → HIDE (dropped from result)
+ *   • ENTITLEMENT(requiresFeature missing)  → KEEP, `locked: true`
+ *
+ * A tier-locked entry is NEVER dropped here — hiding it would unrender the
+ * UpgradeNudge funnel. (Native App-Store compliance hiding is the caller's
+ * job, not this function's.)
+ */
+export function filterDestinations(items, ctx = {}) {
+  const {
+    businessTypes,
+    hasFeature,
+    hiddenPillars,
+    featReady = true,
+  } = ctx;
+
+  const types = Array.isArray(businessTypes) ? businessTypes : [];
+  const hidden = hiddenPillars instanceof Set ? hiddenPillars : new Set();
+  // Fail-closed default — an absent hasFeature (e.g. a test rendering a
+  // surface without an EntitlementsProvider) treats every feature as
+  // missing, mirroring the backend's fail-closed semantics.
+  const hasFeat = typeof hasFeature === "function" ? hasFeature : () => false;
+
+  // BUSINESS TYPE — null visibleFor = all; empty active types = don't gate
+  // by type (fresh signup with no branch). Module gate still applies.
+  const passesType = (vf) => {
+    if (!vf) return true;
+    if (!types || types.length === 0) return true;
+    return vf.some((tp) => types.includes(tp));
+  };
+  const passesModule = (req, reqAny) => {
+    if (!req && !reqAny) return true;
+    const enabled = ctx.enabledModules instanceof Set ? ctx.enabledModules : new Set();
+    if (req && !enabled.has(req)) return false;
+    if (reqAny && !reqAny.some((m) => enabled.has(m))) return false;
+    return true;
+  };
+  // ENTITLEMENT — while loading, return true (treat as unlocked) so a
+  // trial user never sees their Pro entries flash as locked.
+  const passesFeature = (feat) => {
+    if (!feat) return true;
+    if (!featReady) return true;
+    return hasFeat(feat);
+  };
+  // RELEVANCE — null pillar = spine (always relevant). A hidden pillar
+  // drops the entry from chrome. (No-op until pillar state is wired.)
+  const passesPillar = (pillar) => {
+    if (!pillar) return true;
+    return !hidden.has(pillar);
+  };
+
+  const out = [];
+  for (const item of items) {
+    if (!passesPillar(item.pillar)) continue;
+    if (!passesType(item.visibleFor)) continue;
+    if (!passesModule(item.requiresModule, item.requiresAnyModule)) continue;
+    if (item.requiresFeature && !passesFeature(item.requiresFeature)) {
+      out.push({ ...item, locked: true });
+      continue;
+    }
+    out.push({ ...item, locked: false });
+  }
+  return out;
+}
+
+/**
+ * Convenience: the ordered list of sidebar group ids + their header
+ * labelKey + icon. The 'core' group is headerless (flat list). Layout
+ * builds its grouped structure from this + the manifest so the group
+ * order / labels live in ONE place too.
+ *
+ * Mirrors the legacy navGroups headers exactly (zero visual change).
+ */
+export const NAV_GROUPS = [
+  { id: "core",     labelKey: null,             icon: null,        visibleFor: null },
+  { id: "money",    labelKey: "navMoney",       icon: "Wallet",    visibleFor: null },
+  { id: "stock",    labelKey: "navStock",       icon: "Boxes",     visibleFor: null },
+  { id: "reports",  labelKey: "navReports",     icon: "BarChart3", visibleFor: null },
+  { id: "staff",    labelKey: "navStaff",       icon: "UsersRound", visibleFor: null },
+  // Intelligence group is itself business-type scoped (legacy parity).
+  { id: "intel",    labelKey: "navIntel",       icon: "Brain",
+    visibleFor: ["restaurant", "retail", "service", "general"] },
+  // Workshop group shows for workshop branches OR when the workshop module
+  // is enabled (legacy `requiresAnyModule: ['workshop']`).
+  { id: "workshop", labelKey: "navWorkshop",    icon: "Wrench",
+    visibleFor: ["workshop"], requiresAnyModule: ["workshop"] },
+  { id: "manage",   labelKey: "navManage",      icon: "Settings",  visibleFor: null },
+  { id: "account",  labelKey: "navAccount",     icon: "Sparkles",  visibleFor: null },
+];
