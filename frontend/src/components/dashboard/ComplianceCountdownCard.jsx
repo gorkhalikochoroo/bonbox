@@ -129,6 +129,10 @@ export default function ComplianceCountdownCard({
 
   const ctxDeadline = ctx?.compliance?.nextDeadline || null;
   const ctxForesight = ctx?.foresight || null;
+  // Bumped by the dashboard on every data refresh (e.g. after a Quick Sale) so
+  // the foresight re-fetches and the verdict/MOMS stay in sync with the KPIs,
+  // instead of going stale until a full page reload.
+  const refreshNonce = ctx?.refreshNonce;
 
   // ── Fetch the foresight payload (the hero's data source) ──────────────
   useEffect(() => {
@@ -145,7 +149,7 @@ export default function ComplianceCountdownCard({
     return () => {
       alive = false;
     };
-  }, [foresightProp, ctxForesight]);
+  }, [foresightProp, ctxForesight, refreshNonce]);
 
   // ── Fallback deadline (only fetched when the hero won't render) ────────
   const fs = foresightProp || ctxForesight || foresight;

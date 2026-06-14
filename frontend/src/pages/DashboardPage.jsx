@@ -170,6 +170,10 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState(null);
   const [momsCountdownDays, setMomsCountdownDays] = useState(null);
   const [momsDate, setMomsDate] = useState(null);
+  // Bumped after every dashboard data refresh (fetchAll). Cards that own their
+  // own fetch (e.g. ComplianceCountdownCard → /cashflow/forecast) read this off
+  // ctx and re-fetch when it changes, so they don't go stale after a Quick Sale.
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [saleModal, setSaleModal] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [smartSaleOpen, setSmartSaleOpen] = useState(false);
@@ -225,6 +229,8 @@ export default function DashboardPage() {
       if (data.profile) setProfile(data.profile);
       if (data.moms_countdown_days != null) setMomsCountdownDays(data.moms_countdown_days);
       if (data.moms_date) setMomsDate(data.moms_date);
+      // Signal self-fetching cards (foresight hero) to re-pull after this refresh.
+      setRefreshNonce((n) => n + 1);
     } catch {
       // batch failed — per-endpoint fallbacks (same defensive pattern
       // as the previous DashboardPage version)
@@ -385,6 +391,7 @@ export default function DashboardPage() {
       plan: entitlements?.plan || "free",
       archetype: archetype?.id || "transactionalDaily",
       activations,
+      refreshNonce,
       has: (featureKey) => Boolean(entitlements?.hasFeature?.(featureKey)),
       // Tier-flicker fix: while billing is still loading, `plan` defaults
       // to "free" and every has(...) returns false. Card renderIf
@@ -501,6 +508,7 @@ export default function DashboardPage() {
     actionItems,
     momsCountdownDays,
     momsDate,
+    refreshNonce,
     profile,
     dailyRevData,
   ]);
