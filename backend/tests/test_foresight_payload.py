@@ -6,6 +6,7 @@ monkeypatched so the composition is deterministic regardless of today's date.
 resolve_next_deadline runs for real against tax_service. Verdicts are forced by
 extreme balances so they don't depend on the run-rate projection magnitude.
 """
+import logging
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
@@ -122,3 +123,47 @@ def test_moms_split_refund_period_clamps_to_zero(monkeypatch):
         _u(), None, date(2026, 1, 1), date(2026, 6, 30), date(2026, 3, 31))
     assert realized == Decimal("0")
     assert projected == Decimal("0")
+
+
+# ── #356 hardening: feature flag, calibration, tenant scoping, honesty ──
+
+def test_feature_flag_off_short_circuits(user, patched, monkeypatch):
+    monkeypatch.setattr(fp.settings, "FORESIGHT_ENABLED", False)
+    out = fp.build_foresight_payload(user, db=None, as_of=AS_OF, bank_balance=Decimal("0"))
+    assert out == {"available": False, "reason": "disabled"}
+
+
+def test_calibration_signal_is_logged(user, patched, caplog):
+    with caplog.at_level(logging.INFO, logger="app.services.foresight_payload"):
+        fp.build_foresight_payload(user, db=None, as_of=AS_OF, bank_balance=None)
+    assert "foresight.calibration" in caplog.text
+    assert "verdict=INSUFFICIENT_DATA" in caplog.text
+
+
+def test_calibration_never_breaks_payload(user, patched, monkeypatch):
+    # _log_calibration swallows logging errors — a dead log sink can't break
+    # the payload (fail-soft).
+    def _boom(*a, **k):
+        raise RuntimeError("log sink down")
+    monkeypatch.setattr(fp.logger, "info", _boom)
+    out = fp.build_foresight_payload(user, db=None, as_of=AS_OF, bank_balance=Decimal("0"))
+    assert out["available"] is True   # calibration error swallowed, payload intact
+
+
+def test_tenant_scoped_to_requesting_user(user, monkeypatch):
+    # MOMS is computed for the REQUESTING user's id — never another tenant's.
+    seen = []
+    def spy(db, user_id, *a, **k):
+        seen.append(user_id)
+        return {"vat_payable": 50000}
+    monkeypatch.setattr(fp.tax_service, "_calc_vat", spy)
+    monkeypatch.setattr(fp, "detect_recurring_outflows", lambda u, db, **k: [])
+    fp.build_foresight_payload(user, db=None, as_of=AS_OF, bank_balance=Decimal("0"))
+    assert seen and all(uid == "u1" for uid in seen)
+
+
+def test_honest_no_coverage_claim_without_balance(user, patched):
+    out = fp.build_foresight_payload(user, db=None, as_of=AS_OF, bank_balance=None)
+    assert out["balance_connected"] is False
+    assert out["covers_moms"] is not True       # never a positive coverage claim w/o a balance
+    assert out["verdict"] == "INSUFFICIENT_DATA"

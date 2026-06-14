@@ -18,11 +18,36 @@ import logging
 from datetime import timedelta
 from decimal import Decimal
 
+from app.config import settings
 from app.services import foresight_service as fs
 from app.services import tax_service
 from app.services.recurring_detection import detect_recurring_outflows
 
 logger = logging.getLogger(__name__)
+
+
+def _log_calibration(cone, recurring, deadline, as_of, bank_balance, frequency):
+    """Emit a privacy-clean calibration signal per computation — verdict +
+    confidence + connection state, NO PII. Lets us watch the aggregate verdict
+    distribution + confidence spread (e.g. "are we mostly INSUFFICIENT_DATA?")
+    in logs. Never raises. (A persisted prediction→outcome snapshot table is a
+    Sprint-2 follow-up once a live bank balance produces real verdicts.)
+    """
+    try:
+        logger.info(
+            "foresight.calibration verdict=%s covers=%s conf=%s bank_connected=%s "
+            "days_until=%s moms_expected~%s recurring=%s freq=%s",
+            cone.headline_state,
+            cone.mid.covers_moms,
+            cone.moms_range.confidence,
+            bank_balance is not None,
+            (deadline - as_of).days,
+            round(float(cone.moms_range.expected)),
+            len(recurring),
+            frequency,
+        )
+    except Exception:
+        pass
 
 
 def _moms_range_split(user, db, period_start, period_end, as_of):
@@ -60,6 +85,10 @@ def build_foresight_payload(user, db, *, as_of, bank_balance=None, reserved=Deci
     """Compose the full foresight payload. ``as_of`` is the business day;
     ``bank_balance`` the in-scope balance seed (None until a bank is connected).
     """
+    # Kill-switch (#356) — operator can disable instantly via Render env.
+    if not settings.FORESIGHT_ENABLED:
+        return {"available": False, "reason": "disabled"}
+
     deadline_info = fs.resolve_next_deadline(user)
     if not deadline_info:
         return {"available": False, "reason": "no_moms_config"}
@@ -78,6 +107,8 @@ def build_foresight_payload(user, db, *, as_of, bank_balance=None, reserved=Deci
     cone = fs.evaluate(inputs, realized_moms=realized, projected_remaining_moms=projected)
     envelope = fs.build_envelope(cone, reserved=reserved)
     plan = cone.headline_plan
+
+    _log_calibration(cone, recurring, deadline, as_of, bank_balance, deadline_info["frequency"])
 
     return {
         "available": True,

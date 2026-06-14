@@ -277,6 +277,15 @@ class Settings(BaseSettings):
     PRIORITY_SUPPORT_EMAIL: str = ""
     PRIORITY_SUPPORT_SLACK_WEBHOOK: str = ""
 
+    # ── Foresight engine (Sprint 1, #356) ──────────────────────────────
+    # Kill-switch for the forward MOMS cash-flow foresight payload on
+    # /cashflow/forecast. Default on; set FORESIGHT_ENABLED=false in the
+    # Render dashboard to disable it instantly without a deploy. The legacy
+    # cash-flow forecast is unaffected — foresight degrades to absent.
+    # Not tier-gated: like the FREE MOMS countdown it upgrades (#42), the
+    # foresight verdict is part of the core honest value, available to all.
+    FORESIGHT_ENABLED: bool = True
+
 
 settings = Settings()
 
