@@ -27,9 +27,9 @@ TODAY, before any PSD2 provider is live in prod):
 Money is ``Decimal`` throughout — no float artifacts on a money figure.
 """
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,15 @@ STATE_ON_TRACK = "ON_TRACK"          # covers MOMS + never dips below the buffer
 STATE_TIGHT = "TIGHT"                 # covers MOMS but dips below the buffer en route
 STATE_SHORT = "SHORT"                 # will NOT cover MOMS at the current pace
 STATE_INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+
+# Cone-only headline state — NEVER returned by project() (which sees one MOMS
+# point); set only by build_cone(). The EXPECTED bill is covered, but the HIGH
+# end of the MOMS range is not: "you'd make it on the likely bill, but a bigger
+# one would leave you short." Rendered as caution, with the play-it-safe weekly
+# plan as its action. This is the honest middle that prevents a "covers MOMS"
+# state (ON_TRACK / TIGHT) from standing as the single verdict over an uncovered
+# downside (#360 — the cardinal "never read reassuring when short" rule).
+STATE_AT_RISK = "AT_RISK"
 
 
 @dataclass(frozen=True)
@@ -144,6 +153,15 @@ def project(inputs: ForesightInputs) -> ForesightProjection:
             timeline.append({"on": cur.isoformat(), "balance": bal})
 
     balance_before_moms = bal
+
+    # Make the chart faithful: a dip-and-recover that completes between two
+    # weekly samples (e.g. payroll Mon → receivable Fri) would otherwise leave
+    # the timeline a flat reassuring line while the verdict reads TIGHT/SHORT.
+    # Inject the walk trough so the charted minimum always equals the true one.
+    if lowest_on != inputs.as_of and lowest_on.isoformat() not in {pt["on"] for pt in timeline}:
+        timeline.append({"on": lowest_on.isoformat(), "balance": lowest_bal})
+        timeline.sort(key=lambda pt: pt["on"])
+
     balance_after_moms = balance_before_moms - inputs.moms_estimate
 
     # The MOMS bill dip can be the lowest point of the whole horizon.
@@ -181,6 +199,247 @@ def project(inputs: ForesightInputs) -> ForesightProjection:
         lowest_point={"on": lowest_on.isoformat(), "balance": lowest_bal},
         timeline=timeline,
     )
+
+
+# ───────────────────────────────────────────────────────────────────────
+# S1-2 (#349): MOMS range/cone + weekly-rate solver
+#
+# The 3-layer uncertainty model:
+#   Layer 1  CERTAIN about the DATE         → resolve_next_deadline()
+#   Layer 2  ESTIMATING the AMOUNT          → MomsRange (below)
+#   Layer 3  PROJECTING the BALANCE         → ForesightCone (project() ×3)
+#
+# Philosophy: "uncertain about the number, certain about the action." We never
+# pretend to know the exact MOMS bill — we give a range and ONE concrete weekly
+# save-rate that clears it. Conservatism is asymmetric: a too-big bill is the
+# dangerous direction, so the headline never reads ON_TRACK when the high end
+# of the range would leave the owner short (#360 honesty red-line).
+# ───────────────────────────────────────────────────────────────────────
+
+
+def _ceil_to(value: Decimal, step: Decimal) -> Decimal:
+    """Round ``value`` UP to the nearest multiple of ``step`` (both Decimal).
+
+    We round the weekly save-rate UP so the plan slightly over-covers — you'd
+    always rather arrive at the deadline with a little extra than a little short.
+    """
+    if step <= 0:
+        return value
+    return (value / step).to_integral_value(rounding=ROUND_CEILING) * step
+
+
+@dataclass(frozen=True)
+class MomsRange:
+    """The estimated MOMS bill as a range, not a false-precision point.
+
+    Uncertainty lives ONLY in the not-yet-elapsed tail of the period:
+    ``realized`` is the MOMS already locked in by booked sales (a hard floor),
+    ``projected`` is the run-rate estimate for the remaining days. ``low`` /
+    ``high`` flex the projected tail by ``band_pct``; ``realized`` never flexes.
+    """
+    realized: Decimal     # MOMS already booked this period (certain)
+    projected: Decimal    # MOMS from the remaining (not-yet-elapsed) days
+    low: Decimal          # plan-for-less edge  (realized + projected·(1−band))
+    expected: Decimal     # best single estimate (realized + projected)
+    high: Decimal         # plan-for-more edge  (realized + projected·(1+band))
+    confidence: str       # "high" | "medium" | "low" — share already realized
+    band_pct: Decimal
+
+
+def build_moms_range(
+    *,
+    realized_moms: Decimal,
+    projected_remaining_moms: Decimal,
+    band_pct: Decimal = Decimal("0.25"),
+) -> MomsRange:
+    """Build the MOMS range from the realized-so-far + projected-tail split.
+
+    ``confidence`` reflects how much of the bill is already certain: once most
+    of the period is booked the range collapses toward a point.
+    """
+    realized = realized_moms if realized_moms > 0 else Decimal("0")
+    projected = projected_remaining_moms if projected_remaining_moms > 0 else Decimal("0")
+
+    expected = realized + projected
+    low = realized + projected * (Decimal("1") - band_pct)
+    high = realized + projected * (Decimal("1") + band_pct)
+
+    if expected <= 0:
+        # No sales basis yet → we genuinely can't estimate. Stay humble.
+        confidence = "low"
+    else:
+        share = realized / expected
+        if share >= Decimal("0.8"):
+            confidence = "high"
+        elif share >= Decimal("0.4"):
+            confidence = "medium"
+        else:
+            confidence = "low"
+
+    return MomsRange(
+        realized=realized,
+        projected=projected,
+        low=low,
+        expected=expected,
+        high=high,
+        confidence=confidence,
+        band_pct=band_pct,
+    )
+
+
+@dataclass(frozen=True)
+class WeeklyPlan:
+    """The ACTION: set aside ``weekly_rate`` kr/week and you clear ``shortfall``
+    by the deadline. ``weekly_rate`` is rounded UP to ``round_to`` so it is both
+    a clean number and slightly conservative.
+    """
+    shortfall: Decimal        # gap to close by the deadline (0 if already covered)
+    weeks: int
+    weekly_rate: Decimal      # kr/week to set aside (0 if already covered)
+    already_covered: bool
+    round_to: Decimal
+
+
+def solve_weekly_rate(
+    *,
+    shortfall: Decimal | None,
+    weeks: int | None,
+    round_to: Decimal = Decimal("100"),
+) -> WeeklyPlan:
+    """Solve for the weekly save-rate that closes ``shortfall`` over ``weeks``.
+
+    A non-positive (or unknown) shortfall ⇒ already covered, rate 0.
+    """
+    wk = max(1, weeks or 0)
+    if shortfall is None or shortfall <= 0:
+        return WeeklyPlan(
+            shortfall=Decimal("0"),
+            weeks=wk,
+            weekly_rate=Decimal("0"),
+            already_covered=True,
+            round_to=round_to,
+        )
+    weekly_rate = _ceil_to(shortfall / Decimal(wk), round_to)
+    return WeeklyPlan(
+        shortfall=shortfall,
+        weeks=wk,
+        weekly_rate=weekly_rate,
+        already_covered=False,
+        round_to=round_to,
+    )
+
+
+@dataclass(frozen=True)
+class ForesightCone:
+    """The full forward picture across the MOMS range — three trajectories plus
+    one honest headline and one concrete action.
+
+    ``worst`` runs the engine at the HIGH MOMS bill (lowest end balance), ``best``
+    at the LOW bill, ``mid`` at the expected bill. ``headline_state`` is the mid
+    state, EXCEPT it becomes ``AT_RISK`` whenever the expected bill is covered but
+    the high-end bill is not — we never show a "covers MOMS" state (ON_TRACK or
+    TIGHT) as the single verdict over a plausibly uncovered downside (#360).
+
+    ``headline_plan`` is the ONE action the UI should lead with for the headline
+    state, so a renderer can never pair an at-risk verdict with an "already
+    covered" call-to-action.
+    """
+    moms_range: MomsRange
+    worst: ForesightProjection      # high MOMS → lowest balance edge of the cone
+    mid: ForesightProjection        # expected MOMS
+    best: ForesightProjection       # low MOMS → highest balance edge of the cone
+    headline_state: str
+    worst_case_short: bool          # mid covers but the high-bill scenario does not
+    weekly_plan: WeeklyPlan | None       # to clear the EXPECTED shortfall
+    weekly_plan_safe: WeeklyPlan | None  # to clear the WORST-case shortfall (play-it-safe)
+    headline_plan: WeeklyPlan | None     # the action to LEAD with for headline_state
+
+
+def build_cone(
+    inputs: ForesightInputs,
+    moms_range: MomsRange,
+    *,
+    round_to: Decimal = Decimal("100"),
+) -> ForesightCone:
+    """Run the projection engine at the three MOMS scenarios and assemble the
+    cone + headline + weekly plan. ``inputs.moms_estimate`` is overridden by the
+    range — the cone owns the MOMS amount.
+    """
+    worst = project(replace(inputs, moms_estimate=moms_range.high))
+    mid = project(replace(inputs, moms_estimate=moms_range.expected))
+    best = project(replace(inputs, moms_estimate=moms_range.low))
+
+    # Fail-closed: if the engine can't form a verdict, neither can the cone.
+    if mid.state == STATE_INSUFFICIENT_DATA:
+        return ForesightCone(
+            moms_range=moms_range,
+            worst=worst,
+            mid=mid,
+            best=best,
+            headline_state=STATE_INSUFFICIENT_DATA,
+            worst_case_short=False,
+            weekly_plan=None,
+            weekly_plan_safe=None,
+            headline_plan=None,
+        )
+
+    weekly_plan = solve_weekly_rate(
+        shortfall=mid.shortfall, weeks=mid.weeks_to_deadline, round_to=round_to,
+    )
+    weekly_plan_safe = solve_weekly_rate(
+        shortfall=worst.shortfall, weeks=worst.weeks_to_deadline, round_to=round_to,
+    )
+
+    worst_case_short = bool(mid.covers_moms) and not bool(worst.covers_moms)
+
+    headline_state = mid.state
+    if worst_case_short:
+        # Covered on the expected bill, but a bigger-than-expected bill would
+        # leave you short. This fires whether mid was ON_TRACK or TIGHT — both
+        # assert "covers MOMS", and neither may stand as the lone verdict over
+        # an uncovered downside (#360). AT_RISK is the honest middle.
+        headline_state = STATE_AT_RISK
+
+    # The single action the UI leads with — never an "already covered" CTA when
+    # the headline is at-risk or short.
+    if headline_state == STATE_AT_RISK:
+        headline_plan = weekly_plan_safe        # de-risk the bigger bill
+    elif headline_state == STATE_SHORT:
+        headline_plan = weekly_plan             # close the expected gap (the floor)
+    else:
+        headline_plan = weekly_plan             # ON_TRACK / TIGHT → already_covered
+
+    return ForesightCone(
+        moms_range=moms_range,
+        worst=worst,
+        mid=mid,
+        best=best,
+        headline_state=headline_state,
+        worst_case_short=worst_case_short,
+        weekly_plan=weekly_plan,
+        weekly_plan_safe=weekly_plan_safe,
+        headline_plan=headline_plan,
+    )
+
+
+def evaluate(
+    inputs: ForesightInputs,
+    *,
+    realized_moms: Decimal,
+    projected_remaining_moms: Decimal,
+    band_pct: Decimal = Decimal("0.25"),
+    round_to: Decimal = Decimal("100"),
+) -> ForesightCone:
+    """One-call convenience: build the MOMS range from the realized/projected
+    split, then the cone. This is the seam the endpoint (#354) drives once the
+    realized/projected sales come from the DB.
+    """
+    moms_range = build_moms_range(
+        realized_moms=realized_moms,
+        projected_remaining_moms=projected_remaining_moms,
+        band_pct=band_pct,
+    )
+    return build_cone(inputs, moms_range, round_to=round_to)
 
 
 def resolve_next_deadline(user) -> dict | None:

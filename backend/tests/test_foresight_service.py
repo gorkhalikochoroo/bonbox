@@ -146,6 +146,26 @@ def test_timeline_spans_today_to_deadline():
     assert all(isinstance(pt["balance"], Decimal) for pt in p.timeline)
 
 
+def test_timeline_surfaces_a_subweek_trough():
+    # A dip-and-recover that completes inside one weekly sampling gap (payroll
+    # Wed → receivable Fri) must still be visible in the chart — otherwise the
+    # line reads flat/reassuring while the badge says TIGHT.
+    out = CashEvent(on=date(2026, 7, 15), amount=Decimal("-90000"),
+                    label="Payroll run", kind="recurring")
+    back = CashEvent(on=date(2026, 7, 17), amount=Decimal("90000"),
+                     label="Receivable", kind="inflow")
+    p = fs.project(_inputs(current_balance=Decimal("50000"),
+                           safety_buffer=Decimal("10000"),
+                           recurring_outflows=[out], projected_inflows=[back]))
+    assert p.state == STATE_TIGHT
+    assert p.lowest_point["balance"] == Decimal("-40000")
+    # the trough day is now a sample, and the charted minimum equals the true one
+    assert p.lowest_point["on"] in [pt["on"] for pt in p.timeline]
+    assert min(pt["balance"] for pt in p.timeline) == Decimal("-40000")
+    # timeline stays chronologically ordered after the injection
+    assert [pt["on"] for pt in p.timeline] == sorted(pt["on"] for pt in p.timeline)
+
+
 # ── resolve_next_deadline(): the acceptance criterion ──────────────────
 
 def test_resolve_deadline_half_yearly_filer():
