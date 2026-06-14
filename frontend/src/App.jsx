@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { EntitlementsProvider } from "./hooks/useEntitlements";
 import { FeaturesProvider } from "./hooks/useFeatures";
 import { PillarsProvider } from "./hooks/usePillars";
+import { LiveAlertsProvider } from "./hooks/useLiveAlerts";
 import { BranchProvider } from "./components/BranchSelector";
 import { LanguageProvider } from "./hooks/useLanguage";
 import { GoogleOAuthProvider } from "@react-oauth/google";
@@ -536,14 +537,20 @@ function AppInner() {
                     hiddenPillars Set. Free + uncapped — no entitlement coupling. */}
                 <PillarsProvider>
                   <BranchProvider>
-                    <AppRoutes />
-                    {/* Cookie consent renders on top of any route, including landing/
-                        login/register where pre-auth visitors must see it.
-                        Wrapped in its own boundary so a failure here NEVER breaks the
-                        rest of the app. */}
-                    <CookieConsentBoundary>
-                      <CookieConsent />
-                    </CookieConsentBoundary>
+                    {/* LiveAlertsProvider — host-stand "pop + sound" on booking/
+                        allergy changes. Inside Router (uses navigate) + Auth (no-ops
+                        for accountant/logged-out); renders the global toast layer and
+                        feeds the NotificationCenter bell. */}
+                    <LiveAlertsProvider>
+                      <AppRoutes />
+                      {/* Cookie consent renders on top of any route, including landing/
+                          login/register where pre-auth visitors must see it.
+                          Wrapped in its own boundary so a failure here NEVER breaks the
+                          rest of the app. */}
+                      <CookieConsentBoundary>
+                        <CookieConsent />
+                      </CookieConsentBoundary>
+                    </LiveAlertsProvider>
                   </BranchProvider>
                 </PillarsProvider>
               </FeaturesProvider>

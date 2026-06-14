@@ -16,12 +16,12 @@ stringly annotations are in effect (same caveat as public_bookings.py).
 """
 import json
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -246,6 +246,103 @@ def _reservation_dict(r: Reservation) -> dict:
         "allergy_severity": r.allergy_severity, "occasion": r.occasion,
         "guest_notes": r.guest_notes,
     }
+
+
+def _reservation_change_dict(r: Reservation, label_by_id: dict, cutoff: datetime) -> dict:
+    """Minimal-PII shape for the live-alert bell feed. Deliberately does NOT
+    return the free-text allergy_note (Art. 9 health data) — only a severity
+    flag so the client can pick the louder beep; the owner opens the booking
+    for the detail. `kind` tells the toast what happened."""
+    if r.cancelled_at and r.cancelled_at > cutoff:
+        kind = "cancelled"
+    elif r.created_at and r.created_at > cutoff:
+        kind = "new"
+    else:
+        kind = "changed"
+    label = None
+    if r.resource_id:
+        label = label_by_id.get(str(r.resource_id))
+    elif getattr(r, "combined_resource_ids", None):
+        parts = [label_by_id.get(str(x)) for x in r.combined_resource_ids]
+        label = " + ".join([p for p in parts if p]) or None
+    return {
+        "id": str(r.id),
+        "kind": kind,
+        # First name ONLY on the glance surface — the host iPad faces the dining
+        # room, so a named guest paired with a health condition ("severe allergy")
+        # must not be co-visible to passers-by (GDPR Art. 9). The full name stays
+        # in the authenticated booking detail the staff deliberately tap open.
+        "guest_name": ((r.guest_name or "").strip().split(" ")[0] or None),
+        "party_size": r.party_size,
+        "starts_at": r.starts_at.isoformat() if r.starts_at else None,
+        "status": r.status,
+        "source": r.source,
+        "table_label": label,
+        "has_allergy": bool(r.allergen_tags or r.allergy_note or r.allergy_severity),
+        "allergy_severity": r.allergy_severity,
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+    }
+
+
+@router.get("/changes")
+def list_changes(
+    since: str | None = Query(
+        None, description="ISO-8601 cutoff; returns bookings created/changed/cancelled after this."
+    ),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Change-feed for the host-stand live-alert bell (in-app pop + sound).
+
+    The owner's open BonBox tab polls this every ~20s. It returns bookings whose
+    state moved after `since` — NEW bookings, CANCELLATIONS, and any edit (incl. a
+    later allergy/dietary note, which bumps updated_at) — so the client can toast +
+    beep the fresh ones (a severe allergy → louder beep, decided client-side).
+
+    Multi-barrier: L1 auth (get_current_user) · L2 tenant scope (user_id on every
+    row). Read-only, so no audit row. A fresh client sends `since=<server_time it
+    last saw>` and NEVER replays history on first load: missing/malformed `since`
+    → empty list. Capped at 50 to bound the payload during a booking rush.
+    """
+    server_time = utc_now().isoformat()
+    if not since:
+        return {"server_time": server_time, "changes": []}
+    try:
+        cutoff = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        if cutoff.tzinfo is not None:
+            cutoff = cutoff.astimezone(timezone.utc).replace(tzinfo=None)
+    except (ValueError, TypeError):
+        return {"server_time": server_time, "changes": []}
+
+    rows = (
+        db.query(Reservation)
+        .filter(
+            Reservation.user_id == user.id,
+            Reservation.is_deleted.is_(False),
+            # ONLY guest-driven events alert — never housekeeping. created_at is a
+            # NEW booking (incl. one that arrives WITH an allergy → the severe-allergy
+            # beep still fires); cancelled_at is a cancellation. updated_at is
+            # DELIBERATELY *not* a trigger: the confirmation/reminder crons and the
+            # owner's own edits/seating all bump it, which would beep the host stand
+            # for automated reminders and the owner's own clicks — exactly the spam
+            # Manoj's rules forbid. (A dietary note ADDED to an existing booking later
+            # is the rare case this trades away; a dedicated alertable signal is the
+            # follow-up if owners ask for it.)
+            or_(
+                Reservation.created_at > cutoff,
+                Reservation.cancelled_at > cutoff,
+            ),
+        )
+        .order_by(Reservation.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    label_by_id = {
+        str(res.id): res.label
+        for res in db.query(BookableResource).filter(BookableResource.user_id == user.id).all()
+    }
+    changes = [_reservation_change_dict(r, label_by_id, cutoff) for r in rows]
+    return {"server_time": server_time, "changes": changes}
 
 
 # ─── settings ────────────────────────────────────────────────────────

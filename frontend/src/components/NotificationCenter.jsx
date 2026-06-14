@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useLiveAlerts } from "../hooks/useLiveAlerts";
 
 function useTimeAgo() {
   const { t } = useLanguage();
@@ -16,6 +17,11 @@ function useTimeAgo() {
 
 export default function NotificationCenter() {
   const { t } = useLanguage();
+  // Live host-stand alerts (booking/allergy "pop + sound") live in the same
+  // bell so there's one notification surface, not two. The provider owns the
+  // toast + sound; here we expose its on/off + sound toggles and merge its
+  // unread count + recent feed into this dropdown.
+  const live = useLiveAlerts();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -117,23 +123,40 @@ export default function NotificationCenter() {
 
   const visible = notifications.filter((n) => !dismissed.includes(n.id));
   const unread = visible.length;
+  const liveUnread = live.active ? live.unread : 0;
+  const badge = unread + liveUnread;
 
   const severityBorder = { critical: "border-l-red-500", warning: "border-l-amber-500", info: "border-l-blue-500" };
+
+  // Inline switch for the live-alert toggles (matches the design-system style).
+  const Switch = ({ on, set, label }) => (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={() => set(!on)}
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors
+        ${on ? "bg-gray-900 dark:bg-gray-100" : "bg-gray-200 dark:bg-gray-700"}`}
+    >
+      <span className={`inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 shadow-sm transition-transform ${on ? "translate-x-4" : "translate-x-0.5"}`} />
+    </button>
+  );
 
   return (
     <div ref={ref} className="relative">
       {/* Bell button */}
       <button
-        onClick={() => setOpen(!open)}
+        onClick={() => { const n = !open; setOpen(n); if (n && live.active) live.markAllRead(); }}
         className="relative p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
         aria-label={t("notifications") || "Notifications"}
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
-        {unread > 0 && (
+        {badge > 0 && (
           <span className="absolute -top-0.5 -right-0.5 w-4.5 h-4.5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center min-w-[18px] h-[18px] leading-none">
-            {unread > 9 ? "9+" : unread}
+            {badge > 9 ? "9+" : badge}
           </span>
         )}
       </button>
@@ -150,6 +173,49 @@ export default function NotificationCenter() {
               </button>
             )}
           </div>
+
+          {/* Live alerts — host-stand "pop + sound" toggle + recent feed */}
+          {live.active && (
+            <div className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/40">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-medium text-gray-700 dark:text-gray-200">
+                  {t("liveAlertTitle") || "Live alerts"}
+                </span>
+                <Switch on={live.enabled} set={live.setEnabled} label={t("liveAlertEnable") || "Enable alerts"} />
+              </div>
+              <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400 leading-snug">
+                {t("liveAlertHint") || "Pop + sound when a booking changes or an allergy is noted — on this screen."}
+              </p>
+              <div className={`mt-2 flex items-center justify-between ${live.enabled ? "" : "opacity-40 pointer-events-none"}`}>
+                <span className="text-[12.5px] text-gray-600 dark:text-gray-300">{t("liveAlertSound") || "Sound"}</span>
+                <Switch on={live.sound} set={live.setSound} label={t("liveAlertSound") || "Sound"} />
+              </div>
+              {live.feed.length > 0 && (
+                <div className="mt-2 -mx-1 max-h-40 overflow-y-auto">
+                  {live.feed.slice(0, 8).map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => { setOpen(false); live.openReservations(); }}
+                      className="w-full text-left px-1 py-1 flex items-start gap-2 rounded hover:bg-white dark:hover:bg-gray-700/40"
+                    >
+                      <span className={`mt-1 h-1.5 w-1.5 rounded-full shrink-0 ${a.kind === "cancelled" ? "bg-gray-400" : a.severe ? "bg-red-500" : a.hasAllergy ? "bg-amber-500" : "bg-emerald-500"}`} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[12px] font-medium text-gray-800 dark:text-gray-100 truncate">
+                          {a.title}{a.who ? ` · ${a.who}` : ""}
+                        </span>
+                        {a.hasAllergy && (
+                          <span className={`block text-[10.5px] font-medium ${a.severe ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
+                            {a.severe ? (t("liveAlertSevereAllergy") || "⚠ Severe allergy noted") : (t("liveAlertAllergy") || "Allergy / dietary note")}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Body */}
           <div className="max-h-80 overflow-y-auto">

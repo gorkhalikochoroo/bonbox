@@ -1742,6 +1742,12 @@ _migrations = [
     # existing floors behave exactly as before until an owner opts a table in.
     "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS combinable BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS combined_resource_ids JSONB",
+    # updated_at — the host-stand live-alert bell polls GET /reservations/changes
+    # which sorts/filters on this. The model has onupdate=utc_now so every booking
+    # mutation (incl. a later allergy edit) bumps it. Idempotent ADD + a one-time
+    # backfill so legacy rows created before the column get a sane value.
+    "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+    "UPDATE reservations SET updated_at = created_at WHERE updated_at IS NULL",
 
     # ── Migration 023 (2026-05-31): persistent 2D floor-plan layout ──────
     # bookable_resources gains position + shape so the owner's drag-arranged
