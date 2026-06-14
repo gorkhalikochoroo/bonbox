@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import { FadeIn } from "../components/AnimationKit";
+import { errText } from "../utils/errText";
 
 /**
  * Admin Training dashboard — founder visibility into the kasserapport
@@ -58,7 +59,7 @@ export default function AdminTrainingPage() {
       setDrift(res.data);
       setError("");
     } catch (e) {
-      setError(e?.response?.data?.detail || "Could not load drift signals");
+      setError(errText(e, "Could not load drift signals"));
     }
   }
 
@@ -94,7 +95,7 @@ export default function AdminTrainingPage() {
       setRunResult({ kind: "drift", data: res.data });
       await fetchDrift();
     } catch (e) {
-      setRunResult({ kind: "error", message: e?.response?.data?.detail || "Failed" });
+      setRunResult({ kind: "error", message: errText(e, "Failed") });
     } finally {
       setRunning(null);
     }
@@ -107,7 +108,7 @@ export default function AdminTrainingPage() {
       const res = await api.post("/admin/training/run-pattern-sweep-now");
       setRunResult({ kind: "patterns", data: res.data });
     } catch (e) {
-      setRunResult({ kind: "error", message: e?.response?.data?.detail || "Failed" });
+      setRunResult({ kind: "error", message: errText(e, "Failed") });
     } finally {
       setRunning(null);
     }

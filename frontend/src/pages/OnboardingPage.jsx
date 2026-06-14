@@ -55,6 +55,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { isNativeApp } from "../utils/platform";
+import { errText } from "../utils/errText";
 import { Button, Icon, UpgradeNudge } from "../components/ui";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { archetypeFor } from "../config/archetypes";
@@ -632,7 +633,7 @@ export default function OnboardingPage() {
 
       goNext();
     } catch (err) {
-      setStepError(err?.response?.data?.detail || t("onbBusinessSaveFailed"));
+      setStepError(errText(err, t("onbBusinessSaveFailed")));
     } finally {
       setSavingBusiness(false);
     }
@@ -671,7 +672,7 @@ export default function OnboardingPage() {
       await api.put("/business", bizPayload);
       goNext();
     } catch (err) {
-      setStepError(err?.response?.data?.detail || t("onbTaxSaveFailed"));
+      setStepError(errText(err, t("onbTaxSaveFailed")));
     } finally {
       setSavingTax(false);
     }
@@ -711,9 +712,7 @@ export default function OnboardingPage() {
           // Treat as success — they already share with this revisor
           setRevisorMsg(t("onbRevisorAlreadyActive"));
         } else {
-          setRevisorError(
-            (detail && (detail.message || detail)) || t("onbRevisorInviteFailed"),
-          );
+          setRevisorError(errText(err, t("onbRevisorInviteFailed")));
           setRevisorSending(false);
           return;
         }

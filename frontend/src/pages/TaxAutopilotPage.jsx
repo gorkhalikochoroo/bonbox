@@ -7,6 +7,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency } from "../utils/currency";
+import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { UpgradeNudge, PageHeader, Button, StatCard, SectionBanner, Icon } from "../components/ui";
@@ -84,7 +85,7 @@ export default function TaxAutopilotPage() {
       fetchData();
       setTimeout(() => setTaxMsg(""), 3500);
     } catch (e) {
-      setTaxMsg(e?.response?.data?.detail || t("taxCutoffCouldntSave"));
+      setTaxMsg(errText(e, t("taxCutoffCouldntSave")));
     } finally {
       setTaxSaving(false);
     }

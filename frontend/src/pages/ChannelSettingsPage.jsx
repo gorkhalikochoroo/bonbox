@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
+import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
 
@@ -90,7 +91,7 @@ export default function ChannelSettingsPage() {
       setChannels(Array.isArray(res.data) ? res.data : []);
       setError("");
     } catch (err) {
-      setError(err?.response?.data?.detail || t("channelsLoadFailed") || "Could not load channels");
+      setError(errText(err, t("channelsLoadFailed") || "Could not load channels"));
     } finally {
       setLoading(false);
     }
@@ -153,8 +154,8 @@ export default function ChannelSettingsPage() {
       await fetchChannels();
       cancel();
     } catch (err) {
-      const detail = err?.response?.data?.detail;
-      setError(detail || t("channelSaveFailed") || "Could not save channel");
+      const detail = errText(err, t("channelSaveFailed") || "Could not save channel");
+      setError(detail);
     } finally {
       setSaving(false);
     }
@@ -171,7 +172,7 @@ export default function ChannelSettingsPage() {
       await api.delete(`/order-channels/${ch.id}`);
       await fetchChannels();
     } catch (err) {
-      setError(err?.response?.data?.detail || t("channelArchiveFailed") || "Could not archive");
+      setError(errText(err, t("channelArchiveFailed") || "Could not archive"));
     }
   }
 
@@ -181,7 +182,7 @@ export default function ChannelSettingsPage() {
       await api.put(`/order-channels/${ch.id}`, { is_archived: false });
       await fetchChannels();
     } catch (err) {
-      setError(err?.response?.data?.detail || t("channelUnarchiveFailed") || "Could not restore");
+      setError(errText(err, t("channelUnarchiveFailed") || "Could not restore"));
     }
   }
 

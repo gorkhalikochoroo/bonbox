@@ -3,6 +3,7 @@ import api from "../services/api";
 import Modal from "./Modal";
 import { useLanguage } from "../hooks/useLanguage";
 import { localIso } from "../utils/dateFormat";
+import { errText } from "../utils/errText";
 
 /**
  * Smart Sale Entry — type natural language, AI parses to structured items,
@@ -72,7 +73,7 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
         if (data.payment_method) setPaymentMethod(data.payment_method);
       }
     } catch (err) {
-      setParseError(err?.response?.data?.detail || t("aiParseFailed") || "Could not parse — please try again.");
+      setParseError(errText(err, t("aiParseFailed") || "Could not parse — please try again."));
     } finally {
       setParsing(false);
     }

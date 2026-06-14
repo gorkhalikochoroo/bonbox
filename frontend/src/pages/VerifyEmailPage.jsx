@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
+import { errText } from "../utils/errText";
 
 export default function VerifyEmailPage() {
   const { user, setEmailVerified } = useAuth();
@@ -97,11 +98,11 @@ export default function VerifyEmailPage() {
       setEmailVerified();
       setTimeout(() => navigate("/dashboard"), 1200);
     } catch (err) {
-      const detail = err.response?.data?.detail;
+      const detail = errText(err, t("verificationFailed"));
       if (err.response?.status === 429) {
         setError(t("tooManyAttempts"));
       } else {
-        setError(detail || t("verificationFailed"));
+        setError(detail);
       }
       // Clear code on failure
       setCode(["", "", "", "", "", ""]);

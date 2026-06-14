@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
 import api from "../services/api";
+import { errText } from "../utils/errText";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, PieChart, Pie, Cell,
@@ -515,7 +516,7 @@ function LockToggle({ user, onChange }) {
         await api.post(`/admin/users/${user.id}/unlock`);
         onChange?.();
       } catch (e) {
-        setErr(e.response?.data?.detail || "failed");
+        setErr(errText(e, "failed"));
       } finally {
         setBusy(false);
       }
@@ -530,7 +531,7 @@ function LockToggle({ user, onChange }) {
         await api.post(`/admin/users/${user.id}/lock`, { reason: (reason || "").slice(0, 255) });
         onChange?.();
       } catch (e) {
-        setErr(e.response?.data?.detail || "failed");
+        setErr(errText(e, "failed"));
       } finally {
         setBusy(false);
       }
@@ -653,7 +654,7 @@ function SpamCleanupBar({ onCleaned }) {
       setCandidates(r.data);
       setConfirmOpen(false);
     } catch (e) {
-      setResult({ error: e.response?.data?.detail || "Failed to scan" });
+      setResult({ error: errText(e, "Failed to scan") });
     }
     setLoading(false);
   };
@@ -667,7 +668,7 @@ function SpamCleanupBar({ onCleaned }) {
       setConfirmOpen(false);
       onCleaned?.();
     } catch (e) {
-      setResult({ error: e.response?.data?.detail || "Cleanup failed" });
+      setResult({ error: errText(e, "Cleanup failed") });
     }
     setLoading(false);
   };

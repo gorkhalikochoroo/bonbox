@@ -7,6 +7,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "../components/BranchSelector";
 import { displayCurrency } from "../utils/currency";
+import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
 import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2 } from "lucide-react";
@@ -492,7 +493,7 @@ export default function StaffSchedulePage() {
       });
       await fetchShifts();
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to copy last week's schedule.");
+      setError(errText(err, "Failed to copy last week's schedule."));
     }
     setCopying(false);
   };
@@ -573,7 +574,7 @@ export default function StaffSchedulePage() {
         notify: Number(d.notify_count) || 0,
       });
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to publish schedule.");
+      setError(errText(err, "Failed to publish schedule."));
     }
     setPublishing(false);
   };
@@ -678,9 +679,7 @@ export default function StaffSchedulePage() {
       await fetchShifts();
     } catch (err) {
       setError(
-        err?.response?.data?.detail?.message ||
-          err?.response?.data?.detail ||
-          t("autopilotApplyFailed", "Couldn't apply the autopilot schedule.")
+        errText(err, t("autopilotApplyFailed", "Couldn't apply the autopilot schedule."))
       );
     } finally {
       setAutopilotApplying(false);
@@ -853,7 +852,7 @@ export default function StaffSchedulePage() {
       a.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err?.response?.data?.detail || (t("schedulePdfFailed") || "Couldn't export PDF."));
+      setError(errText(err, t("schedulePdfFailed") || "Couldn't export PDF."));
     } finally {
       setExporting(false);
     }
@@ -989,7 +988,7 @@ export default function StaffSchedulePage() {
       setShareRowCopied(member.id);
       setTimeout(() => setShareRowCopied(null), 2000);
     } catch (err) {
-      setError(err?.response?.data?.detail || "Failed to generate link");
+      setError(errText(err, "Failed to generate link"));
     }
   };
 
@@ -2326,7 +2325,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
       const fullUrl = `${origin}${res.data.portal_url}`;
       setLinkModal({ staffName: member.name, portalUrl: fullUrl, loading: false });
     } catch (err) {
-      setPanelError(err.response?.data?.detail || "Failed to generate link");
+      setPanelError(errText(err, "Failed to generate link"));
       setLinkModal(null);
     }
   };
@@ -2393,7 +2392,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
       setBaseRate("");
       onRefresh();
     } catch (err) {
-      setPanelError(err.response?.data?.detail || "Failed to add staff member.");
+      setPanelError(errText(err, "Failed to add staff member."));
     }
     setSaving(false);
   };
@@ -2428,7 +2427,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
       setSaving(false);
       return true; // signals the detail modal to close on success
     } catch (err) {
-      setPanelError(err.response?.data?.detail || "Failed to update staff member.");
+      setPanelError(errText(err, "Failed to update staff member."));
     }
     setSaving(false);
     return false;
@@ -2441,7 +2440,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
       await api.delete(`/staff/members/${id}`);
       onRefresh();
     } catch (err) {
-      setPanelError(err.response?.data?.detail || "Failed to deactivate staff member.");
+      setPanelError(errText(err, "Failed to deactivate staff member."));
     }
   };
 
@@ -3728,7 +3727,7 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
       await api.delete(`/staff/schedules/${existingShift.id}`);
       onSaved(); // closes the modal on success
     } catch (err) {
-      setModalError(err.response?.data?.detail || t("shiftDeleteFailed", "Failed to delete shift."));
+      setModalError(errText(err, t("shiftDeleteFailed", "Failed to delete shift.")));
       setDeleting(false);
     }
   };

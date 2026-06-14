@@ -11,6 +11,7 @@ import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, TabPills } from "../components/ui";
 import { localIso } from "../utils/dateFormat";
+import { errText } from "../utils/errText";
 
 /**
  * FakturaPage — list + create + send.
@@ -105,7 +106,7 @@ export default function FakturaPage() {
       setPendingCount(pending.data?.pending_count || 0);
       setUsage(usageRes.data);
     } catch (e) {
-      setError(e?.response?.data?.detail || "Failed to load");
+      setError(errText(e, "Failed to load"));
     } finally {
       setLoading(false);
     }
@@ -623,7 +624,7 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
       setVoidOpen(false);
       onChanged();
     } catch (e) {
-      setVoidError(e?.response?.data?.detail || (t("voidFailed") || "Couldn't create kreditnota — please try again."));
+      setVoidError(errText(e, t("voidFailed") || "Couldn't create kreditnota — please try again."));
     } finally {
       setVoidSubmitting(false);
     }

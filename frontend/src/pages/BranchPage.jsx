@@ -6,6 +6,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
+import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, SectionBanner, TabPills, Button } from "../components/ui";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
@@ -69,7 +70,7 @@ export default function BranchPage() {
       const detail = err?.response?.data?.detail;
       const status = err?.response?.status;
       if (status === 403 && detail) {
-        setCreateError(detail);
+        setCreateError(errText(err, t("branchCreateFailed") || "Could not create branch"));
       } else {
         setCreateError(t("branchCreateFailed") || "Could not create branch");
       }

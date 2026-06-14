@@ -6,6 +6,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
+import { errText } from "../utils/errText";
 import { FadeIn, TabContent, AnimatedList, AnimatedListItem, AnimatePresence } from "../components/AnimationKit";
 import { PageHeader, Button, TabPills, Icon } from "../components/ui";
 
@@ -534,7 +535,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
       onLogged();
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to log hours");
+      setError(errText(err, "Failed to log hours"));
     } finally {
       setSaving(false);
     }
@@ -652,7 +653,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
       onLogged();
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to log entry");
+      setError(errText(err, "Failed to log entry"));
     } finally {
       setSaving(false);
     }
@@ -781,7 +782,7 @@ function FromScheduleForm({ periodFrom, onLogged }) {
       setResult(res.data);
       onLogged();
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to confirm schedule");
+      setError(errText(err, "Failed to confirm schedule"));
     } finally {
       setConfirming(false);
     }

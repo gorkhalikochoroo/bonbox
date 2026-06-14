@@ -27,6 +27,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { Button, Card, Empty, UpgradeNudge, Icon } from "./ui";
 import { formatDateClearFull } from "../utils/dateFormat";
+import { errText } from "../utils/errText";
 
 const DAY_OPTIONS = Array.from({ length: 28 }, (_, i) => i + 1);
 
@@ -94,11 +95,7 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
         notes: notes.trim() || null,
       });
     } catch (err) {
-      setError(
-        err?.response?.data?.detail?.message ||
-        err?.response?.data?.detail ||
-        t("somethingWentWrong", "Something went wrong"),
-      );
+      setError(errText(err, t("somethingWentWrong", "Something went wrong")));
     } finally {
       setBusy(false);
     }
@@ -326,7 +323,7 @@ export default function RecurringExpensesPanel({ categories, currency }) {
       // any other error just clears the panel so the page still renders.
       setRules([]);
       if (err?.response?.status !== 402) {
-        setError(err?.response?.data?.detail || t("somethingWentWrong", "Something went wrong"));
+        setError(errText(err, t("somethingWentWrong", "Something went wrong")));
       }
     } finally {
       setLoading(false);
@@ -370,11 +367,7 @@ export default function RecurringExpensesPanel({ categories, currency }) {
       // tab picks up the new Expense row without a manual refresh.
       window.dispatchEvent(new CustomEvent("bonbox-data-changed"));
     } catch (err) {
-      setError(
-        err?.response?.data?.detail?.message ||
-        err?.response?.data?.detail ||
-        t("somethingWentWrong", "Something went wrong"),
-      );
+      setError(errText(err, t("somethingWentWrong", "Something went wrong")));
       setTimeout(() => setError(""), 4000);
     }
   };
@@ -385,11 +378,7 @@ export default function RecurringExpensesPanel({ categories, currency }) {
       await api.post(`/recurring-expenses/${rule.id}/${endpoint}`);
       fetchRules();
     } catch (err) {
-      setError(
-        err?.response?.data?.detail?.message ||
-        err?.response?.data?.detail ||
-        t("somethingWentWrong", "Something went wrong"),
-      );
+      setError(errText(err, t("somethingWentWrong", "Something went wrong")));
     }
   };
 
@@ -400,11 +389,7 @@ export default function RecurringExpensesPanel({ categories, currency }) {
       showSuccess(t("recurringDeleted", "Recurring expense archived"));
       fetchRules();
     } catch (err) {
-      setError(
-        err?.response?.data?.detail?.message ||
-        err?.response?.data?.detail ||
-        t("somethingWentWrong", "Something went wrong"),
-      );
+      setError(errText(err, t("somethingWentWrong", "Something went wrong")));
     }
   };
 

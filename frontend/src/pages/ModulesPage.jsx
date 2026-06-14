@@ -159,7 +159,7 @@ export default function ModulesPage() {
       setData(res.data);
       setPendingIds(null);
     } catch (err) {
-      setError(err?.response?.data?.detail || t("modulesLoadFailed") || "Could not load modules");
+      setError(errText(err, t("modulesLoadFailed") || "Could not load modules"));
     } finally {
       setLoading(false);
     }
@@ -203,7 +203,7 @@ export default function ModulesPage() {
       setTimeout(() => setSavedHint(""), 3000);
       await fetchModules();
     } catch (err) {
-      setError(err?.response?.data?.detail || t("modulesSaveFailed") || "Could not save");
+      setError(errText(err, t("modulesSaveFailed") || "Could not save"));
     } finally {
       setSaving(false);
     }

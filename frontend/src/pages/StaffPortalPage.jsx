@@ -8,6 +8,7 @@ import { useParams } from "react-router-dom";
 import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, Inbox, Thermometer, StickyNote } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
+import { errText } from "../utils/errText";
 
 
 // ─── Push subscription helpers (Staff v2, 2026-05-28) ───────────────────
@@ -246,7 +247,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
       setOpen(false);
       onCalledIn?.();
     } catch (err) {
-      setError(err.response?.data?.detail || "Couldn't send. Try again.");
+      setError(errText(err, "Couldn't send. Try again."));
     } finally {
       setSubmitting(false);
     }
@@ -383,7 +384,7 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed }) {
       onConfirmed?.();
       setTimeout(() => setFeedback(""), 4000);
     } catch (e) {
-      setError(e?.response?.data?.detail || "Couldn't confirm. Try again.");
+      setError(errText(e, "Couldn't confirm. Try again."));
     } finally {
       setSubmitting(false);
     }
@@ -1187,7 +1188,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
       });
       onProposed?.();
     } catch (err) {
-      setError(err.response?.data?.detail || "Couldn't propose. Try again.");
+      setError(errText(err, "Couldn't propose. Try again."));
     } finally {
       setSubmitting(false);
     }
@@ -1693,7 +1694,7 @@ function StaffPushOptIn({ token }) {
       const msg =
         err?.name === "NotAllowedError"
           ? t("staffPushDeniedError", "Push permission was blocked. Re-enable in Settings to receive notifications.")
-          : err?.response?.data?.detail || t("staffPushEnableFailed", "Couldn't enable push. Try again.");
+          : errText(err, t("staffPushEnableFailed", "Couldn't enable push. Try again."));
       setError(msg);
       if (typeof Notification !== "undefined") {
         setPermission(Notification.permission);
@@ -1722,7 +1723,7 @@ function StaffPushOptIn({ token }) {
       }
       setSubscribed(false);
     } catch (err) {
-      setError(err?.response?.data?.detail || t("staffPushDisableFailed", "Couldn't disable push."));
+      setError(errText(err, t("staffPushDisableFailed", "Couldn't disable push.")));
     } finally {
       setBusy(false);
     }
@@ -1960,7 +1961,7 @@ export default function StaffPortalPage() {
         try { localStorage.setItem("bonbox_portal_token", token); } catch { /* private mode */ }
       })
       .catch((err) => {
-        setError(err.response?.data?.detail || "Link not found");
+        setError(errText(err, "Link not found"));
         setLoading(false);
       });
   }, [token]);
@@ -2184,7 +2185,7 @@ export default function StaffPortalPage() {
       setTimeout(() => { setEmailMsg(""); setEmailStatus(null); setShowEmailEdit(false); }, 1500);
     } catch (err) {
       setEmailStatus("err");
-      setEmailMsg(err.response?.data?.detail || t("portalSaveFailed", "Couldn't save"));
+      setEmailMsg(errText(err, t("portalSaveFailed", "Couldn't save")));
     } finally {
       setEmailSaving(false);
     }

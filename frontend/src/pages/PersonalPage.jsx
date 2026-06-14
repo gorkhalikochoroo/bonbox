@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
+import { errText } from "../utils/errText";
 
 const PERSONAL_CATEGORIES = [
   "Salary", "Freelance", "Side Income", "Gift Received",
@@ -224,7 +225,7 @@ export default function PersonalPage() {
       fetchData();
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToAddEntry"));
+      setError(errText(err, t("failedToAddEntry")));
     }
   };
 

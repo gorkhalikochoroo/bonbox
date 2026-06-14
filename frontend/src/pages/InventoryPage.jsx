@@ -24,6 +24,7 @@ import InventoryConsumptionModal from "../components/InventoryConsumptionModal";
 import InventoryAutopilotPanel from "../components/InventoryAutopilotPanel";
 import SmartPricingModal from "../components/SmartPricingModal";
 import { localIso } from "../utils/dateFormat";
+import { errText } from "../utils/errText";
 import {
   Button, PageHeader, StatCard, SectionBanner, TabPills, Icon,
 } from "../components/ui";
@@ -203,7 +204,7 @@ export default function InventoryPage() {
       setSuccess(t("itemAdded"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToAddItem"));
+      setError(errText(err, t("failedToAddItem")));
     }
   };
 
@@ -239,7 +240,7 @@ export default function InventoryPage() {
       setSuccess(t("itemUpdated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToUpdate"));
+      setError(errText(err, t("failedToUpdate")));
     }
   };
 
@@ -254,7 +255,7 @@ export default function InventoryPage() {
       setSuccess(qty > 0 ? t("stockAdded") : t("stockRemoved"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToAdjustStock"));
+      setError(errText(err, t("failedToAdjustStock")));
     }
   };
 
@@ -266,7 +267,7 @@ export default function InventoryPage() {
       setSuccess(t("itemDeleted"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToDelete"));
+      setError(errText(err, t("failedToDelete")));
     }
   };
 
@@ -315,7 +316,7 @@ export default function InventoryPage() {
       fetchData();
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(err.response?.data?.detail || t("restockFailed"));
+      setError(errText(err, t("restockFailed")));
       setTimeout(() => setError(""), 3000);
     }
   };
@@ -335,7 +336,7 @@ export default function InventoryPage() {
       fetchData();
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(err.response?.data?.detail || t("pourFailed"));
+      setError(errText(err, t("pourFailed")));
       setTimeout(() => setError(""), 3000);
     }
   };
@@ -366,7 +367,7 @@ export default function InventoryPage() {
       setSuccess(count > 0 ? `${t("loaded")} ${count} ${t("itemsFromTemplate")}` : t("allItemsInInventory"));
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToLoadTemplate"));
+      setError(errText(err, t("failedToLoadTemplate")));
     } finally {
       setTemplateLoading(false);
     }
@@ -476,7 +477,7 @@ export default function InventoryPage() {
                     setTimeout(() => URL.revokeObjectURL(url), 60_000);
                   } catch (e) {
                     console.error("Export PDF failed", e);
-                    setError(e?.response?.data?.detail || "Couldn't generate PDF — please retry.");
+                    setError(errText(e, "Couldn't generate PDF — please retry."));
                   }
                 }}
                 iconLeft={<Icon name="FileText" size={16} />}
@@ -500,7 +501,7 @@ export default function InventoryPage() {
                     setTimeout(() => URL.revokeObjectURL(url), 60_000);
                   } catch (e) {
                     console.error("Export CSV failed", e);
-                    setError(e?.response?.data?.detail || "Couldn't generate CSV — please retry.");
+                    setError(errText(e, "Couldn't generate CSV — please retry."));
                   }
                 }}
                 iconLeft={<Icon name="FileSpreadsheet" size={16} />}

@@ -5,6 +5,7 @@ import { trackEvent } from "../hooks/useEventLog";
 import useFounderRateStatus from "../hooks/useFounderRateStatus";
 import api from "../services/api";
 import { safeExternalUrl } from "../utils/safeUrl";
+import { errText } from "../utils/errText";
 import { Button, Card } from "../components/ui";
 
 /**
@@ -369,7 +370,7 @@ export default function SubscriptionPage() {
         } else if (e?.response?.status === 429) {
           setMsg(t("tooManyRequests") || "Too many requests — please try again in a minute.");
         } else {
-          setMsg(e?.response?.data?.detail || t("checkoutStartFailed") || "Could not start checkout. Please try again.");
+          setMsg(errText(e, t("checkoutStartFailed") || "Could not start checkout. Please try again."));
         }
       } finally {
         setPending(null);
@@ -427,7 +428,7 @@ export default function SubscriptionPage() {
       }
       setMsg(t("billingPortalFailed") || "Could not open the billing portal. Please try again.");
     } catch (e) {
-      setMsg(e?.response?.data?.detail || t("billingPortalFailed") || "Could not open the billing portal. Please try again.");
+      setMsg(errText(e, t("billingPortalFailed") || "Could not open the billing portal. Please try again."));
     } finally {
       setPending(null);
     }

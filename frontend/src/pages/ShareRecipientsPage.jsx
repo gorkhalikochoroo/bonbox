@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
+import { errText } from "../utils/errText";
 
 /**
  * Share recipients settings — owners configure where their daily-close
@@ -62,7 +63,7 @@ export default function ShareRecipientsPage() {
       setChannels(Array.isArray(res.data) ? res.data : []);
       setError("");
     } catch (e) {
-      setError(e?.response?.data?.detail || t("recipientsLoadFailed") || "Could not load recipients");
+      setError(errText(e, t("recipientsLoadFailed") || "Could not load recipients"));
     } finally {
       setLoading(false);
     }
@@ -111,7 +112,7 @@ export default function ShareRecipientsPage() {
       await fetchChannels();
       cancel();
     } catch (e) {
-      setError(e?.response?.data?.detail || t("recipientSaveFailed") || "Could not save");
+      setError(errText(e, t("recipientSaveFailed") || "Could not save"));
     } finally {
       setSaving(false);
     }
@@ -125,7 +126,7 @@ export default function ShareRecipientsPage() {
       await api.delete(`/output-channels/${c.id}`);
       await fetchChannels();
     } catch (e) {
-      setError(e?.response?.data?.detail || t("recipientDeleteFailed") || "Could not delete");
+      setError(errText(e, t("recipientDeleteFailed") || "Could not delete"));
     }
   }
 

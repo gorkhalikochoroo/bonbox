@@ -5,6 +5,7 @@ import { displayCurrency } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
+import { errText } from "../utils/errText";
 
 export default function LoanTrackerPage() {
   const { user } = useAuth();
@@ -55,7 +56,7 @@ export default function LoanTrackerPage() {
       setEditPerson(null);
       fetchPersons();
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToSave"));
+      setError(errText(err, t("failedToSave")));
     }
   };
 
@@ -88,7 +89,7 @@ export default function LoanTrackerPage() {
       fetchTxns(selected.id);
       fetchPersons();
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToSave"));
+      setError(errText(err, t("failedToSave")));
     }
   };
 

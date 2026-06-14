@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { errText } from "../utils/errText";
 
 /**
  * Payment-match review inbox.
@@ -44,7 +45,7 @@ export default function FakturaReviewPage() {
       });
       setSuggestions(res.data || []);
     } catch (e) {
-      setError(e?.response?.data?.detail || "Could not load suggestions");
+      setError(errText(e, "Could not load suggestions"));
     } finally {
       setLoading(false);
     }

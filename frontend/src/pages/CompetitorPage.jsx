@@ -6,6 +6,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
+import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, StatCard, SectionBanner, TabPills, Button } from "../components/ui";
 
@@ -308,7 +309,7 @@ export default function CompetitorPage({ embedded = false }) {
       // Use a non-blocking toast-style message via window.alert for now
       alert(`✓ ${inserted} price check${inserted === 1 ? "" : "s"} added.`);
     } catch (e) {
-      setScanError(e.response?.data?.detail || "Couldn't import. Try again.");
+      setScanError(errText(e, "Couldn't import. Try again."));
     }
     setBulkSaving(false);
   };

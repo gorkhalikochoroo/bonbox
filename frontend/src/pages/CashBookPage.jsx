@@ -12,6 +12,7 @@ import { displayCurrency } from "../utils/currency";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard } from "../components/ui";
+import { errText } from "../utils/errText";
 
 const IN_CATEGORIES = ["Sales", "Tips", "Loan", "Other"];
 const OUT_CATEGORIES = ["Purchase", "Wages", "Supplies", "Rent", "Other"];
@@ -69,7 +70,7 @@ export default function CashBookPage() {
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToAddTransaction"));
+      setError(errText(err, t("failedToAddTransaction")));
     }
   };
 
@@ -94,7 +95,7 @@ export default function CashBookPage() {
       setSuccess(t("updated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToUpdate"));
+      setError(errText(err, t("failedToUpdate")));
     }
   };
 
@@ -106,7 +107,7 @@ export default function CashBookPage() {
       setSuccess(t("movedToDeleted"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToDelete"));
+      setError(errText(err, t("failedToDelete")));
     }
   };
 

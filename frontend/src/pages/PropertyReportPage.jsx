@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
 import { localIso } from "../utils/dateFormat";
+import { errText } from "../utils/errText";
 
 /**
  * Property Financial Report — the daily close every Danish chain restaurant
@@ -44,7 +45,7 @@ export default function PropertyReportPage() {
         if (r.data?._error) setError(r.data._error);
       })
       .catch((e) => {
-        setError(e.response?.data?.detail || "Could not load report");
+        setError(errText(e, "Could not load report"));
       })
       .finally(() => setLoading(false));
   }, [reportDate, cutoffHour]);

@@ -4,6 +4,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
+import { errText } from "../utils/errText";
 
 const STATUS_FLOW = ["received", "diagnosing", "waiting_parts", "in_progress", "completed", "delivered", "invoiced"];
 const STATUS_LABELS = {
@@ -80,7 +81,7 @@ export function NewJobPage() {
       });
       nav(`/workshop/job/${res.data.id}`);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to create job");
+      setError(errText(err, "Failed to create job"));
     } finally {
       setSaving(false);
     }
@@ -247,7 +248,7 @@ export default function JobCardPage() {
       await api.patch(`/workshop/jobs/${id}/status`, { status: newStatus });
       fetchJob();
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to update");
+      setError(errText(err, "Failed to update"));
     }
   };
 
@@ -260,7 +261,7 @@ export default function JobCardPage() {
       });
       setPartName(""); setPartQty("1"); setPartCost(""); setPartFromStock(false);
       fetchJob();
-    } catch (err) { setError(err.response?.data?.detail || "Failed"); }
+    } catch (err) { setError(errText(err, "Failed")); }
   };
 
   const addLabor = async () => {
@@ -272,7 +273,7 @@ export default function JobCardPage() {
       });
       setLaborDesc(""); setLaborMechanic(""); setLaborHours(""); setLaborRate("");
       fetchJob();
-    } catch (err) { setError(err.response?.data?.detail || "Failed"); }
+    } catch (err) { setError(errText(err, "Failed")); }
   };
 
   if (loading) return <div className="p-8 text-center text-gray-400">Loading...</div>;

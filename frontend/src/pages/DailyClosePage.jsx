@@ -10,6 +10,7 @@ import { trackEvent } from "../hooks/useEventLog";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { safeImageUrl } from "../utils/safeUrl";
+import { errText } from "../utils/errText";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 import {
@@ -780,7 +781,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       }
       setScanMode("result");
     } catch (err) {
-      setScanError(err.response?.data?.detail || "OCR scanning failed. Please enter values manually.");
+      setScanError(errText(err, "OCR scanning failed. Please enter values manually."));
       setScanMode(scanResult ? "result" : "idle"); // keep results if we already have some
     }
   };
@@ -902,9 +903,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       // fine here; this is not a hot path.
       setTerminalsForConfirm(null);
     } catch (err) {
-      setChipError(err?.response?.data?.detail ||
+      setChipError(errText(err,
         t("detectedTerminalConfirmError",
-          "Could not save the link. Please try again."));
+          "Could not save the link. Please try again.")));
     } finally {
       setChipConfirming(false);
     }
@@ -953,9 +954,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       setUnlinkOpenForTerminalId(null);
       setTerminalsForConfirm(null);
     } catch (err) {
-      setChipError(err?.response?.data?.detail ||
+      setChipError(errText(err,
         t("detectedTerminalUnlinkError",
-          "Could not unlink. Please try again."));
+          "Could not unlink. Please try again.")));
     } finally {
       setUnlinking(false);
     }

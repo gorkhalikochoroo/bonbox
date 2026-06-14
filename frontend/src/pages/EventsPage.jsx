@@ -43,6 +43,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { formatMoney } from "../utils/currency";
 import EventCashupModal from "../components/EventCashupModal";
+import { errText } from "../utils/errText";
 import DataTable from "../components/ui/DataTable";
 import TabPills from "../components/ui/TabPills";
 import Empty from "../components/ui/Empty";
@@ -170,7 +171,7 @@ export default function EventsPage() {
       const res = await api.get("/events", { params: { sort: "date_desc" } });
       setEvents(Array.isArray(res.data) ? res.data : []);
     } catch (e) {
-      setError(e?.response?.data?.detail || t("eventsLoadFailed", "Failed to load events"));
+      setError(errText(e, t("eventsLoadFailed", "Failed to load events")));
     } finally {
       setLoading(false);
     }
@@ -275,8 +276,7 @@ export default function EventsPage() {
       setFormCoverUrl(res.data?.url || "");
     } catch (e) {
       setError(
-        e?.response?.data?.detail ||
-          t("eventCoverUploadFailed", "Couldn't upload cover image"),
+        errText(e, t("eventCoverUploadFailed", "Couldn't upload cover image")),
       );
     } finally {
       setCoverUploading(false);
@@ -535,8 +535,7 @@ export default function EventsPage() {
             );
           } else {
             setError(
-              pubErr?.response?.data?.detail ||
-                t("eventPublishFailed", "Couldn't publish event"),
+              errText(pubErr, t("eventPublishFailed", "Couldn't publish event")),
             );
           }
           // We still keep the event row — `finalEvent` stays unpublished.
@@ -554,7 +553,7 @@ export default function EventsPage() {
         return;
       }
     } catch (e) {
-      setError(e?.response?.data?.detail || t("eventsCreateFailed", "Failed to create event"));
+      setError(errText(e, t("eventsCreateFailed", "Failed to create event")));
     } finally {
       setCreating(false);
     }
@@ -567,7 +566,7 @@ export default function EventsPage() {
       setEvents((prev) => prev.filter((e) => e.id !== id));
       if (selectedId === id) setSelectedId(null);
     } catch (e) {
-      setError(e?.response?.data?.detail || t("eventsDeleteFailed", "Failed to delete event"));
+      setError(errText(e, t("eventsDeleteFailed", "Failed to delete event")));
     }
   };
 
@@ -601,8 +600,7 @@ export default function EventsPage() {
         );
       } else {
         setError(
-          e?.response?.data?.detail ||
-            t("eventPublishFailed", "Couldn't publish event"),
+          errText(e, t("eventPublishFailed", "Couldn't publish event")),
         );
       }
     }
@@ -618,8 +616,7 @@ export default function EventsPage() {
       );
     } catch (e) {
       setError(
-        e?.response?.data?.detail ||
-          t("eventUnpublishFailed", "Couldn't unpublish event"),
+        errText(e, t("eventUnpublishFailed", "Couldn't unpublish event")),
       );
     }
   };
@@ -675,8 +672,7 @@ export default function EventsPage() {
       setBookings(list);
     } catch (e) {
       setBookingsErr(
-        e?.response?.data?.detail ||
-          t("bookingsLoadFailed", "Couldn't load bookings."),
+        errText(e, t("bookingsLoadFailed", "Couldn't load bookings.")),
       );
       setBookings([]);
     } finally {
@@ -704,8 +700,7 @@ export default function EventsPage() {
       await fetchBookings(selectedId);
     } catch (e) {
       setBookingsErr(
-        e?.response?.data?.detail ||
-          t("bookingActionFailed", "Action failed. Please try again."),
+        errText(e, t("bookingActionFailed", "Action failed. Please try again.")),
       );
       // Roll back the optimistic flip.
       setBookings((prev) =>
@@ -737,8 +732,7 @@ export default function EventsPage() {
       await fetchBookings(selectedId);
     } catch (e) {
       setBookingsErr(
-        e?.response?.data?.detail ||
-          t("bookingActionFailed", "Action failed. Please try again."),
+        errText(e, t("bookingActionFailed", "Action failed. Please try again.")),
       );
     } finally {
       setBookingActioningId(null);
@@ -777,8 +771,7 @@ export default function EventsPage() {
       await fetchBookings(selectedId);
     } catch (e) {
       setBookingsErr(
-        e?.response?.data?.detail ||
-          t("bookingActionFailed", "Action failed. Please try again."),
+        errText(e, t("bookingActionFailed", "Action failed. Please try again.")),
       );
       // Refetch to recover from any partial state.
       await fetchBookings(selectedId);

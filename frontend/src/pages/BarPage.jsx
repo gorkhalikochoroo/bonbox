@@ -11,6 +11,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import { localIso } from "../utils/dateFormat";
+import { errText } from "../utils/errText";
 import {
   Button, PageHeader, SectionBanner, Empty, Icon,
 } from "../components/ui";
@@ -82,7 +83,7 @@ export default function BarPage() {
       setItems(list.filter((i) => i.pour_size && i.pour_size > 0));
       setError("");
     } catch (e) {
-      setError(e?.response?.data?.detail || t("barLoadFailed") || "Could not load bar items");
+      setError(errText(e, t("barLoadFailed") || "Could not load bar items"));
     } finally {
       setLoading(false);
     }
@@ -103,7 +104,7 @@ export default function BarPage() {
       fetchItems();
       setTimeout(() => setSuccess(""), 3000);
     } catch (e) {
-      setError(e?.response?.data?.detail || t("pourFailed") || "Pour failed");
+      setError(errText(e, t("pourFailed") || "Pour failed"));
       setTimeout(() => setError(""), 3000);
     }
   }
@@ -124,7 +125,7 @@ export default function BarPage() {
       fetchItems();
       setTimeout(() => setSuccess(""), 3000);
     } catch (e) {
-      setError(e?.response?.data?.detail || t("restockFailed") || "Restock failed");
+      setError(errText(e, t("restockFailed") || "Restock failed"));
       setTimeout(() => setError(""), 3000);
     }
   }

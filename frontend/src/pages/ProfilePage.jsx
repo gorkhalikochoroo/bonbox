@@ -37,6 +37,7 @@
  */
 import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
+import { errText } from "../utils/errText";
 import { useTheme, THEMES } from "../hooks/useTheme";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
@@ -97,8 +98,7 @@ export default function ProfilePage() {
       window.location.href = "/onboarding";
     } catch (err) {
       setReRunOnbError(
-        err?.response?.data?.detail ||
-          (t("onbReRunFailed") || "Couldn't reset onboarding. Try again."),
+        errText(err, t("onbReRunFailed") || "Couldn't reset onboarding. Try again."),
       );
       setReRunOnbBusy(false);
     }
@@ -423,7 +423,7 @@ export default function ProfilePage() {
       setBrandMsg(t("logoUploaded") || "Logo uploaded");
       setTimeout(() => setBrandMsg(""), 3000);
     } catch (err) {
-      const detail = err?.response?.data?.detail || "Upload failed";
+      const detail = errText(err, "Upload failed");
       setBrandMsg(detail);
       setTimeout(() => setBrandMsg(""), 5000);
     } finally {
@@ -453,7 +453,7 @@ export default function ProfilePage() {
       setBrandMsg(t("brandSaved") || "Brand settings saved");
       setTimeout(() => setBrandMsg(""), 3000);
     } catch (err) {
-      const detail = err?.response?.data?.detail || "Could not save";
+      const detail = errText(err, "Could not save");
       setBrandMsg(detail);
       setTimeout(() => setBrandMsg(""), 5000);
     } finally {
@@ -527,7 +527,7 @@ export default function ProfilePage() {
       setWaMsg(res.data.code ? "" : t("codeSentCheckWhatsapp"));
       setWaStatus({ linked: true, phone: waPhone, verified: false });
     } catch (err) {
-      setWaMsg(err.response?.data?.detail || t("failedToLink"));
+      setWaMsg(errText(err, t("failedToLink")));
     }
     setWaLinking(false);
   };
@@ -558,7 +558,7 @@ export default function ProfilePage() {
       setSuccess(t("profileUpdated"));
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToUpdateProfile"));
+      setError(errText(err, t("failedToUpdateProfile")));
     }
     setSaving(false);
   };
@@ -585,7 +585,7 @@ export default function ProfilePage() {
       setPasswords({ current_password: "", new_password: "", confirm_password: "" });
       setTimeout(() => setPwSuccess(""), 3000);
     } catch (err) {
-      setPwError(err.response?.data?.detail || t("failedToChangePassword"));
+      setPwError(errText(err, t("failedToChangePassword")));
     }
     setChangingPw(false);
   };
@@ -1649,7 +1649,7 @@ export default function ProfilePage() {
                             localStorage.clear();
                             window.location.href = "/login";
                           } catch (err) {
-                            setDeleteError(err.response?.data?.detail || t("deleteFailed") || "Failed to delete account");
+                            setDeleteError(errText(err, t("deleteFailed") || "Failed to delete account"));
                           }
                           setDeleting(false);
                         }}

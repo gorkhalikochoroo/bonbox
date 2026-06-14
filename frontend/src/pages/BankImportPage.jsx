@@ -9,6 +9,7 @@ import { isNativeApp } from "../utils/platform";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import { Button, Card, Icon, UpgradeNudge } from "../components/ui";
 import { useToast } from "../components/BonBoxPolishKit";
+import { errText } from "../utils/errText";
 
 // Bank picker labels are proper nouns per Manoj's DK terminology lock — they
 // stay literal across locales. The legacy `icon` emoji is dropped; all bank
@@ -121,12 +122,7 @@ export default function BankImportPage() {
       // connect/callback which redirects to /connections?bank_connected=1.
       window.location.assign(consentUrl);
     } catch (err) {
-      setError(
-        err?.response?.data?.detail?.message ||
-          err?.response?.data?.detail ||
-          err?.message ||
-          t("bankConnectError"),
-      );
+      setError(errText(err, t("bankConnectError")));
       setAiiaLoading(false);
     }
   };
@@ -213,7 +209,7 @@ export default function BankImportPage() {
       setCategories(cats);
       setStep("preview");
     } catch (err) {
-      setError(err.response?.data?.detail || t("bankParseFailed"));
+      setError(errText(err, t("bankParseFailed")));
     }
     setLoading(false);
   };
@@ -251,7 +247,7 @@ export default function BankImportPage() {
       setResult(res.data);
       setStep("done");
     } catch (err) {
-      setError(err.response?.data?.detail || t("bankImportFailed"));
+      setError(errText(err, t("bankImportFailed")));
     }
     setLoading(false);
   };
@@ -280,14 +276,14 @@ export default function BankImportPage() {
       setSkipped(new Set());
       setStep("reconcile");
     } catch (err) {
-      const detail = err.response?.data?.detail;
+      const detail = errText(err, t("bankReconCouldNotLoad"));
       if (err.response?.status === 402) {
         // Defensive — should be caught by canAutoReconcile, but
         // if entitlements cache is stale, the server tells us the truth.
         // App Store compliance (Apple 3.1.1): neutral copy on native (no tier).
         setError(isNativeApp() ? t("bankReconStarterRequiredNative") : t("bankReconStarterRequired"));
       } else {
-        setError(detail?.message || detail || t("bankReconCouldNotLoad"));
+        setError(detail);
       }
     }
     setLoading(false);
@@ -368,7 +364,7 @@ export default function BankImportPage() {
       // Refresh suggestions — confirmed rows drop out of the list.
       await loadSuggestions(importId);
     } catch (err) {
-      setError(err.response?.data?.detail?.message || err.response?.data?.detail || t("bankReconConfirmFailed"));
+      setError(errText(err, t("bankReconConfirmFailed")));
     }
     setLoading(false);
   };

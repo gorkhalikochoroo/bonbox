@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
+import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
 import { FadeIn } from "../components/AnimationKit";
 
@@ -55,7 +56,7 @@ export default function TerminalsPage() {
       setTerminals(Array.isArray(res.data) ? res.data : []);
       setError("");
     } catch (err) {
-      setError(err?.response?.data?.detail || t("terminalsLoadFailed") || "Could not load terminals");
+      setError(errText(err, t("terminalsLoadFailed") || "Could not load terminals"));
     } finally {
       setLoading(false);
     }
@@ -149,7 +150,7 @@ export default function TerminalsPage() {
       await api.delete(`/terminals/${term.id}`);
       await fetchTerminals();
     } catch (err) {
-      setError(err?.response?.data?.detail || t("terminalDeleteFailed") || "Could not delete");
+      setError(errText(err, t("terminalDeleteFailed") || "Could not delete"));
     }
   }
 

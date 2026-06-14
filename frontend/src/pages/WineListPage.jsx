@@ -5,6 +5,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import { localIso } from "../utils/dateFormat";
+import { errText } from "../utils/errText";
 
 // Use labelKey here so we can translate at render time — module scope
 // has no access to the useLanguage hook.
@@ -975,7 +976,7 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
       });
       onDone();
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to save");
+      setError(errText(err, "Failed to save"));
     }
     setSaving(false);
   };

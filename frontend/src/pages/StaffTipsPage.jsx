@@ -9,6 +9,7 @@ import { displayCurrency } from "../utils/currency";
 import { formatDate, localIso, localDaysAgo } from "../utils/dateFormat";
 import { FadeIn, AnimatedCard, StaggerContainer, StaggerItem } from "../components/AnimationKit";
 import { PageHeader, TabPills, Icon } from "../components/ui";
+import { errText } from "../utils/errText";
 
 /* ═══════════════════════════════════════════════════════════
    SPLIT METHOD DEFINITIONS
@@ -311,7 +312,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
         onDone();
       }, 1500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to save tip distribution.");
+      setError(errText(err, "Failed to save tip distribution."));
     } finally {
       setSaving(false);
     }

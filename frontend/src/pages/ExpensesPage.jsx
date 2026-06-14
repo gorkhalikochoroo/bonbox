@@ -51,6 +51,7 @@ import ReceiptViewer from "../components/ReceiptViewer";
 import DismissibleTip from "../components/DismissibleTip";
 import InboxBanner from "../components/InboxBanner";
 import { safeImageUrl } from "../utils/safeUrl";
+import { errText } from "../utils/errText";
 import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
 import { PageHeader, TabPills, Button, Empty } from "../components/ui";
 import EntryCard from "../components/ui/EntryCard";
@@ -351,13 +352,13 @@ export default function ExpensesPage() {
     if (to) params.to = to;
     api.get("/expenses", { params })
       .then((res) => setExpenses(res.data))
-      .catch((err) => setError(err.response?.data?.detail || t("failedToLoadExpenses")));
+      .catch((err) => setError(errText(err, t("failedToLoadExpenses"))));
     api.get("/expenses/categories")
       .then((res) => {
         setCategories(res.data);
         if (res.data.length === 0) setShowSetup(true);
       })
-      .catch((err) => setError(err.response?.data?.detail || t("failedToLoadCategories")));
+      .catch((err) => setError(errText(err, t("failedToLoadCategories"))));
   };
 
   // Mount fetch gated on user?.id so we don't fire a GET before auth has
@@ -463,7 +464,7 @@ export default function ExpensesPage() {
       setShowSetup(false);
       fetchData();
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToSetupCategories"));
+      setError(errText(err, t("failedToSetupCategories")));
     }
   };
 
@@ -598,7 +599,7 @@ export default function ExpensesPage() {
       window.dispatchEvent(new Event("bonbox-data-changed"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToAddExpense"));
+      setError(errText(err, t("failedToAddExpense")));
     }
   };
 
@@ -627,7 +628,7 @@ export default function ExpensesPage() {
       setSuccess(t("expenseUpdated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToUpdateExpense"));
+      setError(errText(err, t("failedToUpdateExpense")));
     }
   };
 
@@ -639,7 +640,7 @@ export default function ExpensesPage() {
       setSuccess(t("movedToRecentlyDeleted"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToDeleteExpense"));
+      setError(errText(err, t("failedToDeleteExpense")));
     }
   };
 

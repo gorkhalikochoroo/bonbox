@@ -20,6 +20,7 @@
  */
 import { useEffect, useState } from "react";
 import api from "../services/api";
+import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
 import { Button, Card, Icon } from "./ui";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
@@ -121,9 +122,8 @@ export default function RevisorSection() {
         );
       } else {
         setRevisorError(
-          (detail?.message || detail) ||
-            t("revisorInviteFailed") ||
-            "Could not send the invite. Try again.",
+          errText(err, t("revisorInviteFailed") ||
+            "Could not send the invite. Try again."),
         );
       }
     } finally {

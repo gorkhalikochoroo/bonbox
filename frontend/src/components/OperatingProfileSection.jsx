@@ -26,6 +26,7 @@
 import { useEffect, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { errText } from "../utils/errText";
 
 
 const DAY_KEYS = [
@@ -144,7 +145,7 @@ export default function OperatingProfileSection() {
       setSavedToast(t("operatingProfileSaved") || "Saved");
       setTimeout(() => setSavedToast(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || (t("operatingProfileSaveError") || "Couldn't save. Try again."));
+      setError(errText(err, t("operatingProfileSaveError") || "Couldn't save. Try again."));
     } finally {
       setSaving(false);
     }

@@ -47,6 +47,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { isNativeApp } from "../utils/platform";
+import { errText } from "../utils/errText";
 
 const DISMISS_KEY = "bonbox_inbox_banner_dismissed_v1";
 const EXPANDED_KEY = "bonbox_inbox_banner_expanded_v1";
@@ -226,10 +227,10 @@ export default function InboxBanner({
         });
       }
     } catch (err) {
-      const detail = err?.response?.data?.detail || err?.response?.data?.reason;
+      const detail = errText(err, t("inboxTestFailedGeneric", "Couldn't send a test receipt."));
       setToast({
         kind: "error",
-        msg: detail || t("inboxTestFailedGeneric", "Couldn't send a test receipt."),
+        msg: detail,
       });
     } finally {
       setTesting(false);

@@ -26,6 +26,7 @@
 import { useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { errText } from "../utils/errText";
 
 
 const KIND_OPTIONS = [
@@ -83,7 +84,7 @@ export default function SupportChip() {
       setSentToast(true);
       setTimeout(() => setSentToast(false), 4000);
     } catch (err) {
-      setError(err?.response?.data?.detail || (t("supportSendFailed") || "Couldn't send. Try again."));
+      setError(errText(err, t("supportSendFailed") || "Couldn't send. Try again."));
     } finally {
       setSending(false);
     }

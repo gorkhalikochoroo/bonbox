@@ -5,6 +5,7 @@ import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
 import { localIso } from "../utils/dateFormat";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
+import { errText } from "../utils/errText";
 
 /**
  * MileagePage — kørselsgodtgørelse log.
@@ -51,7 +52,7 @@ export default function MileagePage() {
       setEntries(list.data);
       setSummary(sum.data);
     } catch (e) {
-      setError(e?.response?.data?.detail || "Failed to load");
+      setError(errText(e, "Failed to load"));
     } finally {
       setLoading(false);
     }
@@ -317,7 +318,7 @@ function MileageFormModal({ entryId, entries, onClose, onSaved, t }) {
       }
       onSaved();
     } catch (err) {
-      setError(err?.response?.data?.detail || "Save failed");
+      setError(errText(err, "Save failed"));
     } finally {
       setSaving(false);
     }

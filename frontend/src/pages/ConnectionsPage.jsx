@@ -31,6 +31,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useFeatures } from "../hooks/useFeatures";
 import { isNativeApp } from "../utils/platform";
+import { errText } from "../utils/errText";
 // Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
@@ -346,9 +347,8 @@ export default function ConnectionsPage() {
       .catch((err) => {
         setToast({
           kind: "error",
-          msg: err?.response?.data?.detail ||
-               t("mpCallbackError") ||
-               "Could not finish MobilePay connection",
+          msg: errText(err, t("mpCallbackError") ||
+               "Could not finish MobilePay connection"),
         });
       })
       .finally(() => setMpBusy(false));
@@ -374,8 +374,7 @@ export default function ConnectionsPage() {
     } catch (err) {
       setToast({
         kind: "error",
-        msg: err?.response?.data?.detail?.message ||
-             err?.response?.data?.detail || "Sync failed",
+        msg: errText(err, "Sync failed"),
       });
     }
     setBusyConn(null);
@@ -391,7 +390,7 @@ export default function ConnectionsPage() {
     } catch (err) {
       setToast({
         kind: "error",
-        msg: err?.response?.data?.detail || "Could not disconnect",
+        msg: errText(err, "Could not disconnect"),
       });
     }
     setBusyConn(null);
@@ -429,9 +428,8 @@ export default function ConnectionsPage() {
       } else {
         setToast({
           kind: "error",
-          msg: err?.response?.data?.detail ||
-               t("mpInitError") ||
-               "Could not start MobilePay connection",
+          msg: errText(err, t("mpInitError") ||
+               "Could not start MobilePay connection"),
         });
       }
     } finally {
@@ -452,8 +450,7 @@ export default function ConnectionsPage() {
     } catch (err) {
       setToast({
         kind: "error",
-        msg: err?.response?.data?.detail ||
-             t("mpSyncError") || "Could not sync MobilePay",
+        msg: errText(err, t("mpSyncError") || "Could not sync MobilePay"),
       });
     } finally {
       setMpBusy(false);
@@ -529,8 +526,7 @@ export default function ConnectionsPage() {
     } catch (err) {
       setToast({
         kind: "error",
-        msg: err?.response?.data?.detail ||
-             t("connTerminalsSaveError") || "Could not save. Try again.",
+        msg: errText(err, t("connTerminalsSaveError") || "Could not save. Try again."),
       });
     } finally {
       setBusyTerminalId(null);
@@ -549,8 +545,7 @@ export default function ConnectionsPage() {
     } catch (err) {
       setToast({
         kind: "error",
-        msg: err?.response?.data?.detail ||
-             t("connTerminalsUnlinkError") || "Could not unlink. Try again.",
+        msg: errText(err, t("connTerminalsUnlinkError") || "Could not unlink. Try again."),
       });
     } finally {
       setBusyTerminalId(null);
@@ -573,8 +568,7 @@ export default function ConnectionsPage() {
     } catch (err) {
       setToast({
         kind: "error",
-        msg: err?.response?.data?.detail ||
-             t("mpDisconnectError") || "Could not disconnect MobilePay",
+        msg: errText(err, t("mpDisconnectError") || "Could not disconnect MobilePay"),
       });
     } finally {
       setMpBusy(false);
@@ -638,7 +632,7 @@ export default function ConnectionsPage() {
         });
       }
     } catch (err) {
-      const detail = err?.response?.data?.detail || err?.response?.data?.reason;
+      const detail = errText(err, t("inboxTestFailedGeneric", "Couldn't send a test receipt."));
       setToast({
         kind: "error",
         msg: detail || t("inboxTestFailedGeneric", "Couldn't send a test receipt."),

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { formatDate, formatDateShort } from "../utils/dateFormat";
+import { errText } from "../utils/errText";
 
 const CATEGORIES = ["bugReport", "featureRequest", "generalFeedback", "complaint", "praise"];
 
@@ -37,7 +38,7 @@ export default function FeedbackPage() {
       fetchFeedback();
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(err.response?.data?.detail || "Something went wrong");
+      setError(errText(err, "Something went wrong"));
       setTimeout(() => setError(""), 4000);
     }
   };

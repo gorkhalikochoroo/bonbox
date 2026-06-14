@@ -59,6 +59,7 @@ import {
   X,
 } from "lucide-react";
 import api from "../services/api";
+import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
 import { safeExternalUrl } from "../utils/safeUrl";
 import PageShell from "../components/ui/PageShell";
@@ -158,7 +159,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
       });
       onDone(res.data);
     } catch (err) {
-      setError(err.response?.data?.detail || t("connectionFailedDoubleCheck") || "Connection failed. Double-check your keys and try again.");
+      setError(errText(err, t("connectionFailedDoubleCheck") || "Connection failed. Double-check your keys and try again."));
       setStep(1);
     }
     setSaving(false);
@@ -871,7 +872,7 @@ export default function PaymentImportsPage() {
       setSyncResults((prev) => ({ ...prev, [conn.id]: res.data }));
       onSelected(res.data.transactions);
     } catch (err) {
-      setSyncResults((prev) => ({ ...prev, [conn.id]: { error: err.response?.data?.detail || "Sync failed" } }));
+      setSyncResults((prev) => ({ ...prev, [conn.id]: { error: errText(err, "Sync failed") } }));
     }
     setSyncing(null);
   };

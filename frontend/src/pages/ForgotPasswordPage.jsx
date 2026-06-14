@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { errText } from "../utils/errText";
 
 const inputCls = "w-full pl-11 pr-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent text-base text-gray-800 dark:text-gray-200 placeholder:text-gray-400 transition";
 
@@ -24,7 +25,7 @@ export default function ForgotPasswordPage() {
       await api.post("/auth/forgot-password", { email });
       setStep(2);
     } catch (err) {
-      setError(err.response?.data?.detail || t("somethingWentWrong"));
+      setError(errText(err, t("somethingWentWrong")));
     } finally {
       setLoading(false);
     }
@@ -51,7 +52,7 @@ export default function ForgotPasswordPage() {
       setSuccess(res.data.message);
       setStep(3);
     } catch (err) {
-      setError(err.response?.data?.detail || t("invalidCodeErr"));
+      setError(errText(err, t("invalidCodeErr")));
     } finally {
       setLoading(false);
     }

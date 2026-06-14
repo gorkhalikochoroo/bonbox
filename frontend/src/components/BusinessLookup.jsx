@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { AlertTriangle } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { errText } from "../utils/errText";
 
 /**
  * BusinessLookup — multilayer auto-detect form for the user's
@@ -290,7 +291,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
         setResults([]);
         const msg = err.response?.data?.detail || "";
         if (msg) {
-          setLookupError(msg);
+          setLookupError(errText(err, ""));
           if (msg.includes("limit") || msg.includes("manually")) {
             setManual(true);
           }

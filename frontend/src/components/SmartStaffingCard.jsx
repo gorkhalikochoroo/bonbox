@@ -35,6 +35,7 @@
  */
 import { useEffect, useState } from "react";
 import api from "../services/api";
+import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
 import { useSmartTelemetry } from "../hooks/useSmartTelemetry";
 import { useUndoToast } from "../hooks/useUndoToast";
@@ -160,7 +161,7 @@ export default function SmartStaffingCard({ onEditClick }) {
         onUndo,
       });
     } catch (err) {
-      setError(err.response?.data?.detail || (t("smartStaffingSaveError") || "Couldn't save."));
+      setError(errText(err, t("smartStaffingSaveError") || "Couldn't save."));
     } finally {
       setSaving(false);
     }

@@ -9,6 +9,7 @@ import { Icon } from "../components/ui";
 // so the people-with-access surfaces all live in one place.
 import RevisorSection from "../components/RevisorSection";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
+import { errText } from "../utils/errText";
 
 const ROLE_COLORS = {
   owner: "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400",
@@ -116,7 +117,7 @@ export default function TeamPage() {
       setInviteResult(res.data);
       await reloadAll();
     } catch (err) {
-      setError(err.response?.data?.detail || t("teamInviteFailed"));
+      setError(errText(err, t("teamInviteFailed")));
     }
     setInviting(false);
   };
@@ -128,7 +129,7 @@ export default function TeamPage() {
       setInviteResult(res.data);
       await reloadAll();
     } catch (err) {
-      setError(err.response?.data?.detail || t("teamResendFailed"));
+      setError(errText(err, t("teamResendFailed")));
     }
   };
 
@@ -143,7 +144,7 @@ export default function TeamPage() {
           await api.post(`/team/${memberId}/revoke-invite`);
           await reloadAll();
         } catch (err) {
-          setError(err.response?.data?.detail || t("teamRevokeFailed"));
+          setError(errText(err, t("teamRevokeFailed")));
         }
       },
     });
@@ -154,7 +155,7 @@ export default function TeamPage() {
       await api.patch(`/team/${memberId}/role`, { role: newRole });
       setMembers((prev) => prev.map((m) => (m.id === memberId ? { ...m, role: newRole } : m)));
     } catch (err) {
-      setError(err.response?.data?.detail || t("teamUpdateRoleFailed"));
+      setError(errText(err, t("teamUpdateRoleFailed")));
     }
   };
 
@@ -169,7 +170,7 @@ export default function TeamPage() {
           await api.delete(`/team/${memberId}`);
           setMembers((prev) => prev.filter((m) => m.id !== memberId));
         } catch (err) {
-          setError(err.response?.data?.detail || t("teamRemoveFailed"));
+          setError(errText(err, t("teamRemoveFailed")));
         }
       },
     });

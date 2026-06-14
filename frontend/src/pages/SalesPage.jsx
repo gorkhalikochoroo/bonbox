@@ -27,6 +27,7 @@ import ReceiptCapture from "../components/ReceiptCapture";
 import ReceiptViewer from "../components/ReceiptViewer";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
+import { errText } from "../utils/errText";
 import { displayCurrency, getTaxConfig } from "../utils/currency";
 import { formatDate, formatDateClear, localIso } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
@@ -204,7 +205,7 @@ export default function SalesPage() {
       const res = await api.get("/sales", { params });
       setSales(Array.isArray(res.data) ? res.data : []);
     } catch (err) {
-      setFetchError(err.response?.data?.detail || t("failedToLoadSales"));
+      setFetchError(errText(err, t("failedToLoadSales")));
     } finally {
       setSalesLoading(false);
     }
@@ -238,7 +239,7 @@ export default function SalesPage() {
       fetchReturnSummary();
       window.dispatchEvent(new CustomEvent("bonbox-data-changed"));
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to process return");
+      setError(errText(err, "Failed to process return"));
       setTimeout(() => setError(""), 4000);
     }
   };
@@ -387,7 +388,7 @@ export default function SalesPage() {
       setNotes(submittedSnapshot.notes);
       setIsTaxExempt(submittedSnapshot.isTaxExempt);
       setSaleDate(submittedSnapshot.saleDate);
-      setError(err.response?.data?.detail || t("failedToAddSale"));
+      setError(errText(err, t("failedToAddSale")));
     }
   };
 
@@ -414,7 +415,7 @@ export default function SalesPage() {
       setSuccess(t("saleUpdated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToUpdateSale"));
+      setError(errText(err, t("failedToUpdateSale")));
     }
   };
 
@@ -441,7 +442,7 @@ export default function SalesPage() {
       setSuccess(t("movedToDeleted"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToDeleteSale"));
+      setError(errText(err, t("failedToDeleteSale")));
     }
   };
 
@@ -950,7 +951,7 @@ export default function SalesPage() {
               setSuccess(`${t("itemSale")}: ${saleData.item_name || t("item")} × ${saleData.quantity_sold} = ${(saleData.quantity_sold * saleData.unit_price).toLocaleString()} ${currency}`);
               setTimeout(() => setSuccess(""), 3000);
             } catch (err) {
-              setError(err.response?.data?.detail || t("failedToCreateItemSale"));
+              setError(errText(err, t("failedToCreateItemSale")));
               setTimeout(() => setError(""), 4000);
             }
           }}
@@ -1399,7 +1400,7 @@ function CsvUpload({ onDone }) {
       const res = await api.post("/sales/import-csv?dry_run=true", formData);
       setPreview(res.data);
     } catch (err) {
-      setPreview({ would_import: 0, errors: [err.response?.data?.detail || t("uploadFailed")] });
+      setPreview({ would_import: 0, errors: [errText(err, t("uploadFailed"))] });
     }
     setUploading(false);
     e.target.value = "";
@@ -1417,7 +1418,7 @@ function CsvUpload({ onDone }) {
       setPendingFile(null);
       onDone();
     } catch (err) {
-      setResult({ imported: 0, errors: [err.response?.data?.detail || t("uploadFailed")], imported_ids: [] });
+      setResult({ imported: 0, errors: [errText(err, t("uploadFailed"))], imported_ids: [] });
     }
     setConfirming(false);
   };

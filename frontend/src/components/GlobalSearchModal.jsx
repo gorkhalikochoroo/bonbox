@@ -8,6 +8,7 @@ import { usePillars } from "../hooks/usePillars";
 import { Icon } from "./ui";
 import { NAV_MANIFEST, filterDestinations } from "../config/navManifest";
 import { isNativeApp } from "../utils/platform";
+import { errText } from "../utils/errText";
 
 /**
  * Claude-style ⌘K command palette.
@@ -190,9 +191,8 @@ export default function GlobalSearchModal({ open, onClose }) {
     } catch (e) {
       setServerGroups([]);
       // 422 / 429 / 5xx — show a soft toast inside the modal
-      const detail = e?.response?.data?.detail
-        || (e?.response?.status === 429 ? "Slow down — try again in a moment." : null)
-        || (t("searchFailed") || "Search hit a snag. Try again.");
+      const detail = errText(e, (e?.response?.status === 429 ? "Slow down — try again in a moment." : null)
+        || (t("searchFailed") || "Search hit a snag. Try again."));
       setError(detail);
     } finally {
       setLoading(false);

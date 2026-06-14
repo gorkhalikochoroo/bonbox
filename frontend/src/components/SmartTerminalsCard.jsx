@@ -35,6 +35,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "../services/api";
+import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
 import { useSmartTelemetry } from "../hooks/useSmartTelemetry";
 import { useUndoToast } from "../hooks/useUndoToast";
@@ -137,7 +138,7 @@ export default function SmartTerminalsCard({ onComplete }) {
     } catch (err) {
       // 401 redirects via global interceptor — suppress the error flash
       if (err?.response?.status === 401) return;
-      setError(err?.response?.data?.detail || (t("smartTerminalsInferFailed") || "Couldn't propose terminals."));
+      setError(errText(err, t("smartTerminalsInferFailed") || "Couldn't propose terminals."));
     }
   }
 
@@ -214,7 +215,7 @@ export default function SmartTerminalsCard({ onComplete }) {
       setPhase("done");
       onComplete?.({ terminals: activeTerminals, scans });
     } catch (err) {
-      setError(err?.response?.data?.detail || (t("smartTerminalsSaveFailed") || "Couldn't save terminals."));
+      setError(errText(err, t("smartTerminalsSaveFailed") || "Couldn't save terminals."));
       setPhase("confirm");
     }
   }

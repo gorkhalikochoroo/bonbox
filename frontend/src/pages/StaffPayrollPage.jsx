@@ -317,7 +317,10 @@ export default function StaffPayrollPage() {
           detail = data.detail;
         }
       } catch { /* fall through to generic */ }
-      setError(detail);
+      // A non-blob 422 makes data.detail an ARRAY ([{type,loc,msg,input}]);
+      // rendering that as a child would crash. Keep the parsed string as-is,
+      // else fall back to the generic message.
+      setError(typeof detail === "string" ? detail : "Could not generate PDF. Please try again.");
     }
     setPdfLoading(false);
   };

@@ -38,6 +38,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useSmartTelemetry } from "../hooks/useSmartTelemetry";
+import { errText } from "../utils/errText";
 
 
 const STORAGE_KEY = "bonbox_first_run_completed";
@@ -166,7 +167,7 @@ export default function FirstRunWizard() {
       setOpen(false);
       if (routeAfter) navigate(routeAfter);
     } catch (err) {
-      setError(err?.response?.data?.detail || (t("firstRunSaveFailed") || "Couldn't save."));
+      setError(errText(err, t("firstRunSaveFailed") || "Couldn't save."));
     } finally {
       setSaving(false);
     }

@@ -27,6 +27,7 @@
  *     for a "wait, that wasn't right" reaction.
  */
 import { useCallback, useRef, useState } from "react";
+import { errText } from "../utils/errText";
 
 const DEFAULT_TIMEOUT_MS = 8000;
 
@@ -55,7 +56,7 @@ export function useUndoToast() {
       await toast.onUndo();
       dismiss();
     } catch (err) {
-      const msg = err?.response?.data?.detail || err?.message || "Undo failed.";
+      const msg = errText(err, "Undo failed.");
       setToast((prev) => prev ? { ...prev, undoing: false, error: msg } : null);
       // Keep it up a little longer so they can read the error.
       if (timerRef.current) clearTimeout(timerRef.current);

@@ -8,6 +8,7 @@ import api from "../services/api";
 // VITE_APPLE_CLIENT_ID env var is empty, so non-prod builds stay
 // quiet without conditional imports.
 import AppleSignInButton from "../components/AppleSignInButton";
+import { errText } from "../utils/errText";
 
 /* Inline SVG illustration — a fun receipt-and-boxes scene */
 function HeroIllustration() {
@@ -255,11 +256,7 @@ export default function LoginPage() {
       if (code === "user_cancelled" || String(err?.message || "").includes("user_cancelled")) {
         return;
       }
-      setError(
-        err?.response?.data?.detail ||
-        t("appleSigninFailed") ||
-        "Apple sign-in failed"
-      );
+      setError(errText(err, t("appleSigninFailed") || "Apple sign-in failed"));
     } finally {
       setAppleNativeBusy(false);
     }
@@ -501,11 +498,7 @@ export default function LoginPage() {
                           navigate("/dashboard");
                         }
                       } catch (err) {
-                        setError(
-                          err.response?.data?.detail ||
-                          t("appleSigninFailed") ||
-                          "Apple sign-in failed"
-                        );
+                        setError(errText(err, t("appleSigninFailed") || "Apple sign-in failed"));
                       }
                     }}
                     onError={(msg) =>
@@ -531,7 +524,7 @@ export default function LoginPage() {
                               navigate("/dashboard");
                             }
                           })
-                          .catch((err) => setError(err.response?.data?.detail || t("googleSigninFailed")));
+                          .catch((err) => setError(errText(err, t("googleSigninFailed"))));
                       }}
                       onError={() => setError(t("googleSigninFailed"))}
                       shape="rectangular"

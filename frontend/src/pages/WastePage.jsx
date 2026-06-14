@@ -10,6 +10,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
+import { errText } from "../utils/errText";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { displayCurrency } from "../utils/currency";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
@@ -80,7 +81,7 @@ export default function WastePage() {
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToLogWaste"));
+      setError(errText(err, t("failedToLogWaste")));
     }
   };
 
@@ -107,7 +108,7 @@ export default function WastePage() {
       setSuccess(t("updated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToUpdate"));
+      setError(errText(err, t("failedToUpdate")));
     }
   };
 
@@ -132,7 +133,7 @@ export default function WastePage() {
       setSuccess(t("movedToRecentlyDeleted"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToDelete"));
+      setError(errText(err, t("failedToDelete")));
     }
   };
 

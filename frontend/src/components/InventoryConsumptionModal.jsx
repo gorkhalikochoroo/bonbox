@@ -27,6 +27,7 @@
  */
 import { useEffect, useState } from "react";
 import api from "../services/api";
+import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
 import { useSmartTelemetry } from "../hooks/useSmartTelemetry";
 import { useUndoToast } from "../hooks/useUndoToast";
@@ -138,7 +139,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
       });
       onClose?.();
     } catch (err) {
-      setError(err.response?.data?.detail || "Couldn't save.");
+      setError(errText(err, "Couldn't save."));
     } finally {
       setSaving(false);
     }
@@ -272,7 +273,7 @@ export default function InventoryConsumptionModal({ open, onClose, itemId, itemN
                           });
                           onClose?.();
                         } catch (err) {
-                          setError(err.response?.data?.detail || "Couldn't save.");
+                          setError(errText(err, "Couldn't save."));
                         } finally {
                           setSaving(false);
                         }

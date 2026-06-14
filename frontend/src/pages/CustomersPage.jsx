@@ -4,6 +4,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
+import { errText } from "../utils/errText";
 
 /**
  * CustomersPage — debitor management.
@@ -43,7 +44,7 @@ export default function CustomersPage() {
       const res = await api.get("/customers");
       setCustomers(res.data);
     } catch (e) {
-      setError(e?.response?.data?.detail || "Failed to load customers");
+      setError(errText(e, "Failed to load customers"));
     } finally {
       setLoading(false);
     }
@@ -332,7 +333,7 @@ function CustomerFormModal({ customerId, customers, onClose, onSaved, t }) {
       }
       onSaved();
     } catch (err) {
-      setError(err?.response?.data?.detail || "Save failed");
+      setError(errText(err, "Save failed"));
     } finally {
       setSaving(false);
     }

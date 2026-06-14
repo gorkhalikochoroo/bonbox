@@ -11,6 +11,7 @@ import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import CustomerOutreachModal from "../components/CustomerOutreachModal";
 import { Icon, PageHeader, StatCard } from "../components/ui";
+import { errText } from "../utils/errText";
 
 export default function KhataPage() {
   const { user } = useAuth();
@@ -71,7 +72,7 @@ export default function KhataPage() {
       fetchCustomers();
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed");
+      setError(errText(err, "Failed"));
     }
   };
 
@@ -110,7 +111,7 @@ export default function KhataPage() {
       if (selectedItems.length > 0) api.get("/inventory").then((r) => setInventoryItems(r.data)).catch(() => {});
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToSave"));
+      setError(errText(err, t("failedToSave")));
     }
   };
 
@@ -141,7 +142,7 @@ export default function KhataPage() {
       fetchCustomers();
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
-      setError(err.response?.data?.detail || t("failedToRecordPayment"));
+      setError(errText(err, t("failedToRecordPayment")));
     }
   };
 

@@ -29,6 +29,7 @@ import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useSmartTelemetry } from "../hooks/useSmartTelemetry";
+import { errText } from "../utils/errText";
 
 
 export default function SmartDriftBanner() {
@@ -82,7 +83,7 @@ export default function SmartDriftBanner() {
     } catch (err) {
       // Roll back
       setFindings(prev);
-      setError(err?.response?.data?.detail || (t("smartDriftDismissFailed") || "Couldn't dismiss."));
+      setError(errText(err, t("smartDriftDismissFailed") || "Couldn't dismiss."));
     } finally {
       setBusy((b) => { const c = { ...b }; delete c[f.id]; return c; });
     }
@@ -107,7 +108,7 @@ export default function SmartDriftBanner() {
                  : "/daily-close/multi";
       navigate(dest);
     } catch (err) {
-      setError(err?.response?.data?.detail || (t("smartDriftApplyFailed") || "Couldn't open."));
+      setError(errText(err, t("smartDriftApplyFailed") || "Couldn't open."));
       setBusy((b) => { const c = { ...b }; delete c[f.id]; return c; });
     }
   }
