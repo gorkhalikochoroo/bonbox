@@ -276,6 +276,17 @@ export const DASHBOARD_CARD_SET = {
       ],
     },
 
+    // Foresight hero (S1-8 / #355) — "will you cover the MOMS bill?".  The
+    // component self-fetches /cashflow/forecast → foresight and renders the
+    // verdict + the one action, or the honest "connect your bank" state until a
+    // bank balance lands (#344).  Shown whenever a MOMS afregningsfrist is known
+    // (not tier-gated — core value, like the FREE MOMS countdown it upgrades).
+    {
+      id: "foresightHero",
+      component: "ComplianceCountdownCard",
+      renderIf: (ctx) => (ctx?.compliance?.daysToNext ?? Infinity) < Infinity,
+    },
+
     // Today on shift — Task #204 P2.6.  Answers the literal #1 question
     // owners open the app to ask: "who is working RIGHT NOW?".  Sits
     // between the KPI strip and Revenue Trend so the morning glance
