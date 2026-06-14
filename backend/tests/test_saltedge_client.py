@@ -299,6 +299,54 @@ def test_exchange_code_inactive_connection_raises(client):
     assert exc_info.value.kind == "auth_incomplete"
 
 
+def test_exchange_code_rejects_foreign_customer(client):
+    """SECURITY #357: a connection whose customer_id != the customer minted
+    for THIS row at /init must be refused — never bind another tenant's
+    bank account from a callback-supplied connection_id."""
+    def stub(self, method, url, **kwargs):
+        if "/connections/conn_victim" in url:
+            return _resp(200, {"data": {
+                "connection_id": "conn_victim",
+                "status": "active",
+                "customer_id": "cust_VICTIM",
+            }})
+        if "/accounts" in url:
+            return _resp(200, {"data": [{"account_id": "victim_acct"}]})
+        return _resp(500)
+
+    with patch.object(httpx.Client, "request", new=stub):
+        with pytest.raises(SaltEdgeClientError) as exc_info:
+            client.exchange_code(
+                "", connection_id="conn_victim",
+                expected_customer_id="cust_ATTACKER",
+            )
+    assert exc_info.value.kind == "ownership_mismatch"
+    assert exc_info.value.status == 400
+
+
+def test_exchange_code_accepts_matching_customer(client):
+    """The owner's own connection (customer_id matches the row) binds fine."""
+    def stub(self, method, url, **kwargs):
+        if "/connections/conn_mine" in url:
+            return _resp(200, {"data": {
+                "connection_id": "conn_mine",
+                "status": "active",
+                "customer_id": "cust_mine",
+            }})
+        if "/accounts" in url:
+            return _resp(200, {"data": [
+                {"account_id": "acct_1", "name": "Erhverv driftskonto"},
+            ]})
+        return _resp(500)
+
+    with patch.object(httpx.Client, "request", new=stub):
+        result = client.exchange_code(
+            "ignored", connection_id="conn_mine",
+            expected_customer_id="cust_mine",
+        )
+    assert result["account_id"] == "acct_1"
+
+
 # ─── list_transactions ─────────────────────────────────────────────────
 
 

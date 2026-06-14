@@ -615,3 +615,54 @@ def test_callback_url_falls_back_to_frontend_url_in_dev(monkeypatch):
         raising=False,
     )
     assert _callback_url() == "http://localhost:5173/api/bank-connect/callback"
+
+
+# ─── #360: foreign-currency quarantine in _ingest_transactions ──────────
+
+
+def test_ingest_excludes_foreign_currency(db):
+    """A non-base-currency (EUR) inflow must NOT be written as a DKK Sale —
+    coercing it would inflate revenue + the MOMS/cash-flow forecast
+    ('you're covered' when you're not). It is quarantined and counted in
+    skipped_foreign; only the DKK row lands in the ledger."""
+    from datetime import date
+
+    from app.routers.bank_connect import _ingest_transactions
+    from app.services.aiia_client import AiiaTransaction
+    from app.models.sale import Sale
+
+    user = _user(db, plan="starter", email_suffix="fx")
+    user.currency = "DKK"
+    db.flush()
+
+    conn = BankConnection(
+        id=uuid.uuid4(), user_id=user.id, provider="saltedge",
+        bank_slug="danske_bank_dk", status="active",
+        aiia_account_id="acct_fx",
+    )
+    db.add(conn)
+    db.flush()
+
+    txns = [
+        AiiaTransaction(
+            aiia_txn_id="dkk_1", booked_date=date(2026, 6, 1),
+            amount=1000.0, currency="DKK", description="DKK in",
+            counterparty="Kunde A",
+        ),
+        AiiaTransaction(
+            aiia_txn_id="eur_1", booked_date=date(2026, 6, 2),
+            amount=5000.0, currency="EUR", description="EUR in",
+            counterparty="Foreign B",
+        ),
+    ]
+    new_sales, new_expenses, skipped, skipped_foreign = _ingest_transactions(
+        db, user, conn, txns,
+    )
+
+    assert new_sales == 1
+    assert new_expenses == 0
+    assert skipped == 0
+    assert skipped_foreign == 1
+    sales = db.query(Sale).filter(Sale.user_id == user.id).all()
+    assert len(sales) == 1
+    assert sales[0].amount == Decimal("1000")

@@ -32,6 +32,8 @@ from app.models.whatsapp import WhatsAppUser
 from app.models.weather import SickCall
 from app.models.business_profile import BusinessProfile
 from app.models.payment_connection import PaymentConnection
+from app.models.bank_connection import BankConnection
+from app.models.mobilepay_connection import MobilePayConnection
 # Additional personal-data models — used by the GDPR Art. 17 erasure path.
 from app.models.staff import (
     StaffMember, Schedule, HoursLogged, Tip, TipDistribution,
@@ -1583,7 +1585,11 @@ def delete_account(
     Requires password confirmation. This action is irreversible.
     Deletes: sales, expenses, inventory, cash book, waste logs, khata,
     loans, budgets, staffing rules, business profile, WhatsApp data,
-    feedback, event logs, category mappings, sick calls, and the user account.
+    feedback, event logs, category mappings, sick calls, staff, customers,
+    invoices, reservations, events, bank + MobilePay connections (with the
+    PSD2 consent revoked at the provider first), and the user account.
+    Audit/security logs are RETAINED under Bogføringsloven §10 / GDPR
+    Art.17(3)(b).
     """
     # Verify password to prevent accidental/unauthorized deletion
     if not verify_password(data.password, current_user.password_hash):
@@ -1681,6 +1687,21 @@ def delete_account(
     db.query(WhatsAppUser).filter(WhatsAppUser.user_id == uid).delete(synchronize_session=False)
     db.query(BusinessProfile).filter(BusinessProfile.user_id == uid).delete(synchronize_session=False)
     db.query(PaymentConnection).filter(PaymentConnection.user_id == uid).delete(synchronize_session=False)
+
+    # ── PSD2 bank + MobilePay connections (Art.17 erasure + consent
+    # withdrawal) — #358.  These rows hold a Fernet-encrypted 90-day PSD2
+    # grant and aiia_account_id.  Two reasons this MUST run before the user
+    # delete: (1) PSD2 consent stays LIVE at the bank for up to 90 days
+    # unless we revoke it — owner believes erasure withdrew bank access;
+    # (2) the FK (bank_connections.user_id → users.id, ON DELETE NO ACTION)
+    # would make db.delete(current_user) raise IntegrityError and ROLL BACK
+    # the entire erasure for any user who ever connected a bank.  Revoke is
+    # best-effort (never blocks erasure); then purge the rows.
+    from app.routers.bank_connect import best_effort_revoke
+    for _bc in db.query(BankConnection).filter(BankConnection.user_id == uid).all():
+        best_effort_revoke(_bc)
+    db.query(BankConnection).filter(BankConnection.user_id == uid).delete(synchronize_session=False)
+    db.query(MobilePayConnection).filter(MobilePayConnection.user_id == uid).delete(synchronize_session=False)
 
     # --- Finally, delete the user ---
     db.delete(current_user)
