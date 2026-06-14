@@ -131,6 +131,9 @@ _migrations = [
     "ALTER TABLE cash_transactions ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false",
     "ALTER TABLE cash_transactions ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
     "ALTER TABLE cash_transactions ADD COLUMN IF NOT EXISTS reference_id VARCHAR(100)",
+    # Foresight manual bank-balance seed (no-provider path).
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS manual_bank_balance NUMERIC(14, 2)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS manual_bank_balance_at TIMESTAMP",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(100)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_attempts INTEGER DEFAULT 0",

@@ -165,5 +165,41 @@ def test_tenant_scoped_to_requesting_user(user, monkeypatch):
 def test_honest_no_coverage_claim_without_balance(user, patched):
     out = fp.build_foresight_payload(user, db=None, as_of=AS_OF, bank_balance=None)
     assert out["balance_connected"] is False
+    assert out["balance_source"] == "none"
     assert out["covers_moms"] is not True       # never a positive coverage claim w/o a balance
     assert out["verdict"] == "INSUFFICIENT_DATA"
+
+
+# ── manual bank balance (the no-provider path) ─────────────────────────
+
+def test_manual_balance_seeds_a_real_verdict(patched):
+    from datetime import datetime
+    u = SimpleNamespace(id="u1", currency="DKK", tax_filing_frequency="half_yearly",
+                        prices_include_moms=True, manual_bank_balance=10000000,
+                        manual_bank_balance_at=datetime(2026, 6, 14))
+    out = fp.build_foresight_payload(u, db=None, as_of=AS_OF)  # no explicit bank_balance
+    assert out["balance_source"] == "manual"
+    assert out["balance_connected"] is True
+    assert out["verdict"] != "INSUFFICIENT_DATA"   # a real verdict from the typed balance
+    assert out["covers_moms"] is True
+    assert out["balance_stale"] is False           # entered today
+
+
+def test_manual_balance_goes_stale_after_14_days(patched):
+    from datetime import datetime
+    u = SimpleNamespace(id="u1", currency="DKK", tax_filing_frequency="half_yearly",
+                        prices_include_moms=True, manual_bank_balance=10000000,
+                        manual_bank_balance_at=datetime(2026, 5, 1))  # 44 days before AS_OF
+    out = fp.build_foresight_payload(u, db=None, as_of=AS_OF)
+    assert out["balance_stale"] is True
+    assert out["balance_entered_at"].startswith("2026-05-01")
+
+
+def test_explicit_bank_balance_wins_over_manual(patched):
+    from datetime import datetime
+    u = SimpleNamespace(id="u1", currency="DKK", tax_filing_frequency="half_yearly",
+                        prices_include_moms=True, manual_bank_balance=10000000,
+                        manual_bank_balance_at=datetime(2026, 6, 14))
+    out = fp.build_foresight_payload(u, db=None, as_of=AS_OF, bank_balance=Decimal("0"))
+    assert out["balance_source"] == "bank"   # explicit (future PSD2) takes precedence
+    assert out["verdict"] == "SHORT"

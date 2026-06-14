@@ -59,6 +59,14 @@ class User(Base):
     # Triggers showing A-skat + AM-bidrag deadlines in Tax Autopilot. Set to
     # True once the user adds a staff member with a wage. Defaults False.
     has_employees: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Manual bank-balance entry — the foresight engine's seed without a PSD2
+    # provider. The owner types their current bank balance; the engine turns it
+    # into the "you're covered / set aside X/week" verdict. `_at` stamps when it
+    # was entered so the card shows freshness + nudges an update when stale.
+    # NULL = not entered → verdict stays INSUFFICIENT_DATA (fail-closed). A real
+    # bank balance (#344) supersedes this if a provider is ever connected.
+    manual_bank_balance: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    manual_bank_balance_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Subscription / trial state.
     #   trial_ends_at: when the auto-started 14-day Pro trial expires.
     #     null = no trial (legacy users) — they keep Free indefinitely.

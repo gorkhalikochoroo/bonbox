@@ -29,7 +29,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   AlertCircle,
-  Landmark,
+  Wallet,
   ArrowRight,
 } from "lucide-react";
 import api from "../../services/api";
@@ -111,7 +111,7 @@ function verdictConfig(t, verdict) {
     case "SHORT":
       return { Icon: AlertCircle, tone: "bad", headline: t("fsVerdictShort", "You're heading short on MOMS") };
     default:
-      return { Icon: Landmark, tone: "neutral", headline: t("fsVerdictConnect", "Connect your bank to see if you're covered") };
+      return { Icon: Wallet, tone: "neutral", headline: t("fsVerdictEnterBalance", "Add your bank balance to see if you're covered") };
   }
 }
 
@@ -126,6 +126,10 @@ export default function ComplianceCountdownCard({
   const [fallback, setFallback] = useState(null);
   const [loading, setLoading] = useState(false);
   const [foresight, setForesight] = useState(null);
+  const [balanceOpen, setBalanceOpen] = useState(false);
+  // Local bump: after the owner saves their balance, re-pull foresight so the
+  // card flips to the real verdict without a page reload.
+  const [localBump, setLocalBump] = useState(0);
 
   const ctxDeadline = ctx?.compliance?.nextDeadline || null;
   const ctxForesight = ctx?.foresight || null;
@@ -149,7 +153,7 @@ export default function ComplianceCountdownCard({
     return () => {
       alive = false;
     };
-  }, [foresightProp, ctxForesight, refreshNonce]);
+  }, [foresightProp, ctxForesight, refreshNonce, localBump]);
 
   // ── Fallback deadline (only fetched when the hero won't render) ────────
   const fs = foresightProp || ctxForesight || foresight;
@@ -205,12 +209,12 @@ export default function ComplianceCountdownCard({
     const dl = fs.deadline || {};
     const moms = fs.moms || {};
     const action = fs.action || null;
-    const isConnect = fs.verdict === "INSUFFICIENT_DATA";
+    const noBalance = fs.verdict === "INSUFFICIENT_DATA";
 
     const expected = moms.expected != null ? formatMoney(moms.expected, "DKK", { decimals: 0 }) : null;
 
     let detail;
-    if (isConnect) {
+    if (noBalance) {
       detail = t("fsConnectDetail", "Expected MOMS ~{amt} · due {date}")
         .replace("{amt}", expected || "—")
         .replace("{date}", fmtDate(dl.date));
@@ -229,54 +233,90 @@ export default function ComplianceCountdownCard({
     }
 
     const eyebrow = `MOMS${dl.period_label ? " · " + dl.period_label : ""} · ${daysPhrase(t, dl.days_until)}`;
-    const to = isConnect ? "/connections" : "/tax";
+
+    // Balance footer + freshness — only when the owner has typed a balance.
+    const hasManualBalance =
+      fs.balance_source === "manual" && fs.balance && fs.balance.starting != null;
+    const balanceStr = hasManualBalance
+      ? formatMoney(fs.balance.starting, "DKK", { decimals: 0 })
+      : null;
+    const balanceFooter = !hasManualBalance
+      ? null
+      : fs.balance_stale
+      ? t("fsBalanceStale", "Balance {bal} — tap to update for an accurate read").replace("{bal}", balanceStr)
+      : t("fsBalanceFooter", "Balance {bal} · tap to update").replace("{bal}", balanceStr);
+    // A stale balance tints the icon amber as a gentle nudge.
+    const iconTone = fs.balance_stale ? "warn" : tone;
 
     return (
-      <Link
-        to={to}
-        className={
-          "block rounded-xl border border-gray-200 dark:border-gray-800 " +
-          "bg-white dark:bg-gray-900 p-5 sm:p-6 " +
-          "hover:shadow-sm transition-shadow group " +
-          "focus-visible:outline-none focus-visible:ring-2 " +
-          "focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
-          "focus-visible:ring-offset-1 " +
-          (className || "")
-        }
-        data-component="ComplianceCountdownCard"
-        data-foresight-verdict={fs.verdict}
-        aria-label={t("fsHeroAria", "Open MOMS foresight — {headline}").replace("{headline}", headline)}
-      >
-        <div className="flex items-start gap-3">
-          <div
-            className={
-              "shrink-0 inline-flex items-center justify-center " +
-              "w-9 h-9 rounded-full bg-gray-50 dark:bg-gray-800 " +
-              "border border-gray-200 dark:border-gray-800"
-            }
-            aria-hidden="true"
-          >
-            <Icon size={18} strokeWidth={2} className={TONE[tone]} />
+      <>
+        <button
+          type="button"
+          onClick={() => setBalanceOpen(true)}
+          className={
+            "w-full text-left block rounded-xl border border-gray-200 dark:border-gray-800 " +
+            "bg-white dark:bg-gray-900 p-5 sm:p-6 " +
+            "hover:shadow-sm transition-shadow group " +
+            "focus-visible:outline-none focus-visible:ring-2 " +
+            "focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
+            "focus-visible:ring-offset-1 " +
+            (className || "")
+          }
+          data-component="ComplianceCountdownCard"
+          data-foresight-verdict={fs.verdict}
+          aria-label={t("fsHeroAria", "Open MOMS foresight — {headline}").replace("{headline}", headline)}
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className={
+                "shrink-0 inline-flex items-center justify-center " +
+                "w-9 h-9 rounded-full bg-gray-50 dark:bg-gray-800 " +
+                "border border-gray-200 dark:border-gray-800"
+              }
+              aria-hidden="true"
+            >
+              <Icon size={18} strokeWidth={2} className={TONE[iconTone]} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">
+                {eyebrow}
+              </p>
+              <p className="text-base font-semibold text-gray-900 dark:text-gray-100 leading-snug">
+                {headline}
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5 leading-snug">
+                {detail}
+              </p>
+              {balanceFooter && (
+                <p
+                  className={
+                    "text-xs mt-1.5 " +
+                    (fs.balance_stale
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-gray-400 dark:text-gray-500")
+                  }
+                >
+                  {balanceFooter}
+                </p>
+              )}
+            </div>
+            <ArrowRight
+              size={18}
+              strokeWidth={2}
+              className="shrink-0 mt-1 text-gray-300 dark:text-gray-600 group-hover:text-gray-400 transition-colors"
+              aria-hidden="true"
+            />
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">
-              {eyebrow}
-            </p>
-            <p className="text-base font-semibold text-gray-900 dark:text-gray-100 leading-snug">
-              {headline}
-            </p>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5 leading-snug">
-              {detail}
-            </p>
-          </div>
-          <ArrowRight
-            size={18}
-            strokeWidth={2}
-            className="shrink-0 mt-1 text-gray-300 dark:text-gray-600 group-hover:text-gray-400 transition-colors"
-            aria-hidden="true"
+        </button>
+        {balanceOpen && (
+          <BalanceModal
+            t={t}
+            current={hasManualBalance ? fs.balance.starting : null}
+            onClose={() => setBalanceOpen(false)}
+            onSaved={() => setLocalBump((n) => n + 1)}
           />
-        </div>
-      </Link>
+        )}
+      </>
     );
   }
 
@@ -353,5 +393,76 @@ export default function ComplianceCountdownCard({
         </div>
       </div>
     </Link>
+  );
+}
+
+// ── Balance editor — the no-provider seed. The owner types their current bank
+// balance; saving re-pulls foresight so the card flips to the real verdict.
+function BalanceModal({ t, current, onClose, onSaved }) {
+  const [value, setValue] = useState(current != null ? String(Math.round(current)) : "");
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (clear) => {
+    setSaving(true);
+    try {
+      await api.put("/cashflow/balance", { balance: clear ? null : Number(value) || 0 });
+      onSaved();
+    } catch {
+      // best-effort — keep the modal forgiving on a transient error
+    } finally {
+      setSaving(false);
+      onClose();
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl bg-white dark:bg-gray-900 p-6 shadow-xl border border-gray-200 dark:border-gray-800"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+          {t("fsBalanceTitle", "Your bank balance")}
+        </h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 leading-snug">
+          {t("fsBalanceHelp", "Type what's in your account now — we'll tell you if it covers your MOMS bill.")}
+        </p>
+        <div className="mt-4 flex items-center gap-2">
+          <input
+            type="number"
+            inputMode="numeric"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            autoFocus
+            placeholder="0"
+            className="flex-1 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2.5 text-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100"
+          />
+          <span className="text-gray-500 dark:text-gray-400 text-sm shrink-0">kr</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => submit(false)}
+          disabled={saving || value === ""}
+          className="mt-4 w-full rounded-xl bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 py-2.5 font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+        >
+          {t("fsBalanceSave", "Save")}
+        </button>
+        {current != null && (
+          <button
+            type="button"
+            onClick={() => submit(true)}
+            disabled={saving}
+            className="mt-2 w-full text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 py-1"
+          >
+            {t("fsBalanceClear", "Remove balance")}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

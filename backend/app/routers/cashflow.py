@@ -7,12 +7,14 @@ empty payload with _error rather than 503.
 import logging
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.user import User
 from app.services.auth import get_current_user
 from app.services.cashflow_service import get_cashflow_forecast
+from app.utils.time import utc_now
 
 router = APIRouter()
 log = logging.getLogger("bonbox.cashflow")
@@ -59,3 +61,29 @@ def cashflow_forecast(
         result["foresight"] = {"available": False, "reason": "error"}
 
     return result
+
+
+class _BalanceBody(BaseModel):
+    # The owner's current bank balance, in their account currency. None clears it.
+    # Bounded (≥0, < 1B) — the multi-barrier bounds layer.
+    balance: float | None = Field(default=None, ge=0, le=1_000_000_000)
+
+
+@router.put("/balance")
+def set_manual_balance(
+    body: _BalanceBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Set/clear the owner's manually-entered bank balance — the foresight
+    engine's seed without a PSD2 provider. Per-tenant; stamps the update time so
+    the card shows freshness + nudges a refresh when stale.
+    """
+    user.manual_bank_balance = body.balance
+    user.manual_bank_balance_at = utc_now() if body.balance is not None else None
+    db.commit()
+    return {
+        "ok": True,
+        "balance": float(body.balance) if body.balance is not None else None,
+        "updated_at": user.manual_bank_balance_at.isoformat() if user.manual_bank_balance_at else None,
+    }

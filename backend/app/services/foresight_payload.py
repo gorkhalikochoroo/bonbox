@@ -81,6 +81,17 @@ def _f(value):
     return None if value is None else round(float(value), 2)
 
 
+def _is_stale(balance_at, as_of, *, days=14):
+    """A manually-entered balance older than `days` is stale — the card nudges
+    an update so the verdict isn't trusted blindly on a number from weeks ago."""
+    if not balance_at:
+        return False
+    try:
+        return (as_of - balance_at.date()).days > days
+    except Exception:
+        return False
+
+
 def build_foresight_payload(user, db, *, as_of, bank_balance=None, reserved=Decimal("0")):
     """Compose the full foresight payload. ``as_of`` is the business day;
     ``bank_balance`` the in-scope balance seed (None until a bank is connected).
@@ -88,6 +99,18 @@ def build_foresight_payload(user, db, *, as_of, bank_balance=None, reserved=Deci
     # Kill-switch (#356) — operator can disable instantly via Render env.
     if not settings.FORESIGHT_ENABLED:
         return {"available": False, "reason": "disabled"}
+
+    # Balance seed: an explicit bank_balance (future PSD2 #344) wins; otherwise
+    # the owner's manually-entered balance — the no-provider path. None keeps the
+    # verdict at INSUFFICIENT_DATA (fail-closed).
+    balance_source = "bank" if bank_balance is not None else "none"
+    balance_at = None
+    if bank_balance is None:
+        manual = getattr(user, "manual_bank_balance", None)
+        if manual is not None:
+            bank_balance = Decimal(str(manual))
+            balance_source = "manual"
+            balance_at = getattr(user, "manual_bank_balance_at", None)
 
     deadline_info = fs.resolve_next_deadline(user)
     if not deadline_info:
@@ -116,6 +139,9 @@ def build_foresight_payload(user, db, *, as_of, bank_balance=None, reserved=Deci
         "verdict": cone.headline_state,
         "covers_moms": cone.mid.covers_moms,
         "balance_connected": bank_balance is not None,
+        "balance_source": balance_source,             # bank | manual | none
+        "balance_entered_at": balance_at.isoformat() if balance_at else None,
+        "balance_stale": _is_stale(balance_at, as_of),
         "worst_case_short": cone.worst_case_short,
         "deadline": {
             "date": deadline.isoformat(),
