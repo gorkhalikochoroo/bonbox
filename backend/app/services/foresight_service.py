@@ -485,31 +485,37 @@ def build_envelope(
     """Build the MOMS reserve envelope from a cone + how much is already set
     aside. Targets the HIGH end of the MOMS range by default (ring-fence for the
     bigger bill). Returns the contribution to fully fund the gap by the deadline.
-    """
-    if cone.headline_state == STATE_INSUFFICIENT_DATA:
-        return ReserveEnvelope(
-            deadline=cone.mid.deadline, target=Decimal("0"), target_basis=target_basis,
-            reserved=reserved, remaining=Decimal("0"), funded_pct=0.0, weeks=None,
-            weekly_contribution=Decimal("0"), status=STATE_INSUFFICIENT_DATA,
-        )
 
+    The target + contribution are BALANCE-INDEPENDENT — they need only the MOMS
+    range and the deadline, so the envelope is useful before a bank is connected
+    (the verdict needs a balance; the reserve plan does not). Only a missing /
+    past deadline yields INSUFFICIENT_DATA, since contributions can't be scheduled.
+    """
+    as_of = cone.mid.as_of
+    deadline = cone.mid.deadline
     target = cone.moms_range.high if target_basis == "high" else cone.moms_range.expected
     reserved = reserved if reserved > 0 else Decimal("0")
 
     remaining = target - reserved
     if remaining < 0:
         remaining = Decimal("0")
-
     funded_pct = float(min(Decimal("1"), reserved / target)) if target > 0 else 1.0
-    weeks = cone.mid.weeks_to_deadline
+
+    if deadline is None or deadline <= as_of:
+        return ReserveEnvelope(
+            deadline=deadline, target=target, target_basis=target_basis,
+            reserved=reserved, remaining=remaining, funded_pct=round(funded_pct, 2),
+            weeks=None, weekly_contribution=Decimal("0"), status=STATE_INSUFFICIENT_DATA,
+        )
+
+    weeks = max(1, ((deadline - as_of).days + 6) // 7)
     contribution = solve_weekly_rate(
         shortfall=remaining, weeks=weeks, round_to=round_to,
     ).weekly_rate
-
     status = ENVELOPE_FUNDED if remaining <= 0 else ENVELOPE_FUNDING
 
     return ReserveEnvelope(
-        deadline=cone.mid.deadline, target=target, target_basis=target_basis,
+        deadline=deadline, target=target, target_basis=target_basis,
         reserved=reserved, remaining=remaining, funded_pct=round(funded_pct, 2),
         weeks=weeks, weekly_contribution=contribution, status=status,
     )

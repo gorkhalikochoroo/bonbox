@@ -19,9 +19,9 @@ AS_OF = date(2026, 6, 14)
 DEADLINE = date(2026, 9, 1)   # 79 days → 12 weeks
 
 
-def _cone(balance="300000", realized="100000", projected="40000"):
+def _cone(balance="300000", realized="100000", projected="40000", deadline=DEADLINE):
     inp = ForesightInputs(
-        as_of=AS_OF, deadline=DEADLINE,
+        as_of=AS_OF, deadline=deadline,
         current_balance=Decimal(balance) if balance is not None else None,
         safety_buffer=Decimal("0"),
     )
@@ -76,9 +76,20 @@ def test_envelope_no_moms_is_funded():
     assert env.funded_pct == 1.0
 
 
-def test_envelope_insufficient_data_emits_no_target():
+def test_envelope_works_without_bank_balance():
+    # The reserve target + contribution are balance-independent — the envelope
+    # is useful BEFORE a bank is connected (only the verdict needs a balance).
     env = fs.build_envelope(_cone(balance=None))
+    assert env.status == ENVELOPE_FUNDING
+    assert env.target == Decimal("150000")
+    assert env.weekly_contribution == Decimal("12500")
+    assert env.weeks == 12
+
+
+def test_envelope_insufficient_only_without_a_future_deadline():
+    # No schedulable deadline ⇒ INSUFFICIENT_DATA (can't time contributions),
+    # though the target itself is still reported.
+    env = fs.build_envelope(_cone(deadline=None))
     assert env.status == STATE_INSUFFICIENT_DATA
-    assert env.target == Decimal("0")
-    assert env.weekly_contribution == Decimal("0")
     assert env.weeks is None
+    assert env.weekly_contribution == Decimal("0")

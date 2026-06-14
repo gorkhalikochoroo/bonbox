@@ -34,10 +34,28 @@ def cashflow_forecast(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Get 30-day cash flow projection with alerts and action items."""
+    """Get 30-day cash flow projection with alerts and action items, plus the
+    forward MOMS-deadline foresight payload (#354) under `foresight`.
+    """
     try:
         result = get_cashflow_forecast(user.id, db)
-        return result if result is not None else _safe_empty()
+        result = result if result is not None else _safe_empty()
     except Exception as e:
         log.exception("cashflow_forecast failed for user=%s: %s", user.id, e)
-        return _safe_empty()
+        result = _safe_empty()
+
+    # Forward foresight payload — fail-soft: a foresight error must NEVER break
+    # the legacy forecast. Seed balance comes from a connected bank (#344);
+    # until then the verdict is INSUFFICIENT_DATA but the deadline / MOMS range /
+    # reserve target still populate.
+    try:
+        from app.services.foresight_payload import build_foresight_payload
+        from app.services.tz_utils import business_today_local
+        result["foresight"] = build_foresight_payload(
+            user, db, as_of=business_today_local(user),
+        )
+    except Exception as e:
+        log.exception("foresight payload failed for user=%s: %s", user.id, e)
+        result["foresight"] = {"available": False, "reason": "error"}
+
+    return result
