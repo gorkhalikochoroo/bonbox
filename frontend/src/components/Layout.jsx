@@ -573,11 +573,11 @@ export default function Layout() {
             text, with just an icon + faded label. ⌘K hint on the
             right hugs the edge so it reads as "shortcut for this
             ambient action" rather than "primary CTA". */}
-        <div className="px-3 pb-1">
+        <div className="px-3 pb-1 flex items-center gap-1">
           <button
             onClick={() => setSearchOpen(true)}
             aria-label={t("search") || "Search"}
-            className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition
+            className="flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition
               text-gray-400 dark:text-gray-500
               hover:bg-gray-50 dark:hover:bg-gray-700/40 hover:text-gray-600 dark:hover:text-gray-300"
           >
@@ -589,6 +589,13 @@ export default function Layout() {
               ⌘K
             </kbd>
           </button>
+          {/* Desktop notification bell — the mobile top-bar has its own; this
+              brings the bell + Live-alerts toggle to the wide web view too.
+              align="left" so its dropdown opens rightward into the content,
+              not off the left edge from the sidebar. */}
+          <span className="hidden md:block shrink-0">
+            <NotificationCenter align="left" />
+          </span>
         </div>
 
         {/* Navigation */}

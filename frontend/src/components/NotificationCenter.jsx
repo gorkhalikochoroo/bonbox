@@ -15,7 +15,7 @@ function useTimeAgo() {
   };
 }
 
-export default function NotificationCenter() {
+export default function NotificationCenter({ align = "right" }) {
   const { t } = useLanguage();
   // Live host-stand alerts (booking/allergy "pop + sound") live in the same
   // bell so there's one notification surface, not two. The provider owns the
@@ -163,7 +163,7 @@ export default function NotificationCenter() {
 
       {/* Dropdown */}
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm z-50 overflow-hidden">
+        <div className={`absolute ${align === "left" ? "left-0" : "right-0"} top-full mt-2 w-80 sm:w-96 max-w-[calc(100vw-1.5rem)] bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm z-50 overflow-hidden`}>
           {/* Header */}
           <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-800 dark:text-white">{t("notifications") || "Notifications"}</h3>
