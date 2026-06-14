@@ -550,12 +550,19 @@ class SaltEdgeClient:
         *,
         requisition_id: str | None = None,
         connection_id: str | None = None,
+        expected_customer_id: str | None = None,
     ) -> dict:
         """Resolve the SCA round-trip → account_id + label.
 
         For Salt Edge, the live consent ID is `connection_id`, which
         arrives on the callback URL — NOT the customer_id stored at
         /init.  The router passes it as the `connection_id` kwarg.
+
+        `expected_customer_id` is the Salt Edge customer minted for THIS
+        BonBox row at /init (stored on the conn row as
+        provider_requisition_id).  We assert the connection actually
+        belongs to it before binding its account — see the ownership
+        check below.
 
         `code` is ignored for Salt Edge (kept in signature for
         Protocol compatibility).
@@ -582,6 +589,27 @@ class SaltEdgeClient:
                 f"(type={type(conn).__name__})",
                 status=502, kind="protocol",
             )
+
+        # SECURITY (#357): the `connection_id` arrives on the
+        # attacker-controllable callback URL.  Salt Edge authorises every
+        # call with ONE operator-wide service secret, so the app can read
+        # ANY connection minted under it — including another café's.
+        # Before binding this connection's account into the current
+        # BonBox row, assert it belongs to the customer_id we minted for
+        # THIS row at /init.  Without this an attacker who supplies a
+        # victim's connection_id against their own pending state would
+        # bind the victim's bank account (balance + full history) into
+        # their own tenant.  Ownership must be re-derived from the row,
+        # never trusted from the URL.
+        if expected_customer_id is not None:
+            conn_customer = str(conn.get("customer_id") or "")
+            if conn_customer != str(expected_customer_id):
+                raise SaltEdgeClientError(
+                    "Salt Edge connection customer mismatch — refusing "
+                    "cross-tenant account bind",
+                    status=400, kind="ownership_mismatch",
+                )
+
         status = (conn.get("status") or "").lower()
         if status != "active":
             raise SaltEdgeClientError(

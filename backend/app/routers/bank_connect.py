@@ -47,6 +47,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -84,6 +86,25 @@ logger = logging.getLogger(__name__)
 # endpoints (e.g. callback is public).
 router = APIRouter()
 connections_router = APIRouter()
+
+# #361: per-route rate limiter (mirrors mobilepay.py).  Decorating the PUBLIC,
+# UNAUTHENTICATED /callback is the real win — it was the only bank-connect
+# endpoint reachable without auth (burn-griefing + metered exchange_code
+# amplification).  slowapi enforces @limiter.limit per-route without needing
+# SlowAPIMiddleware (which is NOT registered app-wide); the shared
+# RateLimitExceeded → 429 handler lives in main.py.
+#
+# FOOTGUN (see memory gotcha_future_annotations_slowapi_body): this module has
+# `from __future__ import annotations`, which turns every param annotation into
+# a ForwardRef.  slowapi's wrapper re-resolves them in the wrapper's globals,
+# which breaks BOTH Pydantic-body params (→ 422) AND a `uuid.UUID` path param
+# (→ PydanticUserError "not fully defined").  So /callback (Query/str params
+# only) is safe to decorate, but /init (Pydantic body) and /sync
+# (uuid.UUID path param) are NOT — limiting those needs either dropping the
+# future-import from this file or registering SlowAPIMiddleware app-wide (a
+# deliberate, smoke-tested change — see task #361 residual).  They stay
+# auth-gated (Starter+) so the cost-abuse blast radius needs a paid seat.
+limiter = Limiter(key_func=get_remote_address)
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────
@@ -369,6 +390,7 @@ def init_bank_connection(
 
 
 @router.get("/callback")
+@limiter.limit("15/hour")
 def bank_callback(
     request: Request,
     code: str | None = Query(None, min_length=4, max_length=512),
@@ -384,6 +406,12 @@ def bank_callback(
     # YapilyClient.exchange_code — semantically equivalent to Aiia's
     # `code`.  See https://docs.yapily.com/ais/embedded-auth-flow.
     consent: str | None = Query(None, min_length=4, max_length=2048),
+    # Yapily also echoes `application-user-id` — the applicationUserId we
+    # minted at /init (== this row's consent_state).  We bind the consent
+    # to the row by it (see ownership check below).
+    application_user_id: str | None = Query(
+        None, alias="application-user-id", min_length=1, max_length=128,
+    ),
     db: Session = Depends(get_db),
 ):
     """Provider → us. PUBLIC endpoint — the owner is mid-SCA and has no
@@ -422,6 +450,11 @@ def bank_callback(
     # branches.  Same shape as the GoCardless ref → state mapping above.
     if consent and not code:
         code = consent
+    # Yapily sends `?consent=…&application-user-id=<state>` with NO separate
+    # `state` param — the applicationUserId IS our state token.  Map it so
+    # the row resolves, mirroring the ref→state / consent→code mappings.
+    if application_user_id and not state:
+        state = application_user_id
     if not state:
         raise HTTPException(status_code=422, detail="state or ref required")
     conn = (
@@ -477,6 +510,21 @@ def bank_callback(
         "status=%s state=%s",
         conn.id, conn.user_id, conn.status, log_state,
     )
+    # SECURITY (#357): Yapily's live consent token arrives as the
+    # attacker-controllable `consent` URL param.  It only proves ownership
+    # of THIS row if the echoed application-user-id equals the
+    # applicationUserId we minted at /init (== this row's consent_state).
+    # Reject a consent stuffed against a foreign state.  (Salt Edge gets the
+    # equivalent customer_id check inside its exchange_code.)
+    if (
+        conn.provider == "yapily"
+        and application_user_id is not None
+        and application_user_id != conn.consent_state
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Bank consent identity mismatch — cannot complete consent",
+        )
     # Security audit #221 RED #1: empty `code` from a flaky redirect or
     # query-stripping proxy must NOT enter the try block, because the
     # except block burns the state token (line ~521).  Burning a state
@@ -512,6 +560,11 @@ def bank_callback(
             exch_kwargs["requisition_id"] = conn.provider_requisition_id
         if "connection_id" in exch_params:
             exch_kwargs["connection_id"] = connection_id
+        # SECURITY (#357): thread the init-time customer_id (stored as
+        # provider_requisition_id) so Salt Edge's exchange_code can assert
+        # the URL-supplied connection actually belongs to THIS row.
+        if "expected_customer_id" in exch_params:
+            exch_kwargs["expected_customer_id"] = conn.provider_requisition_id
         result = client.exchange_code(code or "", **exch_kwargs)
     except Exception as e:  # noqa: BLE001
         # Audit P-callback (2026-05-25): broadened from `AiiaClientError`
@@ -863,6 +916,42 @@ def revoke_bank_connection(
     # 204 — no body
 
 
+def best_effort_revoke(conn: BankConnection) -> bool:
+    """Best-effort upstream PSD2 consent revoke for GDPR erasure / cleanup.
+
+    Unlike the owner-facing revoke endpoint (which 502s so the owner can
+    retry), this NEVER raises — account erasure must not be blocked by a
+    flaky provider.  Returns True only if the provider revoke was attempted
+    and succeeded.  Caller is responsible for deleting the row afterwards.
+    """
+    if not conn.aiia_account_id or conn.status == "revoked":
+        return False
+    try:
+        client = get_aiia_client()
+        # Yapily addresses DELETE /consents by the stored consent token —
+        # feed it via set_consent() (no-op for Aiia/GoCardless/Salt Edge).
+        if hasattr(client, "set_consent") and conn.refresh_token_enc:
+            try:
+                from app.utils.crypto import decrypt
+                _set_provider_consent(client, decrypt(conn.refresh_token_enc))
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "best_effort_revoke: consent decrypt failed conn=%s — "
+                    "proceeding with local purge only", conn.id, exc_info=True,
+                )
+        try:
+            client.revoke(conn.aiia_account_id)
+            return True
+        finally:
+            _clear_provider_consent(client)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "best_effort_revoke: provider revoke failed conn=%s — "
+            "continuing with erasure", conn.id, exc_info=True,
+        )
+        return False
+
+
 # ─── POST /api/bank-connections/{id}/reconnect ────────────────────────
 
 
@@ -1056,14 +1145,26 @@ def _resolve_bank_category(db: Session, user: User) -> ExpenseCategory:
 
 def _ingest_transactions(
     db: Session, user: User, conn: BankConnection, txns: list[AiiaTransaction],
-) -> tuple[int, int, int]:
+) -> tuple[int, int, int, int]:
     """Materialize Aiia transactions into Sale (credit) / Expense
     (debit) rows, deduped on reference_id. Returns (new_sales,
-    new_expenses, skipped_duplicates)."""
+    new_expenses, skipped_duplicates, skipped_foreign).
+
+    SECURITY/CORRECTNESS (#360): foreign-currency rows are QUARANTINED, not
+    coerced.  Sale/Expense.amount is always in the business base currency
+    (DKK); writing a 5.000 EUR inflow as a 5.000 'DKK' Sale would silently
+    inflate revenue and the MOMS / cash-flow forecast ("you're covered" when
+    you're not).  Sale has no currency column, so v1 simply skips non-base
+    rows and reports the count — the UI surfaces "mixed-currency account,
+    excluded".  (A later pass can FX-convert + populate Expense.fx_rate /
+    original_amount, which needs a Sale-side migration.)
+    """
     new_sales = 0
     new_expenses = 0
     skipped = 0
+    skipped_foreign = 0
 
+    base_ccy = (getattr(user, "currency", None) or "DKK").upper()
     bank_slug = conn.bank_slug or "aiia"
     # Lazy-import voucher allocator — matches bank_import.py pattern.
     try:
@@ -1082,6 +1183,14 @@ def _ingest_transactions(
     bank_category: ExpenseCategory | None = None
 
     for txn in txns:
+        # #360: never coerce currency by dropping the field. A txn in any
+        # currency other than the base is excluded from the ledger (and thus
+        # from the MOMS / forecast sums) rather than summed as DKK.
+        txn_ccy = (getattr(txn, "currency", None) or base_ccy).upper()
+        if txn_ccy != base_ccy:
+            skipped_foreign += 1
+            continue
+
         ref_id = f"bank_{bank_slug}_{txn.aiia_txn_id}"
 
         if txn.amount >= 0:
@@ -1141,7 +1250,12 @@ def _ingest_transactions(
                 )
             new_expenses += 1
 
-    return new_sales, new_expenses, skipped
+    if skipped_foreign:
+        logger.info(
+            "bank_connect.sync: excluded %s non-%s-currency txn(s) from "
+            "ledger conn=%s", skipped_foreign, base_ccy, conn.id,
+        )
+    return new_sales, new_expenses, skipped, skipped_foreign
 
 
 def _auto_confirm_high_confidence(
@@ -1267,7 +1381,9 @@ def sync_bank_connection(
         logger.exception("bank_connect.sync: list_transactions failed")
         raise HTTPException(status_code=502, detail=str(e)) from e
 
-    new_sales, new_expenses, skipped = _ingest_transactions(db, user, conn, txns)
+    new_sales, new_expenses, skipped, skipped_foreign = _ingest_transactions(
+        db, user, conn, txns,
+    )
     db.flush()
 
     # Run reconciliation over the freshly imported rows. import_id
@@ -1286,6 +1402,7 @@ def sync_bank_connection(
             "new_sales": new_sales,
             "new_expenses": new_expenses,
             "skipped": skipped,
+            "skipped_foreign": skipped_foreign,
             "suggestions": len(suggestions),
             "auto_confirmed": auto_confirmed,
         },
@@ -1298,6 +1415,7 @@ def sync_bank_connection(
         new_sales=new_sales,
         new_expenses=new_expenses,
         skipped_duplicates=skipped,
+        skipped_foreign=skipped_foreign,
         suggestions=len(suggestions),
         auto_confirmed=auto_confirmed,
         errors=[],

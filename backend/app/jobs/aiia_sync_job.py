@@ -119,7 +119,7 @@ def _sync_one(db: Session, conn: BankConnection) -> dict:
         return summary
 
     try:
-        ns, ne, sk = _ingest_transactions(db, user, conn, txns)
+        ns, ne, sk, sf = _ingest_transactions(db, user, conn, txns)
         db.flush()
         suggestions = bank_reconciliation.match_transactions(
             db, user.id, import_id="latest", lookback_days=90,
@@ -131,7 +131,8 @@ def _sync_one(db: Session, conn: BankConnection) -> dict:
             entity_type="bank_connection", entity_id=conn.id,
             after={
                 "new_sales": ns, "new_expenses": ne,
-                "skipped": sk, "suggestions": len(suggestions),
+                "skipped": sk, "skipped_foreign": sf,
+                "suggestions": len(suggestions),
                 "auto_confirmed": auto_confirmed,
                 "source": "cron",
             },
@@ -140,7 +141,8 @@ def _sync_one(db: Session, conn: BankConnection) -> dict:
         db.commit()
         summary.update({
             "new_sales": ns, "new_expenses": ne,
-            "skipped": sk, "suggestions": len(suggestions),
+            "skipped": sk, "skipped_foreign": sf,
+            "suggestions": len(suggestions),
             "auto_confirmed": auto_confirmed,
         })
     except Exception as e:  # noqa: BLE001

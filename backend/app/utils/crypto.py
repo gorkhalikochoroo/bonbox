@@ -108,29 +108,28 @@ def _get_fernet() -> MultiFernet:
     # Fallback chain for missing APP_SECRET_KEY:
     # 1. SECRET_KEY (JWT signing key — always set in prod, by definition).
     #    Derive a stable Fernet key from it so existing deploys "just
-    #    work" without operator intervention.
-    # 2. DATABASE_URL — last-ditch stable seed; same DB → same key.
-    # 3. Ephemeral key — only safe for non-production.
+    #    work". TRANSITIONAL ONLY — this couples bank-token encryption to
+    #    the JWT signing secret (a single leak boundary). Target state is
+    #    a dedicated APP_SECRET_KEY in its own boundary.
+    # 2. Ephemeral key — only safe for non-production.
     #
-    # Why not hard-fail in prod: the previous behavior raised
-    # CryptoConfigError on every encrypt() call → opaque SAFE-500 on
-    # bank/MobilePay callbacks. Better to degrade to a derived key
-    # with a CRITICAL log line than to dead-end the demo.
+    # #359: the DATABASE_URL fallback was REMOVED. DATABASE_URL is not a
+    # secret-grade value (it sits in env, build logs, render.yaml and DB
+    # backups), so keying at-rest encryption off it would defeat the
+    # DB-dump threat model this module exists to satisfy.
     if not primary:
         from app.config import settings  # local import — avoid cycle
 
         seed = (getattr(settings, "SECRET_KEY", "") or "").strip()
-        if not seed:
-            seed = (os.environ.get("DATABASE_URL") or "").strip()
 
         if seed:
             primary = seed
             logger.critical(
-                "crypto: APP_SECRET_KEY unset; deriving a key from "
-                "%s as a fallback. SET APP_SECRET_KEY to a "
-                "Fernet.generate_key() value to lock encrypted rows to "
-                "a stable key.",
-                "SECRET_KEY" if settings.SECRET_KEY else "DATABASE_URL",
+                "crypto: APP_SECRET_KEY unset; deriving the at-rest key "
+                "from SECRET_KEY as a TRANSITIONAL fallback — bank-token "
+                "encryption is coupled to the JWT secret. Set a dedicated "
+                "APP_SECRET_KEY (Fernet.generate_key()) plus "
+                "APP_SECRET_KEY_PREVIOUS=<current SECRET_KEY> to migrate."
             )
         elif _is_production():
             # Genuinely no seed available — refuse to silently use an

@@ -113,6 +113,7 @@ class BankSyncResponse(BaseModel):
     new_sales: int
     new_expenses: int
     skipped_duplicates: int
+    skipped_foreign: int = 0     # #360: non-base-currency txns excluded from ledger
     suggestions: int             # how many reconciliation suggestions surfaced
     auto_confirmed: int          # how many HIGH-confidence matches we auto-applied
     errors: list[str] = []
