@@ -51,6 +51,12 @@ STATE_INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
 # downside (#360 — the cardinal "never read reassuring when short" rule).
 STATE_AT_RISK = "AT_RISK"
 
+# Reserve-envelope statuses (#350) — the ring-fence face of the engine: how much
+# MOMS money to set aside, and whether the pot is funded. INSUFFICIENT_DATA reuses
+# STATE_INSUFFICIENT_DATA.
+ENVELOPE_FUNDED = "FUNDED"      # reserved ≥ target
+ENVELOPE_FUNDING = "FUNDING"    # building toward the target by the deadline
+
 
 @dataclass(frozen=True)
 class CashEvent:
@@ -440,6 +446,73 @@ def evaluate(
         band_pct=band_pct,
     )
     return build_cone(inputs, moms_range, round_to=round_to)
+
+
+# ───────────────────────────────────────────────────────────────────────
+# S1-3 (#350): Reserve / envelope model
+#
+# The ring-fence face. Owners under-pay MOMS not because they can't afford it
+# but because the money got spent before the frist. The envelope turns the bill
+# into a behavioural target: "hold this much in a MOMS pot by the deadline; put
+# away X kr/week to get there." It composes the cone (for the target amount) and
+# the weekly-rate solver (for the contribution). Pure.
+#
+# Honest defaults: target the HIGH end of the MOMS range (ring-fence enough for
+# a bigger-than-expected bill), and never report FUNDED on INSUFFICIENT_DATA.
+# ───────────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ReserveEnvelope:
+    deadline: date | None
+    target: Decimal                  # MOMS reserve to hold by the deadline
+    target_basis: str                # "high" | "expected" — which range edge
+    reserved: Decimal                # earmarked so far (input; 0 if untracked)
+    remaining: Decimal               # max(0, target − reserved)
+    funded_pct: float                # 0.0 .. 1.0
+    weeks: int | None
+    weekly_contribution: Decimal     # to fully fund `remaining` by the deadline
+    status: str                      # FUNDED | FUNDING | INSUFFICIENT_DATA
+
+
+def build_envelope(
+    cone: ForesightCone,
+    *,
+    reserved: Decimal = Decimal("0"),
+    target_basis: str = "high",
+    round_to: Decimal = Decimal("100"),
+) -> ReserveEnvelope:
+    """Build the MOMS reserve envelope from a cone + how much is already set
+    aside. Targets the HIGH end of the MOMS range by default (ring-fence for the
+    bigger bill). Returns the contribution to fully fund the gap by the deadline.
+    """
+    if cone.headline_state == STATE_INSUFFICIENT_DATA:
+        return ReserveEnvelope(
+            deadline=cone.mid.deadline, target=Decimal("0"), target_basis=target_basis,
+            reserved=reserved, remaining=Decimal("0"), funded_pct=0.0, weeks=None,
+            weekly_contribution=Decimal("0"), status=STATE_INSUFFICIENT_DATA,
+        )
+
+    target = cone.moms_range.high if target_basis == "high" else cone.moms_range.expected
+    reserved = reserved if reserved > 0 else Decimal("0")
+
+    remaining = target - reserved
+    if remaining < 0:
+        remaining = Decimal("0")
+
+    funded_pct = float(min(Decimal("1"), reserved / target)) if target > 0 else 1.0
+    weeks = cone.mid.weeks_to_deadline
+    contribution = solve_weekly_rate(
+        shortfall=remaining, weeks=weeks, round_to=round_to,
+    ).weekly_rate
+
+    status = ENVELOPE_FUNDED if remaining <= 0 else ENVELOPE_FUNDING
+
+    return ReserveEnvelope(
+        deadline=cone.mid.deadline, target=target, target_basis=target_basis,
+        reserved=reserved, remaining=remaining, funded_pct=round(funded_pct, 2),
+        weeks=weeks, weekly_contribution=contribution, status=status,
+    )
 
 
 def resolve_next_deadline(user) -> dict | None:
