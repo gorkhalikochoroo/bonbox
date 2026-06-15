@@ -249,11 +249,11 @@ export default function RegisterPage() {
     setAlreadyExists(false);
     // Client-side password validation (backend requires letters + digits)
     if (form.password.length < 8) {
-      setError("Password must be at least 8 characters");
+      setError(t("pwMinLength"));
       return;
     }
     if (!/[a-zA-Z]/.test(form.password) || !/[0-9]/.test(form.password)) {
-      setError("Password must contain at least one letter and one number");
+      setError(t("pwLetterNumber"));
       return;
     }
     // On native iOS, default business fields (Apple 3.1.1 compliance)
@@ -614,7 +614,6 @@ export default function RegisterPage() {
                   <select name="business_type" value={form.business_type} onChange={handleChange}
                     className={selectCls} required>
                     <option value="" disabled>{t("selectType")}</option>
-                    <option value="personal">{t("personalFinance")}</option>
                     <optgroup label={t("foodAndDrink")}>
                       <option value="restaurant">{t("btRestaurant")}</option>
                       <option value="cafe">{t("btCafe")}</option>
@@ -647,6 +646,7 @@ export default function RegisterPage() {
                     <optgroup label={t("other")}>
                       <option value="retail">{t("btGeneralRetail")}</option>
                       <option value="wholesale">{t("btWholesale")}</option>
+                      <option value="personal">{t("personalFinance")}</option>
                       <option value="other">{t("other")}</option>
                     </optgroup>
                   </select>
@@ -655,23 +655,11 @@ export default function RegisterPage() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("currency")}</label>
                   <select name="currency" value={form.currency} onChange={handleChange} className={selectCls}>
                     <option value="DKK">{t("currDKK")}</option>
+                    <option value="EUR">{t("currEUR")}</option>
                     <option value="SEK">{t("currSEK")}</option>
                     <option value="NOK">{t("currNOK")}</option>
-                    <option value="EUR">{t("currEUR")}</option>
-                    <option value="EUR_PT">{t("currEUR_PT")}</option>
-                    <option value="EUR_DE">{t("currEUR_DE")}</option>
-                    <option value="EUR_FR">{t("currEUR_FR")}</option>
-                    <option value="EUR_ES">{t("currEUR_ES")}</option>
-                    <option value="EUR_IT">{t("currEUR_IT")}</option>
-                    <option value="EUR_NL">{t("currEUR_NL")}</option>
                     <option value="USD">{t("currUSD")}</option>
                     <option value="GBP">{t("currGBP")}</option>
-                    <option value="NPR">{t("currNPR")}</option>
-                    <option value="INR">{t("currINR")}</option>
-                    <option value="JPY">{t("currJPY")}</option>
-                    <option value="AUD">{t("currAUD")}</option>
-                    <option value="CAD">{t("currCAD")}</option>
-                    <option value="CHF">{t("currCHF")}</option>
                   </select>
                 </div>
               </div>

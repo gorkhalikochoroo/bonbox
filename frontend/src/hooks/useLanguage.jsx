@@ -4912,6 +4912,8 @@ const translations = {
     tooManyAttempts: "Too many attempts. Please wait a moment and try again.",
     slowConnection: "Slow connection — still working on it…",
     registrationFailed: "Registration failed. Please try again.",
+    pwMinLength: "Password must be at least 8 characters",
+    pwLetterNumber: "Password must contain at least one letter and one number",
     // RetentionPage
     retentionSubtitle: "Spot at-risk customers before they churn.",
     // SalesPage
@@ -9901,6 +9903,8 @@ const translations = {
     tooManyAttempts: "For mange forsøg. Vent et øjeblik og prøv igen.",
     slowConnection: "Langsom forbindelse — arbejder stadig på det…",
     registrationFailed: "Oprettelse mislykkedes. Prøv igen.",
+    pwMinLength: "Adgangskoden skal være mindst 8 tegn",
+    pwLetterNumber: "Adgangskoden skal indeholde mindst ét bogstav og ét tal",
     // RetentionPage
     retentionSubtitle: "Find kunder i farezonen, før de falder fra.",
     // SalesPage
