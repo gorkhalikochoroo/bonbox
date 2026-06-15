@@ -24,6 +24,7 @@ import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
 import { UpgradeNudge, PageHeader, TabPills, Button, Icon } from "../components/ui";
+import SmartScanModal from "../components/SmartScanModal";
 // LiveKpisToday — extracted from the legacy /daily-report page so
 // the merged daily page (#150) shows the live operational snapshot
 // at the top, then the close wizard below. Keeps a single "Today"
@@ -224,6 +225,10 @@ export default function DailyClosePage() {
   const currency = displayCurrency(user?.currency);
 
   const [tab, setTab] = useState("close"); // close | history | insights
+  // Scan-first close (#close-funnel) — the one-tap front door. Opens the
+  // shared SmartScanModal; a kasserapport scan navigates back here with a
+  // prefill via the existing consumer. No change to revenue/reconciliation.
+  const [scanOpen, setScanOpen] = useState(false);
   // editDraft holds a DailyClose row when the user clicked "Edit" on a
   // draft in History. CloseForm reads it on mount and pre-fills all
   // fields so the owner doesn't have to re-type yesterday's numbers.
@@ -388,18 +393,28 @@ export default function DailyClosePage() {
               {t("closeTheDayCta") || "Close the day"}
             </p>
             <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
-              {t("closeTheDayCtaHint") || "When your shift ends, lock the day's numbers and send to your accountant."}
+              {t("closeScanHint") || "Snap your Z-report and we fill in tonight's numbers — or enter them by hand."}
             </p>
           </div>
-          <Button
-            variant="primary"
-            onClick={scrollToWizard}
-            className="w-full sm:w-auto shrink-0"
-          >
-            {t("closeTheDayCta") || "Close the day"}
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-2 shrink-0 w-full sm:w-auto">
+            <Button
+              variant="primary"
+              onClick={() => setScanOpen(true)}
+              className="w-full sm:w-auto"
+            >
+              {t("closeScanCta") || "Snap your Z-report"}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={scrollToWizard}
+              className="w-full sm:w-auto"
+            >
+              {t("closeManualCta") || "Enter manually"}
+            </Button>
+          </div>
         </div>
       )}
+      <SmartScanModal open={scanOpen} onClose={() => setScanOpen(false)} />
 
       <DismissibleTip
         id="daily-close-intro-v1"

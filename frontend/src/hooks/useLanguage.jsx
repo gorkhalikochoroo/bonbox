@@ -488,6 +488,9 @@ const translations = {
     // owner experience instead of "do I navigate to Floor or Close?"
     closeTheDayCta: "Close the day",
     closeTheDayCtaHint: "When your shift ends, lock the day's numbers and send to your revisor.",
+    closeScanCta: "Snap your Z-report",
+    closeScanHint: "Snap your Z-report and we fill in tonight's numbers — or enter them by hand.",
+    closeManualCta: "Enter manually",
     todaysFloor: "Today's Floor", todaysBooks: "Today's Books",
     taxBundle: "Tax Bundle", endOfDayCloseTitle: "End-of-Day Close",
     // Reports tabs — Tier 4 IA (Phase E). Forecast / Payment / Expense /
@@ -5657,6 +5660,9 @@ const translations = {
     liveKpisUnavailableHint: "Genindlæs siden for at prøve igen. Kasserapport-flowet nedenfor virker stadig.",
     closeTheDayCta: "Luk dagen",
     closeTheDayCtaHint: "Når skiftet slutter, lås dagens tal og send til revisoren.",
+    closeScanCta: "Tag billede af din kasserapport",
+    closeScanHint: "Tag et billede af din kasserapport, så udfylder vi dagens tal — eller indtast dem selv.",
+    closeManualCta: "Indtast manuelt",
     todaysFloor: "Dagens drift", todaysBooks: "Dagens regnskab",
     taxBundle: "Skattepakke", endOfDayCloseTitle: "Dagsafslutning",
     // Reports-faner — Tier 4 IA (Fase E). DK-lock: kasserapport / MOMS /
