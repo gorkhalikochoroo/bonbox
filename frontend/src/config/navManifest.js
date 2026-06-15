@@ -188,7 +188,12 @@ export const NAV_MANIFEST = [
     aliases: ["imports", "bank import", "payment imports", "csv", "mobilepay", "bankimport", "betalingsimport"],
   },
   {
-    // Khata = customer credit ledger. Lives in Money.
+    // Khata = customer credit ledger (informal running tab). A DK
+    // café/restaurant/bar/bakery/salon doesn't run a khata, so gate it to the
+    // retail/services/general business types where a credit ledger genuinely
+    // fits — it stops cluttering the hospitality ICP's Money menu (the audit's
+    // clearest "not built for me" nav tell). Reversible: the /khata route +
+    // data are untouched; only nav visibility narrows by business type.
     to: "/khata",
     icon: "BookText",
     labelKey: "khata",
@@ -196,6 +201,12 @@ export const NAV_MANIFEST = [
     pillar: null,
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
+    visibleFor: [
+      "retail", "clothing", "online_clothing", "grocery", "veggie_shop",
+      "kiosk", "electronics", "pharmacy", "cosmetics", "stationery", "hardware",
+      "flower_shop", "jewelry", "thrift", "wholesale", "mobile_repair",
+      "laundry", "workshop", "freelancer", "event_organizer", "general", "other",
+    ],
   },
   {
     // Faktura — Starter-tier; page renders its own UpgradeNudge for Free.
