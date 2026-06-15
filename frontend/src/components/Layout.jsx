@@ -16,6 +16,7 @@ import { Icon } from "./ui";
 // opens it (⌘K or button), keeping main bundle lean.
 const GlobalSearchModal = lazy(() => import("./GlobalSearchModal"));
 import BranchSelector, { useBranch } from "./BranchSelector";
+import { archetypeIdFor } from "../config/archetypes";
 import MobileBottomNav from "./MobileBottomNav";
 import PillarDiscovery from "./PillarDiscovery";
 import { useAppLifecycle } from "../hooks/useAppLifecycle";
@@ -89,7 +90,7 @@ const navGroups = buildSidebarGroups();
  *  Accountant-view / logged-out yield an empty Set upstream, so a revisor
  *  always sees the full nav.
  */
-function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasFeature, entReady = true, hiddenPillars = new Set()) {
+function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasFeature, entReady = true, hiddenPillars = new Set(), archetypeId = null) {
   const activeTypes = branchType ? [branchType] : businessTypes;
   const enabled = enabledModules instanceof Set ? enabledModules : new Set();
   const featReady = entReady !== false;
@@ -114,6 +115,7 @@ function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasF
     hasFeature,
     featReady,
     hiddenPillars: hiddenPillars instanceof Set ? hiddenPillars : new Set(),
+    archetypeId,
   };
 
   return groups
@@ -330,7 +332,7 @@ export default function Layout() {
   // Filter sidebar groups by both business_type (branch) and enabled modules
   const baseVisible = isAccountant
     ? accountantNavGroups
-    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars);
+    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, archetypeIdFor(branchType || user?.business_type));
   // For super_admin owners, show an extra "Platform" group with the admin
   // dashboard. Frontend gating is cosmetic — real enforcement is server-side
   // (services/admin_security.py). A non-admin clicking this link sees an empty

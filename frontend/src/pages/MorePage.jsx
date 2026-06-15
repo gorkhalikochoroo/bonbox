@@ -10,6 +10,7 @@ import { useTheme, THEMES } from "../hooks/useTheme";
 import Icon from "../components/ui/Icon";
 import PillarDiscovery from "../components/PillarDiscovery";
 import { NAV_MANIFEST, NAV_GROUPS, filterDestinations } from "../config/navManifest";
+import { archetypeIdFor } from "../config/archetypes";
 import { isNativeApp } from "../utils/platform";
 
 // MorePage is now MANIFEST-DRIVEN (config/navManifest.js) — the same source of
@@ -86,6 +87,9 @@ export default function MorePage() {
     // RELEVANCE axis (C9) — OFF pillars' tiles drop from the More grid. Empty
     // Set while loading / logged-out / accountant-view (usePillars no-ops).
     hiddenPillars,
+    // ARCHETYPE HIDE — off-ICP items (khata) drop from the More grid too;
+    // resolved from branch type or the owner's business_type (single-location).
+    archetypeId: archetypeIdFor(branchType || user?.business_type),
   };
 
   const visible = NAV_GROUPS

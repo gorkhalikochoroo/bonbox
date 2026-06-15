@@ -201,12 +201,12 @@ export const NAV_MANIFEST = [
     pillar: null,
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
-    visibleFor: [
-      "retail", "clothing", "online_clothing", "grocery", "veggie_shop",
-      "kiosk", "electronics", "pharmacy", "cosmetics", "stationery", "hardware",
-      "flower_shop", "jewelry", "thrift", "wholesale", "mobile_repair",
-      "laundry", "workshop", "freelancer", "event_organizer", "general", "other",
-    ],
+    // Off the DK hospitality + personal-service ICP — a café/restaurant/bar/
+    // salon doesn't run a running-tab. Archetype-gated so it works for single-
+    // location owners with no branch; still reachable via ⌘K (search surface)
+    // for the few who use it (retail / services / general keep it in nav).
+    // The /khata route + its data are untouched.
+    hideForArchetypes: ["food_service", "bar", "salon", "personal"],
   },
   {
     // Faktura — Starter-tier; page renders its own UpgradeNudge for Free.
@@ -602,6 +602,7 @@ export function filterDestinations(items, ctx = {}) {
     hasFeature,
     hiddenPillars,
     featReady = true,
+    archetypeId,
   } = ctx;
 
   const types = Array.isArray(businessTypes) ? businessTypes : [];
@@ -638,11 +639,23 @@ export function filterDestinations(items, ctx = {}) {
     if (!pillar) return true;
     return !hidden.has(pillar);
   };
+  // ARCHETYPE HIDE — an item may opt OUT of irrelevant archetypes via
+  // `hideForArchetypes` (e.g. khata makes no sense for food_service / bar /
+  // salon / personal). Additive + fail-open: an item without the field, or an
+  // absent archetypeId, is never hidden. Orthogonal to visibleFor (a raw
+  // business_type allow-list that's inert without branches); this gate is
+  // archetype-resolved so it works for single-location owners with no branch.
+  const passesArchetype = (hideFor) => {
+    if (!hideFor || !hideFor.length) return true;
+    if (!archetypeId) return true;
+    return !hideFor.includes(archetypeId);
+  };
 
   const out = [];
   for (const item of items) {
     if (!passesPillar(item.pillar)) continue;
     if (!passesType(item.visibleFor)) continue;
+    if (!passesArchetype(item.hideForArchetypes)) continue;
     if (!passesModule(item.requiresModule, item.requiresAnyModule)) continue;
     if (item.requiresFeature && !passesFeature(item.requiresFeature)) {
       out.push({ ...item, locked: true });
