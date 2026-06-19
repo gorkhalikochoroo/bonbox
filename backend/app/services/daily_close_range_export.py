@@ -194,8 +194,12 @@ def build_daily_close_range_pdf(
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable,
+        Paragraph, Spacer, Table, TableStyle, HRFlowable,
     )
+
+    from app.services.bonbox_pdf_kit import render_with_doc_hash
+    from app.utils.document_hash import get_software_identifier
+    from app.utils.time import utc_now
 
     DA = (currency == "DKK")
 
@@ -255,14 +259,21 @@ def build_daily_close_range_pdf(
         def _date_short(d):
             return d.strftime("%d %b %Y") if d else ""
 
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf, pagesize=landscape(A4),
-        leftMargin=14*mm, rightMargin=14*mm,
-        topMargin=14*mm, bottomMargin=12*mm,
-        title=f"{L['title']} — {business_name}",
-        author="BonBox",
-    )
+    # ─── Provenance footer inputs (computed ONCE, before rendering) ──────
+    # All fail-soft: footer derivation must never break the PDF.
+    software_id = get_software_identifier()
+    try:
+        generated_at_str = utc_now().strftime("%Y-%m-%d %H:%M UTC")
+    except Exception:  # noqa: BLE001 — clock/strftime should never crash the PDF
+        generated_at_str = ""
+    generator_email = ""
+    if db is not None and user_id is not None:
+        try:
+            from app.models.user import User
+            _u = db.query(User).filter(User.id == user_id).first()
+            generator_email = (getattr(_u, "email", None) or "") if _u else ""
+        except Exception:  # noqa: BLE001 — never let footer derivation break the PDF
+            generator_email = ""
 
     INK = colors.HexColor("#171717")
     MUTED = colors.HexColor("#6b7280")
@@ -285,232 +296,260 @@ def build_daily_close_range_pdf(
                           textColor=MUTED, fontName="Helvetica-Oblique",
                           leading=11)
 
-    story = []
+    def _make_story():
+        # Returns a FRESH list of flowables each call — render_with_doc_hash
+        # invokes this once per pass (reportlab mutates flowables in-place, so
+        # pass 1 and pass 2 each need brand-new objects). All numeric data is
+        # plain-value closure capture; only the Paragraph/Table/Spacer/
+        # HRFlowable OBJECTS are created fresh here.
+        story = []
 
-    # ─── Business identity header ────────────────────────────────────
-    biz_line = f"<font name='Helvetica-Bold' size='12'>{business_name or '—'}</font>"
-    biz_meta = []
-    if profile:
-        if getattr(profile, "org_number", None):
-            biz_meta.append(f"CVR {profile.org_number}")
-        addr_parts = [p for p in [
-            getattr(profile, "address", None),
-            " ".join(p for p in [
-                getattr(profile, "zipcode", None),
-                getattr(profile, "city", None),
-            ] if p),
-        ] if p]
-        if addr_parts:
-            biz_meta.append(", ".join(addr_parts))
-    head_left = biz_line
-    if biz_meta:
-        head_left += f"<br/><font color='#6b7280' size='9'>{' · '.join(biz_meta)}</font>"
+        # ─── Business identity header ────────────────────────────────────
+        biz_line = f"<font name='Helvetica-Bold' size='12'>{business_name or '—'}</font>"
+        biz_meta = []
+        if profile:
+            if getattr(profile, "org_number", None):
+                biz_meta.append(f"CVR {profile.org_number}")
+            addr_parts = [p for p in [
+                getattr(profile, "address", None),
+                " ".join(p for p in [
+                    getattr(profile, "zipcode", None),
+                    getattr(profile, "city", None),
+                ] if p),
+            ] if p]
+            if addr_parts:
+                biz_meta.append(", ".join(addr_parts))
+        head_left = biz_line
+        if biz_meta:
+            head_left += f"<br/><font color='#6b7280' size='9'>{' · '.join(biz_meta)}</font>"
 
-    head_right = (
-        f"<font name='Helvetica-Bold' size='11'>{L['title']}</font>"
-        f"<br/><font color='#6b7280' size='9'>"
-        f"{_date_short(from_date)} → {_date_short(to_date)}"
-        f"</font>"
-    )
-
-    head_table = Table(
-        [[Paragraph(head_left, subtitle), Paragraph(head_right, subtitle)]],
-        colWidths=[160*mm, 110*mm],
-    )
-    head_table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
-    ]))
-    story.append(head_table)
-    story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER, spaceBefore=2, spaceAfter=8))
-
-    n_total = len(closes_sorted)
-    confirmed = [c for c in closes_sorted if (getattr(c, "status", None) or "confirmed") == "confirmed"]
-    drafts = [c for c in closes_sorted if (getattr(c, "status", None) or "confirmed") != "confirmed"]
-    n_conf = len(confirmed)
-    span_days = (to_date - from_date).days + 1 if to_date and from_date and to_date >= from_date else 1
-
-    story.append(Paragraph(
-        f"{n_total} {L['closes']} {L['across_days']} {span_days} {L['days']}  ·  {L['amounts_in']} {currency}",
-        subtitle,
-    ))
-
-    if not closes_sorted:
-        story.append(Spacer(1, 6))
-        story.append(Paragraph(L["no_closes"], note))
-        story.append(Spacer(1, 12))
-        story.append(Paragraph(L["footer_law"], note))
-        doc.build(story)
-        return buf.getvalue()
-
-    # ─── KPI band (only sums CONFIRMED — drafts excluded so totals are
-    #   honest for the accountant) ────────────────────────────────────
-    def _sum(attr):
-        return sum(float(getattr(c, attr, 0) or 0) for c in confirmed)
-
-    total_revenue = _sum("revenue_total")
-    total_moms = _sum("moms_total")
-    total_net = sum(
-        float(c.revenue_ex_moms or 0) if c.revenue_ex_moms is not None
-        else max(float(c.revenue_total or 0) - float(c.moms_total or 0), 0)
-        for c in confirmed
-    )
-    total_tips = _sum("tips_total")
-
-    def _fmt(v):
-        if v is None or v == "":
-            return "—"
-        try:
-            f = float(v)
-        except (TypeError, ValueError):
-            return "—"
-        # Danish format: 1.234,56
-        if DA:
-            return f"{f:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        return f"{f:,.2f}"
-
-    kpi_rows = [[
-        Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_rev']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_revenue)}</font>", subtitle),
-        Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_moms']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_moms)}</font>", subtitle),
-        Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_net']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_net)}</font>", subtitle),
-        Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_tips']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_tips)}</font>", subtitle),
-    ]]
-    kpi = Table(kpi_rows, colWidths=[68*mm, 68*mm, 68*mm, 66*mm])
-    kpi.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f9fafb")),
-        ("BOX", (0, 0), (-1, -1), 0.5, DIVIDER),
-        ("INNERGRID", (0, 0), (-1, -1), 0.5, DIVIDER),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, -1), 7),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-    ]))
-    story.append(kpi)
-    story.append(Spacer(1, 8))
-
-    # ─── Per-close table — accountant columns ────────────────────────
-    table_data = [[
-        L["h_date"], L["h_bilag"], L["h_rev"], L["h_moms"], L["h_net"],
-        L["h_cash"], L["h_card"], L["h_mobilepay"], L["h_diff"], L["h_status"],
-    ]]
-
-    for c in closes_sorted:
-        pay = _bucketed_payments(c)
-        vsales, _vexp = _voucher_ranges(db, user_id, c.date)
-        revenue = float(c.revenue_total or 0)
-        moms = float(c.moms_total or 0) if c.moms_total is not None else None
-        net = (
-            float(c.revenue_ex_moms or 0) if c.revenue_ex_moms is not None
-            else (revenue - (moms or 0))
+        head_right = (
+            f"<font name='Helvetica-Bold' size='11'>{L['title']}</font>"
+            f"<br/><font color='#6b7280' size='9'>"
+            f"{_date_short(from_date)} → {_date_short(to_date)}"
+            f"</font>"
         )
-        cash_diff = c.cash_difference
-        cash_diff_str = ""
-        if cash_diff is not None:
-            sign = "+" if cash_diff > 0 else ""
-            cash_diff_str = f"{sign}{_fmt(cash_diff)}"
-        status = (getattr(c, "status", None) or "confirmed")
-        table_data.append([
-            _date_short(c.date),
-            vsales or "—",
-            _fmt(revenue),
-            _fmt(moms) if moms is not None else "—",
-            _fmt(net),
-            _fmt(pay["cash"]) if pay["cash"] else "—",
-            _fmt(pay["card"]) if pay["card"] else "—",
-            _fmt(pay["mobilepay"]) if pay["mobilepay"] else "—",
-            cash_diff_str or "—",
-            L["locked"] if status == "confirmed" else L["draft"],
-        ])
 
-    # Totals (confirmed only)
-    sum_cash = sum(_bucketed_payments(c)["cash"] for c in confirmed)
-    sum_card = sum(_bucketed_payments(c)["card"] for c in confirmed)
-    sum_mp = sum(_bucketed_payments(c)["mobilepay"] for c in confirmed)
-    sum_diff = sum(
-        float(c.cash_difference or 0) for c in confirmed
-        if c.cash_difference is not None
-    )
+        head_table = Table(
+            [[Paragraph(head_left, subtitle), Paragraph(head_right, subtitle)]],
+            colWidths=[160*mm, 110*mm],
+        )
+        head_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+        ]))
+        story.append(head_table)
+        story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER, spaceBefore=2, spaceAfter=8))
 
-    table_data.append([
-        f"{L['totals']} ({n_conf})", "",
-        _fmt(total_revenue), _fmt(total_moms), _fmt(total_net),
-        _fmt(sum_cash) if sum_cash else "—",
-        _fmt(sum_card) if sum_card else "—",
-        _fmt(sum_mp) if sum_mp else "—",
-        _fmt(sum_diff) if any(c.cash_difference is not None for c in confirmed) else "—",
-        "",
-    ])
+        n_total = len(closes_sorted)
+        confirmed = [c for c in closes_sorted if (getattr(c, "status", None) or "confirmed") == "confirmed"]
+        drafts = [c for c in closes_sorted if (getattr(c, "status", None) or "confirmed") != "confirmed"]
+        n_conf = len(confirmed)
+        span_days = (to_date - from_date).days + 1 if to_date and from_date and to_date >= from_date else 1
 
-    col_widths = [26*mm, 26*mm, 24*mm, 22*mm, 24*mm, 22*mm, 22*mm, 24*mm, 18*mm, 22*mm]
-    table = Table(table_data, colWidths=col_widths, repeatRows=1)
-    table.setStyle(TableStyle([
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, 0), 8),
-        ("FONTSIZE", (0, 1), (-1, -1), 8.5),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), MUTED),
-        ("ALIGN", (2, 0), (8, -1), "RIGHT"),
-        ("ALIGN", (9, 0), (9, -1), "CENTER"),
-        ("ALIGN", (1, 0), (1, -1), "LEFT"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
-        ("TOPPADDING", (0, 0), (-1, 0), 6),
-        ("BOTTOMPADDING", (0, 1), (-1, -2), 5),
-        ("TOPPADDING", (0, 1), (-1, -2), 5),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.5, DIVIDER),
-        ("LINEBELOW", (0, 1), (-1, -2), 0.25, DIVIDER),
-        ("LINEABOVE", (0, -1), (-1, -1), 1, EMERALD),
-        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("BACKGROUND", (0, -1), (-1, -1), EMERALD_BG),
-        ("TEXTCOLOR", (0, -1), (-1, -1), EMERALD),
-    ]))
-    story.append(table)
-
-    # ─── Draft note (if any) ─────────────────────────────────────────
-    if drafts:
-        story.append(Spacer(1, 4))
         story.append(Paragraph(
-            f"<font color='#92400e' size='8.5'>⚠ {len(drafts)} {L['draft'].lower()} — {L['draft_excl']}.</font>",
-            note,
+            f"{n_total} {L['closes']} {L['across_days']} {span_days} {L['days']}  ·  {L['amounts_in']} {currency}",
+            subtitle,
         ))
 
-    # ─── Readiness badge ─────────────────────────────────────────────
-    ready_count = sum(
-        1 for c in confirmed
-        if (c.moms_total is not None)
-        and (c.cash_counted is None or abs(float(c.cash_difference or 0)) <= 100)
+        if not closes_sorted:
+            story.append(Spacer(1, 6))
+            story.append(Paragraph(L["no_closes"], note))
+            story.append(Spacer(1, 12))
+            story.append(Paragraph(L["footer_law"], note))
+            return story
+
+        # ─── KPI band (only sums CONFIRMED — drafts excluded so totals are
+        #   honest for the accountant) ────────────────────────────────────
+        def _sum(attr):
+            return sum(float(getattr(c, attr, 0) or 0) for c in confirmed)
+
+        total_revenue = _sum("revenue_total")
+        total_moms = _sum("moms_total")
+        total_net = sum(
+            float(c.revenue_ex_moms or 0) if c.revenue_ex_moms is not None
+            else max(float(c.revenue_total or 0) - float(c.moms_total or 0), 0)
+            for c in confirmed
+        )
+        total_tips = _sum("tips_total")
+
+        def _fmt(v):
+            if v is None or v == "":
+                return "—"
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                return "—"
+            # Danish format: 1.234,56
+            if DA:
+                return f"{f:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            return f"{f:,.2f}"
+
+        kpi_rows = [[
+            Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_rev']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_revenue)}</font>", subtitle),
+            Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_moms']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_moms)}</font>", subtitle),
+            Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_net']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_net)}</font>", subtitle),
+            Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_tips']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_tips)}</font>", subtitle),
+        ]]
+        kpi = Table(kpi_rows, colWidths=[68*mm, 68*mm, 68*mm, 66*mm])
+        kpi.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f9fafb")),
+            ("BOX", (0, 0), (-1, -1), 0.5, DIVIDER),
+            ("INNERGRID", (0, 0), (-1, -1), 0.5, DIVIDER),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ]))
+        story.append(kpi)
+        story.append(Spacer(1, 8))
+
+        # ─── Per-close table — accountant columns ────────────────────────
+        table_data = [[
+            L["h_date"], L["h_bilag"], L["h_rev"], L["h_moms"], L["h_net"],
+            L["h_cash"], L["h_card"], L["h_mobilepay"], L["h_diff"], L["h_status"],
+        ]]
+
+        for c in closes_sorted:
+            pay = _bucketed_payments(c)
+            vsales, _vexp = _voucher_ranges(db, user_id, c.date)
+            revenue = float(c.revenue_total or 0)
+            moms = float(c.moms_total or 0) if c.moms_total is not None else None
+            net = (
+                float(c.revenue_ex_moms or 0) if c.revenue_ex_moms is not None
+                else (revenue - (moms or 0))
+            )
+            cash_diff = c.cash_difference
+            cash_diff_str = ""
+            if cash_diff is not None:
+                sign = "+" if cash_diff > 0 else ""
+                cash_diff_str = f"{sign}{_fmt(cash_diff)}"
+            status = (getattr(c, "status", None) or "confirmed")
+            table_data.append([
+                _date_short(c.date),
+                vsales or "—",
+                _fmt(revenue),
+                _fmt(moms) if moms is not None else "—",
+                _fmt(net),
+                _fmt(pay["cash"]) if pay["cash"] else "—",
+                _fmt(pay["card"]) if pay["card"] else "—",
+                _fmt(pay["mobilepay"]) if pay["mobilepay"] else "—",
+                cash_diff_str or "—",
+                L["locked"] if status == "confirmed" else L["draft"],
+            ])
+
+        # Totals (confirmed only)
+        sum_cash = sum(_bucketed_payments(c)["cash"] for c in confirmed)
+        sum_card = sum(_bucketed_payments(c)["card"] for c in confirmed)
+        sum_mp = sum(_bucketed_payments(c)["mobilepay"] for c in confirmed)
+        sum_diff = sum(
+            float(c.cash_difference or 0) for c in confirmed
+            if c.cash_difference is not None
+        )
+
+        table_data.append([
+            f"{L['totals']} ({n_conf})", "",
+            _fmt(total_revenue), _fmt(total_moms), _fmt(total_net),
+            _fmt(sum_cash) if sum_cash else "—",
+            _fmt(sum_card) if sum_card else "—",
+            _fmt(sum_mp) if sum_mp else "—",
+            _fmt(sum_diff) if any(c.cash_difference is not None for c in confirmed) else "—",
+            "",
+        ])
+
+        col_widths = [26*mm, 26*mm, 24*mm, 22*mm, 24*mm, 22*mm, 22*mm, 24*mm, 18*mm, 22*mm]
+        table = Table(table_data, colWidths=col_widths, repeatRows=1)
+        table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, 0), 8),
+            ("FONTSIZE", (0, 1), (-1, -1), 8.5),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), MUTED),
+            ("ALIGN", (2, 0), (8, -1), "RIGHT"),
+            ("ALIGN", (9, 0), (9, -1), "CENTER"),
+            ("ALIGN", (1, 0), (1, -1), "LEFT"),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
+            ("TOPPADDING", (0, 0), (-1, 0), 6),
+            ("BOTTOMPADDING", (0, 1), (-1, -2), 5),
+            ("TOPPADDING", (0, 1), (-1, -2), 5),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.5, DIVIDER),
+            ("LINEBELOW", (0, 1), (-1, -2), 0.25, DIVIDER),
+            ("LINEABOVE", (0, -1), (-1, -1), 1, EMERALD),
+            ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+            ("BACKGROUND", (0, -1), (-1, -1), EMERALD_BG),
+            ("TEXTCOLOR", (0, -1), (-1, -1), EMERALD),
+        ]))
+        story.append(table)
+
+        # ─── Draft note (if any) ─────────────────────────────────────────
+        if drafts:
+            story.append(Spacer(1, 4))
+            story.append(Paragraph(
+                f"<font color='#92400e' size='8.5'>⚠ {len(drafts)} {L['draft'].lower()} — {L['draft_excl']}.</font>",
+                note,
+            ))
+
+        # ─── Readiness badge ─────────────────────────────────────────────
+        ready_count = sum(
+            1 for c in confirmed
+            if (c.moms_total is not None)
+            and (c.cash_counted is None or abs(float(c.cash_difference or 0)) <= 100)
+        )
+        all_ready = (ready_count == n_conf and n_conf > 0)
+        badge_text = L["ready"] if all_ready else L["review"]
+        badge_color = EMERALD if all_ready else AMBER
+        badge_bg = EMERALD_BG if all_ready else AMBER_BG
+        icon = "✓" if all_ready else "⚠"
+
+        story.append(Spacer(1, 8))
+        badge = Table(
+            [[Paragraph(
+                f"<font name='Helvetica-Bold' color='{badge_color.hexval()}' size='10'>"
+                f"{icon} {ready_count} / {n_conf} {badge_text}</font>",
+                subtitle,
+            )]],
+            colWidths=[270*mm],
+        )
+        badge.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), badge_bg),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(badge)
+
+        # ─── Footer ──────────────────────────────────────────────────────
+        story.append(Spacer(1, 6))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER, spaceBefore=2, spaceAfter=4))
+        story.append(Paragraph(L["footer_law"], note))
+
+        return story
+
+    # ─── 2-pass render with the accountant-grade provenance footer ───────
+    # Content-aligned margins (NOT symmetric 22mm): the wide landscape tables
+    # are 270mm (head_table 160+110, KPI band, badge, per-close table). On
+    # landscape A4 (297mm) a 271mm frame fits them with ~1mm spare and centres
+    # them — 14mm left / 12mm right gives 297−14−12 = 271mm. Symmetric 22mm
+    # would leave only 253mm and overrun the right margin by ~17mm. The footer
+    # now anchors to these 14/12 content edges (not a hardcoded 22mm), so
+    # Doc-hash / Side X/Y line up with the table edges. bottom_mm=20 keeps the
+    # y=10mm footer clear of body content. render_with_doc_hash calls
+    # _make_story once per pass (fresh flowables each time).
+    period_subject = f"{from_date.isoformat()} → {to_date.isoformat()}"
+    return render_with_doc_hash(
+        _make_story,
+        pagesize=landscape(A4),
+        left_mm=14, right_mm=12, top_mm=14, bottom_mm=20,
+        title=f"{L['title']} — {business_name}",
+        author="BonBox",
+        subject=period_subject,
+        software_id=software_id,
+        generated_at_str=generated_at_str,
+        generator_email=generator_email,
+        is_danish=DA,
     )
-    all_ready = (ready_count == n_conf and n_conf > 0)
-    badge_text = L["ready"] if all_ready else L["review"]
-    badge_color = EMERALD if all_ready else AMBER
-    badge_bg = EMERALD_BG if all_ready else AMBER_BG
-    icon = "✓" if all_ready else "⚠"
-
-    story.append(Spacer(1, 8))
-    badge = Table(
-        [[Paragraph(
-            f"<font name='Helvetica-Bold' color='{badge_color.hexval()}' size='10'>"
-            f"{icon} {ready_count} / {n_conf} {badge_text}</font>",
-            subtitle,
-        )]],
-        colWidths=[270*mm],
-    )
-    badge.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), badge_bg),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-    ]))
-    story.append(badge)
-
-    # ─── Footer ──────────────────────────────────────────────────────
-    story.append(Spacer(1, 6))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER, spaceBefore=2, spaceAfter=4))
-    story.append(Paragraph(L["footer_law"], note))
-
-    doc.build(story)
-    return buf.getvalue()
 
 
 # ─── XLSX ─────────────────────────────────────────────────────────────

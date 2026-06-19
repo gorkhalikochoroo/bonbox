@@ -411,7 +411,7 @@ export function QuickSaleModal({
                 key={v}
                 type="button"
                 onClick={() => setAmount(v.toLocaleString("da-DK"))}
-                className="py-2 px-3 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-blue-400 transition-colors"
+                className="py-2 px-3 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 transition-colors"
               >
                 {v.toLocaleString("da-DK")}
               </button>
@@ -420,7 +420,7 @@ export function QuickSaleModal({
           <button
             type="submit"
             disabled={!amount}
-            className="w-full py-3 rounded-xl font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="w-full py-3 rounded-xl font-semibold text-white bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {t("quickSaleLogBtn") || "Log Sale"}
           </button>

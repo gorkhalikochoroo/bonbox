@@ -75,7 +75,7 @@ function formatPreset(v) {
   // shouldn't have to parse a raw digit string while picking an amount.
   if (typeof v === "number" && Number.isFinite(v)) {
     try {
-      return v.toLocaleString("en-US");
+      return v.toLocaleString("da-DK");
     } catch (_e) {
       return String(v);
     }

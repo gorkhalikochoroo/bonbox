@@ -43,6 +43,7 @@ from app.utils.document_hash import (
     make_numbered_canvas,
     short_hash,
 )
+from app.services.bonbox_pdf_kit import money_dk
 
 logger = logging.getLogger("bonbox.kasserapport_pdf")
 
@@ -53,23 +54,11 @@ _DK_DAYS = ["Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søn
 
 
 def _money(value: Any, currency: str = "DKK") -> str:
-    """Render a numeric amount in 'da-DK' format with currency suffix.
-    None / non-numeric → "—"."""
-    if value is None:
-        return "—"
-    try:
-        n = float(value)
-    except (TypeError, ValueError):
-        return "—"
-    sign = "-" if n < 0 else ""
-    abs_n = abs(n)
-    whole = int(abs_n)
-    fractional = round((abs_n - whole) * 100)
-    if fractional == 100:
-        whole += 1
-        fractional = 0
-    whole_str = f"{whole:,}".replace(",", ".")
-    return f"{sign}{whole_str},{fractional:02d} {currency}"
+    """Render an amount via the shared kit formatter — '1.234,56 kr.' for DKK,
+    matching the gold MOMS-angivelse. Delegates to bonbox_pdf_kit.money_dk so
+    every export speaks one money format (was '… DKK' here before). None /
+    non-numeric → "—"."""
+    return money_dk(value, currency)
 
 
 def _format_dk_address(profile: dict | None) -> str:
@@ -371,12 +360,12 @@ def _render_close_pdf(
     # ─── KONTANT block ────────────────────────────────────────────
     story.append(Paragraph("KONTANT", section))
     cash_rows = [
-        ["Cash closing - till out",          _money(aggregated.get("cash_closing"), currency)],
-        ["Money to bank",                    _money(aggregated.get("money_to_bank"), currency)],
+        ["Kasse ved lukning",          _money(aggregated.get("cash_closing"), currency)],
+        ["Indsat i bank",                    _money(aggregated.get("money_to_bank"), currency)],
         ["Paid out - change/byttep",         _money(aggregated.get("paid_out"), currency)],
         ["Paid in",                          _money(aggregated.get("paid_in"), currency)],
-        ["Cash opening - till in",           _money(aggregated.get("cash_opening"), currency)],
-        ["Cash total",                       _money(aggregated.get("cash_total"), currency)],
+        ["Kasse ved åbning",           _money(aggregated.get("cash_opening"), currency)],
+        ["Kontant i alt",                       _money(aggregated.get("cash_total"), currency)],
     ]
     story.append(_kv_table(cash_rows, last_row_bold=True))
 
@@ -451,7 +440,7 @@ def _render_close_pdf(
 
     rec_rows = [
         ["Sales POS (incl. tax)",  _money(aggregated.get("sales_pos"), currency)],
-        ["Cash difference (+/-)",  _money(cash_diff, currency)],
+        ["Kassedifference (+/-)",  _money(cash_diff, currency)],
     ]
     rec_table = _kv_table(rec_rows, all_bold=True)
     diff_row_idx = len(rec_rows) - 1
@@ -660,12 +649,12 @@ def _build_kasserapport_story(
 
     story.append(Paragraph("KONTANT", section))
     cash_rows = [
-        ["Cash closing - till out",  _money(aggregated.get("cash_closing"), currency)],
-        ["Money to bank",            _money(aggregated.get("money_to_bank"), currency)],
+        ["Kasse ved lukning",  _money(aggregated.get("cash_closing"), currency)],
+        ["Indsat i bank",            _money(aggregated.get("money_to_bank"), currency)],
         ["Paid out - change/byttep", _money(aggregated.get("paid_out"), currency)],
         ["Paid in",                  _money(aggregated.get("paid_in"), currency)],
-        ["Cash opening - till in",   _money(aggregated.get("cash_opening"), currency)],
-        ["Cash total",               _money(aggregated.get("cash_total"), currency)],
+        ["Kasse ved åbning",   _money(aggregated.get("cash_opening"), currency)],
+        ["Kontant i alt",               _money(aggregated.get("cash_total"), currency)],
     ]
     story.append(_kv_table(cash_rows, last_row_bold=True))
 
@@ -731,7 +720,7 @@ def _build_kasserapport_story(
     flagged_reason = aggregated.get("flagged_reason") or ""
     rec_rows = [
         ["Sales POS (incl. tax)", _money(aggregated.get("sales_pos"), currency)],
-        ["Cash difference (+/-)", _money(cash_diff, currency)],
+        ["Kassedifference (+/-)", _money(cash_diff, currency)],
     ]
     rec_table = _kv_table(rec_rows, all_bold=True)
     diff_row_idx = len(rec_rows) - 1

@@ -23,6 +23,7 @@ import { Mic, Undo2, Pencil, Trash, AlertCircle } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useStickyMethod } from "../hooks/useStickyMethod";
 import ReceiptCapture from "../components/ReceiptCapture";
 import ReceiptViewer from "../components/ReceiptViewer";
 import { trackEvent } from "../hooks/useEventLog";
@@ -57,12 +58,16 @@ const DEFAULT_RIGHT_RAIL_MODE = "session4tile";
 export default function SalesPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [sales, setSales] = useState([]);
   const [salesLoading, setSalesLoading] = useState(true);
   const [amount, setAmount] = useState("");
   const [saleDate, setSaleDate] = useState(localIso());
-  const [method, setMethod] = useState("mixed");
+  // Sticky payment method — seeds from the owner's last choice (DK default:
+  // card). setMethod is in-memory only (voice uses it, so a voiced "cash"
+  // never sticks); commitMethod persists on a deliberate tap (cash excluded —
+  // it's the only method that posts to the cashbook). See useStickyMethod.
+  const { method, setMethod, commitMethod } = useStickyMethod("sale");
   const [notes, setNotes] = useState("");
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
@@ -165,7 +170,7 @@ export default function SalesPage() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) { setError(t("voiceNotSupported")); return; }
     const recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
+    recognition.lang = lang === "da" ? "da-DK" : "en-US";
     recognition.interimResults = false;
     recognition.onstart = () => setListening(true);
     recognition.onend = () => setListening(false);
@@ -176,10 +181,10 @@ export default function SalesPage() {
         const val = parseFloat(numMatch[0].replace(/,/g, ""));
         if (val > 0) {
           setAmount(String(val));
-          if (text.includes("cash")) setMethod("cash");
-          else if (text.includes("card")) setMethod("card");
+          if (text.includes("cash") || text.includes("kontant")) setMethod("cash");
+          else if (text.includes("card") || text.includes("kort")) setMethod("card");
           else if (text.includes("mobile")) setMethod("mobilepay");
-          const remaining = text.replace(numMatch[0], "").replace(/cash|card|mobilepay|mixed|dankort/g, "").trim();
+          const remaining = text.replace(numMatch[0], "").replace(/cash|kontant|card|kort|mobilepay|mobil|mixed|dankort/g, "").trim();
           if (remaining.length > 2) setNotes(remaining);
           setSuccess(`${t("voiceParsed")}: "${text}" → ${val.toLocaleString()} ${currency}`);
           setTimeout(() => setSuccess(""), 3000);
@@ -910,7 +915,7 @@ export default function SalesPage() {
             amountSuffix={currency}
             paymentMethods={["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => ({ id: m, label: t(m) }))}
             paymentMethod={method}
-            onPaymentChange={setMethod}
+            onPaymentChange={commitMethod}
             voiceInput={true}
             onVoiceClick={startVoice}
             voiceIcon={<Mic className={`w-4 h-4 ${listening ? "text-red-600 dark:text-red-400 animate-pulse" : ""}`} />}

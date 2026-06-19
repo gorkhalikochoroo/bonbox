@@ -976,6 +976,9 @@ function WeekComparisonCard({ weekComparison, currency }) {
         {rows.map((row) => {
           const diff = row.lastWeek > 0 ? Math.round(((row.thisWeek - row.lastWeek) / Math.abs(row.lastWeek)) * 100) : 0;
           const clampedDiff = Math.max(-500, Math.min(500, diff));
+          // When the real change exceeds the ±500% display cap, show ">500%"
+          // rather than a clamped "500%" that would read as an exact figure.
+          const overCap = Math.abs(diff) > 500;
           const isUp = clampedDiff > 0;
           const isGood = row.goodUp ? isUp : !isUp;
           return (
@@ -1000,7 +1003,7 @@ function WeekComparisonCard({ weekComparison, currency }) {
                     style={{ color: isGood ? SUCCESS : DANGER }}
                   >
                     <Icon name={isUp ? "TrendingUp" : "TrendingDown"} size={12} />
-                    {Math.abs(clampedDiff)}%
+                    {overCap ? ">" : ""}{Math.abs(clampedDiff)}%
                   </span>
                 )}
               </div>

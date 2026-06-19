@@ -1,7 +1,8 @@
 import { useState, useRef } from "react";
-import { Camera, ImageIcon } from "lucide-react";
+import { Camera, ImageIcon, Search, Info, Check } from "lucide-react";
 import Modal from "./Modal";
 import ReceiptViewer from "./ReceiptViewer";
+import Chip from "./ui/Chip";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
@@ -36,11 +37,6 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   // Tier-cap error surfaced from /upload-receipt 402 response. When set,
   // we hide the file picker and show an UpgradeNudge-style block.
   const [capError, setCapError] = useState(null);
-  // "with-moms" (gross — typical Danish receipt) | "without-moms" (net).
-  // Default to gross because most printed receipts include MOMS in the
-  // total. The flag is passed through to the OCR endpoint so server-
-  // side amount detection picks the right line ('Total' vs 'Net').
-  const [momsMode, setMomsMode] = useState("with-moms");
   // Pre-save full-size review modal — opens when user taps the
   // "Review receipt" link below the cropped preview thumbnail.
   // Lets the owner see a tall receipt without cropping + the OCR text
@@ -64,11 +60,6 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
 
     const formData = new FormData();
     formData.append("file", file);
-    // Pass the with/without-MOMS choice to the upload endpoint. Backend
-    // currently ignores it for /sales/upload-receipt and /expenses/upload-
-    // receipt (MOMS is computed at the daily-close level), but sending it
-    // future-proofs the API for per-receipt VAT-mode awareness.
-    formData.append("prices_include_moms", momsMode === "with-moms" ? "true" : "false");
 
     try {
       const res = await api.post(uploadEndpoint, formData, { timeout: 60000 });
@@ -134,7 +125,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     const expenseDate = parsedDate || localIso();
     const payload = {
       amount: parseFloat(amount),
-      description: desc || "Receipt scan",
+      description: desc || t("receiptScanDefaultDesc"),
       date: expenseDate,
       payment_method: method,
       // Pass the OCR-saved photo path so the saved Expense row carries
@@ -147,7 +138,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
       payload.category_id = parsedCategoryId;
     }
     await api.post("/expenses", payload);
-    setSuccess("Expense added from receipt");
+    setSuccess(t("expenseAddedFromReceipt"));
     onSaved?.();
     setTimeout(() => { setSuccess(""); closeModal(); }, 2000);
   };
@@ -164,7 +155,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     onClose?.();
   };
 
-  const modalTitle = isExpense ? "Scan Expense Receipt" : t("uploadReceipt");
+  const modalTitle = isExpense ? t("scanExpenseReceipt") : t("uploadReceipt");
 
   return (
     <>
@@ -186,12 +177,6 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
           </div>
         ) : (
           <div className="space-y-4">
-            {/* MOMS toggle — show before file picker so the owner picks
-                whether the receipt amounts are gross (with VAT) or net.
-                Default 'with-moms' covers most printed Danish receipts.
-                Currently informational at the per-sale level — MOMS is
-                computed at daily-close — but sent to backend for future
-                per-receipt VAT awareness. */}
             {/* Tier-cap reached — show upgrade prompt instead of file
                 picker. Cleared when user closes modal so they can retry
                 next month or upgrade and reopen immediately. */}
@@ -199,50 +184,24 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
               <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 p-4 text-sm text-amber-800 dark:text-amber-200 space-y-2">
                 <div className="font-semibold flex items-center gap-2">
                   <Camera size={16} />
-                  Receipt scans this month: {capError.used} / {capError.cap}
+                  {t("receiptScansThisMonth")}: {capError.used} / {capError.cap}
                 </div>
                 <p className="text-xs leading-relaxed">
                   {/* App Store compliance (Apple 3.1.1): on native, show a
                       neutral cap line — never the server's "Upgrade to Starter"
                       pitch. Web keeps the upgrade copy. */}
                   {isNativeApp()
-                    ? "You've reached this month's receipt scan limit on your plan."
-                    : (capError.message || "Upgrade to Starter for 200 receipt scans / month.")}
+                    ? t("receiptScanLimitReached")
+                    : (capError.message || t("receiptScanUpgradeCopy"))}
                 </p>
                 {canPurchaseInApp() && (
                   <a
                     href="/subscription"
                     className="inline-block px-3 py-1.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-lg text-xs font-medium hover:bg-gray-700 dark:hover:bg-gray-200 transition"
                   >
-                    See plans →
+                    {t("seePlans")} →
                   </a>
                 )}
-              </div>
-            )}
-
-            {!preview && !capError && (
-              <div className="flex items-center justify-center gap-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2">
-                <span className="text-xs text-gray-500 dark:text-gray-400">
-                  Receipt amounts are:
-                </span>
-                <button
-                  onClick={() => setMomsMode("with-moms")}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
-                    momsMode === "with-moms"
-                      ? "bg-blue-600 text-white shadow"
-                      : "bg-white dark:bg-gray-600 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-500"
-                  }`}>
-                  with MOMS
-                </button>
-                <button
-                  onClick={() => setMomsMode("without-moms")}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
-                    momsMode === "without-moms"
-                      ? "bg-blue-600 text-white shadow"
-                      : "bg-white dark:bg-gray-600 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-500 hover:bg-gray-100 dark:hover:bg-gray-500"
-                  }`}>
-                  without MOMS
-                </button>
               </div>
             )}
 
@@ -262,16 +221,16 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                         fileRef.current.click();
                       }
                     }}
-                    className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-6 text-center hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition group"
+                    className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-6 text-center hover:border-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition group"
                   >
                     <div className="flex justify-center mb-1 group-hover:scale-110 transition text-gray-700 dark:text-gray-300">
                       <Camera size={28} strokeWidth={1.5} />
                     </div>
                     <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
-                      {t("takePhoto") || "Take Photo"}
+                      {t("takePhoto")}
                     </p>
                     <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
-                      Opens camera
+                      {t("opensCamera")}
                     </p>
                   </button>
                   <button
@@ -281,16 +240,16 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                         fileRef.current.click();
                       }
                     }}
-                    className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-6 text-center hover:border-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition group"
+                    className="border-2 border-dashed border-gray-200 dark:border-gray-600 rounded-xl p-6 text-center hover:border-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/40 transition group"
                   >
                     <div className="flex justify-center mb-1 group-hover:scale-110 transition text-gray-700 dark:text-gray-300">
                       <ImageIcon size={28} strokeWidth={1.5} />
                     </div>
                     <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
-                      Choose Photo
+                      {t("choosePhoto")}
                     </p>
                     <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
-                      From library or files
+                      {t("fromLibraryOrFiles")}
                     </p>
                   </button>
                 </div>
@@ -335,9 +294,9 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   <button
                     type="button"
                     onClick={() => setReviewOpen(true)}
-                    className="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center gap-1"
+                    className="mt-2 text-xs text-gray-600 dark:text-gray-300 hover:underline inline-flex items-center gap-1"
                   >
-                    🔍 {t("receiptViewerReviewLink") || "Review receipt full-size"}
+                    <Search size={12} aria-hidden="true" /> {t("receiptViewerReviewLink")}
                   </button>
                 )}
               </div>
@@ -345,9 +304,9 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
 
             {uploading && (
               <div className="text-center py-4">
-                <div className="inline-block w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin mb-2"></div>
-                <p className="text-sm text-blue-600 font-medium">{t("scanningReceipt")}</p>
-                <p className="text-xs text-gray-400 mt-1">This may take 10-20 seconds...</p>
+                <div className="inline-block w-8 h-8 border-3 border-gray-900 dark:border-gray-100 border-t-transparent rounded-full animate-spin mb-2"></div>
+                <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">{t("scanningReceipt")}</p>
+                <p className="text-xs text-gray-400 mt-1">{t("ocrMayTake")}</p>
               </div>
             )}
 
@@ -358,6 +317,15 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                     <p className="text-gray-700 text-sm font-medium">
                       {t("detectedAmount")}: {result.suggested_amount.toLocaleString()} DKK
                     </p>
+                    {/* Honest VAT disclosure — only when the OCR endpoint
+                        actually returned a computed MOMS figure. Uses the
+                        endpoint's own vat_rate (never a hardcoded 25%, which
+                        would be wrong for B2B / zero-rated owners). */}
+                    {typeof result.vat_amount === "number" && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        {t("herafMoms")} ({Math.round((result.vat_rate || 0.25) * 100)}%): {result.vat_amount.toLocaleString()} DKK
+                      </p>
+                    )}
                     {result.all_amounts_found.length > 1 && (
                       <div className="flex flex-wrap gap-1 mt-2">
                         {result.all_amounts_found.map((a, i) => (
@@ -381,8 +349,8 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                         Honesty-first: if the model flagged uncertainty,
                         the owner sees it BEFORE saving. */}
                     {result.claude_notes && (
-                      <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-2 italic">
-                        ℹ {result.claude_notes}
+                      <p className="text-[11px] text-amber-700 dark:text-amber-300 mt-2 italic inline-flex items-start gap-1">
+                        <Info size={12} className="mt-0.5 shrink-0" aria-hidden="true" /> {result.claude_notes}
                       </p>
                     )}
                   </div>
@@ -416,7 +384,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   const isLow = typeof conf === "number" && conf < 0.85;
                   return isLow && result?.confidence_per_field ? (
                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-1">
-                      Verify the amount — confidence {Math.round((conf || 0) * 100)}%.
+                      {t("verifyAmountConfidence")} {Math.round((conf || 0) * 100)}%.
                     </p>
                   ) : null;
                 })()}
@@ -438,7 +406,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                     <div className="mb-3">
                       {isLow && (
                         <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-1">
-                          Verify the vendor — confidence {Math.round(conf * 100)}%.
+                          {t("verifyVendorConfidence")} {Math.round(conf * 100)}%.
                         </p>
                       )}
                       <input
@@ -447,8 +415,8 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                         onChange={(e) => setDesc(e.target.value)}
                         placeholder={
                           result?.suggested_vendor
-                            ? `Vendor (we found: ${result.suggested_vendor})`
-                            : "Description / vendor (optional)"
+                            ? `${t("vendorFoundPrefix")} ${result.suggested_vendor}`
+                            : t("descriptionVendorOptional")
                         }
                         className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
                       />
@@ -466,12 +434,12 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                     <div className="mb-3">
                       {isLow && (
                         <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-1">
-                          Verify the date — confidence {Math.round(conf * 100)}%.
+                          {t("verifyDateConfidence")} {Math.round(conf * 100)}%.
                         </p>
                       )}
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
-                          Date
+                          {t("date")}
                         </span>
                         <input
                           type="date"
@@ -480,8 +448,8 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                           className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
                         />
                         {result?.suggested_date && !isLow && (
-                          <span className="text-[11px] text-emerald-600 dark:text-emerald-400 shrink-0">
-                            ✓ from receipt
+                          <span className="text-[11px] text-gray-500 dark:text-gray-400 shrink-0 inline-flex items-center gap-0.5">
+                            <Check size={12} aria-hidden="true" /> {t("fromReceipt")}
                           </span>
                         )}
                       </div>
@@ -496,18 +464,20 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                 {isExpense && result?.suggested_category && (
                   <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 rounded-lg">
                     <span className="text-xs text-gray-700 dark:text-gray-300">
-                      Category guess:
+                      {t("categoryGuess")}
                     </span>
                     <button
                       type="button"
                       onClick={() => setParsedCategoryId(result.suggested_category.category_id)}
-                      className={`px-2 py-0.5 rounded-md text-xs font-medium transition ${
+                      className={`px-2 py-0.5 rounded-md text-xs font-medium transition inline-flex items-center gap-1 ${
                         parsedCategoryId === result.suggested_category.category_id
                           ? "bg-gray-900 text-white"
                           : "bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50"
                       }`}
                     >
-                      {parsedCategoryId === result.suggested_category.category_id ? "✓ " : ""}
+                      {parsedCategoryId === result.suggested_category.category_id && (
+                        <Check size={12} aria-hidden="true" />
+                      )}
                       {result.suggested_category.category_name}
                     </button>
                     {parsedCategoryId === result.suggested_category.category_id && (
@@ -515,7 +485,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                         type="button"
                         onClick={() => setParsedCategoryId("")}
                         className="ml-auto text-xs text-gray-500 hover:text-gray-700"
-                        aria-label="Clear category"
+                        aria-label={t("clearCategory")}
                       >
                         ×
                       </button>
@@ -525,26 +495,23 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
 
                 <div className="flex flex-wrap gap-1.5 mb-4">
                   {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
-                    <button
+                    <Chip
                       key={m}
+                      size="sm"
+                      selected={method === m}
                       onClick={() => setMethod(m)}
-                      className={`px-3 py-2 rounded-lg text-xs font-medium border transition ${
-                        method === m
-                          ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400"
-                          : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
-                      }`}
                     >
                       {t(m)}
-                    </button>
+                    </Chip>
                   ))}
                 </div>
 
                 <button
                   onClick={isExpense ? confirmExpense : confirmSale}
                   disabled={!amount}
-                  className="w-full bg-blue-600 text-white py-3.5 rounded-xl hover:bg-blue-700 transition font-semibold disabled:opacity-40"
+                  className="w-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 py-3.5 rounded-xl hover:bg-gray-700 dark:hover:bg-white transition font-semibold disabled:opacity-40"
                 >
-                  {isExpense ? "Add Expense" : t("confirmLog")}
+                  {isExpense ? t("addExpense") : t("confirmLog")}
                 </button>
               </div>
             )}

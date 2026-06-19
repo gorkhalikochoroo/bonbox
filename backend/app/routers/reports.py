@@ -555,9 +555,15 @@ def monthly_report_pdf(
 
     # VAT summary (dynamic based on user's currency)
     vat_rate = get_vat_rate(user.currency)
-    output_vat = round(total_revenue * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
-    input_vat = round(total_expenses * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
-    vat_payable = round(output_vat - input_vat, 2)
+    # MOMS via compute_filing_data → _calc_vat: the SAME engine as the official
+    # MOMS-angivelse, so this report never disagrees with the filing (excludes
+    # is_tax_exempt; includes the close + faktura revenue streams). `end` is the
+    # inclusive month-end, which compute_filing_data expects. Do NOT re-derive
+    # MOMS from a naive gross*rate/(1+rate) on total_revenue — that counts exempt.
+    _fd = compute_filing_data(db, user, start, end)
+    output_vat = _fd["moms_af_salg"]
+    input_vat = _fd["moms_af_kob"]
+    vat_payable = _fd["moms_til_skat"]
 
     # Best/worst days
     best_day = max(daily_revenue, key=lambda r: r.total, default=None)
@@ -774,8 +780,8 @@ def monthly_report_pdf(
     elements.append(Paragraph(f"{mterms['name']} rate: {vat_rate * 100:.0f}% ({user.currency}) (for accountant reference)", subsection_style))
     vat_data = [
         ["", f"Incl. {mterms['name']}", f"Excl. {mterms['name']}", f"{mterms['name']} Amount"],
-        [mterms["output"], f"{total_revenue:,.0f}", f"{total_revenue / (1 + vat_rate):,.0f}", f"{output_vat:,.0f}"],
-        [mterms["input"], f"{total_expenses:,.0f}", f"{total_expenses / (1 + vat_rate):,.0f}", f"{input_vat:,.0f}"],
+        [mterms["output"], f"{_fd['salg_med_moms']:,.0f}", f"{_fd['salg_med_moms'] - output_vat:,.0f}", f"{output_vat:,.0f}"],
+        [mterms["input"], f"{_fd['kob_med_moms']:,.0f}", f"{_fd['kob_med_moms'] - input_vat:,.0f}", f"{input_vat:,.0f}"],
         [mterms["net"], "", "", f"{vat_payable:,.0f} {cur}"],
     ]
     tv = Table(vat_data, colWidths=[45 * mm, 35 * mm, 35 * mm, 40 * mm])
@@ -943,9 +949,13 @@ def _get_vat_data(db, user, start, end):
     )
 
     vat_rate = get_vat_rate(user.currency)
-    output_vat = round(sales_total * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
-    input_vat = round(expenses_total * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
-    vat_payable = round(output_vat - input_vat, 2)
+    # MOMS via the filing engine so this VAT summary matches the official
+    # MOMS-angivelse (excludes exempt; includes close + faktura). `end` is
+    # exclusive here (Sale.date < end); compute_filing_data wants inclusive.
+    _fd = compute_filing_data(db, user, start, end - timedelta(days=1))
+    output_vat = _fd["moms_af_salg"]
+    input_vat = _fd["moms_af_kob"]
+    vat_payable = _fd["moms_til_skat"]
 
     # Include business profile for VAT report headers
     bp = _get_business_profile(db, user.id)
@@ -953,11 +963,11 @@ def _get_vat_data(db, user, start, end):
     return {
         "vat_rate": vat_rate,
         "vat_rate_pct": round(vat_rate * 100, 1),
-        "sales_incl_vat": sales_total,
-        "sales_excl_vat": round(sales_total / (1 + vat_rate), 2) if vat_rate > 0 else sales_total,
+        "sales_incl_vat": _fd["salg_med_moms"],
+        "sales_excl_vat": round(_fd["salg_med_moms"] - output_vat, 2),
         "output_vat": output_vat,
-        "expenses_incl_vat": expenses_total,
-        "expenses_excl_vat": round(expenses_total / (1 + vat_rate), 2) if vat_rate > 0 else expenses_total,
+        "expenses_incl_vat": _fd["kob_med_moms"],
+        "expenses_excl_vat": round(_fd["kob_med_moms"] - input_vat, 2),
         "input_vat": input_vat,
         "vat_payable": vat_payable,
         "currency": get_display_currency(user.currency),
@@ -1235,7 +1245,9 @@ def report_overview(
 
     # VAT
     vat_rate = get_vat_rate(user.currency or "DKK")
-    vat_payable = round(total_revenue * vat_rate / (1 + vat_rate) - total_expenses * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
+    # MOMS via the filing engine (excludes exempt; 3-stream) so the overview's
+    # MOMS matches the official angivelse. `end` is the inclusive month-end.
+    vat_payable = compute_filing_data(db, user, start, end)["moms_til_skat"]
     vat_terms_data = get_vat_terms(user.currency or "DKK")
 
     # Inventory value & low stock
@@ -1357,9 +1369,13 @@ def custom_report_pdf(
     margin = round((net_profit / total_revenue) * 100, 1) if total_revenue > 0 else 0
 
     vat_rate = get_vat_rate(user.currency or "DKK")
-    output_vat = round(total_revenue * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
-    input_vat = round(total_expenses * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
-    vat_payable = round(output_vat - input_vat, 2)
+    # MOMS via compute_filing_data → _calc_vat: same engine as the official
+    # MOMS-angivelse so this report matches the filing (excludes is_tax_exempt;
+    # includes close + faktura). `end` is the inclusive month-end.
+    _fd = compute_filing_data(db, user, start, end)
+    output_vat = _fd["moms_af_salg"]
+    input_vat = _fd["moms_af_kob"]
+    vat_payable = _fd["moms_til_skat"]
     vat_terms = get_vat_terms(user.currency or "DKK")
 
     # ---- Build PDF ----
@@ -1596,8 +1612,8 @@ def custom_report_pdf(
         elements.append(Paragraph(vat_terms["output"], ParagraphStyle("VDOut", parent=styles["Heading3"], fontSize=12, spaceBefore=8, spaceAfter=4, textColor=DARK)))
         sales_vat_data = [
             ["", "Amount"],
-            [vat_terms["sales_incl"], f"{total_revenue:,.2f} {cur}"],
-            [vat_terms["sales_excl"], f"{total_revenue / (1 + vat_rate):,.2f} {cur}" if vat_rate > 0 else f"{total_revenue:,.2f} {cur}"],
+            [vat_terms["sales_incl"], f"{_fd['salg_med_moms']:,.2f} {cur}"],
+            [vat_terms["sales_excl"], f"{_fd['salg_med_moms'] - output_vat:,.2f} {cur}"],
             [vat_terms["output"], f"{output_vat:,.2f} {cur}"],
         ]
         t_sv = Table(sales_vat_data, colWidths=[95 * mm, 70 * mm])
@@ -1620,8 +1636,8 @@ def custom_report_pdf(
         elements.append(Paragraph(vat_terms["input"], ParagraphStyle("VDIn", parent=styles["Heading3"], fontSize=12, spaceBefore=8, spaceAfter=4, textColor=DARK)))
         exp_vat_data = [
             ["", "Amount"],
-            [vat_terms["exp_incl"], f"{total_expenses:,.2f} {cur}"],
-            [vat_terms["exp_excl"], f"{total_expenses / (1 + vat_rate):,.2f} {cur}" if vat_rate > 0 else f"{total_expenses:,.2f} {cur}"],
+            [vat_terms["exp_incl"], f"{_fd['kob_med_moms']:,.2f} {cur}"],
+            [vat_terms["exp_excl"], f"{_fd['kob_med_moms'] - input_vat:,.2f} {cur}"],
             [vat_terms["input"], f"{input_vat:,.2f} {cur}"],
         ]
         t_ev = Table(exp_vat_data, colWidths=[95 * mm, 70 * mm])
@@ -1644,7 +1660,7 @@ def custom_report_pdf(
         expense_breakdown_vat = (
             db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
             .join(Expense, Expense.category_id == ExpenseCategory.id)
-            .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+            .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), Expense.is_tax_exempt.isnot(True))
             .group_by(ExpenseCategory.name)
             .order_by(func.sum(Expense.amount).desc())
             .all()
@@ -1653,9 +1669,12 @@ def custom_report_pdf(
             elements.append(Paragraph("Expense Breakdown by Category", ParagraphStyle("VDCat", parent=styles["Heading3"], fontSize=12, spaceBefore=8, spaceAfter=4, textColor=DARK)))
             bd = [["Category", f"Incl. {vat_terms['name']}", f"{vat_terms['name']} Amount"]]
             for name, total in expense_breakdown_vat:
-                cat_vat = round(float(total) * vat_rate / (1 + vat_rate), 2) if vat_rate > 0 else 0
+                # Match _calc_vat's extraction so per-category rows sum to the
+                # filing input_vat TOTAL: B2C (incl) = gross*rate/(1+rate);
+                # B2B (excl) = net*rate.
+                cat_vat = round(float(total) * (vat_rate if not _fd["prices_include_moms"] else vat_rate / (1 + vat_rate)), 2) if vat_rate > 0 else 0
                 bd.append([name, f"{float(total):,.2f} {cur}", f"{cat_vat:,.2f} {cur}"])
-            bd.append(["TOTAL", f"{total_expenses:,.2f} {cur}", f"{input_vat:,.2f} {cur}"])
+            bd.append(["TOTAL", f"{_fd['kob_med_moms']:,.2f} {cur}", f"{input_vat:,.2f} {cur}"])
             tb = Table(bd, colWidths=[65 * mm, 50 * mm, 50 * mm])
             tb.setStyle(_header_table_style())
             tb.setStyle(TableStyle([

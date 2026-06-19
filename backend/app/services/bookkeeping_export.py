@@ -29,6 +29,8 @@ from typing import Iterable
 
 from sqlalchemy.orm import Session
 
+from app.utils.csv_safe import csv_safe  # neutralize CSV formula-injection in free-text cells
+
 from app.models.business_profile import BusinessProfile
 from app.models.expense import Expense, ExpenseCategory
 from app.models.sale import Sale
@@ -257,7 +259,7 @@ def export_dinero(user: User, db: Session, start: date, end: date) -> bytes:
         w.writerow([
             s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date),
             bilag,
-            desc[:80],
+            csv_safe(desc[:80]),
             _money(s.amount),
             moms,
             "1010",
@@ -274,7 +276,7 @@ def export_dinero(user: User, db: Session, start: date, end: date) -> bytes:
         w.writerow([
             e.date.isoformat() if hasattr(e.date, "isoformat") else str(e.date),
             bilag,
-            desc[:80],
+            csv_safe(desc[:80]),
             _money(-float(e.amount)),
             moms,
             "2750",
@@ -318,7 +320,7 @@ def export_billy(user: User, db: Session, start: date, end: date) -> bytes:
         w.writerow([
             bilag,
             s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date),
-            desc[:120],
+            csv_safe(desc[:120]),
             _money_dot(s.amount),
             user.currency or "DKK",
             vat,
@@ -339,8 +341,8 @@ def export_billy(user: User, db: Session, start: date, end: date) -> bytes:
         w.writerow([
             bilag,
             e.date.isoformat() if hasattr(e.date, "isoformat") else str(e.date),
-            cat_name,
-            e.description or "",
+            csv_safe(cat_name),
+            csv_safe(e.description or ""),
             _money_dot(e.amount),
             user.currency or "DKK",
             vat,
@@ -394,7 +396,7 @@ def export_economic(user: User, db: Session, start: date, end: date) -> bytes:
         w.writerow([
             bilag,
             s.date.isoformat() if hasattr(s.date, "isoformat") else str(s.date),
-            desc[:80],
+            csv_safe(desc[:80]),
             "1010",
             _money_dot(s.amount),
             cur,
@@ -412,7 +414,7 @@ def export_economic(user: User, db: Session, start: date, end: date) -> bytes:
         w.writerow([
             bilag,
             e.date.isoformat() if hasattr(e.date, "isoformat") else str(e.date),
-            desc[:80],
+            csv_safe(desc[:80]),
             "2750",
             f"-{_money_dot(e.amount)}",
             cur,
@@ -493,7 +495,7 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
             bilag,
             date_iso,
             "Sale",
-            sale_text[:120],
+            csv_safe(sale_text[:120]),
             "",
             amount_str,
             cur,
@@ -529,8 +531,8 @@ def export_generic(user: User, db: Session, start: date, end: date) -> bytes:
             bilag,
             date_iso,
             "Expense",
-            (e.description or cat_name)[:120],
-            cat_name,
+            csv_safe((e.description or cat_name)[:120]),
+            csv_safe(cat_name),
             amount_str,
             cur,
             vat,
@@ -672,7 +674,7 @@ def export_faktura(user: User, db: Session, start: date, end: date) -> bytes:
             inv.issue_date.isoformat() if hasattr(inv.issue_date, "isoformat") else str(inv.issue_date),
             inv.due_date.isoformat() if hasattr(inv.due_date, "isoformat") else str(inv.due_date),
             delivery_str,
-            (customer.name if customer else "")[:255],
+            csv_safe((customer.name if customer else "")[:255]),
             (customer.cvr if customer and customer.cvr else ""),
             (customer.country if customer else "DK"),
             (getattr(customer, "ean_nummer", None) or "") if customer else "",
@@ -726,11 +728,11 @@ def export_mileage(user: User, db: Session, start: date, end: date) -> bytes:
         total_deduction += dedu_val
         w.writerow([
             e.trip_date.isoformat() if hasattr(e.trip_date, "isoformat") else str(e.trip_date),
-            (e.from_address or "")[:200],
-            (e.to_address or "")[:200],
+            csv_safe((e.from_address or "")[:200]),
+            csv_safe((e.to_address or "")[:200]),
             f"{km_val:.2f}".replace(",", ""),
-            (e.purpose or "")[:200],
-            (e.vehicle_reg or ""),
+            csv_safe((e.purpose or "")[:200]),
+            csv_safe(e.vehicle_reg or ""),
             _money_dot(e.rate_per_km),
             _money_dot(dedu_val),
             cur,

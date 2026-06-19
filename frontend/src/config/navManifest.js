@@ -170,7 +170,9 @@ export const NAV_MANIFEST = [
     group: "money",
     pillar: null,
     frequency: "rare",
-    surfaces: ["sidebar", "more", "search"],
+    // C12 declutter: rare; already on More + ⌘K, so dropping "sidebar" is a
+    // pure subtraction with zero reach loss. Reversible by re-adding "sidebar".
+    surfaces: ["more", "search"],
     aliases: ["budget", "budgets"],
   },
   {
@@ -235,7 +237,11 @@ export const NAV_MANIFEST = [
     group: "money",
     pillar: null,
     frequency: "rare",
-    surfaces: ["sidebar"],
+    // C12 declutter: rare once-a-year kørselsfradrag entry — off the daily
+    // sidebar, into More + ⌘K (this GAINS reach: it was sidebar-only before).
+    // Reversible by re-adding "sidebar".
+    surfaces: ["more", "search"],
+    aliases: ["km", "kørsel", "kørselsfradrag", "mileage"],
   },
 
   // ─── STOCK ──────────────────────────────────────────────────────────
@@ -395,7 +401,10 @@ export const NAV_MANIFEST = [
     group: "staff",
     pillar: "staff",
     frequency: "rare",
-    surfaces: ["sidebar", "more"],
+    // C12 declutter: lønkørsel is monthly at most (the only rare Staff item).
+    // Off the sidebar, into More + ⌘K (løn/lønseddel aliases keep it findable).
+    // Reversible by re-adding "sidebar".
+    surfaces: ["more", "search"],
     aliases: ["payroll", "løn", "lønseddel"],
   },
 
@@ -455,7 +464,10 @@ export const NAV_MANIFEST = [
     group: "manage",
     pillar: null,
     frequency: "rare",
-    surfaces: ["sidebar", "more"],
+    // C12 declutter: bank/MobilePay/integration setup is configured at
+    // onboarding, rarely revisited. Off the sidebar, into More + ⌘K (aliases
+    // bank/integrations keep it findable). Reversible by re-adding "sidebar".
+    surfaces: ["more", "search"],
     aliases: ["connections", "integrations", "bank"],
   },
   {
@@ -474,7 +486,11 @@ export const NAV_MANIFEST = [
     group: "manage",
     pillar: null,
     frequency: "rare",
-    surfaces: ["sidebar", "more"],
+    // C12 declutter: POS-terminal registry is set-once (also reached in the
+    // close ritual + Connections). Off the sidebar, into More + ⌘K. The first
+    // item to revert (re-add "sidebar") if owners miss it.
+    surfaces: ["more", "search"],
+    aliases: ["terminal", "kasseapparat", "pos"],
   },
   {
     to: "/channel-settings",
@@ -483,7 +499,10 @@ export const NAV_MANIFEST = [
     group: "manage",
     pillar: null,
     frequency: "rare",
-    surfaces: ["sidebar"],
+    // C12 declutter: one-time Wolt/Uber channel setup — off the daily sidebar,
+    // into More + ⌘K (GAINS reach: was sidebar-only). Reversible.
+    surfaces: ["more", "search"],
+    aliases: ["wolt", "uber", "channels", "kanaler", "ordrekanaler"],
   },
   {
     // Features & modules — the /modules opt-in picker.
@@ -503,7 +522,10 @@ export const NAV_MANIFEST = [
     group: "manage",
     pillar: null,
     frequency: "rare",
-    surfaces: ["sidebar"],
+    // C12 declutter: set-once (who receives the auto-emailed kasserapport) —
+    // off the daily sidebar, into More + ⌘K (GAINS reach). Reversible.
+    surfaces: ["more", "search"],
+    aliases: ["recipients", "modtagere", "share"],
   },
   {
     to: "/outlets",

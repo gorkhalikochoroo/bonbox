@@ -180,7 +180,7 @@ export default function TimeRegistrationPage() {
                   </div>
                   <div className="text-right shrink-0">
                     <div className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">{s.total_hours} t</div>
-                    <div className="text-[11px] text-gray-400">{s.days_registered} {t("tregDays", "days")} · ⌀ {s.weekly_avg_hours} t/{t("tregWk", "wk")}</div>
+                    <div className="text-[11px] text-gray-400">{s.days_registered} {t("tregDays", "days")} · {t("tregRefWkAvg", "4-mo avg")} {s.weekly_avg_hours} t/{t("tregWk", "wk")}</div>
                   </div>
                   <Icon name={open ? "ChevronUp" : "ChevronDown"} size={16} className="text-gray-400 shrink-0" />
                 </button>

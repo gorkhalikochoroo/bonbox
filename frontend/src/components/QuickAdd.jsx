@@ -1,10 +1,12 @@
 import { useState, useEffect, lazy, Suspense } from "react";
-import { ScanLine } from "lucide-react";
+import { ScanLine, ArrowRight } from "lucide-react";
 import Modal from "./Modal";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { localIso } from "../utils/dateFormat";
 import { trackEvent } from "../hooks/useEventLog";
+import Chip from "./ui/Chip";
+import { useStickyMethod } from "../hooks/useStickyMethod";
 // Lazy-load Smart Scan modal — only fetched when the owner taps the
 // "Smart skan" entry below. Keeps QuickAdd's bundle lean for owners
 // who use the keypad path 99% of the time.
@@ -35,7 +37,10 @@ export default function QuickAdd() {
   const [error, setError] = useState("");
 
   const [saleAmount, setSaleAmount] = useState("");
-  const [saleMethod, setSaleMethod] = useState("mixed");
+  // Sticky payment method — remembers the owner's last choice (DK default:
+  // card). commitSaleMethod persists card/MobilePay/etc; cash never sticks
+  // (see useStickyMethod — it's the only method that posts to the cashbook).
+  const { method: saleMethod, commitMethod: commitSaleMethod, reread: rereadSaleMethod } = useStickyMethod("sale");
   const [saleDate, setSaleDate] = useState(localIso());
 
   const [expAmount, setExpAmount] = useState("");
@@ -55,6 +60,9 @@ export default function QuickAdd() {
 
   useEffect(() => {
     if (open) {
+      // Pick up a method the owner changed elsewhere this session — the FAB is
+      // mounted once, so its sticky value would otherwise stay stale until reload.
+      rereadSaleMethod();
       api.get("/expenses/categories").then(async (res) => {
         setCategories(res.data);
         // Auto-create personal categories if in personal mode and none exist
@@ -179,7 +187,7 @@ export default function QuickAdd() {
       <button
         onClick={openSheet}
         aria-label={t("quickEntry")}
-        className={`hidden md:flex fixed md:bottom-6 left-6 z-40 w-10 h-10 ${mode === "personal" ? "bg-purple-600 hover:bg-purple-700" : "bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white"} text-white rounded-full shadow-sm hover:scale-105 transition-all items-center justify-center text-xl font-light`}
+        className={`hidden md:flex fixed md:bottom-6 left-6 z-40 w-10 h-10 bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-white rounded-full shadow-sm hover:scale-105 transition-all items-center justify-center text-xl font-light`}
       >
         +
       </button>
@@ -221,9 +229,7 @@ export default function QuickAdd() {
                 {t("smartScan.subtitle", "Tag ét billede — vi finder ud af resten")}
               </p>
             </div>
-            <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M5 12h14M13 5l7 7-7 7" />
-            </svg>
+            <ArrowRight className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
           </button>
         )}
 
@@ -232,13 +238,13 @@ export default function QuickAdd() {
             <>
               <button onClick={() => setTab("personal_income")}
                 className={`flex-1 py-2.5 rounded-md text-sm font-medium transition ${
-                  tab === "personal_income" ? "bg-white dark:bg-gray-600 shadow text-gray-700 dark:text-gray-300" : "text-gray-500 dark:text-gray-400"
+                  tab === "personal_income" ? "bg-white dark:bg-gray-600 shadow text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
                 }`}>
                 {t("income")}
               </button>
               <button onClick={() => setTab("personal_expense")}
                 className={`flex-1 py-2.5 rounded-md text-sm font-medium transition ${
-                  tab === "personal_expense" ? "bg-white dark:bg-gray-600 shadow text-red-600 dark:text-red-400" : "text-gray-500 dark:text-gray-400"
+                  tab === "personal_expense" ? "bg-white dark:bg-gray-600 shadow text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
                 }`}>
                 {t("expense")}
               </button>
@@ -247,13 +253,13 @@ export default function QuickAdd() {
             <>
               <button onClick={() => setTab("sale")}
                 className={`flex-1 py-2.5 rounded-md text-sm font-medium transition ${
-                  tab === "sale" ? "bg-white dark:bg-gray-600 shadow text-blue-700 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
+                  tab === "sale" ? "bg-white dark:bg-gray-600 shadow text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
                 }`}>
                 {t("logSaleTab")}
               </button>
               <button onClick={() => setTab("expense")}
                 className={`flex-1 py-2.5 rounded-md text-sm font-medium transition ${
-                  tab === "expense" ? "bg-white dark:bg-gray-600 shadow text-blue-700 dark:text-blue-400" : "text-gray-500 dark:text-gray-400"
+                  tab === "expense" ? "bg-white dark:bg-gray-600 shadow text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
                 }`}>
                 {t("addExpenseTab")}
               </button>
@@ -267,17 +273,14 @@ export default function QuickAdd() {
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t("quickAmount")}</p>
               <div className="flex flex-wrap gap-2">
                 {salePresets.map((amt) => (
-                  <button
+                  <Chip
                     key={amt}
+                    size="md"
+                    selected={saleAmount === String(amt)}
                     onClick={() => setSaleAmount(String(amt))}
-                    className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition ${
-                      saleAmount === String(amt)
-                        ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400"
-                        : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                    }`}
                   >
                     {amt.toLocaleString()}
-                  </button>
+                  </Chip>
                 ))}
               </div>
             </div>
@@ -293,17 +296,14 @@ export default function QuickAdd() {
 
             <div className="flex flex-wrap gap-1.5">
               {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
-                <button
+                <Chip
                   key={m}
-                  onClick={() => setSaleMethod(m)}
-                  className={`px-3 py-2 rounded-lg text-xs font-medium border transition ${
-                    saleMethod === m
-                      ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400"
-                      : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
-                  }`}
+                  size="sm"
+                  selected={saleMethod === m}
+                  onClick={() => commitSaleMethod(m)}
                 >
                   {t(m)}
-                </button>
+                </Chip>
               ))}
             </div>
 
@@ -334,17 +334,14 @@ export default function QuickAdd() {
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{t("category")}</p>
               <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1 -m-1 rounded-lg">
                 {categories.map((c) => (
-                  <button
+                  <Chip
                     key={c.id}
+                    size="sm"
+                    selected={expCatId === c.id}
                     onClick={() => setExpCatId(c.id)}
-                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition whitespace-nowrap ${
-                      expCatId === c.id
-                        ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400"
-                        : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                    }`}
                   >
                     {c.name}
-                  </button>
+                  </Chip>
                 ))}
                 {categories.length === 0 && (
                   <p className="text-sm text-gray-400 dark:text-gray-500">{t("addCategoriesFirst")}</p>
@@ -356,17 +353,14 @@ export default function QuickAdd() {
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t("quickAmount")}</p>
               <div className="flex flex-wrap gap-2">
                 {expPresets.map((amt) => (
-                  <button
+                  <Chip
                     key={amt}
+                    size="md"
+                    selected={expAmount === String(amt)}
                     onClick={() => setExpAmount(String(amt))}
-                    className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition ${
-                      expAmount === String(amt)
-                        ? "bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-600 text-blue-700 dark:text-blue-400"
-                        : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                    }`}
                   >
                     {amt.toLocaleString()}
-                  </button>
+                  </Chip>
                 ))}
               </div>
             </div>
@@ -414,17 +408,14 @@ export default function QuickAdd() {
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t("incomeSource")}</p>
               <div className="flex flex-wrap gap-2">
                 {incomeCats.map((c) => (
-                  <button
+                  <Chip
                     key={c.id}
+                    size="md"
+                    selected={pCatId === c.id}
                     onClick={() => setPCatId(c.id)}
-                    className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition ${
-                      pCatId === c.id
-                        ? "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-900 text-gray-700 dark:text-gray-300"
-                        : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                    }`}
                   >
                     {c.name}
-                  </button>
+                  </Chip>
                 ))}
                 {incomeCats.length === 0 && (
                   <p className="text-sm text-gray-400 dark:text-gray-500">{t("noIncomeCatsYet")}</p>
@@ -436,17 +427,14 @@ export default function QuickAdd() {
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t("quickAmount")}</p>
               <div className="flex flex-wrap gap-2">
                 {personalPresets.map((amt) => (
-                  <button
+                  <Chip
                     key={amt}
+                    size="md"
+                    selected={pAmount === String(amt)}
                     onClick={() => setPAmount(String(amt))}
-                    className={`px-4 py-2.5 rounded-lg text-sm font-medium border transition ${
-                      pAmount === String(amt)
-                        ? "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-900 text-gray-700 dark:text-gray-300"
-                        : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                    }`}
                   >
                     {amt.toLocaleString()}
-                  </button>
+                  </Chip>
                 ))}
               </div>
             </div>
@@ -495,17 +483,14 @@ export default function QuickAdd() {
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{t("spendingCategory")}</p>
               <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1 -m-1 rounded-lg">
                 {spendCats.map((c) => (
-                  <button
+                  <Chip
                     key={c.id}
+                    size="sm"
+                    selected={pCatId === c.id}
                     onClick={() => setPCatId(c.id)}
-                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition whitespace-nowrap ${
-                      pCatId === c.id
-                        ? "bg-purple-50 dark:bg-purple-900/30 border-purple-300 dark:border-purple-600 text-purple-700 dark:text-purple-400"
-                        : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                    }`}
                   >
                     {c.name}
-                  </button>
+                  </Chip>
                 ))}
                 {spendCats.length === 0 && (
                   <p className="text-sm text-gray-400 dark:text-gray-500">{t("noSpendCatsYet")}</p>
@@ -517,17 +502,14 @@ export default function QuickAdd() {
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{t("quickAmount")}</p>
               <div className="flex flex-wrap gap-1.5">
                 {personalPresets.map((amt) => (
-                  <button
+                  <Chip
                     key={amt}
+                    size="sm"
+                    selected={pAmount === String(amt)}
                     onClick={() => setPAmount(String(amt))}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${
-                      pAmount === String(amt)
-                        ? "bg-purple-50 dark:bg-purple-900/30 border-purple-300 dark:border-purple-600 text-purple-700 dark:text-purple-400"
-                        : "border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
-                    }`}
                   >
                     {amt.toLocaleString()}
-                  </button>
+                  </Chip>
                 ))}
               </div>
             </div>
@@ -537,7 +519,7 @@ export default function QuickAdd() {
               value={pAmount}
               onChange={(e) => setPAmount(e.target.value)}
               placeholder={t("amountSpent")}
-              className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-base bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-base bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-400"
               autoFocus
             />
 
@@ -546,7 +528,7 @@ export default function QuickAdd() {
               value={pNotes}
               onChange={(e) => setPNotes(e.target.value)}
               placeholder={t("notesOptional")}
-              className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
 
             <div className="flex items-center gap-3">
@@ -556,14 +538,14 @@ export default function QuickAdd() {
                 value={pDate}
                 max={localIso()}
                 onChange={(e) => setPDate(e.target.value)}
-                className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
               />
             </div>
 
             <button
               onClick={submitPersonal}
               disabled={!pAmount || !pCatId}
-              className="w-full bg-purple-600 text-white py-3 rounded-xl hover:bg-purple-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
+              className="w-full bg-gray-900 text-white py-3 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("logExpense")}
             </button>

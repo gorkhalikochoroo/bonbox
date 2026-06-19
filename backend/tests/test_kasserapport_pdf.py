@@ -13,11 +13,14 @@ from app.services.kasserapport_pdf import _money, render_close_pdf
 
 
 # ─── Money formatter — pure helper ─────────────────────────────────────
+# Note: _money now delegates to bonbox_pdf_kit.money_dk, so DKK renders the
+# gold "kr." suffix (was "… DKK") and non-DKK uses the gold ISO format
+# (1,234.56 EUR). These assertions pin that single canonical format.
 
 def test_money_basic():
-    assert _money(14854) == "14.854,00 DKK"
-    assert _money(14854.50) == "14.854,50 DKK"
-    assert _money(14854.555) == "14.854,56 DKK"  # rounds half-up
+    assert _money(14854) == "14.854,00 kr."
+    assert _money(14854.50) == "14.854,50 kr."
+    assert _money(14854.555) == "14.854,56 kr."  # rounds half-up
 
 
 def test_money_handles_none():
@@ -30,23 +33,23 @@ def test_money_handles_garbage():
 
 
 def test_money_handles_negative():
-    assert _money(-685.50) == "-685,50 DKK"
+    assert _money(-685.50) == "-685,50 kr."
 
 
 def test_money_zero():
-    assert _money(0) == "0,00 DKK"
+    assert _money(0) == "0,00 kr."
 
 
 def test_money_currency_override():
-    assert _money(100, currency="EUR") == "100,00 EUR"
-    assert _money(100, currency="NOK") == "100,00 NOK"
+    assert _money(100, currency="EUR") == "100.00 EUR"
+    assert _money(100, currency="NOK") == "100.00 NOK"
 
 
 def test_money_handles_99_99_round_trip():
     """Edge case: 99.995 rounds to 99.100 → 100.00, not 99.100.
     Make sure the fractional carry doesn't break."""
     result = _money(99.995)
-    assert result == "100,00 DKK"
+    assert result == "100,00 kr."
 
 
 # ─── Full PDF render ───────────────────────────────────────────────────

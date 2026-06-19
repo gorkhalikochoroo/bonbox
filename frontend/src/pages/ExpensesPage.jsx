@@ -40,6 +40,7 @@ import { useLocation, useNavigate, Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useStickyMethod } from "../hooks/useStickyMethod";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency, getTaxConfig } from "../utils/currency";
@@ -80,7 +81,7 @@ const DETAILED_PREF_KEY = "bonbox_expenses_detailed_v1";
 export default function ExpensesPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [expenses, setExpenses] = useState([]);
   const [categories, setCategories] = useState([]);
   const [catId, setCatId] = useState("");
@@ -98,7 +99,11 @@ export default function ExpensesPage() {
   const [receiptViewing, setReceiptViewing] = useState(null);
   const [editData, setEditData] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
-  const [method, setMethod] = useState("card");
+  // Sticky payment method (expense scope, own key — seeds from the owner's
+  // last expense choice, default card). setMethod is in-memory (voice + Smart
+  // Scan prefill use it, so neither sticks); commitMethod persists a
+  // deliberate picker tap. See useStickyMethod.
+  const { method, setMethod, commitMethod } = useStickyMethod("expense");
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
   const [customCat, setCustomCat] = useState("");
@@ -293,7 +298,7 @@ export default function ExpensesPage() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) { setError(t("voiceNotSupported")); return; }
     const recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
+    recognition.lang = lang === "da" ? "da-DK" : "en-US";
     recognition.interimResults = false;
     recognition.onstart = () => setListening(true);
     recognition.onend = () => setListening(false);
@@ -304,17 +309,18 @@ export default function ExpensesPage() {
         const val = parseFloat(numMatch[0].replace(/,/g, ""));
         if (val > 0) {
           setAmount(String(val));
-          if (text.includes("cash")) setMethod("cash");
-          else if (text.includes("card")) setMethod("card");
+          if (text.includes("cash") || text.includes("kontant")) setMethod("cash");
+          else if (text.includes("card") || text.includes("kort")) setMethod("card");
+          else if (text.includes("mobile")) setMethod("mobilepay");
           const catMatch = categories.find(c => text.includes(c.name.toLowerCase()));
           if (catMatch) { setCatId(catMatch.id); setCustomCat(""); }
-          const remaining = text.replace(numMatch[0], "").replace(/cash|card|mobilepay|mixed|dankort/g, "").trim();
+          const remaining = text.replace(numMatch[0], "").replace(/cash|kontant|card|kort|mobilepay|mobil|mixed|dankort/g, "").trim();
           if (remaining.length > 2) setDesc(remaining);
-          setSuccess(`Voice: "${text}" → ${val.toLocaleString()} ${currency}`);
+          setSuccess(`${t("voiceParsed")}: "${text}" → ${val.toLocaleString()} ${currency}`);
           setTimeout(() => setSuccess(""), 3000);
         }
       } else {
-        setError(`Couldn't parse amount from: "${text}"`);
+        setError(`${t("couldntParseAmount")}: "${text}"`);
         setTimeout(() => setError(""), 3000);
       }
     };
@@ -555,7 +561,7 @@ export default function ExpensesPage() {
       };
       setAmount("");
       setDesc("");
-      setMethod("card");
+      // Keep the chosen method (sticky) — don't reset to card after each add.
       setNotes("");
       setCustomCat("");
       setIsPersonal(false);
@@ -1100,7 +1106,7 @@ export default function ExpensesPage() {
             amountSuffix={currency}
             paymentMethods={["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => ({ id: m, label: t(m) }))}
             paymentMethod={method}
-            onPaymentChange={setMethod}
+            onPaymentChange={commitMethod}
             voiceInput={true}
             onVoiceClick={startVoice}
             voiceIcon={<Mic className={`w-4 h-4 ${listening ? "text-red-600 dark:text-red-400 animate-pulse" : ""}`} />}

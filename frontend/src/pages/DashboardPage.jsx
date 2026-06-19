@@ -298,7 +298,13 @@ export default function DashboardPage() {
       // user reported "Quick sale doesn't add".
       await api.post("/sales", {
         amount: storedAmount,
-        payment_method: "cash",
+        // Quick Sale is a one-tap day-revenue logger, so the honest method
+        // is "mixed" (matches the Sale model default + the QuickAdd FAB path).
+        // It must NOT hardcode "cash": a "cash" sale auto-posts a cash-in row
+        // to the kassekladde (sync_cash_in_for_sale, sales.py), so defaulting
+        // to cash injected phantom cash into the cashbook for card/MobilePay
+        // revenue — overstating the drawer and poisoning cash reconciliation.
+        payment_method: "mixed",
         notes: t("quickSaleDesc"),
         ...(isTaxExempt ? { is_tax_exempt: true } : {}),
       });
