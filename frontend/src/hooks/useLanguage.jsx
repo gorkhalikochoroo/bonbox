@@ -1882,6 +1882,9 @@ const translations = {
     // Cmd-K enable-action rows (C10b) — an OFF pillar's page stays findable.
     pillarSearchOffChip: "Off",
     pillarSearchEnableHint: "Turned off — press Enter to turn on",
+    // Resume (Fortsæt) affordance — quiet "pick up where you left off" cluster
+    // at the top of the sidebar. Eyebrow above up to 2 recent destinations.
+    resumeEyebrow: "Continue",
     branches: "Branches",
     // C12 Bucket B — Locations merge (Filialer · Sammenligning · Konsolideret)
     locations: "Locations",
@@ -7085,6 +7088,9 @@ const translations = {
     // Cmd-K slå-til-handlinger (C10b) — en fravalgt pillar forbliver søgbar.
     pillarSearchOffChip: "Slået fra",
     pillarSearchEnableHint: "Slået fra — tryk Enter for at slå til",
+    // Fortsæt-affordance — stille "fortsæt hvor du slap"-klynge øverst i
+    // sidemenuen. Overskrift over op til 2 seneste destinationer.
+    resumeEyebrow: "Fortsæt",
     branches: "Filialer",
     // C12 Bucket B — Locations merge (Filialer · Sammenligning · Konsolideret)
     locations: "Lokationer",

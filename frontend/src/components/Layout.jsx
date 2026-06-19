@@ -19,6 +19,8 @@ import BranchSelector, { useBranch } from "./BranchSelector";
 import { archetypeIdFor } from "../config/archetypes";
 import MobileBottomNav from "./MobileBottomNav";
 import PillarDiscovery from "./PillarDiscovery";
+import ResumeRow from "./ResumeRow";
+import { useRouteHistoryRecorder } from "../hooks/useRouteHistory";
 import { useAppLifecycle } from "../hooks/useAppLifecycle";
 import { useKeyboardAvoidance } from "../hooks/useKeyboardAvoidance";
 
@@ -389,6 +391,13 @@ export default function Layout() {
   useAppLifecycle();      // token check on resume, offline sync, deep links
   useKeyboardAvoidance(); // keyboard pushes content up, scrolls to focused input
 
+  // Route-history recorder — mounted ONCE here so every owner route change is
+  // recorded into per-user storage. Side-effect only (renders nothing); the
+  // ResumeRow affordance at the top of the nav reads this back. It self-gates:
+  // only real owner manifest destinations are recorded, never the current path,
+  // and never under a pre-auth (anon) key. See hooks/useRouteHistory.jsx.
+  useRouteHistoryRecorder();
+
   const vatTerms = getVatTerms(user?.currency);
   const [dark, toggleDark] = useDarkMode();
   const { t, lang, setLang, LANGUAGES } = useLanguage();
@@ -623,6 +632,16 @@ export default function Layout() {
           ) : (
             /* Business mode — grouped navigation (filtered by branch type) */
             <div className="space-y-0.5 py-1">
+              {/* RESUME (Fortsæt) — quiet "pick up where you left off" cluster
+                  pinned at the TOP of the nav, above the groups. Shows up to 2
+                  genuinely-recent OTHER destinations as one-tap links, resolved
+                  through the SAME visibility/tier filter the sidebar uses.
+                  Renders null when there's no qualifying history (new owners,
+                  or only the current page in history) and for accountant-view —
+                  never a placeholder, never a fabricated suggestion. */}
+              {!isAccountant && (
+                <ResumeRow enabledModules={enabledModules} onNavigate={closeSidebar} />
+              )}
               {visibleGroups.map((group) => {
                 const isOpen = openGroups[group.id] !== false; // default open for core
                 const hasActiveChild = group.items.some((i) => location.pathname.startsWith(i.to));
