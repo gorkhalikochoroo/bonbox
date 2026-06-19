@@ -95,21 +95,21 @@ def test_expense_receipt_scan_caps_match_marketing_page():
     the primary OCR (paid-per-call). Marketing copy on SubscriptionPage
     promises:
       • Free    — "(10 / month)"
-      • Starter — "200 / month"
-      • Pro     — "500 / month"
+      • Starter — "300 / month"
+      • Pro     — "1000 / month"
     These backend caps MUST equal those numbers — drift = a marketing
     promise that the gate breaks. Trial mirrors Pro per the
     trial=full-Pro contract."""
     assert PLAN_CAPS["free"]["expense_receipt_scans_per_month"] == 10
-    assert PLAN_CAPS["starter"]["expense_receipt_scans_per_month"] == 200
-    assert PLAN_CAPS["pro"]["expense_receipt_scans_per_month"] == 500
-    assert PLAN_CAPS["trial"]["expense_receipt_scans_per_month"] == 500
+    assert PLAN_CAPS["starter"]["expense_receipt_scans_per_month"] == 300
+    assert PLAN_CAPS["pro"]["expense_receipt_scans_per_month"] == 1000
+    assert PLAN_CAPS["trial"]["expense_receipt_scans_per_month"] == 1000
 
 
 @pytest.mark.parametrize("plan,expected", [
     ("free",     10),
-    ("starter",  200),
-    ("pro",      500),
+    ("starter",  300),
+    ("pro",      1000),
 ])
 def test_get_cap_expense_receipt_per_plan(plan, expected):
     """get_cap() must surface the recalibrated values to every router

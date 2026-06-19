@@ -446,9 +446,9 @@ def test_starter_user_gets_starter_sale_parse_cap_not_free():
 
 def test_starter_user_gets_starter_kasse_cap_not_free():
     """Same regression for kasserapport extraction — Starter previously
-    fell through to Free's 5/day. Now correct value (30/day)."""
+    fell through to Free's cap (now 3/day). Now correct value (40/day)."""
     u = _u("starter")
-    assert get_cap(u, "kasse_extracts_per_day") == 30
+    assert get_cap(u, "kasse_extracts_per_day") == 40
 
 
 def test_starter_user_gets_starter_brief_refresh_cap_not_zero():

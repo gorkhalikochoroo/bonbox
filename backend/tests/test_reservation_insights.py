@@ -204,6 +204,39 @@ def _recent_weekday(owner: User, weekday: int, weeks_back: int) -> "date":
     return base - timedelta(weeks=weeks_back)
 
 
+@pytest.fixture
+def freeze_business_today(monkeypatch):
+    """Pin the business clock to a FIXED mid-week date (a Wednesday) so the
+    seed helper (_recent_weekday) and the service window
+    (compute_insights / business_day_window) agree on "today".
+
+    Without this, `_recent_weekday(weekday=4, weeks_back=0)` (last Friday)
+    lands 7 days back when the real run-day is a Friday — just outside a
+    `range_days=7` trailing window — and the seat-minute assertions flake
+    00:00–05:59 / on Fridays. Wednesday keeps last-Friday 5 days back,
+    safely inside the window, every day.
+
+    Patched at the tz_utils SOURCE plus the two modules that did
+    `from app.services.tz_utils import business_today_local` (the service
+    and this test module) so every bound reference resolves identically.
+    """
+    from datetime import date as _date
+    import app.services.tz_utils as _tz
+    import app.services.reservation_insights_service as _svc
+    import sys
+
+    FIXED_WED = _date(2026, 6, 17)  # a Wednesday (weekday() == 2)
+    assert FIXED_WED.weekday() == 2
+
+    def _frozen(_user):  # signature matches business_today_local(user)
+        return FIXED_WED
+
+    monkeypatch.setattr(_tz, "business_today_local", _frozen)
+    monkeypatch.setattr(_svc, "business_today_local", _frozen)
+    monkeypatch.setattr(sys.modules[__name__], "business_today_local", _frozen)
+    return FIXED_WED
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Confidence ladder — the ONE gate
 # ═══════════════════════════════════════════════════════════════════════════
@@ -365,7 +398,7 @@ def test_source_mix_counts_and_covers(db):
 # ═══════════════════════════════════════════════════════════════════════════
 # Utilization — seat-hour (occupancy) + covers-vs-capacity
 # ═══════════════════════════════════════════════════════════════════════════
-def test_utilization_computes_seat_hour_and_covers(db):
+def test_utilization_computes_seat_hour_and_covers(db, freeze_business_today):
     owner, _ = _owner(db, plan="pro")          # open 11:00–23:00 = 12h/day
     table = _table(db, owner, seats=4)
     day = _recent_weekday(owner, weekday=4, weeks_back=0)
@@ -385,7 +418,7 @@ def test_utilization_computes_seat_hour_and_covers(db):
     assert util["basis"] == "occupancy_seat_minutes"
 
 
-def test_utilization_zone_filter_scopes_capacity(db):
+def test_utilization_zone_filter_scopes_capacity(db, freeze_business_today):
     """Zone filter restricts the seat-supply side: only resources in the zone
     feed available seat-minutes + the booked-on-zoned-table occupancy."""
     owner, _ = _owner(db, plan="pro")

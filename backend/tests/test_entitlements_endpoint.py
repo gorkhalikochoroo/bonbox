@@ -172,7 +172,7 @@ def test_entitlements_starter_user_state(client):
     assert body["in_trial"] is False
     # Starter caps (this is the regression the audit caught)
     assert body["caps"]["sale_parse_per_day"] == 50  # was leaking to 15
-    assert body["caps"]["kasse_extracts_per_day"] == 30  # was leaking to 5
+    assert body["caps"]["kasse_extracts_per_day"] == 40  # was leaking to 5
     assert body["caps"]["ai_brief_refreshes_per_day"] == 3  # was leaking to 0
     # Starter features
     assert body["features"]["ai_anomaly_detection"] is True

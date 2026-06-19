@@ -26,6 +26,7 @@ from app.models.user import User
 from app.schemas.daily_close import DailyCloseCreate
 from app.routers.daily_close import _today_scan_count
 from app.services.billing import PLAN_CAPS
+from app.services.tz_utils import business_today_local
 
 
 @pytest.fixture
@@ -127,10 +128,10 @@ def test_scan_caps_pinned_per_tier():
     actual numbers so a future shuffle requires a deliberate decision
     (and a marketing-page update). Read from the unified PLAN_CAPS
     source-of-truth (May 2026 consolidation)."""
-    assert PLAN_CAPS["free"]["z_report_scans_per_day"] == 5
-    assert PLAN_CAPS["starter"]["z_report_scans_per_day"] == 15
-    assert PLAN_CAPS["pro"]["z_report_scans_per_day"] == 50
-    assert PLAN_CAPS["trial"]["z_report_scans_per_day"] == 50  # = full Pro
+    assert PLAN_CAPS["free"]["z_report_scans_per_day"] == 3
+    assert PLAN_CAPS["starter"]["z_report_scans_per_day"] == 20
+    assert PLAN_CAPS["pro"]["z_report_scans_per_day"] == 100
+    assert PLAN_CAPS["trial"]["z_report_scans_per_day"] == 100  # = full Pro
     # (Business tier dropped May 2026.)
 
 
@@ -142,7 +143,7 @@ def test_today_scan_count_zero_for_new_user(db, lars):
 def test_today_scan_count_tracks_close_rows_with_photo(db, lars):
     """Each DailyClose row with receipt_photo set on today counts.
     Cleanly drafted closes (no photo) don't count toward the AI cap."""
-    today = date.today()
+    today = business_today_local(lars)
     # No-photo close — doesn't count toward scan cap
     no_photo = DailyClose(
         id=uuid.uuid4(),
@@ -178,7 +179,8 @@ def test_today_scan_count_tracks_close_rows_with_photo(db, lars):
 def test_today_scan_count_ignores_yesterday(db, lars):
     """Yesterday's photos don't count — quota resets at midnight."""
     from datetime import timedelta
-    yesterday = date.today() - timedelta(days=1)
+    today = business_today_local(lars)
+    yesterday = today - timedelta(days=1)
     old_photo = DailyClose(
         id=uuid.uuid4(),
         user_id=lars.id,
@@ -202,7 +204,7 @@ def test_today_scan_count_isolated_per_user(db, lars):
     )
     db.add(other); db.commit(); db.refresh(other)
 
-    today = date.today()
+    today = business_today_local(other)
     other_photo = DailyClose(
         id=uuid.uuid4(),
         user_id=other.id,

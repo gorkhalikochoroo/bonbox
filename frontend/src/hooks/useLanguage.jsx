@@ -1011,8 +1011,8 @@ const translations = {
     // legacy featFree*OCR keys above so older copy that still references
     // them keeps rendering until those callers are migrated.
     featFreeReceiptOCR10: "Receipt OCR — snap a photo, we fill the expense (10 / month)",
-    featStarterReceipt200: "Receipt OCR — 200 / month, AI vision-grade accuracy",
-    featProReceipt500: "Receipt OCR — 500 / month, AI vision-grade accuracy",
+    featStarterReceipt200: "Receipt OCR — 300 / month, AI vision-grade accuracy",
+    featProReceipt500: "Receipt OCR — 1000 / month, AI vision-grade accuracy",
     // Supplier auto-detection — Starter+ value-add on top of the
     // generic inventory OCR that's free for everyone. The bullet
     // names the three best-known wholesalers; the full registry is
@@ -1105,7 +1105,7 @@ const translations = {
     featFree1Biz: "1 business, 1 user",
     // Starter tier
     featStarterHeader: "Everything in Free — without the caps:",
-    featStarterUnlimitedClose: "Unlimited daily closes + 200 receipt OCR scans / month",
+    featStarterUnlimitedClose: "Unlimited daily closes + 300 receipt OCR scans / month",
     featStarterUnlimitedSales: "Unlimited sales + expenses + AI Copilot",
     featStarterCsvExport: "Direct Dinero / Billy / e-conomic CSV export",
     featStarter1Biz3Users: "Up to 1 location, 3 users with role permissions",
@@ -1680,7 +1680,7 @@ const translations = {
     receiptScanDefaultDesc: "Receipt scan",
     receiptScansThisMonth: "Receipt scans this month",
     receiptScanLimitReached: "You've reached this month's receipt scan limit on your plan.",
-    receiptScanUpgradeCopy: "Upgrade to Starter for 200 receipt scans / month.",
+    receiptScanUpgradeCopy: "Upgrade to Starter for 300 receipt scans / month.",
     opensCamera: "Opens camera",
     choosePhoto: "Choose photo",
     fromLibraryOrFiles: "From library or files",
@@ -6254,8 +6254,8 @@ const translations = {
     // featFree*OCR-nøglerne ovenfor, så ældre tekst der stadig henviser
     // til dem fortsætter med at vises indtil de migreres.
     featFreeReceiptOCR10: "Kvitterings-OCR — tag et billede, vi udfylder bilaget (10 / måned)",
-    featStarterReceipt200: "Kvitterings-OCR — 200 / måned, AI-præcision på synsniveau",
-    featProReceipt500: "Kvitterings-OCR — 500 / måned, AI-præcision på synsniveau",
+    featStarterReceipt200: "Kvitterings-OCR — 300 / måned, AI-præcision på synsniveau",
+    featProReceipt500: "Kvitterings-OCR — 1000 / måned, AI-præcision på synsniveau",
     // Auto-genkendelse af leverandører — Starter+ værditilføjelse oven
     // på den generelle vareindkøbs-OCR, der er gratis for alle.
     featStarterSupplierDetect:
@@ -6337,7 +6337,7 @@ const translations = {
     featFree90Days: "90 dages fuld historik (ældre er kun læseadgang)",
     featFree1Biz: "1 virksomhed, 1 bruger",
     featStarterHeader: "Alt i Free — uden lofterne:",
-    featStarterUnlimitedClose: "Ubegrænsede daglige lukninger + 200 kvitterings-OCR / måned",
+    featStarterUnlimitedClose: "Ubegrænsede daglige lukninger + 300 kvitterings-OCR / måned",
     featStarterUnlimitedSales: "Ubegrænset salg + udgifter + AI Copilot",
     featStarterCsvExport: "Direkte Dinero / Billy / e-conomic CSV-eksport",
     featStarter1Biz3Users: "Op til 1 lokation, 3 brugere med rolletilladelser",
@@ -6893,7 +6893,7 @@ const translations = {
     receiptScanDefaultDesc: "Kvitteringsscan",
     receiptScansThisMonth: "Kvitteringsscanninger denne måned",
     receiptScanLimitReached: "Du har nået denne måneds grænse for kvitteringsscanninger på din plan.",
-    receiptScanUpgradeCopy: "Opgrader til Starter for 200 kvitteringsscanninger/måned.",
+    receiptScanUpgradeCopy: "Opgrader til Starter for 300 kvitteringsscanninger/måned.",
     opensCamera: "Åbner kamera",
     choosePhoto: "Vælg billede",
     fromLibraryOrFiles: "Fra bibliotek eller filer",

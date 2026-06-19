@@ -48,10 +48,22 @@ from app.services.auth import get_current_user
 # Mark DB ready so the readiness middleware doesn't 503.
 _db_ready.set()
 
-# A fixed future weekday (a Friday) so lead-time / advance-window checks pass.
-# 2026-06-12 is a Friday; the public flow uses _now_local(), so we book far
-# enough ahead that "now + lead_time" never trips.
-_DAY = "2026-06-12"
+# A FUTURE-relative booking day so lead-time / advance-window checks always
+# pass. The public flow refuses past-dated bookings (409 slot_unavailable), so
+# a hardcoded calendar date silently rots into a failing test the moment it
+# falls into the past. We derive the day from "now" every run, ~2 weeks out
+# (open hours cover all 7 weekdays + max_advance_days=3650, so any near-future
+# date works). Every dependent literal below derives from _DAY_DATE so the
+# whole file tracks this one value.
+_now_local = datetime.now  # local wall-clock now (naive); no user context needed here
+_DAY_DATE = (_now_local().date() + timedelta(days=14))
+_DAY = _DAY_DATE.isoformat()
+
+
+def _dt_on_day(hour: int, minute: int = 0) -> datetime:
+    """A naive local wall-clock datetime on the booked day (matches how the
+    occupancy rows + service literals are stored in this suite)."""
+    return datetime(_DAY_DATE.year, _DAY_DATE.month, _DAY_DATE.day, hour, minute)
 
 
 # ─── Fixtures ────────────────────────────────────────────────────────
@@ -250,8 +262,8 @@ def test_confirmed_public_booking_writes_active_occupancy(client, db, engine_and
     row = occ[0]
     assert row.resource_id is not None
     assert row.user_id == profile.user_id
-    assert row.starts_at == datetime(2026, 6, 12, 19, 0)
-    assert row.ends_at == datetime(2026, 6, 12, 20, 30)  # 90-min turn
+    assert row.starts_at == _dt_on_day(19, 0)
+    assert row.ends_at == _dt_on_day(20, 30)  # 90-min turn
     assert row.active is True
 
 
@@ -450,7 +462,7 @@ def test_owner_manual_explicit_table_writes_occupancy(client, db, engine_and_ses
             "/api/reservations/book",
             json={
                 "guest_name": "Walk In", "party_size": 2,
-                "starts_at": "2026-06-12T19:00:00",
+                "starts_at": f"{_DAY}T19:00:00",
                 "resource_id": table_id, "source": "manual",
             },
         )
@@ -466,7 +478,7 @@ def test_owner_manual_explicit_table_writes_occupancy(client, db, engine_and_ses
             "/api/reservations/book",
             json={
                 "guest_name": "Double Book", "party_size": 2,
-                "starts_at": "2026-06-12T19:30:00",
+                "starts_at": f"{_DAY}T19:30:00",
                 "resource_id": table_id, "source": "manual",
             },
         )
@@ -488,7 +500,7 @@ def test_owner_manual_unassigned_no_occupancy(client, db, engine_and_session):
             "/api/reservations/book",
             json={
                 "guest_name": "Later", "party_size": 2,
-                "starts_at": "2026-06-12T19:00:00", "source": "manual",
+                "starts_at": f"{_DAY}T19:00:00", "source": "manual",
                 "auto_assign": False,
             },
         )
@@ -620,7 +632,7 @@ def test_owner_seat_now_walk_in(client, db, engine_and_session):
             "/api/reservations/book",
             json={
                 "party_size": 2,
-                "starts_at": "2026-06-12T19:00:00",
+                "starts_at": f"{_DAY}T19:00:00",
                 "resource_id": table_id,
                 "source": "walk_in",
                 "status": "seated",  # mark occupied on the spot, no name
@@ -651,8 +663,8 @@ def test_insert_and_catch_retries_then_succeeds_on_second_table(db, engine_and_s
     # throwaway confirmed reservation.)
     pre = Reservation(
         user_id=owner.id, resource_id=resources[0].id, guest_name="Pre",
-        party_size=2, starts_at=datetime(2026, 6, 12, 19, 0),
-        ends_at=datetime(2026, 6, 12, 20, 30), duration_min=90,
+        party_size=2, starts_at=_dt_on_day(19, 0),
+        ends_at=_dt_on_day(20, 30), duration_min=90,
         status="confirmed", source="manual",
     )
     db.add(pre)
@@ -663,8 +675,8 @@ def test_insert_and_catch_retries_then_succeeds_on_second_table(db, engine_and_s
     # Build the new reservation, initially pointed at table[0] (the busy one).
     new = Reservation(
         user_id=owner.id, resource_id=resources[0].id, guest_name="Racer",
-        party_size=2, starts_at=datetime(2026, 6, 12, 19, 0),
-        ends_at=datetime(2026, 6, 12, 20, 30), duration_min=90,
+        party_size=2, starts_at=_dt_on_day(19, 0),
+        ends_at=_dt_on_day(20, 30), duration_min=90,
         status="confirmed", source="public",
     )
 
@@ -683,7 +695,7 @@ def test_insert_and_catch_retries_then_succeeds_on_second_table(db, engine_and_s
     try:
         result = occ_service.create_reservation_with_occupancy(
             db, profile=profile, reservation=new, initial_resource_id=resources[0].id,
-            party_size=2, start=datetime(2026, 6, 12, 19, 0), duration_min=90,
+            party_size=2, start=_dt_on_day(19, 0), duration_min=90,
             now=None, reassign=True,
         )
     finally:
@@ -707,8 +719,8 @@ def test_insert_and_catch_returns_409_when_all_candidates_conflict(db, engine_an
     owner, profile, resources = _restaurant(db, tables=1)
     new = Reservation(
         user_id=owner.id, resource_id=resources[0].id, guest_name="Loser",
-        party_size=2, starts_at=datetime(2026, 6, 12, 19, 0),
-        ends_at=datetime(2026, 6, 12, 20, 30), duration_min=90,
+        party_size=2, starts_at=_dt_on_day(19, 0),
+        ends_at=_dt_on_day(20, 30), duration_min=90,
         status="confirmed", source="public",
     )
 
@@ -724,7 +736,7 @@ def test_insert_and_catch_returns_409_when_all_candidates_conflict(db, engine_an
             occ_service.create_reservation_with_occupancy(
                 db, profile=profile, reservation=new,
                 initial_resource_id=resources[0].id, party_size=2,
-                start=datetime(2026, 6, 12, 19, 0), duration_min=90,
+                start=_dt_on_day(19, 0), duration_min=90,
                 now=None, reassign=True,
             )
     finally:
@@ -795,7 +807,7 @@ def test_concurrent_identical_bookings_exactly_one_wins_postgres():
     seed.close()
 
     N = 12
-    start = datetime(2026, 6, 12, 19, 0)
+    start = _dt_on_day(19, 0)
     end = start + timedelta(minutes=90)
     results: list[str] = []
     lock = threading.Lock()
