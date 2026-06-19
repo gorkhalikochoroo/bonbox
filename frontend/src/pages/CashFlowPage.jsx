@@ -1,56 +1,118 @@
-// Task #118 polish (Agent C): migrated H1 → PageHeader, KPI tiles →
-// StatCard grid with semantic accents (lowest point / danger days
-// keep red/yellow when actually at-risk). Behavior + i18n + a11y unchanged.
+// Slice-4 chart polish (Foresight honesty pass): the projection chart now
+// reads as an HONEST estimate, not a confident filed figure —
+//   • money routes through formatKr (da-DK "15.000 kr.", never "15.000 DKK")
+//   • a visible "(estimat)" tag + uncertainty band (cone) widening toward the
+//     deadline from foresight.moms.low/high — sparse per-day balance is NOT
+//     smoothed into a tight confident curve
+//   • a vertical "I dag" reference line marks the actuals→projection boundary
+//   • foresight verdict / fail-closed states (LEARNING, AT_RISK, STALE,
+//     INSUFFICIENT_DATA) surface instead of a pretty green default
+//   • status-only colors (emerald=ok / amber=warn / red=risk), Lucide icons,
+//     no rainbow, no decorative gradient, no emoji chrome.
 import { useState, useEffect } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
+import {
+  Wallet, BarChart3, Calendar, AlertTriangle, AlertCircle,
+  CheckCircle2, TrendingUp, TrendingDown, Lightbulb,
+} from "lucide-react";
 import api from "../services/api";
-import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency } from "../utils/currency";
+import { formatKr } from "../utils/currency";
+import { formatDateClear } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, Button } from "../components/ui";
 
-function fmt(n) {
-  if (n == null) return "—";
-  return Math.round(n).toLocaleString();
+// da-DK weekday short names, indexed by Mon=0 (backend WEEKDAY_NAMES order).
+const WEEKDAY_SHORT = {
+  en: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+  da: ["Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn"],
+};
+
+function weekdayShort(dayName, lang) {
+  // Backend sends English full weekday ("Monday"…). Map to localized short.
+  const order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  const idx = order.indexOf(dayName);
+  if (idx < 0) return (dayName || "").slice(0, 3);
+  return (WEEKDAY_SHORT[lang] || WEEKDAY_SHORT.en)[idx];
 }
 
-function CustomTooltip({ active, payload, currency }) {
+function CustomTooltip({ active, payload, t, lang }) {
   if (!active || !payload?.length) return null;
   const d = payload[0]?.payload;
   if (!d) return null;
   return (
     <div className="bg-white dark:bg-gray-800 p-3 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 text-sm">
-      <p className="font-bold text-gray-800 dark:text-white">{d.day}, {d.date}</p>
+      <p className="font-semibold text-gray-900 dark:text-white">
+        {weekdayShort(d.day, lang)} · {formatDateClear(d.date)}
+      </p>
       <div className="mt-1 space-y-0.5">
-        <p className={`font-semibold ${d.balance >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-          Balance: {fmt(d.balance)} {currency}
+        <p className={`font-semibold tabular-nums ${d.balance >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+          {t("cfpColBalance")}: {formatKr(d.balance, { decimals: 0 })}
+          <span className="ml-1 text-[10px] font-normal text-gray-400">({t("cfpEstimateTag")})</span>
         </p>
-        {d.revenue > 0 && <p className="text-blue-500">+ Revenue: {fmt(d.revenue)} {currency}</p>}
-        {d.expenses > 0 && <p className="text-orange-500">- Expenses: {fmt(d.expenses)} {currency}</p>}
+        {d.revenue > 0 && (
+          <p className="text-gray-600 dark:text-gray-300 tabular-nums">
+            <TrendingUp size={11} strokeWidth={2} className="inline text-emerald-600 mr-1 -mt-0.5" />
+            {t("cfpColRevenue")}: {formatKr(d.revenue, { decimals: 0 })}
+          </p>
+        )}
+        {d.expenses > 0 && (
+          <p className="text-gray-600 dark:text-gray-300 tabular-nums">
+            <TrendingDown size={11} strokeWidth={2} className="inline text-red-600 mr-1 -mt-0.5" />
+            {t("cfpColExpenses")}: {formatKr(d.expenses, { decimals: 0 })}
+          </p>
+        )}
         {d.recurring?.length > 0 && (
-          <p className="text-purple-500 text-xs">📅 {d.recurring.join(", ")}</p>
+          <p className="text-gray-500 dark:text-gray-400 text-xs">
+            <Calendar size={11} strokeWidth={2} className="inline mr-1 -mt-0.5" />
+            {d.recurring.join(", ")}
+          </p>
         )}
       </div>
     </div>
   );
 }
 
+// Verdict → tone + Lucide icon + headline, reusing the existing fsVerdict*
+// keys (same pattern as ComplianceCountdownCard). INSUFFICIENT_DATA is the
+// honest "add a balance" state — NEVER a confident "you're covered".
+function verdictConfig(t, verdict) {
+  switch (verdict) {
+    case "ON_TRACK":
+      return { Icon: CheckCircle2, tone: "ok", headline: t("fsVerdictOnTrack") };
+    case "TIGHT":
+      return { Icon: AlertTriangle, tone: "warn", headline: t("fsVerdictTight") };
+    case "AT_RISK":
+      return { Icon: AlertTriangle, tone: "warn", headline: t("fsVerdictAtRisk") };
+    case "SHORT":
+      return { Icon: AlertCircle, tone: "bad", headline: t("fsVerdictShort") };
+    default:
+      return { Icon: Wallet, tone: "neutral", headline: t("fsVerdictEnterBalance") };
+  }
+}
+
+const TONE_TEXT = {
+  ok: "text-emerald-600 dark:text-emerald-400",
+  warn: "text-amber-600 dark:text-amber-400",
+  bad: "text-red-600 dark:text-red-400",
+  neutral: "text-gray-500 dark:text-gray-400",
+};
+const TONE_BORDER = {
+  ok: "border-emerald-500",
+  warn: "border-amber-500",
+  bad: "border-red-600",
+  neutral: "border-gray-300 dark:border-gray-700",
+};
+
 export default function CashFlowPage() {
-  const { user } = useAuth();
-  const { t } = useLanguage();
-  const currency = displayCurrency(user?.currency);
+  const { t, lang } = useLanguage();
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    fetchForecast();
-  }, []);
 
   const fetchForecast = async () => {
     setLoading(true);
@@ -58,18 +120,23 @@ export default function CashFlowPage() {
     try {
       const res = await api.get("/cashflow/forecast");
       setData(res.data);
-    } catch (e) {
-      setError("Could not load cash flow forecast");
+    } catch {
+      setError(t("cfpError"));
     }
     setLoading(false);
   };
+
+  useEffect(() => {
+    fetchForecast();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) {
     return (
       <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <div className="text-4xl mb-3 animate-pulse">💰</div>
-          <p className="text-gray-500 dark:text-gray-400">Calculating cash flow...</p>
+          <Wallet size={32} strokeWidth={1.5} className="mx-auto mb-3 text-gray-400 animate-pulse" />
+          <p className="text-gray-500 dark:text-gray-400">{t("cfpLoading")}</p>
         </div>
       </div>
     );
@@ -78,35 +145,80 @@ export default function CashFlowPage() {
   if (error || !data) {
     return (
       <div className="p-4 md:p-8 max-w-lg mx-auto text-center">
-        <div className="text-4xl mb-4">📊</div>
-        <p className="text-red-500">{error || "No data available"}</p>
-        <button onClick={fetchForecast} className="mt-4 text-sm text-emerald-600 hover:underline">Try again</button>
+        <BarChart3 size={32} strokeWidth={1.5} className="mx-auto mb-4 text-gray-400" />
+        <p className="text-red-500">{error || t("cfpError")}</p>
+        <button onClick={fetchForecast} className="mt-4 text-sm text-emerald-600 hover:underline">
+          {t("cfpTryAgain")}
+        </button>
       </div>
     );
   }
 
   const { projection, alerts, current_balance, safety_threshold, lowest_point,
     danger_days, receivables, total_receivable, recurring_expenses,
-    daily_expense_avg, has_data } = data;
+    has_data, foresight } = data;
 
-  // Chart data — abbreviate dates
-  const chartData = projection.map(p => ({
-    ...p,
-    label: p.date.slice(5), // "MM-DD"
-    safetyLine: safety_threshold,
-  }));
+  // The real uncertainty + fail-closed signals the engine already computes.
+  const fs = foresight && foresight.available ? foresight : null;
 
-  const minBalance = Math.min(...projection.map(p => p.balance), 0);
-  const maxBalance = Math.max(...projection.map(p => p.balance));
+  // Chart data — keep raw ISO date for the localized formatters; add a
+  // fuzzy uncertainty band derived from foresight.moms range. We do NOT have
+  // per-day low/high (the projection points carry only a scalar balance), so
+  // we widen a band toward the deadline using the MOMS range spread, never
+  // fabricating a precise per-day cone. The band is rendered low-opacity so it
+  // reads as "range", not an exact figure.
+  const momsSpread =
+    fs && fs.moms && fs.moms.low != null && fs.moms.high != null
+      ? Math.max(0, Number(fs.moms.high) - Number(fs.moms.low))
+      : 0;
+  const horizon = Math.max(1, projection.length - 1);
+  const chartData = projection.map((p, i) => {
+    // Widen linearly from 0 (today, known) to the full MOMS spread at the
+    // far edge. half-spread above/below the projected balance.
+    const half = (momsSpread / 2) * (i / horizon);
+    return {
+      ...p,
+      bandLow: momsSpread > 0 ? p.balance - half : null,
+      // recharts stacks the band as [low, low+range]; store the range height.
+      bandRange: momsSpread > 0 ? half * 2 : null,
+    };
+  });
+
+  const todayDate = projection[0]?.date;
+
+  const minBalance = Math.min(...projection.map(p => p.balance), 0) - momsSpread / 2;
+  const maxBalance = Math.max(...projection.map(p => p.balance)) + momsSpread / 2;
   const yMin = Math.floor(minBalance / 1000) * 1000 - 1000;
   const yMax = Math.ceil(maxBalance / 1000) * 1000 + 1000;
+
+  // Status color for the balance line + fill: emerald above safety, amber in
+  // the warn band (0..safety), red below zero. Encodes risk, not decoration.
+  const lowBal = lowest_point?.balance ?? current_balance;
+  const lineStatus =
+    lowBal < 0 ? "#dc2626" : lowBal < safety_threshold ? "#d97706" : "#059669";
+
+  // Alert severity → Lucide icon + status tone (no rainbow, no raw emoji).
+  const alertVisual = (severity) => {
+    switch (severity) {
+      case "critical":
+        return { Icon: AlertCircle, border: "border-red-600", bg: "bg-red-50 dark:bg-red-900/20", icon: "text-red-600 dark:text-red-400" };
+      case "warning":
+        return { Icon: AlertTriangle, border: "border-amber-500", bg: "bg-amber-50 dark:bg-amber-900/20", icon: "text-amber-600 dark:text-amber-400" };
+      case "medium":
+        return { Icon: AlertTriangle, border: "border-amber-500", bg: "bg-amber-50 dark:bg-amber-900/20", icon: "text-amber-600 dark:text-amber-400" };
+      case "positive":
+        return { Icon: CheckCircle2, border: "border-emerald-500", bg: "bg-emerald-50 dark:bg-emerald-900/20", icon: "text-emerald-600 dark:text-emerald-400" };
+      default:
+        return { Icon: AlertCircle, border: "border-gray-300 dark:border-gray-700", bg: "bg-gray-50 dark:bg-gray-800/50", icon: "text-gray-500 dark:text-gray-400" };
+    }
+  };
 
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
         <PageHeader
           eyebrow="MONEY"
-          title="Cash Flow Prediction"
+          title={t("cfpTitle")}
           actions={
             <Button variant="secondary" onClick={fetchForecast}>
               {t("refresh")}
@@ -115,16 +227,53 @@ export default function CashFlowPage() {
         />
       </FadeIn>
 
+      {/* ─── FORESIGHT VERDICT BAND — the honest "will you cover MOMS?" read.
+          Fail-closed: INSUFFICIENT_DATA shows "add a balance", never a
+          confident green. STALE tints amber. ─── */}
+      {fs && (() => {
+        const { Icon, tone, headline } = verdictConfig(t, fs.verdict);
+        const iconTone = fs.balance_stale ? "warn" : tone;
+        const expected = fs.moms?.expected != null ? formatKr(fs.moms.expected, { decimals: 0 }) : "—";
+        const low = fs.moms?.low != null ? formatKr(fs.moms.low, { decimals: 0 }) : null;
+        const high = fs.moms?.high != null ? formatKr(fs.moms.high, { decimals: 0 }) : null;
+        return (
+          <div className={`rounded-xl border-l-4 ${TONE_BORDER[iconTone]} bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 p-4`}>
+            <div className="flex items-start gap-3">
+              <Icon size={20} strokeWidth={2} className={`shrink-0 mt-0.5 ${TONE_TEXT[iconTone]}`} aria-hidden="true" />
+              <div className="flex-1 min-w-0">
+                <p className="text-base font-semibold text-gray-900 dark:text-gray-100 leading-snug">
+                  {headline}
+                </p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">
+                  {t("cfpMomsExpected")
+                    .replace("{amt}", expected)} {" "}
+                  <span className="text-gray-400">({t("cfpEstimateTag")})</span>
+                </p>
+                {low && high && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 tabular-nums">
+                    {t("cfpRange")}: {low} – {high}
+                    {fs.moms?.confidence ? ` · ${t("cfpConfidence").replace("{pct}", String(Math.round(fs.moms.confidence * 100)))}` : ""}
+                  </p>
+                )}
+                {fs.balance_stale && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">{t("cfpStale")}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ─── KEY METRICS — accents only when the data warrants it ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard
-          label="Current Balance"
-          value={`${fmt(current_balance)} ${currency}`}
+          label={t("cfpCurrentBalance")}
+          value={formatKr(current_balance, { decimals: 0 })}
           accent={current_balance >= 0 ? "success" : "critical"}
         />
         <StatCard
-          label="Lowest Point"
-          value={fmt(lowest_point.balance)}
+          label={t("cfpLowestPoint")}
+          value={formatKr(lowest_point.balance, { decimals: 0 })}
           accent={
             lowest_point.balance >= safety_threshold
               ? "success"
@@ -132,104 +281,141 @@ export default function CashFlowPage() {
               ? "warn"
               : "critical"
           }
-          helper={lowest_point.date}
+          helper={`${formatDateClear(lowest_point.date)} · ${t("cfpEstimateTag")}`}
         />
         <StatCard
-          label="Danger Days"
+          label={t("cfpDangerDays")}
           value={String(danger_days)}
           accent={danger_days === 0 ? "success" : danger_days <= 5 ? "warn" : "critical"}
-          helper="of 30"
+          helper={t("cfpOf30")}
         />
         <StatCard
-          label="Receivables"
-          value={fmt(total_receivable)}
-          helper={`${receivables.length} customers`}
+          label={t("cfpReceivables")}
+          value={formatKr(total_receivable, { decimals: 0 })}
+          helper={t("cfpCustomersCount").replace("{n}", String(receivables.length))}
         />
       </div>
 
       {/* ─── ALERTS ─── */}
       {alerts.length > 0 && (
         <div className="space-y-3">
-          {alerts.map((alert, i) => (
-            <div key={i} className={`p-4 rounded-xl border-l-4 ${
-              alert.severity === "critical" ? "border-red-600 bg-red-50 dark:bg-red-900/20" :
-              alert.severity === "warning" ? "border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20" :
-              alert.severity === "medium" ? "border-orange-500 bg-orange-50 dark:bg-orange-900/20" :
-              alert.severity === "positive" ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50" :
-              "border-blue-500 bg-blue-50 dark:bg-blue-900/20"
-            }`}>
-              <div className="flex items-start gap-3">
-                <span className="text-2xl">{alert.icon}</span>
-                <div className="flex-1">
-                  <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{alert.title}</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{alert.detail}</p>
-                  {alert.action && (
-                    <p className="text-xs text-gray-700 dark:text-gray-300 mt-2 font-medium">💡 {alert.action}</p>
-                  )}
+          {alerts.map((alert, i) => {
+            const v = alertVisual(alert.severity);
+            const Icon = v.Icon;
+            return (
+              <div key={i} className={`p-4 rounded-xl border-l-4 ${v.border} ${v.bg}`}>
+                <div className="flex items-start gap-3">
+                  <Icon size={20} strokeWidth={2} className={`shrink-0 mt-0.5 ${v.icon}`} aria-hidden="true" />
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{alert.title}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{alert.detail}</p>
+                    {alert.action && (
+                      <p className="text-xs text-gray-700 dark:text-gray-300 mt-2 font-medium flex items-start gap-1.5">
+                        <Lightbulb size={13} strokeWidth={2} className="shrink-0 mt-0.5 text-gray-500" aria-hidden="true" />
+                        <span>{alert.action}</span>
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* ─── 30-DAY CHART ─── */}
       {has_data && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-1">30-Day Cash Flow Projection</h2>
+          <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
+            <h2 className="font-bold text-gray-800 dark:text-white">{t("cfpChartTitle")}</h2>
+            <span className="text-[11px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+              {t("cfpEstimateTag")}
+            </span>
+          </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-            Based on your recent sales patterns and recurring expenses
+            {t("cfpSubtitle")}
           </p>
           <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                <defs>
-                  <linearGradient id="balanceGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0.05} />
-                  </linearGradient>
-                  <linearGradient id="dangerGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0.05} />
-                  </linearGradient>
-                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.5} />
                 <XAxis
-                  dataKey="label"
+                  dataKey="date"
                   tick={{ fontSize: 10, fill: "#9ca3af" }}
+                  tickFormatter={(iso) => formatDateClear(iso).replace(/\s\d{2}$/, "")}
                   interval={4}
                 />
                 <YAxis
                   tick={{ fontSize: 10, fill: "#9ca3af" }}
-                  tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                  tickFormatter={(v) => `${new Intl.NumberFormat("da-DK").format(Math.round(v / 1000))} ${t("thousandShort")}`}
                   domain={[yMin, yMax]}
-                  width={45}
+                  width={56}
                 />
-                <Tooltip content={<CustomTooltip currency={currency} />} />
+                <Tooltip content={<CustomTooltip t={t} lang={lang} />} />
+                {/* Fuzzy uncertainty band (cone) — invisible base + low-opacity
+                    range stacked on top. Widens toward the deadline; honest
+                    "range", never a precise per-day figure. */}
+                {momsSpread > 0 && (
+                  <>
+                    <Area
+                      type="monotone"
+                      dataKey="bandLow"
+                      stackId="cone"
+                      stroke="none"
+                      fill="none"
+                      dot={false}
+                      activeDot={false}
+                      isAnimationActive={false}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="bandRange"
+                      stackId="cone"
+                      stroke="none"
+                      fill={lineStatus}
+                      fillOpacity={0.1}
+                      dot={false}
+                      activeDot={false}
+                      isAnimationActive={false}
+                    />
+                  </>
+                )}
                 <ReferenceLine
                   y={safety_threshold}
-                  stroke="#f59e0b"
+                  stroke="#d97706"
                   strokeDasharray="5 5"
-                  strokeWidth={2}
-                  label={{ value: "Safety Buffer", fill: "#f59e0b", fontSize: 10, position: "insideTopRight" }}
+                  strokeWidth={1.5}
+                  label={{ value: t("cfpSafetyBuffer"), fill: "#d97706", fontSize: 10, position: "insideTopRight" }}
                 />
-                <ReferenceLine y={0} stroke="#ef4444" strokeWidth={1} />
+                <ReferenceLine y={0} stroke="#dc2626" strokeWidth={1} />
+                {todayDate && (
+                  <ReferenceLine
+                    x={todayDate}
+                    stroke="#9ca3af"
+                    strokeDasharray="4 4"
+                    strokeWidth={1}
+                    label={{ value: t("cfpToday"), fill: "#9ca3af", fontSize: 10, position: "insideTopLeft" }}
+                  />
+                )}
                 <Area
                   type="monotone"
                   dataKey="balance"
-                  stroke="#10b981"
+                  stroke={lineStatus}
                   strokeWidth={2}
-                  fill="url(#balanceGrad)"
+                  fill="none"
                   dot={false}
-                  activeDot={{ r: 5, fill: "#10b981" }}
+                  activeDot={{ r: 5, fill: lineStatus }}
                 />
               </AreaChart>
             </ResponsiveContainer>
           </div>
-          <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
-            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-emerald-500 inline-block rounded" /> Balance</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-yellow-500 inline-block rounded border-dashed" /> Safety threshold ({fmt(safety_threshold)} {currency})</span>
-            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-red-500 inline-block rounded" /> Zero line</span>
+          <div className="flex items-center gap-4 mt-3 text-xs text-gray-500 flex-wrap">
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 inline-block rounded" style={{ background: lineStatus }} /> {t("cfpBalanceLegend")} ({t("cfpEstimateTag")})</span>
+            {momsSpread > 0 && (
+              <span className="flex items-center gap-1"><span className="w-3 h-2 inline-block rounded-sm" style={{ background: lineStatus, opacity: 0.15 }} /> {t("cfpRange")}</span>
+            )}
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-amber-500 inline-block rounded" /> {t("cfpSafetyBuffer")} ({formatKr(safety_threshold, { decimals: 0 })})</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-red-500 inline-block rounded" /> {t("cfpZeroLine")}</span>
           </div>
         </div>
       )}
@@ -237,16 +423,16 @@ export default function CashFlowPage() {
       {/* ─── DAILY BREAKDOWN TABLE ─── */}
       {has_data && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">Daily Breakdown</h2>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-4">{t("cfpDailyBreakdown")}</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-gray-500 border-b dark:border-gray-700">
-                  <th className="text-left py-2 px-2">Date</th>
-                  <th className="text-left py-2 px-2">Day</th>
-                  <th className="text-right py-2 px-2">Revenue</th>
-                  <th className="text-right py-2 px-2">Expenses</th>
-                  <th className="text-right py-2 px-2">Balance</th>
+                  <th className="text-left py-2 px-2">{t("cfpColDate")}</th>
+                  <th className="text-left py-2 px-2">{t("cfpColDay")}</th>
+                  <th className="text-right py-2 px-2">{t("cfpColRevenue")}</th>
+                  <th className="text-right py-2 px-2">{t("cfpColExpenses")}</th>
+                  <th className="text-right py-2 px-2">{t("cfpColBalance")}</th>
                   <th className="text-left py-2 px-2"></th>
                 </tr>
               </thead>
@@ -255,22 +441,24 @@ export default function CashFlowPage() {
                   <tr key={i} className={`border-b dark:border-gray-700/50 ${
                     p.is_danger ? "bg-red-50/50 dark:bg-red-900/10" : ""
                   }`}>
-                    <td className="py-2 px-2 text-gray-700 dark:text-gray-300">{p.date.slice(5)}</td>
-                    <td className="py-2 px-2 text-gray-500 dark:text-gray-400">{p.day.slice(0, 3)}</td>
-                    <td className="py-2 px-2 text-right text-emerald-600">
-                      {p.revenue > 0 ? `+${fmt(p.revenue)}` : "—"}
+                    <td className="py-2 px-2 text-gray-700 dark:text-gray-300">{formatDateClear(p.date).replace(/\s\d{2}$/, "")}</td>
+                    <td className="py-2 px-2 text-gray-500 dark:text-gray-400">{weekdayShort(p.day, lang)}</td>
+                    <td className="py-2 px-2 text-right text-emerald-600 tabular-nums">
+                      {p.revenue > 0 ? formatKr(p.revenue, { decimals: 0, sign: true }) : "—"}
                     </td>
-                    <td className="py-2 px-2 text-right text-orange-500">
-                      {p.expenses > 0 ? `-${fmt(p.expenses)}` : "—"}
+                    <td className="py-2 px-2 text-right text-red-600 tabular-nums">
+                      {p.expenses > 0 ? `-${formatKr(p.expenses, { decimals: 0 })}` : "—"}
                     </td>
-                    <td className={`py-2 px-2 text-right font-semibold ${
-                      p.balance < 0 ? "text-red-600" : p.is_danger ? "text-yellow-600" : "text-gray-800 dark:text-white"
+                    <td className={`py-2 px-2 text-right font-semibold tabular-nums ${
+                      p.balance < 0 ? "text-red-600" : p.is_danger ? "text-amber-600" : "text-gray-800 dark:text-white"
                     }`}>
-                      {fmt(p.balance)}
+                      {formatKr(p.balance, { decimals: 0 })}
                     </td>
                     <td className="py-2 px-2">
-                      {p.is_danger && <span className="text-xs bg-red-100 dark:bg-red-900/30 text-red-600 px-2 py-0.5 rounded-full">⚠️</span>}
-                      {p.recurring?.length > 0 && <span className="text-xs bg-purple-100 dark:bg-purple-900/30 text-purple-600 px-2 py-0.5 rounded-full ml-1">📅</span>}
+                      <span className="inline-flex items-center gap-1">
+                        {p.is_danger && <AlertTriangle size={13} strokeWidth={2} className="text-red-600" aria-label={t("cfpDangerDays")} />}
+                        {p.recurring?.length > 0 && <Calendar size={13} strokeWidth={2} className="text-gray-400" aria-label={t("cfpRecurringTitle")} />}
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -278,7 +466,7 @@ export default function CashFlowPage() {
             </table>
           </div>
           {projection.length > 14 && (
-            <p className="text-xs text-gray-400 text-center mt-3">Showing first 14 days — full 30-day view on chart above</p>
+            <p className="text-xs text-gray-400 text-center mt-3">{t("cfpFirst14")}</p>
           )}
         </div>
       )}
@@ -287,26 +475,27 @@ export default function CashFlowPage() {
       {receivables.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-1 flex items-center gap-2">
-            <span>💰</span> Outstanding Receivables
+            <Wallet size={16} strokeWidth={2} className="text-gray-500" aria-hidden="true" />
+            {t("cfpReceivablesTitle")}
           </h2>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-            Collecting these would boost your cash position by {fmt(total_receivable)} {currency}
+            {t("cfpReceivablesHelp").replace("{amt}", formatKr(total_receivable, { decimals: 0 }))}
           </p>
           <div className="space-y-2">
             {receivables.map((r, i) => {
               const pct = total_receivable > 0 ? (r.outstanding / total_receivable) * 100 : 0;
               return (
                 <div key={i} className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-sm font-bold text-blue-600">
+                  <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-sm font-bold text-gray-600 dark:text-gray-300">
                     {i + 1}
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{r.customer_name}</span>
-                      <span className="text-sm font-bold text-blue-600">{fmt(r.outstanding)} {currency}</span>
+                      <span className="text-sm font-bold text-gray-900 dark:text-gray-100 tabular-nums">{formatKr(r.outstanding, { decimals: 0 })}</span>
                     </div>
                     <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1 overflow-hidden">
-                      <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
+                      <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${pct}%` }} />
                     </div>
                   </div>
                 </div>
@@ -320,36 +509,36 @@ export default function CashFlowPage() {
       {recurring_expenses.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <h2 className="font-bold text-gray-800 dark:text-white mb-4 flex items-center gap-2">
-            <span>📅</span> Upcoming Recurring Expenses
+            <Calendar size={16} strokeWidth={2} className="text-gray-500" aria-hidden="true" />
+            {t("cfpRecurringTitle")}
           </h2>
           <div className="space-y-2">
             {recurring_expenses.map((re, i) => (
               <div key={i} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
                 <div>
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{re.description}</p>
-                  <p className="text-xs text-gray-500">{re.category} • Due {re.next_due}</p>
+                  <p className="text-xs text-gray-500">{re.category} · {t("cfpDueOn").replace("{date}", formatDateClear(re.next_due))}</p>
                 </div>
-                <span className="text-sm font-bold text-orange-500">-{fmt(re.amount)} {currency}</span>
+                <span className="text-sm font-bold text-red-600 tabular-nums">-{formatKr(re.amount, { decimals: 0 })}</span>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* No data prompt */}
+      {/* No data prompt — honest LEARNING state */}
       {!has_data && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-8 shadow-sm text-center">
-          <div className="text-5xl mb-4">📊</div>
-          <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Build Your Prediction Model</h2>
-          <p className="text-gray-500 dark:text-gray-400 mb-4">
-            Log sales for at least 2 weeks to unlock accurate 30-day cash flow predictions.
-          </p>
+          <BarChart3 size={40} strokeWidth={1.5} className="mx-auto mb-4 text-gray-400" />
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-2">{t("cfpEmptyTitle")}</h2>
+          <p className="text-gray-500 dark:text-gray-400 mb-2">{t("cfpEmptyBody")}</p>
+          <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">{t("cfpLearning")}</p>
           <div className="flex gap-3 justify-center">
             <a href="/sales" className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition">
-              Log Sales
+              {t("cfpLogSales")}
             </a>
             <a href="/cashbook" className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition">
-              Cash Book
+              {t("cfpCashBook")}
             </a>
           </div>
         </div>

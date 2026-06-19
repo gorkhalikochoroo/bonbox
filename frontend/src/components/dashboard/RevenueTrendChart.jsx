@@ -26,12 +26,25 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { useLanguage } from "../../hooks/useLanguage";
+import { formatKr } from "../../utils/currency";
+
+// da-DK readable date with weekday — "lør 14. jun" / en "Sat 14 Jun". Lets a
+// non-technical owner tell a Saturday spike from a Monday dip. Intl supplies
+// the localized names; the ISO parse stays local-tz safe with the fallback.
+function fmtTrendDate(label, lang) {
+  try {
+    const d = new Date(label + "T00:00:00");
+    const locale = lang === "da" ? "da-DK" : "en-GB";
+    return d.toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "short" });
+  } catch {
+    return label;
+  }
+}
 
 export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const navigate = useNavigate();
   const data = (ctx?.dailyRevData || []).slice(-days);
-  const currency = ctx?.currency || "DKK";
 
   if (!data || data.length === 0) {
     return (
@@ -55,6 +68,41 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
     data.reduce((s, d) => s + (d.amount || 0), 0) / data.length,
   );
 
+  // Sparse-data honesty: with 1-2 real points recharts would still draw a
+  // connecting segment that reads as a confident "trend" implying a pattern
+  // that does not exist. Below 3 points, show the real values as rows + an
+  // honest "not enough days" notice instead of a misleading 2-point line.
+  if (data.length < 3) {
+    return (
+      <div
+        onClick={() => navigate("/reports")}
+        className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
+        data-zone="2"
+        data-component="RevenueTrendChart"
+      >
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">
+          {t("revenueTrend", "Revenue trend")}
+        </h3>
+        <ul className="space-y-1.5 mt-2">
+          {data.map((d) => (
+            <li
+              key={d.date}
+              className="flex items-center justify-between text-sm text-gray-700 dark:text-gray-300 tabular-nums"
+            >
+              <span className="text-gray-500 dark:text-gray-400">{fmtTrendDate(d.date, lang)}</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">
+                {formatKr(d.amount, { decimals: 0 })}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+          {t("revenueTrendSparse", "Not enough days yet to show a trend — keep logging sales.")}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div
       onClick={() => navigate("/reports")}
@@ -72,7 +120,7 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
           </p>
         </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
-          {t("avgShort", "Avg")}: {avg.toLocaleString()} {currency}
+          {t("avgShort", "Avg")}: {formatKr(avg, { decimals: 0 })}
         </p>
       </div>
       <ResponsiveContainer width="100%" height={220}>
@@ -91,7 +139,13 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
             tick={{ fontSize: 11, fill: "#9CA3AF" }}
             axisLine={false}
             tickLine={false}
-            tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`}
+            width={48}
+            tickCount={4}
+            tickFormatter={(v) =>
+              v >= 1000
+                ? `${new Intl.NumberFormat("da-DK").format(Math.round(v / 1000))} ${t("thousandShort", "t.kr.")}`
+                : new Intl.NumberFormat("da-DK").format(Number(v))
+            }
           />
           <Tooltip
             cursor={{ stroke: "#9CA3AF", strokeWidth: 1, strokeDasharray: "3 3" }}
@@ -116,15 +170,10 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
               padding: 0,
             }}
             formatter={(v) => [
-              `${v.toLocaleString()} ${currency}`,
+              formatKr(v, { decimals: 0 }),
               t("revenue", "Revenue"),
             ]}
-            labelFormatter={(label) => {
-              try {
-                const d = new Date(label + "T00:00:00");
-                return d.toLocaleDateString("da-DK", { day: "numeric", month: "short", year: "numeric" });
-              } catch { return label; }
-            }}
+            labelFormatter={(label) => fmtTrendDate(label, lang)}
           />
           <Area
             type="monotone"

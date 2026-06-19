@@ -85,6 +85,28 @@ export function formatDateClearFull(dateStr) {
 }
 
 /**
+ * ISO 8601 week number (1–53) for a YYYY-MM-DD date string. Shared so the
+ * weekly statement renders the DK-locked "Uge {n}" label without duplicating
+ * the algorithm that already lives in StaffSchedulePage. Returns null on a
+ * malformed input rather than throwing.
+ *
+ * @param {string} dateStr - ISO date string (YYYY-MM-DD or full ISO)
+ * @returns {number|null} ISO week number
+ */
+export function isoWeek(dateStr) {
+  if (!dateStr) return null;
+  const parts = dateStr.slice(0, 10).split("-");
+  if (parts.length !== 3) return null;
+  const [y, m, d] = parts.map((p) => parseInt(p, 10));
+  if ([y, m, d].some((n) => Number.isNaN(n))) return null;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const dayNum = dt.getUTCDay() || 7;
+  dt.setUTCDate(dt.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+  return Math.ceil(((dt - yearStart) / 86400000 + 1) / 7);
+}
+
+/**
  * ISO date (YYYY-MM-DD) in the user's LOCAL timezone — never UTC.
  *
  * Why this exists: `new Date().toISOString().slice(0, 10)` returns the UTC

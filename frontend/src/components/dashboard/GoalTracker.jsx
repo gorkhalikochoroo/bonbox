@@ -16,8 +16,9 @@
  */
 import React from "react";
 import { useLanguage } from "../../hooks/useLanguage";
+import { formatKr } from "../../utils/currency";
 
-function Bar({ label, current, goal, currency }) {
+function Bar({ label, current, goal }) {
   const pct = goal > 0 ? Math.min(Math.round((current / goal) * 100), 100) : 0;
   const hit = pct >= 100;
   return (
@@ -45,8 +46,7 @@ function Bar({ label, current, goal, currency }) {
         />
       </div>
       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 tabular-nums">
-        {Math.round(current).toLocaleString()} /{" "}
-        {Math.round(goal).toLocaleString()} {currency}
+        {formatKr(current, { decimals: 0 })} / {formatKr(goal, { decimals: 0 })}
       </p>
     </div>
   );
@@ -56,7 +56,6 @@ export default function GoalTracker({ ctx = {} }) {
   const { t } = useLanguage();
   const summary = ctx?.summary || {};
   const profile = ctx?.profile || {};
-  const currency = ctx?.currency || "DKK";
   const todayRev = Number(summary.today_revenue || summary.todayRevenue || 0);
   const monthRev = Number(summary.month_revenue || summary.monthRevenue || 0);
   const dailyGoal = Number(
@@ -80,7 +79,6 @@ export default function GoalTracker({ ctx = {} }) {
           label={t("dailyGoal", "Daily goal")}
           current={todayRev}
           goal={dailyGoal}
-          currency={currency}
         />
       )}
       {monthlyGoal > 0 && (
@@ -88,7 +86,6 @@ export default function GoalTracker({ ctx = {} }) {
           label={t("monthlyGoal", "Monthly goal")}
           current={monthRev}
           goal={monthlyGoal}
-          currency={currency}
         />
       )}
     </div>

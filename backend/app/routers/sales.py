@@ -1037,16 +1037,40 @@ def weekly_report(
 
     day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
+    open_days = len(daily)
+    # The headline average divides by days WITH SALES (open days), not /7.
+    # We return the denominator explicitly so the UI can LABEL it ("pr. åben
+    # dag") — otherwise a café open 2 days/wk shows total ÷ 2 next to "2/7"
+    # and the figures look like they contradict. Also expose a per-calendar-day
+    # figure so a consumer can pick one and label it honestly.
+    avg_per_open_day = round(week_total / max(open_days, 1), 2)
+    avg_per_calendar_day = round(week_total / 7, 2)
+    # has_comparison distinguishes "0% change" (real, flat week) from "no prior
+    # week to compare" (new business) — the latter must NOT render as flat 0%.
+    has_comparison = prev_total > 0
+    # Don't let best == worst on a 1-2 day week: a single day can't be both the
+    # best and the slowest. Suppress worst when there's only one open day.
+    worst_day_payload = (
+        {"date": str(worst.date), "day": day_names[worst.date.weekday()], "amount": float(worst.total)}
+        if worst and open_days > 1 and worst.date != (best.date if best else None)
+        else None
+    )
+
     return {
         "week_start": str(week_start),
         "week_end": str(week_end),
         "total_revenue": week_total,
         "prev_week_total": prev_total,
         "change_pct": change_pct,
-        "daily_avg": round(week_total / max(len(daily), 1), 2),
-        "days_recorded": len(daily),
+        "has_comparison": has_comparison,
+        # Legacy field kept for back-compat (= avg_per_open_day).
+        "daily_avg": avg_per_open_day,
+        "avg_per_open_day": avg_per_open_day,
+        "avg_per_calendar_day": avg_per_calendar_day,
+        "days_recorded": open_days,
+        "open_days": open_days,
         "best_day": {"date": str(best.date), "day": day_names[best.date.weekday()], "amount": float(best.total)} if best else None,
-        "worst_day": {"date": str(worst.date), "day": day_names[worst.date.weekday()], "amount": float(worst.total)} if worst else None,
+        "worst_day": worst_day_payload,
         "daily_breakdown": [
             {"date": str(d), "day": day_names[d.weekday()], "amount": float(t)}
             for d, t in daily

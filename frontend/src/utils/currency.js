@@ -94,6 +94,46 @@ export function formatMoney(amount, currency = "DKK", options = {}) {
   return `${sign}${formatted} ${code}`;
 }
 
+/* ─────────────────────────────── formatKr ──────────────────────────────
+ * Danish-presentation money: da-DK grouping + the literal "kr." suffix
+ * (NOT the "DKK" currency code that formatMoney emits). This is the
+ * canonical kr.-emitting helper for owner-facing surfaces where Danish
+ * vocabulary matters — the cash-flow forecast, the weekly statement, the
+ * revenue-trend tooltip — so a café owner reads "15.000,00 kr." the way a
+ * Danish bank statement / lønseddel reads, never "15.000 DKK".
+ *
+ *   formatKr(15000)                 → "15.000,00 kr."
+ *   formatKr(15000, { decimals: 0 })→ "15.000 kr."
+ *   formatKr(15000, { sign: true }) → "+15.000,00 kr."
+ *   formatKr(null)                  → "—"
+ *
+ * Always da-DK grouping regardless of runtime locale (fixes the bare
+ * toLocaleString() drift where an EN-locale browser rendered "15,000").
+ * null/undefined/NaN → "—" so a missing value never reads as a confident 0.
+ * ──────────────────────────────────────────────────────────────────────── */
+export function formatKr(amount, options = {}) {
+  if (amount == null || Number.isNaN(amount)) return "—";
+  const num = typeof amount === "string" ? parseFloat(amount) : amount;
+  if (Number.isNaN(num)) return "—";
+
+  const explicitDecimals = typeof options.decimals === "number" ? options.decimals : null;
+  const compact = explicitDecimals === 0 || options.alwaysDecimals === false;
+  const frac = compact ? 0 : (explicitDecimals ?? 2);
+
+  let formatted;
+  try {
+    formatted = new Intl.NumberFormat("da-DK", {
+      minimumFractionDigits: frac,
+      maximumFractionDigits: frac,
+    }).format(num);
+  } catch {
+    formatted = String(Math.round(num));
+  }
+
+  const sign = options.sign && num > 0 ? "+" : "";
+  return `${sign}${formatted} kr.`;
+}
+
 /** Convenience: parse a money string back to number. Tolerant of locale separators. */
 export function parseMoney(str) {
   if (str == null) return null;

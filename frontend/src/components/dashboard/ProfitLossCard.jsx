@@ -13,12 +13,12 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../../hooks/useLanguage";
+import { formatKr } from "../../utils/currency";
 
 export default function ProfitLossCard({ ctx = {} }) {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const summary = ctx?.summary || {};
-  const currency = ctx?.currency || "DKK";
   const revenue = Number(summary.month_revenue || 0);
   const expenses = Number(summary.month_expenses || 0);
   const profit = Number(summary.month_profit ?? revenue - expenses);
@@ -48,7 +48,7 @@ export default function ProfitLossCard({ ctx = {} }) {
             {t("revenue", "Revenue")}
           </span>
           <span className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-            +{Math.round(revenue).toLocaleString()} {currency}
+            +{formatKr(revenue, { decimals: 0 })}
           </span>
         </div>
         <div className="flex justify-between">
@@ -56,7 +56,7 @@ export default function ProfitLossCard({ ctx = {} }) {
             {t("expenses", "Expenses")}
           </span>
           <span className="text-sm font-semibold tabular-nums text-red-600 dark:text-red-400">
-            −{Math.round(expenses).toLocaleString()} {currency}
+            −{formatKr(expenses, { decimals: 0 })}
           </span>
         </div>
       </div>
@@ -73,8 +73,7 @@ export default function ProfitLossCard({ ctx = {} }) {
                 : "text-red-600 dark:text-red-400"
             }`}
           >
-            {isProfit ? "+" : ""}
-            {Math.round(profit).toLocaleString()} {currency}
+            {formatKr(profit, { decimals: 0, sign: true })}
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
             {t("marginColonPct", "Margin: {pct}%").replace("{pct}", String(margin))}
