@@ -1,13 +1,15 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { usePillars } from "../hooks/usePillars";
+import { useActivation } from "../hooks/useActivation";
 import { getVatTerms } from "../utils/currency";
 import { isNativeApp } from "../utils/platform";
-import { NAV_MANIFEST, NAV_GROUPS, filterDestinations } from "../config/navManifest";
+import { NAV_MANIFEST, NAV_GROUPS, filterDestinations, PILLAR_DISPLAY_BY_ID } from "../config/navManifest";
+import { useUndoToast } from "../hooks/useUndoToast";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
 import TrialChip from "./TrialChip";
@@ -92,10 +94,13 @@ const navGroups = buildSidebarGroups();
  *  Accountant-view / logged-out yield an empty Set upstream, so a revisor
  *  always sees the full nav.
  */
-function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasFeature, entReady = true, hiddenPillars = new Set(), archetypeId = null) {
+function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasFeature, entReady = true, hiddenPillars = new Set(), archetypeId = null, activation = null) {
   const activeTypes = branchType ? [branchType] : businessTypes;
   const enabled = enabledModules instanceof Set ? enabledModules : new Set();
   const featReady = entReady !== false;
+  // ACTIVATION axis (4th) — defaults are fail-open (no Set, gate inert), so an
+  // absent activation arg leaves the nav IDENTICAL to before this axis existed.
+  const act = activation || {};
 
   // Group-level gate (mirrors the legacy group filter): the group's own
   // visibleFor + requiresAnyModule must pass before we look at its items.
@@ -118,6 +123,12 @@ function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasF
     featReady,
     hiddenPillars: hiddenPillars instanceof Set ? hiddenPillars : new Set(),
     archetypeId,
+    // ACTIVATION axis — dormant relevant in-scope pillars drop from the dense
+    // sidebar (re-surface as "Sæt op" tiles in PillarDiscovery). Fail-open
+    // defaults leave this inert for established owners / flag-off.
+    activatedPillars: act.activatedPillars instanceof Set ? act.activatedPillars : undefined,
+    isInScope: act.isInScope === true,
+    activationEnabled: act.activationEnabled === true,
   };
 
   return groups
@@ -331,10 +342,48 @@ export default function Layout() {
   // never loses a nav entry to a pillar toggle.
   const { hiddenPillars } = usePillars();
 
+  // ACTIVATION axis (4th) — dormant relevant in-scope pillars drop from the
+  // dense nav and re-surface as "Sæt op" tiles. Fail-open everywhere (loading /
+  // error / accountant / established-owner / flag-off → everything activated),
+  // so a revisor and every existing owner see the EXACT nav they see today.
+  const activation = useActivation();
+  // Track a dormant→active GRADUATION so we can fire a quiet undo-toast when a
+  // just-used feature graduates into the nav. We watch the activated-Set
+  // membership across renders (one-directional: never auto-dormant).
+  const prevActivatedRef = useRef(null);
+  const { show: showGraduationToast, ToastUI: graduationToastUI } = useUndoToast();
+  useEffect(() => {
+    if (isAccountant) return;
+    if (!activation?.isInScope || !activation?.activationEnabled) return;
+    const cur = activation.activatedPillars instanceof Set ? activation.activatedPillars : null;
+    if (!cur) return;
+    const prev = prevActivatedRef.current;
+    // First settle — snapshot without toasting (no transition to report).
+    if (prev instanceof Set) {
+      for (const pid of cur) {
+        // A pillar that was NOT activated last time but IS now → it graduated.
+        if (!prev.has(pid)) {
+          const label = PILLAR_DISPLAY_BY_ID[pid]
+            ? (t(PILLAR_DISPLAY_BY_ID[pid].labelKey) || pid)
+            : pid;
+          showGraduationToast({
+            message: t("activationGraduatedToast").replace("{feature}", label),
+            // One-directional model: no real undo (we never auto-dormant). The
+            // toast is a quiet "this is now in your menu" confirmation; tapping
+            // undo simply dismisses (re-hiding would fight the usage row).
+            onUndo: async () => { /* no-op: graduation is one-directional */ },
+          });
+          break; // one toast per settle is plenty (anti-spam)
+        }
+      }
+    }
+    prevActivatedRef.current = new Set(cur);
+  }, [activation, isAccountant, t, showGraduationToast]);
+
   // Filter sidebar groups by both business_type (branch) and enabled modules
   const baseVisible = isAccountant
     ? accountantNavGroups
-    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, archetypeIdFor(branchType || user?.business_type));
+    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, archetypeIdFor(branchType || user?.business_type), activation);
   // For super_admin owners, show an extra "Platform" group with the admin
   // dashboard. Frontend gating is cosmetic — real enforcement is server-side
   // (services/admin_security.py). A non-admin clicking this link sees an empty
@@ -894,6 +943,12 @@ export default function Layout() {
           <GlobalSearchModal open={searchOpen} onClose={() => setSearchOpen(false)} />
         )}
       </Suspense>
+
+      {/* Activation graduation toast — quiet "{feature} is now in your menu"
+          confirmation fired when a dormant pillar flips active (the owner just
+          used it). One-directional (never auto-dormant); see the useEffect
+          above. Renders null when no graduation has occurred. */}
+      {graduationToastUI}
     </div>
   );
 }

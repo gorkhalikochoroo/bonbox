@@ -28,10 +28,43 @@ These same helpers feed two callers:
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 
 
 def _is_production() -> bool:
     return os.environ.get("ENVIRONMENT", "development").lower() == "production"
+
+
+# ─── Activation-gated disclosure (CONSERVATIVE v1) ──────────────────────
+#
+# The "break-existing-owners firewall". Activation disclosure (a dormant,
+# relevant, never-used pillar drops out of the dense nav and becomes a one-tap
+# "Sæt op" tile) is gated to NEW accounts ONLY: an account is in-scope
+# (gateable) iff it completed onboarding at-or-after this fixed cutoff. Every
+# account that onboarded before the cutoff — i.e. all ~70 current owners — is
+# EXEMPT, so they see the EXACT nav they see today. A NULL onboarding timestamp
+# is also EXEMPT (established / never-stamped accounts must never lose a
+# surface). This constant is the single firewall line; do NOT move it forward
+# without re-confirming the existing-owners-unbroken invariant.
+ACTIVATION_DISCLOSURE_LAUNCH_AT = datetime(2026, 6, 19, 0, 0, 0, tzinfo=timezone.utc)
+
+
+def is_activation_disclosure_enabled() -> bool:
+    """Single kill-switch for activation-gated disclosure.
+
+    Default TRUE — it is safe by construction: new-accounts-only (cohort
+    firewall), fail-open everywhere (any query error → pillar treated as
+    activated → visible), and fully reversible (flip OFF → today's nav
+    exactly). The activation endpoint returns ``enabled=false`` when this is
+    off, and the frontend then treats every pillar as activated.
+
+    Override via the ``ACTIVATION_DISCLOSURE_ENABLED`` env var (any of
+    0/false/no/off → disabled). Absent / unrecognized → default TRUE.
+    """
+    raw = (os.environ.get("ACTIVATION_DISCLOSURE_ENABLED") or "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return True
 
 
 def is_bank_connect_enabled() -> bool:
@@ -170,4 +203,9 @@ def feature_flags() -> dict[str, bool]:
         "bank_connect_enabled": is_bank_connect_enabled(),
         "mobilepay_enabled": is_mobilepay_enabled(),
         "inbox_enabled": is_inbox_enabled(),
+        # Activation-gated disclosure kill-switch. Default TRUE (safe:
+        # new-accounts-only + fail-open + reversible). When OFF the activation
+        # endpoint reports enabled=false and the frontend treats every pillar
+        # as activated → today's nav exactly.
+        "activation_disclosure_enabled": is_activation_disclosure_enabled(),
     }

@@ -1879,6 +1879,12 @@ const translations = {
     pillarDiscoveryEnableCta: "Turn on",
     pillarDiscoveryEnabledToast: "Turned back on",
     pillarDiscoveryEnableFailed: "Couldn't turn it on. Try again.",
+    // Activation-gated disclosure (CONSERVATIVE v1) — a dormant relevant
+    // pillar surfaces as a one-tap "Set up X" tile; on first use it
+    // auto-graduates into the menu with a quiet toast. {feature} is the
+    // pillar's short label.
+    activationSetupEyebrow: "Set up",
+    activationGraduatedToast: "{feature} is now in your menu",
     // Cmd-K enable-action rows (C10b) — an OFF pillar's page stays findable.
     pillarSearchOffChip: "Off",
     pillarSearchEnableHint: "Turned off — press Enter to turn on",
@@ -7085,6 +7091,12 @@ const translations = {
     pillarDiscoveryEnableCta: "Slå til",
     pillarDiscoveryEnabledToast: "Slået til igen",
     pillarDiscoveryEnableFailed: "Kunne ikke slå til. Prøv igen.",
+    // Aktiverings-styret synlighed (KONSERVATIV v1) — en hvilende relevant
+    // pillar vises som en "Sæt op X"-flise med ét tryk; ved første brug
+    // rykker den automatisk ind i menuen med en stille toast. {feature} er
+    // pillarens korte navn.
+    activationSetupEyebrow: "Sæt op",
+    activationGraduatedToast: "{feature} er nu i din menu",
     // Cmd-K slå-til-handlinger (C10b) — en fravalgt pillar forbliver søgbar.
     pillarSearchOffChip: "Slået fra",
     pillarSearchEnableHint: "Slået fra — tryk Enter for at slå til",

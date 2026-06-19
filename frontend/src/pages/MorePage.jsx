@@ -6,6 +6,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { usePillars } from "../hooks/usePillars";
+import { useActivation } from "../hooks/useActivation";
 import { useTheme, THEMES } from "../hooks/useTheme";
 import Icon from "../components/ui/Icon";
 import PillarDiscovery from "../components/PillarDiscovery";
@@ -43,6 +44,11 @@ export default function MorePage() {
   const { user, logout } = useAuth();
   const { hasFeature, isReady: entReady } = useEntitlements();
   const { hiddenPillars } = usePillars();
+  // ACTIVATION axis (4th) — dormant relevant in-scope pillars drop from the
+  // More grid (and re-surface as "Sæt op" tiles via PillarDiscovery below).
+  // The provider re-pulls on 'bonbox-data-changed', so a just-used feature
+  // graduates here without a reload. Fail-open for established owners / flag-off.
+  const activation = useActivation();
   const [dark, toggleDark] = useDarkMode();
   const [theme, setTheme] = useTheme();
   const navigate = useNavigate();
@@ -90,6 +96,10 @@ export default function MorePage() {
     // ARCHETYPE HIDE — off-ICP items (khata) drop from the More grid too;
     // resolved from branch type or the owner's business_type (single-location).
     archetypeId: archetypeIdFor(branchType || user?.business_type),
+    // ACTIVATION axis — same fail-open contract as the sidebar.
+    activatedPillars: activation.activatedPillars instanceof Set ? activation.activatedPillars : undefined,
+    isInScope: activation.isInScope === true,
+    activationEnabled: activation.activationEnabled === true,
   };
 
   const visible = NAV_GROUPS

@@ -26,6 +26,16 @@ class DashboardSummary(BaseModel):
     has_business_profile_verified: bool = False  # user verified CVR / org info
     has_accountant_email: bool = False  # user has set accountant_email on profile
     khata_receivable: float = 0  # total outstanding khata credit
+    # Real activation signals (fix the 2 dead dashboard inputs). Defaults so
+    # older clients/tests that don't set them still validate.
+    #   staff_configured  — True iff >=1 active StaffMember row exists.
+    #   staff_headcount   — count of active StaffMember rows (real, not phantom).
+    #   events_total_count / events_recurring_count — live Event-row counts
+    #     (replace the hardcoded {recurringCount:0,totalCount:0} on Dashboard).
+    staff_configured: bool = False
+    staff_headcount: int = 0
+    events_total_count: int = 0
+    events_recurring_count: int = 0
 
 
 class BenchmarkMetric(BaseModel):

@@ -34,6 +34,7 @@ import { NavLink } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { usePillars } from "../hooks/usePillars";
+import { useActivation } from "../hooks/useActivation";
 import { useBranch } from "./BranchSelector";
 import { useRouteHistory } from "../hooks/useRouteHistory";
 import { NAV_MANIFEST, filterDestinations } from "../config/navManifest";
@@ -55,6 +56,10 @@ export default function ResumeRow({ enabledModules, onNavigate }) {
   // aren't reachable from the sidebar), so we DO pass hiddenPillars here (the
   // opposite of ⌘K, which keeps OFF pillars findable as enable-actions).
   const { hiddenPillars } = usePillars();
+  // ACTIVATION axis — Resume must NOT resume into a DORMANT pillar (it isn't
+  // reachable from the sidebar right now), so we DO pass activation here (same
+  // as hiddenPillars) — the opposite of ⌘K, which keeps dormant pillars findable.
+  const activation = useActivation();
 
   // Accountant-view never participates: a revisor gets the read-only nav and an
   // empty hiddenPillars/entitlements shape upstream. Resume is an owner-only
@@ -78,6 +83,11 @@ export default function ResumeRow({ enabledModules, onNavigate }) {
       featReady: entReady !== false,
       hiddenPillars: hiddenPillars instanceof Set ? hiddenPillars : new Set(),
       archetypeId: archetypeIdFor(branchType || user?.business_type),
+      // ACTIVATION axis — a dormant pillar's destination is filtered out here so
+      // Resume never deep-links into a page the owner can't reach from the nav.
+      activatedPillars: activation.activatedPillars instanceof Set ? activation.activatedPillars : undefined,
+      isInScope: activation.isInScope === true,
+      activationEnabled: activation.activationEnabled === true,
     });
     const map = new Map();
     for (const d of resolved) {
@@ -88,7 +98,7 @@ export default function ResumeRow({ enabledModules, onNavigate }) {
       map.set(d.to, d);
     }
     return map;
-  }, [branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, user?.business_type]);
+  }, [branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, activation, user?.business_type]);
 
   // Resolve the recency-ordered history into displayable destinations, keeping
   // only currently-reachable ones, preserving history order, capped at SHOW.

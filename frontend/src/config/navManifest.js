@@ -16,15 +16,16 @@
  * different icon per device. This manifest collapses all of that into one
  * array; each surface filters + projects the same data.
  *
- * THE THREE ORTHOGONAL VISIBILITY AXES (architecture_pillar_visibility.md)
+ * THE FOUR ORTHOGONAL VISIBILITY AXES (architecture_pillar_visibility.md)
  * -----------------------------------------------------------------------
  *   1. RELEVANCE  — per-account pillar toggles (`hiddenPillars`). Free,
  *      owner-controlled. A destination with `pillar: 'reservations'` is
  *      hidden from chrome when that pillar is toggled OFF. `pillar: null`
  *      means "spine" — always relevant, never pillar-hideable.
- *      NOTE: there is NO frontend pillar state yet (backend C8 only). Every
- *      caller passes an empty `hiddenPillars` set today, so this axis is a
- *      no-op until a later batch wires `users.hidden_pillars` into context.
+ *      This axis IS WIRED (C9): usePillars feeds the real `users.hidden_pillars`
+ *      OFF-list into ctx.hiddenPillars at Layout / MorePage / ResumeRow. ⌘K
+ *      deliberately passes an EMPTY set so an OFF pillar stays findable as an
+ *      enable-action (C10) rather than vanishing.
  *   2. ENTITLEMENT — PLAN_FEATURES tier locks (`requiresFeature`). These
  *      stay VISIBLE-BUT-LOCKED (the UpgradeNudge conversion funnel). They
  *      are NEVER hidden by filterDestinations — instead each entry is
@@ -36,8 +37,21 @@
  *      `requiresModule` / `requiresAnyModule` hide opted-out verticals
  *      (Bar / Wine / Workshop). These are HARD hides — wrong-product-fit
  *      signal, not a conversion funnel.
+ *   4. ACTIVATION — activation-gated disclosure (CONSERVATIVE v1). A pillar's
+ *      destination is hidden ONLY when it is DORMANT: relevant to this
+ *      business type, never used (no real usage row — see useActivation), not
+ *      owner-hidden, not tier-locked, AND the account is in the gateable
+ *      NEW-account cohort (`isInScope`) with the feature flag on
+ *      (`activationEnabled`). A dormant pillar drops out of the dense nav and
+ *      re-surfaces as a one-tap "Sæt op" tile (PillarDiscovery) + stays
+ *      findable in ⌘K. It AUTO-GRADUATES back the moment its usage row exists.
+ *      LOCKED WINS over ACTIVATION — a `requiresFeature`-missing entry is
+ *      pushed locked:true and is NEVER activation-hidden (Reservations stays
+ *      visible-but-locked even when dormant). When activationEnabled=false OR
+ *      isInScope=false, this axis is a NO-OP → IDENTICAL to today's nav (the
+ *      established-owner firewall).
  *
- * Hide (axes 1 + 3) and locked (axis 2) are different outcomes and must
+ * Hide (axes 1, 3, 4) and locked (axis 2) are different outcomes and must
  * never be conflated. filterDestinations returns the kept items with a
  * `locked` boolean already resolved; it never drops a tier-locked entry.
  *
@@ -588,9 +602,54 @@ export const NAV_MANIFEST = [
 ];
 
 /**
+ * PILLAR_RELEVANCE_BY_ARCHETYPE — which gateable pillars are RELEVANT to each
+ * canonical archetype. The inverse of the backend onboarding-preset OFF-lists
+ * (services/pillars.py `_PRESET_OFF_LISTS_BY_ARCHETYPE` + the exact-token
+ * table): a pillar that the preset HIDES for an archetype is NOT relevant, so
+ * — in the CONSERVATIVE activation scope — a dormant pillar that is also
+ * IRRELEVANT must NOT produce a "Sæt op" tile (the existing relevance /
+ * business-type gates already handle irrelevance; activation only governs
+ * relevant-but-unused pillars).
+ *
+ * `insights` is always-on (never activation-gated), so it is never listed.
+ * Only the four gateable pillars (inventory / reservations / events / staff)
+ * appear. An archetype absent here, or a null archetypeId, FAILS OPEN — every
+ * gateable pillar is treated as relevant (the conservative gate then only
+ * hides a dormant pillar the owner could genuinely set up). Keep in sync with
+ * the backend preset verdict (locked, June 2026):
+ *   food_service → inventory, reservations, staff   (events hidden by preset)
+ *   bar          → inventory, reservations, staff    (events hidden)
+ *   salon        → reservations, staff               (events hidden; salons
+ *                  don't run an inventory pillar by default)
+ *   retail       → inventory, staff                  (events hidden)
+ *   services     → staff                             (events hidden;
+ *                  inventory/reservations not a default services pillar)
+ *   generic/personal → all four (fail-open — never lose a setup affordance)
+ */
+export const PILLAR_RELEVANCE_BY_ARCHETYPE = {
+  food_service: ["inventory", "reservations", "staff"],
+  bar: ["inventory", "reservations", "staff"],
+  salon: ["reservations", "staff"],
+  retail: ["inventory", "staff"],
+  services: ["staff"],
+  // generic / personal deliberately omitted → fail-open (all relevant).
+};
+
+const _ACTIVATION_GATEABLE = ["inventory", "reservations", "events", "staff"];
+
+/** The set of activation-gateable pillars RELEVANT to this archetype. Unknown
+ *  / null archetype → all gateable pillars (fail-open). Pure, never throws. */
+export function relevantPillarsForArchetype(archetypeId) {
+  if (!archetypeId) return new Set(_ACTIVATION_GATEABLE);
+  const list = PILLAR_RELEVANCE_BY_ARCHETYPE[archetypeId];
+  if (!list) return new Set(_ACTIVATION_GATEABLE);
+  return new Set(list);
+}
+
+/**
  * filterDestinations(items, ctx)
  * ------------------------------
- * Apply the three visibility axes to a list of manifest entries and return
+ * Apply the FOUR visibility axes to a list of manifest entries and return
  * the survivors with a resolved `locked` flag. Pure + surface-agnostic — a
  * surface first narrows the manifest to its own `surfaces` subset, then
  * passes that slice here.
@@ -607,12 +666,22 @@ export const NAV_MANIFEST = [
  *                                            locked-but-visible items as
  *                                            UNLOCKED to avoid a lock-flicker
  *                                            (matches Layout's prior behavior)
+ *   archetypeId   : string|null              resolved archetype (relevance)
+ *   activatedPillars  : Set<string>          ACTIVATION axis — the owner's
+ *                                            activated (real-usage) pillars
+ *   isInScope     : boolean (default false)  true only for the gateable
+ *                                            NEW-account cohort
+ *   activationEnabled : boolean (default false)  feature-flag kill-switch
  * }
  *
  * Outcome per axis:
  *   • RELEVANCE  (hiddenPillars)            → HIDE (dropped from result)
  *   • BUSINESS   (visibleFor / module)      → HIDE (dropped from result)
  *   • ENTITLEMENT(requiresFeature missing)  → KEEP, `locked: true`
+ *   • ACTIVATION (dormant + in-scope + on)  → HIDE (dropped) — but LOCKED WINS:
+ *                                            a tier-locked entry is pushed
+ *                                            locked:true and NEVER
+ *                                            activation-hidden.
  *
  * A tier-locked entry is NEVER dropped here — hiding it would unrender the
  * UpgradeNudge funnel. (Native App-Store compliance hiding is the caller's
@@ -625,6 +694,9 @@ export function filterDestinations(items, ctx = {}) {
     hiddenPillars,
     featReady = true,
     archetypeId,
+    activatedPillars,
+    isInScope = false,
+    activationEnabled = false,
   } = ctx;
 
   const types = Array.isArray(businessTypes) ? businessTypes : [];
@@ -656,7 +728,9 @@ export function filterDestinations(items, ctx = {}) {
     return hasFeat(feat);
   };
   // RELEVANCE — null pillar = spine (always relevant). A hidden pillar
-  // drops the entry from chrome. (No-op until pillar state is wired.)
+  // drops the entry from chrome. WIRED (C9): real hiddenPillars threaded at
+  // Layout / MorePage / ResumeRow; ⌘K passes an empty set to keep OFF pillars
+  // findable as enable-actions.
   const passesPillar = (pillar) => {
     if (!pillar) return true;
     return !hidden.has(pillar);
@@ -673,16 +747,45 @@ export function filterDestinations(items, ctx = {}) {
     return !hideFor.includes(archetypeId);
   };
 
+  // ACTIVATION — a pillar's destination is HIDDEN (dropped) ONLY when ALL of:
+  //   • activationEnabled (feature flag on), AND
+  //   • isInScope (the gateable NEW-account cohort), AND
+  //   • item.pillar is a real pillar (spine items have pillar:null → never), AND
+  //   • the pillar is NOT activated (no real usage row), AND
+  //   • the item is NOT owner-hidden (already dropped by passesPillar above), AND
+  //   • the pillar is RELEVANT to this archetype (CONSERVATIVE — a dormant-
+  //     IRRELEVANT pillar must NOT even produce a "Sæt op" tile; irrelevance is
+  //     already handled by the relevance / business-type gates).
+  // LOCKED WINS: this check is only reached for a NON-locked item (the
+  // requiresFeature branch below returns before us), so a tier-locked entry is
+  // NEVER activation-hidden — it stays visible-but-locked (Reservations dormant
+  // on Free still shows the lock). When the flag is off OR the account is out of
+  // scope, this returns true for EVERYTHING → IDENTICAL to today's nav.
+  const activated = activatedPillars instanceof Set ? activatedPillars : null;
+  const relevantSet = relevantPillarsForArchetype(archetypeId);
+  const passesActivation = (pillar) => {
+    if (!activationEnabled || !isInScope) return true; // firewall: today's nav
+    if (!pillar) return true;                           // spine — never gated
+    if (!relevantSet.has(pillar)) return true;          // irrelevant — not a tile
+    if (!activated) return true;                        // fail-open (no Set yet)
+    return activated.has(pillar);                       // hide only if dormant
+  };
+
   const out = [];
   for (const item of items) {
     if (!passesPillar(item.pillar)) continue;
     if (!passesType(item.visibleFor)) continue;
     if (!passesArchetype(item.hideForArchetypes)) continue;
     if (!passesModule(item.requiresModule, item.requiresAnyModule)) continue;
+    // ENTITLEMENT (locked-but-visible) takes precedence over ACTIVATION — a
+    // requiresFeature-missing entry is pushed locked:true and is NEVER
+    // activation-hidden (the LOCKED-WINS invariant).
     if (item.requiresFeature && !passesFeature(item.requiresFeature)) {
       out.push({ ...item, locked: true });
       continue;
     }
+    // ACTIVATION — only non-locked, relevant, dormant, in-scope pillars drop.
+    if (!passesActivation(item.pillar)) continue;
     out.push({ ...item, locked: false });
   }
   return out;

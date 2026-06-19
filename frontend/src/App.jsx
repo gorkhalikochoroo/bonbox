@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { EntitlementsProvider } from "./hooks/useEntitlements";
 import { FeaturesProvider } from "./hooks/useFeatures";
 import { PillarsProvider } from "./hooks/usePillars";
+import { ActivationProvider } from "./hooks/useActivation";
 import { LiveAlertsProvider } from "./hooks/useLiveAlerts";
 import { BranchProvider } from "./components/BranchSelector";
 import { LanguageProvider } from "./hooks/useLanguage";
@@ -555,22 +556,30 @@ function AppInner() {
                     MorePage, the ⌘K palette, and PillarGate all read the same
                     hiddenPillars Set. Free + uncapped — no entitlement coupling. */}
                 <PillarsProvider>
-                  <BranchProvider>
-                    {/* LiveAlertsProvider — host-stand "pop + sound" on booking/
-                        allergy changes. Inside Router (uses navigate) + Auth (no-ops
-                        for accountant/logged-out); renders the global toast layer and
-                        feeds the NotificationCenter bell. */}
-                    <LiveAlertsProvider>
-                      <AppRoutes />
-                      {/* Cookie consent renders on top of any route, including landing/
-                          login/register where pre-auth visitors must see it.
-                          Wrapped in its own boundary so a failure here NEVER breaks the
-                          rest of the app. */}
-                      <CookieConsentBoundary>
-                        <CookieConsent />
-                      </CookieConsentBoundary>
-                    </LiveAlertsProvider>
-                  </BranchProvider>
+                  {/* ActivationProvider — the ACTIVATION axis (4th). DERIVED from
+                      real usage rows (GET /api/activation), new-accounts-only,
+                      fail-open, feature-flagged. Sits beside PillarsProvider (both
+                      read user.role to no-op for accountant-view) so Layout,
+                      MorePage, ResumeRow + the manifest filter all read the same
+                      activation state. Never stored, never writes hidden_pillars. */}
+                  <ActivationProvider>
+                    <BranchProvider>
+                      {/* LiveAlertsProvider — host-stand "pop + sound" on booking/
+                          allergy changes. Inside Router (uses navigate) + Auth (no-ops
+                          for accountant/logged-out); renders the global toast layer and
+                          feeds the NotificationCenter bell. */}
+                      <LiveAlertsProvider>
+                        <AppRoutes />
+                        {/* Cookie consent renders on top of any route, including landing/
+                            login/register where pre-auth visitors must see it.
+                            Wrapped in its own boundary so a failure here NEVER breaks the
+                            rest of the app. */}
+                        <CookieConsentBoundary>
+                          <CookieConsent />
+                        </CookieConsentBoundary>
+                      </LiveAlertsProvider>
+                    </BranchProvider>
+                  </ActivationProvider>
                 </PillarsProvider>
               </FeaturesProvider>
             </EntitlementsProvider>

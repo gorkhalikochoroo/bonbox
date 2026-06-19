@@ -352,12 +352,22 @@ export default function DashboardPage() {
       {
         inventory: { itemCount: inventoryItems?.length || 0 },
         staff: {
-          configured: !!profile?.staff_configured,
-          headcount: Number(profile?.staff_headcount || 0),
+          // Real active-StaffMember signal from the dashboard summary
+          // (dashboard.py now emits staff_configured / staff_headcount). The
+          // old profile.* reads were PHANTOM — those keys never existed on the
+          // backend, so this always evaluated to false/0. Fixed to the real
+          // count so the staff activation flag is honest.
+          configured: !!summary?.staff_configured,
+          headcount: Number(summary?.staff_headcount || 0),
         },
-        // TODO(Phase G): wire ctx.events when an events service exposes
-        // recurringCount / totalCount on the dashboard batch payload.
-        events: { recurringCount: 0, totalCount: 0 },
+        // Real Event-row counts from the dashboard summary (dashboard.py now
+        // emits events_total_count / events_recurring_count). Replaces the
+        // hardcoded {recurringCount:0,totalCount:0} so the events activation
+        // signal reflects real usage.
+        events: {
+          recurringCount: Number(summary?.events_recurring_count || 0),
+          totalCount: Number(summary?.events_total_count || 0),
+        },
         payments: {
           distinctMethods: Array.from(
             new Set((paymentBreakdown || []).map((m) => m.method)),

@@ -41,6 +41,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, event_log as event_log_router, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router, smart_pricing as smart_pricing_router, pillars as pillars_router
 # Invoicing — Customer/Invoice/Mileage. Gated to Starter+ at the route level.
+from app.routers import activation as activation_router
 from app.routers import customers as customers_router, invoices as invoices_router, mileage as mileage_router
 from app.routers import payment_suggestions as payment_suggestions_router
 from app.routers import recurring_expenses as recurring_expenses_router
@@ -3493,6 +3494,11 @@ app.include_router(modules_router.router, prefix="/api/modules", tags=["Modules"
 # 3-axis IA model (free + uncapped; see services/pillars.py). Owner-UI
 # nav preference only — never read by public surfaces or crons.
 app.include_router(pillars_router.router, prefix="/api/pillars", tags=["Pillars"])
+# Activation-gated disclosure — GET /api/activation. The ACTIVATION axis of
+# the 4-axis IA model (DERIVED from real usage rows, new-accounts-only,
+# fail-open, feature-flagged). Owner-UI nav preference only; never stored,
+# never written to hidden_pillars. See routers/activation.py + services/pillars.
+app.include_router(activation_router.router, prefix="/api/activation", tags=["Activation"])
 # Onboarding — POST /api/onboarding/detect-archetype. Auth-required, rate-
 # limited (10/min/IP, same shape as register); keyword fast-path then at most
 # one AI call (PREMIUM→DEFAULT fallback) to map a free-text business

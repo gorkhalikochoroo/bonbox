@@ -213,3 +213,187 @@ def set_hidden(db: Session, user: User, hidden: set[str]) -> set[str]:
     db.commit()
     db.refresh(user)
     return parse_hidden(cleaned)
+
+
+# ─── ACTIVATION axis (CONSERVATIVE v1) ──────────────────────────────────
+#
+# The 4th orthogonal IA axis: RELEVANCE ⊥ ENTITLEMENT ⊥ BUSINESS-TYPE ⊥
+# ACTIVATION. A pillar is "activated" iff a REAL usage/config row exists for
+# the owner. A DORMANT pillar (relevant, never used, not owner-hidden, in an
+# in-scope account) is dropped from the dense nav and surfaces as a one-tap
+# "Sæt op" tile + stays findable in ⌘K. Activation is DERIVED here, NEVER
+# stored, and NEVER written to hidden_pillars.
+#
+# The four gateable pillars + their REAL signals (count>0 usage rows ONLY —
+# NEVER archetype defaults, NEVER a fabricated flag). `insights` is NOT
+# gateable (always-on) and is therefore absent from this map.
+#
+# HARD CONTRACT — FAIL-OPEN: any query error for a pillar makes that pillar
+# `activated = True` (visible). Losing a real surface is worse than showing a
+# dormant one. The frontend mirrors this on its side (fetch error → all
+# activated). The four counts are issued independently so one failing query
+# only fails-open its own pillar, not the whole map.
+#
+# The audit action emitted when the frontend detects a dormant→active
+# graduation (optional, owner-scoped telemetry rail).
+AUDIT_PILLAR_AUTO_ACTIVATED = "pillar.auto_activated"
+
+# The activation-gateable pillars, in canonical order. `insights` is
+# deliberately EXCLUDED (always-on, never gated).
+ACTIVATION_PILLARS: tuple[str, ...] = ("inventory", "reservations", "events", "staff")
+
+
+def activated_pillars(db: Session, user: User) -> dict[str, bool]:
+    """Per-pillar activation booleans for THIS owner, DERIVED from real usage.
+
+    Returns ``{inventory, reservations, events, staff}`` (insights is NOT
+    gated and is omitted). True = the owner has a real usage/config row for
+    that pillar → it graduates into normal nav. False = DORMANT → it drops to
+    a "Sæt up" tile (still findable in ⌘K).
+
+    FAIL-OPEN per pillar: any query error → that pillar = True (activated /
+    visible). Each signal is computed in its own try/except so a single
+    failing query never collapses the whole map and never hides a pillar.
+
+    Signals (count>0 real rows only — NEVER archetype defaults):
+      • inventory     — an InventoryItem row exists for the user.
+      • reservations  — BusinessProfile.reservations_enabled true OR
+                        reservation_slug set OR any Reservation row.
+      • events        — any Event row.
+      • staff         — any active (active=True, not deleted) StaffMember row.
+
+    Tenant-scoped: every query filters on ``user.id``. Read-only — no writes,
+    no commit, no side effects.
+    """
+    from sqlalchemy import func
+
+    result: dict[str, bool] = {}
+
+    # inventory — any InventoryItem row.
+    try:
+        from app.models.inventory import InventoryItem
+        has_inventory = (
+            db.query(InventoryItem.id)
+            .filter(InventoryItem.user_id == user.id)
+            .first()
+        ) is not None
+        result["inventory"] = bool(has_inventory)
+    except Exception:  # noqa: BLE001 — fail-open: visible on any error
+        result["inventory"] = True
+
+    # reservations — profile kill-switch / public slug / any booking row.
+    try:
+        from app.models.business_profile import BusinessProfile
+        from app.models.reservation import Reservation
+        profile = (
+            db.query(BusinessProfile)
+            .filter(BusinessProfile.user_id == user.id)
+            .first()
+        )
+        prof_signal = bool(
+            profile
+            and (
+                bool(getattr(profile, "reservations_enabled", False))
+                or (getattr(profile, "reservation_slug", None) or "").strip()
+            )
+        )
+        if prof_signal:
+            result["reservations"] = True
+        else:
+            has_reservation = (
+                db.query(Reservation.id)
+                .filter(Reservation.user_id == user.id)
+                .first()
+            ) is not None
+            result["reservations"] = bool(has_reservation)
+    except Exception:  # noqa: BLE001 — fail-open
+        result["reservations"] = True
+
+    # events — any Event row (count>0).
+    try:
+        from app.models.event import Event
+        has_event = (
+            db.query(Event.id)
+            .filter(Event.user_id == user.id)
+            .first()
+        ) is not None
+        result["events"] = bool(has_event)
+    except Exception:  # noqa: BLE001 — fail-open
+        result["events"] = True
+
+    # staff — any ACTIVE StaffMember row (active=True, not deleted).
+    try:
+        from app.models.staff import StaffMember
+        has_staff = (
+            db.query(StaffMember.id)
+            .filter(
+                StaffMember.user_id == user.id,
+                StaffMember.active.is_(True),
+                StaffMember.is_deleted.isnot(True),
+            )
+            .first()
+        ) is not None
+        result["staff"] = bool(has_staff)
+    except Exception:  # noqa: BLE001 — fail-open
+        result["staff"] = True
+
+    # Suppress the unused-import lint if func was only conditionally needed.
+    _ = func
+    return result
+
+
+def active_staff_count(db: Session, user: User) -> int:
+    """Count of ACTIVE (active=True, not deleted) StaffMember rows for THIS
+    owner. Real signal backing the dead `staff_headcount` dashboard input.
+    Fail-open to 0 on error (0 is the honest "no staff configured" value —
+    NOT a fabricated flag). Tenant-scoped, read-only."""
+    try:
+        from sqlalchemy import func
+        from app.models.staff import StaffMember
+        return int(
+            db.query(func.count(StaffMember.id))
+            .filter(
+                StaffMember.user_id == user.id,
+                StaffMember.active.is_(True),
+                StaffMember.is_deleted.isnot(True),
+            )
+            .scalar()
+            or 0
+        )
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def event_counts(db: Session, user: User) -> tuple[int, int]:
+    """(`recurring_count`, `total_count`) of non-deleted Event rows for THIS
+    owner. Real signal backing the dead `events: {recurringCount, totalCount}`
+    dashboard input. Fail-open to (0, 0). Tenant-scoped, read-only.
+
+    `recurring_count` is the subset flagged recurring when the model carries
+    such a column; otherwise it degrades to 0 (a count, never a fabricated
+    flag). `total_count` is every live event row."""
+    try:
+        from sqlalchemy import func
+        from app.models.event import Event
+        total = int(
+            db.query(func.count(Event.id))
+            .filter(Event.user_id == user.id, Event.is_deleted.isnot(True))
+            .scalar()
+            or 0
+        )
+        recurring = 0
+        recurring_col = getattr(Event, "is_recurring", None)
+        if recurring_col is not None:
+            recurring = int(
+                db.query(func.count(Event.id))
+                .filter(
+                    Event.user_id == user.id,
+                    Event.is_deleted.isnot(True),
+                    recurring_col.is_(True),
+                )
+                .scalar()
+                or 0
+            )
+        return recurring, total
+    except Exception:  # noqa: BLE001
+        return 0, 0

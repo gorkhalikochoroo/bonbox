@@ -266,6 +266,14 @@ def get_dashboard_batch(
         .first()
     ) is not None
 
+    # Real activation signals (fix the 2 dead dashboard inputs). staff_headcount
+    # was READ on the frontend but never EMITTED here (phantom field → always 0);
+    # events {recurringCount, totalCount} was hardcoded {0, 0}. Both now come
+    # from real, count>0 usage rows via the activation service (fail-open).
+    from app.services.pillars import active_staff_count, event_counts
+    staff_headcount = active_staff_count(db, user)
+    events_recurring_count, events_total_count = event_counts(db, user)
+
     # Onboarding flags — surface CVR-verification and accountant-email setup
     # in the welcome checklist so new users discover the recently shipped
     # multilayer CVR auto-detect + Send-to-accountant export flows.
@@ -316,6 +324,11 @@ def get_dashboard_batch(
         "has_business_profile_verified": has_business_profile_verified,
         "has_accountant_email": has_accountant_email,
         "khata_receivable": khata_receivable,
+        # Real activation signals (fix the 2 dead Dashboard inputs).
+        "staff_configured": staff_headcount > 0,
+        "staff_headcount": staff_headcount,
+        "events_total_count": events_total_count,
+        "events_recurring_count": events_recurring_count,
     }
 
     # ── 2. MONTHLY REPORT (from /reports/monthly) ────────────────
@@ -1242,6 +1255,13 @@ def get_summary(
         .first()
     ) is not None
 
+    # Real activation signals (fix the 2 dead dashboard inputs) — kept in sync
+    # with /dashboard/batch so the Dashboard activation derivation gets real
+    # values regardless of which endpoint the client hit.
+    from app.services.pillars import active_staff_count, event_counts
+    staff_headcount = active_staff_count(db, user)
+    events_recurring_count, events_total_count = event_counts(db, user)
+
     # Onboarding flags — see /dashboard/all for context. Same logic, kept
     # in sync so the welcome checklist works whether the frontend hits
     # /dashboard/all or /dashboard/summary. `profile` was fetched at the
@@ -1291,6 +1311,10 @@ def get_summary(
         has_business_profile_verified=has_business_profile_verified,
         has_accountant_email=has_accountant_email,
         khata_receivable=max(khata_receivable, 0),
+        staff_configured=staff_headcount > 0,
+        staff_headcount=staff_headcount,
+        events_total_count=events_total_count,
+        events_recurring_count=events_recurring_count,
     )
 
 

@@ -30,16 +30,43 @@
  *     lock, no UpgradeNudge, no cap.
  */
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { usePillars } from "../hooks/usePillars";
+import { useActivation } from "../hooks/useActivation";
 import { useUndoToast } from "../hooks/useUndoToast";
+import { useBranch } from "./BranchSelector";
+import { useAuth } from "../hooks/useAuth";
 import { Icon } from "./ui";
-import { PILLAR_DISPLAY } from "../config/navManifest";
+import {
+  PILLAR_DISPLAY,
+  relevantPillarsForArchetype,
+} from "../config/navManifest";
+import { archetypeIdFor } from "../config/archetypes";
 import { errText } from "../utils/errText";
+
+// The setup landing route per activation-gateable pillar — where a "Sæt op X"
+// tile navigates (the feature's own setup/empty-state page). This does NOT
+// toggle hidden_pillars — these pillars were never OFF, only never used.
+const ACTIVATION_SETUP_ROUTE = {
+  inventory: "/inventory",
+  reservations: "/reservations",
+  events: "/events",
+  staff: "/staff/schedule",
+};
 
 export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
   const { t } = useLanguage();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { branchType } = useBranch();
   const { hiddenPillars, isReady, setPillarHidden } = usePillars();
+  const {
+    isActivated,
+    isInScope,
+    activationEnabled,
+    isReady: activationReady,
+  } = useActivation();
   const { show: showUndo, ToastUI } = useUndoToast();
   // Track which pillar id is mid-enable so we can show a busy state on its
   // tile without blocking the others.
@@ -54,8 +81,40 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
     [hiddenPillars],
   );
 
-  // Nothing hidden (or state not settled) → no affordance at all.
-  if (!isReady || offPillars.length === 0) return null;
+  // DORMANT-RELEVANT pillars — the ACTIVATION discovery floor. A pillar is a
+  // "Sæt op X" candidate when ALL of: the activation gate is live for this
+  // account (enabled + in-scope), the pillar is NOT activated (no usage row),
+  // it is NOT owner-hidden (that's the "Slå til" path above), and it is
+  // RELEVANT to this business type (CONSERVATIVE — an irrelevant pillar never
+  // becomes a setup tile). These were NEVER toggled off, so tapping NAVIGATES
+  // to the feature's setup/landing; it does NOT touch hidden_pillars.
+  const setupPillars = useMemo(() => {
+    if (!activationEnabled || !isInScope) return [];
+    const relevant = relevantPillarsForArchetype(
+      archetypeIdFor(branchType || user?.business_type),
+    );
+    return PILLAR_DISPLAY.filter(
+      (p) =>
+        ACTIVATION_SETUP_ROUTE[p.id] &&   // a gateable pillar with a setup route
+        relevant.has(p.id) &&             // relevant to this business type
+        !hiddenPillars.has(p.id) &&       // not owner-hidden (that's "Slå til")
+        !isActivated(p.id),               // dormant (no real usage row)
+    );
+  }, [activationEnabled, isInScope, branchType, user?.business_type, hiddenPillars, isActivated]);
+
+  // Nothing to surface (neither hidden re-enable tiles nor dormant setup tiles,
+  // or state not settled) → no affordance at all. PillarDiscovery renders only
+  // when it has something genuinely re-findable to offer.
+  if (!isReady || !activationReady) return null;
+  if (offPillars.length === 0 && setupPillars.length === 0) return null;
+
+  // Navigate into a dormant pillar's setup/landing. Does NOT toggle
+  // hidden_pillars — the pillar was never OFF, just unused. Auto-graduation
+  // (and its quiet toast) is handled by Layout when the usage row appears.
+  const goSetup = (pillar) => {
+    onNavigate?.();
+    navigate(ACTIVATION_SETUP_ROUTE[pillar.id]);
+  };
 
   const enable = async (pillar) => {
     setError("");
@@ -86,6 +145,34 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
           {t("pillarDiscoveryTitle")}
         </h3>
         <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+          {/* DORMANT-RELEVANT setup tiles — "Sæt op X". Distinct from the
+              "Slå til" re-enable tiles below: these pillars were NEVER off,
+              just unused, so tapping NAVIGATES to setup (no hidden_pillars
+              toggle). The eyebrow makes the affordance unambiguous. */}
+          {setupPillars.map((p) => (
+            <button
+              key={`setup-${p.id}`}
+              onClick={() => goSetup(p)}
+              aria-label={`${t("activationSetupEyebrow")} — ${t(p.labelKey)}`}
+              className="flex flex-col items-center justify-center
+                bg-white dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600
+                rounded-xl p-3 min-h-[72px] active:scale-95 transition-transform
+                hover:border-gray-400 dark:hover:border-gray-500"
+            >
+              <Icon
+                name={p.icon}
+                size={20}
+                strokeWidth={1.75}
+                className="text-gray-500 dark:text-gray-400 mb-1.5"
+              />
+              <span className="text-[10px] text-gray-400 dark:text-gray-500 leading-none mb-0.5 uppercase tracking-wide font-semibold">
+                {t("activationSetupEyebrow")}
+              </span>
+              <span className="text-[11px] text-gray-500 dark:text-gray-400 text-center leading-tight font-medium">
+                {t(p.labelKey)}
+              </span>
+            </button>
+          ))}
           {offPillars.map((p) => (
             <button
               key={p.id}
@@ -129,6 +216,27 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
         <span>{t("pillarDiscoveryTitle")}</span>
       </p>
       <div className="space-y-0.5">
+        {/* DORMANT-RELEVANT setup rows — "Sæt op". A relevant feature the owner
+            hasn't used yet; tapping NAVIGATES to its setup/landing (no
+            hidden_pillars toggle). The suffix copy distinguishes it from the
+            "Slå til" re-enable rows below. */}
+        {setupPillars.map((p) => (
+          <button
+            key={`setup-${p.id}`}
+            onClick={() => { goSetup(p); }}
+            title={`${t("activationSetupEyebrow")} — ${t(p.labelKey)}`}
+            aria-label={`${t("activationSetupEyebrow")} — ${t(p.labelKey)}`}
+            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition
+              text-gray-500 dark:text-gray-400
+              hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-700 dark:hover:text-gray-200"
+          >
+            <Icon name={p.icon} size={16} strokeWidth={1.75} className="shrink-0" />
+            <span className="flex-1 truncate text-left">{t(p.labelKey)}</span>
+            <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 shrink-0">
+              {t("activationSetupEyebrow")}
+            </span>
+          </button>
+        ))}
         {offPillars.map((p) => (
           <button
             key={p.id}
