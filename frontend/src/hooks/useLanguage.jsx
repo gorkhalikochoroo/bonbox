@@ -1883,6 +1883,13 @@ const translations = {
     pillarSearchOffChip: "Off",
     pillarSearchEnableHint: "Turned off — press Enter to turn on",
     branches: "Branches",
+    // C12 Bucket B — Locations merge (Filialer · Sammenligning · Konsolideret)
+    locations: "Locations",
+    locMultiOnlyTitle: "This is for multiple locations",
+    locMultiOnlyBody: "You have one location right now. Add another branch to compare performance side by side and run a consolidated close.",
+    locMultiOnlyCta: "Add a location",
+    // C12 Bucket B — Staff back-office merge (Timer · Tidsregistrering · Drikkepenge · Løn)
+    staffBackOffice: "Timer & løn",
     workshop: "Workshop",
     wineList: "Wine List", wineListDesc: "Manage your wine catalog, track stock & margins, export menus.",
     // Contact
@@ -7030,6 +7037,13 @@ const translations = {
     pillarSearchOffChip: "Slået fra",
     pillarSearchEnableHint: "Slået fra — tryk Enter for at slå til",
     branches: "Filialer",
+    // C12 Bucket B — Locations merge (Filialer · Sammenligning · Konsolideret)
+    locations: "Lokationer",
+    locMultiOnlyTitle: "Det her er for flere lokationer",
+    locMultiOnlyBody: "Du har én lokation lige nu. Tilføj en filial mere for at sammenligne resultater side om side og lave en konsolideret lukning.",
+    locMultiOnlyCta: "Tilføj en lokation",
+    // C12 Bucket B — Staff back-office merge (Timer · Tidsregistrering · Drikkepenge · Løn)
+    staffBackOffice: "Timer & løn",
     workshop: "Værksted",
     wineList: "Vinkort", wineListDesc: "Administrer dit vinkatalog, følg lager og marginer, eksportér menuer.",
     // Contact

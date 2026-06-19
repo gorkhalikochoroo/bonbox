@@ -368,44 +368,31 @@ export const NAV_MANIFEST = [
     ],
   },
   {
+    // C12 Bucket B (Staff back-office MERGE): /staff/hours is now the single
+    // Staff back-office row — a tabbed hub (Timer · Tidsregistrering ·
+    // Drikkepenge · Løn). The former /staff/time-registration, /staff/tips and
+    // /staff/payroll rows are GONE from the manifest; their routes redirect
+    // into the matching tab (App.jsx) and their aliases are folded here so ⌘K
+    // still finds every tab. Label is "Timer & løn" (staffBackOffice) — the
+    // clearest one-line name for "settle the staff numbers". /staff/schedule
+    // stays its OWN separate row above (weekly + salon bottom-nav 4th tab).
+    // Reversible: split the rows back out + re-add their routes.
     to: "/staff/hours",
     icon: "Timer",
-    labelKey: "staffHours",
+    labelKey: "staffBackOffice",
     group: "staff",
     pillar: "staff",
     frequency: "weekly",
-    surfaces: ["sidebar", "more"],
-  },
-  {
-    to: "/staff/time-registration",
-    icon: "Clock",
-    labelKey: "staffTimeReg",
-    group: "staff",
-    pillar: "staff",
-    frequency: "weekly",
-    surfaces: ["sidebar", "more"],
-  },
-  {
-    to: "/staff/tips",
-    icon: "Coins",
-    labelKey: "staffTips",
-    group: "staff",
-    pillar: "staff",
-    frequency: "weekly",
-    surfaces: ["sidebar", "more"],
-  },
-  {
-    to: "/staff/payroll",
-    icon: "FileSpreadsheet",
-    labelKey: "staffPayroll",
-    group: "staff",
-    pillar: "staff",
-    frequency: "rare",
-    // C12 declutter: lønkørsel is monthly at most (the only rare Staff item).
-    // Off the sidebar, into More + ⌘K (løn/lønseddel aliases keep it findable).
-    // Reversible by re-adding "sidebar".
-    surfaces: ["more", "search"],
-    aliases: ["payroll", "løn", "lønseddel"],
+    surfaces: ["sidebar", "more", "search"],
+    aliases: [
+      "hours", "timer",
+      // time-registration tab (was /staff/time-registration)
+      "time registration", "tidsregistrering", "stempling", "clock in", "clock out",
+      // tips tab (was /staff/tips)
+      "tips", "drikkepenge",
+      // payroll tab (was /staff/payroll)
+      "payroll", "løn", "lønseddel", "lønkørsel",
+    ],
   },
 
   // ─── INTELLIGENCE ──────────────────────────────────────────────────
@@ -471,6 +458,13 @@ export const NAV_MANIFEST = [
     aliases: ["connections", "integrations", "bank"],
   },
   {
+    // C12 Bucket B (Locations MERGE): /branches is now the single Locations
+    // row — a tabbed hub (Filialer · Sammenligning · Konsolideret). The former
+    // /outlets and /consolidated-close rows are GONE from the manifest; their
+    // routes redirect into the matching tab (App.jsx) and their aliases are
+    // folded here so ⌘K still finds every tab. Single-location owners get a
+    // friendly empty state on the multi-location tabs (LocationsPage).
+    // Reversible: split the rows back out + re-add their routes.
     to: "/branches",
     icon: "Building2",
     labelKey: "branches",
@@ -478,6 +472,13 @@ export const NAV_MANIFEST = [
     pillar: null,
     frequency: "rare",
     surfaces: ["sidebar", "more", "search"],
+    aliases: [
+      "branches", "filialer", "locations", "lokationer",
+      // compare tab (was /outlets)
+      "outlets", "sammenligning", "cross-outlet", "filialsammenligning",
+      // consolidated tab (was /consolidated-close)
+      "consolidated", "konsolideret", "consolidated close", "samlet lukning",
+    ],
   },
   {
     to: "/terminals",
@@ -527,24 +528,12 @@ export const NAV_MANIFEST = [
     surfaces: ["more", "search"],
     aliases: ["recipients", "modtagere", "share"],
   },
-  {
-    to: "/outlets",
-    icon: "Network",
-    labelKey: "crossOutlet",
-    group: "manage",
-    pillar: null,
-    frequency: "rare",
-    surfaces: ["sidebar"],
-  },
-  {
-    to: "/consolidated-close",
-    icon: "Building",
-    labelKey: "consolidatedClose",
-    group: "manage",
-    pillar: null,
-    frequency: "rare",
-    surfaces: ["sidebar"],
-  },
+  // C12 Bucket B (Locations MERGE): the former /outlets (Filialsammenligning)
+  // and /consolidated-close (Samlet lukning) rows were REMOVED here — they are
+  // now tabs of the /branches Locations hub. Their routes redirect into the
+  // matching tab (App.jsx: /outlets → /branches?tab=compare, /consolidated-close
+  // → /branches?tab=consolidated) and their aliases are folded onto the
+  // /branches entry above so ⌘K still finds them.
   {
     to: "/team",
     icon: "UserCog",
@@ -552,7 +541,10 @@ export const NAV_MANIFEST = [
     group: "manage",
     pillar: null,
     frequency: "rare",
-    surfaces: ["sidebar", "more", "search"],
+    // C12 declutter: team/role setup is set-once — already on More + ⌘K, so
+    // dropping "sidebar" is a pure subtraction with zero reach loss.
+    // Reversible by re-adding "sidebar".
+    surfaces: ["more", "search"],
   },
   {
     to: "/recently-deleted",
@@ -561,7 +553,12 @@ export const NAV_MANIFEST = [
     group: "manage",
     pillar: null,
     frequency: "rare",
-    surfaces: ["sidebar"],
+    // C12 declutter: a recovery surface visited only when something's wrong —
+    // off the daily sidebar, into More + ⌘K (this GAINS reach: it was
+    // sidebar-only). MUST keep "more" (never search-only) so it's a tappable
+    // safety net. Reversible by re-adding "sidebar".
+    surfaces: ["more", "search"],
+    aliases: ["deleted", "slettet", "papirkurv", "trash"],
   },
   {
     to: "/contact",
@@ -570,7 +567,10 @@ export const NAV_MANIFEST = [
     group: "manage",
     pillar: null,
     frequency: "rare",
-    surfaces: ["sidebar"],
+    // C12 declutter: support/contact is rare — off the daily sidebar, into
+    // More + ⌘K (GAINS reach: it was sidebar-only). Reversible.
+    surfaces: ["more", "search"],
+    aliases: ["support", "kontakt", "hjælp", "help"],
   },
   {
     // Plan & billing — C5 folds the old one-item ACCOUNT group into the

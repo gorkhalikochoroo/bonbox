@@ -198,11 +198,15 @@ const TaxAutopilotPage = lazyRetry(() => import("./pages/TaxAutopilotPage"));
 // they render as embedded tab bodies inside InsightsHubPage, which imports
 // them itself. /pricing, /retention, /competitors are redirects (below).
 const ExpiryPage = lazyRetry(() => import("./pages/ExpiryPage"));
-const OutletPage = lazyRetry(() => import("./pages/OutletPage"));
-const BranchPage = lazyRetry(() => import("./pages/BranchPage"));
+// C12 Bucket B (Locations merge): /branches + /outlets + /consolidated-close
+// are now ONE 'Locations' destination — a TabPills wrapper (Filialer ·
+// Sammenligning · Konsolideret). The legacy /outlets + /consolidated-close
+// routes redirect into the right tab (below). The three underlying pages
+// (Branch/Outlet/ConsolidatedClose) are imported by LocationsPage itself, so
+// they no longer need their own lazy-imports here.
+const LocationsPage = lazyRetry(() => import("./pages/LocationsPage"));
 const TerminalsPage = lazyRetry(() => import("./pages/TerminalsPage"));
 const ModulesPage = lazyRetry(() => import("./pages/ModulesPage"));
-const ConsolidatedClosePage = lazyRetry(() => import("./pages/ConsolidatedClosePage"));
 const BarPage = lazyRetry(() => import("./pages/BarPage"));
 const MultiTerminalClosePage = lazyRetry(() => import("./pages/MultiTerminalClosePage"));
 const ShareRecipientsPage = lazyRetry(() => import("./pages/ShareRecipientsPage"));
@@ -213,10 +217,14 @@ const JobCardPage = lazyRetry(() => import("./pages/JobCardPage"));
 const NewJobPage = lazyRetry(() => import("./pages/JobCardPage").then(m => ({ default: m.NewJobPage })));
 const PrivacyPolicyPage = lazyRetry(() => import("./pages/PrivacyPolicyPage"));
 const StaffSchedulePage = lazyRetry(() => import("./pages/StaffSchedulePage"));
-const StaffHoursPage = lazyRetry(() => import("./pages/StaffHoursPage"));
-const TimeRegistrationPage = lazyRetry(() => import("./pages/TimeRegistrationPage"));
-const StaffTipsPage = lazyRetry(() => import("./pages/StaffTipsPage"));
-const StaffPayrollPage = lazyRetry(() => import("./pages/StaffPayrollPage"));
+// C12 Bucket B (Staff back-office merge): /staff/hours + /staff/time-registration
+// + /staff/tips + /staff/payroll are now ONE back-office destination at
+// /staff/hours — a TabPills wrapper (Timer · Tidsregistrering · Drikkepenge ·
+// Løn). The legacy time-reg/tips/payroll routes redirect into the right tab
+// (below). The four underlying pages are imported by StaffBackOfficePage
+// itself, so they no longer need their own lazy-imports here. (/staff/schedule
+// is NOT part of this merge — it stays its own route above.)
+const StaffBackOfficePage = lazyRetry(() => import("./pages/StaffBackOfficePage"));
 const MorePage = lazyRetry(() => import("./pages/MorePage"));
 const StaffPortalPage = lazyRetry(() => import("./pages/StaffPortalPage"));
 const VerifyEmailPage = lazyRetry(() => import("./pages/VerifyEmailPage"));
@@ -433,12 +441,16 @@ function AppRoutes() {
           <Route path="/pricing" element={<Navigate to="/insights?tab=pricing" replace />} />
           <Route path="/retention" element={<Navigate to="/insights?tab=guests" replace />} />
           <Route path="/expiry" element={<PillarGate pillar="inventory"><ExpiryPage /></PillarGate>} />
-          <Route path="/outlets" element={<OutletPage />} />
           <Route path="/competitors" element={<Navigate to="/insights?tab=pricing" replace />} />
-          <Route path="/branches" element={<BranchPage />} />
+          {/* C12 Bucket B Locations merge — one destination, three tabs. The
+              legacy /outlets + /consolidated-close paths stay registered but
+              redirect into the matching tab so old bookmarks / deep links /
+              ⌘K don't break. */}
+          <Route path="/branches" element={<LocationsPage />} />
+          <Route path="/outlets" element={<Navigate to="/branches?tab=compare" replace />} />
+          <Route path="/consolidated-close" element={<Navigate to="/branches?tab=consolidated" replace />} />
           <Route path="/terminals" element={<TerminalsPage />} />
           <Route path="/modules" element={<ModulesPage />} />
-          <Route path="/consolidated-close" element={<ConsolidatedClosePage />} />
           <Route path="/daily-close/multi" element={<MultiTerminalClosePage />} />
           <Route path="/share-recipients" element={<ShareRecipientsPage />} />
           <Route path="/daily-close" element={<DailyClosePage />} />
@@ -467,10 +479,17 @@ function AppRoutes() {
           {/* STAFF pillar — every /staff/* owner page. (The PUBLIC staff
               portal /s/:token is a separate, NON-gated route above.) */}
           <Route path="/staff/schedule" element={<PillarGate pillar="staff"><StaffSchedulePage /></PillarGate>} />
-          <Route path="/staff/hours" element={<PillarGate pillar="staff"><StaffHoursPage /></PillarGate>} />
-          <Route path="/staff/time-registration" element={<PillarGate pillar="staff"><TimeRegistrationPage /></PillarGate>} />
-          <Route path="/staff/tips" element={<PillarGate pillar="staff"><StaffTipsPage /></PillarGate>} />
-          <Route path="/staff/payroll" element={<PillarGate pillar="staff"><StaffPayrollPage /></PillarGate>} />
+          {/* C12 Bucket B Staff back-office merge — /staff/hours is now the
+              tabbed hub (Timer · Tidsregistrering · Drikkepenge · Løn). The
+              PillarGate(staff) wrapper stays ON the hub. The legacy
+              time-registration / tips / payroll paths stay registered but
+              redirect into the matching tab so old bookmarks / deep links /
+              push targets / ⌘K don't break. (/staff/schedule is deliberately
+              NOT merged — see comment above the lazy-import.) */}
+          <Route path="/staff/hours" element={<PillarGate pillar="staff"><StaffBackOfficePage /></PillarGate>} />
+          <Route path="/staff/time-registration" element={<Navigate to="/staff/hours?tab=time" replace />} />
+          <Route path="/staff/tips" element={<Navigate to="/staff/hours?tab=tips" replace />} />
+          <Route path="/staff/payroll" element={<Navigate to="/staff/hours?tab=payroll" replace />} />
           <Route path="/more" element={<MorePage />} />
           <Route path="/subscription" element={<SubscriptionPage />} />
           <Route path="/bookkeeping-export" element={<BookkeepingExportPage />} />
