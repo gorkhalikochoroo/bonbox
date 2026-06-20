@@ -347,6 +347,11 @@ export default function Layout() {
   // error / accountant / established-owner / flag-off → everything activated),
   // so a revisor and every existing owner see the EXACT nav they see today.
   const activation = useActivation();
+  // i18n — declared HERE (above the graduation effect below) so that effect's
+  // dependency array can reference `t` without a temporal-dead-zone crash
+  // (deps arrays are evaluated during render). Was previously declared ~100
+  // lines down, which crashed Layout → the whole app, on every load.
+  const { t, lang, setLang, LANGUAGES } = useLanguage();
   // Track a dormant→active GRADUATION so we can fire a quiet undo-toast when a
   // just-used feature graduates into the nav. We watch the activated-Set
   // membership across renders (one-directional: never auto-dormant).
@@ -449,7 +454,6 @@ export default function Layout() {
 
   const vatTerms = getVatTerms(user?.currency);
   const [dark, toggleDark] = useDarkMode();
-  const { t, lang, setLang, LANGUAGES } = useLanguage();
   usePageTracking();
 
   const handleLogout = () => {
