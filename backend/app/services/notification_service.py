@@ -8,6 +8,7 @@ Handles:
 """
 
 import logging
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,6 +23,27 @@ from app.services.email_service import send_email
 from app.utils.text import portal_path
 
 logger = logging.getLogger("bonbox.notification_service")
+
+
+def _notify_blocked_by_test_guard(member) -> bool:
+    """Dev-safety valve: when BONBOX_NOTIFY_TEST_RECIPIENT is set (non-prod /
+    verification only), suppress the REAL external sends (email + push) to
+    everyone EXCEPT the named recipient — matched by email OR staff id — so a
+    verification publish never blasts the live staff list. The in-app
+    NotificationLog row is still written (it touches no external system), so the
+    audit trail stays honest while no real message leaves the building.
+
+    Returns False (normal behaviour) when the env var is unset — i.e. prod is
+    unaffected.
+    """
+    target = (os.getenv("BONBOX_NOTIFY_TEST_RECIPIENT") or "").strip().lower()
+    if not target:
+        return False
+    candidates = {
+        str(getattr(member, "email", "") or "").lower(),
+        str(getattr(member, "id", "") or "").lower(),
+    }
+    return target not in candidates
 
 
 def _send_staff_schedule_push(
@@ -410,6 +432,11 @@ def send_shift_notifications(
             if not member:
                 continue
 
+            # Dev-safety: when BONBOX_NOTIFY_TEST_RECIPIENT is set, suppress the
+            # real email/push to everyone but the test recipient (the in_app row
+            # is still written). Unset in prod → no-op.
+            blocked = _notify_blocked_by_test_guard(member)
+
             # Look up portal link for CTA button
             link = db.query(StaffLink).filter(
                 StaffLink.staff_id == staff_uuid,
@@ -430,7 +457,7 @@ def send_shift_notifications(
             status = "sent"
             error_message = None
             body = None
-            if member.email:
+            if member.email and not blocked:
                 html = build_shift_email_html(
                     staff_name=member.name,
                     changes=changes,
@@ -464,20 +491,21 @@ def send_shift_notifications(
             # Fully fail-soft: a push error never blocks the email send
             # or the per-staff commit. Tier-gating + tenant scope live
             # inside _send_staff_schedule_push.
-            try:
-                _send_staff_schedule_push(
-                    db=db,
-                    user_id=user_id,
-                    staff_id=staff_uuid,
-                    staff_name=member.name,
-                    week_label=week_label,
-                    portal_url=portal_url,
-                )
-            except Exception:  # noqa: BLE001
-                logger.exception(
-                    "notification: push fan-out threw for staff_id=%s",
-                    staff_id_str,
-                )
+            if not blocked:
+                try:
+                    _send_staff_schedule_push(
+                        db=db,
+                        user_id=user_id,
+                        staff_id=staff_uuid,
+                        staff_name=member.name,
+                        week_label=week_label,
+                        portal_url=portal_url,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "notification: push fan-out threw for staff_id=%s",
+                        staff_id_str,
+                    )
 
             # Per-staff commit — preserves audit trail even if a later
             # iteration explodes.
@@ -515,10 +543,13 @@ def send_single_shift_notification(
         StaffMember.user_id == user_id,
         StaffMember.is_deleted.isnot(True),
     ).first()
-    if not member or not member.email:
+    # Tenant scope / deleted bails out. A MISSING EMAIL no longer skips the
+    # staff: we still write the in-app alert (so the portal Alerts feed shows
+    # the change) and still fire push — parity with the publish path. Most DK
+    # café staff have no email on file.
+    if not member:
         return
 
-    from app.models.user import User
     owner = db.query(User).filter(User.id == user_id).first()
     profile = db.query(BusinessProfile).filter(
         BusinessProfile.user_id == user_id
@@ -540,28 +571,66 @@ def send_single_shift_notification(
     week_label = _format_date_nice(change.date)
     subject = f"Shift {'cancelled' if change.change_type == 'removed' else 'updated'} - {week_label}"
 
-    html = build_shift_email_html(
-        staff_name=member.name,
-        changes=[change],
-        portal_url=portal_url,
-        restaurant_name=restaurant_name,
-        week_label=week_label,
-    )
+    blocked = _notify_blocked_by_test_guard(member)
 
-    success = send_email(to=member.email, subject=subject, html=html)
+    # ── Email channel — only when the staff has an address AND the test guard
+    #    isn't suppressing them. Otherwise we still record an in_app row so the
+    #    portal Alerts feed shows the change. Exactly ONE row either way.
+    channel = "in_app"
+    status = "sent"
+    error_message = None
+    body = None
+    if member.email and not blocked:
+        html = build_shift_email_html(
+            staff_name=member.name,
+            changes=[change],
+            portal_url=portal_url,
+            restaurant_name=restaurant_name,
+            week_label=week_label,
+        )
+        success = send_email(to=member.email, subject=subject, html=html)
+        channel = "email"
+        status = "sent" if success else "failed"
+        error_message = None if success else "Email delivery failed"
+        body = html
+    elif member.email and blocked:
+        logger.info(
+            "notification(single): test-guard suppressed email to staff_id=%s",
+            staff_id,
+        )
 
     log = NotificationLog(
         id=uuid.uuid4(),
         user_id=user_id,
         staff_id=staff_id,
-        channel="email",
+        channel=channel,
         event_type=event_type,
         subject=subject,
-        body=html,
-        status="sent" if success else "failed",
-        error_message=None if success else "Email delivery failed",
+        body=body,
+        status=status,
+        error_message=error_message,
     )
     db.add(log)
+
+    # Push fan-out — matches the publish path so single edits reach staff in
+    # the OS tray too. Fail-soft + tier-gated inside the helper; suppressed by
+    # the test guard.
+    if not blocked:
+        try:
+            _send_staff_schedule_push(
+                db=db,
+                user_id=user_id,
+                staff_id=staff_id,
+                staff_name=member.name,
+                week_label=week_label,
+                portal_url=portal_url,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "notification(single): push fan-out threw for staff_id=%s",
+                staff_id,
+            )
+
     db.commit()
 
 

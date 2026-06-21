@@ -1214,6 +1214,24 @@ def update_schedule(
 
         background_tasks.add_task(_send_bg)
 
+        # Staff live-sync nudge — same signal publish_week sends, so a single
+        # published-shift edit refreshes connected portals instantly (not just
+        # by the 20s poll) and the staff sees the real-change toast. ONLY inside
+        # the was_published guard — a draft edit must never emit schedule_published.
+        try:
+            from app.services import portal_events
+            _d = date.fromisoformat(old_date)
+            _monday = _d - timedelta(days=_d.weekday())
+            portal_events.publish(
+                str(user.id),
+                {"type": "schedule_published", "week_start": _monday.isoformat()},
+            )
+        except Exception:  # noqa: BLE001 — a nudge must never break the edit
+            import logging
+            logging.getLogger(__name__).debug(
+                "portal_events publish (update) failed", exc_info=True
+            )
+
     return shift
 
 
@@ -1261,6 +1279,23 @@ def delete_schedule(
                 bg_db.close()
 
         background_tasks.add_task(_send_bg)
+
+        # Staff live-sync nudge — instant portal refresh on a published-shift
+        # cancellation. ONLY inside the was_published guard — deleting a draft
+        # must never emit schedule_published.
+        try:
+            from app.services import portal_events
+            _d = date.fromisoformat(shift_date)
+            _monday = _d - timedelta(days=_d.weekday())
+            portal_events.publish(
+                str(user.id),
+                {"type": "schedule_published", "week_start": _monday.isoformat()},
+            )
+        except Exception:  # noqa: BLE001 — a nudge must never break the delete
+            import logging
+            logging.getLogger(__name__).debug(
+                "portal_events publish (delete) failed", exc_info=True
+            )
 
 
 @router.post("/schedules/copy-week")
