@@ -132,6 +132,9 @@ class ScheduleResponse(BaseModel):
     status: str
     notes: str | None = None
     created_at: datetime.datetime | None = None
+    # Staff-side "Jeg har set det" acknowledgement — surfaced as the owner-grid
+    # confirmation badge. None = published-but-unconfirmed.
+    confirmed_at: datetime.datetime | None = None
 
     model_config = {"from_attributes": True}
 
