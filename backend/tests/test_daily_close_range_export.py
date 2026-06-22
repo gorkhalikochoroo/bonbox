@@ -524,3 +524,166 @@ def test_resolve_range_default_to_is_today_not_yesterday():
     f, t = _resolve_range(None, None)
     assert t == date.today()
     assert t != date.today() - timedelta(days=1)
+
+
+# ─── Accountant-grade upgrades (Jun 2026) ─────────────────────────────
+# Reconciliation, address dedup, bilagsnummer header, honest readiness.
+
+from app.services.daily_close_range_export import (
+    compose_business_address,
+    _payments_sum,
+)
+
+
+class _FakeProfile:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+def _pdf_text(pdf_bytes: bytes) -> str:
+    """Extract text for content assertions. Tries pypdf, then `pdftotext`
+    (poppler). Skips the test if neither is available — the test env ships
+    no PDF text extractor by default, so content checks are best-effort
+    while the pure-logic assertions below always run."""
+    try:
+        from pypdf import PdfReader  # type: ignore
+        import io as _io
+        r = PdfReader(_io.BytesIO(pdf_bytes))
+        return "\n".join((p.extract_text() or "") for p in r.pages)
+    except Exception:
+        pass
+    import shutil
+    import subprocess
+    import tempfile
+    if not shutil.which("pdftotext"):
+        pytest.skip("no PDF text extractor (pypdf / pdftotext) available")
+    with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
+        f.write(pdf_bytes)
+        f.flush()
+        out = subprocess.run(
+            ["pdftotext", "-layout", f.name, "-"],
+            capture_output=True, text=True, check=True,
+        )
+    return out.stdout
+
+
+def test_compose_address_no_double_city():
+    """The reported defect: address already ends with the postal+city and
+    zip/city are ALSO populated → must NOT print '2500 Valby, 2500 Valby'."""
+    p = _FakeProfile(address="Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby",
+                     zipcode="2500", city="Valby")
+    out = compose_business_address(p)
+    assert out == "Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby"
+    assert out.count("Valby") == 1
+    assert "2500 Valby, 2500 Valby" not in out
+
+
+def test_compose_address_appends_when_missing():
+    """When the address does NOT carry the city, the zip+city is appended."""
+    p = _FakeProfile(address="Carl Th. Dreyers Vej 244", zipcode="2500", city="Valby")
+    assert compose_business_address(p) == "Carl Th. Dreyers Vej 244, 2500 Valby"
+
+
+def test_compose_address_only_zipcity():
+    """No street address → just the zip+city (no leading comma)."""
+    p = _FakeProfile(address=None, zipcode="2500", city="Valby")
+    assert compose_business_address(p) == "2500 Valby"
+
+
+def test_payments_sum_includes_hidden_buckets():
+    """_payments_sum must total EVERY bucket, incl. ones the narrow PDF
+    table hides (gift_card / bank_transfer / other), so reconciliation is
+    accurate even when a close has non-cash/card/mp methods."""
+    c = _make_close(payment_categories=encode_breakdown(
+        {"card": 100, "mobilepay": 5, "gift_card": 10, "bank_transfer": 20}))
+    assert _payments_sum(c) == pytest.approx(135.0)
+
+
+def test_reconciliation_flags_payment_revenue_mismatch():
+    """The real bug from the user's PDF: card == revenue AND +1.005 mobilepay
+    → payments over-sum revenue. The PDF must surface 'Betalinger stemmer
+    ikke med omsætning' and the readiness badge must NOT claim ready."""
+    c = _make_close(
+        revenue_total=135166.84, revenue_ex_moms=108375.78, moms_total=26791.06,
+        payment_categories=encode_breakdown({"card": 135166.84, "mobilepay": 1005.00}),
+        payment_total=136171.84, cash_counted=None, cash_difference=None,
+        tips_total=0.0, status="confirmed",
+    )
+    # Always-on logic guard (independent of any PDF text extractor): the
+    # payments over-sum revenue by exactly 1005, so reconciliation fails.
+    assert _payments_sum(c) - float(c.revenue_total) == pytest.approx(1005.0)
+    assert abs(_payments_sum(c) - float(c.revenue_total)) > 0.50  # > tolerance
+    pdf = build_daily_close_range_pdf(
+        [c], from_date=date(2026, 5, 24), to_date=date(2026, 6, 22),
+        business_name="DukaanAI", currency="DKK", bilagsnummer="KR-20260524-20260622",
+    )
+    assert pdf[:4] == b"%PDF"
+    txt = _pdf_text(pdf)
+    assert "stemmer ikke med omsætning" in txt          # reconciliation warning
+    assert "1.005,00" in txt                            # the exact gap is shown
+    assert "klar til bogføring" not in txt              # NOT falsely "ready"
+    assert "skal gennemgås" in txt                      # honest "needs review"
+
+
+def test_reconciliation_ok_when_payments_tie_out():
+    """A clean close (payments == revenue) shows the green reconciled note
+    and the readiness badge counts it as ready."""
+    c = _make_close(
+        revenue_total=18200.00, revenue_ex_moms=14560.00, moms_total=3640.00,
+        payment_categories=encode_breakdown({"cash": 4200, "card": 14000}),
+        payment_total=18200.00, cash_counted=None, cash_difference=None,
+        status="confirmed",
+    )
+    txt = _pdf_text(build_daily_close_range_pdf(
+        [c], from_date=date(2026, 5, 1), to_date=date(2026, 5, 1),
+        business_name="Cafe", currency="DKK"))
+    assert "afstemt med omsætning" in txt               # reconciled OK
+    assert "klar til bogføring" in txt                  # ready badge
+
+
+def test_bilagsnummer_renders_in_header():
+    """The document voucher number must appear in the PDF when supplied."""
+    c = _make_close(status="confirmed")
+    txt = _pdf_text(build_daily_close_range_pdf(
+        [c], from_date=date(2026, 5, 1), to_date=date(2026, 5, 31),
+        business_name="Cafe", currency="DKK", bilagsnummer="KR-20260501-20260531"))
+    assert "KR-20260501-20260531" in txt
+    assert "Bilag" in txt
+
+
+# ─── Adversarial-review fixes (Jun 2026) ──────────────────────────────
+
+from app.services.daily_close_range_export import _has_reconcilable_payments
+
+
+def test_card_brand_splits_not_double_counted():
+    """Card-brand scheme keys (softpay/betalingskort/dankort/…) are a SPLIT of
+    the card line, not extra methods. A balanced terminal close must reconcile
+    to ~0 — summing brands on top of `card` would phantom-flag it. (This is the
+    most common DK close shape; the prior _payments_sum double-counted it.)"""
+    c = _make_close(
+        revenue_total=19054.00,
+        payment_categories=encode_breakdown(
+            {"cash": 4200, "card": 14854, "softpay": 14249, "betalingskort": 605}),
+        payment_total=19054.00,
+    )
+    assert _payments_sum(c) == pytest.approx(19054.0)           # brands excluded
+    assert abs(_payments_sum(c) - float(c.revenue_total)) <= 0.50  # reconciles
+
+
+def test_revenue_only_close_not_flagged():
+    """A confirmed revenue-only close (no payment-method split — common for
+    scan-and-lock) has nothing to reconcile. It must NOT be flagged 'Betalinger
+    stemmer ikke' and must still count as 'klar til bogføring'."""
+    c = _make_close(
+        revenue_total=18200.00, revenue_ex_moms=14560.00, moms_total=3640.00,
+        payment_categories=None, payment_total=None,
+        cash_counted=None, cash_difference=None, status="confirmed",
+    )
+    assert _has_reconcilable_payments(c) is False
+    assert _payments_sum(c) == 0.0
+    txt = _pdf_text(build_daily_close_range_pdf(
+        [c], from_date=date(2026, 5, 1), to_date=date(2026, 5, 1),
+        business_name="Cafe", currency="DKK"))
+    assert "stemmer ikke med omsætning" not in txt   # not false-flagged
+    assert "klar til bogføring" in txt               # still book-ready

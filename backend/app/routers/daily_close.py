@@ -48,6 +48,7 @@ from app.services.daily_close_range_export import (
     closes_to_csv_bytes,
     build_daily_close_range_xlsx,
 )
+from app.services.bonbox_pdf_kit import export_bilagsnummer, write_export_audit_row
 from app.services import audit_service
 from app.services.tz_utils import business_today_local
 from app.utils.time import utc_now
@@ -507,6 +508,7 @@ def _fire_close_auto_email(
             [dc], from_date=dc.date, to_date=dc.date,
             business_name=business_name, currency=currency,
             profile=profile, db=db, user_id=user.id,
+            bilagsnummer=export_bilagsnummer("KR", dc.date, dc.date),
         )
     except Exception as e:  # noqa: BLE001
         logger.exception("close_auto_email: PDF build failed close_id=%s: %s", dc.id, e)
@@ -2223,8 +2225,8 @@ def export_range_pdf(
       L1 auth → L2 input bounds (max 366d) → L3 rate limit (5/min)
       L4 tenant scope (user_id filter) → L5 plan cap (Free=7d /
       Starter=31d / Pro=366d) — returns 402 with upgrade context
-      when exceeded. L6 the file is streamed not stored — no audit
-      row.
+      when exceeded. L7 a §10 audit row is written on egress (the
+      revisor-bound artifact trail; fail-soft).
     """
     f, t = _resolve_range(from_date, to_date, user=user)
     closes = _fetch_range_closes(
@@ -2243,10 +2245,19 @@ def export_range_pdf(
     )
     currency = user.currency or "DKK"
 
+    # Stable per-document voucher number (KR = Kasserapport) — shown in the
+    # PDF header + carried into the L7 audit row so the artifact is traceable.
+    bilagsnummer = export_bilagsnummer("KR", f, t)
     pdf_bytes = build_daily_close_range_pdf(
         closes, from_date=f, to_date=t,
         business_name=business_name, currency=currency,
-        profile=profile, db=db, user_id=user.id,
+        profile=profile, db=db, user_id=user.id, bilagsnummer=bilagsnummer,
+    )
+    write_export_audit_row(
+        db, user, doc_type="daily_close_range_pdf",
+        bilagsnummer=bilagsnummer,
+        period={"from": f.isoformat(), "to": t.isoformat(), "closes": len(closes)},
+        ip_address=(request.client.host if request and request.client else None),
     )
     filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.pdf"
     return Response(
@@ -2281,6 +2292,12 @@ def export_range_csv(
         db, user_id=user.id, from_date=f, to_date=t, branch_id=branch_id,
     )
     csv_bytes = closes_to_csv_bytes(closes)
+    write_export_audit_row(
+        db, user, doc_type="daily_close_range_csv",
+        bilagsnummer=export_bilagsnummer("KR", f, t),
+        period={"from": f.isoformat(), "to": t.isoformat(), "closes": len(closes)},
+        ip_address=(request.client.host if request and request.client else None),
+    )
     filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.csv"
     return Response(
         content=csv_bytes,
@@ -2325,8 +2342,10 @@ def export_range_xlsx(
     profile = db.query(BusinessProfile).filter(
         BusinessProfile.user_id == user.id,
     ).first()
+    # Same derivation as the PDF endpoint (business_name, not company_name) so
+    # the workbook header matches the PDF exactly for the same account.
     business_name = (
-        getattr(profile, "company_name", None)
+        (profile.business_name if profile and profile.business_name else None)
         or getattr(user, "business_name", None)
         or "Daily Close Report"
     )
@@ -2336,6 +2355,12 @@ def export_range_xlsx(
         closes, from_date=f, to_date=t,
         business_name=business_name, currency=currency,
         profile=profile, db=db, user_id=user.id,
+    )
+    write_export_audit_row(
+        db, user, doc_type="daily_close_range_xlsx",
+        bilagsnummer=export_bilagsnummer("KR", f, t),
+        period={"from": f.isoformat(), "to": t.isoformat(), "closes": len(closes)},
+        ip_address=(request.client.host if request and request.client else None),
     )
     filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.xlsx"
     return Response(
@@ -2523,19 +2548,21 @@ def send_to_accountant(
     )
 
     business_name = (
-        getattr(profile, "company_name", None)
+        (profile.business_name if profile and profile.business_name else None)
         or getattr(user, "business_name", None)
         or "Daily Close Report"
     )
     currency = user.currency or "DKK"
     fmt = body.fmt
+    # Same voucher number on the emailed artifact as the downloaded one.
+    bilagsnummer = export_bilagsnummer("KR", f, t)
 
     # Build the attachment bytes per the chosen format
     if fmt == "pdf":
         attachment = build_daily_close_range_pdf(
             closes, from_date=f, to_date=t,
             business_name=business_name, currency=currency,
-            profile=profile, db=db, user_id=user.id,
+            profile=profile, db=db, user_id=user.id, bilagsnummer=bilagsnummer,
         )
         mime = "application/pdf"
         ext = "pdf"

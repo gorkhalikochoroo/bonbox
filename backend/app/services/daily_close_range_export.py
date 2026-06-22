@@ -94,9 +94,21 @@ def closes_to_csv_bytes(closes: list[DailyClose]) -> bytes:
 # Anything unrecognized rolls into "other" so the totals still tie out.
 _PAY_BUCKETS = ["cash", "card", "mobilepay", "gift_card", "bank_transfer"]
 
+# Card-brand / scheme splits are a BREAKDOWN of the `card` line, not extra
+# methods — they ride along in payment_categories for accountant fidelity but
+# summing them would double-count the card total. Mirrors the write-side
+# invariant `_CARD_BREAKDOWN_KEYS` in routers/daily_close.py (the close UI
+# shows brands UNDER the card line, never adding). Excluded from every bucket
+# so _payments_sum() ties out to revenue for a normal terminal close.
+_CARD_BRAND_KEYS = {"dankort", "visa", "mastercard", "softpay", "betalingskort"}
+
 
 def _bucketed_payments(c: DailyClose) -> dict:
-    """Decode encoded payment_categories into known buckets + 'other'."""
+    """Decode encoded payment_categories into known buckets + 'other'.
+
+    Card-brand scheme keys (dankort/visa/…) are dropped — they are a split of
+    the `card` line, so counting them would inflate payments past revenue and
+    false-flag reconciliation on the most common DK terminal close."""
     out = {k: 0.0 for k in _PAY_BUCKETS}
     out["other"] = 0.0
     raw = decode_breakdown(c.payment_categories) or {}
@@ -106,6 +118,8 @@ def _bucketed_payments(c: DailyClose) -> dict:
         except (TypeError, ValueError):
             continue
         norm = (k or "").lower().replace(" ", "_").replace("-", "_")
+        if norm in _CARD_BRAND_KEYS:
+            continue  # brand split of the card line — never add it on top
         if norm in ("mobile_pay", "mobilepay_total"):
             norm = "mobilepay"
         if norm in ("giftcard", "gift_cards"):
@@ -115,6 +129,56 @@ def _bucketed_payments(c: DailyClose) -> dict:
         else:
             out["other"] += amt
     return out
+
+
+def _payments_sum(c: DailyClose) -> float:
+    """Total of EVERY decoded payment bucket for a close — including the ones
+    the PDF's narrow column set hides (gift_card / bank_transfer / other).
+
+    This is the number that must tie out to ``revenue_total`` for a close to be
+    bookkeeping-ready: every krone of revenue is collected by some method, so
+    the methods must sum to the revenue. The per-close PDF reconciliation and
+    the readiness badge both key on it."""
+    return sum(_bucketed_payments(c).values())
+
+
+def _has_reconcilable_payments(c: DailyClose) -> bool:
+    """True only when the close actually recorded payment-method amounts that
+    sum to something. A revenue-only close (scan-and-lock / Z-report bottom
+    line with no method split) or one carrying only card-brand splits has
+    NOTHING to tie out — reconciling it would falsely flag the whole day's
+    revenue as an 'Afvigelse' and wrongly drop a book-ready close to review."""
+    return _payments_sum(c) > 0.005
+
+
+def compose_business_address(profile) -> str:
+    """One-line address that never double-prints the city.
+
+    The stored ``address`` field very often ALREADY ends with the postal code +
+    city (DK convention: "Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby") while
+    ``zipcode`` and ``city`` are ALSO populated separately. Naively joining
+    ``address`` + "zip city" produced the "…, 2500 Valby, 2500 Valby" defect.
+
+    Rule: append the "zip city" tail ONLY when the address does not already
+    carry it — i.e. the full "zip city" is not a substring, AND we don't see
+    both the zip and the city already inside the address (and, when no zip is
+    set, the bare city is not already there). Conservative so a street that
+    merely contains a city name is not wrongly suppressed."""
+    addr = (getattr(profile, "address", None) or "").strip().rstrip(",").strip()
+    zipc = (getattr(profile, "zipcode", None) or "").strip()
+    city = (getattr(profile, "city", None) or "").strip()
+    zipcity = " ".join(p for p in (zipc, city) if p).strip()
+    if not addr:
+        return zipcity
+    al = addr.lower()
+    already = (
+        (bool(zipcity) and zipcity.lower() in al)
+        or (bool(zipc) and bool(city) and zipc.lower() in al and city.lower() in al)
+        or (bool(city) and not zipc and city.lower() in al)
+    )
+    if zipcity and not already:
+        return f"{addr}, {zipcity}"
+    return addr
 
 
 def _voucher_ranges(db: Session, user_id, dt: date) -> tuple[str, str]:
@@ -176,6 +240,7 @@ def build_daily_close_range_pdf(
     profile=None,
     db: Session | None = None,
     user_id=None,
+    bilagsnummer: str = "",
 ) -> bytes:
     """Build a multi-day daily-close PDF report — accountant-grade.
 
@@ -236,6 +301,20 @@ def build_daily_close_range_pdf(
         # Readiness
         "ready":       "klar til bogføring" if DA else "ready for booking",
         "review":      "skal gennemgås" if DA else "need review",
+        # Document voucher number (header) — matches the gold MOMS-PDF label
+        "bilag_label": "Bilagsnr" if DA else "Voucher",
+        # Payments ↔ revenue reconciliation (accountant-grade)
+        "recon_ok":    "Betalinger afstemt med omsætning" if DA else "Payments reconciled to revenue",
+        "recon_off":   "Betalinger stemmer ikke med omsætning" if DA else "Payments do not reconcile to revenue",
+        "recon_pay":   "Betalinger" if DA else "Payments",
+        "recon_rev":   "Omsætning" if DA else "Revenue",
+        "recon_delta": "Afvigelse" if DA else "Difference",
+        "recon_review": ("lukning(er) skal gennemgås før bogføring"
+                         if DA else "close(s) need review before booking"),
+        # Signature line (two-person control, Bogføringsloven §10)
+        "sig_counted":  "Optalt af" if DA else "Counted by",
+        "sig_approved": "Godkendt af" if DA else "Approved by",
+        "sig_date":     "Dato" if DA else "Date",
         # Footer
         "footer_law":  (
             "Genereret af BonBox · Opbevares iht. Bogføringsloven §10 (5 år). "
@@ -310,15 +389,9 @@ def build_daily_close_range_pdf(
         if profile:
             if getattr(profile, "org_number", None):
                 biz_meta.append(f"CVR {profile.org_number}")
-            addr_parts = [p for p in [
-                getattr(profile, "address", None),
-                " ".join(p for p in [
-                    getattr(profile, "zipcode", None),
-                    getattr(profile, "city", None),
-                ] if p),
-            ] if p]
-            if addr_parts:
-                biz_meta.append(", ".join(addr_parts))
+            addr_line = compose_business_address(profile)
+            if addr_line:
+                biz_meta.append(addr_line)
         head_left = biz_line
         if biz_meta:
             head_left += f"<br/><font color='#6b7280' size='9'>{' · '.join(biz_meta)}</font>"
@@ -329,6 +402,13 @@ def build_daily_close_range_pdf(
             f"{_date_short(from_date)} → {_date_short(to_date)}"
             f"</font>"
         )
+        # Document voucher number — gives the revisor a stable per-document
+        # reference (mirrors build_moms_filing_pdf). Only shown when supplied.
+        if bilagsnummer:
+            head_right += (
+                f"<br/><font color='#6b7280' size='8'>"
+                f"{L['bilag_label']} {bilagsnummer}</font>"
+            )
 
         head_table = Table(
             [[Paragraph(head_left, subtitle), Paragraph(head_right, subtitle)]],
@@ -490,11 +570,62 @@ def build_daily_close_range_pdf(
                 note,
             ))
 
+        # ─── Payments ↔ revenue reconciliation (accountant-grade) ────────
+        # A kasserapport must TIE OUT: every krone of revenue is collected by
+        # some payment method, so the methods must sum to the revenue. We
+        # reconcile on CONFIRMED closes (drafts are excluded from totals) and
+        # surface any close that does not balance — silently presenting
+        # non-tying numbers to a revisor is exactly what "accountant-grade"
+        # exists to prevent. RECON_TOL absorbs øre rounding but catches real
+        # gaps (the per-close payment sum includes hidden buckets like
+        # gift_card / bank_transfer / other that the narrow table omits).
+        RECON_TOL = 0.50  # 50 øre
+        # Only closes that actually recorded payment methods can be reconciled —
+        # a revenue-only close has nothing to tie out (see _has_reconcilable_).
+        recon_closes = [c for c in confirmed if _has_reconcilable_payments(c)]
+        unbalanced = [
+            c for c in recon_closes
+            if abs(_payments_sum(c) - float(c.revenue_total or 0)) > RECON_TOL
+        ]
+        if recon_closes:
+            story.append(Spacer(1, 6))
+            if unbalanced:
+                # Sum of ABSOLUTE per-close deviations — never 0 while a close
+                # is off (a NET figure could cancel out and read "0,00" beside
+                # a "needs review" warning, which is self-contradictory).
+                abs_dev = sum(
+                    abs(_payments_sum(c) - float(c.revenue_total or 0))
+                    for c in unbalanced
+                )
+                story.append(Paragraph(
+                    f"<font color='{AMBER.hexval()}' size='8.5'>"
+                    f"⚠ {L['recon_off']}: {len(unbalanced)} {L['recon_review']} "
+                    f"({L['recon_delta']} {_fmt(abs_dev)}).</font>",
+                    note,
+                ))
+            else:
+                net = (
+                    sum(_payments_sum(c) for c in recon_closes)
+                    - sum(float(c.revenue_total or 0) for c in recon_closes)
+                )
+                story.append(Paragraph(
+                    f"<font color='{EMERALD.hexval()}' size='8.5'>"
+                    f"✓ {L['recon_ok']} ({L['recon_delta']} {_fmt(net)}).</font>",
+                    note,
+                ))
+
         # ─── Readiness badge ─────────────────────────────────────────────
+        # A close counts as "ready for booking" only when ALL three hold:
+        # MOMS computed, cash drawer within ±100 (or not counted), AND
+        # payments reconcile to revenue. The third condition is the honesty
+        # fix — previously a close with a payment/revenue mismatch could still
+        # claim "klar til bogføring".
         ready_count = sum(
             1 for c in confirmed
             if (c.moms_total is not None)
             and (c.cash_counted is None or abs(float(c.cash_difference or 0)) <= 100)
+            and (not _has_reconcilable_payments(c)
+                 or abs(_payments_sum(c) - float(c.revenue_total or 0)) <= RECON_TOL)
         )
         all_ready = (ready_count == n_conf and n_conf > 0)
         badge_text = L["ready"] if all_ready else L["review"]
@@ -519,6 +650,19 @@ def build_daily_close_range_pdf(
             ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ]))
         story.append(badge)
+
+        # ─── Signature line (two-person control, Bogføringsloven §10) ─────
+        # The revisor expects a signed cash report: who counted the drawer +
+        # who approved it for booking, with a date. Kept to a single quiet
+        # line so it never crowds the landscape body.
+        story.append(Spacer(1, 14))
+        story.append(Paragraph(
+            f"<font color='#6b7280' size='8'>"
+            f"{L['sig_counted']}: ______________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+            f"{L['sig_approved']}: ______________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;"
+            f"{L['sig_date']}: ____________</font>",
+            note,
+        ))
 
         # ─── Footer ──────────────────────────────────────────────────────
         story.append(Spacer(1, 6))
@@ -619,16 +763,10 @@ def build_daily_close_range_xlsx(
             s1.cell(row=row, column=1, value="CVR")
             s1.cell(row=row, column=2, value=str(profile.org_number))
             row += 1
-        addr_parts = [p for p in [
-            getattr(profile, "address", None),
-            " ".join(p for p in [
-                getattr(profile, "zipcode", None),
-                getattr(profile, "city", None),
-            ] if p),
-        ] if p]
-        if addr_parts:
+        addr_line = compose_business_address(profile)
+        if addr_line:
             s1.cell(row=row, column=1, value="Adresse" if DA else "Address")
-            s1.cell(row=row, column=2, value=", ".join(addr_parts))
+            s1.cell(row=row, column=2, value=addr_line)
             row += 1
 
     period_row = 6
