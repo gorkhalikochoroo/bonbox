@@ -1086,6 +1086,12 @@ def portal_team_schedule(
             Schedule.user_id == member.user_id,
             Schedule.date >= today,
             Schedule.date <= end,
+            # Only PUBLISHED (or already-confirmed) shifts reach a teammate's
+            # phone — same rule as the staff's own schedule (line ~254) and the
+            # rostered-hours query (line ~406). Draft shifts the owner is still
+            # planning must never leak into the who's-on strip or the swap-target
+            # picker: they're not real commitments and you can't swap a draft.
+            Schedule.status.in_(("published", "confirmed")),
             StaffMember.is_deleted.isnot(True),
             StaffMember.active.is_(True),
         )

@@ -1,6 +1,13 @@
+import re
 import uuid
 import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+# Strict "HH:MM" — hours 00-23, minutes 00-59. Single-digit hour tolerated
+# ("9:05") to match _parse_hhmm; anything else (e.g. "", "25:00", "16:60") is
+# rejected at the schema layer as a clean 422 rather than crashing _parse_hhmm
+# with an unhandled ValueError → 500 deep in the endpoint.
+_HHMM_RE = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d$")
 
 
 # ── Staff Members ──────────────────────────────────────────────────────────
@@ -119,6 +126,24 @@ class ScheduleCreate(BaseModel):
     role_on_shift: str | None = None
     status: str = "draft"
     notes: str | None = None
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def _valid_hhmm(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not _HHMM_RE.match(v):
+            raise ValueError("must be in HH:MM format (00:00–23:59)")
+        return v
+
+    @model_validator(mode="after")
+    def _start_not_equal_end(self):
+        # A shift can cross midnight (end < start, e.g. 22:00–02:00), but start
+        # and end identical is a zero-length shift — a fat-finger, never intended.
+        # Reject it clearly here instead of storing a 0-hour row that would also
+        # confuse the overlap guard and the cost ledger.
+        if self.start_time == self.end_time:
+            raise ValueError("start_time and end_time can't be the same")
+        return self
 
 
 class ScheduleResponse(BaseModel):

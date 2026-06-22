@@ -119,14 +119,82 @@ def _calc_shift_hours(start_time: str, end_time: str, break_minutes: int) -> flo
     """Calculate net hours for a shift, handling overnight spans."""
     s = _parse_hhmm(start_time)
     e = _parse_hhmm(end_time)
-    if e <= s:
-        e += 24.0  # overnight shift
+    if e < s:
+        e += 24.0  # overnight shift (end strictly before start = crosses midnight)
+    # end == start is a ZERO-length shift, NOT a 24h one — leave gross at 0 rather
+    # than rolling +24h (which would silently pay a fat-fingered 16:00–16:00 as 24h).
     gross = e - s
     net = gross - (break_minutes / 60.0)
     # 2 decimals (not 1) so an 07:00–15:20 shift logs as 8.33h, not 8.3h —
     # 1-decimal rounding systematically shaved minutes off staff pay vs the
     # exact preview shown in ShiftModal/PublishConfirm.
     return round(max(net, 0), 2)
+
+
+def _shifts_overlap(a_start: str, a_end: str, b_start: str, b_end: str) -> bool:
+    """True if two same-day shifts share any clock time.
+
+    Intervals are half-open [start, end) and use the same overnight rule as
+    _calc_shift_hours (end <= start rolls the end past midnight, +24h). Two
+    consequences that make this the *correct* guard, not a naive UNIQUE:
+
+      • Split shifts are ALLOWED — 11:00–15:00 lunch + 18:00–23:00 dinner for
+        the same person on the same day don't overlap, so both are kept.
+      • Touching ends are ALLOWED — 11:00–15:00 + 15:00–23:00 (finish lunch,
+        start dinner) don't overlap; the boundary belongs to neither.
+      • A true double-booking IS rejected — 16:00–23:00 vs 18:00–02:00 overlap
+        (one person can't be in two places at once). Overnight spans compare
+        correctly because both roll past midnight before the test.
+
+    Matches the half-open semantics of availability_engine._overlaps.
+    """
+    a_s = _parse_hhmm(a_start)
+    a_e = _parse_hhmm(a_end)
+    if a_e < a_s:
+        a_e += 24.0  # crosses midnight (strict <; end == start is zero-length, not 24h)
+    b_s = _parse_hhmm(b_start)
+    b_e = _parse_hhmm(b_end)
+    if b_e < b_s:
+        b_e += 24.0
+    return a_s < b_e and b_s < a_e
+
+
+def _find_overlapping_shift(
+    db: Session,
+    *,
+    user_id,
+    staff_id,
+    shift_date: date,
+    start_time: str,
+    end_time: str,
+    exclude_id=None,
+):
+    """First existing same-staff, same-date shift whose clock time overlaps
+    [start_time, end_time), or None.
+
+    Tenant-scoped by user_id so the guard can never read another owner's rows.
+    `exclude_id` skips the row being updated, so re-saving an unchanged shift
+    never conflicts with itself.
+
+    Scope: overlap is checked WITHIN a single calendar date — the cell the grid
+    is keyed on. A shift that crosses midnight is matched on its start date
+    only; cross-date bleed (a Mon 22:00–02:00 vs a separate Tue 01:00 row) is
+    intentionally out of scope — the grid models one cell per staff per date and
+    the owner sees both rows before publishing. Bulk paths (copy-week,
+    autopilot/apply) build Schedule rows directly and are not routed through
+    this guard; they produce drafts the owner reviews before publish.
+    """
+    q = db.query(Schedule).filter(
+        Schedule.user_id == user_id,
+        Schedule.staff_id == staff_id,
+        Schedule.date == shift_date,
+    )
+    if exclude_id is not None:
+        q = q.filter(Schedule.id != exclude_id)
+    for other in q.all():
+        if _shifts_overlap(start_time, end_time, other.start_time, other.end_time):
+            return other
+    return None
 
 
 def _pick_rate(staff: StaffMember, shift_date: date, start_time: Optional[str]) -> float:
@@ -1129,6 +1197,31 @@ def create_schedule(
     if not staff:
         raise HTTPException(status_code=404, detail="Staff member not found")
 
+    # Bounds layer — one person can't work two overlapping shifts the same day.
+    # The grid disables occupied cells client-side; this is the server-side
+    # barrier against a stale grid / race / direct API call that would double-
+    # book a staffer and silently inflate labor cost + payroll. Split shifts and
+    # back-to-back shifts stay allowed (see _shifts_overlap).
+    conflict = _find_overlapping_shift(
+        db,
+        user_id=user.id,
+        staff_id=data.staff_id,
+        shift_date=data.date,
+        start_time=data.start_time,
+        end_time=data.end_time,
+    )
+    if conflict:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "shift_overlap",
+                "message": (
+                    f"{staff.name} already has a shift "
+                    f"{conflict.start_time}–{conflict.end_time} that day."
+                ),
+            },
+        )
+
     shift = Schedule(
         id=uuid.uuid4(),
         user_id=user.id,
@@ -1179,6 +1272,32 @@ def update_schedule(
     ).first()
     if not new_staff:
         raise HTTPException(status_code=404, detail="Staff member not found")
+
+    # Bounds layer — reject a move/edit that lands this shift on top of another
+    # shift the same staffer already has that day (excluding this row itself, so
+    # an unchanged re-save never self-conflicts). Covers the drag-to-move PUT:
+    # the client only drops onto empty cells, but a stale grid / race / direct
+    # API call must not be able to double-book. Split + back-to-back stay legal.
+    conflict = _find_overlapping_shift(
+        db,
+        user_id=user.id,
+        staff_id=data.staff_id,
+        shift_date=data.date,
+        start_time=data.start_time,
+        end_time=data.end_time,
+        exclude_id=shift.id,
+    )
+    if conflict:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "shift_overlap",
+                "message": (
+                    f"{new_staff.name} already has a shift "
+                    f"{conflict.start_time}–{conflict.end_time} that day."
+                ),
+            },
+        )
 
     shift.staff_id = data.staff_id
     shift.date = data.date
