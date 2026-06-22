@@ -2782,6 +2782,11 @@ def hours_summary(
                 Schedule.user_id == user.id,
                 Schedule.date >= from_date,
                 Schedule.date <= to_date,
+                # "Scheduled" = the COMMITTED roster, not drafts the owner is
+                # still planning. Matches the rostered-hours rule used everywhere
+                # else (staff portal ~line 406) so a draft week can't inflate the
+                # payroll-facing Scheduled/Diff numbers.
+                Schedule.status.in_(("published", "confirmed")),
             )
             .all()
         ):

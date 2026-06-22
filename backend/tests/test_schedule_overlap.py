@@ -433,3 +433,28 @@ def test_calc_shift_hours_zero_length_is_zero_not_24():
 def test_calc_shift_hours_overnight_still_correct():
     # Strict-< must NOT break a real midnight-crossing shift: 22:00–02:00 = 4.0h.
     assert _calc_shift_hours("22:00", "02:00", 0) == 4.0
+
+
+# ═══ Hours "Scheduled" column = committed roster (published), not drafts ═══
+
+
+def test_hours_summary_scheduled_excludes_drafts(client, db):
+    """/hours/summary 'scheduled_hours' must count only the COMMITTED roster
+    (published/confirmed) — a draft week the owner is still planning must not
+    inflate the payroll-facing Scheduled/Diff numbers."""
+    owner = _owner(db)
+    agnes = _staff(db, owner, name="Agnes")
+    d = date.today()
+    _seed_shift(db, owner=owner, staff=agnes, on_date=d,
+                start_time="16:00", end_time="23:00", status="published")          # 7h
+    _seed_shift(db, owner=owner, staff=agnes, on_date=d + timedelta(days=1),
+                start_time="11:00", end_time="15:00", status="draft")              # 4h draft
+    _override_user(owner)
+    res = client.get(
+        "/api/staff/hours/summary"
+        f"?from={(d - timedelta(days=1)).isoformat()}&to={(d + timedelta(days=2)).isoformat()}"
+    )
+    assert res.status_code == 200, res.text
+    row = next((r for r in res.json() if r["staff_id"] == str(agnes.id)), None)
+    assert row is not None
+    assert row["scheduled_hours"] == 7.0  # the 4h draft is excluded
