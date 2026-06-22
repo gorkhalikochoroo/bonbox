@@ -164,6 +164,52 @@ class ScheduleResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── Open shifts (Åbne vagter) ──────────────────────────────────────────────
+
+
+class OpenShiftCreate(BaseModel):
+    """Owner posts an unassigned roster slot. No staff_id — that's the point."""
+    date: datetime.date
+    start_time: str
+    end_time: str
+    break_minutes: int = 0
+    role_on_shift: str | None = None
+    notes: str | None = None
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def _valid_hhmm(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not _HHMM_RE.match(v):
+            raise ValueError("must be in HH:MM format (00:00–23:59)")
+        return v
+
+    @model_validator(mode="after")
+    def _start_not_equal_end(self):
+        if self.start_time == self.end_time:
+            raise ValueError("start_time and end_time can't be the same")
+        return self
+
+
+class OpenShiftResponse(BaseModel):
+    id: uuid.UUID
+    date: datetime.date
+    start_time: str
+    end_time: str
+    break_minutes: int = 0
+    role_on_shift: str | None = None
+    notes: str | None = None
+    status: str
+    claimed_by_staff_id: uuid.UUID | None = None
+    # Resolved name of the claimer (owner-side display only) — never the staff's
+    # contact details. None while the slot is still open.
+    claimed_by_name: str | None = None
+    claimed_at: datetime.datetime | None = None
+    created_at: datetime.datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
 # ── Hours Logged ───────────────────────────────────────────────────────────
 
 

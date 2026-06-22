@@ -1787,6 +1787,35 @@ _migrations = [
     # enabled_modules: that column is the tier-capped vertical-module
     # vocabulary; pillars are free + uncapped (founder decision).
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS hidden_pillars TEXT",
+    # ── Migration 024 (2026-06-22): open_shifts — Åbne vagter ─────────────
+    # Net-new table backing app/models/staff.py:OpenShift. The owner posts an
+    # UNASSIGNED roster slot; a staffer claims it one-tap from the portal, which
+    # atomically flips it to 'filled' and spawns a PUBLISHED schedules row for
+    # the claimer. Kept its own table (NOT a nullable staff_id on schedules) so
+    # the cost / payroll / overlap-guard surface stays untouched. Mirrors the
+    # model + alembic 019 (documentation-only). REQUIRED by the schema-drift
+    # self-test: the model declares this table, so on Postgres it MUST exist or
+    # strict startup keeps the readiness gate at 503. create_all() also creates
+    # it; this is the canonical + emergency-restore (create_all bypassed) path.
+    # claimed_schedule_id is a soft link (no FK) — the spawned shift can be
+    # edited/deleted on its own without cascading back here.
+    """CREATE TABLE IF NOT EXISTS open_shifts (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        date DATE NOT NULL,
+        start_time VARCHAR(5) NOT NULL,
+        end_time VARCHAR(5) NOT NULL,
+        break_minutes INTEGER NOT NULL DEFAULT 0,
+        role_on_shift VARCHAR(50),
+        notes TEXT,
+        status VARCHAR(20) NOT NULL DEFAULT 'open',
+        claimed_by_staff_id UUID REFERENCES staff_members(id),
+        claimed_schedule_id UUID,
+        claimed_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_open_shifts_user_date ON open_shifts (user_id, date)",
+    "CREATE INDEX IF NOT EXISTS ix_open_shifts_user_status ON open_shifts (user_id, status)",
 ]
 
 

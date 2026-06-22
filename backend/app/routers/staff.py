@@ -67,6 +67,7 @@ from app.models.staff import (
     Tip,
     TipDistribution,
     NotificationLog,
+    OpenShift,
 )
 from app.services.email_service import send_email
 from app.models.business_profile import BusinessProfile
@@ -82,6 +83,8 @@ from app.schemas.staff import (
     HoursLogResponse,
     TipCreate,
     TipResponse,
+    OpenShiftCreate,
+    OpenShiftResponse,
 )
 from app.services.auth import get_current_user
 from app.services.notification_service import (
@@ -1415,6 +1418,131 @@ def delete_schedule(
             logging.getLogger(__name__).debug(
                 "portal_events publish (delete) failed", exc_info=True
             )
+
+
+# ── Open shifts (Åbne vagter) ──────────────────────────────────────────────
+# Owner posts an UNASSIGNED slot; staff claim it one-tap via the portal (the
+# claim endpoint lives in staff_portal.py). Gated on staff_portal_link
+# (Starter+) — an open shift only has a point if staff can reach the portal.
+
+
+def _serialize_open_shift(o: OpenShift, name_by_id: dict | None = None) -> OpenShiftResponse:
+    name = None
+    if o.claimed_by_staff_id is not None and name_by_id is not None:
+        name = name_by_id.get(o.claimed_by_staff_id)
+    return OpenShiftResponse(
+        id=o.id,
+        date=o.date,
+        start_time=o.start_time,
+        end_time=o.end_time,
+        break_minutes=o.break_minutes or 0,
+        role_on_shift=o.role_on_shift,
+        notes=o.notes,
+        status=o.status,
+        claimed_by_staff_id=o.claimed_by_staff_id,
+        claimed_by_name=name,
+        claimed_at=o.claimed_at,
+        created_at=o.created_at,
+    )
+
+
+@router.get("/open-shifts", response_model=list[OpenShiftResponse])
+def list_open_shifts(
+    week_start: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner's open shifts (excludes cancelled). With ?week_start=YYYY-MM-DD,
+    just that Mon–Sun week to feed the grid lane. Tenant-scoped. No tier gate on
+    READ — the owner can always see what they have; create/claim enforce it."""
+    q = db.query(OpenShift).filter(
+        OpenShift.user_id == user.id,
+        OpenShift.status != "cancelled",
+    )
+    if week_start:
+        try:
+            ws = date.fromisoformat(week_start)
+        except ValueError:
+            raise HTTPException(status_code=422, detail="bad week_start")
+        q = q.filter(OpenShift.date >= ws, OpenShift.date <= ws + timedelta(days=6))
+    rows = q.order_by(OpenShift.date.asc(), OpenShift.start_time.asc()).all()
+    # Resolve claimer names in one query (owner-side display only — never PII).
+    claimer_ids = [r.claimed_by_staff_id for r in rows if r.claimed_by_staff_id]
+    name_by_id = {}
+    if claimer_ids:
+        for sm in db.query(StaffMember).filter(StaffMember.id.in_(claimer_ids)).all():
+            name_by_id[sm.id] = sm.name
+    return [_serialize_open_shift(r, name_by_id) for r in rows]
+
+
+@router.post("/open-shifts", response_model=OpenShiftResponse)
+def create_open_shift(
+    data: OpenShiftCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Post an unassigned slot. Starter+ (staff_portal_link). Multi-barrier:
+    L1 auth, L2 date bounds, L6 tier 402, L7 audit row, L9 422-not-5xx."""
+    from app.services.billing import enforce_feature
+    enforce_feature(user, "staff_portal_link")  # L6 — 402 canonical upgrade payload
+
+    # L2 Bounds — an open shift is a future cover need; reject the distant past
+    # / absurd future (the HH:MM + start!=end checks live in the schema).
+    today_local = business_today_local(user)
+    if data.date < (today_local - timedelta(days=1)):
+        raise HTTPException(status_code=422, detail="date_in_past")
+    if data.date > (today_local + timedelta(days=365)):
+        raise HTTPException(status_code=422, detail="date_too_far")
+
+    o = OpenShift(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        date=data.date,
+        start_time=data.start_time,
+        end_time=data.end_time,
+        break_minutes=data.break_minutes,
+        role_on_shift=data.role_on_shift,
+        notes=data.notes,
+        status="open",
+    )
+    db.add(o)
+    db.commit()
+    db.refresh(o)
+
+    audit_service.record(  # L7
+        db, user, "open_shift.created", "open_shift",
+        after={"date": data.date.isoformat(),
+               "start": data.start_time, "end": data.end_time,
+               "role": data.role_on_shift},
+        ip_address=request.client.host if request and request.client else None,
+    )
+    return _serialize_open_shift(o)
+
+
+@router.delete("/open-shifts/{open_shift_id}", status_code=204)
+def cancel_open_shift(
+    open_shift_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Withdraw an OPEN slot nobody has claimed (soft-cancel, kept for audit).
+    A FILLED slot already spawned a real Schedule row — cancelling it is a
+    schedule edit, so we 409 rather than silently orphan that shift."""
+    o = db.query(OpenShift).filter(
+        OpenShift.id == open_shift_id,
+        OpenShift.user_id == user.id,
+    ).first()
+    if not o:
+        raise HTTPException(status_code=404, detail="Open shift not found")
+    if o.status == "filled":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "open_shift_filled",
+                    "message": "Already taken — edit the staffer's shift instead."},
+        )
+    o.status = "cancelled"
+    db.commit()
 
 
 @router.post("/schedules/copy-week")

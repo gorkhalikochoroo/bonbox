@@ -30,7 +30,7 @@ from passlib.context import CryptContext
 from app.database import get_db, SessionLocal
 from app.models.staff import (
     StaffMember, StaffLink, Schedule, HoursLogged,
-    Tip, TipDistribution, PayPeriodConfig, NotificationLog,
+    Tip, TipDistribution, PayPeriodConfig, NotificationLog, OpenShift,
 )
 from app.models.business_profile import BusinessProfile
 from app.services import portal_events
@@ -1111,6 +1111,172 @@ def portal_team_schedule(
         )
         for s, staff in shifts
     ]
+
+
+# ── Open shifts (Åbne vagter) — staff side ─────────────────────────────────
+
+
+class PortalOpenShift(BaseModel):
+    """An unassigned slot the staffer can claim. Lightweight — date/time/role
+    only; no owner data, no cost, no PII."""
+    id: str
+    date: date
+    start_time: str
+    end_time: str
+    role: str | None
+    break_minutes: int = 0
+
+
+@router.get("/{token}/open-shifts", response_model=list[PortalOpenShift])
+@limiter.limit("30/minute")
+def portal_open_shifts(token: str, request: Request, db: Session = Depends(get_db)):
+    """Open shifts this staffer can pick up — their owner's, status='open',
+    upcoming (today..+21d). PULL model (no blast on creation) = spam-safe.
+    Tenant-bound by the magic-link token."""
+    _link, member = _get_staff_from_token(token, db)
+    today = date.today()
+    end = today + timedelta(days=21)
+    rows = (
+        db.query(OpenShift)
+        .filter(
+            OpenShift.user_id == member.user_id,
+            OpenShift.status == "open",
+            OpenShift.date >= today,
+            OpenShift.date <= end,
+        )
+        .order_by(OpenShift.date.asc(), OpenShift.start_time.asc())
+        .all()
+    )
+    return [
+        PortalOpenShift(
+            id=str(o.id), date=o.date, start_time=o.start_time,
+            end_time=o.end_time, role=o.role_on_shift,
+            break_minutes=o.break_minutes or 0,
+        )
+        for o in rows
+    ]
+
+
+@router.post("/{token}/open-shifts/{open_shift_id}/claim")
+@limiter.limit("12/minute")
+def portal_claim_open_shift(
+    token: str, open_shift_id: str, request: Request,
+    db: Session = Depends(get_db),
+):
+    """Staffer claims an open shift one-tap. ATOMIC: a conditional UPDATE on
+    status='open' means only ONE concurrent claimer wins — the rest get 409
+    already_taken, never an orphan shift. Overlap-guarded against the claimer's
+    own shifts that day. On success it materializes a real PUBLISHED Schedule
+    row for the claimer and notifies the owner (awareness, never a gate)."""
+    import uuid as _uuid
+    from app.routers.staff import _find_overlapping_shift
+
+    _link, member = _get_staff_from_token(token, db)
+    try:
+        os_uuid = _uuid.UUID(open_shift_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid open_shift_id")
+
+    o = db.query(OpenShift).filter(
+        OpenShift.id == os_uuid,
+        OpenShift.user_id == member.user_id,  # tenant-bound by the token's owner
+    ).first()
+    if not o:
+        raise HTTPException(status_code=404, detail="Open shift not found")
+    if o.status != "open":
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "already_taken", "message": "That shift was just taken."},
+        )
+    # The list only surfaces upcoming slots, but a stale client / direct call
+    # must not materialize a shift in the past.
+    if o.date < date.today():
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "shift_passed", "message": "That shift has already passed."},
+        )
+
+    # Overlap guard — can't claim a slot that collides with a shift you already
+    # have that day (same half-open semantics as the owner-grid guard).
+    conflict = _find_overlapping_shift(
+        db, user_id=member.user_id, staff_id=member.id,
+        shift_date=o.date, start_time=o.start_time, end_time=o.end_time,
+    )
+    if conflict:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "shift_overlap",
+                    "message": "You already have a shift that overlaps this one."},
+        )
+
+    # ATOMIC claim — conditional on still-open. Done BEFORE creating the
+    # Schedule row so a lost race never spawns a shift.
+    new_schedule_id = _uuid.uuid4()
+    claimed = (
+        db.query(OpenShift)
+        .filter(OpenShift.id == os_uuid, OpenShift.status == "open")
+        .update(
+            {
+                OpenShift.status: "filled",
+                OpenShift.claimed_by_staff_id: member.id,
+                OpenShift.claimed_schedule_id: new_schedule_id,
+                OpenShift.claimed_at: utc_now(),
+            },
+            synchronize_session=False,
+        )
+    )
+    if not claimed:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "already_taken", "message": "That shift was just taken."},
+        )
+
+    # Materialize a real PUBLISHED shift for the claimer (flows into hours,
+    # who's-on, payroll like any committed shift).
+    shift = Schedule(
+        id=new_schedule_id,
+        user_id=member.user_id,
+        staff_id=member.id,
+        date=o.date,
+        start_time=o.start_time,
+        end_time=o.end_time,
+        break_minutes=o.break_minutes or 0,
+        role_on_shift=o.role_on_shift,
+        status="published",
+    )
+    db.add(shift)
+    db.commit()
+
+    # Tell the owner the hole is filled (best-effort; never blocks the claim).
+    try:
+        owner = db.query(User).filter(User.id == member.user_id).first()
+        if owner:
+            from app.services.notification_service import notify_owner_shift_claimed
+            notify_owner_shift_claimed(
+                db, owner=owner, staff_name=member.name, shift_date=o.date,
+                start_time=o.start_time, end_time=o.end_time,
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+    # Live-sync nudge so connected portals + the owner grid refresh.
+    try:
+        _monday = o.date - timedelta(days=o.date.weekday())
+        portal_events.publish(
+            str(member.user_id),
+            {"type": "schedule_published", "week_start": _monday.isoformat()},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    return {
+        "ok": True,
+        "schedule_id": str(new_schedule_id),
+        "date": o.date.isoformat(),
+        "start_time": o.start_time,
+        "end_time": o.end_time,
+    }
 
 
 @router.post("/{token}/swap-requests", response_model=SwapPortalResponse)

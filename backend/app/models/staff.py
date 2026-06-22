@@ -171,3 +171,39 @@ class NotificationLog(Base):
     status: Mapped[str] = mapped_column(String(20), default="sent")  # sent, failed
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class OpenShift(Base):
+    """An UNASSIGNED roster slot — "Åbn vagt". The owner posts a hole in the
+    week (a cover need); any eligible staffer claims it one-tap from their
+    portal, which atomically materializes a real published Schedule row for the
+    claimer and notifies the owner.
+
+    Kept as its own table (NOT a Schedule row with a nullable staff_id) so the
+    whole cost / payroll / overlap-guard surface — all of which assumes a shift
+    HAS a staffer — stays untouched. An OpenShift carries no staff_id until it's
+    filled; on claim it spawns a Schedule row and flips to 'filled'.
+
+    status: 'open' (claimable) → 'filled' (claimed, Schedule row spawned)
+                              → 'cancelled' (owner withdrew it before anyone took it)
+    """
+    __tablename__ = "open_shifts"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    date: Mapped[date] = mapped_column(Date)
+    start_time: Mapped[str] = mapped_column(String(5))
+    end_time: Mapped[str] = mapped_column(String(5))
+    break_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    role_on_shift: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    # Filled-in only once a staffer claims it. claimed_schedule_id ties the
+    # OpenShift to the Schedule row it spawned (so cancelling a filled slot can
+    # find + remove that shift, if we ever allow it).
+    claimed_by_staff_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID(), ForeignKey("staff_members.id"), nullable=True
+    )
+    claimed_schedule_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), nullable=True)
+    claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

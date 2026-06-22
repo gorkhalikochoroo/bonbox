@@ -710,6 +710,66 @@ def notify_owner_new_reservation(db: Session, owner, reservation, *, cancelled: 
     return result
 
 
+def notify_owner_shift_claimed(
+    db: Session, *, owner, staff_name: str, shift_date, start_time: str, end_time: str,
+) -> dict:
+    """Best-effort push to the OWNER when a staffer claims an open shift from
+    their portal — "Agnes tog en åben vagt". Pushes to owner devices
+    (staff_id IS NULL), writes ONE NotificationLog row, never blocks the claim.
+    PII-light: first name + slot only. Mirrors notify_owner_new_reservation."""
+    result = {"attempted": 0, "sent": 0}
+    try:
+        from app.services.push_sender import send_to_subscription
+    except Exception:  # noqa: BLE001
+        return result
+
+    subs = (
+        db.query(PushSubscription)
+        .filter(
+            PushSubscription.user_id == owner.id,
+            PushSubscription.staff_id.is_(None),  # owner devices, not staff
+        )
+        .all()
+    )
+    try:
+        when = shift_date.strftime("%d/%m")
+    except Exception:  # noqa: BLE001
+        when = str(shift_date)
+    title = "BonBox · Åben vagt taget"
+    body_text = f"{staff_name} tog {when} {start_time}–{end_time}"
+    payload = {
+        "title": title,
+        "body": body_text,
+        "tag": "bonbox-open-shift-claimed",
+        "data": {"url": "/staff/schedule"},
+    }
+    for sub in subs:
+        result["attempted"] += 1
+        try:
+            outcome = send_to_subscription(sub, payload)
+            if outcome.get("ok"):
+                result["sent"] += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("open-shift claim push threw: %s", exc)
+
+    try:
+        db.add(NotificationLog(
+            id=uuid.uuid4(),
+            user_id=owner.id,
+            staff_id=None,
+            channel="push",
+            event_type="open_shift_claimed",
+            subject=title,
+            body=body_text,
+            status="sent" if result["sent"] else "failed",
+            error_message=None if result["sent"] else "no_active_subscription",
+        ))
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+    return result
+
+
 def notify_owner_swap_executed(db: Session, *, owner_id, swap) -> dict:
     """Best-effort owner notification when a peer-to-peer shift swap
     auto-executes (both staff accepted → schedules already reassigned).
