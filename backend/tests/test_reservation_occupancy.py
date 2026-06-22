@@ -874,3 +874,110 @@ def test_concurrent_identical_bookings_exactly_one_wins_postgres():
             cleanup.commit()
         finally:
             cleanup.close()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Public 2D floor map — GET /floor + resource_id pick preference (Jun 2026)
+# ═══════════════════════════════════════════════════════════════════════
+def _get_floor(client, slug, *, party=2, at="19:00"):
+    return client.get(
+        f"/api/public/reservations/{slug}/floor",
+        params={"day": _DAY, "party": party, "at": at},
+    )
+
+
+def test_public_floor_free_taken_and_no_pii(client, db, engine_and_session):
+    """The floor endpoint marks a booked table 'unavailable' and an open one
+    'free', frees it after the turn, and exposes ONLY layout — never a guest
+    name or booking id."""
+    _, profile, _ = _restaurant(db, tables=1, capacity=4)
+    slug = profile.reservation_slug
+
+    r0 = _get_floor(client, slug, party=2, at="19:00")
+    assert r0.status_code == 200, r0.text
+    body = r0.json()
+    assert body["tables_total"] == 1 and body["free_total"] == 1
+    tb = body["tables"][0]
+    assert tb["status"] == "free"
+    # PII-safe: exactly the layout keys, nothing about who is seated.
+    assert set(tb.keys()) == {
+        "id", "label", "capacity_seats", "zone", "shape", "pos_x", "pos_y", "status",
+    }
+
+    # Book it (90-min turn → busy 19:00–20:30, guest "Sita").
+    assert _post_public(client, slug, time="19:00", party=2).status_code == 200
+
+    taken = _get_floor(client, slug, party=2, at="19:00").json()
+    assert taken["free_total"] == 0
+    assert taken["tables"][0]["status"] == "unavailable"
+    assert "sita" not in str(taken).lower()  # guest never leaks to the public map
+
+    later = _get_floor(client, slug, party=2, at="21:00").json()
+    assert later["tables"][0]["status"] == "free"
+
+
+def test_public_floor_too_small_for_party(client, db, engine_and_session):
+    """A free table that's too small for the party is 'small' (shown, not
+    pickable) — never silently 'free'."""
+    _, profile, _ = _restaurant(db, tables=1, capacity=2)
+    body = _get_floor(client, profile.reservation_slug, party=4, at="19:00").json()
+    assert body["tables"][0]["status"] == "small"
+    assert body["free_total"] == 0
+
+
+def test_public_create_honors_picked_table(client, db, engine_and_session):
+    """A guest's tapped table is the one assigned when it's still free."""
+    _, profile, _ = _restaurant(db, tables=2, capacity=4)
+    slug = profile.reservation_slug
+    free = [t for t in _get_floor(client, slug, party=2).json()["tables"]
+            if t["status"] == "free"]
+    assert len(free) == 2
+    pick = free[1]["id"]
+    resp = client.post(
+        f"/api/public/reservations/{slug}",
+        json={"day": _DAY, "time": "19:00", "party_size": 2,
+              "guest_name": "Sita Sharma", "resource_id": pick},
+    )
+    assert resp.status_code == 200, resp.text
+    r = db.query(Reservation).filter(Reservation.id == resp.json()["id"]).first()
+    assert str(r.resource_id) == str(pick)
+
+
+def test_public_create_stale_pick_falls_back(client, db, engine_and_session):
+    """A picked table that got taken first falls back to another free table —
+    the guest is never blocked by a stale pick."""
+    _, profile, _ = _restaurant(db, tables=2, capacity=4)
+    slug = profile.reservation_slug
+    assert _post_public(client, slug, time="19:00", party=2).status_code == 200
+    floor2 = _get_floor(client, slug, party=2, at="19:00").json()
+    free_now = [t["id"] for t in floor2["tables"] if t["status"] == "free"]
+    taken_now = [t["id"] for t in floor2["tables"] if t["status"] == "unavailable"]
+    assert len(free_now) == 1 and len(taken_now) == 1
+    resp = client.post(
+        f"/api/public/reservations/{slug}",
+        json={"day": _DAY, "time": "19:00", "party_size": 2,
+              "guest_name": "Anil Thapa", "resource_id": taken_now[0]},
+    )
+    assert resp.status_code == 200, resp.text
+    r = db.query(Reservation).filter(Reservation.id == resp.json()["id"]).first()
+    assert str(r.resource_id) == str(free_now[0])
+
+
+def test_public_create_picked_outside_hours_rejected(client, db, engine_and_session):
+    """SECURITY (adversarial fix): a picked table at a time OUTSIDE operating
+    hours must be refused. public_floor knows only busy-overlap + seats, so it
+    reports the table 'free' at 02:00 — but the create path now gates EVERY
+    booking (picked or not) through the engine (window/pacing/lead-time), so the
+    crafted POST 409s instead of booking outside hours."""
+    _, profile, _ = _restaurant(db, tables=1, capacity=4)  # hours 11:00–23:00
+    slug = profile.reservation_slug
+    floor = _get_floor(client, slug, party=2, at="02:00").json()
+    free_ids = [t["id"] for t in floor["tables"] if t["status"] == "free"]
+    assert free_ids, "public_floor (intentionally) reports the empty table free"
+    resp = client.post(
+        f"/api/public/reservations/{slug}",
+        json={"day": _DAY, "time": "02:00", "party_size": 2,
+              "guest_name": "Out Of Hours", "resource_id": free_ids[0]},
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "slot_unavailable"

@@ -65,6 +65,10 @@ class PublicReservationCreate(BaseModel):
     allergy_note: str | None = Field(default=None, max_length=2000)
     allergy_severity: str | None = None
     consent_marketing: bool = False
+    # Optional table the guest tapped on the public floor map. Honored only if
+    # it's still free for this party at this time; otherwise we auto-assign
+    # (the occupancy exclusion constraint is the real race backstop).
+    resource_id: str | None = Field(default=None, max_length=64)
 
 
 def _resolve_owner(db: Session, slug: str) -> tuple[BusinessProfile, User]:
@@ -140,6 +144,43 @@ def availability(request: Request, slug: str = Path(...),
         "party_size": party,
         "group_request": group_request,
         "slots": [s.strftime("%H:%M") for s in slots],
+    }
+
+
+@router.get("/{slug}/floor")
+@_limiter.limit("30/minute")
+def floor(request: Request, slug: str = Path(...),
+          day: str = Query(...), party: int = Query(ge=1, le=100),
+          at: str = Query(..., description="HH:MM — the chosen slot"),
+          db: Session = Depends(get_db)):
+    """Public floor map for a specific slot: each active table's position +
+    free/taken status for this party at this time. LAYOUT-ONLY — no guest data,
+    no booking ids (see reservation_service.public_floor). Lets the booker pick
+    a real table on the same 2D room the owner arranges."""
+    profile, owner = _resolve_owner(db, slug)
+    try:
+        start = datetime.strptime(f"{day} {at}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        raise HTTPException(status_code=422, detail={"error": "bad_datetime"})
+
+    settings = rsvc.load_settings(profile)
+    today = _now_local().date()
+    max_advance = int(settings.get("max_advance_days", 60))
+    empty = {"date": day, "time": at, "party_size": party, "tables": [],
+             "tables_total": 0, "seats_total": 0, "free_total": 0}
+    if start.date() < today or start.date() > today + timedelta(days=max_advance):
+        return empty
+
+    tables = rsvc.public_floor(
+        db, profile=profile, user_id=owner.id, start=start,
+        party_size=party, now=_now_local(),
+    )
+    return {
+        "date": day, "time": at, "party_size": party,
+        "tables": tables,
+        "tables_total": len(tables),
+        "seats_total": sum(t["capacity_seats"] for t in tables),
+        "free_total": sum(1 for t in tables if t["status"] == "free"),
     }
 
 
@@ -275,16 +316,32 @@ def create_reservation(request: Request, slug: str = Path(...),
 
     resource_ids = None
     if not is_request:
-        # Confirmed booking — re-check the slot server-side (fast path) &
-        # assign a table, or a combination of tables when no single one fits
-        # the party. The DB exclusion constraint is the real backstop (see
-        # insert-and-catch below); this just avoids a doomed INSERT.
+        # ALWAYS gate the slot through the engine FIRST. recheck_and_assign_combo
+        # is the only path that consults the operating-window, pacing, and
+        # lead-time guards (+ "is any table actually free"), and it returns the
+        # table set it would auto-assign — or None if the slot isn't bookable.
+        # Running it unconditionally is what stops a crafted `at` / picked
+        # `resource_id` from booking outside hours, past a pacing cap, or inside
+        # the lead-time window: public_floor() alone only knows busy-overlap +
+        # seat-count, so honoring a pick must NEVER skip this gate.
         resource_ids = rsvc.recheck_and_assign_combo(
             db, profile=profile, user_id=owner.id, start=start,
             party_size=payload.party_size, now=_now_local(),
         )
         if not resource_ids:
             raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+        # The slot is bookable. Honor the table the guest tapped on the floor
+        # map ONLY if it's genuinely free for this party at this time; a stale,
+        # taken, too-small, or foreign id silently keeps the engine's pick (the
+        # DB exclusion constraint is the real race backstop either way).
+        if payload.resource_id:
+            floor_now = rsvc.public_floor(
+                db, profile=profile, user_id=owner.id, start=start,
+                party_size=payload.party_size, now=_now_local(),
+            )
+            if any(t["id"] == payload.resource_id and t["status"] == "free"
+                   for t in floor_now):
+                resource_ids = [payload.resource_id]
 
     btype = getattr(owner, "business_type", None) or "restaurant"
     r = Reservation(

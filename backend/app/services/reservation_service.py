@@ -346,3 +346,47 @@ def resolve_duration(profile: BusinessProfile, party_size: int,
     if service_duration_min:
         return int(service_duration_min)
     return turn_time_minutes(party_size, build_config(settings))
+
+
+def public_floor(db: Session, *, profile: BusinessProfile, user_id,
+                 start: datetime, party_size: int,
+                 duration_min: int | None = None,
+                 now: datetime | None = None) -> list[dict]:
+    """Per-table availability for the PUBLIC floor map at a specific start time.
+
+    For each ACTIVE dining table, classify it for `party_size` at `start`:
+      • "free"        — not occupied for [start, start+duration) AND seats ≥ party
+      • "small"       — free but seats < party (can't seat the party alone; the
+                        engine may still combine it — just not individually pickable)
+      • "unavailable" — occupied by another booking at that interval
+
+    Returns LAYOUT-ONLY data (label, capacity, zone, shape, pos_x/pos_y, status)
+    — never guest names, booking ids, or any PII. Providers (appointment kind)
+    are excluded; the public floor is a dining room, not a staff calendar."""
+    resources = [r for r in active_resources(db, user_id) if r.kind != "provider"]
+    dur = duration_min or resolve_duration(profile, party_size)
+    end = start + timedelta(minutes=dur)
+    busy = busy_for_day(db, user_id, start.date())
+    busy_ids = {b.resource_id for b in busy if b.start < end and start < b.end}
+
+    out: list[dict] = []
+    for r in resources:
+        rid = str(r.id)
+        seats = int(r.capacity_seats or 0)
+        if rid in busy_ids:
+            status = "unavailable"
+        elif seats >= int(party_size):
+            status = "free"
+        else:
+            status = "small"
+        out.append({
+            "id": rid,
+            "label": r.label,
+            "capacity_seats": seats,
+            "zone": r.zone,
+            "shape": r.shape if r.shape in ("round", "square") else None,
+            "pos_x": float(r.pos_x) if r.pos_x is not None else None,
+            "pos_y": float(r.pos_y) if r.pos_y is not None else None,
+            "status": status,
+        })
+    return out
