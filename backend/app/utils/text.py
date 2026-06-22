@@ -24,9 +24,17 @@ def slugify(value: str | None, fallback: str = "s") -> str:
     return s or fallback
 
 
-def portal_path(token: str, business_name: str | None) -> str:
-    """Relative staff-portal path with a cosmetic, restaurant-named prefix:
-    ``/s/<slug>/<token>``. The token is the capability key; the slug is purely
-    decorative so the shared link reads as the business. The frontend route
-    accepts both ``/s/<token>`` (legacy) and ``/s/<slug>/<token>``."""
-    return f"/s/{slugify(business_name, fallback='bonbox')}/{token}"
+def portal_path(token: str, business_name: str | None,
+                staff_name: str | None = None) -> str:
+    """Relative staff-portal path with cosmetic, named prefixes:
+    ``/s/<business-slug>/<staff-slug>/<token>`` (or ``/s/<business-slug>/<token>``
+    when no staff name is given). The token is the capability key; the slugs are
+    purely decorative so a shared link reads as "<business>/<staff>" — they are
+    IGNORED when resolving the link. The frontend route accepts ``/s/<token>``,
+    ``/s/<slug>/<token>`` AND ``/s/<slug>/<name>/<token>``, so every historical
+    link keeps working."""
+    biz = slugify(business_name, fallback="bonbox")
+    staff = slugify(staff_name, fallback="") if staff_name else ""
+    if staff:
+        return f"/s/{biz}/{staff}/{token}"
+    return f"/s/{biz}/{token}"

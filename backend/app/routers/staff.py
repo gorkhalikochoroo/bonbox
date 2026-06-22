@@ -513,7 +513,7 @@ def generate_staff_link(
             "token": existing.token,
             "active": existing.active,
             "has_pin": bool(existing.pin_hash),
-            "portal_url": portal_path(existing.token, user.business_name),
+            "portal_url": portal_path(existing.token, user.business_name, member.name),
             "created_at": existing.created_at,
         }
 
@@ -544,7 +544,7 @@ def generate_staff_link(
         "token": link.token,
         "active": link.active,
         "has_pin": False,
-        "portal_url": portal_path(link.token, user.business_name),
+        "portal_url": portal_path(link.token, user.business_name, member.name),
         "created_at": link.created_at,
     }
 
@@ -572,7 +572,7 @@ def get_staff_link(
         "token": link.token,
         "active": link.active,
         "has_pin": bool(link.pin_hash),
-        "portal_url": portal_path(link.token, user.business_name),
+        "portal_url": portal_path(link.token, user.business_name, member.name if member else None),
         "created_at": link.created_at,
         "last_accessed": link.last_accessed,
     }
@@ -669,7 +669,7 @@ def list_share_links(
             "staff_id": str(m.id),
             "staff_name": m.name,
             "email": m.email,
-            "portal_url": portal_path(link.token, user.business_name),
+            "portal_url": portal_path(link.token, user.business_name, m.name),
         })
     if minted:
         db.commit()
@@ -818,7 +818,7 @@ def share_with_staff(
                 skipped_no_email += 1
                 continue
 
-            portal_url = f"https://www.bonbox.dk{portal_path(link.token, user.business_name)}"
+            portal_url = f"https://www.bonbox.dk{portal_path(link.token, user.business_name, member.name)}"
             first_name = (member.name or "").split(" ")[0] or member.name or ""
             # DK-first niche email — restaurant/butik/værksted markets in DK
             # expect Danish.  Keep brand-locked vocabulary (vagtplan, push,
