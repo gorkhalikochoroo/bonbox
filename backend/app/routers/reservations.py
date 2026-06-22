@@ -49,10 +49,13 @@ router = APIRouter()
 
 _VALID_STATUS = ("requested", "confirmed", "seated", "completed", "no_show", "cancelled")
 
-# Floor-plan table shapes. Anything else falls back to "round" rather than
-# 422-ing the whole layout save (the map is a low-stakes cosmetic surface —
-# a bad shape value should never block an owner from arranging their room).
-_SHAPES = ("round", "square")
+# Floor-plan table archetypes (the "preset design library"). Anything else
+# falls back to "round" rather than 422-ing the whole layout save (the map is a
+# low-stakes cosmetic surface — a bad shape value should never block an owner
+# from arranging their room). MUST mirror frontend SHAPES in
+# config/tableArchetypes.jsx, or an owner's pick silently reverts to round.
+#   round · square · rect (langbord) · booth (bås) · bar (barplads) · hightop (højbord)
+_SHAPES = ("round", "square", "rect", "booth", "bar", "hightop")
 
 
 def _clamp_pct(v) -> float | None:

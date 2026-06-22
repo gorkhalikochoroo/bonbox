@@ -384,7 +384,11 @@ def public_floor(db: Session, *, profile: BusinessProfile, user_id,
             "label": r.label,
             "capacity_seats": seats,
             "zone": r.zone,
-            "shape": r.shape if r.shape in ("round", "square") else None,
+            # Archetype passthrough — mirror routers/reservations._SHAPES so the
+            # public map draws the same Langbord/Bås/Barplads/Højbord the owner
+            # arranged. Unknown → None (the frontend falls back to round).
+            "shape": r.shape if r.shape in (
+                "round", "square", "rect", "booth", "bar", "hightop") else None,
             "pos_x": float(r.pos_x) if r.pos_x is not None else None,
             "pos_y": float(r.pos_y) if r.pos_y is not None else None,
             "status": status,
