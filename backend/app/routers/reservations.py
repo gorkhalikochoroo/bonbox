@@ -178,6 +178,16 @@ class ManualReservation(BaseModel):
     # bar seats, an extra chair); the response then carries "overflow": true.
     auto_assign: bool = True
     allow_overflow: bool = False
+    # ── Salon appointment (S3a) ──────────────────────────────────────
+    # When set, this is a SALON booking, not a table one. The server resolves
+    # the duration + service_name from the behandlinger catalog (never trusting
+    # any client-supplied duration_min for a salon booking), and books a
+    # PROVIDER. stylist_resource_id pins a specific stylist (kind="provider"
+    # BookableResource) and FAILS CLOSED with 409 if that stylist is taken —
+    # we never silently reassign. Omitting stylist_resource_id = "valgfri
+    # behandler" (any free provider auto-assigned).
+    behandling_id: UUID | None = None
+    stylist_resource_id: UUID | None = None
 
 
 class TableAssign(BaseModel):
@@ -761,11 +771,111 @@ def _room_full_detail(db: Session, user: User, party_size: int) -> dict:
     return {"error": "room_full", "requested": party_size, "total_seats": int(total_seats)}
 
 
+def _create_provider_booking(db: Session, user: User, profile, payload: "ManualReservation") -> dict:
+    """Owner manual SALON booking (S3a) — books a PROVIDER for a behandling.
+
+    Kept in its own function so the restaurant table path in create_manual is
+    byte-for-byte unchanged. Honesty gates:
+      • duration + service_name come from the OWNER'S behandlinger catalog
+        (rsvc.resolve_behandling_duration) — a client-supplied duration_min is
+        ignored for a salon booking.
+      • a pinned stylist FAILS CLOSED: if stylist_resource_id is no longer free
+        at that time we 409 and never reassign. Only "valgfri" (no stylist id)
+        auto-assigns among free providers.
+    Reuses the SAME occupancy / no-double-book machinery (occ_service +
+    busy_for_day) as every other create path — never weakened.
+    """
+    from app.services.allergens import sanitize_tags, sanitize_severity
+
+    # SERVER re-resolves the slot length from the catalog — never the client's.
+    duration = rsvc.resolve_behandling_duration(db, user.id, payload.behandling_id)
+    service_name = payload.service_name
+    if payload.behandling_id is not None:
+        b = (
+            db.query(Behandling)
+            .filter(Behandling.id == payload.behandling_id, Behandling.user_id == user.id)
+            .first()
+        )
+        if b is None:
+            raise HTTPException(status_code=404, detail={"error": "behandling_not_found"})
+        service_name = b.name
+
+    btype = getattr(user, "business_type", None) or "restaurant"
+    settings = rsvc.load_settings(profile)
+    r = Reservation(
+        user_id=user.id,
+        guest_name=payload.guest_name, guest_phone=payload.guest_phone,
+        guest_email=payload.guest_email, party_size=1,
+        starts_at=payload.starts_at,
+        ends_at=payload.starts_at + timedelta(minutes=duration),
+        duration_min=duration, service_name=service_name,
+        status=payload.status, source=payload.source,
+        guest_notes=payload.guest_notes,
+        allergen_tags=sanitize_tags(payload.allergen_tags, btype),
+        allergy_note=payload.allergy_note,
+        allergy_severity=sanitize_severity(payload.allergy_severity),
+    )
+    if payload.status == "seated":
+        r.seated_at = utc_now()
+    r.purge_after = payload.starts_at + timedelta(days=int(settings.get("retention_days", 90)))
+
+    if payload.stylist_resource_id is not None:
+        # Named stylist → must be that exact provider, free, in a published
+        # shift. FAIL CLOSED: a None means taken/unavailable → 409, NO reassign.
+        _assert_owned_resource(db, user, payload.stylist_resource_id)
+        picked = rsvc.recheck_provider_slot(
+            db, profile=profile, user_id=user.id,
+            resource_id=payload.stylist_resource_id, start=payload.starts_at,
+            duration_min=duration, now=None,
+        )
+        if picked is None:
+            raise HTTPException(
+                status_code=409, detail={"error": "stylist_unavailable"},
+            )
+        try:
+            occ_service.create_reservation_with_occupancy(
+                db, profile=profile, reservation=r,
+                initial_resource_id=picked, party_size=1,
+                start=payload.starts_at, duration_min=duration, now=None,
+                reassign=False,
+            )
+        except occ_service.SlotUnavailable:
+            raise HTTPException(status_code=409, detail={"error": "stylist_unavailable"})
+    else:
+        # Valgfri behandler → auto-assign among free providers. recheck_and_
+        # assign_combo checks tables first (a salon has none) then each provider.
+        resource_ids = rsvc.recheck_and_assign_combo(
+            db, profile=profile, user_id=user.id, start=payload.starts_at,
+            party_size=1, now=None, duration_min=duration,
+        )
+        if not resource_ids:
+            raise HTTPException(status_code=409, detail={"error": "no_provider_available"})
+        try:
+            occ_service.create_reservation_with_occupancy(
+                db, profile=profile, reservation=r,
+                initial_resource_ids=resource_ids, party_size=1,
+                start=payload.starts_at, duration_min=duration, now=None,
+                reassign=True,
+            )
+        except occ_service.SlotUnavailable:
+            raise HTTPException(status_code=409, detail={"error": "no_provider_available"})
+
+    audit_service.record(db, user, "reservation.created_manual", "reservation", r.id)
+    db.commit()
+    return _reservation_dict(r)
+
+
 @router.post("/book", status_code=201)
 def create_manual(payload: ManualReservation, request: Request,
                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     enforce_feature(user, "reservations")
     profile = _profile(db, user)
+    # Salon appointment (S3a) — a behandling and/or a pinned stylist means this
+    # is a PROVIDER booking, handled in its own function so the table path below
+    # stays byte-identical. A plain table/walk-in booking carries neither field
+    # and skips this entirely.
+    if payload.behandling_id is not None or payload.stylist_resource_id is not None:
+        return _create_provider_booking(db, user, profile, payload)
     if payload.resource_id is not None:
         _assert_owned_resource(db, user, payload.resource_id)
     duration = rsvc.resolve_duration(profile, payload.party_size, payload.duration_min)

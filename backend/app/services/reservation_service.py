@@ -14,6 +14,7 @@ from datetime import date, datetime, time, timedelta
 
 from sqlalchemy.orm import Session
 
+from app.models.behandling import Behandling
 from app.models.bookable_resource import BookableResource
 from app.models.business_profile import BusinessProfile
 from app.models.reservation import Reservation
@@ -394,3 +395,150 @@ def public_floor(db: Session, *, profile: BusinessProfile, user_id,
             "status": status,
         })
     return out
+
+
+# ─── Salon / appointment (provider) helpers — S3a ────────────────────
+# These are ADDITIVE. They never touch the restaurant table path
+# (available_slots / recheck_and_assign_combo / public_floor above) — a salon
+# is served entirely through this new pair of functions, so the live
+# table-booking behaviour is unchanged.
+#
+# Honesty gates (S3a):
+#   • Provider availability is 100% PUBLISHED-shift-driven — provider_windows()
+#     returns [] when there is no published shift, so no shift = no slot. There
+#     is NO venue-hours fallback for providers (restaurant_windows is never
+#     consulted here).
+#   • The SERVER resolves the booking duration from the behandlinger catalog
+#     (resolve_behandling_duration) — a client-supplied duration is never
+#     trusted for a salon booking.
+
+def resolve_behandling_duration(db: Session, user_id, behandling_id) -> int:
+    """The tenant-scoped behandling's `duration_min`, or the settings default
+    when the id is missing / unknown / not owned by this tenant.
+
+    The duration a salon booking actually holds the chair for comes from the
+    OWNER'S catalog, never from the client — this is the single place that
+    re-derives it server-side. Tenant-scoped: the lookup filters on user_id so
+    one salon can never resolve another salon's behandling. A falsy / unknown
+    id falls back to the venue's `default_service_duration_min` (60) — the same
+    default the appointment branch of available_slots() already uses — so the
+    booking still gets a sane length instead of failing.
+    """
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user_id)
+        .first()
+    )
+    default = int(load_settings(profile).get("default_service_duration_min", 60))
+    if not behandling_id:
+        return default
+    b = (
+        db.query(Behandling)
+        .filter(Behandling.id == behandling_id, Behandling.user_id == user_id)
+        .first()
+    )
+    if b is None or not b.duration_min:
+        return default
+    return int(b.duration_min)
+
+
+def available_provider_slots(db: Session, *, profile: BusinessProfile | None,
+                             user_id, day: date, duration_min: int,
+                             stylist_resource_id=None,
+                             now: datetime | None = None) -> list[dict]:
+    """Bookable appointment slots on a salon's PROVIDERS for a day.
+
+    Returns a LIST of dicts, one per (provider, start) the engine would honour::
+
+        {"start": <iso>, "resource_id": <provider id>,
+         "staff_id": <staff id or None>, "duration_min": <int>}
+
+    Provider availability is 100% published-shift-driven: provider_windows()
+    reads only PUBLISHED Schedule rows, so a provider with no published shift
+    that day contributes nothing (no venue-hours fallback — the honesty gate).
+
+    `duration_min` is passed through verbatim (the caller resolves it from the
+    behandlinger catalog via resolve_behandling_duration); each slot is checked
+    for that exact length using the SAME occupancy / no-double-book machinery
+    the table engine uses (busy_for_day → compute_slots, which never returns a
+    start whose [start, start+duration) overlaps an active occupancy row).
+
+    Scope:
+      • stylist_resource_id given  → only that one active provider.
+      • stylist_resource_id None   → every active provider (kind="provider").
+
+    This is a NEW function — available_slots() (the table path) is untouched.
+    """
+    settings = load_settings(profile)
+    config = build_config(settings)
+    busy = busy_for_day(db, user_id, day)
+    dur = int(duration_min) if duration_min else int(
+        settings.get("default_service_duration_min", 60))
+
+    providers = [
+        r for r in active_resources(db, user_id) if r.kind == "provider"
+    ]
+    if stylist_resource_id is not None:
+        want = str(stylist_resource_id)
+        providers = [p for p in providers if str(p.id) == want]
+
+    out: list[dict] = []
+    for p in providers:
+        windows = provider_windows(db, user_id, p.staff_id, day)
+        if not windows:
+            continue
+        for s in compute_slots(
+            windows=windows, resources=_views([p]), busy=busy,
+            party_size=1, config=config, now=now, duration_min=dur,
+        ):
+            out.append({
+                "start": s.start.isoformat(),
+                "resource_id": str(p.id),
+                "staff_id": str(p.staff_id) if p.staff_id else None,
+                "duration_min": dur,
+            })
+    out.sort(key=lambda d: (d["start"], d["resource_id"]))
+    return out
+
+
+def recheck_provider_slot(db: Session, *, profile: BusinessProfile | None,
+                          user_id, resource_id, start: datetime,
+                          duration_min: int,
+                          now: datetime | None = None) -> str | None:
+    """Booking-time race re-check for ONE specifically-requested stylist.
+
+    Returns the provider id (as str) if THAT provider is still free for
+    [start, start+duration) inside one of their published shifts, else None.
+
+    This is the FAIL-CLOSED primitive behind the named-stylist rule: it never
+    falls through to a different provider. The caller maps a None to a 409 and
+    must NOT silently reassign the client to someone else — only an explicit
+    "valgfri behandler" request (which routes through recheck_and_assign_combo)
+    may auto-assign among free providers.
+
+    A non-provider / inactive / foreign / unknown resource_id → None (treated
+    as "not bookable" rather than leaking which it was).
+    """
+    settings = load_settings(profile)
+    config = build_config(settings)
+    busy = busy_for_day(db, user_id, start.date())
+    dur = int(duration_min) if duration_min else int(
+        settings.get("default_service_duration_min", 60))
+
+    want = str(resource_id)
+    provider = next(
+        (r for r in active_resources(db, user_id)
+         if r.kind == "provider" and str(r.id) == want),
+        None,
+    )
+    if provider is None:
+        return None
+    windows = provider_windows(db, user_id, provider.staff_id, start.date())
+    if not windows:
+        return None
+    ids = find_slot_resources(
+        requested_start=start, party_size=1, windows=windows,
+        resources=_views([provider]), busy=busy, config=config, now=now,
+        duration_min=dur,
+    )
+    return ids[0] if ids else None

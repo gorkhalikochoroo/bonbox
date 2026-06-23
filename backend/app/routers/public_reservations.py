@@ -29,6 +29,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.behandling import Behandling
+from app.models.bookable_resource import BookableResource
 from app.models.business_profile import BusinessProfile
 from app.models.reservation import Reservation
 from app.models.user import User
@@ -69,6 +71,15 @@ class PublicReservationCreate(BaseModel):
     # it's still free for this party at this time; otherwise we auto-assign
     # (the occupancy exclusion constraint is the real race backstop).
     resource_id: str | None = Field(default=None, max_length=64)
+    # ── Salon appointment (S3a) ──────────────────────────────────────
+    # When behandling_id is set, this is a SALON booking: the server resolves
+    # the duration + service_name from the owner's behandlinger catalog (never
+    # trusting a client-sent length), and books a PROVIDER. stylist_id pins a
+    # specific stylist and FAILS CLOSED (409) if that stylist is taken — never
+    # a silent reassign. Omitting stylist_id = "valgfri behandler" (any free
+    # provider auto-assigned).
+    behandling_id: str | None = Field(default=None, max_length=64)
+    stylist_id: str | None = Field(default=None, max_length=64)
 
 
 def _resolve_owner(db: Session, slug: str) -> tuple[BusinessProfile, User]:
@@ -184,6 +195,102 @@ def floor(request: Request, slug: str = Path(...),
     }
 
 
+def _has_active_provider(db: Session, user_id) -> bool:
+    """Does this venue run any active provider (kind='provider') resource?
+    Used to return [] / empty availability for a non-salon venue rather than
+    leaking that it's a restaurant."""
+    return (
+        db.query(BookableResource.id)
+        .filter(
+            BookableResource.user_id == user_id,
+            BookableResource.kind == "provider",
+            BookableResource.is_active.is_(True),
+            BookableResource.is_deleted.is_(False),
+        )
+        .first()
+    ) is not None
+
+
+@router.get("/{slug}/behandlinger")
+@_limiter.limit("60/minute")
+def public_behandlinger(request: Request, slug: str = Path(...),
+                        db: Session = Depends(get_db)):
+    """Active behandlinger (salon services) for this venue's booking page.
+
+    PII-safe (catalog data only). For a NON-provider venue (no provider
+    resource — i.e. a restaurant) we return [] rather than leak that it isn't a
+    salon. price_kr is DISPLAY-ONLY — it never charges money / feeds MOMS.
+    Same slug→owner resolution, 410-when-off, and rate-limit guards as the
+    other public endpoints."""
+    profile, owner = _resolve_owner(db, slug)
+    if not _has_active_provider(db, owner.id):
+        return {"behandlinger": []}
+    rows = (
+        db.query(Behandling)
+        .filter(Behandling.user_id == owner.id, Behandling.active.is_(True))
+        .order_by(Behandling.sort_order, Behandling.name)
+        .all()
+    )
+    return {
+        "behandlinger": [
+            {
+                "id": str(b.id),
+                "name": b.name,
+                "duration_min": b.duration_min,
+                "price_kr": b.price_kr,
+            }
+            for b in rows
+        ]
+    }
+
+
+@router.get("/{slug}/provider-availability")
+@_limiter.limit("60/minute")
+def provider_availability(request: Request, slug: str = Path(...),
+                          day: str = Query(...),
+                          behandling_id: str = Query(...),
+                          stylist_id: str | None = Query(default=None),
+                          db: Session = Depends(get_db)):
+    """Bookable appointment slots for a salon, by behandling (+ optional
+    stylist). SIBLING of /availability — the table availability path is left
+    completely untouched; a salon page calls THIS instead.
+
+    The slot length is resolved SERVER-SIDE from the behandlinger catalog
+    (rsvc.resolve_behandling_duration) — never from the client. Availability is
+    100% published-shift-driven (rsvc.available_provider_slots → provider_
+    windows → published Schedule rows): a provider with no published shift that
+    day yields no slots. PII-safe — returns only start times + resource/staff
+    ids + duration, no guest data.
+
+    Same advance-window / past-date guard as the table availability endpoint."""
+    profile, owner = _resolve_owner(db, slug)
+    try:
+        target = datetime.strptime(day, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=422, detail={"error": "bad_date"})
+
+    settings = rsvc.load_settings(profile)
+    today = _now_local().date()
+    max_advance = int(settings.get("max_advance_days", 60))
+    duration = rsvc.resolve_behandling_duration(db, owner.id, behandling_id)
+    empty = {"date": day, "behandling_id": behandling_id,
+             "duration_min": duration, "slots": []}
+    if target < today or target > today + timedelta(days=max_advance):
+        return empty
+
+    slots = rsvc.available_provider_slots(
+        db, profile=profile, user_id=owner.id, day=target,
+        duration_min=duration, stylist_resource_id=stylist_id or None,
+        now=_now_local(),
+    )
+    return {
+        "date": day,
+        "behandling_id": behandling_id,
+        "duration_min": duration,
+        "slots": slots,
+    }
+
+
 def _send_confirmation(owner: User, profile: BusinessProfile, r: Reservation) -> None:
     """Best-effort confirmation email — never blocks the booking."""
     if not r.guest_email:
@@ -268,6 +375,98 @@ def _notify_owner_email(owner: User, profile: BusinessProfile, r: Reservation) -
         logger.warning("owner reservation email failed: %s", exc)
 
 
+def _create_public_provider_booking(db: Session, owner: User, profile, payload,
+                                    start, settings, idempotency_key):
+    """Public SALON booking (S3a) — books a PROVIDER for a behandling.
+
+    In its own function so create_reservation's table flow is untouched.
+    Honesty gates:
+      • duration + service_name resolved SERVER-SIDE from the owner's
+        behandlinger catalog (rsvc.resolve_behandling_duration) — the client
+        cannot dictate the slot length.
+      • a pinned stylist FAILS CLOSED: rsvc.recheck_provider_slot returns None
+        if that exact stylist isn't free in a published shift → 409, never a
+        silent reassign to a different stylist.
+      • "valgfri behandler" (no stylist_id) auto-assigns among free providers
+        via recheck_and_assign_combo.
+    Reuses the same occupancy insert-and-catch + post-commit notifications as
+    the table path."""
+    duration = rsvc.resolve_behandling_duration(db, owner.id, payload.behandling_id)
+    service_name = None
+    if payload.behandling_id:
+        b = (
+            db.query(Behandling)
+            .filter(Behandling.id == payload.behandling_id,
+                    Behandling.user_id == owner.id, Behandling.active.is_(True))
+            .first()
+        )
+        if b is None:
+            # Unknown / inactive / foreign behandling — don't book on a guess.
+            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+        service_name = b.name
+
+    if payload.stylist_id:
+        # Named stylist → that exact provider, free, in a published shift, or
+        # FAIL CLOSED (409). Never reassign to someone else.
+        picked = rsvc.recheck_provider_slot(
+            db, profile=profile, user_id=owner.id, resource_id=payload.stylist_id,
+            start=start, duration_min=duration, now=_now_local(),
+        )
+        if picked is None:
+            raise HTTPException(status_code=409, detail={"error": "stylist_unavailable"})
+        resource_ids = [picked]
+        reassign = False
+    else:
+        # Valgfri behandler → auto-assign among free providers.
+        resource_ids = rsvc.recheck_and_assign_combo(
+            db, profile=profile, user_id=owner.id, start=start,
+            party_size=1, now=_now_local(), duration_min=duration,
+        )
+        if not resource_ids:
+            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+        reassign = True
+
+    btype = getattr(owner, "business_type", None) or "restaurant"
+    r = Reservation(
+        user_id=owner.id,
+        guest_name=payload.guest_name, guest_email=payload.guest_email,
+        guest_phone=payload.guest_phone,
+        guest_consent_marketing=payload.consent_marketing,
+        party_size=1,
+        starts_at=start, ends_at=start + timedelta(minutes=duration),
+        duration_min=duration, service_name=service_name,
+        status="confirmed", source="public",
+        occasion=payload.occasion, guest_notes=payload.guest_notes,
+        allergen_tags=sanitize_tags(payload.allergen_tags, btype),
+        allergy_note=payload.allergy_note,
+        allergy_severity=sanitize_severity(payload.allergy_severity),
+        idempotency_key=idempotency_key,
+        purge_after=start + timedelta(days=int(settings.get("retention_days", 90))),
+    )
+    try:
+        occ_service.create_reservation_with_occupancy(
+            db, profile=profile, reservation=r, initial_resource_ids=resource_ids,
+            party_size=1, start=start, duration_min=duration, now=_now_local(),
+            reassign=reassign,
+        )
+    except occ_service.SlotUnavailable:
+        # Pinned-stylist race loss surfaces as the stylist-specific 409 (still
+        # fail-closed — reassign=False never re-picked another provider).
+        err = "stylist_unavailable" if payload.stylist_id else "slot_unavailable"
+        raise HTTPException(status_code=409, detail={"error": err})
+
+    _send_confirmation(owner, profile, r)
+    audit_service.record(db, owner, "reservation.created_public", "reservation", r.id)
+    db.commit()
+    try:
+        from app.services.notification_service import notify_owner_new_reservation
+        notify_owner_new_reservation(db, owner, r)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("owner reservation notify failed: %s", exc)
+    _notify_owner_email(owner, profile, r)
+    return {"id": str(r.id), "status": r.status, "booking_token": sign_booking_token(str(r.id))}
+
+
 @router.post("/{slug}")
 @_limiter.limit("6/minute")
 def create_reservation(request: Request, slug: str = Path(...),
@@ -309,6 +508,14 @@ def create_reservation(request: Request, slug: str = Path(...),
     ) or 0
     if at_cap(owner, "reservations_per_month", int(used)):
         raise HTTPException(status_code=409, detail={"error": "not_accepting"})
+
+    # Salon appointment (S3a) — a behandling and/or a pinned stylist routes to
+    # the provider path, handled separately so the table booking flow below is
+    # byte-identical. A plain table booking carries neither field.
+    if payload.behandling_id or payload.stylist_id:
+        return _create_public_provider_booking(
+            db, owner, profile, payload, start, settings, idempotency_key,
+        )
 
     duration = rsvc.resolve_duration(profile, payload.party_size)
     group_threshold = settings.get("group_request_threshold")
