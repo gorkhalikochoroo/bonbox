@@ -1816,6 +1816,31 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_open_shifts_user_date ON open_shifts (user_id, date)",
     "CREATE INDEX IF NOT EXISTS ix_open_shifts_user_status ON open_shifts (user_id, status)",
+
+    # ── Migration 025 (2026-06-23): Behandlinger — salon service catalog ──
+    # S2 of the salon-appointments feature. `behandlinger` = a per-salon list
+    # of services (treatments), each with a duration + an OPTIONAL DISPLAY-ONLY
+    # price. Owner CRUD via the reservations router (gated behind the
+    # "reservations" feature + a `salon_services_max` cap). Mirrors
+    # app/models/behandling.py + alembic 020 (documentation-only).
+    # VARCHAR(36) on id/user_id to match the GUID() TypeDecorator (native UUID
+    # breaks FK joins inside the SAVEPOINT wrapper — see Migration 018/022
+    # comments). create_all() builds this from the model on a fresh DB; this
+    # block is the canonical + emergency-restore (create_all bypassed) path and
+    # satisfies the schema-drift self-test. price_kr is nullable + DISPLAY-ONLY
+    # (never charges money / feeds MOMS); duration_min is informational in S2.
+    """CREATE TABLE IF NOT EXISTS behandlinger (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        name VARCHAR(120) NOT NULL,
+        duration_min INTEGER NOT NULL DEFAULT 30,
+        price_kr INTEGER,
+        active BOOLEAN NOT NULL DEFAULT TRUE,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_behandlinger_user_id ON behandlinger (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_behandlinger_user_active ON behandlinger (user_id, active)",
 ]
 
 

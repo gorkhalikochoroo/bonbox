@@ -25,6 +25,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.behandling import Behandling
 from app.models.bookable_resource import BookableResource
 from app.models.business_profile import BusinessProfile
 from app.models.reservation import Reservation
@@ -191,6 +192,31 @@ class StatusUpdate(BaseModel):
     resource_id: UUID | None = None
 
 
+# ─── Behandlinger (salon service catalog) schemas — S2 ───────────────
+# A `Behandling` is one service in the salon's catalog. `price_kr` is
+# DISPLAY-ONLY (never charges money / feeds MOMS); `duration_min` is
+# informational until S3 wires it into the booking slot. Bounds here are
+# the L3 barrier: duration 15..600, price null-or-≥0.
+class BehandlingCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    duration_min: int = Field(default=30, ge=15, le=600)
+    # DISPLAY-ONLY whole-kroner price; null = no price shown. ge=0 rejects
+    # negatives. No upper bound — a label can read any number.
+    price_kr: int | None = Field(default=None, ge=0)
+    active: bool = True
+    sort_order: int = 0
+
+
+class BehandlingUpdate(BaseModel):
+    # All-optional partial update; only the sent fields change. Same bounds
+    # as create so a PATCH can't smuggle an out-of-range duration / price.
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    duration_min: int | None = Field(default=None, ge=15, le=600)
+    price_kr: int | None = Field(default=None, ge=0)
+    active: bool | None = None
+    sort_order: int | None = None
+
+
 # ─── helpers ─────────────────────────────────────────────────────────
 def _profile(db: Session, user: User) -> BusinessProfile | None:
     return db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
@@ -228,6 +254,19 @@ def _resource_dict(r: BookableResource) -> dict:
         "pos_x": getattr(r, "pos_x", None),
         "pos_y": getattr(r, "pos_y", None),
         "shape": getattr(r, "shape", None) or "round",
+    }
+
+
+def _behandling_dict(b: Behandling) -> dict:
+    # price_kr is DISPLAY-ONLY (never a money amount the books rely on);
+    # serialized as-is (int or null) so the frontend can render "kr." or "—".
+    return {
+        "id": str(b.id),
+        "name": b.name,
+        "duration_min": b.duration_min,
+        "price_kr": b.price_kr,
+        "active": bool(b.active),
+        "sort_order": b.sort_order,
     }
 
 
@@ -959,3 +998,105 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         db.rollback()
         raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
     return _reservation_dict(r)
+
+
+# ─── Behandlinger (salon service catalog) — S2 ───────────────────────
+# Owner CRUD over the per-salon service list. Same multi-barrier as the rest
+# of this router:
+#   • L1 auth — get_current_user.
+#   • L2 tenant scope — EVERY query filters by user_id; a row another tenant
+#     owns is invisible (404 on PATCH/DELETE, never a cross-tenant write).
+#   • L3 bounds — Pydantic (name non-empty ≤120, duration 15..600, price ≥0).
+#   • L7 cap — enforce_cap(user, "salon_services_max", current) on create,
+#     reusing the canonical 402 cap_exceeded payload.
+#   • L8 audit — one audit row per mutation.
+# Honesty gate: price_kr is DISPLAY-ONLY (never charges / feeds MOMS);
+# duration_min is informational until S3 wires it into booking. Gated behind
+# the "reservations" feature flag like every other endpoint here.
+@router.get("/behandlinger")
+def list_behandlinger(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    enforce_feature(user, "reservations")
+    rows = (
+        db.query(Behandling)
+        .filter(Behandling.user_id == user.id)
+        .order_by(Behandling.sort_order, Behandling.name)
+        .all()
+    )
+    return {"behandlinger": [_behandling_dict(b) for b in rows]}
+
+
+@router.post("/behandlinger", status_code=201)
+def create_behandling(payload: BehandlingCreate, request: Request,
+                      db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    enforce_feature(user, "reservations")
+    # L7 — tier cap on the size of the catalog (Free 5 / Starter 25 / Pro 100).
+    current = (
+        db.query(Behandling)
+        .filter(Behandling.user_id == user.id)
+        .count()
+    )
+    enforce_cap(user, "salon_services_max", int(current))
+
+    b = Behandling(
+        user_id=user.id,
+        name=payload.name.strip(),
+        duration_min=payload.duration_min,
+        price_kr=payload.price_kr,
+        active=bool(payload.active),
+        sort_order=payload.sort_order,
+    )
+    db.add(b)
+    db.flush()
+    audit_service.record(db, user, "reservation.behandling_created", "behandling", b.id)
+    db.commit()
+    return _behandling_dict(b)
+
+
+@router.patch("/behandlinger/{behandling_id}")
+def update_behandling(behandling_id: UUID, payload: BehandlingUpdate,
+                      db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    enforce_feature(user, "reservations")
+    # L2 — tenant scope IS the ownership check: filter by both id AND user_id,
+    # so another tenant's row is simply not found (404), never updated.
+    b = (
+        db.query(Behandling)
+        .filter(Behandling.id == behandling_id, Behandling.user_id == user.id)
+        .first()
+    )
+    if b is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    # Only overwrite the fields the caller actually sent (None = "leave it"),
+    # so a partial PATCH (e.g. just toggling `active`) doesn't blank the rest.
+    if payload.name is not None:
+        b.name = payload.name.strip()
+    if payload.duration_min is not None:
+        b.duration_min = payload.duration_min
+    if payload.price_kr is not None:
+        b.price_kr = payload.price_kr
+    if payload.active is not None:
+        b.active = payload.active
+    if payload.sort_order is not None:
+        b.sort_order = payload.sort_order
+    audit_service.record(db, user, "reservation.behandling_updated", "behandling", b.id)
+    db.commit()
+    return _behandling_dict(b)
+
+
+@router.delete("/behandlinger/{behandling_id}")
+def delete_behandling(behandling_id: UUID,
+                      db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    enforce_feature(user, "reservations")
+    b = (
+        db.query(Behandling)
+        .filter(Behandling.id == behandling_id, Behandling.user_id == user.id)
+        .first()
+    )
+    if b is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    # Hard-delete: the S2 catalog has no reservation FK pointing at it (S3 copies
+    # the name onto the booking, never FK-references it), so removing a row is
+    # clean — no orphaned audit trail to preserve via soft-delete.
+    db.delete(b)
+    audit_service.record(db, user, "reservation.behandling_deleted", "behandling", behandling_id)
+    db.commit()
+    return {"ok": True}

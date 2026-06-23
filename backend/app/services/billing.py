@@ -205,6 +205,12 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "reservations_per_month": 20,
         "bookable_resources_max": 3,
         "sms_reminders_per_month": 0,   # SMS is a Pro perk (cost-bearing)
+        # Salon service catalog (Behandlinger, S2) — how many services a salon
+        # can list. Free taste = 5 (enough to list the core menu: klip, farve,
+        # vask+føn, …); hitting it is a clean "upgrade to add your full menu"
+        # signal. Display-only price + informational duration carry no marginal
+        # cost, so the cap exists purely as a tier lever, not a cost guard.
+        "salon_services_max": 5,
     },
     "starter": {
         "branches": 1,
@@ -260,6 +266,10 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "reservations_per_month": -1,
         "bookable_resources_max": -1,
         "sms_reminders_per_month": 300,   # Starter SMS allowance (Pro = 1000)
+        # Salon service catalog (Behandlinger, S2) — 25 covers a full salon menu
+        # with headroom; deliberately bounded (not -1) so a runaway script can't
+        # grow the list unboundedly, while normal salons never hit it.
+        "salon_services_max": 25,
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -290,6 +300,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "reservations_per_month": -1,
         "bookable_resources_max": -1,
         "sms_reminders_per_month": 1000,   # Trial mirrors Pro
+        "salon_services_max": 100,         # Trial mirrors Pro
     },
     "pro": {
         "branches": 3,
@@ -331,6 +342,10 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "reservations_per_month": -1,
         "bookable_resources_max": -1,
         "sms_reminders_per_month": 1000,   # Pro perk; bounded for SMS cost
+        # Salon service catalog (Behandlinger, S2) — top tier ceiling. 100 is
+        # effectively unlimited for any real salon menu while still bounded
+        # against an abusive/runaway client.
+        "salon_services_max": 100,
     },
 }
 
