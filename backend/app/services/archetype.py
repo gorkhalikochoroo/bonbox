@@ -190,6 +190,24 @@ BUSINESS_TYPE_TO_ARCHETYPE: dict[str, str] = {
 }
 
 
+# ── Per-business-type day-cutoff OVERRIDES (Phase A, 2026-06) ────────────
+# A few business_types diverge from their archetype's default cutoff hour
+# without warranting a whole new archetype (which would ripple into dashboard
+# mode / modules / nav). The override is consulted FIRST by archetype_defaults;
+# anything absent here falls back to the archetype's ``default_cutoff_hour``.
+#
+#   bakery → 04:00 — overnight bake: the 03:00 batch belongs to the SAME
+#            business day as the morning counter sale (food_service archetype
+#            otherwise defaults to the 06:00 restaurant convention).
+#
+# LOCK: keep byte-equivalent (in MEANING) with the frontend twin
+# ``BUSINESS_TYPE_CUTOFF_OVERRIDE`` in config/archetypes.js + the onboarding
+# CUTOFF_PRESETS in OnboardingPage.jsx.
+BUSINESS_TYPE_CUTOFF_OVERRIDE: dict[str, int] = {
+    "bakery": 4,
+}
+
+
 def archetype_id_for(business_type: str | None) -> str:
     """Resolve a business_type string to a canonical archetype id.
 
@@ -198,6 +216,16 @@ def archetype_id_for(business_type: str | None) -> str:
     if not business_type:
         return "generic"
     return BUSINESS_TYPE_TO_ARCHETYPE.get(business_type.strip().lower(), "generic")
+
+
+def cutoff_hour_for(business_type: str | None) -> int:
+    """The default day-cutoff hour for a business_type — the per-type override
+    first (bakery → 4), then the archetype ``default_cutoff_hour``. Pure /
+    total; unknown → the generic archetype's cutoff (0)."""
+    bt = (business_type or "").strip().lower()
+    if bt in BUSINESS_TYPE_CUTOFF_OVERRIDE:
+        return BUSINESS_TYPE_CUTOFF_OVERRIDE[bt]
+    return int(archetype_for(business_type)["default_cutoff_hour"])
 
 
 def archetype_for(business_type: str | None) -> dict[str, Any]:
@@ -224,7 +252,8 @@ def archetype_defaults(business_type: str | None) -> dict[str, Any]:
     a = archetype_for(business_type)
     return {
         "archetype": a["id"],
-        "day_cutoff_hour": a["default_cutoff_hour"],
+        # Per-type override first (bakery → 04:00), else the archetype default.
+        "day_cutoff_hour": cutoff_hour_for(business_type),
         "suggested_modules": list(a["suggested_modules"]),
         "first_win": a["first_win"],
         "lead_features": list(a["lead_features"]),

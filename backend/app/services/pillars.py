@@ -78,15 +78,19 @@ _PILLAR_IDS: frozenset[str] = frozenset(PILLARS)
 # can never appear here. Mapping is LOCKED (founder + panel verdict):
 #
 #   restaurant                  → {} (full-service: nothing hidden)
-#   cafe / bakery / tea_shop    → {events, insights}      (DK brunch booking
+#   cafe / tea_shop             → {events, insights}      (DK brunch booking
 #                                  culture keeps Reservations ON)
+#   bakery                      → {reservations, events, insights}  (Phase A:
+#                                  counter trade, NO booking primitive — was
+#                                  leaking Reservations ON, BUG #2)
 #   takeaway / kiosk            → {reservations, events, inventory, insights}
 #                                  (counter trade — Staff stays on)
 #   bar                         → {events, insights}      (Reservations +
 #                                  Inventory stay on; bar_pour is a separate
 #                                  capped module, untouched here)
-#   salon / retail / service /  → {events}
-#     general
+#   salon / service / general   → {events}
+#   retail                      → {reservations, events}  (Phase A: inventory-
+#                                  led, no floor — was leaking Reservations ON)
 #   unknown / null / anything   → {} (FAIL-OPEN: hide nothing — a mis-typed
 #     else                         or blank type must never lose surfaces)
 #
@@ -103,13 +107,19 @@ _PILLAR_IDS: frozenset[str] = frozenset(PILLARS)
 _PRESET_OFF_LISTS: dict[str, frozenset[str]] = {
     "restaurant": frozenset(),
     "cafe": frozenset({"events", "insights"}),
-    "bakery": frozenset({"events", "insights"}),
+    # Phase A bug fix (BUG #2): a production bakery is counter trade with NO
+    # table-booking primitive — Reservations must be OFF (was leaking ON). The
+    # bakery pre-order / click-collect primitive does NOT exist; keep it OFF
+    # rather than offer booking it can't use.
+    "bakery": frozenset({"reservations", "events", "insights"}),
     "tea_shop": frozenset({"events", "insights"}),
     "takeaway": frozenset({"reservations", "events", "inventory", "insights"}),
     "kiosk": frozenset({"reservations", "events", "inventory", "insights"}),
     "bar": frozenset({"events", "insights"}),
     "salon": frozenset({"events"}),
-    "retail": frozenset({"events"}),
+    # Phase A bug fix (BUG #2): retail is inventory-led with no floor/booking —
+    # Reservations OFF by default (was leaking ON via the {events}-only list).
+    "retail": frozenset({"reservations", "events"}),
     "service": frozenset({"events"}),
     "general": frozenset({"events"}),
 }
@@ -122,7 +132,9 @@ _PRESET_OFF_LISTS: dict[str, frozenset[str]] = {
 # archetype default. generic/personal/bar also stay out of the fallback (bar
 # is pinned exactly; generic/personal fail open).
 _PRESET_OFF_LISTS_BY_ARCHETYPE: dict[str, frozenset[str]] = {
-    "retail": frozenset({"events"}),
+    # Phase A (BUG #2): every retail sibling token (clothing/grocery/electronics/
+    # …) hides Reservations by default — inventory-led, no floor/booking.
+    "retail": frozenset({"reservations", "events"}),
     "services": frozenset({"events"}),
     "salon": frozenset({"events"}),
 }

@@ -55,18 +55,22 @@ _EXPECTED_PRESETS = {
     # food service
     "restaurant": set(),
     "cafe": {"events", "insights"},
-    "bakery": {"events", "insights"},
+    # Phase A (BUG #2): a bakery is counter trade with NO booking primitive —
+    # Reservations OFF (was leaking ON). pre-order/click-collect doesn't exist.
+    "bakery": {"reservations", "events", "insights"},
     "tea_shop": {"events", "insights"},
     "takeaway": {"reservations", "events", "inventory", "insights"},
     # counter trade
     "kiosk": {"reservations", "events", "inventory", "insights"},
     # bar (reservations + inventory STAY on; bar_pour is a separate module)
     "bar": {"events", "insights"},
-    # the named {events}-only types
+    # salon / service / general stay {events}-only
     "salon": {"events"},
-    "retail": {"events"},
     "service": {"events"},
     "general": {"events"},
+    # Phase A (BUG #2): retail is inventory-led, no floor — Reservations OFF
+    # (was leaking ON via the {events}-only list).
+    "retail": {"reservations", "events"},
 }
 
 
@@ -107,13 +111,14 @@ def test_unknown_or_blank_type_is_fail_open(business_type):
 @pytest.mark.parametrize(
     "business_type,expected",
     [
-        # retail-archetype siblings inherit {events}
-        ("clothing", {"events"}),
-        ("grocery", {"events"}),
-        ("electronics", {"events"}),
-        ("pharmacy", {"events"}),
-        ("wholesale", {"events"}),
-        # services-archetype siblings inherit {events}
+        # Phase A (BUG #2): retail-archetype siblings inherit {reservations,
+        # events} — inventory-led, no floor/booking.
+        ("clothing", {"reservations", "events"}),
+        ("grocery", {"reservations", "events"}),
+        ("electronics", {"reservations", "events"}),
+        ("pharmacy", {"reservations", "events"}),
+        ("wholesale", {"reservations", "events"}),
+        # services-archetype siblings still inherit {events}
         ("mobile_repair", {"events"}),
         ("laundry", {"events"}),
         ("workshop", {"events"}),
@@ -121,8 +126,8 @@ def test_unknown_or_blank_type_is_fail_open(business_type):
     ],
 )
 def test_sibling_tokens_inherit_archetype_offlist(business_type, expected):
-    """Retail/services sibling tokens (not in the exact table) inherit the
-    locked {events} verdict via the canonical archetype fallback."""
+    """Retail/services sibling tokens (not in the exact table) inherit their
+    archetype's locked verdict via the canonical archetype fallback."""
     assert preset_hidden_pillars(business_type) == expected
 
 
