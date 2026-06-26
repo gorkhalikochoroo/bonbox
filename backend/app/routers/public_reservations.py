@@ -103,6 +103,22 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
     profile, owner = _resolve_owner(db, slug)
     settings = rsvc.load_settings(profile)
     btype = getattr(owner, "business_type", None) or "restaurant"
+    # Provider venues (salon) expose their bookable stylists so the public page
+    # can offer "book with <behandler>" instead of Valgfri-only. PII-safe: ONLY
+    # the station's public display label + its resource id (the stylist_id the
+    # booking endpoint accepts) — no staff_id, no client data. Empty list for
+    # table venues / venues with no provider stations.
+    _provider_rows = (
+        db.query(BookableResource)
+        .filter(
+            BookableResource.user_id == owner.id,
+            BookableResource.kind == "provider",
+            BookableResource.is_deleted.is_(False),
+        )
+        .order_by(BookableResource.label)
+        .all()
+    )
+    providers = [{"id": str(r.id), "name": r.label} for r in _provider_rows]
     return {
         # Consumer-facing venue name: prefer the owner's editable trading name
         # (Profile → business_name — what they manage and expect guests to see),
