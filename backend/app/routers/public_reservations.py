@@ -128,6 +128,9 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
             or getattr(profile, "company_name", None)
             or "BonBox",
         "business_type": btype,
+        # Provider stations (salon stylists) for the public "book with <behandler>"
+        # picker. PII-safe: only public label + resource id. [] for table venues.
+        "providers": providers,
         "city": getattr(profile, "city", None),
         "address": getattr(profile, "address", None),
         # Reservation-specific "call us" number wins; falls back to the
