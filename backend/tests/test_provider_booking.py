@@ -449,6 +449,98 @@ def test_public_behandlinger_empty_for_non_provider_venue(client, db):
 
 
 # ═════════════════════════════════════════════════════════════════════
+# (g) public page providers roster — {id, name} from the bound staff
+#     member (not the free-text label), [] for non-provider venues
+# ═════════════════════════════════════════════════════════════════════
+def test_public_page_lists_provider_roster_from_staff_name(client, db):
+    """The public page exposes a PII-safe stylist roster so the named-behandler
+    picker can light up. `name` is the bound StaffMember's display name — NOT
+    the free-text station label — and the dict carries ONLY {id, name}."""
+    owner, profile = _salon(db)
+    # _provider sets StaffMember.name="Maria" but the station label="Maria (frisør)".
+    res = _provider(db, owner, label="Maria")
+
+    resp = client.get(f"/api/public/reservations/{profile.reservation_slug}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "providers" in body
+    assert body["providers"] == [{"id": str(res.id), "name": "Maria"}]
+    # Name is the staff member's, not the label.
+    assert body["providers"][0]["name"] != "Maria (frisør)"
+    # PII-safe: only id + name escape — never staff_id / email / phone / wage.
+    assert set(body["providers"][0].keys()) == {"id", "name"}
+
+
+def test_public_page_provider_falls_back_to_label_without_staff(client, db):
+    """A provider station with no bound staff member still appears, falling back
+    to its label — never blank."""
+    owner, profile = _salon(db)
+    res = BookableResource(user_id=owner.id, kind="provider", label="Stol 1",
+                           capacity_seats=1, sort_order=0)
+    db.add(res)
+    db.commit()
+    db.refresh(res)
+
+    resp = client.get(f"/api/public/reservations/{profile.reservation_slug}")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["providers"] == [{"id": str(res.id), "name": "Stol 1"}]
+
+
+def test_public_page_providers_empty_for_restaurant(client, db):
+    """A restaurant (table venue, no provider stations) returns providers=[] —
+    never leaking that it isn't a salon."""
+    _, profile, _ = _restaurant(db, tables=2)
+
+    resp = client.get(f"/api/public/reservations/{profile.reservation_slug}")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["providers"] == []
+
+
+def test_public_page_never_leaks_cross_tenant_staff_name(client, db):
+    """Defence in depth: even if a station's staff_id somehow points at ANOTHER
+    tenant's StaffMember, the public roster falls back to the label and never
+    leaks the foreign staff member's name (tenant-scoped join)."""
+    owner_a, profile_a = _salon(db)
+    owner_b, _ = _salon(db)
+    # Owner B's private staff member.
+    foreign = StaffMember(user_id=owner_b.id, name="Foreign Secret", role="stylist")
+    db.add(foreign)
+    db.commit()
+    db.refresh(foreign)
+    # Owner A station mis-pointed at B's staff.
+    res = BookableResource(user_id=owner_a.id, kind="provider",
+                           label="Stol A", capacity_seats=1,
+                           staff_id=foreign.id, sort_order=0)
+    db.add(res)
+    db.commit()
+    db.refresh(res)
+
+    resp = client.get(f"/api/public/reservations/{profile_a.reservation_slug}")
+    assert resp.status_code == 200, resp.text
+    providers = resp.json()["providers"]
+    assert providers == [{"id": str(res.id), "name": "Stol A"}]
+    # The foreign staff name is nowhere in the payload.
+    assert "Foreign Secret" not in resp.text
+
+
+def test_public_page_excludes_inactive_provider(client, db):
+    """An inactive station is skipped (mirrors _has_active_provider) — only the
+    active stylist is offered publicly."""
+    owner, profile = _salon(db)
+    active = _provider(db, owner, label="Maria")
+    inactive = _provider(db, owner, label="Jens")
+    inactive.is_active = False
+    db.commit()
+
+    resp = client.get(f"/api/public/reservations/{profile.reservation_slug}")
+    assert resp.status_code == 200, resp.text
+    names = {p["name"] for p in resp.json()["providers"]}
+    ids = {p["id"] for p in resp.json()["providers"]}
+    assert names == {"Maria"}
+    assert ids == {str(active.id)}
+
+
+# ═════════════════════════════════════════════════════════════════════
 # (f) REGRESSION — the table path is unchanged
 # ═════════════════════════════════════════════════════════════════════
 _TABLE_SETTINGS = {

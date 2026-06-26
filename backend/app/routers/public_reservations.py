@@ -25,7 +25,7 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import func
+from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -33,6 +33,7 @@ from app.models.behandling import Behandling
 from app.models.bookable_resource import BookableResource
 from app.models.business_profile import BusinessProfile
 from app.models.reservation import Reservation
+from app.models.staff import StaffMember
 from app.models.user import User
 from app.services import audit_service, reservation_service as rsvc
 from app.services import reservation_occupancy_service as occ_service
@@ -104,21 +105,46 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
     settings = rsvc.load_settings(profile)
     btype = getattr(owner, "business_type", None) or "restaurant"
     # Provider venues (salon) expose their bookable stylists so the public page
-    # can offer "book with <behandler>" instead of Valgfri-only. PII-safe: ONLY
-    # the station's public display label + its resource id (the stylist_id the
-    # booking endpoint accepts) — no staff_id, no client data. Empty list for
-    # table venues / venues with no provider stations.
+    # can offer "book with <behandler>" instead of Valgfri-only. Each entry is
+    # {id, name}: `id` is the resource id the booking endpoint accepts as
+    # stylist_id; `name` is the bound staff member's CURRENT display name (the
+    # source of truth — it tracks a rename the free-text station label wouldn't),
+    # falling back to the label, then a neutral word so it is never blank.
+    #
+    # Filter mirrors _has_active_provider (active, non-deleted provider rows),
+    # so a non-salon venue — which has zero kind='provider' rows — returns []
+    # and never leaks that it isn't a salon. LEFT join keeps a station whose
+    # staff_id is NULL (it falls back to its label).
+    #
+    # PII-safe: ONLY {id, name} leaves the building. StaffMember.name is the
+    # public-facing display name; the row's email / phone / wage / tax-card
+    # fields are never selected, never serialised.
     _provider_rows = (
-        db.query(BookableResource)
+        db.query(BookableResource, StaffMember.name)
+        # Tenant-scope the join: only THIS owner's staff name may be joined.
+        # If a station's staff_id ever pointed at another tenant's StaffMember,
+        # the LEFT join yields NULL → we fall back to the label and never leak
+        # a foreign staff member's name on this public page (Layer-5 isolation).
+        .outerjoin(
+            StaffMember,
+            and_(
+                StaffMember.id == BookableResource.staff_id,
+                StaffMember.user_id == owner.id,
+            ),
+        )
         .filter(
             BookableResource.user_id == owner.id,
             BookableResource.kind == "provider",
+            BookableResource.is_active.is_(True),
             BookableResource.is_deleted.is_(False),
         )
         .order_by(BookableResource.label)
         .all()
     )
-    providers = [{"id": str(r.id), "name": r.label} for r in _provider_rows]
+    providers = [
+        {"id": str(r.id), "name": (staff_name or r.label or "Behandler")}
+        for r, staff_name in _provider_rows
+    ]
     return {
         # Consumer-facing venue name: prefer the owner's editable trading name
         # (Profile → business_name — what they manage and expect guests to see),
