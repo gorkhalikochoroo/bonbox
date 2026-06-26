@@ -1841,6 +1841,24 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_behandlinger_user_id ON behandlinger (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_behandlinger_user_active ON behandlinger (user_id, active)",
+
+    # ── Migration 026 (2026-06-26): webhook_events — Stripe replay guard ──
+    # Idempotency ledger for inbound Stripe webhooks. Stripe delivers events
+    # at-least-once (it retries after a slow/failed 2xx), so the handler
+    # INSERTs (event_id, event_type) BEFORE dispatch; event_id is the PK, so a
+    # replayed event hits ON CONFLICT DO NOTHING (Postgres) / INSERT OR IGNORE
+    # (SQLite) and the per-event handler is SKIPPED — no double mutation of
+    # plan/status, no double audit row. Mirrors app/models/webhook_event.py +
+    # alembic 021 (documentation-only). create_all() builds it on SQLite; this
+    # block is the canonical Postgres path + emergency-restore. Append-only —
+    # no UPDATE/DELETE surface. REQUIRED by the schema-drift self-test: the
+    # model declares this table, so on Postgres it MUST exist.
+    """CREATE TABLE IF NOT EXISTS webhook_events (
+        event_id VARCHAR(255) PRIMARY KEY,
+        event_type VARCHAR(120),
+        processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_webhook_events_processed ON webhook_events (processed_at)",
 ]
 
 

@@ -191,10 +191,21 @@ def create_checkout_session(
     price. Existing subscribers keep their rate — Stripe never
     retroactively reprices an active subscription. After the cap, new
     checkouts use the regular price.
+
+    INVARIANT (trial immutability): trial_ends_at is set ONCE at signup by
+    start_trial() and is immutable thereafter. NO checkout / payment / portal
+    path may write user.trial_ends_at or db.commit() trial state. This function
+    is READ-ONLY w.r.t. the trial: it only *reads* the remaining trial to pass
+    Stripe a `trial_period_days`. Backfilling a fresh trial here was a farm
+    bug — an expired-trial user could open+cancel checkout repeatedly to mint
+    unlimited 14-day trials (BUG A). Removed.
     """
     s = _stripe()
     if not s:
         return None
+
+    # Local import avoids a circular import at module load (billing ↔ stripe).
+    from app.services.billing import trial_days_remaining
 
     is_founding = _is_founding_member_slot_open(user, db)
 
@@ -225,6 +236,26 @@ def create_checkout_session(
         user.id, plan_normalized, is_founding, price,
     )
 
+    # BUG B fix — derive the displayed "first charge" amount from the SAME
+    # Stripe Price that becomes the checkout line item, so the submit-button
+    # message can never disagree with what Stripe actually charges. The old
+    # code hardcoded "DKK 99/month" — a phantom that matched no tier.
+    # Soft-fail: if the retrieve errors (network / bad id / SDK), fall back to
+    # a generic message with NO price number. NEVER invent a number, NEVER
+    # block checkout on this lookup.
+    amount_dkk: Optional[int] = None
+    try:
+        price_obj = s.Price.retrieve(price)
+        unit_amount = _g(price_obj, "unit_amount")
+        if unit_amount is not None:
+            amount_dkk = int(int(unit_amount) / 100)
+    except Exception as e:  # noqa: BLE001
+        log.warning(
+            "Price.retrieve(%s) failed for user=%s; using price-less submit "
+            "message (soft-fail, checkout continues): %s",
+            price, user.id, e,
+        )
+
     customer_id = get_or_create_customer(user, db)
     if not customer_id:
         return None
@@ -248,26 +279,17 @@ def create_checkout_session(
         f"{base}/subscription?canceled=1",
     )
 
-    # Sync Stripe trial with the user's REMAINING BonBox trial.
-    # Logic:
-    #   • User has X days left in BonBox trial → pass them as Stripe trial_period_days.
-    #     They get those X days free in Stripe (no charge), then auto-charge.
-    #   • User's trial_ends_at is null OR in the past → backfill a fresh 14-day
-    #     trial so the marketing promise ("14 days free, then 99 kr/mo") is
-    #     honored at the moment they click Lock In. Without this guard, users
-    #     who registered before the trial code shipped — or whose trial expired —
-    #     get charged immediately at checkout, which is a UX bug not a feature.
-    from app.services.billing import trial_days_remaining, TRIAL_DAYS
-    remaining = trial_days_remaining(user) or 0
-    if remaining <= 0 and user.subscription_status not in ("active", "trialing", "past_due"):
-        log.info(
-            "User %s has no remaining trial (trial_ends_at=%s); backfilling %s days "
-            "for fair lock-in trial",
-            user.id, user.trial_ends_at, TRIAL_DAYS,
-        )
-        user.trial_ends_at = utc_now() + timedelta(days=TRIAL_DAYS)
-        db.commit()
-        remaining = TRIAL_DAYS
+    # Sync Stripe trial with the user's REMAINING BonBox trial — READ-ONLY.
+    #   • User has X days left in BonBox trial → pass them as Stripe
+    #     trial_period_days. They get those X days free in Stripe (no charge),
+    #     then auto-charge on day-X.
+    #   • trial_ends_at null OR in the past → remaining == 0 → no Stripe trial,
+    #     they're charged at lock-in. That is CORRECT: trial_ends_at is set ONCE
+    #     at signup (start_trial) and is immutable. We MUST NOT backfill a fresh
+    #     trial here — doing so let an expired-trial user farm unlimited trials
+    #     by opening + cancelling checkout (BUG A). No write, no commit on this
+    #     path. The legacy NULL-trial cohort simply gets charged on lock-in.
+    remaining = max(0, trial_days_remaining(user) or 0)
     sub_data = {
         # description appears on Stripe-side dashboards, invoices, and receipt
         # emails. Reinforces the BonBox brand even though the underlying Stripe
@@ -324,11 +346,19 @@ def create_checkout_session(
             first_charge = utc_now() + timedelta(days=int(remaining))
             charge_date = f"{first_charge.day} {first_charge.strftime('%B %Y')}"
             if is_founding:
-                submit_msg = (
-                    f"You're locking in the founding-member rate of DKK 99/month "
-                    f"for life. First charge: {charge_date}. Cancel anytime before "
-                    f"then to avoid being billed."
-                )
+                if amount_dkk is not None:
+                    submit_msg = (
+                        f"You're locking in the founding-member rate of DKK "
+                        f"{amount_dkk}/month for life. First charge: {charge_date}. "
+                        f"Cancel anytime before then to avoid being billed."
+                    )
+                else:
+                    # Soft-fail: no price number invented.
+                    submit_msg = (
+                        f"You're locking in the founding-member rate for life. "
+                        f"First charge: {charge_date}. Cancel anytime before then "
+                        f"to avoid being billed."
+                    )
             else:
                 submit_msg = (
                     f"First charge: {charge_date}. Cancel anytime before then to "
@@ -336,7 +366,13 @@ def create_checkout_session(
                 )
         else:
             if is_founding:
-                submit_msg = "Locking in the founding-member rate of DKK 99/month for life."
+                if amount_dkk is not None:
+                    submit_msg = (
+                        f"Locking in the founding-member rate of DKK "
+                        f"{amount_dkk}/month for life."
+                    )
+                else:
+                    submit_msg = "Locking in the founding-member rate for life."
             else:
                 submit_msg = "Subscribing now — first charge today, then monthly."
         session_kwargs["custom_text"] = {"submit": {"message": submit_msg}}
@@ -591,11 +627,18 @@ def _g(obj, key, default=None):
     return getattr(obj, key, default)
 
 
-def _apply_subscription_state(user: User, sub_obj, db: Session) -> None:
+def _apply_subscription_state(
+    user: User, sub_obj, db: Session, *, event_id: str = "", event_type: str = "",
+) -> None:
     """Update user.plan/status/period_end from a Stripe subscription object.
 
     This is the ONLY way a user's plan flips to 'pro'. Webhook signature has
     already been verified by the caller — by this point we trust the data.
+
+    Audit invariant (FIX 4): a SecurityEvent row is written (flushed into the
+    same transaction) BEFORE user.plan / user.subscription_status are mutated,
+    so the live money path always leaves a forensic trail of every plan/status
+    change + the Stripe event that caused it. No-op transitions are not logged.
 
     Layered defenses:
       • Each field update is best-effort — bad data on one field doesn't kill
@@ -607,28 +650,14 @@ def _apply_subscription_state(user: User, sub_obj, db: Session) -> None:
         re-raises, so webhook 500s don't happen here.
     """
     status = _g(sub_obj, "status")  # active | trialing | past_due | canceled | etc.
-    user.subscription_status = status
-    user.stripe_subscription_id = _g(sub_obj, "id")
 
-    # period end → datetime. Try sub-level first (old Stripe API), fall back
-    # to first item's current_period_end (new Stripe API ≥2025-03 moved it).
-    pe = _g(sub_obj, "current_period_end")
-    if not pe:
-        items_data = _g(_g(sub_obj, "items") or {}, "data") or []
-        if items_data:
-            pe = _g(items_data[0], "current_period_end")
-    if pe:
-        try:
-            # datetime.utcfromtimestamp() is deprecated in Py 3.12+. Use the
-            # tz-aware API then strip tzinfo to stay naive-UTC, matching the
-            # convention in app.utils.time.utc_now() (which the DB expects).
-            user.subscription_period_end = datetime.fromtimestamp(int(pe), tz=timezone.utc).replace(tzinfo=None)
-        except (TypeError, ValueError):
-            pass
+    # Snapshot BEFORE any mutation so the audit row captures the true old state.
+    old_status = getattr(user, "subscription_status", None)
+    old_plan = getattr(user, "plan", None)
 
-    # Map Stripe status → BonBox plan column. Each branch is best-effort —
-    # we never re-raise from here so webhook handlers can't 500 over a status
-    # we don't recognize (Stripe occasionally adds new statuses).
+    # Compute the NEW plan into a local first — don't mutate user.plan yet, so
+    # the audit row (written below) precedes the actual mutation.
+    new_plan = old_plan
     try:
         if status in ("active", "trialing"):
             # Determine which plan from the price ID on the first item.
@@ -656,15 +685,15 @@ def _apply_subscription_state(user: User, sub_obj, db: Session) -> None:
             # "business" string into the plan column.
             business_price_id = getattr(settings, "STRIPE_PRICE_ID_BUSINESS", None)
             if business_price_id and price_id == business_price_id:
-                user.plan = "pro"
+                new_plan = "pro"
             elif price_id in starter_prices:
-                user.plan = "starter"
+                new_plan = "starter"
             else:
-                user.plan = "pro"
+                new_plan = "pro"
         elif status in ("canceled", "unpaid", "incomplete_expired"):
             # Subscription ended — drop back to free. Trial_ends_at is preserved
             # for analytics / re-engagement campaigns.
-            user.plan = "free"
+            new_plan = "free"
         elif status == "past_due":
             # Don't auto-downgrade on past_due — Stripe is still trying to charge.
             # Frontend can surface a banner asking user to update card.
@@ -682,6 +711,38 @@ def _apply_subscription_state(user: User, sub_obj, db: Session) -> None:
             )
     except Exception as e:
         log.exception("Plan mapping failed for user=%s status=%s: %s", user.id, status, e)
+        new_plan = old_plan
+
+    # AUDIT BEFORE MUTATION — flush a SecurityEvent describing the change into
+    # the same transaction. No-op (status+plan unchanged) writes nothing.
+    # stripe_subscription_id is set here first so the audit detail can include it.
+    user.stripe_subscription_id = _g(sub_obj, "id")
+    _audit_webhook_mutation(
+        db, user,
+        event_id=event_id, event_type=event_type,
+        old_status=old_status, new_status=status,
+        old_plan=old_plan, new_plan=new_plan,
+    )
+
+    # NOW mutate the user's billing state.
+    user.subscription_status = status
+    user.plan = new_plan
+
+    # period end → datetime. Try sub-level first (old Stripe API), fall back
+    # to first item's current_period_end (new Stripe API ≥2025-03 moved it).
+    pe = _g(sub_obj, "current_period_end")
+    if not pe:
+        items_data = _g(_g(sub_obj, "items") or {}, "data") or []
+        if items_data:
+            pe = _g(items_data[0], "current_period_end")
+    if pe:
+        try:
+            # datetime.utcfromtimestamp() is deprecated in Py 3.12+. Use the
+            # tz-aware API then strip tzinfo to stay naive-UTC, matching the
+            # convention in app.utils.time.utc_now() (which the DB expects).
+            user.subscription_period_end = datetime.fromtimestamp(int(pe), tz=timezone.utc).replace(tzinfo=None)
+        except (TypeError, ValueError):
+            pass
 
     # Wrap commit — DB errors should be logged, not re-raised. The webhook will
     # be retried by Stripe automatically on next state change anyway.
@@ -693,6 +754,106 @@ def _apply_subscription_state(user: User, sub_obj, db: Session) -> None:
             db.rollback()
         except Exception:
             pass
+
+
+def _audit_webhook_mutation(
+    db: Session,
+    user: User,
+    *,
+    event_id: str = "",
+    event_type: str = "",
+    old_status=None,
+    new_status=None,
+    old_plan=None,
+    new_plan=None,
+) -> None:
+    """Write a SecurityEvent BEFORE a webhook mutates user.plan / status.
+
+    The live money path (webhook → plan flip) wrote NO audit row before this.
+    We reuse the SAME audit mechanism the trial-debug endpoints use
+    (a SecurityEvent row — see routers/billing._write_security_event /
+    admin_security._audit), capturing the full before/after of the billing
+    state plus the Stripe event that triggered it.
+
+    No-op suppression: if neither plan nor status actually changes, we write
+    nothing — replays and idempotent re-syncs don't spam the audit log.
+
+    Best-effort: a failed audit write must never block the webhook (Stripe
+    would retry-storm). The trial-debug endpoints abort the mutation if the
+    audit fails because a human is driving; here the mutation is Stripe's
+    source-of-truth and will be re-asserted on the next event, so we log and
+    continue rather than drop the billing update.
+    """
+    # Suppress no-op transitions (don't log when nothing changes).
+    if old_status == new_status and old_plan == new_plan:
+        return
+    try:
+        from app.models.security_event import SecurityEvent
+
+        detail = (
+            f"event_id={event_id or '-'} event_type={event_type or '-'} "
+            f"subscription_id={getattr(user, 'stripe_subscription_id', None) or '-'} "
+            f"status:{old_status!r}->{new_status!r} plan:{old_plan!r}->{new_plan!r}"
+        )
+        evt = SecurityEvent(
+            user_id=getattr(user, "id", None),
+            event_type="billing.webhook_subscription_state",
+            ip_address=None,   # no HTTP client context on a Stripe callback
+            user_agent=None,
+            detail=detail[:1900],
+        )
+        db.add(evt)
+        # flush (not commit) so the audit row lands in the SAME transaction as
+        # the mutation that follows — the caller commits both together. If the
+        # mutation later fails + rolls back, the audit row rolls back with it,
+        # which is correct (no audit of a mutation that didn't happen).
+        db.flush()
+    except Exception as e:  # noqa: BLE001
+        log.warning(
+            "webhook audit write failed for user=%s event=%s (continuing): %s",
+            getattr(user, "id", None), event_id, e,
+        )
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
+def _record_webhook_event(db: Session, event_id: str, event_type: str) -> bool:
+    """Atomically claim a Stripe event_id in the webhook_events ledger.
+
+    Returns True if THIS call inserted the row (first time we've seen the
+    event → caller should process it), False if the row already existed
+    (replay → caller should skip the handler).
+
+    Dialect-aware so it works on BOTH the prod Postgres and the SQLite test
+    DB without a race-y SELECT-then-INSERT:
+      • Postgres: INSERT ... ON CONFLICT (event_id) DO NOTHING, then read
+        rowcount (0 = conflict = already seen).
+      • SQLite:   INSERT OR IGNORE ..., then read rowcount (0 = ignored =
+        already seen).
+    Both forms make the PK the single arbiter of "already processed" — no
+    lost-update window between two concurrent deliveries of the same event.
+    """
+    from sqlalchemy import text as _text
+
+    is_sqlite = db.bind is not None and db.bind.dialect.name == "sqlite"
+    if is_sqlite:
+        stmt = _text(
+            "INSERT OR IGNORE INTO webhook_events (event_id, event_type, processed_at) "
+            "VALUES (:eid, :etype, CURRENT_TIMESTAMP)"
+        )
+    else:
+        stmt = _text(
+            "INSERT INTO webhook_events (event_id, event_type, processed_at) "
+            "VALUES (:eid, :etype, CURRENT_TIMESTAMP) "
+            "ON CONFLICT (event_id) DO NOTHING"
+        )
+    result = db.execute(stmt, {"eid": event_id, "etype": (event_type or "")[:120]})
+    # rowcount is 1 when the insert landed, 0 when the PK conflict swallowed it.
+    inserted = (result.rowcount or 0) > 0
+    db.commit()
+    return inserted
 
 
 def handle_webhook(
@@ -807,6 +968,28 @@ def handle_webhook(
         # Unhandled event types → ignore (don't error, Stripe sends many)
         return {"status": "ignored", "type": event_type}
 
+    # L3 — Idempotency / replay guard. Stripe delivers at-least-once and
+    # retries after a slow/failed 2xx, so the SAME event can arrive twice.
+    # INSERT the event_id (PK) BEFORE dispatch; if the row already existed
+    # (insert affected 0 rows), this is a replay → SKIP the handler so we
+    # don't re-mutate plan/status or double-write audit rows. Only reached
+    # after signature verification, so we never store forged ids. Soft-fail
+    # open: if the dedup write itself errors (e.g. table missing on a stale
+    # DB), we log and STILL process — a missed dedup is better than dropping
+    # a real billing event.
+    if event_id:
+        try:
+            first_seen = _record_webhook_event(db, event_id, event_type)
+        except Exception as e:  # noqa: BLE001
+            log.warning(
+                "webhook dedup write failed for event=%s (processing anyway): %s",
+                event_id, e,
+            )
+            first_seen = True
+        if not first_seen:
+            log.info("Stripe webhook %s (%s) already processed — skipping", event_id, event_type)
+            return {"status": "duplicate", "type": event_type, "id": event_id}
+
     try:
         handler(event, db)
         return {"status": "ok", "type": event_type, "id": event_id}
@@ -842,7 +1025,10 @@ def _handle_checkout_completed(event: dict, db: Session) -> None:
     s = _stripe()
     try:
         sub = s.Subscription.retrieve(sub_id)
-        _apply_subscription_state(user, dict(sub), db)
+        _apply_subscription_state(
+            user, dict(sub), db,
+            event_id=event.get("id", ""), event_type=event.get("type", ""),
+        )
     except Exception as e:
         log.warning("Could not retrieve subscription %s: %s", sub_id, e)
         # At least save the customer link
@@ -861,7 +1047,10 @@ def _handle_subscription_changed(event: dict, db: Session) -> None:
             event.get("type", "?"), obj.get("id"), obj.get("customer"),
         )
         return
-    _apply_subscription_state(user, obj, db)
+    _apply_subscription_state(
+        user, obj, db,
+        event_id=event.get("id", ""), event_type=event.get("type", ""),
+    )
 
 
 def _handle_subscription_deleted(event: dict, db: Session) -> None:
@@ -870,6 +1059,13 @@ def _handle_subscription_deleted(event: dict, db: Session) -> None:
     user = _find_user_for_event(db, {"object": obj})
     if not user:
         return
+    # Audit BEFORE mutation (no-op suppressed if already free+canceled).
+    _audit_webhook_mutation(
+        db, user,
+        event_id=event.get("id", ""), event_type=event.get("type", ""),
+        old_status=getattr(user, "subscription_status", None), new_status="canceled",
+        old_plan=getattr(user, "plan", None), new_plan="free",
+    )
     user.plan = "free"
     user.subscription_status = "canceled"
     user.stripe_subscription_id = None
@@ -890,5 +1086,13 @@ def _handle_payment_failed(event: dict, db: Session) -> None:
         return
     user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
     if user:
+        # Audit BEFORE mutation (no-op suppressed if already past_due — plan
+        # is unchanged here, so the helper keys off the status transition).
+        _audit_webhook_mutation(
+            db, user,
+            event_id=event.get("id", ""), event_type=event.get("type", ""),
+            old_status=getattr(user, "subscription_status", None), new_status="past_due",
+            old_plan=getattr(user, "plan", None), new_plan=getattr(user, "plan", None),
+        )
         user.subscription_status = "past_due"
         db.commit()

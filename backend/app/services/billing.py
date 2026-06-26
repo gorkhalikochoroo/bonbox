@@ -1034,7 +1034,16 @@ def trial_days_remaining(user: User) -> int | None:
 
 
 def start_trial(user: User) -> None:
-    """Set trial_ends_at to TRIAL_DAYS from now. Idempotent — won't re-start."""
+    """Set trial_ends_at to TRIAL_DAYS from now. Idempotent — won't re-start.
+
+    INVARIANT (trial immutability): this is the ONLY place trial_ends_at is
+    written. It is set ONCE at signup and is immutable thereafter — no
+    checkout / payment / portal path may write it (see
+    stripe_billing.create_checkout_session, which only *reads* it). The
+    idempotency guard below means even a second call to start_trial() is a
+    no-op once a trial exists, so an expired trial can never be "refreshed"
+    into a new free window (BUG A farm path).
+    """
     if getattr(user, "trial_ends_at", None):
         return  # Already had a trial; don't reset
     user.trial_ends_at = utc_now() + timedelta(days=TRIAL_DAYS)

@@ -137,6 +137,19 @@ class Settings(BaseSettings):
     STRIPE_PRICE_ID_PRO: str = ""               # 349 kr/mo regular
     STRIPE_PRICE_ID_PRO_FOUNDING: str = ""      # 249 kr/mo founding
     FOUNDING_MEMBER_LIMIT: int = 100            # First N (active+trialing) lock founding rate
+    # Public, human-readable monthly price table in whole DKK (ex MOMS).
+    # This is a DISPLAY mirror of the Stripe Price `unit_amount` on the four
+    # STRIPE_PRICE_ID_* products above — it is NOT the charge authority. The
+    # actual amount charged always comes from the Stripe Price at checkout
+    # (stripe_billing.create_checkout_session retrieves unit_amount live and
+    # builds the "first charge" submit message from it, so the message can
+    # never disagree with the line item — BUG B fix). Surfaced read-only via
+    # GET /api/billing/plans for the frontend / a self-check. Keep these in
+    # lockstep with the Stripe dashboard prices (199/129 Starter, 349/249 Pro).
+    PLAN_PRICES_DKK: dict = {
+        "starter": {"regular": 199, "founding": 129},
+        "pro": {"regular": 349, "founding": 249},
+    }
     # Legacy — Business tier was dropped May 2026 but env var kept for
     # webhook back-compat (existing Business customers, if any, still
     # have their subscription routed correctly).

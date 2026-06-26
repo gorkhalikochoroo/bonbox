@@ -38,6 +38,42 @@ router = APIRouter()
 log = logging.getLogger("bonbox.billing")
 limiter = Limiter(key_func=get_remote_address)
 
+# ── Per-user checkout-session rate limit (FIX 5) ──────────────────────
+# The slowapi @limiter.limit on /checkout-session is per-IP (10/min) — it
+# does NOT stop one authenticated user from spamming Stripe checkout-session
+# creates from many IPs, and even after the trial-farm fix (FIX 1) a session
+# spammer wastes Stripe API quota + can grief our founding-slot accounting.
+# Add a per-user-id cap, DB-backed via the existing EventLog table (the same
+# "count rows in a window" idiom ai.py / kasserapport.py use for per-user
+# daily caps — no new schema, survives restarts, multi-worker safe).
+#
+#   • max 1 per HOUR   — a legitimate owner clicks "Lock in" once, maybe
+#     retries once if they fat-fingered; 1/hour is plenty and blunts spam.
+#   • max 3 per DAY    — an upper backstop for the rare genuine retry day.
+_CHECKOUT_EVENT = "billing_checkout_session"
+_CHECKOUT_MAX_PER_HOUR = 1
+_CHECKOUT_MAX_PER_DAY = 3
+
+
+def _checkout_counts(db: Session, user_id) -> tuple[int, int]:
+    """(in last hour, in last 24h) count of checkout-session creates for this
+    user. Counts our own EventLog audit rows — written on each successful
+    create below."""
+    from sqlalchemy import func as _sa_func
+    from app.models.event_log import EventLog
+
+    now = utc_now()
+    hour_ago = now - timedelta(hours=1)
+    day_ago = now - timedelta(hours=24)
+
+    base = db.query(_sa_func.count(EventLog.id)).filter(
+        EventLog.user_id == user_id,
+        EventLog.event == _CHECKOUT_EVENT,
+    )
+    in_hour = int(base.filter(EventLog.created_at >= hour_ago).scalar() or 0)
+    in_day = int(base.filter(EventLog.created_at >= day_ago).scalar() or 0)
+    return in_hour, in_day
+
 
 @router.get("/me")
 def my_billing(
@@ -105,6 +141,36 @@ def my_entitlements(
         only in the Stripe webhook handler.
     """
     return entitlements_payload(user)
+
+
+@router.get("/plans")
+@limiter.limit("60/minute")
+def public_plans(request: Request):
+    """Public, cacheable monthly price table in whole DKK (ex MOMS).
+
+    Returns the PLAN_PRICES_DKK display mirror from config — the same numbers
+    shown on the landing/pricing surfaces. This is NOT the charge authority:
+    the amount actually billed always comes from the Stripe Price at checkout
+    (see stripe_billing.create_checkout_session, which retrieves unit_amount
+    live and builds the submit message from it — BUG B fix). Exposing this
+    lets the frontend / a self-check confirm the displayed price without
+    hardcoding it in JS.
+
+    No auth (pricing is public), no PII, no Stripe call, no DB. Cache-Control
+    so CDNs/browsers can hold it — prices change rarely.
+    """
+    from app.config import settings as _settings
+
+    payload = {
+        "currency": "DKK",
+        "interval": "month",
+        "note": "Display prices ex MOMS; charge authority is the Stripe Price.",
+        "plans": _settings.PLAN_PRICES_DKK,
+    }
+    return JSONResponse(
+        content=payload,
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 @router.post("/stripe/sync")
@@ -197,6 +263,25 @@ def create_checkout(
         if portal:
             return {"url": portal["url"], "already_subscribed": True}
 
+    # FIX 5 — per-user checkout-session cap (1/hour AND 3/day). The 10/min
+    # @limiter.limit above is per-IP; this per-user-id backstop blunts
+    # session-spam from one account across IPs even after the trial-farm fix.
+    in_hour, in_day = _checkout_counts(db, user.id)
+    if in_hour >= _CHECKOUT_MAX_PER_HOUR or in_day >= _CHECKOUT_MAX_PER_DAY:
+        retry_after = 3600 if in_hour >= _CHECKOUT_MAX_PER_HOUR else 86400
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "checkout_rate_limited",
+                "message": (
+                    "You've started checkout a few times already. Please wait a "
+                    "little before trying again, or contact support if you're stuck."
+                ),
+                "retry_after_seconds": retry_after,
+            },
+            headers={"Retry-After": str(retry_after)},
+        )
+
     # Validate plan against allowlist; unknown values fall back to "pro"
     requested_plan = (body.plan if body else "pro") or "pro"
     requested_plan = requested_plan.strip().lower()
@@ -213,6 +298,22 @@ def create_checkout(
                 "_recoverable": True,
             },
         )
+
+    # Record a counter row AFTER a successful create so the per-user cap above
+    # only counts real sessions (a failed create — Stripe down, no price —
+    # shouldn't burn the user's quota). Telemetry must never break the response.
+    try:
+        from app.models.event_log import EventLog
+        db.add(EventLog(
+            user_id=user.id,
+            event=_CHECKOUT_EVENT,
+            page="subscription",
+            detail=f'{{"plan":"{requested_plan}"}}',
+        ))
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+
     return result
 
 

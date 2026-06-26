@@ -48,6 +48,9 @@ from app.models.mileage import MileageEntry
 # Migration 034 — confidence-based payment matching + append-only audit log.
 from app.models.payment_match_suggestion import PaymentMatchSuggestion
 from app.models.audit_log import AuditLog
+# Stripe webhook idempotency / replay-protection ledger (Migration 026).
+# event_id PK → a replayed Stripe event is deduped before the handler runs.
+from app.models.webhook_event import WebhookEvent
 # Task #47 — Starter+ recurring expenses (auto-materialized monthly).
 from app.models.recurring_expense import RecurringExpense
 # Task #49 — Starter+ accountant read-only login (many-to-many grants).
