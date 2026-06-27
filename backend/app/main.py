@@ -110,6 +110,7 @@ from app.routers import tickets as tickets_router
 from app.routers import reservations as reservations_router
 from app.routers import reservation_insights as reservation_insights_router
 from app.routers import public_reservations as public_reservations_router
+from app.routers import public_gavekort as public_gavekort_router
 from app.routers import gavekort as gavekort_router
 # Onboarding — business-archetype detection (keyword fast-path → AI fallback)
 from app.routers import onboarding as onboarding_router
@@ -3584,6 +3585,13 @@ app.include_router(
     public_reservations_router.router,
     prefix="/api/public/reservations",
     tags=["Public Reservations"],
+)
+# The recipient's live gavekort page (no auth — the signed token is the
+# credential). PII-minimal balance mirror; never redeems.
+app.include_router(
+    public_gavekort_router.router,
+    prefix="/api/public/gavekort",
+    tags=["Public Gavekort"],
 )
 # Door-scan + visitor's web-ticket page (signed URL). Same no-prefix
 # pattern as public_events_router because the routes (`/api/tickets/*`

@@ -186,6 +186,47 @@ def test_payment_method_captured_recorded_not_required(client, db):
         _clear_user_override()
 
 
+def test_public_gavekort_page_is_pii_safe(client, db):
+    """The recipient's /g/<token> page shows the LIVE saldo + venue, PII-safe.
+    Garbage → 404 (no leak). A voided card → 410."""
+    owner = _owner(db)
+    _override_user(owner)
+    try:
+        out = _issue(client, amount_minor=50000, recipient_name="Mette",
+                     note="hemmelig note", payment_method="card")
+        voided = _issue(client, amount_minor=10000)
+    finally:
+        _clear_user_override()
+
+    token = out["qr_token"]                      # BB1.G.<jwt>
+    assert token.startswith("BB1.G.")
+
+    # No auth needed — the signed token IS the credential.
+    pub = client.get(f"/api/public/gavekort/{token}")
+    assert pub.status_code == 200, pub.text
+    body = pub.json()
+    assert body["balance_minor"] == 50000        # the live saldo
+    assert body["face_value_minor"] == 50000
+    assert body["status"] == "active"
+    assert body["code_last4"] == out["code_last4"]
+    # PII-MINIMAL: the recipient name + internal note + code_hash never leak.
+    assert "recipient_name" not in body
+    assert "note" not in body
+    assert "code_hash" not in body
+    assert "Mette" not in pub.text and "hemmelig" not in pub.text
+
+    # Garbage / forged token → IDOR-safe 404, never a leak.
+    assert client.get("/api/public/gavekort/BB1.G.not-a-real-jwt").status_code == 404
+
+    # A voided card is gone → 410, not a zero-balance render.
+    _override_user(owner)
+    try:
+        client.post(f"/api/gavekort/{voided['id']}/void")
+    finally:
+        _clear_user_override()
+    assert client.get(f"/api/public/gavekort/{voided['qr_token']}").status_code == 410
+
+
 # ═════════════════════════════════════════════════════════════════════
 # (b) list summary math
 # ═════════════════════════════════════════════════════════════════════

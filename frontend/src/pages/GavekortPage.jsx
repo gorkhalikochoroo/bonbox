@@ -49,6 +49,7 @@ import {
   Banknote,
   Share2,
   Maximize2,
+  Link2,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import api from "../services/api";
@@ -593,6 +594,25 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
   const qrToken = result?.qr_token || "";
   const shortCode = result?.short_code || "";
   const [showQR, setShowQR] = useState(false); // fullscreen QR for hand-over
+  const [copied, setCopied] = useState(false);
+
+  // The recipient's public card. The QR encodes THIS url (not the raw token),
+  // so a customer scanning it with their phone camera lands on the live card —
+  // and the same link is what "Kopiér link" shares.
+  const publicUrl = qrToken
+    ? `${window.location.origin}/g/${encodeURIComponent(qrToken)}`
+    : "";
+
+  const copyLink = async () => {
+    if (!publicUrl) return;
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* clipboard unavailable — no-op (fullscreen QR is the fallback) */
+    }
+  };
 
   const methodKey = TENDER_LABELS[result?.payment_method];
   const methodLabel = methodKey ? t(methodKey[0], methodKey[1]) : null;
@@ -628,7 +648,7 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
         {qrToken && (
           <div className="mt-5 inline-flex flex-col items-center">
             <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white p-4">
-              <QRCodeSVG value={qrToken} size={168} level="M" includeMargin={false} />
+              <QRCodeSVG value={publicUrl || qrToken} size={168} level="M" includeMargin={false} />
             </div>
           </div>
         )}
@@ -685,6 +705,21 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
           >
             {t("gkShareCard", "Del gavekort")}
           </Button>
+          {publicUrl && (
+            <Button
+              variant="secondary"
+              iconLeft={
+                copied ? (
+                  <Check className="w-4 h-4 text-emerald-600" aria-hidden />
+                ) : (
+                  <Link2 className="w-4 h-4" aria-hidden />
+                )
+              }
+              onClick={copyLink}
+            >
+              {copied ? t("gkLinkCopied", "Kopieret") : t("gkCopyLink", "Kopiér link")}
+            </Button>
+          )}
           <Button
             variant="secondary"
             iconLeft={<Printer className="w-4 h-4" aria-hidden />}
@@ -734,7 +769,7 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
             {t("gkScanToReceive", "Scan for at få gavekortet")}
           </p>
           <div className="mt-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white p-5">
-            <QRCodeSVG value={qrToken} size={264} level="M" includeMargin={false} />
+            <QRCodeSVG value={publicUrl || qrToken} size={264} level="M" includeMargin={false} />
           </div>
           {shortCode && (
             <p className="mt-5 font-mono text-lg font-semibold tracking-[0.15em] text-gray-900 dark:text-gray-100">

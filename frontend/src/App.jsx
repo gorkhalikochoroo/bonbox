@@ -183,6 +183,9 @@ const DoorScanPage = lazyRetry(() => import("./pages/DoorScanPage"));
 // /reservations and is a Starter+ feature, gated inside the page.
 const ReservationPublicPage = lazyRetry(() => import("./pages/ReservationPublicPage"));
 const ReservationsPage = lazyRetry(() => import("./pages/ReservationsPage"));
+// Public gavekort page — the recipient's live card at /g/:token (no auth;
+// the signed token is the credential). PII-minimal balance mirror.
+const GavekortPublicPage = lazyRetry(() => import("./pages/GavekortPublicPage"));
 // Gavekort (gift cards) — owner issue + tracking ledger. Starter+ feature,
 // tier-gated inside the page; GAVEKORT pillar for relevance-hide.
 const GavekortPage = lazyRetry(() => import("./pages/GavekortPage"));
@@ -394,6 +397,8 @@ function AppRoutes() {
             the restaurant's link / QR). Mobile-first; pick date → party →
             slot → details → confirm. */}
         <Route path="/r/:slug" element={<ReservationPublicPage />} />
+        {/* The recipient's live gavekort, opened from a link/QR — no auth. */}
+        <Route path="/g/:token" element={<GavekortPublicPage />} />
         <Route
           element={
             <ProtectedRoute>
