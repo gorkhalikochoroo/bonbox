@@ -149,6 +149,20 @@ export const NAV_MANIFEST = [
     aliases: ["reservations", "booking", "table", "bordbestilling"],
   },
   {
+    // Gavekort (gift cards) — Starter+ feature: stays VISIBLE-BUT-LOCKED for
+    // Free. Owner pillar (relevance-hideable). On More + ⌘K so it stays
+    // findable even when the pillar is toggled off.
+    to: "/gavekort",
+    icon: "Gift",
+    labelKey: "gavekort",
+    group: "core",
+    pillar: "gavekort",
+    requiresFeature: "gavekort",
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: ["gavekort", "gift card", "giftcard", "voucher", "gift"],
+  },
+  {
     to: "/expenses",
     icon: "Receipt",
     labelKey: "expenses",

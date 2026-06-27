@@ -211,6 +211,13 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # signal. Display-only price + informational duration carry no marginal
         # cost, so the cap exists purely as a tier lever, not a cost guard.
         "salon_services_max": 5,
+        # Gavekort (gift cards) — how many ACTIVE (still-redeemable) cards a
+        # tenant can hold at once. Free taste = 3 active cards: enough for a
+        # café to try issuing a couple, hitting it is a clean "upgrade to run
+        # a gavekort programme" signal. Counts active cards only (voided /
+        # fully-redeemed don't count), so the cap bounds outstanding liability
+        # exposure, not lifetime issuance. No marginal cost — pure tier lever.
+        "gavekort_active_max": 3,
     },
     "starter": {
         "branches": 1,
@@ -270,6 +277,10 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # with headroom; deliberately bounded (not -1) so a runaway script can't
         # grow the list unboundedly, while normal salons never hit it.
         "salon_services_max": 25,
+        # Gavekort — Starter = 200 active cards. Effectively unlimited for a
+        # typical café/salon gavekort programme while still bounded against a
+        # runaway script. The anchor tier for the feature.
+        "gavekort_active_max": 200,
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -301,6 +312,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "bookable_resources_max": -1,
         "sms_reminders_per_month": 1000,   # Trial mirrors Pro
         "salon_services_max": 100,         # Trial mirrors Pro
+        "gavekort_active_max": 1000,       # Trial mirrors Pro
     },
     "pro": {
         "branches": 3,
@@ -346,6 +358,9 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # effectively unlimited for any real salon menu while still bounded
         # against an abusive/runaway client.
         "salon_services_max": 100,
+        # Gavekort — Pro = 1000 active cards. Top-tier ceiling: effectively
+        # unlimited for any real gavekort programme, bounded against abuse.
+        "gavekort_active_max": 1000,
     },
 }
 
@@ -568,6 +583,12 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # upgrade moment. Vertical visibility (restaurant/salon/clinic) is a
         # frontend-nav concern, not a tier gate.
         "reservations": True,
+        # Gavekort (gift cards) — a basic owner money tool, enabled on EVERY
+        # tier (issuance carries no marginal cost). The tier lever is the
+        # numeric `gavekort_active_max` cap, not this boolean. We gate the
+        # router on this flag anyway so the entitlements payload surfaces it
+        # and a future "Free can't issue at all" decision is one flip away.
+        "gavekort": True,
         "sms_reminders": False,   # SMS is a Pro perk (per-message cost)
         # 2026-06-03 — Reservations Insights (owner analytics on the booking
         # book: seat-hour utilization, weekday×day-part heatmap, no-show rate,
@@ -729,6 +750,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "multi_tier_tickets": True,        # Starter+ — adult/student/family pricing
         "cross_event_analytics": False,    # Pro-only — comparison across events
         "reservations": True,              # Starter = full reservations
+        "gavekort": True,                  # Starter = full gavekort (cap=200)
         "sms_reminders": True,             # SMS reminders on Starter + Pro
         "reservation_insights": False,     # Pro-only — forecast + no-show detail
         "inbox_email_capture": True,       # Universal — workflow feature
@@ -789,6 +811,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "multi_tier_tickets": True,             # Trial mirrors Pro
         "cross_event_analytics": True,          # Trial mirrors Pro
         "reservations": True,                   # Trial mirrors Pro
+        "gavekort": True,                       # Trial mirrors Pro
         "sms_reminders": True,                  # Trial mirrors Pro
         "reservation_insights": True,           # Trial mirrors Pro
         "inbox_email_capture": True,            # Universal
@@ -844,6 +867,7 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "multi_tier_tickets": True,        # Starter+ — same on Pro
         "cross_event_analytics": True,     # Pro killer for kulturarrangører
         "reservations": True,              # Pro = full reservations
+        "gavekort": True,                  # Pro = full gavekort (cap=1000)
         "sms_reminders": True,             # Pro perk — SMS booking reminders
         "reservation_insights": True,      # Pro killer — analytics + forecast
         "inbox_email_capture": True,       # Universal

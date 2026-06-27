@@ -183,6 +183,9 @@ const DoorScanPage = lazyRetry(() => import("./pages/DoorScanPage"));
 // /reservations and is a Starter+ feature, gated inside the page.
 const ReservationPublicPage = lazyRetry(() => import("./pages/ReservationPublicPage"));
 const ReservationsPage = lazyRetry(() => import("./pages/ReservationsPage"));
+// Gavekort (gift cards) — owner issue + tracking ledger. Starter+ feature,
+// tier-gated inside the page; GAVEKORT pillar for relevance-hide.
+const GavekortPage = lazyRetry(() => import("./pages/GavekortPage"));
 const MileagePage = lazyRetry(() => import("./pages/MileagePage"));
 const LoanTrackerPage = lazyRetry(() => import("./pages/LoanTrackerPage"));
 // C5 nav-diet (Imports merge): /bank-import + /payment-imports are now ONE
@@ -330,23 +333,16 @@ function PublicOrDashboard() {
   const { user, loading } = useAuth();
   if (loading) return <PageLoader />;
   if (user) return <Navigate to="/dashboard" />;
-  // Staff fallback: if THIS device has a saved staff-portal token and the
-  // visitor is NOT an authenticated owner (handled above), a landing on "/"
-  // should go to THEIR schedule — not the marketing/owner app. This covers a
-  // stale-bundle bounce, an old global-manifest PWA opening at its start_url,
-  // or staff just typing the bare domain. Their portal token IS their
-  // credential. (Previously gated on display-mode: standalone, which missed
-  // staff who tap the link in a normal browser tab — the common case.)
-  // Prospects who never opened a portal have no token and see the landing page.
-  try {
-    const portalToken = localStorage.getItem("bonbox_portal_token");
-    if (portalToken) {
-      return <Navigate to={`/s/${portalToken}`} replace />;
-    }
-  } catch { /* private mode / SSR — fall through to normal flow */ }
   // On native iOS, skip the marketing landing page (no third-party platform references, native feel)
   const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
   if (isNative) return <Navigate to="/login" />;
+  // The bare domain ALWAYS shows the marketing landing for a logged-out visitor
+  // — prospect or the logged-out owner. We deliberately do NOT auto-redirect or
+  // overlay anything based on a saved staff-portal token: the landing is the
+  // brand's front door and must stay clean. Staff reach their schedule via their
+  // direct /s/<token> link (SMS/email) or the installed PWA's manifest start_url.
+  // (Previously "/" force-redirected to a saved /s/<token>, which made the bare
+  // domain unreachable for anyone who'd ever tapped a staff link.)
   return <LandingPage />;
 }
 
@@ -373,9 +369,12 @@ function AppRoutes() {
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/cookies" element={<CookiePolicyPage />} />
         <Route path="/s/:token" element={<StaffPortalPage />} />
-        {/* Branded staff link — /s/<restaurant-slug>/<token>. Slug is cosmetic;
-            the token is the capability key. StaffPortalPage reads :token in both. */}
+        {/* Branded staff link — /s/<restaurant-slug>/<token> and the newer
+            /s/<restaurant-slug>/<staff-slug>/<token>. The slug(s) are cosmetic;
+            the token (last segment) is the capability key. StaffPortalPage reads
+            :token in all three shapes, so every historical link keeps working. */}
         <Route path="/s/:slug/:token" element={<StaffPortalPage />} />
+        <Route path="/s/:slug/:name/:token" element={<StaffPortalPage />} />
         {/* Task #49 — Public magic-link landing for revisor invites.
             Token in URL is the only credential; the page collects
             password + name and POSTs to /accountants/signup. */}
@@ -411,6 +410,10 @@ function AppRoutes() {
               RESERVATIONS pillar + Starter+ feature: pillar-hide (interstitial)
               and tier-lock (the page's own UpgradeNudge) are independent. */}
           <Route path="/reservations" element={<PillarGate pillar="reservations"><ReservationsPage /></PillarGate>} />
+          {/* Gavekort owner surface — issue + tracking ledger + redeem/void.
+              GAVEKORT pillar (relevance-hide → interstitial) + Starter+ feature
+              (the page's own UpgradeNudge). The two gates are independent. */}
+          <Route path="/gavekort" element={<PillarGate pillar="gavekort"><GavekortPage /></PillarGate>} />
           {/* Organizer-only door-scan PWA page — opens camera, scans QR
               codes against the selected event's tickets. Capacitor 8
               and web both go through getUserMedia. NOT pillar-gated: door-scan

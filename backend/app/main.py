@@ -110,6 +110,7 @@ from app.routers import tickets as tickets_router
 from app.routers import reservations as reservations_router
 from app.routers import reservation_insights as reservation_insights_router
 from app.routers import public_reservations as public_reservations_router
+from app.routers import gavekort as gavekort_router
 # Onboarding — business-archetype detection (keyword fast-path → AI fallback)
 from app.routers import onboarding as onboarding_router
 from app.database import engine, Base, get_db
@@ -1859,6 +1860,69 @@ _migrations = [
         processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )""",
     "CREATE INDEX IF NOT EXISTS ix_webhook_events_processed ON webhook_events (processed_at)",
+
+    # ── Migration 027 (2026-06-27): Gavekort — gift cards + ledger ────────
+    # The gavekort slice: owner ISSUES a gift card, it's TRACKED, staff REDEEM
+    # it. Two tables:
+    #   • gift_cards               — the card. balance_minor is a CACHE the
+    #     ledger reconciles to on every write. Money is INTEGER ØRE (no floats).
+    #     code_hash (HMAC of the secret code, UNIQUE) + short_code (UNIQUE,
+    #     GK-XXXX-XXXX-C w/ mod-37 check) + code_last4 are stored; the plaintext
+    #     code NEVER is. No soft-delete — a card is VOIDED, not deleted.
+    #   • gift_card_transactions   — append-only LEDGER, source of truth. One
+    #     row per issue/redeem/void. UNIQUE(gift_card_id, idempotency_key) makes
+    #     a replayed redeem return the original result, never a 2nd debit (NULL
+    #     keys on issue/void rows are exempt — SQL UNIQUE treats NULLs distinct).
+    #     amount_minor is SIGNED (redeem = negative). Captures the LINK fields
+    #     (created_by_user_id, sale_ref, daily_close_id, business_day,
+    #     idempotency_key) = the transaktionsspor. NOT wired into MOMS in this
+    #     slice (recorded so it can be later).
+    # VARCHAR(36) on UUID cols to match the GUID() TypeDecorator (native UUID
+    # breaks FK joins inside the SAVEPOINT wrapper — see Migration 018/022/025).
+    # create_all() builds these from the models on a fresh DB; this block is the
+    # canonical Postgres path + emergency-restore (create_all bypassed) and
+    # satisfies the schema-drift self-test. Mirrors app/models/gift_card.py +
+    # alembic 022 (documentation-only). Redeem's single-spend guarantee is the
+    # CONDITIONAL ATOMIC decrement in the router, NOT a DB CHECK here.
+    """CREATE TABLE IF NOT EXISTS gift_cards (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        code_hash VARCHAR(64) NOT NULL,
+        short_code VARCHAR(20) NOT NULL,
+        code_last4 VARCHAR(4) NOT NULL,
+        face_value_minor INTEGER NOT NULL,
+        balance_minor INTEGER NOT NULL,
+        voucher_class VARCHAR(8) NOT NULL DEFAULT 'mpv',
+        status VARCHAR(12) NOT NULL DEFAULT 'active',
+        recipient_name VARCHAR(120),
+        note VARCHAR(280),
+        issued_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_gift_cards_code_hash UNIQUE (code_hash),
+        CONSTRAINT uq_gift_cards_short_code UNIQUE (short_code)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_gift_cards_user_id ON gift_cards (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_gift_cards_user_status ON gift_cards (user_id, status)",
+    """CREATE TABLE IF NOT EXISTS gift_card_transactions (
+        id VARCHAR(36) PRIMARY KEY,
+        gift_card_id VARCHAR(36) NOT NULL REFERENCES gift_cards(id),
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        kind VARCHAR(12) NOT NULL,
+        amount_minor INTEGER NOT NULL,
+        balance_after_minor INTEGER NOT NULL,
+        created_by_user_id VARCHAR(36) REFERENCES users(id),
+        sale_ref VARCHAR(120),
+        daily_close_id VARCHAR(36),
+        business_day TIMESTAMP,
+        idempotency_key VARCHAR(120),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_gift_card_tx_idem UNIQUE (gift_card_id, idempotency_key)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_gift_card_tx_gift_card_id ON gift_card_transactions (gift_card_id)",
+    "CREATE INDEX IF NOT EXISTS ix_gift_card_tx_user ON gift_card_transactions (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_gift_card_tx_card_created ON gift_card_transactions (gift_card_id, created_at)",
 ]
 
 
@@ -3507,6 +3571,10 @@ app.include_router(reservations_router.router, prefix="/api/reservations", tags=
 # Mounted under the SAME prefix as the owner reservation router (separate file
 # to keep that router from growing further). Authed + tenant-scoped + fail-soft.
 app.include_router(reservation_insights_router.router, prefix="/api/reservations", tags=["Reservations"])
+# Gavekort (gift cards) — owner issues / tracks / redeems / voids. Authed +
+# tenant-scoped (404 cross-tenant) + feature-gated + per-tier cap. Redeem is
+# DB-enforced single-spend (conditional atomic decrement + UNIQUE idempotency).
+app.include_router(gavekort_router.router, prefix="/api/gavekort", tags=["Gavekort"])
 app.include_router(
     public_reservations_router.router,
     prefix="/api/public/reservations",

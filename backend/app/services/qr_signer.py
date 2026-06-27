@@ -47,6 +47,7 @@ _ALGORITHM = "HS256"
 # `sub` claim matches the expected use.
 _SUB_TICKET = "bonbox-ticket"
 _SUB_BOOKING = "bonbox-booking"
+_SUB_GAVEKORT = "bonbox-gavekort"
 
 # Grace window past event end during which the QR remains valid. Lets
 # late arrivals still scan in (spec §5.3 calls for ends_at + 6h).
@@ -90,6 +91,111 @@ def _booking_token_key() -> str:
             _booking_token_key._warned = True  # type: ignore[attr-defined]
         return settings.SECRET_KEY
     return key
+
+
+class GavekortKeyUnset(RuntimeError):
+    """Raised when GAVEKORT_SIGNING_KEY is unset in production.
+
+    A gavekort is REDEEMABLE MONETARY VALUE. Unlike ticket/booking tokens —
+    which fall back to SECRET_KEY in dev — the gavekort key MUST be set in
+    production. We FAIL CLOSED rather than fall back, so a redeemable bearer
+    secret is never signed/hashed under the session-auth key (which has a
+    different rotation cadence + blast radius). The router maps this to a
+    503 (service misconfigured) so issuance/redemption refuse loudly.
+    """
+
+
+def gavekort_signing_key() -> str:
+    """Return the key used to sign gavekort QR tokens + HMAC gavekort codes.
+
+    Resolution:
+      • GAVEKORT_SIGNING_KEY env var (its OWN key — never shared with
+        ticket/booking/session signing). Distinct sub claim too.
+      • Outside production with the key unset → fall back to SECRET_KEY with
+        a one-time WARNING so a local dev stack stays usable.
+      • In ENVIRONMENT=production with the key unset → RAISE GavekortKeyUnset
+        (fail closed). We do NOT fall back to SECRET_KEY for redeemable value.
+
+    Shared by qr_signer (sign/verify_gavekort) AND gavekort_codes.hash_code so
+    the QR token and the stored code_hash are bound to the same dedicated key.
+    """
+    key = (os.environ.get("GAVEKORT_SIGNING_KEY") or "").strip()
+    if key:
+        return key
+    # Unset. In production this is fatal — fail closed.
+    if (getattr(settings, "ENVIRONMENT", "development") or "").lower() == "production":
+        raise GavekortKeyUnset(
+            "GAVEKORT_SIGNING_KEY is not set in production. Refusing to sign "
+            "or hash redeemable gavekort value under the session SECRET_KEY. "
+            "Set GAVEKORT_SIGNING_KEY in the deploy environment."
+        )
+    if not getattr(gavekort_signing_key, "_warned", False):
+        logger.warning(
+            "qr_signer: GAVEKORT_SIGNING_KEY env var not set; falling back to "
+            "SECRET_KEY for DEV only. Production fails closed — set the "
+            "dedicated env var before launch.",
+        )
+        gavekort_signing_key._warned = True  # type: ignore[attr-defined]
+    return settings.SECRET_KEY
+
+
+def sign_gavekort(*, gift_card_id: str, user_id: str, jti: str,
+                  expires_at: datetime | None = None) -> str:
+    """Sign a gavekort QR JWT.
+
+    Claims: {gid, uid, jti, sub: "bonbox-gavekort", exp}. Algorithm pinned
+    to HS256. The token is the QR payload the buyer scans at redemption; the
+    router ALWAYS re-checks gid→a real GiftCard row owned by uid (JWT validity
+    is layer 1 — the DB row is the source of truth for balance/status).
+
+    Args:
+      gift_card_id: UUID-stringified GiftCard.id (`gid` claim).
+      user_id:      UUID-stringified owner User.id (`uid` claim, tenant bind).
+      jti:          unique token id (replay/uniqueness anchor).
+      expires_at:   the card's expiry; the token exp is set to it (+ a small
+                    grace) or, if None, far in the future (a no-expiry card).
+
+    Raises GavekortKeyUnset in production with the key unset (fail closed).
+    """
+    if expires_at is None:
+        exp = datetime.now(timezone.utc) + timedelta(days=3650)
+    else:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        exp = expires_at + timedelta(hours=_TICKET_GRACE_HOURS)
+    payload = {
+        "gid": str(gift_card_id),
+        "uid": str(user_id),
+        "jti": str(jti),
+        "sub": _SUB_GAVEKORT,
+        "exp": exp,
+    }
+    return jwt.encode(payload, gavekort_signing_key(), algorithm=_ALGORITHM)
+
+
+def verify_gavekort(token: str) -> dict[str, Any] | None:
+    """Verify a gavekort QR JWT.
+
+    Returns the decoded claims dict on success, or None on any failure (bad
+    sig, expired, wrong subject, missing gid/uid). The router MUST also verify
+    gid→a real GiftCard row whose user_id == uid before honoring the token.
+
+    In production with GAVEKORT_SIGNING_KEY unset this raises GavekortKeyUnset
+    (fail closed) rather than verifying under SECRET_KEY.
+    """
+    if not token or not isinstance(token, str):
+        return None
+    try:
+        claims = jwt.decode(token, gavekort_signing_key(), algorithms=[_ALGORITHM])
+    except JWTError as exc:
+        logger.debug("qr_signer.verify_gavekort: jwt decode failed: %s", exc)
+        return None
+    if claims.get("sub") != _SUB_GAVEKORT:
+        logger.debug("qr_signer.verify_gavekort: wrong subject claim")
+        return None
+    if not claims.get("gid") or not claims.get("uid"):
+        return None
+    return claims
 
 
 # ── Ticket QR — sign + verify ────────────────────────────────────────

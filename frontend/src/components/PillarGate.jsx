@@ -44,6 +44,7 @@ import { Button, Card, Icon } from "./ui";
  */
 const PILLAR_META = {
   reservations: { icon: "CalendarCheck", titleKey: "pillarGateReservationsTitle", bodyKey: "pillarGateReservationsBody" },
+  gavekort:     { icon: "Gift",          titleKey: "pillarGateGavekortTitle",     bodyKey: "pillarGateGavekortBody" },
   events:       { icon: "CalendarDays",  titleKey: "pillarGateEventsTitle",       bodyKey: "pillarGateEventsBody" },
   inventory:    { icon: "Package",       titleKey: "pillarGateInventoryTitle",    bodyKey: "pillarGateInventoryBody" },
   staff:        { icon: "UsersRound",    titleKey: "pillarGateStaffTitle",        bodyKey: "pillarGateStaffBody" },
