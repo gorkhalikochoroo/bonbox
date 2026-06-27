@@ -104,6 +104,14 @@ class GiftCard(Base):
     recipient_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     note: Mapped[str | None] = mapped_column(String(280), nullable=True)
 
+    # How the card was PAID FOR at the counter (card | mobilepay | cash | mixed).
+    # Recorded so the close/MOMS bridge has the tender later + the owner can see
+    # it in Oversigt. It is NOT posted to revenue or the kassekladde in this
+    # slice — the reveal says "registreret" (recorded), never "bogført", until
+    # that economic bridge exists. Nullable: cards issued before this column was
+    # added (and any non-counter caller) carry NULL.
+    payment_method: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
     issued_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

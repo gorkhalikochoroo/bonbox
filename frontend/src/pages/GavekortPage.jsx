@@ -36,6 +36,7 @@ import {
   Check,
   X,
   ChevronRight,
+  ChevronDown,
   Wallet,
   Receipt,
   Moon,
@@ -43,10 +44,16 @@ import {
   Search,
   RefreshCw,
   CircleDollarSign,
+  CreditCard,
+  Smartphone,
+  Banknote,
+  Share2,
+  Maximize2,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useStickyMethod } from "../hooks/useStickyMethod";
 import { useEntitlements } from "../hooks/useEntitlements";
 import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
@@ -57,6 +64,7 @@ import FilterBar from "../components/ui/FilterBar";
 import Card from "../components/ui/Card";
 import UpgradeNudge from "../components/ui/UpgradeNudge";
 import { formatKr } from "../utils/currency";
+import { errText } from "../utils/errText";
 
 // ─── money helpers (integer øre is the wire format) ───────────────────
 // formatKr expects KRONER (display units), so divide øre by 100. We never
@@ -86,6 +94,43 @@ function newIdempotencyKey() {
     /* fall through */
   }
   return `gk-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// Map the gavekort router's structured error codes → friendly, localized
+// owner-facing strings. The router ALWAYS sends detail={"error": "<code>"}
+// (or {"error": "cap_exceeded", ...} from billing) — an OBJECT, never a bare
+// string. Passing that object straight to setError() and rendering it as a
+// React child throws "Objects are not valid as a React child" (the same P0
+// errText.js was built to kill). So: pull the known code → a clear message,
+// and for any unmapped shape fall through to errText() which always returns a
+// safe STRING. `t` is threaded in because this lives at module scope.
+function gkErrText(e, t) {
+  const code = e?.response?.data?.detail?.error;
+  const MAP = {
+    // 503 — GAVEKORT_SIGNING_KEY unset in prod (fail-closed). Honest, calm.
+    gavekort_unconfigured: t(
+      "gkErrUnconfigured",
+      "Gavekort er midlertidigt utilgængeligt. Prøv igen om lidt.",
+    ),
+    code_generation_failed: t("gkErrCodeGen", "Kunne ikke generere koden. Prøv igen."),
+    not_found: t("gkErrNotFound", "Gavekortet blev ikke fundet."),
+    amount_must_be_positive: t("gkAmountRequired", "Indtast et beløb større end 0."),
+    expired: t("gkErrExpired", "Gavekortet er udløbet."),
+    voided: t("gkErrVoided", "Gavekortet er annulleret."),
+    redeemed: t("gkErrRedeemed", "Gavekortet er allerede fuldt indløst."),
+    locked: t(
+      "gkErrLocked",
+      "Gavekortet er optaget af en anden indløsning lige nu. Prøv igen.",
+    ),
+    insufficient: t("gkErrInsufficient", "Beløbet overstiger den resterende saldo."),
+    cap_exceeded: t(
+      "gkErrCap",
+      "Du har nået grænsen for aktive gavekort på dit abonnement. Opgradér for at udstede flere.",
+    ),
+    feature_locked: t("gkErrFeature", "Gavekort er ikke en del af dit abonnement."),
+  };
+  if (code && MAP[code]) return MAP[code];
+  return errText(e, t("gkErrGeneric", "Noget gik galt. Prøv igen."));
 }
 
 // dd/mm/yyyy HH:MM for a ledger row / issued-at, da-DK style.
@@ -260,15 +305,34 @@ function PageTitle({ t }) {
 // ─── 1. Udsted gavekort ────────────────────────────────────────────────
 const AMOUNT_PRESETS = [100, 200, 300, 500, 1000]; // kroner
 
+// The three tenders a gavekort can be SOLD for at the counter. DK is
+// card-first, so "Kort" is the sticky default and the picker is a
+// confirmation glance, not a decision. Cash is selectable but never sticks
+// (the cash-honesty invariant lives in useStickyMethod).
+const GK_TENDERS = ["card", "mobilepay", "cash"];
+
 function IssueSection({ t, onIssued }) {
   const [amount, setAmount] = useState("");
   const [recipient, setRecipient] = useState("");
   const [note, setNote] = useState("");
   const [voucherClass, setVoucherClass] = useState("mpv"); // never auto-decided
   const [expiresAt, setExpiresAt] = useState("");
+  const [showMore, setShowMore] = useState(false); // gifting/advanced disclosure
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
+
+  // Sticky tender — pre-lit from last use (card on a fresh account).
+  const { method, setMethod, commitMethod } = useStickyMethod("sale");
+  // Guard a stale sale-scope value (e.g. "online"/"dankort") — the lane only
+  // offers these three; fall back to card.
+  const tender = GK_TENDERS.includes(method) ? method : "card";
+
+  const tenderOptions = [
+    { id: "card", label: t("gkTenderCard", "Kort"), Icon: CreditCard },
+    { id: "mobilepay", label: t("gkTenderMobilepay", "MobilePay"), Icon: Smartphone },
+    { id: "cash", label: t("gkTenderCash", "Kontant"), Icon: Banknote },
+  ];
 
   const amountMinor = minorFromInput(amount);
   const canSubmit = !busy && amountMinor != null;
@@ -285,23 +349,22 @@ function IssueSection({ t, onIssued }) {
       const body = {
         amount_minor: minor,
         voucher_class: voucherClass,
+        payment_method: tender,
       };
       if (recipient.trim()) body.recipient_name = recipient.trim();
       if (note.trim()) body.note = note.trim();
       if (expiresAt) body.expires_at = new Date(expiresAt + "T23:59:59").toISOString();
       const res = await api.post("/gavekort/issue", body);
+      commitMethod(tender); // remember card/mobilepay; cash no-ops (invariant)
       setResult(res.data);
     } catch (e) {
-      setError(
-        e?.response?.data?.detail ||
-          t("gkIssueFailed", "Kunne ikke udstede gavekortet. Prøv igen."),
-      );
+      setError(gkErrText(e, t));
     } finally {
       setBusy(false);
     }
   };
 
-  // After issuing, the result card takes over the view — one clear moment.
+  // After selling, the result card takes over the view — one clear moment.
   if (result) {
     return (
       <IssuedResult
@@ -314,6 +377,8 @@ function IssueSection({ t, onIssued }) {
           setNote("");
           setExpiresAt("");
           setVoucherClass("mpv");
+          setShowMore(false);
+          // Tender stays lit (sticky) — back-to-back sales need zero re-setup.
         }}
         onGoToLedger={onIssued}
       />
@@ -323,8 +388,8 @@ function IssueSection({ t, onIssued }) {
   return (
     <Card>
       <Card.Header
-        title={t("gkIssueTitle", "Udsted gavekort")}
-        subtitle={t("gkIssueHint", "Vælg et beløb, og udsted et nyt gavekort med QR.")}
+        title={t("gkSellTitle", "Sælg gavekort")}
+        subtitle={t("gkSellHint", "Vælg et beløb, og hvordan kunden betalte.")}
       />
       <form
         onSubmit={(e) => {
@@ -361,84 +426,37 @@ function IssueSection({ t, onIssued }) {
               aria-label={t("gkAmountLabel", "Beløb")}
             />
           </div>
-        </div>
-
-        {/* Recipient (optional) */}
-        <div className="sm:max-w-md">
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            {t("gkRecipientLabel", "Modtager (valgfri)")}
-          </label>
-          <div className="mt-1.5">
-            <Input
-              value={recipient}
-              onChange={(e) => setRecipient(e.target.value)}
-              maxLength={120}
-              placeholder={t("gkRecipientPh", "Anna Hansen")}
-              aria-label={t("gkRecipientLabel", "Modtager (valgfri)")}
-            />
-          </div>
-        </div>
-
-        {/* voucher_class — owner-set, surfaced, never auto-decided. */}
-        <div>
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            {t("gkClassLabel", "Type")}
-          </label>
-          <div className="flex flex-wrap gap-2 mt-1.5">
-            <Chip selected={voucherClass === "mpv"} onClick={() => setVoucherClass("mpv")}>
-              {t("gkClassMpv", "Flere formål (MPV)")}
-            </Chip>
-            <Chip selected={voucherClass === "spv"} onClick={() => setVoucherClass("spv")}>
-              {t("gkClassSpv", "Ét formål (SPV)")}
-            </Chip>
-          </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 max-w-md">
+          {/* MOMS status — read-only, off the rush path. The MPV/SPV control
+              lives under "Tilføj modtager"; MPV is the café/salon default. */}
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <Receipt className="w-3.5 h-3.5" aria-hidden />
             {voucherClass === "spv"
-              ? t(
-                  "gkClassSpvHelp",
-                  "Ét formål: MOMS afregnes ved udstedelse. Spørg din revisor, hvis du er i tvivl.",
-                )
-              : t(
-                  "gkClassMpvHelp",
-                  "Flere formål: MOMS afregnes ved indløsning. Standard for de fleste gavekort.",
-                )}
+              ? t("gkMomsAtIssue", "MOMS ved udstedelse (SPV)")
+              : t("gkMomsAtRedemption", "MOMS ved indløsning (MPV)")}
           </p>
         </div>
 
-        {/* Expiry (optional) */}
-        <div className="sm:max-w-xs">
+        {/* Betalt med — the one new step, pre-lit from last use (sticky). */}
+        <div>
           <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            {t("gkExpiryLabel", "Udløber (valgfri)")}
+            {t("gkTenderLabel", "Betalt med")}
           </label>
-          <div className="mt-1.5">
-            <Input
-              type="date"
-              value={expiresAt}
-              onChange={(e) => setExpiresAt(e.target.value)}
-              aria-label={t("gkExpiryLabel", "Udløber (valgfri)")}
-            />
-          </div>
-        </div>
-
-        {/* Optional internal note */}
-        <div className="sm:max-w-md">
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            {t("gkNoteLabel", "Intern note (valgfri)")}
-          </label>
-          <div className="mt-1.5">
-            <Input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              maxLength={240}
-              placeholder={t("gkNotePh", "F.eks. fødselsdagsgave")}
-              aria-label={t("gkNoteLabel", "Intern note (valgfri)")}
-            />
+          <div className="flex flex-wrap gap-2 mt-1.5">
+            {tenderOptions.map(({ id, label, Icon }) => (
+              <Chip key={id} selected={tender === id} onClick={() => setMethod(id)}>
+                <span className="inline-flex items-center gap-1.5">
+                  <Icon className="w-4 h-4" aria-hidden />
+                  {label}
+                </span>
+              </Chip>
+            ))}
           </div>
         </div>
 
         {error && <ErrorText>{error}</ErrorText>}
 
-        {/* ONE primary action. */}
+        {/* ONE primary action — carries the live amount so the owner confirms
+            the number without looking back up at the form. */}
         <Button
           type="submit"
           variant="primary"
@@ -448,8 +466,105 @@ function IssueSection({ t, onIssued }) {
           iconLeft={!busy ? <Plus className="w-4 h-4" aria-hidden /> : null}
           className="w-full sm:w-auto justify-center"
         >
-          {t("gkIssueCta", "Udsted gavekort")}
+          {amountMinor != null
+            ? `${t("gkSellCta", "Sælg gavekort")} · ${krFromMinor(amountMinor)}`
+            : t("gkSellCta", "Sælg gavekort")}
         </Button>
+
+        {/* Gifting / advanced — ONE ghost disclosure below the button. The 90%
+            buy-for-self path never sees recipient / type / expiry / note. */}
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={() => setShowMore((s) => !s)}
+            aria-expanded={showMore}
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white transition-colors"
+          >
+            {showMore ? (
+              <ChevronDown className="w-4 h-4" aria-hidden />
+            ) : (
+              <Plus className="w-4 h-4" aria-hidden />
+            )}
+            {t("gkAddRecipient", "Til en anden? Tilføj modtager")}
+          </button>
+
+          {showMore && (
+            <div className="mt-4 space-y-5 border-t border-gray-100 dark:border-gray-800 pt-5">
+              {/* Recipient (optional) */}
+              <div className="sm:max-w-md">
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  {t("gkRecipientLabel", "Modtager (valgfri)")}
+                </label>
+                <div className="mt-1.5">
+                  <Input
+                    value={recipient}
+                    onChange={(e) => setRecipient(e.target.value)}
+                    maxLength={120}
+                    placeholder={t("gkRecipientPh", "Anna Hansen")}
+                    aria-label={t("gkRecipientLabel", "Modtager (valgfri)")}
+                  />
+                </div>
+              </div>
+
+              {/* voucher_class — owner-set, surfaced, never auto-decided. */}
+              <div>
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  {t("gkClassLabel", "Type")}
+                </label>
+                <div className="flex flex-wrap gap-2 mt-1.5">
+                  <Chip selected={voucherClass === "mpv"} onClick={() => setVoucherClass("mpv")}>
+                    {t("gkClassMpv", "Flere formål (MPV)")}
+                  </Chip>
+                  <Chip selected={voucherClass === "spv"} onClick={() => setVoucherClass("spv")}>
+                    {t("gkClassSpv", "Ét formål (SPV)")}
+                  </Chip>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 max-w-md">
+                  {voucherClass === "spv"
+                    ? t(
+                        "gkClassSpvHelp",
+                        "Ét formål: MOMS afregnes ved udstedelse. Spørg din revisor, hvis du er i tvivl.",
+                      )
+                    : t(
+                        "gkClassMpvHelp",
+                        "Flere formål: MOMS afregnes ved indløsning. Standard for de fleste gavekort.",
+                      )}
+                </p>
+              </div>
+
+              {/* Expiry (optional) */}
+              <div className="sm:max-w-xs">
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  {t("gkExpiryLabel", "Udløber (valgfri)")}
+                </label>
+                <div className="mt-1.5">
+                  <Input
+                    type="date"
+                    value={expiresAt}
+                    onChange={(e) => setExpiresAt(e.target.value)}
+                    aria-label={t("gkExpiryLabel", "Udløber (valgfri)")}
+                  />
+                </div>
+              </div>
+
+              {/* Optional internal note */}
+              <div className="sm:max-w-md">
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  {t("gkNoteLabel", "Intern note (valgfri)")}
+                </label>
+                <div className="mt-1.5">
+                  <Input
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    maxLength={240}
+                    placeholder={t("gkNotePh", "F.eks. fødselsdagsgave")}
+                    aria-label={t("gkNoteLabel", "Intern note (valgfri)")}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </form>
     </Card>
   );
@@ -467,9 +582,27 @@ function SuccessMoment() {
 }
 
 // The success moment: QR + GK code + Print / Send. Calm, centered, one card.
+const TENDER_LABELS = {
+  card: ["gkTenderCard", "Kort"],
+  mobilepay: ["gkTenderMobilepay", "MobilePay"],
+  cash: ["gkTenderCash", "Kontant"],
+  mixed: ["gkTenderMixed", "Blandet"],
+};
+
 function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
   const qrToken = result?.qr_token || "";
   const shortCode = result?.short_code || "";
+  const [showQR, setShowQR] = useState(false); // fullscreen QR for hand-over
+
+  const methodKey = TENDER_LABELS[result?.payment_method];
+  const methodLabel = methodKey ? t(methodKey[0], methodKey[1]) : null;
+  const expiryLabel = result?.expires_at
+    ? new Date(result.expires_at).toLocaleDateString("da-DK", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : null;
 
   const print = () => {
     try {
@@ -484,7 +617,7 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
       <Card variant="emphasis" className="text-center">
         <SuccessMoment />
         <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-          {t("gkIssuedEyebrow", "Gavekort udstedt")}
+          {t("gkSoldEyebrow", "Gavekort solgt")}
         </p>
         <p className="text-[34px] font-bold tabular-nums leading-tight text-gray-900 dark:text-gray-100 mt-1">
           {krFromMinor(result?.face_value_minor)}
@@ -513,28 +646,51 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
           </div>
         )}
 
+        {/* Honesty line — muted gray, NOT emerald. States where the money is,
+            without overclaiming. "registreret" (recorded), never "bogført",
+            until the close/MOMS posting bridge exists. */}
+        {methodLabel && (
+          <p className="mt-4 flex items-center justify-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+            <Wallet className="w-3.5 h-3.5" aria-hidden />
+            {t("gkPaidRegistered", "Betalt med {method} · registreret", { method: methodLabel })}
+          </p>
+        )}
+
         {result?.recipient_name && (
           <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
             {t("gkIssuedTo", "Til {name}", { name: result.recipient_name })}
           </p>
         )}
 
-        {/* Actions — Print + Send. Quiet secondary buttons; the moment itself
-            is the headline. */}
+        {/* Footer strip — udløb + saldo, the two facts the recipient cares
+            about, quiet at the foot of the card. */}
+        <div className="mt-5 flex items-center justify-between border-t border-gray-100 dark:border-gray-800 pt-3 text-[11px] text-gray-400 dark:text-gray-500">
+          <span>
+            {expiryLabel
+              ? t("gkValidUntil", "Gælder til {date}", { date: expiryLabel })
+              : t("gkNoExpiry", "Uden udløb")}
+          </span>
+          <span>
+            {t("gkBalanceLabel", "Saldo {amount}", { amount: krFromMinor(result?.balance_minor) })}
+          </span>
+        </div>
+
+        {/* Actions — Del gavekort (the literal hand-over: a fullscreen QR the
+            customer photographs) + Print. Quiet secondary buttons. */}
         <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+          <Button
+            variant="secondary"
+            iconLeft={<Share2 className="w-4 h-4" aria-hidden />}
+            onClick={() => setShowQR(true)}
+          >
+            {t("gkShareCard", "Del gavekort")}
+          </Button>
           <Button
             variant="secondary"
             iconLeft={<Printer className="w-4 h-4" aria-hidden />}
             onClick={print}
           >
             {t("gkPrint", "Print")}
-          </Button>
-          <Button
-            variant="secondary"
-            iconLeft={<Send className="w-4 h-4" aria-hidden />}
-            onClick={onGoToLedger}
-          >
-            {t("gkSend", "Send")}
           </Button>
         </div>
       </Card>
@@ -545,12 +701,51 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
           iconLeft={<Plus className="w-4 h-4" aria-hidden />}
           onClick={onIssueAnother}
         >
-          {t("gkIssueAnother", "Udsted endnu et")}
+          {t("gkSellAnother", "Sælg endnu et")}
         </Button>
         <Button variant="ghost" onClick={onGoToLedger}>
           {t("gkGoToLedger", "Se oversigt")}
         </Button>
       </div>
+
+      {/* Fullscreen QR — the hand-over. Big enough to photograph across a
+          counter. PII-free (only the signed token + code + value). */}
+      {showQR && qrToken && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white dark:bg-gray-950 px-6"
+          style={{
+            paddingTop: "max(1.5rem, env(safe-area-inset-top))",
+            paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))",
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("gkShareCard", "Del gavekort")}
+        >
+          <button
+            type="button"
+            onClick={() => setShowQR(false)}
+            aria-label={t("gkClose", "Luk")}
+            className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+            style={{ top: "max(1rem, env(safe-area-inset-top))" }}
+          >
+            <X className="h-6 w-6" aria-hidden />
+          </button>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+            {t("gkScanToReceive", "Scan for at få gavekortet")}
+          </p>
+          <div className="mt-5 rounded-2xl border border-gray-200 dark:border-gray-700 bg-white p-5">
+            <QRCodeSVG value={qrToken} size={264} level="M" includeMargin={false} />
+          </div>
+          {shortCode && (
+            <p className="mt-5 font-mono text-lg font-semibold tracking-[0.15em] text-gray-900 dark:text-gray-100">
+              {shortCode}
+            </p>
+          )}
+          <p className="mt-2 text-2xl font-bold tabular-nums text-gray-900 dark:text-gray-100">
+            {krFromMinor(result?.face_value_minor)}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -577,10 +772,7 @@ function LedgerSection({ t }) {
       const res = await api.get("/gavekort", { params });
       setData(res.data);
     } catch (e) {
-      setError(
-        e?.response?.data?.detail ||
-          t("gkLoadFailed", "Kunne ikke hente gavekort. Prøv igen."),
-      );
+      setError(gkErrText(e, t));
     } finally {
       setLoading(false);
     }
@@ -785,10 +977,7 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
       const res = await api.get(`/gavekort/${id}`);
       setData(res.data);
     } catch (e) {
-      setError(
-        e?.response?.data?.detail ||
-          t("gkDetailFailed", "Kunne ikke hente gavekortet."),
-      );
+      setError(gkErrText(e, t));
     } finally {
       setLoading(false);
     }
@@ -847,10 +1036,7 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
         );
         await load();
       } else {
-        setActionError(
-          e?.response?.data?.detail ||
-            t("gkRedeemFailed", "Kunne ikke indløse. Prøv igen."),
-        );
+        setActionError(gkErrText(e, t));
       }
     } finally {
       setActionBusy(false);
@@ -866,10 +1052,7 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
       await load();
       onChanged && onChanged();
     } catch (e) {
-      setActionError(
-        e?.response?.data?.detail ||
-          t("gkVoidFailed", "Kunne ikke annullere. Prøv igen."),
-      );
+      setActionError(gkErrText(e, t));
     } finally {
       setActionBusy(false);
     }

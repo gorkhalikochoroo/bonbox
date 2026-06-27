@@ -100,6 +100,10 @@ class IssueBody(BaseModel):
     note: str | None = Field(default=None, max_length=280)
     # NEVER auto-decided — default "mpv", owner-set, surfaced.
     voucher_class: str = Field(default="mpv", pattern="^(mpv|spv)$")
+    # How the owner was PAID for the card at the counter. Recorded (not posted)
+    # so the close/MOMS bridge has the tender later; the reveal says
+    # "registreret", never "bogført". Optional so older callers/tests still pass.
+    payment_method: str | None = Field(default=None, pattern="^(card|mobilepay|cash|mixed)$")
     expires_at: datetime | None = None
 
 
@@ -124,6 +128,7 @@ def _card_summary_dict(c: GiftCard) -> dict:
         "face_value_minor": int(c.face_value_minor),
         "balance_minor": int(c.balance_minor),
         "voucher_class": c.voucher_class,
+        "payment_method": c.payment_method,
         "status": c.status,
         "issued_at": _iso(c.issued_at),
         "expires_at": _iso(c.expires_at),
@@ -217,6 +222,7 @@ def issue_gavekort(payload: IssueBody, request: Request,
             status="active",
             recipient_name=payload.recipient_name,
             note=payload.note,
+            payment_method=payload.payment_method,
             issued_at=utc_now(),
             expires_at=expires_at,
         )
@@ -268,6 +274,7 @@ def issue_gavekort(payload: IssueBody, request: Request,
         "face_value_minor": int(card.face_value_minor),
         "balance_minor": int(card.balance_minor),
         "voucher_class": card.voucher_class,
+        "payment_method": card.payment_method,
         "status": card.status,
         "issued_at": _iso(card.issued_at),
         "expires_at": _iso(card.expires_at),

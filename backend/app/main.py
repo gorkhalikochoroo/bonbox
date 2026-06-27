@@ -1896,6 +1896,7 @@ _migrations = [
         status VARCHAR(12) NOT NULL DEFAULT 'active',
         recipient_name VARCHAR(120),
         note VARCHAR(280),
+        payment_method VARCHAR(16),
         issued_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         expires_at TIMESTAMP,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1905,6 +1906,10 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_gift_cards_user_id ON gift_cards (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_gift_cards_user_status ON gift_cards (user_id, status)",
+    # Gavekort SELL slice: capture how the card was paid for at the counter
+    # (card | mobilepay | cash | mixed). Recorded for the close/MOMS bridge +
+    # tracking; not posted to revenue yet. Idempotent for existing prod DBs.
+    "ALTER TABLE gift_cards ADD COLUMN IF NOT EXISTS payment_method VARCHAR(16)",
     """CREATE TABLE IF NOT EXISTS gift_card_transactions (
         id VARCHAR(36) PRIMARY KEY,
         gift_card_id VARCHAR(36) NOT NULL REFERENCES gift_cards(id),

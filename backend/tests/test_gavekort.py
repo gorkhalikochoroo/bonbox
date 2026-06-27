@@ -156,6 +156,36 @@ def test_voucher_class_is_owner_set_not_auto(client, db):
     assert out["voucher_class"] == "spv"
 
 
+def test_payment_method_captured_recorded_not_required(client, db):
+    """The SELL slice captures HOW the card was paid for (tender). It is
+    recorded on the card + echoed back + listed, persisted as-sent. Optional
+    (older callers still work → NULL); an unknown tender is a 422."""
+    owner = _owner(db)
+    _override_user(owner)
+    try:
+        # Captured + echoed when sent.
+        sold = _issue(client, amount_minor=20000, payment_method="mobilepay")
+        assert sold["payment_method"] == "mobilepay"
+        card = db.query(GiftCard).filter(GiftCard.id == uuid.UUID(sold["id"])).first()
+        assert card.payment_method == "mobilepay"   # persisted
+
+        # Shows up on the tracking list so the owner sees the tender.
+        lst = client.get("/api/gavekort").json()
+        row = next(c for c in lst["cards"] if c["id"] == sold["id"])
+        assert row["payment_method"] == "mobilepay"
+
+        # Optional — omitting it is fine and lands NULL (backward compatible).
+        none_out = _issue(client, amount_minor=10000)
+        assert none_out["payment_method"] is None
+
+        # An unknown tender is rejected at the schema (422), never inferred.
+        bad = client.post("/api/gavekort/issue",
+                          json={"amount_minor": 10000, "payment_method": "bitcoin"})
+        assert bad.status_code == 422, bad.text
+    finally:
+        _clear_user_override()
+
+
 # ═════════════════════════════════════════════════════════════════════
 # (b) list summary math
 # ═════════════════════════════════════════════════════════════════════
