@@ -1631,6 +1631,30 @@ def prefill_daily_close(
     _cut = getattr(profile, "day_cutoff_hour", None)
     cutoff = 6 if _cut is None else int(_cut)
 
+    # ── Gavekort redeemed this business day (MPV only) ──
+    # A gavekort is a TENDER, not a second sale — the meal it paid for MUST be
+    # in revenue_total or the MOMS is under-declared (DK MPV VAT falls at
+    # redemption). We surface the day's MPV redemptions so the owner can confirm
+    # the meals are included. BonBox NEVER auto-adds them to revenue — the owner
+    # attests (registreret → bogført is the owner's call). SPV excluded (taxed
+    # at issuance). User-level (gift_card_transactions has no branch_id).
+    from app.models.gift_card import GiftCard, GiftCardTransaction  # local — isolate
+    _gk_start = datetime.combine(target_date, datetime.min.time())
+    _gk_end = _gk_start + timedelta(days=1)
+    _gk_redeemed_minor = (
+        db.query(func.coalesce(func.sum(GiftCardTransaction.amount_minor), 0))
+        .join(GiftCard, GiftCard.id == GiftCardTransaction.gift_card_id)
+        .filter(
+            GiftCardTransaction.user_id == user.id,
+            GiftCardTransaction.kind == "redeem",
+            GiftCardTransaction.business_day >= _gk_start,
+            GiftCardTransaction.business_day < _gk_end,
+            GiftCard.voucher_class == "mpv",
+        )
+        .scalar()
+    ) or 0
+    gavekort_redeemed = round(-float(_gk_redeemed_minor) / 100.0, 2)
+
     return {
         "date": target_date.isoformat(),
         "has_data": has_data,
@@ -1640,6 +1664,13 @@ def prefill_daily_close(
             "count": sales_count,
             "by_payment_method": by_payment,
             "by_item": by_item,
+        },
+        # Day's MPV gavekort redemptions (kr) + the gift_card tender already on
+        # the day's sales — the frontend compares them so the owner confirms the
+        # redeemed meals are in revenue. Surfaced, never auto-posted.
+        "gavekort": {
+            "redeemed": gavekort_redeemed,
+            "tender": round(float(by_payment.get("gift_card", 0)), 2),
         },
         "expenses": {
             "total": expenses_total,
