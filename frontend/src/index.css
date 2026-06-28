@@ -108,6 +108,23 @@ body {
 .animate-scaleIn { animation: scaleIn 0.2s ease-out; }
 .animate-numberPulse { animation: numberPulse 0.6s ease-out; }
 
+/* venueSwap — the per-business-type "re-dress" crossfade (Phase A, ProfilePage
+   business-type preview). COMPOSITOR-ONLY: opacity + transform (translateY +
+   a hair of scale), never width/height/layout props, so the adapting region
+   re-dresses in one calm ~320ms beat with zero reflow jank. Paired with a React
+   `key` swap so the whole region animates as a unit; the consumer scopes it
+   with `contain: content`. The global prefers-reduced-motion rule above forces
+   this to ~0.01ms (instant swap, never stuck mid-transition). */
+@keyframes venueSwap {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-venueSwap {
+  animation: venueSwap 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  contain: content;
+  will-change: opacity, transform;
+}
+
 /* Staggered card entrance */
 .stagger-cards > * { animation: cardEnter 0.5s ease-out both; }
 .stagger-cards > *:nth-child(1) { animation-delay: 0ms; }
@@ -398,3 +415,22 @@ body.modal-open {
   --brand-green-soft: 236 253 245; /* emerald-50  — severity-tinted surfaces */
   --brand-green-dot: 16 185 129;   /* emerald-500 — status dots, active rail */
 }
+
+/* ── Gavekort printable card ────────────────────────────────────────────
+   The reveal's Print button calls window.print(). This scopes the printout
+   to ONE clean gavekort card (venue · beløb · QR · code · gyldighed) instead
+   of the whole app. The card is display:none on screen and only laid out for
+   the printer. */
+@media print {
+  body * { visibility: hidden !important; }
+  .gk-print-card, .gk-print-card * { visibility: visible !important; }
+  .gk-print-card {
+    display: flex !important;
+    position: fixed !important;
+    inset: 0 !important;
+    align-items: center;
+    justify-content: center;
+    background: #fff !important;
+  }
+}
+@page { margin: 14mm; }

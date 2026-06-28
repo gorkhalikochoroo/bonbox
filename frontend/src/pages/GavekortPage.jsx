@@ -56,6 +56,7 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useStickyMethod } from "../hooks/useStickyMethod";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { useAuth } from "../hooks/useAuth";
 import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
 import Chip from "../components/ui/Chip";
@@ -595,6 +596,8 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
   const shortCode = result?.short_code || "";
   const [showQR, setShowQR] = useState(false); // fullscreen QR for hand-over
   const [copied, setCopied] = useState(false);
+  const { user } = useAuth();
+  const venue = user?.business_name?.trim() || ""; // for the printable card
 
   // The recipient's public card. The QR encodes THIS url (not the raw token),
   // so a customer scanning it with their phone camera lands on the live card —
@@ -781,6 +784,76 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
           </p>
         </div>
       )}
+
+      {/* Printable card — display:none on screen; laid out only for the
+          printer (see .gk-print-card in index.css). The Print button scopes
+          window.print() to THIS one clean gavekort. Light, print-safe styles. */}
+      <div className="gk-print-card hidden">
+        <div
+          style={{
+            width: "320px",
+            border: "1px solid #111111",
+            borderRadius: "16px",
+            padding: "28px",
+            textAlign: "center",
+            color: "#111111",
+            background: "#ffffff",
+            fontFamily: "Inter, system-ui, sans-serif",
+          }}
+        >
+          {venue && (
+            <p style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>{venue}</p>
+          )}
+          <p
+            style={{
+              fontSize: "11px",
+              letterSpacing: "0.12em",
+              textTransform: "uppercase",
+              color: "#666666",
+              margin: "4px 0 0",
+            }}
+          >
+            {t("gpkEyebrow", "Gavekort")}
+          </p>
+          <p style={{ fontSize: "40px", fontWeight: 700, margin: "10px 0 16px" }}>
+            {krFromMinor(result?.face_value_minor)}
+          </p>
+          {(publicUrl || qrToken) && (
+            <div
+              style={{
+                display: "inline-block",
+                border: "1px solid #dddddd",
+                borderRadius: "12px",
+                padding: "12px",
+              }}
+            >
+              <QRCodeSVG value={publicUrl || qrToken} size={150} level="M" includeMargin={false} />
+            </div>
+          )}
+          {shortCode && (
+            <p
+              style={{
+                fontFamily: "monospace",
+                letterSpacing: "0.15em",
+                fontSize: "15px",
+                margin: "14px 0 0",
+              }}
+            >
+              {shortCode}
+            </p>
+          )}
+          {expiryLabel && (
+            <p style={{ fontSize: "12px", color: "#666666", margin: "10px 0 0" }}>
+              {t("gpkValidUntil", "Gælder til {date}", { date: expiryLabel })}
+            </p>
+          )}
+          {venue && (
+            <p style={{ fontSize: "12px", color: "#444444", margin: "6px 0 0" }}>
+              {t("gpkRedeemAt", "Indløses hos {business}", { business: venue })}
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
