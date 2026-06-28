@@ -6111,6 +6111,9 @@ const translations = {
     plNoExpensesCta: "Add expenses to see your real profit →",
     liveRevenueMonth: "This month",
     revenueTrendMonthSoFar: "This month so far: {amt}",
+    dashIncompleteVerdict: "Add expenses",
+    dashIncompleteBody: "No expenses logged this month — add them to see your real profit and a true health read.",
+    dashIncompleteAction: "Add expenses",
     active: "active",
     // Task #204 P2.6 — "Today on shift" Zone 1 card.  Empty state uses
     // `vagtplan` and the "føj en til vagtplanen" copy in BOTH locales
@@ -12643,6 +12646,9 @@ const translations = {
     plNoExpensesCta: "Tilføj udgifter for at se dit reelle overskud →",
     liveRevenueMonth: "Denne måned",
     revenueTrendMonthSoFar: "Denne måned indtil nu: {amt}",
+    dashIncompleteVerdict: "Tilføj udgifter",
+    dashIncompleteBody: "Ingen udgifter registreret denne måned — tilføj dem for at se dit reelle overskud og et retvisende billede.",
+    dashIncompleteAction: "Tilføj udgifter",
     active: "aktive",
     // Task #204 P2.6 — "Today on shift" card (DK strings).
     todayOnShiftTitle: "På vagt i dag",

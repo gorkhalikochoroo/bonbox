@@ -56,6 +56,16 @@ export function deriveVerdict(summary = {}, overdueCount = 0) {
         Number(summary?.month_revenue ?? 1)
       : 0;
 
+  // Honesty guard: revenue but ZERO expenses logged means margin (~100%)
+  // and "profit = revenue" are not real signals — there are no costs to
+  // weigh. Don't claim "healthy / margin above X%"; surface the one thing
+  // that makes the read real (mirrors the ProfitLossCard zero-expense fix).
+  const monthRevenue = Number(summary?.month_revenue ?? 0);
+  const monthExpenses = Number(summary?.month_expenses ?? 0);
+  if (monthRevenue > 0 && monthExpenses === 0) {
+    return { verdict: "incomplete", reasons: ["noExpenses"], margin, profit30d, weekExpenseDelta };
+  }
+
   const offMetrics = [];
   if (margin < 20) offMetrics.push("marginLow");
   if (profit30d < 0) offMetrics.push("profitNegative");
@@ -78,6 +88,8 @@ const DOT_CLASS = {
   healthy: "bg-emerald-500",
   watch: "bg-amber-500",
   action: "bg-red-500",
+  // 'incomplete' = missing cost data, not a warning → neutral gray dot.
+  incomplete: "bg-gray-400",
 };
 
 export default function BusinessHealthCard({ ctx = {}, className = "" }) {
@@ -93,7 +105,17 @@ export default function BusinessHealthCard({ ctx = {}, className = "" }) {
   let actionLabel;
   let actionHref;
 
-  if (verdict === "healthy") {
+  if (verdict === "incomplete") {
+    // No costs logged → can't claim a margin/health read honestly. Point
+    // the owner at the one tap that makes it real (mirrors ProfitLossCard).
+    verdictLabel = t("dashIncompleteVerdict", "Add expenses");
+    body = t(
+      "dashIncompleteBody",
+      "No expenses logged this month — add them to see your real profit and a true health read.",
+    );
+    actionLabel = t("dashIncompleteAction", "Add expenses");
+    actionHref = "/expenses";
+  } else if (verdict === "healthy") {
     verdictLabel = t("dashHealthyVerdict", "Healthy");
     body = t(
       "dashHealthyBody",

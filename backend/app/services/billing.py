@@ -661,9 +661,14 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # auto-email-on-close + supplier auto-detect kick in).
         "dashboard_accountant_hours": False,
         # Business Health composite line — REFACTORED in v2, single line
-        # with a falsifiable verdict + next-best-action. Hidden on Free
-        # because the underlying signal needs ≥10 sales to be honest.
-        "dashboard_business_health": False,
+        # with a falsifiable verdict + next-best-action. OPEN to Free
+        # (2026-06-29 owner-POV pass): it's a read-only "is my business OK?"
+        # signal, not a paid time-saver, so Free deserves the one honest
+        # health read. Honesty is DATA-gated, not tier-gated — the card
+        # self-hides until ≥10 sales (renderIf + L2 guard) and shows an
+        # "add expenses" verdict (never a fake 100%-margin "healthy") when
+        # no costs are logged. The Starter/Pro upsell stays the time-savers.
+        "dashboard_business_health": True,
         # Expiry warnings card — Phase 1 alert-rich layer is Starter+;
         # Free still sees the /expiry page but no Dashboard card.
         "dashboard_expiry_warnings": False,
