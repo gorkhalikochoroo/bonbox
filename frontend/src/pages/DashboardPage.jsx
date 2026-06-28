@@ -332,7 +332,9 @@ export default function DashboardPage() {
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a");
       a.href = url;
-      a.download = `report_${now.getFullYear()}_${now.getMonth() + 1}.pdf`;
+      // Filename mirrors the backend Ledelsesrapport doc (da-DK, internal
+      // management overview — not a momsangivelse).
+      a.download = `BonBox_Ledelsesrapport_${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, "0")}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch {

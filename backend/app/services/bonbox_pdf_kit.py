@@ -241,11 +241,20 @@ def render_with_doc_hash(
             page_width - right_margin, 10 * mm,
             ("Side " if is_danish else "Page ") + f"{page_num} / {total_pages}",
         )
+        # "af <email>" / "by <email>" is only meaningful when we actually have
+        # a generator email. When it's blank/None, drop the "af"/"by" + email so
+        # the footer reads "Genereret <ts>  ·  BonBox vX" instead of a dangling
+        # "Genereret <ts> af   ·  BonBox vX". Populated-email output is unchanged.
+        gen_prefix = "Genereret" if is_danish else "Generated"
+        by_word = "af" if is_danish else "by"
+        gen_email = (generator_email or "").strip()
+        if gen_email:
+            provenance = f"{gen_prefix} {generated_at_str} {by_word} {gen_email}  ·  {software_id}"
+        else:
+            provenance = f"{gen_prefix} {generated_at_str}  ·  {software_id}"
         canv.drawCentredString(
             page_width / 2, 10 * mm,
-            f"{('Genereret' if is_danish else 'Generated')} "
-            f"{generated_at_str} {('af' if is_danish else 'by')} "
-            f"{generator_email}  ·  {software_id}",
+            provenance,
         )
         # Left edge of content = left margin, so "Doc-hash:" lines up with the
         # table's left edge.

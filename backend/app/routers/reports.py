@@ -553,8 +553,9 @@ def monthly_report_pdf(
     _, last_day = calendar.monthrange(year, month)
     start = date(year, month, 1)
     end = date(year, month, last_day)
-    month_name = calendar.month_name[month]
-    cur = get_display_currency(user.currency or "DKK")
+    month_name = _da_month(month)  # Danish month name (DK-only Ledelsesrapport)
+    # Currency renders da-DK as "kr." via _da_money — no currency code printed.
+    vat_terms = get_vat_terms(user.currency or "DKK")
 
     # ---- Gather all data ----
     total_revenue = float(
@@ -567,9 +568,6 @@ def monthly_report_pdf(
         .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
         .scalar()
     )
-    net_profit = total_revenue - total_expenses
-    margin = round((net_profit / total_revenue) * 100, 1) if total_revenue > 0 else 0
-
     # Previous month for comparison
     if month == 1:
         prev_start = date(year - 1, 12, 1)
@@ -653,6 +651,17 @@ def monthly_report_pdf(
     input_vat = _fd["moms_af_kob"]
     vat_payable = _fd["moms_til_skat"]
 
+    # HONESTY: a resultatopgørelse states omsætning EKSKL moms. `total_revenue`
+    # is GROSS (moms-inclusive). The output/sales VAT to strip is the SAME figure
+    # the filing uses (moms_af_salg via compute_filing_data) — NOT a naive ÷1.25,
+    # so this never disagrees with the MOMS-angivelse engine. Net profit / margin
+    # are derived from the ex-moms figure, never the gross. Margin is suppressed
+    # when no expenses are recorded (revenue-as-profit at "100% margin" is a lie).
+    revenue_excl_vat = total_revenue - output_vat
+    net_profit = revenue_excl_vat - total_expenses
+    has_expenses = total_expenses > 0
+    margin = round((net_profit / revenue_excl_vat) * 100, 1) if (has_expenses and revenue_excl_vat > 0) else None
+
     # Best/worst days
     best_day = max(daily_revenue, key=lambda r: r.total, default=None)
     worst_day = min(daily_revenue, key=lambda r: r.total, default=None)
@@ -661,11 +670,11 @@ def monthly_report_pdf(
     days_with_sales = len(daily_revenue)
     avg_daily = round(total_revenue / days_with_sales, 2) if days_with_sales > 0 else 0
 
-    # Weekday analysis
+    # Weekday analysis (Danish weekday names — DK-only document)
     weekday_totals = {}
     weekday_counts = {}
     for d, total in daily_revenue:
-        wday = d.strftime("%A")
+        wday = _da_weekday(d)
         weekday_totals[wday] = weekday_totals.get(wday, 0) + float(total)
         weekday_counts[wday] = weekday_counts.get(wday, 0) + 1
     weekday_avg = {
@@ -683,12 +692,28 @@ def monthly_report_pdf(
     styles = getSampleStyleSheet()
 
     # Custom styles
-    title_style = ParagraphStyle("ReportTitle", parent=styles["Title"], fontSize=22, spaceAfter=2, textColor=DARK)
+    title_style = ParagraphStyle("ReportTitle", parent=styles["Title"], fontSize=19, spaceAfter=2, textColor=DARK)
     subtitle_style = ParagraphStyle("ReportSub", parent=styles["Normal"], fontSize=11, textColor=colors.grey, spaceAfter=4)
     section_style = ParagraphStyle("ReportSection", parent=styles["Heading2"], fontSize=14, spaceBefore=16, spaceAfter=8, textColor=DARK)
     subsection_style = ParagraphStyle("ReportSubSec", parent=styles["Normal"], fontSize=10, textColor=colors.grey, spaceAfter=4)
     body_style = ParagraphStyle("ReportBody", parent=styles["Normal"], fontSize=9, leading=13)
     small_style = ParagraphStyle("ReportSmall", parent=styles["Normal"], fontSize=8, textColor=colors.grey)
+
+    def _neutral_header():
+        # ONE neutral dark header for every table (locked design system:
+        # gray-900-ish primary; color reserved for genuine status, never
+        # rainbow section tints).
+        return TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), DARK),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("PADDING", (0, 0), (-1, -1), 6),
+            ("GRID", (0, 0), (-1, -1), 0.5, BORDER),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_BG]),
+            ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ])
 
     elements = []
 
@@ -698,29 +723,74 @@ def monthly_report_pdf(
     bp = _get_business_profile(db, user.id)
     _pdf_business_header(
         elements, bp, user, title_style, subtitle_style, small_style,
-        "Monthly Financial Report", f"{month_name} {year}",
-        extra_line=f"Generated on {date.today().strftime('%d %B %Y')}",
+        # Reframe: this is an internal MANAGEMENT report, NOT a momsangivelse.
+        # DK terms (momsangivelse/SKAT/revisor) stay Danish per translation-scope.
+        "Ledelsesrapport — internt overblik", f"{month_name} {year}",
+        extra_line=(
+            f"Genereret {date.today().day:02d}. "
+            f"{_da_month(date.today().month)} {date.today().year}"
+        ),
     )
     elements.append(Spacer(1, 3 * mm))
-    elements.append(HRFlowable(width="100%", thickness=1, color=BLUE, spaceAfter=8))
+
+    # DISCLAIMER BANNER — neutral status box, not a tax document. The MOMS block
+    # below carries a real momstilsvar figure, so this report must NOT read as
+    # fileable: SKAT indberetning goes through Skat Autopilot or the revisor.
+    disclaimer_style = ParagraphStyle(
+        "ReportDisclaimer", parent=body_style, fontSize=8.5, leading=12, textColor=DARK,
+    )
+    disclaimer_tbl = Table(
+        [[Paragraph(
+            "<b>Dette er ikke en momsangivelse.</b> "
+            "Brug Skat Autopilot eller send til revisor for indberetning til SKAT.",
+            disclaimer_style,
+        )]],
+        colWidths=[180 * mm],
+    )
+    disclaimer_tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fff7ed")),
+        ("BOX", (0, 0), (-1, -1), 0.75, ORANGE),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    elements.append(disclaimer_tbl)
+    elements.append(Spacer(1, 3 * mm))
+    elements.append(HRFlowable(width="100%", thickness=1, color=DARK, spaceAfter=8))
 
     # ============================================================
-    # FINANCIAL SUMMARY (KPI Cards as table)
+    # OVERSIGT (KPI table — honest, da-DK)
     # ============================================================
-    elements.append(Paragraph("Financial Summary", section_style))
+    elements.append(Paragraph("Oversigt", section_style))
 
     rev_arrow = "+" if rev_change >= 0 else ""
     exp_arrow = "+" if exp_change >= 0 else ""
-    profit_color = "#16a34a" if net_profit >= 0 else "#dc2626"
 
+    # Two revenue lines: gross (inkl. moms) AND ex-moms (the basis for profit).
+    # A resultatopgørelse states omsætning EKSKL moms — Resultat / Resultatgrad
+    # derive from the ex-moms figure, never the gross. Margin is suppressed when
+    # no expenses exist (don't dress revenue up as "Resultat" at "100% margin").
+    # All amounts da-DK, 0 decimals (operational table).
+    waste_pct = round(waste_total / total_revenue * 100, 1) if total_revenue > 0 else 0
     summary_data = [
-        ["", "This Month", "vs Last Month"],
-        ["Total Revenue", f"{total_revenue:,.0f} {cur}", f"{rev_arrow}{rev_change}%"],
-        ["Total Expenses", f"{total_expenses:,.0f} {cur}", f"{exp_arrow}{exp_change}%"],
-        ["Net Profit", f"{net_profit:,.0f} {cur}", f"{margin}% margin"],
-        ["Avg Daily Revenue", f"{avg_daily:,.0f} {cur}", f"{days_with_sales} days recorded"],
-        ["Waste Cost", f"{waste_total:,.0f} {cur}", f"{round(waste_total/total_revenue*100, 1) if total_revenue > 0 else 0}% of revenue"],
+        ["Nøgletal", "Denne måned", "ift. sidste måned"],
+        [vat_terms["sales_incl"], _da_money(total_revenue), f"{rev_arrow}{rev_change}%"],
+        [vat_terms["sales_excl"], _da_money(revenue_excl_vat), ""],
+        ["Udgifter", _da_money(total_expenses), f"{exp_arrow}{exp_change}%"],
     ]
+    if has_expenses:
+        summary_data.append([
+            "Resultat (ekskl. moms)", _da_money(net_profit),
+            f"{margin:.1f}% resultatgrad" if margin is not None else "—",
+        ])
+    summary_data.append([
+        "Gns. daglig omsætning", _da_money(avg_daily),
+        f"{days_with_sales} dage registreret",
+    ])
+    summary_data.append([
+        "Spildomkostning", _da_money(waste_total), f"{waste_pct}% af omsætning",
+    ])
     t = Table(summary_data, colWidths=[55 * mm, 55 * mm, 55 * mm])
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), DARK),
@@ -735,32 +805,38 @@ def monthly_report_pdf(
         ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
     ]))
     elements.append(t)
+    if not has_expenses:
+        elements.append(Spacer(1, 2 * mm))
+        elements.append(Paragraph(
+            "Ingen udgifter registreret for perioden — resultat og resultatgrad kan ikke beregnes.",
+            small_style,
+        ))
 
-    # Highlight best/worst
+    # Highlight best/worst (Danish weekday + short date)
     if best_day or worst_day:
         elements.append(Spacer(1, 3 * mm))
         highlights = []
         if best_day:
-            highlights.append(f"Best day: {best_day.date.strftime('%A %d %b')} ({float(best_day.total):,.0f} {cur})")
+            highlights.append(f"Bedste dag: {_da_weekday(best_day.date)} {_da_date_short(best_day.date)} ({_da_money(float(best_day.total))})")
         if worst_day:
-            highlights.append(f"Slowest day: {worst_day.date.strftime('%A %d %b')} ({float(worst_day.total):,.0f} {cur})")
+            highlights.append(f"Stille dag: {_da_weekday(worst_day.date)} {_da_date_short(worst_day.date)} ({_da_money(float(worst_day.total))})")
         elements.append(Paragraph(" &bull; ".join(highlights), body_style))
 
     # ============================================================
-    # EXPENSE BREAKDOWN
+    # UDGIFTER FORDELT
     # ============================================================
     if expense_breakdown:
-        elements.append(Paragraph("Expense Breakdown", section_style))
-        exp_data = [["Category", "Amount", "% of Expenses", "% of Revenue"]]
+        elements.append(Paragraph("Udgifter fordelt", section_style))
+        exp_data = [["Kategori", "Beløb", "% af udgifter", "% af omsætning"]]
         for name, total in expense_breakdown:
             amt = float(total)
             pct_exp = round(amt / total_expenses * 100, 1) if total_expenses > 0 else 0
             pct_rev = round(amt / total_revenue * 100, 1) if total_revenue > 0 else 0
-            exp_data.append([name, f"{amt:,.0f} {cur}", f"{pct_exp}%", f"{pct_rev}%"])
-        exp_data.append(["TOTAL", f"{total_expenses:,.0f} {cur}", "100%", f"{round(total_expenses/total_revenue*100, 1) if total_revenue > 0 else 0}%"])
+            exp_data.append([name, _da_money(amt), f"{pct_exp}%", f"{pct_rev}%"])
+        exp_data.append(["I ALT", _da_money(total_expenses), "100%", f"{round(total_expenses/total_revenue*100, 1) if total_revenue > 0 else 0}%"])
 
         t2 = Table(exp_data, colWidths=[50 * mm, 40 * mm, 35 * mm, 35 * mm])
-        t2.setStyle(_header_table_style())
+        t2.setStyle(_neutral_header())
         # Bold the total row
         t2.setStyle(TableStyle([
             ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
@@ -768,55 +844,66 @@ def monthly_report_pdf(
         ]))
         elements.append(t2)
 
-        # Mini bar chart of expenses
+        # Mini bar chart of expenses — neutral ink (red is reserved for genuine
+        # negative/overdue status, not decoration). da-DK value labels.
         expense_pairs = [(name, float(total)) for name, total in expense_breakdown[:8]]
         elements.append(Spacer(1, 3 * mm))
-        elements.append(_mini_bar_chart(expense_pairs, bar_color=colors.HexColor("#ef4444")))
+        elements.append(_mini_bar_chart(
+            expense_pairs, bar_color=DARK,
+            value_formatter=lambda v: _da_money(v).removesuffix(" kr."),
+        ))
 
     # ============================================================
-    # PAYMENT METHODS
+    # BETALINGSMETODER
     # ============================================================
     if payment_breakdown:
-        elements.append(Paragraph("Payment Methods", section_style))
-        pay_data = [["Method", "Transactions", "Total Amount", "% of Revenue"]]
+        elements.append(Paragraph("Betalingsmetoder", section_style))
+        pay_data = [["Metode", "Transaktioner", "Beløb i alt", "% af omsætning"]]
         for method, count, total in payment_breakdown:
             amt = float(total)
             pct = round(amt / total_revenue * 100, 1) if total_revenue > 0 else 0
-            pay_data.append([method.title(), str(count), f"{amt:,.0f} {cur}", f"{pct}%"])
+            pay_data.append([_da_payment_label(method), str(count), _da_money(amt), f"{pct}%"])
         t_pay = Table(pay_data, colWidths=[40 * mm, 35 * mm, 40 * mm, 35 * mm])
-        t_pay.setStyle(_header_table_style())
+        t_pay.setStyle(_neutral_header())
         elements.append(t_pay)
 
     # ============================================================
-    # WEEKDAY ANALYSIS
+    # OMSÆTNING PR. UGEDAG
     # ============================================================
     if weekday_avg:
-        elements.append(Paragraph("Revenue by Day of Week", section_style))
-        elements.append(Paragraph("Average revenue per weekday based on this month's data", subsection_style))
-        ordered_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        # Keep heading + subtitle + bars on the same page (avoid orphaning).
+        # Neutral ink bars; da-DK value labels (grouped, no 'kr.' on the chart).
+        ordered_days = list(_DA_WEEKDAYS)
         weekday_pairs = [(d, weekday_avg.get(d, 0)) for d in ordered_days if d in weekday_avg]
-        elements.append(_mini_bar_chart(weekday_pairs, bar_color=BLUE))
+        elements.append(KeepTogether([
+            Paragraph("Omsætning pr. ugedag", section_style),
+            Paragraph("Gennemsnitlig omsætning pr. ugedag baseret på denne måneds data", subsection_style),
+            _mini_bar_chart(
+                weekday_pairs, bar_color=DARK,
+                value_formatter=lambda v: _da_money(v).removesuffix(" kr."),
+            ),
+        ]))
 
     # ============================================================
-    # DAILY REVENUE TABLE
+    # DAGLIG OMSÆTNING
     # ============================================================
     if daily_revenue:
-        elements.append(Paragraph("Daily Revenue Log", section_style))
-        day_data = [["Date", "Day", "Revenue", "vs Avg"]]
+        elements.append(Paragraph("Daglig omsætning", section_style))
+        day_data = [["Dato", "Dag", "Omsætning", "ift. gns."]]
         for d, total in daily_revenue:
             amt = float(total)
             vs_avg = round(((amt - avg_daily) / avg_daily) * 100, 1) if avg_daily > 0 else 0
             vs_str = f"+{vs_avg}%" if vs_avg >= 0 else f"{vs_avg}%"
             day_data.append([
-                d.strftime("%d %b"),
-                d.strftime("%A"),
-                f"{amt:,.0f} {cur}",
+                _da_date_short(d),
+                _da_weekday(d),
+                _da_money(amt),
                 vs_str,
             ])
-        day_data.append(["", "TOTAL", f"{total_revenue:,.0f} {cur}", ""])
+        day_data.append(["", "I ALT", _da_money(total_revenue), ""])
 
         t3 = Table(day_data, colWidths=[30 * mm, 35 * mm, 40 * mm, 30 * mm])
-        t3.setStyle(_header_table_style())
+        t3.setStyle(_neutral_header())
         t3.setStyle(TableStyle([
             ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
             ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f1f5f9")),
@@ -827,76 +914,141 @@ def monthly_report_pdf(
     # WASTE REPORT
     # ============================================================
     if waste_by_reason:
-        elements.append(Paragraph("Waste Report", section_style))
-        waste_data = [["Reason", "Items", "Cost", "% of Waste"]]
+        elements.append(Paragraph("Spild", section_style))
+        waste_data = [["Årsag", "Antal", "Omkostning", "% af spild"]]
         for reason, count, cost in waste_by_reason:
             c = float(cost) if cost else 0
             pct = round(c / waste_total * 100, 1) if waste_total > 0 else 0
-            waste_data.append([reason.title(), str(count), f"{c:,.0f} {cur}", f"{pct}%"])
-        waste_data.append(["TOTAL", "", f"{waste_total:,.0f} {cur}", "100%"])
+            waste_data.append([reason.title(), str(count), _da_money(c), f"{pct}%"])
+        waste_data.append(["I ALT", "", _da_money(waste_total), "100%"])
 
         tw = Table(waste_data, colWidths=[40 * mm, 30 * mm, 35 * mm, 30 * mm])
-        tw.setStyle(_header_table_style())
+        tw.setStyle(_neutral_header())
         tw.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), ORANGE),
             ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#fff7ed")),
+            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f1f5f9")),
         ]))
         elements.append(tw)
 
     # ============================================================
-    # INVENTORY ALERTS
+    # LAVT LAGER (INVENTORY ALERTS)
     # ============================================================
     if low_stock:
-        elements.append(Paragraph("Inventory Alerts — Low Stock", section_style))
-        elements.append(Paragraph(f"{len(low_stock)} item(s) below minimum threshold", subsection_style))
-        inv_data = [["Item", "Current Qty", "Unit", "Min Required"]]
+        elements.append(Paragraph("Lavt lager", section_style))
+        elements.append(Paragraph(f"{len(low_stock)} vare(r) under minimumsgrænse", subsection_style))
+        inv_data = [["Vare", "Aktuelt antal", "Enhed", "Min. krævet"]]
         for name, qty, unit, threshold in low_stock:
             inv_data.append([name, f"{float(qty):.1f}", unit, f"{float(threshold):.1f}"])
         ti = Table(inv_data, colWidths=[55 * mm, 30 * mm, 25 * mm, 30 * mm])
-        ti.setStyle(_header_table_style())
+        ti.setStyle(_neutral_header())
+        # Red is reserved for genuine status — these rows ARE the alert.
         ti.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), RED),
+            ("TEXTCOLOR", (0, 1), (-1, -1), RED),
         ]))
         elements.append(ti)
 
     # ============================================================
-    # VAT SUMMARY
+    # INFORMATIV MOMSOVERSIGT (NOT a momsangivelse)
     # ============================================================
-    mterms = get_vat_terms(user.currency or "DKK")
-    elements.append(Paragraph(f"{mterms['name']} Summary", section_style))
-    elements.append(Paragraph(f"{mterms['name']} rate: {vat_rate * 100:.0f}% ({user.currency}) (for accountant reference)", subsection_style))
+    elements.append(Paragraph("Informativ momsoversigt", section_style))
+    # Banner: this block is informational, NOT the official filing. The figures
+    # follow the SAME engine as the angivelse (compute_filing_data) but this
+    # document can't be indberettet — so it carries no standalone fileable number.
+    vat_banner = Table(
+        [[Paragraph(
+            "<b>Informativ momsoversigt — ikke en momsangivelse.</b> "
+            "Tallene følger samme beregning som angivelsen, men dette "
+            "dokument kan ikke indberettes til SKAT.",
+            disclaimer_style,
+        )]],
+        colWidths=[180 * mm],
+    )
+    vat_banner.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fff7ed")),
+        ("BOX", (0, 0), (-1, -1), 0.75, ORANGE),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    elements.append(vat_banner)
+    elements.append(Spacer(1, 2 * mm))
+    elements.append(Paragraph(f"Momssats: {vat_rate * 100:.0f}%", subsection_style))
+    # All amounts da-DK, 2 decimals (VAT block precision). Net row is an
+    # informational "beregnet moms" line, NOT a fileable momstilsvar — the
+    # disclaimer + footer make clear this can't be indberettet.
     vat_data = [
-        ["", f"Incl. {mterms['name']}", f"Excl. {mterms['name']}", f"{mterms['name']} Amount"],
-        [mterms["output"], f"{_fd['salg_med_moms']:,.0f}", f"{_fd['salg_med_moms'] - output_vat:,.0f}", f"{output_vat:,.0f}"],
-        [mterms["input"], f"{_fd['kob_med_moms']:,.0f}", f"{_fd['kob_med_moms'] - input_vat:,.0f}", f"{input_vat:,.0f}"],
-        [mterms["net"], "", "", f"{vat_payable:,.0f} {cur}"],
+        ["", vat_terms["sales_incl"], vat_terms["sales_excl"], f"{vat_terms['name']}-beløb"],
+        [vat_terms["output"], _da_money(_fd['salg_med_moms'], decimals=2), _da_money(_fd['salg_med_moms'] - output_vat, decimals=2), _da_money(output_vat, decimals=2)],
+        [vat_terms["input"], _da_money(_fd['kob_med_moms'], decimals=2), _da_money(_fd['kob_med_moms'] - input_vat, decimals=2), _da_money(input_vat, decimals=2)],
+        ["Beregnet moms (vejledende)", "", "", _da_money(vat_payable, decimals=2)],
     ]
-    tv = Table(vat_data, colWidths=[45 * mm, 35 * mm, 35 * mm, 40 * mm])
-    tv.setStyle(_header_table_style())
+    tv = Table(vat_data, colWidths=[50 * mm, 40 * mm, 40 * mm, 40 * mm])
+    tv.setStyle(_neutral_header())
     tv.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), PURPLE),
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
-        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f5f3ff")),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f1f5f9")),
     ]))
     elements.append(tv)
+    elements.append(Spacer(1, 2 * mm))
+    elements.append(Paragraph(
+        "Beregnet moms er vejledende og bekræftes i din momsangivelse.",
+        small_style,
+    ))
 
     # ============================================================
-    # FOOTER
+    # CLOSING NOTE (flows with content) + PER-PAGE FOOTER (canvas)
     # ============================================================
     elements.append(Spacer(1, 10 * mm))
     elements.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
     elements.append(Spacer(1, 3 * mm))
     elements.append(Paragraph(
-        f"This report was generated by BonBox &mdash; Smart Business Analytics for {user.business_name or 'your business'}. "
-        f"Data covers {month_name} 1&ndash;{last_day}, {year}. All amounts in {cur}.",
+        f"Ledelsesrapport genereret af BonBox &mdash; internt overblik, "
+        f"<b>ikke en momsangivelse</b>. "
+        f"Data dækker 1.&ndash;{last_day}. {month_name} {year}. Alle beløb i kr. "
+        f"Til indberetning til SKAT: brug Skat Autopilot eller send til din revisor.",
         small_style,
     ))
-    elements.append(Paragraph("bonbox.dk", ParagraphStyle("Footer", parent=small_style, textColor=BLUE)))
 
-    doc.build(elements)
+    # Per-page footer drawn on the canvas → renders on EVERY page with the true
+    # total page count ('Side X af Y'), via the numbered-canvas replay.
+    from reportlab.pdfgen import canvas as _rl_canvas
+
+    def _draw_footer(canvas, page_num, total_pages):
+        canvas.saveState()
+        page_w, _ = A4
+        y = 10 * mm
+        canvas.setStrokeColor(BORDER)
+        canvas.setLineWidth(0.5)
+        canvas.line(15 * mm, y + 5 * mm, page_w - 15 * mm, y + 5 * mm)
+        canvas.setFont("Helvetica", 7.5)
+        canvas.setFillColor(colors.grey)
+        canvas.drawString(15 * mm, y, f"Side {page_num} af {total_pages}")
+        canvas.drawRightString(page_w - 15 * mm, y, "bonbox.dk · ikke en momsangivelse")
+        canvas.restoreState()
+
+    class _NumberedCanvas(_rl_canvas.Canvas):
+        """Buffers each page, then on save() replays them with the true total
+        page count so the footer can print 'Side X af Y'."""
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self._saved_states = []
+
+        def showPage(self):
+            self._saved_states.append(dict(self.__dict__))
+            self._startPage()
+
+        def save(self):
+            total = len(self._saved_states)
+            for page_num, state in enumerate(self._saved_states, start=1):
+                self.__dict__.update(state)
+                _draw_footer(self, page_num, total)
+                super().showPage()
+            super().save()
+
+    doc.build(elements, canvasmaker=_NumberedCanvas)
     buf.seek(0)
-    filename = f"BonBox_Report_{month_name}_{year}.pdf"
+    filename = f"BonBox_Ledelsesrapport_{month_name}_{year}.pdf"
     return StreamingResponse(
         buf,
         media_type="application/pdf",
