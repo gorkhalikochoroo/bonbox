@@ -270,6 +270,10 @@ def compute_filing_data(
         # and Sale rows on the same date. Empty list = clean; non-empty
         # = the revisor sees a "Bemærkninger" section before signature.
         "variance_warnings": vat.get("variance_warnings", []),
+        # Gavekort (MPV) redeemed whose meal may be missing from the MOMS
+        # base. Detect-only (never added to revenue). Non-empty ⇒ a
+        # Bemærkninger note prompts the revisor to verify the sale was bogført.
+        "gavekort_warnings": vat.get("gavekort_warnings", []),
     }
 
 
@@ -723,6 +727,70 @@ def build_moms_filing_pdf(
             ("LINEBELOW", (0, 0), (-1, 0), 0.4, AMBER),
         ]))
         story.append(tv)
+
+    # ─── Section D4 — Gavekort-indløsning (MPV) ──────────────────
+    # MPV gavekort were redeemed (door-scan) on these dates but the meal may
+    # not be in the MOMS base. BonBox NEVER adds the redemption to revenue (a
+    # gavekort is a tender, not a second sale — that would over-declare MOMS).
+    # This note prompts the revisor to confirm the sale was bogført, since DK
+    # MPV VAT falls at redemption on the meal. Detect-only.
+    _gk = data.get("gavekort_warnings") or []
+    if _gk:
+        GK_AMBER = colors.HexColor("#b45309")
+        GK_AMBER_BG = colors.HexColor("#fffbeb")
+        story.append(Spacer(1, 4 * mm))
+        if is_danish:
+            story.append(Paragraph(
+                "D4 · GAVEKORT-INDLØSNING",
+                ParagraphStyle("gkt", parent=section_title, textColor=GK_AMBER),
+            ))
+            story.append(Paragraph(
+                "Gavekort (MPV) er indløst på følgende datoer. MOMS afregnes ved "
+                "indløsning — kontrollér at måltidet er bogført som salg, så det "
+                "indgår i MOMS-grundlaget.",
+                ParagraphStyle("gkd", parent=val, textColor=GK_AMBER, leading=12),
+            ))
+            gk_header = ["Dato", "Gavekort indløst", "Bemærkning"]
+        else:
+            story.append(Paragraph(
+                "D4 · GIFT CARD (GAVEKORT) REDEMPTION",
+                ParagraphStyle("gkt", parent=section_title, textColor=GK_AMBER),
+            ))
+            story.append(Paragraph(
+                "Gavekort (MPV) were redeemed on these dates. VAT falls at "
+                "redemption — verify the meal is booked as a sale so it enters "
+                "the MOMS base.",
+                ParagraphStyle("gkd", parent=val, textColor=GK_AMBER, leading=12),
+            ))
+            gk_header = ["Date", "Gavekort redeemed", "Note"]
+        _gk_note_dk = {
+            "unmatched_redemption": "Intet salg/dagsafslutning fundet",
+            "tender_short": "Mindre end indløst i dagsafslutningen",
+        }
+        _gk_note_en = {
+            "unmatched_redemption": "No sale/daily close found",
+            "tender_short": "Less than redeemed in the close",
+        }
+        gk_rows = [[Paragraph(h, val_b) for h in gk_header]]
+        for w in _gk:
+            note_map = _gk_note_dk if is_danish else _gk_note_en
+            note = note_map.get(w.get("status", ""), w.get("status", ""))
+            gk_rows.append([
+                Paragraph(str(w.get("date", "")), val),
+                Paragraph(_money_dk(w.get("redeemed", 0), currency), val_r),
+                Paragraph(note, ParagraphStyle("gkr", parent=val, textColor=GK_AMBER)),
+            ])
+        tgk = Table(gk_rows, colWidths=[28 * mm, 46 * mm, 92 * mm])
+        tgk.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BACKGROUND", (0, 0), (-1, 0), GK_AMBER_BG),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.4, GK_AMBER),
+        ]))
+        story.append(tgk)
 
     # ─── Section E — Signering (Signature) ───────────────────
     story.append(Spacer(1, 8 * mm))

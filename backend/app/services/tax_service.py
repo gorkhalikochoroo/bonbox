@@ -6,7 +6,7 @@ Calculates estimated VAT/GST payable from actual sales & expense data.
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from dateutil.relativedelta import relativedelta
 
 from sqlalchemy import func
@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 from app.models.user import User
 from app.models.sale import Sale
 from app.models.expense import Expense
-from app.models.daily_close import DailyClose
+from app.models.daily_close import DailyClose, decode_breakdown
+from app.models.gift_card import GiftCard, GiftCardTransaction
 from app.models.invoice import Invoice
 
 logger = logging.getLogger(__name__)
@@ -539,6 +540,121 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
                     "direction": "close_high" if delta > 0 else "close_low",
                 })
 
+    # ── Gavekort (gift card) redemption reconciliation ──────────────────
+    # HONESTY INVARIANT: a gavekort is a TENDER, never a second sale. When a
+    # gavekort-paid meal is rung up (a Sale tagged payment_method='gift_card')
+    # or scanned into the close's Z-report, the MEAL is ALREADY in revenue_total
+    # + the MOMS base above. So we NEVER add redemptions to revenue — that would
+    # double-count and OVER-declare MOMS to SKAT. Instead, mirroring the §9 stk.2
+    # variance block, we DETECT the one real gap and flag it for the revisor:
+    # an MPV gavekort redeemed (door-scan) whose meal was captured NOWHERE, so
+    # its output MOMS — due AT REDEMPTION under DK MPV rules — silently escapes
+    # the base. This block MUTATES NOTHING: revenue_total, taxable_sales and
+    # output_vat are untouched; it only appends to gavekort_warnings.
+    # SPV (single-purpose) vouchers are EXCLUDED: their MOMS falls at issuance,
+    # not redemption, so a redemption flag would be wrong for them.
+    gavekort_warnings: list[dict] = []
+    redeemed_by_date: dict[date, float] = {}
+    redeem_rows = (
+        db.query(GiftCardTransaction.business_day, GiftCardTransaction.amount_minor)
+        .join(GiftCard, GiftCard.id == GiftCardTransaction.gift_card_id)
+        .filter(
+            GiftCardTransaction.user_id == user_id,
+            GiftCardTransaction.kind == "redeem",
+            GiftCardTransaction.business_day.isnot(None),
+            GiftCardTransaction.business_day >= datetime.combine(start_date, time.min),
+            GiftCardTransaction.business_day < datetime.combine(end_date, time.min),
+            GiftCard.voucher_class == "mpv",
+        )
+        .all()
+    )
+    for bday, amt in redeem_rows:
+        d = bday.date() if hasattr(bday, "date") else bday
+        # redeem rows carry a NEGATIVE amount_minor (a debit) — negate to kr.
+        redeemed_by_date[d] = redeemed_by_date.get(d, 0.0) + (-float(amt or 0)) / 100.0
+
+    if redeemed_by_date:
+        # Which redemption dates have ANY Sale row (the meal plausibly captured
+        # among them — a gift_card-tagged Sale would be in this set).
+        sale_dates_with_rows: set[date] = set()
+        non_close_redeem_dates = [d for d in redeemed_by_date if d not in close_dates]
+        if non_close_redeem_dates:
+            for (sd,) in (
+                db.query(Sale.date)
+                .filter(
+                    Sale.user_id == user_id,
+                    Sale.date.in_(non_close_redeem_dates),
+                    Sale.is_deleted.isnot(True),
+                )
+                .distinct()
+                .all()
+            ):
+                sale_dates_with_rows.add(sd)
+
+        # The gift_card tender line from each confirmed close's payment breakdown
+        # (kr.), for the value-level check that catches a close whose revenue is
+        # net-of-gavekort. Tender key varies by source: gift_card / gavekort / ….
+        gc_tender_by_date: dict[date, float] = {}
+        closed_redeem_dates = [d for d in redeemed_by_date if d in close_dates]
+        if closed_redeem_dates:
+            for cd, pc in (
+                db.query(DailyClose.date, DailyClose.payment_categories)
+                .filter(
+                    DailyClose.user_id == user_id,
+                    DailyClose.date.in_(closed_redeem_dates),
+                    DailyClose.is_deleted.isnot(True),
+                )
+                .all()
+            ):
+                bd = decode_breakdown(pc) if pc else None
+                if not isinstance(bd, dict):
+                    continue
+                gc = 0.0
+                for k, v in bd.items():
+                    if str(k).lower().replace("-", "_") in (
+                        "gift_card", "gift_cards", "gavekort", "giftcard"
+                    ):
+                        try:
+                            gc += float(v or 0)
+                        except (TypeError, ValueError):
+                            pass
+                gc_tender_by_date[cd] = gc_tender_by_date.get(cd, 0.0) + gc
+
+        for d, redeemed in sorted(redeemed_by_date.items()):
+            if redeemed <= 0:
+                continue
+            has_close = d in close_dates
+            has_sale = d in sale_dates_with_rows
+            if not has_close and not has_sale:
+                # Door-scan-only: the redeemed meal is in NO close and NO Sale —
+                # its revenue + MOMS escapes the base entirely. The real hole.
+                gavekort_warnings.append({
+                    "date": d.isoformat(),
+                    "redeemed": round(redeemed, 2),
+                    "matched_close_tender": None,
+                    "status": "unmatched_redemption",
+                })
+            elif has_close:
+                gc = gc_tender_by_date.get(d)
+                # Value-level check: a confirmed close exists AND it broke out a
+                # gift_card tender, but that tender is materially SMALLER than
+                # what was redeemed → some redeemed meals are likely missing from
+                # revenue_total (the net-of-gavekort case). Same 50 kr / 10%
+                # threshold as the §9 variance block. If the close didn't split
+                # out a gift_card tender (Z-report scans often don't), we stay
+                # quiet rather than nag.
+                if gc is not None and gc > 0:
+                    short = redeemed - gc
+                    if short > 50.0 and (short / redeemed) * 100.0 > 10.0:
+                        gavekort_warnings.append({
+                            "date": d.isoformat(),
+                            "redeemed": round(redeemed, 2),
+                            "matched_close_tender": round(gc, 2),
+                            "status": "tender_short",
+                        })
+            # has_sale (no close): Sale rows exist for the date — the meal is
+            # plausibly captured among them; flagging would be a false positive.
+
     return {
         "sales_total": sales_total,
         "taxable_sales": taxable_sales,
@@ -573,6 +689,10 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         # between close + Sale on any date). Non-empty = the revisor
         # MUST see this before the SKAT angivelse is filed.
         "variance_warnings": variance_warnings,
+        # Gavekort redemption reconciliation (detect-only — never added to
+        # revenue/MOMS). Non-empty ⇒ MPV gavekort were redeemed whose meal may
+        # not be in the MOMS base → revisor must verify the sale was bogført.
+        "gavekort_warnings": gavekort_warnings,
     }
 
 
@@ -819,6 +939,9 @@ def get_tax_overview(user: User, db: Session) -> dict:
             # ReconCard, NOT a banner — keeps the headline clean while
             # ensuring revisor sees the per-date traceability issue.
             "variance_warnings": current_period.get("variance_warnings", []),
+            # Gavekort redeemed (MPV) whose meal may be missing from the MOMS
+            # base — revisor verifies the sale was bogført. Detect-only.
+            "gavekort_warnings": current_period.get("gavekort_warnings", []),
         },
         "ytd": {
             "moms_from_closes": ytd.get("pos_output_vat_from_closes", 0.0),
@@ -828,6 +951,7 @@ def get_tax_overview(user: User, db: Session) -> dict:
             # YTD variance warnings — typically more entries; recon card
             # collapses these behind a "see all" link if > 3.
             "variance_warnings": ytd.get("variance_warnings", []),
+            "gavekort_warnings": ytd.get("gavekort_warnings", []),
         },
     }
 
@@ -971,6 +1095,28 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
                     f"contributed {round(from_closes):,} {tax_name}; "
                     f"Sale rows on the other days contributed {round(from_sales):,}. "
                     "Both feed the headline filing total."
+                ),
+                "action": None,
+            })
+
+        # Gavekort redemption reconciliation — MPV cards redeemed (door-scan)
+        # whose meal may not be in the MOMS base. Detect-only: BonBox never adds
+        # the redemption to revenue (that would double-count), it flags so the
+        # owner/revisor confirms the meal was bogført. SKAT-correctness signal.
+        gk_warn = (cm.get("gavekort_warnings") or []) if isinstance(cm, dict) else []
+        if gk_warn:
+            gk_total = round(sum(float(w.get("redeemed") or 0) for w in gk_warn))
+            day_word = "day" if len(gk_warn) == 1 else "days"
+            alerts.append({
+                "type": "gavekort_reconciliation",
+                "severity": "warning",
+                "icon": "\U0001F381",  # 🎁
+                "title": "Gavekort redeemed — check the sale is bogført",
+                "detail": (
+                    f"{len(gk_warn)} {day_word} with gavekort redemptions "
+                    f"(~{gk_total:,} kr.) where the meal may be missing from revenue. "
+                    "MOMS falls at redemption — record the sale in a dagsafslutning "
+                    "or as a salg so it enters the MOMS base."
                 ),
                 "action": None,
             })
