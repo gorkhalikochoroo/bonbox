@@ -345,9 +345,11 @@ export default function DashboardPage() {
   // ── Derived values ──
   const archetype = useMemo(() => getArchetype(user || {}), [user]);
 
-  // dailyRevData feeds RevenueTrendChart via ctx.
+  // dailyRevData feeds RevenueTrendChart via ctx. Prefer the honest
+  // rolling, zero-filled `revenue_trend` series; fall back to the old
+  // month-scoped `daily_revenue` during deploy skew (older backend).
   const dailyRevData = useMemo(
-    () => monthlyData?.daily_revenue || [],
+    () => monthlyData?.revenue_trend || monthlyData?.daily_revenue || [],
     [monthlyData],
   );
 

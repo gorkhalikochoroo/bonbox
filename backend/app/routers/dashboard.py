@@ -372,6 +372,26 @@ def get_dashboard_batch(
     )
     avg_per_sale = round(monthly_total_revenue / sale_count, 2) if sale_count > 0 else 0
 
+    # Rolling, zero-filled day-series for the Revenue trend chart — an
+    # HONEST timeline. Unlike `daily_revenue` above (month-scoped, days-
+    # with-sales only — best_day / worst_day / days_with_sales depend on
+    # that shape, so it stays as-is), this spans the last 90 calendar days
+    # ending today and FILLS zero-revenue days, so the chart never connects
+    # two non-consecutive sales days as if they were adjacent. A quiet day
+    # now reads as a real dip to zero, not a gap the line smooths over —
+    # the chart can't imply a pattern that isn't there. The tier window
+    # (7 / 30 / 90 days) is applied client-side via slice.
+    _TREND_WINDOW_DAYS = 90
+    _trend_start = today - timedelta(days=_TREND_WINDOW_DAYS - 1)
+    _trend_map = effective_revenue_by_date(db, user.id, _trend_start, today)
+    revenue_trend = []
+    _cur = _trend_start
+    while _cur <= today:
+        revenue_trend.append(
+            {"date": str(_cur), "amount": float(_trend_map.get(_cur, 0.0) or 0.0)}
+        )
+        _cur += timedelta(days=1)
+
     monthly = {
         "month": target_month,
         "year": target_year,
@@ -389,6 +409,9 @@ def get_dashboard_batch(
         "daily_revenue": [
             {"date": str(d), "amount": float(t)} for d, t in daily_revenue
         ],
+        # Honest rolling 90-day series (zero-filled) — the Revenue trend
+        # chart reads this; `daily_revenue` stays month-scoped for the stats.
+        "revenue_trend": revenue_trend,
         "best_day": {"date": str(best_day[0]), "amount": float(best_day[1])} if best_day else None,
         "worst_day": {"date": str(worst_day[0]), "amount": float(worst_day[1])} if worst_day else None,
     }

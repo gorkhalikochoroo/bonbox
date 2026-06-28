@@ -15,11 +15,12 @@
  *   • Single chart series in gray-700 (no rainbow, no gradient)
  *   • Clickable card → /reports for the deep view
  *
- * Known limitation (backend follow-up): the day-series omits zero-revenue
- * days (dashboard.py builds days-with-sales only, current month), so the
- * line connects non-consecutive days. The readable axis now exposes the
- * real dates; a fully honest zero-filled last-N-days series needs the
- * backend to emit the gaps.
+ * Honest timeline: the backend now emits `revenue_trend` — a rolling,
+ * zero-filled last-90-days series (dashboard.py) — so a quiet day reads
+ * as a real dip to zero, not a gap the line smooths over. Because every
+ * calendar day is present, the empty / sparse / average / trend logic
+ * below keys off the count of days that actually had revenue, never the
+ * raw array length.
  */
 import React from "react";
 import { useNavigate } from "react-router-dom";
@@ -59,18 +60,25 @@ function fmtAxisDate(label, lang) {
   }
 }
 
-const mean = (arr) =>
-  arr.length ? arr.reduce((s, d) => s + (d.amount || 0), 0) / arr.length : 0;
+// Mean over the days that actually had revenue. The series is now
+// zero-filled, so a plain mean would divide a typical trading day by all
+// the closed days and read far too low — this keeps "Avg" + the trend
+// comparison meaning "a typical day you were open".
+const meanNonZero = (arr) => {
+  const nz = arr.filter((d) => (d.amount || 0) > 0);
+  return nz.length ? nz.reduce((s, d) => s + d.amount, 0) / nz.length : 0;
+};
 
 export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
   const { t, lang } = useLanguage();
   const navigate = useNavigate();
   const data = (ctx?.dailyRevData || []).slice(-days);
+  const soldDays = data.filter((d) => (d.amount || 0) > 0);
 
   const cardCls =
     "rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition";
 
-  if (!data || data.length === 0) {
+  if (!data.length || soldDays.length === 0) {
     return (
       <div onClick={() => navigate("/reports")} className={cardCls} data-zone="2" data-component="RevenueTrendChart">
         <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">
@@ -83,19 +91,19 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
     );
   }
 
-  const avg = Math.round(mean(data));
+  const avg = Math.round(meanNonZero(data));
 
-  // Sparse-data honesty: below 3 points a connecting line reads as a
-  // confident "trend" that doesn't exist. Show the real values + an
-  // honest notice instead.
-  if (data.length < 3) {
+  // Sparse-data honesty: with fewer than 3 days of actual revenue a
+  // connecting line reads as a confident "trend" that doesn't exist.
+  // List the real days (not the zero-filled gaps) + an honest notice.
+  if (soldDays.length < 3) {
     return (
       <div onClick={() => navigate("/reports")} className={cardCls} data-zone="2" data-component="RevenueTrendChart">
         <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">
           {t("revenueTrend", "Revenue trend")}
         </h3>
         <ul className="space-y-1.5 mt-2">
-          {data.map((d) => (
+          {soldDays.map((d) => (
             <li key={d.date} className="flex items-center justify-between text-sm text-gray-700 dark:text-gray-300 tabular-nums">
               <span className="text-gray-500 dark:text-gray-400">{fmtTrendDate(d.date, lang)}</span>
               <span className="font-medium text-gray-900 dark:text-gray-100">{formatKr(d.amount, { decimals: 0 })}</span>
@@ -109,12 +117,14 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
     );
   }
 
-  // Direction signal — compare the recent half of the window to the
-  // earlier half. ±5% deadband so a flat period reads as "stabil", not
-  // a fake arrow. null when the earlier half had no revenue to divide by.
+  // Direction signal — compare a typical trading day in the recent half
+  // of the window to the earlier half (zero-filled gaps excluded so the
+  // arrow tracks earnings-per-open-day, not how many days you opened).
+  // ±5% deadband so a flat period reads as "stabil", not a fake arrow.
+  // null when the earlier half had no revenue to divide by.
   const half = Math.max(1, Math.floor(data.length / 2));
-  const earlierAvg = mean(data.slice(0, half));
-  const recentAvg = mean(data.slice(-half));
+  const earlierAvg = meanNonZero(data.slice(0, half));
+  const recentAvg = meanNonZero(data.slice(-half));
   const pct = earlierAvg > 0 ? Math.round(((recentAvg - earlierAvg) / earlierAvg) * 100) : null;
   const dir = pct == null ? "flat" : pct >= 5 ? "up" : pct <= -5 ? "down" : "flat";
 
