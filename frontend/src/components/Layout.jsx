@@ -664,7 +664,7 @@ export default function Layout() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-3 pb-2 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+        <nav className="flex-1 px-3 pb-2 scrollable scroll-smooth">
           {mode === "personal" ? (
             /* Personal mode — simple flat list */
             <div className="space-y-0.5 py-1">
