@@ -209,6 +209,11 @@ export default function ProfilePage() {
   const [waLinking, setWaLinking] = useState(false);
   const [waCode, setWaCode] = useState("");
 
+  // WhatsApp inbound bot is hidden for now (its backend router is gated off by
+  // default via WHATSAPP_ENABLED). Flip this to true AND set WHATSAPP_ENABLED=true
+  // on the backend to restore the "link your phone" card. Reversible, no delete.
+  const WHATSAPP_UI_ENABLED = false;
+
   // GDPR: Export & Delete
   const [exporting, setExporting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -1443,6 +1448,7 @@ export default function ProfilePage() {
               </div>
             </Card>
 
+            {WHATSAPP_UI_ENABLED && (
             <Card className="mt-4">
               <Card.Header
                 title={t("whatsappBot")}
@@ -1461,6 +1467,7 @@ export default function ProfilePage() {
                 onUnlink={unlinkWhatsApp}
               />
             </Card>
+            )}
           </SectionAnchor>
 
           {/* ─── Privacy & data ───────────────────────────────────── */}

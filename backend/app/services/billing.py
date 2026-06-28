@@ -218,6 +218,19 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # fully-redeemed don't count), so the cap bounds outstanding liability
         # exposure, not lifetime issuance. No marginal cost — pure tier lever.
         "gavekort_active_max": 3,
+        # Smart Scan auto-router classify — 2026-06-28 cost guard. Each
+        # /api/smart-scan/classify call runs a paid Claude-vision doc-type
+        # classifier PLUS a paid extractor on every call. The basic auto-
+        # route is universal (smart_scan_batch / _pdf_direct gate the
+        # extensions), so without a per-user daily cap a Free account could
+        # drive unlimited paid OCR through this surface — unlike the dedicated
+        # OCR paths (z_report_scans_per_day 3, expense_receipt_scans 10).
+        # Free taste = 10/day: enough to vet the "snap anything" magic, a
+        # clean upgrade signal if hit. Counted via audit_logs
+        # `smart_scan.classified` rows in the user's local business day
+        # (DK 06:00 cutoff). The 20/min per-IP slowapi cap stays as the
+        # coarse second barrier.
+        "smart_scan_classify_per_day": 10,
     },
     "starter": {
         "branches": 1,
@@ -281,6 +294,11 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # typical café/salon gavekort programme while still bounded against a
         # runaway script. The anchor tier for the feature.
         "gavekort_active_max": 200,
+        # Smart Scan auto-router classify — Starter = 100/day. Generous
+        # enough that a busy café snapping receipts/Z-reports/invoices all
+        # day never hits it, still bounded against a runaway script. Marginal
+        # cost stays well inside Starter's margin. See Free comment above.
+        "smart_scan_classify_per_day": 100,
     },
     "trial": {  # = full Pro for 14 days
         "branches": 3,
@@ -313,6 +331,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "sms_reminders_per_month": 1000,   # Trial mirrors Pro
         "salon_services_max": 100,         # Trial mirrors Pro
         "gavekort_active_max": 1000,       # Trial mirrors Pro
+        "smart_scan_classify_per_day": 300,  # Trial mirrors Pro
     },
     "pro": {
         "branches": 3,
@@ -361,6 +380,10 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # Gavekort — Pro = 1000 active cards. Top-tier ceiling: effectively
         # unlimited for any real gavekort programme, bounded against abuse.
         "gavekort_active_max": 1000,
+        # Smart Scan auto-router classify — Pro = 300/day. Top-tier ceiling:
+        # effectively unlimited for a 3-branch multi-terminal operator
+        # snapping all day, still bounded against an abusive/runaway client.
+        "smart_scan_classify_per_day": 300,
     },
 }
 

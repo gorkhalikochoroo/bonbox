@@ -578,7 +578,7 @@ def accountant_signup(
 
     # Issue session — same shape + cookie behaviour as /auth/login.
     from app.routers.auth import _set_auth_cookie
-    jwt_token = create_access_token(str(user.id))
+    jwt_token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, jwt_token, request)
     # Auto-select this client so the next page-load picks them up
     _set_accountant_client_cookie(response, grant.owner_user_id, request)

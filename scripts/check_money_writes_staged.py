@@ -64,8 +64,16 @@ _SENSITIVE_RE = re.compile("|".join(SENSITIVE_PATTERNS))
 # identifies as a system actor. Interactive request handlers fall outside —
 # a human + the L7 audit cover them; a separate audit-coverage guard is the
 # place for those.
+# Also covers the bank-ingest surface: the cron/HTTP sync mints Sale/Expense
+# rows inside _ingest_transactions (bank_connect.py) — driven by aiia_sync_job
+# (app/jobs/) — but that mint fn writes NO 'system.' actor_type in its OWN body
+# (the system.cron / bank_connect.sync audit row is recorded one frame up by
+# the caller). Without these patterns a NEW unaudited sale.amount write added
+# inside _ingest_transactions would self-identify as interactive and slip past
+# the guard. `/jobs/` + `_sync_job` pull in every background job module too.
 _BACKGROUND_FILE_RE = re.compile(
-    r"(_sync\.py$|autosync|_cron|cron_|scheduler|webhook|payment_match|mobilepay|whatsapp_service)"
+    r"(_sync\.py$|_sync_job|/jobs/|aiia_sync|bank_connect|autosync|_cron|cron_"
+    r"|scheduler|webhook|payment_match|mobilepay|whatsapp_service)"
 )
 _SYSTEM_ACTOR_RE = re.compile(r"actor_type\s*=\s*['\"]system\.")
 
@@ -84,6 +92,22 @@ ALLOWLIST = {
     "app/services/mobilepay.py::_auto_match_payments",
     "app/services/invoice_service.py::unmark_paid",   # the human-undo leg
     "app/routers/gavekort.py::issue_order",            # race-safe claim; mint audits in _create_gift_card
+    # Bank-ingest mint: dedupes on reference_id (idempotent), foreign currency
+    # quarantined (#360), every row carries reference_id + voucher_number so it
+    # is reversible (standard soft-delete) and fully attributable. The audit
+    # row is written one frame up by the caller — sync_bank_connection emits
+    # 'bank_connect.sync', aiia_sync_job._sync_one emits actor_type='system.cron'
+    # — so the compliance markers don't live in this fn's own body; allowlisted
+    # by name. NOTE: the Sale/Expense rows are minted inside the `for txn`
+    # loop of _ingest_transactions, but the nearest enclosing `def` above them
+    # is the nested `_allocate` voucher closure — that's the key the guard's
+    # enclosing-function walk resolves, so _allocate (in this file only) is the
+    # one that must be allowlisted. _ingest_transactions / _sync_one are kept
+    # for robustness if the mint is ever lifted out of the closure's shadow.
+    # A NEW mint fn elsewhere on the bank surface still gets caught.
+    "app/routers/bank_connect.py::_allocate",
+    "app/routers/bank_connect.py::_ingest_transactions",
+    "app/jobs/aiia_sync_job.py::_sync_one",
 }
 # Whole files that only ever fabricate the synthetic DEMO tenant (never a real
 # ledger) — allowlisted by path so seed code can't gate the guard.

@@ -46,13 +46,16 @@ from slowapi.util import get_remote_address
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.services import audit_service
 from app.services.auth import get_current_user
-from app.services.billing import has_feature
+from app.services.billing import enforce_cap, has_feature
 from app.services.smart_scan_service import (
     MAX_IMAGE_BYTES, route_and_extract,
 )
+from app.services.tz_utils import business_day_window
+from sqlalchemy import func as sa_func
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -84,6 +87,31 @@ def _client_ip(request: Request) -> str | None:
         return request.client.host if request.client else None
     except Exception:  # noqa: BLE001
         return None
+
+
+def _today_classify_count(db: Session, user: User) -> int:
+    """How many Smart Scan classify calls this user has already triggered
+    in their current LOCAL business day (DK 06:00 cutoff).
+
+    Counted via audit_logs `smart_scan.classified` rows — the same audit
+    row `_log_classify_audit` writes per call IS the usage counter, so the
+    cap can never disagree with the audit trail. Uses
+    `business_day_window(user)` (not `date.today()`) so a 02:00 CEST scan
+    still belongs to the shift's business date — mirrors the
+    z_report_scans_per_day / ai_chat_messages_per_day counters.
+    """
+    start_utc, end_utc = business_day_window(user)
+    return int(
+        db.query(sa_func.count(AuditLog.id))
+        .filter(
+            AuditLog.user_id == user.id,
+            AuditLog.action == "smart_scan.classified",
+            AuditLog.created_at >= start_utc,
+            AuditLog.created_at < end_utc,
+        )
+        .scalar()
+        or 0
+    )
 
 
 # Content-type allowlist. PDF is accepted at the HTTP layer (so the
@@ -178,6 +206,19 @@ async def classify_endpoint(
         }
         _log_classify_audit(db, user, request, result, batch_size)
         return result
+
+    # ── L5 — per-user daily cap (PRIMARY cost control) ──────────────
+    # The classifier + extractor are BOTH paid Claude-vision calls on
+    # every request. Auth + the 20/min per-IP slowapi cap are only a
+    # coarse second barrier — without a per-user daily cap a single Free
+    # account could drive unlimited paid OCR through this surface (unlike
+    # the dedicated OCR paths, which are already cap-gated). Count this
+    # user's classify calls in their local business day and 402 with the
+    # canonical upgrade payload once over. Checked AFTER the cheap bounds
+    # checks and the PDF-direct early-return (which runs no paid OCR), and
+    # BEFORE the paid service call below.
+    used_today = _today_classify_count(db, user)
+    enforce_cap(user, "smart_scan_classify_per_day", used_today)
 
     # ── L4 — service orchestration ──────────────────────────────────
     result = route_and_extract(

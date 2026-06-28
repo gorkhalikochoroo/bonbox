@@ -317,6 +317,6 @@ def verify_magic_link(
     # imports from this module's siblings).
     from app.routers.auth import _set_auth_cookie
 
-    jwt_token = create_access_token(str(user.id))
+    jwt_token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, jwt_token, request)
     return Token(access_token=jwt_token, user=UserResponse.model_validate(user))

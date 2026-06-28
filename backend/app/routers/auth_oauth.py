@@ -315,7 +315,7 @@ def oauth_apple(
     # cookie scope / SameSite logic stays single-sourced.
     from app.routers.auth import _set_auth_cookie
 
-    token = create_access_token(str(user.id))
+    token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
@@ -447,6 +447,6 @@ def oauth_google(
 
     from app.routers.auth import _set_auth_cookie
 
-    token = create_access_token(str(user.id))
+    token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))

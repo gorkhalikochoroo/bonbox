@@ -1107,6 +1107,7 @@ def update_profile(
 @limiter.limit("5/minute")
 def change_password(
     request: Request,
+    response: Response,
     data: PasswordChange,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -1120,14 +1121,51 @@ def change_password(
 
     Refuses no-op changes (new == current after hash) — better signal
     that the change actually happened.
+
+    Session revocation: a password change MUST invalidate every other live
+    session (a thief's stolen cookie must die the moment the owner changes
+    the password). We bump token_version so all tokens carrying an older
+    `tv` claim are rejected on their next request, then re-mint + re-set
+    THIS device's cookie so the legitimate user stays signed in (mirrors
+    sign_out_all). Delegation-aware: tokens carry the REAL human's id as
+    `sub`, so we bump the real actor's row.
     """
     if not verify_password(data.current_password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     if verify_password(data.new_password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="New password must differ from current")
     current_user.password_hash = hash_password(data.new_password)
+
+    # Resolve the principal whose token_version gates this session (for an
+    # invited member/accountant, current_user is the delegated OWNER but
+    # tokens validate against the REAL human's row).
+    real_id = (
+        getattr(current_user, "_real_actor_id", None)
+        or getattr(current_user, "_real_accountant_id", None)
+        or current_user.id
+    )
+    principal = db.query(User).filter(User.id == real_id).first() or current_user
+    principal.token_version = int(getattr(principal, "token_version", 0) or 0) + 1
+    db.flush()
+
+    try:
+        from app.services import audit_service
+        audit_service.record(
+            db, principal.id, "auth.password_changed",
+            entity_type="user", entity_id=principal.id,
+            after={"token_version": principal.token_version},
+            actor_type="user",
+            ip_address=None,
+        )
+    except Exception:  # noqa: BLE001 — audit is best-effort, never block the change
+        pass
+
     db.commit()
-    return {"message": "Password changed successfully"}
+
+    # Keep THIS device signed in with a fresh token at the new version.
+    fresh = create_access_token(str(principal.id), principal.token_version)
+    _set_auth_cookie(response, fresh, request)
+    return {"message": "Password changed successfully", "token": fresh}
 
 
 @router.post("/forgot-password")
@@ -1171,13 +1209,25 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, db: Session =
 
 @router.post("/reset-password")
 @limiter.limit("5/minute")
-def reset_password(request: Request, data: ResetPasswordRequest, db: Session = Depends(get_db)):
+def reset_password(
+    request: Request,
+    response: Response,
+    data: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+):
     """
     Confirm a forgotten-password reset using the 6-digit code from email.
 
     Constant-time token comparison via secrets.compare_digest defends
     against timing attacks (the difference is microseconds for a 6-digit
     string, but the principle matters). Code expires in 15 min from issue.
+
+    Session revocation: a reset is the canonical "I lost access / someone
+    may be in my account" event, so it MUST invalidate every live session.
+    We bump token_version (all older `tv` tokens are rejected on their next
+    request — a thief is kicked out instantly), audit it, and mint a fresh
+    cookie for the device completing the reset so the legitimate user is
+    signed straight in. Mirrors sign_out_all.
     """
     user = db.query(User).filter(User.email == data.email).first()
     # Use a single generic error so we don't leak whether the email exists,
@@ -1210,8 +1260,34 @@ def reset_password(request: Request, data: ResetPasswordRequest, db: Session = D
     user.reset_token = None
     user.reset_token_expires = None
     user.reset_attempts = 0
+
+    # Revoke every existing session: bump token_version so any token (incl.
+    # an attacker's live cookie) carrying an older `tv` claim is rejected on
+    # its next request. `user` IS the principal its tokens validate against
+    # (the reset flow keys on email → the real human's row), so no
+    # delegation resolution is needed here.
+    user.token_version = int(getattr(user, "token_version", 0) or 0) + 1
+    db.flush()
+
+    try:
+        from app.services import audit_service
+        audit_service.record(
+            db, user.id, "auth.password_reset",
+            entity_type="user", entity_id=user.id,
+            after={"token_version": user.token_version},
+            actor_type="user",
+            ip_address=None,
+        )
+    except Exception:  # noqa: BLE001 — audit is best-effort, never block the reset
+        pass
+
     db.commit()
-    return {"message": "Password reset successfully. You can now log in."}
+
+    # Sign the user straight in on THIS device with a fresh token at the new
+    # version (the email-code holder is, by construction, the account owner).
+    fresh = create_access_token(str(user.id), user.token_version)
+    _set_auth_cookie(response, fresh, request)
+    return {"message": "Password reset successfully. You can now log in.", "token": fresh}
 
 
 # ============================================================
@@ -1656,87 +1732,104 @@ def delete_account(
         )
 
     # ── GDPR Art. 17 completeness ──────────────────────────────────────
-    # Delete the personal-data tables the original list missed (staff,
-    # customers, reservations, invoices, notifications, …). Ordered
-    # children-before-parents; the method commits once at the very end, so
-    # any failure rolls the WHOLE thing back atomically — no half-deleted
-    # account. Financial AUDIT rows (audit_logs / security_events /
-    # error_logs) are intentionally RETAINED under the Bogføringsloven
-    # 5-year retention legal basis (GDPR Art. 17(3)(b)).
+    # Why this is metadata-driven, not a hand-list: the previous version
+    # enumerated a FIXED ~36-table list. ~40 OTHER user_id-scoped tables
+    # (daily_briefs, anomaly_alerts, terminals, gift_cards,
+    # kasserapport_extractions, …) carry a ForeignKey to users.id with NO
+    # ON DELETE CASCADE, so any of them holding a row made
+    # db.delete(current_user) raise an IntegrityError → the whole txn
+    # (including the PSD2 consent revoke + BankConnection purge) rolled
+    # back → HTTP 500, NOTHING deleted. Worse, every NEW user-scoped table
+    # silently re-opened the hole.
+    #
+    # Fix: drive deletion from Base.metadata so EVERY table carrying a
+    # users.id FK is purged automatically, today and for any table added
+    # later. We walk Base.metadata.sorted_tables in REVERSE (sorted_tables
+    # is parents-first by FK dependency, so reverse = children-before-
+    # parents — InvoiceLine before Invoice, gift_card_transactions before
+    # gift_cards, etc.) and DELETE every row whose any-users-FK column ==
+    # uid. This runs INSIDE the existing transaction; the method commits
+    # once at the very end, so any failure rolls the WHOLE thing back
+    # atomically — no half-deleted account.
+    #
+    # RETAINED (legal hold): audit_logs / security_events / error_logs hold
+    # the financial audit trail kept under Bogføringsloven §10 5-year
+    # retention (GDPR Art. 17(3)(b)). DEFERRED: bank_connections /
+    # mobilepay_connections are purged separately BELOW because they need
+    # the PSD2 consent revoked at the provider first. SKIPPED: the users
+    # table itself (the owner row is deleted last; team members were
+    # already blocked above).
+    #
+    # NOTE: these table-name sets are READ by
+    # tests/test_delete_account_completeness.py — the static guard asserts
+    # every users.id-FK table in Base.metadata is either swept here or
+    # listed in one of these sets, so a new unhandled table fails CI.
+    _ERASURE_RETAINED_TABLES = {"audit_logs", "security_events", "error_logs"}
+    _ERASURE_DEFERRED_TABLES = {"bank_connections", "mobilepay_connections"}
 
-    # Staff chain — every staff-referencing child before StaffMember.
-    db.query(ShiftSwapRequest).filter(ShiftSwapRequest.user_id == uid).delete(synchronize_session=False)
-    db.query(StaffAbsence).filter(StaffAbsence.user_id == uid).delete(synchronize_session=False)
-    db.query(Schedule).filter(Schedule.user_id == uid).delete(synchronize_session=False)
-    db.query(HoursLogged).filter(HoursLogged.user_id == uid).delete(synchronize_session=False)
-    tip_ids = [t.id for t in db.query(Tip.id).filter(Tip.user_id == uid).all()]
-    if tip_ids:
-        db.query(TipDistribution).filter(TipDistribution.tip_id.in_(tip_ids)).delete(synchronize_session=False)
-    db.query(Tip).filter(Tip.user_id == uid).delete(synchronize_session=False)
-    db.query(NotificationLog).filter(NotificationLog.user_id == uid).delete(synchronize_session=False)
-    db.query(StaffLink).filter(StaffLink.user_id == uid).delete(synchronize_session=False)
-    db.query(StaffRoleTarget).filter(StaffRoleTarget.user_id == uid).delete(synchronize_session=False)
-    db.query(PayPeriodConfig).filter(PayPeriodConfig.user_id == uid).delete(synchronize_session=False)
-    db.query(DailyStaffing).filter(DailyStaffing.user_id == uid).delete(synchronize_session=False)
-    db.query(StaffMember).filter(StaffMember.user_id == uid).delete(synchronize_session=False)
+    from app.database import Base as _Base
+    from sqlalchemy import or_ as _or, select as _select
 
-    # Invoicing / mileage / recurring — before customers + (existing) expense categories.
-    db.query(MileageEntry).filter(MileageEntry.user_id == uid).delete(synchronize_session=False)
-    db.query(Invoice).filter(Invoice.user_id == uid).delete(synchronize_session=False)  # InvoiceLine FK cascades
-    db.query(RecurringExpense).filter(RecurringExpense.user_id == uid).delete(synchronize_session=False)
+    def _user_fk_columns(table):
+        """Column names in `table` that are a ForeignKey to users.id."""
+        cols = []
+        for col in table.columns:
+            for fk in col.foreign_keys:
+                if fk.column.table.name == "users":
+                    cols.append(col.name)
+        return cols
 
-    # Reservations (occupancy rows cascade on the reservation FK), then the resources.
-    db.query(Reservation).filter(Reservation.user_id == uid).delete(synchronize_session=False)
-    db.query(BookableResource).filter(BookableResource.user_id == uid).delete(synchronize_session=False)
+    def _owned_by_uid_predicate(table, _seen=None):
+        """SQL predicate selecting the rows of `table` that belong to `uid`.
 
-    # Event-booking — bookings + visitors before events.
-    db.query(Booking).filter(Booking.organizer_user_id == uid).delete(synchronize_session=False)
-    db.query(EventCustomer).filter(EventCustomer.organizer_user_id == uid).delete(synchronize_session=False)
-    db.query(Event).filter(Event.user_id == uid).delete(synchronize_session=False)
+        Direct case: any users.id-FK column == uid. Orphan-child case: a
+        table with NO users.id FK (e.g. inventory_logs → inventory_items)
+        is still tenant-owned through its parent, and its parent FK may lack
+        ON DELETE CASCADE — so deleting the parent first would FK-violate.
+        We recurse through every non-users FK and match rows whose parent
+        row is itself owned by uid (… IN (SELECT pk FROM parent WHERE
+        parent_is_owned_by_uid)). Returns None if no ownership path exists
+        (a truly global/shared table — left untouched). Cycle-guarded.
+        """
+        _seen = _seen or set()
+        if table.name in _seen:
+            return None
+        _seen = _seen | {table.name}
 
-    # Customers — after invoices (invoices.customer_id → customers).
-    db.query(Customer).filter(Customer.user_id == uid).delete(synchronize_session=False)
+        clauses = [table.c[c] == uid for c in _user_fk_columns(table)]
+        for col in table.columns:
+            for fk in col.foreign_keys:
+                parent = fk.column.table
+                if parent.name == "users" or parent.name == table.name:
+                    continue
+                parent_pred = _owned_by_uid_predicate(parent, _seen)
+                if parent_pred is None:
+                    continue
+                parent_pk = list(parent.primary_key.columns)
+                if len(parent_pk) != 1:
+                    continue
+                clauses.append(col.in_(_select(parent_pk[0]).where(parent_pred)))
+        if not clauses:
+            return None
+        return _or(*clauses)
 
-    # Remaining personal data.
-    db.query(SupportTicket).filter(SupportTicket.user_id == uid).delete(synchronize_session=False)
-    db.query(MagicLinkToken).filter(MagicLinkToken.user_id == uid).delete(synchronize_session=False)
-    db.query(PushSubscription).filter(PushSubscription.user_id == uid).delete(synchronize_session=False)
-    db.query(DailyClose).filter(DailyClose.user_id == uid).delete(synchronize_session=False)
-
-    # Delete all user data in dependency order (children first)
-    # --- Inventory logs (via inventory items) ---
-    item_ids = [i.id for i in db.query(InventoryItem.id).filter(InventoryItem.user_id == uid).all()]
-    if item_ids:
-        db.query(InventoryLog).filter(InventoryLog.item_id.in_(item_ids)).delete(synchronize_session=False)
-
-    # --- Khata transactions, then customers ---
-    db.query(KhataTransaction).filter(KhataTransaction.user_id == uid).delete(synchronize_session=False)
-    db.query(KhataCustomer).filter(KhataCustomer.user_id == uid).delete(synchronize_session=False)
-
-    # --- Loan transactions, then persons ---
-    db.query(LoanTransaction).filter(LoanTransaction.user_id == uid).delete(synchronize_session=False)
-    db.query(LoanPerson).filter(LoanPerson.user_id == uid).delete(synchronize_session=False)
-
-    # --- Expenses (before categories) ---
-    db.query(Expense).filter(Expense.user_id == uid).delete(synchronize_session=False)
-    db.query(ExpenseCategory).filter(ExpenseCategory.user_id == uid).delete(synchronize_session=False)
-
-    # --- Sales ---
-    db.query(Sale).filter(Sale.user_id == uid).delete(synchronize_session=False)
-
-    # --- Everything else (no child dependencies) ---
-    db.query(InventoryItem).filter(InventoryItem.user_id == uid).delete(synchronize_session=False)
-    db.query(CashTransaction).filter(CashTransaction.user_id == uid).delete(synchronize_session=False)
-    db.query(WasteLog).filter(WasteLog.user_id == uid).delete(synchronize_session=False)
-    db.query(Budget).filter(Budget.user_id == uid).delete(synchronize_session=False)
-    db.query(StaffingRule).filter(StaffingRule.user_id == uid).delete(synchronize_session=False)
-    db.query(Feedback).filter(Feedback.user_id == uid).delete(synchronize_session=False)
-    db.query(EventLog).filter(EventLog.user_id == uid).delete(synchronize_session=False)
-    db.query(CategoryMapping).filter(CategoryMapping.user_id == uid).delete(synchronize_session=False)
-    db.query(SickCall).filter(SickCall.user_id == uid).delete(synchronize_session=False)
-    db.query(WhatsAppUser).filter(WhatsAppUser.user_id == uid).delete(synchronize_session=False)
-    db.query(BusinessProfile).filter(BusinessProfile.user_id == uid).delete(synchronize_session=False)
-    db.query(PaymentConnection).filter(PaymentConnection.user_id == uid).delete(synchronize_session=False)
+    # Children-before-parents: sorted_tables is parents-first, so reverse it.
+    for table in reversed(_Base.metadata.sorted_tables):
+        if table.name == "users":
+            continue
+        if table.name in _ERASURE_RETAINED_TABLES or table.name in _ERASURE_DEFERRED_TABLES:
+            continue
+        predicate = _owned_by_uid_predicate(table)
+        if predicate is None:
+            continue  # global/shared table with no ownership path — keep
+        try:
+            # Per-table guard: a missing/legacy table (DELETE raises
+            # ProgrammingError) must NOT abort the whole erasure. Wrap in a
+            # SAVEPOINT so only that one statement is undone on failure.
+            with db.begin_nested():
+                db.execute(table.delete().where(predicate))
+        except Exception:  # noqa: BLE001 — defensive: skip a table we can't touch
+            logger.warning("delete_account: skipped table %s during erasure", table.name)
 
     # ── PSD2 bank + MobilePay connections (Art.17 erasure + consent
     # withdrawal) — #358.  These rows hold a Fernet-encrypted 90-day PSD2

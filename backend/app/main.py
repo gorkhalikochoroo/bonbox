@@ -35,6 +35,7 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from sqlalchemy import text
 
@@ -3103,7 +3104,18 @@ async def accountant_write_guard(request: Request, call_next):
     except Exception:  # noqa: BLE001
         return await call_next(request)
 
-    # Quick role lookup — DB-only, no relationship loading
+    # Quick role lookup — DB-only, no relationship loading.
+    #
+    # Fail CLOSED on a RAISED query: a transient DB error here must NOT
+    # let a mutating request slip past unguarded (an authenticated member
+    # could otherwise wait for / induce DB pressure to bypass the
+    # read-only guard). We distinguish two outcomes:
+    #   • query returns no row  → legit absent user (anonymous-ish / owner
+    #     row gone); pass through to the underlying auth dep, which makes
+    #     its own decision. This is the SAME behaviour as before.
+    #   • query RAISES           → we can't prove the caller isn't a
+    #     restricted member, so refuse with 503 (retryable) instead of
+    #     calling call_next.
     from app.database import SessionLocal as _Session
     from sqlalchemy import text as _text
     db = _Session()
@@ -3113,7 +3125,18 @@ async def accountant_write_guard(request: Request, call_next):
             {"uid": user_id},
         ).first()
     except Exception:  # noqa: BLE001
-        row = None
+        _security_logger.warning(
+            "accountant_write_guard role lookup failed — failing CLOSED (503)"
+        )
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": {
+                    "code": "role_check_unavailable",
+                    "message": "Could not verify your access right now. Please retry.",
+                },
+            },
+        )
     finally:
         db.close()
 
@@ -3508,6 +3531,17 @@ async def sliding_refresh_middleware(request: Request, call_next):
     return response
 
 
+# --- Rate-limit middleware registration ---
+# slowapi's Limiter only enforces the `default_limits=["120/minute"]`
+# app-wide cap if SlowAPIMiddleware is actually in the stack. Without
+# this line the default limit is INERT — only routes carrying an explicit
+# @limiter.limit(...) decorator throttle, leaving every undecorated
+# endpoint (incl. bank-connect /init + public /callback) unthrottled.
+# Registered BEFORE the CORS block below so CORS still wraps it and the
+# 429 RateLimitExceeded response carries Access-Control-Allow-Origin (same
+# reasoning as the inner-middleware ordering note in the CORS comment).
+app.add_middleware(SlowAPIMiddleware)
+
 # --- CORS layer registration — keep last (outermost) ---
 # Starlette's `app.add_middleware(...)` inserts at the FRONT of the
 # user-middleware list, then the stack is built by iterating that list in
@@ -3544,6 +3578,17 @@ app.add_middleware(
     expose_headers=["X-New-Token"],
     max_age=600,  # cache preflights for 10min — fewer OPTIONS roundtrips
 )
+
+
+# --- Regression guard: rate-limit middleware MUST be in the stack ---
+# The default_limits cap is only enforced while SlowAPIMiddleware is
+# registered (see the add_middleware call above). A future refactor that
+# drops that line would silently disable app-wide throttling. Assert it
+# here at import time so the failure is loud + immediate instead of an
+# invisible security regression discovered only under abuse.
+assert any(
+    m.cls is SlowAPIMiddleware for m in app.user_middleware
+), "SlowAPIMiddleware missing from the stack — app-wide rate-limit would be inert"
 
 
 # --- JWT secret strength check on startup ---

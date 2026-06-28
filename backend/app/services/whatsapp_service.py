@@ -83,7 +83,7 @@ def handle_message(parsed: dict, user: User, db: Session) -> str:
             amount=amount,
             date=date.today(),
             payment_method="cash",
-            description="WhatsApp",
+            notes="WhatsApp",
         )
         db.add(sale)
         db.flush()

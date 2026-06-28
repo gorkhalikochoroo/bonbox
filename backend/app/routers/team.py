@@ -764,7 +764,7 @@ def accept_invite(
     # as /auth/login.
     from app.services.auth import create_access_token
     from app.schemas.auth import Token, UserResponse
-    jwt_token = create_access_token(str(invitee.id))
+    jwt_token = create_access_token(str(invitee.id), invitee.token_version)
     return Token(access_token=jwt_token, user=UserResponse.model_validate(invitee))
 
 

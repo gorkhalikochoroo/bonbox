@@ -12,7 +12,25 @@ from app.models.whatsapp import WhatsAppUser, WhatsAppMessage
 from app.services.auth import get_current_user
 from app.services.whatsapp_service import parse_message, handle_message
 
-router = APIRouter()
+# WhatsApp inbound integration is HIDDEN by default (reversible).
+# It is the Twilio webhook that parses an inbound text and logs a Sale from a
+# bot-parsed amount — disabled for now per product decision (phantom-revenue
+# surface). Re-enable with WHATSAPP_ENABLED=true (no code change needed); the
+# whole router then 404s while off.
+WHATSAPP_ENABLED = os.getenv("WHATSAPP_ENABLED", "false").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+
+
+def _require_whatsapp_enabled():
+    if not WHATSAPP_ENABLED:
+        raise HTTPException(status_code=404, detail="WhatsApp integration is disabled")
+
+
+router = APIRouter(dependencies=[Depends(_require_whatsapp_enabled)])
 
 TWILIO_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "")
