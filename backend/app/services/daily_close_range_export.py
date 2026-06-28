@@ -120,10 +120,31 @@ def _bucketed_payments(c: DailyClose) -> dict:
         norm = (k or "").lower().replace(" ", "_").replace("-", "_")
         if norm in _CARD_BRAND_KEYS:
             continue  # brand split of the card line — never add it on top
-        if norm in ("mobile_pay", "mobilepay_total"):
-            norm = "mobilepay"
-        if norm in ("giftcard", "gift_cards"):
-            norm = "gift_card"
+        # Danish ⟷ English payment-method synonyms. The write side persists
+        # English keys (cash/card/mobilepay — see routers/daily_close.py:1565
+        # kontant→cash, dankort→card; defensive "kontant" in pb at :893), but
+        # manually-edited / legacy / imported closes can still carry Danish
+        # spellings. Without this map kontant/kort fell into "other" and
+        # vanished from the table's Kontant/Kort columns while still summing
+        # into _payments_sum — so the reconciliation badge read "✓ afstemt"
+        # above a table that visibly did NOT tie out. Normalize so every
+        # spelling lands in the right visible column.
+        norm = {
+            "kontant": "cash",
+            "kort": "card",
+            # NB: "betalingskort" is intentionally NOT mapped here — it is a
+            # card-brand split (in _CARD_BRAND_KEYS above) and is dropped
+            # before reaching this map, never added on top of the card line.
+            "mobile_pay": "mobilepay",
+            "mobilepay_total": "mobilepay",
+            "gavekort": "gift_card",
+            "giftcard": "gift_card",
+            "gift_cards": "gift_card",
+            "bankoverforsel": "bank_transfer",
+            "bankoverførsel": "bank_transfer",
+            "bank_overforsel": "bank_transfer",
+            "overforsel": "bank_transfer",
+        }.get(norm, norm)
         if norm in _PAY_BUCKETS:
             out[norm] += amt
         else:
@@ -262,7 +283,7 @@ def build_daily_close_range_pdf(
         Paragraph, Spacer, Table, TableStyle, HRFlowable,
     )
 
-    from app.services.bonbox_pdf_kit import render_with_doc_hash
+    from app.services.bonbox_pdf_kit import money_dk, render_with_doc_hash
     from app.utils.document_hash import get_software_identifier
     from app.utils.time import utc_now
 
@@ -272,8 +293,10 @@ def build_daily_close_range_pdf(
         "title":       "Kasserapport" if DA else "Daily Close",
         "period":      "Periode" if DA else "Period",
         "closes":      "lukninger" if DA else "closes",
+        "close_one":   "lukning" if DA else "close",
         "across_days": "over" if DA else "across",
         "days":        "dage" if DA else "days",
+        "day_one":     "dag" if DA else "day",
         "amounts_in":  "Alle beløb i" if DA else "All amounts in",
         "no_closes":   "Ingen lukninger i denne periode." if DA else "No daily closes in this range.",
         # KPI band labels (kept short for the 4-up grid)
@@ -290,7 +313,8 @@ def build_daily_close_range_pdf(
         "h_cash":      "Kontant" if DA else "Cash",
         "h_card":      "Kort" if DA else "Card",
         "h_mobilepay": "MobilePay" if DA else "MobilePay",
-        "h_diff":      "Diff" if DA else "Diff",
+        "h_other":     "Øvrige" if DA else "Other",
+        "h_diff":      "Kassediff." if DA else "Diff",
         "h_status":    "Status" if DA else "Status",
         # Status badges
         "locked":      "Lukket" if DA else "Confirmed",
@@ -301,6 +325,14 @@ def build_daily_close_range_pdf(
         # Readiness
         "ready":       "klar til bogføring" if DA else "ready for booking",
         "review":      "skal gennemgås" if DA else "need review",
+        # ±100 kr cash-drawer tolerance — stated openly so the threshold the
+        # readiness badge applies (abs(cash_difference) <= 100) is never silent.
+        "ready_tol":   ("kassedifference inden for ±100 kr." if DA
+                        else "cash difference within ±100 kr."),
+        # Kasseafstemning (cash-drawer reconciliation: forventet − optalt = diff)
+        "kasse_title":  "Kasseafstemning" if DA else "Cash reconciliation",
+        "kasse_exp":    "forventet" if DA else "expected",
+        "kasse_cnt":    "optalt" if DA else "counted",
         # Document voucher number (header) — matches the gold MOMS-PDF label
         "bilag_label": "Bilagsnr" if DA else "Voucher",
         # Payments ↔ revenue reconciliation (accountant-grade)
@@ -427,8 +459,12 @@ def build_daily_close_range_pdf(
         n_conf = len(confirmed)
         span_days = (to_date - from_date).days + 1 if to_date and from_date and to_date >= from_date else 1
 
+        # Singular/plural agreement: "1 lukning over 1 dag" vs "3 lukninger
+        # over 7 dage" (and EN "1 close across 1 day").
+        closes_word = L["close_one"] if n_total == 1 else L["closes"]
+        days_word = L["day_one"] if span_days == 1 else L["days"]
         story.append(Paragraph(
-            f"{n_total} {L['closes']} {L['across_days']} {span_days} {L['days']}  ·  {L['amounts_in']} {currency}",
+            f"{n_total} {closes_word} {L['across_days']} {span_days} {days_word}  ·  {L['amounts_in']} {currency}",
             subtitle,
         ))
 
@@ -454,16 +490,15 @@ def build_daily_close_range_pdf(
         total_tips = _sum("tips_total")
 
         def _fmt(v):
-            if v is None or v == "":
-                return "—"
-            try:
-                f = float(v)
-            except (TypeError, ValueError):
-                return "—"
-            # Danish format: 1.234,56
-            if DA:
-                return f"{f:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            return f"{f:,.2f}"
+            # Canonical money formatter — the ONE every BonBox export must use
+            # (mirrors the gold MOMS-PDF + the per-close kasserapport_pdf). DKK
+            # → "1.234,56 kr." (period thousands, comma decimal, "kr." unit);
+            # None / "" / non-numeric → "—". Previously this builder rolled its
+            # own formatter that produced Danish digits but DROPPED the "kr."
+            # unit, so the range PDF disagreed with every other artifact and a
+            # revisor saw bare "15.000,00". money_dk also snaps negative-zero
+            # dust to "0,00 kr." for free.
+            return money_dk(v, currency)
 
         kpi_rows = [[
             Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_rev']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_revenue)}</font>", subtitle),
@@ -485,9 +520,15 @@ def build_daily_close_range_pdf(
         story.append(Spacer(1, 8))
 
         # ─── Per-close table — accountant columns ────────────────────────
+        # "Øvrige" carries every payment method outside the named columns
+        # (gift_card / bank_transfer / unrecognized) so the row's payment
+        # cells ALWAYS visibly sum to omsætning. Without it, money in those
+        # buckets was invisible on the page yet counted in the reconciliation
+        # — a "✓ afstemt" badge above a table that didn't add up.
         table_data = [[
             L["h_date"], L["h_bilag"], L["h_rev"], L["h_moms"], L["h_net"],
-            L["h_cash"], L["h_card"], L["h_mobilepay"], L["h_diff"], L["h_status"],
+            L["h_cash"], L["h_card"], L["h_mobilepay"], L["h_other"],
+            L["h_diff"], L["h_status"],
         ]]
 
         for c in closes_sorted:
@@ -505,6 +546,10 @@ def build_daily_close_range_pdf(
                 sign = "+" if cash_diff > 0 else ""
                 cash_diff_str = f"{sign}{_fmt(cash_diff)}"
             status = (getattr(c, "status", None) or "confirmed")
+            # Residual = every bucket outside the three named columns, so the
+            # visible payment cells (Kontant+Kort+MobilePay+Øvrige) always add
+            # up to the day's collected payments.
+            other_amt = pay["gift_card"] + pay["bank_transfer"] + pay["other"]
             table_data.append([
                 _date_short(c.date),
                 vsales or "—",
@@ -514,6 +559,7 @@ def build_daily_close_range_pdf(
                 _fmt(pay["cash"]) if pay["cash"] else "—",
                 _fmt(pay["card"]) if pay["card"] else "—",
                 _fmt(pay["mobilepay"]) if pay["mobilepay"] else "—",
+                _fmt(other_amt) if other_amt else "—",
                 cash_diff_str or "—",
                 L["locked"] if status == "confirmed" else L["draft"],
             ])
@@ -522,6 +568,12 @@ def build_daily_close_range_pdf(
         sum_cash = sum(_bucketed_payments(c)["cash"] for c in confirmed)
         sum_card = sum(_bucketed_payments(c)["card"] for c in confirmed)
         sum_mp = sum(_bucketed_payments(c)["mobilepay"] for c in confirmed)
+        sum_other = sum(
+            _bucketed_payments(c)["gift_card"]
+            + _bucketed_payments(c)["bank_transfer"]
+            + _bucketed_payments(c)["other"]
+            for c in confirmed
+        )
         sum_diff = sum(
             float(c.cash_difference or 0) for c in confirmed
             if c.cash_difference is not None
@@ -533,11 +585,12 @@ def build_daily_close_range_pdf(
             _fmt(sum_cash) if sum_cash else "—",
             _fmt(sum_card) if sum_card else "—",
             _fmt(sum_mp) if sum_mp else "—",
+            _fmt(sum_other) if sum_other else "—",
             _fmt(sum_diff) if any(c.cash_difference is not None for c in confirmed) else "—",
             "",
         ])
 
-        col_widths = [26*mm, 26*mm, 24*mm, 22*mm, 24*mm, 22*mm, 22*mm, 24*mm, 18*mm, 22*mm]
+        col_widths = [25*mm, 25*mm, 24*mm, 21*mm, 23*mm, 22*mm, 21*mm, 23*mm, 21*mm, 21*mm, 18*mm]
         table = Table(table_data, colWidths=col_widths, repeatRows=1)
         table.setStyle(TableStyle([
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
@@ -545,8 +598,8 @@ def build_daily_close_range_pdf(
             ("FONTSIZE", (0, 1), (-1, -1), 8.5),
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
             ("TEXTCOLOR", (0, 0), (-1, 0), MUTED),
-            ("ALIGN", (2, 0), (8, -1), "RIGHT"),
-            ("ALIGN", (9, 0), (9, -1), "CENTER"),
+            ("ALIGN", (2, 0), (9, -1), "RIGHT"),
+            ("ALIGN", (10, 0), (10, -1), "CENTER"),
             ("ALIGN", (1, 0), (1, -1), "LEFT"),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
@@ -566,9 +619,47 @@ def build_daily_close_range_pdf(
         if drafts:
             story.append(Spacer(1, 4))
             story.append(Paragraph(
-                f"<font color='#92400e' size='8.5'>⚠ {len(drafts)} {L['draft'].lower()} — {L['draft_excl']}.</font>",
+                f"<font color='#92400e' size='8.5'>"
+                f"<font name='Helvetica-Bold'>!</font> {len(drafts)} "
+                f"{L['draft'].lower()} — {L['draft_excl']}.</font>",
                 note,
             ))
+
+        # ─── Kasseafstemning (drawer reconciliation) ─────────────────────
+        # The "Kassediff." column shows only the NET difference; a revisor
+        # needs the derivation (forventet − optalt = difference) to trust the
+        # number. We surface it as one quiet line per close that actually
+        # counted its drawer, with the sign on the difference. forventet =
+        # register/expected, optalt = counted (read for XLSX but previously
+        # never shown on the PDF). Confirmed closes only.
+        counted_closes = [
+            c for c in confirmed
+            if c.cash_counted is not None and c.cash_expected is not None
+        ]
+        if counted_closes:
+            story.append(Spacer(1, 6))
+            story.append(Paragraph(
+                f"<font color='#6b7280' name='Helvetica-Bold' size='8'>"
+                f"{L['kasse_title']}</font>",
+                note,
+            ))
+            for c in counted_closes:
+                exp = float(c.cash_expected or 0)
+                cnt = float(c.cash_counted or 0)
+                diff = (float(c.cash_difference) if c.cash_difference is not None
+                        else round(cnt - exp, 2))
+                diff_sign = "+" if diff > 0 else ""
+                # Emerald when within ±100 kr, amber when outside — status
+                # colour only, no rainbow.
+                diff_col = EMERALD if abs(diff) <= 100 else AMBER
+                story.append(Paragraph(
+                    f"<font color='#6b7280' size='8'>"
+                    f"{_date_short(c.date)} — {L['kasse_exp']} {_fmt(exp)} − "
+                    f"{L['kasse_cnt']} {_fmt(cnt)} = "
+                    f"<font color='{diff_col.hexval()}' name='Helvetica-Bold'>"
+                    f"{diff_sign}{_fmt(diff)}</font></font>",
+                    note,
+                ))
 
         # ─── Payments ↔ revenue reconciliation (accountant-grade) ────────
         # A kasserapport must TIE OUT: every krone of revenue is collected by
@@ -599,7 +690,8 @@ def build_daily_close_range_pdf(
                 )
                 story.append(Paragraph(
                     f"<font color='{AMBER.hexval()}' size='8.5'>"
-                    f"⚠ {L['recon_off']}: {len(unbalanced)} {L['recon_review']} "
+                    f"<font name='Helvetica-Bold'>!</font> {L['recon_off']}: "
+                    f"{len(unbalanced)} {L['recon_review']} "
                     f"({L['recon_delta']} {_fmt(abs_dev)}).</font>",
                     note,
                 ))
@@ -610,7 +702,8 @@ def build_daily_close_range_pdf(
                 )
                 story.append(Paragraph(
                     f"<font color='{EMERALD.hexval()}' size='8.5'>"
-                    f"✓ {L['recon_ok']} ({L['recon_delta']} {_fmt(net)}).</font>",
+                    f"<font name='Helvetica-Bold'>•</font> {L['recon_ok']} "
+                    f"({L['recon_delta']} {_fmt(net)}).</font>",
                     note,
                 ))
 
@@ -631,13 +724,17 @@ def build_daily_close_range_pdf(
         badge_text = L["ready"] if all_ready else L["review"]
         badge_color = EMERALD if all_ready else AMBER
         badge_bg = EMERALD_BG if all_ready else AMBER_BG
-        icon = "✓" if all_ready else "⚠"
+        # Neutral typographic status mark (no emoji — design lock): emerald "•"
+        # when ready, amber "!" when review is needed. Colour carries the
+        # status, not a coloured glyph.
+        icon = "•" if all_ready else "!"
 
         story.append(Spacer(1, 8))
         badge = Table(
             [[Paragraph(
                 f"<font name='Helvetica-Bold' color='{badge_color.hexval()}' size='10'>"
-                f"{icon} {ready_count} / {n_conf} {badge_text}</font>",
+                f"{icon} {ready_count} / {n_conf} {badge_text}</font>"
+                f"<font color='#6b7280' size='8'> · {L['ready_tol']}</font>",
                 subtitle,
             )]],
             colWidths=[270*mm],
