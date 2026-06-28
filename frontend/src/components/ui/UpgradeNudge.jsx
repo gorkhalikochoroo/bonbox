@@ -39,19 +39,19 @@ import { isNativeApp } from "../../utils/platform";
 
 // ─── Tier prices (founding rates leading) ─────────────────────────
 // Single source of truth — sync with backend/app/services/billing.py
-// STRIPE prices. Keep DKK only; localization is handled at render
-// time if/when other currencies launch.
+// STRIPE prices. DKK-denominated, shown as "kr." (da-DK); localization
+// is handled at render time if/when other currencies launch.
 const TIER_LABELS = {
   starter: {
     name: "Starter",
-    founding: "129 DKK/mo",
-    regular: "199 DKK/mo",
+    founding: "129 kr./md",
+    regular: "199 kr./md",
     badge: "Founding rate · First 100",
   },
   pro: {
     name: "Pro",
-    founding: "249 DKK/mo",
-    regular: "349 DKK/mo",
+    founding: "249 kr./md",
+    regular: "349 kr./md",
     badge: "Founding rate · First 100",
   },
 };
@@ -60,10 +60,10 @@ function PriceTag({ tier }) {
   const t = TIER_LABELS[tier] || TIER_LABELS.starter;
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="font-semibold text-stone-900 dark:text-stone-100">
+      <span className="font-semibold text-gray-900 dark:text-gray-100">
         {t.founding}
       </span>
-      <span className="line-through text-stone-400 text-[11px]">
+      <span className="line-through text-gray-400 text-[11px]">
         {t.regular}
       </span>
     </span>
@@ -136,10 +136,10 @@ export default function UpgradeNudge({
         onClick={handleClick}
         className={
           "inline-flex items-center gap-2 px-3 py-1.5 rounded-md " +
-          "bg-emerald-50 dark:bg-emerald-900/20 " +
-          "text-emerald-800 dark:text-emerald-300 " +
-          "border border-emerald-200/70 dark:border-emerald-800/60 " +
-          "hover:bg-emerald-100/70 dark:hover:bg-emerald-900/40 " +
+          "bg-gray-50 dark:bg-gray-800/60 " +
+          "text-gray-700 dark:text-gray-200 " +
+          "border border-gray-200 dark:border-gray-700 " +
+          "hover:bg-gray-100 dark:hover:bg-gray-800 " +
           "text-xs font-medium transition-colors " + className
         }
       >
@@ -167,9 +167,8 @@ export default function UpgradeNudge({
     return (
       <div
         className={
-          "rounded-xl border border-emerald-200/70 dark:border-emerald-800/60 " +
-          "bg-gradient-to-br from-emerald-50/80 to-white " +
-          "dark:from-emerald-900/20 dark:to-stone-900 " +
+          "rounded-xl border border-gray-200 dark:border-gray-800 " +
+          "bg-white dark:bg-gray-900 " +
           "p-5 sm:p-6 " + className
         }
       >
@@ -180,10 +179,10 @@ export default function UpgradeNudge({
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-semibold tracking-wider uppercase text-emerald-700 dark:text-emerald-400">
+            <p className="text-[10px] font-semibold tracking-wider uppercase text-gray-500 dark:text-gray-400">
               {tierMeta.name} · {tierMeta.badge}
             </p>
-            <h4 className="text-base font-semibold text-stone-900 dark:text-stone-100 mt-1">
+            <h4 className="text-base font-semibold text-gray-900 dark:text-gray-100 mt-1">
               {benefit}
             </h4>
           </div>
@@ -193,7 +192,7 @@ export default function UpgradeNudge({
           <Link
             to={cta}
             onClick={handleClick}
-            className="inline-flex items-center gap-1.5 px-4 h-9 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors"
+            className="inline-flex items-center gap-1.5 px-4 h-9 rounded-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-white dark:text-gray-900 text-white text-sm font-medium transition-colors"
           >
             {ctaLabel}
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -250,7 +249,7 @@ function UpgradeNudgeDialog({ icon, benefit, ctaLabel, cta, handleClick, tier, t
     <div
       className={
         "fixed inset-0 z-[100] flex items-center justify-center p-4 " +
-        "bg-stone-900/50 backdrop-blur-sm " + className
+        "bg-gray-900/50 backdrop-blur-sm " + className
       }
       onClick={() => navigate(-1)}
       aria-hidden="true"
@@ -262,13 +261,13 @@ function UpgradeNudgeDialog({ icon, benefit, ctaLabel, cta, handleClick, tier, t
         aria-modal="true"
         aria-labelledby="upgrade-nudge-title"
         tabIndex={-1}
-        className="bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-2xl shadow-xl max-w-sm w-full p-6 text-center focus:outline-none"
+        className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl max-w-sm w-full p-6 text-center focus:outline-none"
       >
         {icon && <div className="text-4xl mb-3" aria-hidden="true">{icon}</div>}
-        <p className="text-[10px] font-semibold tracking-wider uppercase text-emerald-700 dark:text-emerald-400">
+        <p className="text-[10px] font-semibold tracking-wider uppercase text-gray-500 dark:text-gray-400">
           {tierMeta.name} · {tierMeta.badge}
         </p>
-        <h4 id="upgrade-nudge-title" className="text-lg font-semibold text-stone-900 dark:text-stone-100 mt-1 mb-2">
+        <h4 id="upgrade-nudge-title" className="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-1 mb-2">
           {benefit}
         </h4>
         <div className="mb-5">
@@ -277,14 +276,14 @@ function UpgradeNudgeDialog({ icon, benefit, ctaLabel, cta, handleClick, tier, t
         <Link
           to={cta}
           onClick={handleClick}
-          className="block w-full px-4 h-11 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors leading-[2.75rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900"
+          className="block w-full px-4 h-11 rounded-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-white dark:text-gray-900 text-white text-sm font-medium transition-colors leading-[2.75rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
         >
           {ctaLabel}
         </Link>
         <button
           type="button"
           onClick={() => navigate(-1)}
-          className="mt-3 text-xs text-stone-600 dark:text-stone-300 hover:text-stone-800 dark:hover:text-stone-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 rounded px-1"
+          className="mt-3 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded px-1"
         >
           Maybe later
         </button>

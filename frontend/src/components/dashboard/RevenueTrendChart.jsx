@@ -82,6 +82,10 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
   const firstSold = windowed.findIndex((d) => (d.amount || 0) > 0);
   const data = firstSold > 0 ? windowed.slice(firstSold) : windowed;
   const soldDays = data.filter((d) => (d.amount || 0) > 0);
+  // Month-to-date revenue — lets a tier-capped short window (Free = 7 days)
+  // stay honest + value-forward instead of reading "no data" on a quiet
+  // recent week when the month itself is strong.
+  const monthRev = Number(ctx?.summary?.month_revenue || 0);
 
   const cardCls =
     "rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition";
@@ -93,7 +97,9 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
           {t("revenueTrend", "Revenue trend")}
         </h3>
         <p className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-          {t("revenueTrendEmpty", "Log your first sale to start the chart.")}
+          {monthRev > 0
+            ? t("revenueTrendMonthSoFar", "This month so far: {amt}").replace("{amt}", formatKr(monthRev, { decimals: 0 }))
+            : t("revenueTrendEmpty", "Log your first sale to start the chart.")}
         </p>
       </div>
     );
@@ -119,7 +125,9 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
           ))}
         </ul>
         <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
-          {t("revenueTrendSparse", "Not enough days yet to show a trend — keep logging sales.")}
+          {monthRev > 0
+            ? t("revenueTrendMonthSoFar", "This month so far: {amt}").replace("{amt}", formatKr(monthRev, { decimals: 0 }))
+            : t("revenueTrendSparse", "Not enough days yet to show a trend — keep logging sales.")}
         </p>
       </div>
     );

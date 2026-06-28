@@ -248,12 +248,6 @@ export const DASHBOARD_CARD_SET = {
         !!ctx?.activations?.isMonthEnd && ctx?.has?.("send_to_revisor"),
     },
 
-    // Hero — the 3-action Daily Brief.
-    {
-      id: "brief",
-      component: "DailyBriefCard",
-    },
-
     // KPI row + AccountantHours widget — side-by-side on lg, stacks on <lg.
     {
       id: "kpi+hours",
@@ -263,7 +257,7 @@ export const DASHBOARD_CARD_SET = {
           id: "kpi3",
           component: "KpiStrip",
           props: (ctx) => ({
-            tiles: ["today", "week", "complianceNext"],
+            tiles: ["today", "week", "month"],
             // WeekComparison delta wired INTO the today-tile arrow.
             showDelta: true,
           }),
@@ -285,6 +279,15 @@ export const DASHBOARD_CARD_SET = {
       id: "foresightHero",
       component: "ComplianceCountdownCard",
       renderIf: (ctx) => (ctx?.compliance?.daysToNext ?? Infinity) < Infinity,
+    },
+
+    // The AI Daily Brief — moved BELOW the KPI strip + foresight hero so
+    // the owner's eye lands on the trust queue + the real numbers + "are
+    // you covered?" first; the narration is context, not the headline.
+    // (owner-POV critique)
+    {
+      id: "brief",
+      component: "DailyBriefCard",
     },
 
     // Today on shift — Task #204 P2.6.  Answers the literal #1 question

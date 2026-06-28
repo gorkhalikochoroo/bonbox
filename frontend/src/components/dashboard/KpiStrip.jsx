@@ -113,6 +113,15 @@ export default function KpiStrip({
       ) : null,
       accent: "neutral",
     },
+    // "This month" — replaces the old duplicate MOMS-deadline tile (the
+    // foresight hero below owns MOMS). A number the owner acts on more
+    // often, and the natural today → week → month progression.
+    month: {
+      label: t("liveRevenueMonth", "This month"),
+      value: formatKr(ctx?.summary?.month_revenue ?? 0, { decimals: 0 }),
+      helper: null,
+      accent: "neutral",
+    },
     complianceNext: {
       label: complianceLabel,
       value:
