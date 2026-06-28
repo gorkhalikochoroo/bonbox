@@ -2104,6 +2104,11 @@ const translations = {
     stepOneRevenueByService: "Revenue by Service",
     stepOneRevenueByChannel: "Revenue by Channel",
     // Revenue step
+    dcGkRedeemedToday: "Gavekort redeemed today: {amount} {cur}",
+    dcGkConfirmIncluded:
+      "Make sure the meal is in the revenue above — gavekort is a payment method, not an extra sale. BonBox doesn't add it automatically.",
+    dcGkMaybeMissing:
+      "The gavekort meal may be missing from the revenue above. MOMS falls at redemption — check the sale is bogført so it enters the MOMS base.",
     syncedFromSaleOne: "Synced from {n} sale",
     syncedFromSaleMany: "Synced from {n} sales",
     syncedExpensesOne: " & {n} expense",
@@ -8733,6 +8738,11 @@ const translations = {
     stepOneRevenueByService: "Omsætning pr. ydelse",
     stepOneRevenueByChannel: "Omsætning pr. kanal",
     // Omsætningstrin
+    dcGkRedeemedToday: "Gavekort indløst i dag: {amount} {cur}",
+    dcGkConfirmIncluded:
+      "Sørg for, at måltidet er med i omsætningen ovenfor — gavekort er en betalingsmåde, ikke et ekstra salg. BonBox lægger det ikke til automatisk.",
+    dcGkMaybeMissing:
+      "Det ser ud til, at gavekort-måltidet måske ikke er med i omsætningen ovenfor. MOMS skal afregnes ved indløsning — tjek at salget er bogført, så det indgår i MOMS-grundlaget.",
     syncedFromSaleOne: "Synkroniseret fra {n} salg",
     syncedFromSaleMany: "Synkroniseret fra {n} salg",
     syncedExpensesOne: " & {n} udgift",

@@ -7,12 +7,13 @@ import { useBranch } from "../components/BranchSelector";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency, getTaxConfig, getVatTerms } from "../utils/currency";
 import { trackEvent } from "../hooks/useEventLog";
-import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { safeImageUrl } from "../utils/safeUrl";
 import { errText } from "../utils/errText";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
+import { haptic } from "../utils/haptics";
+import { archetypeForUser, archetypeIdFor } from "../config/archetypes";
 import {
   buildShareMessage,
   buildShareTitle,
@@ -30,6 +31,32 @@ import SmartScanModal from "../components/SmartScanModal";
 // at the top, then the close wizard below. Keeps a single "Today"
 // experience instead of two competing entries.
 import LiveKpisToday from "../components/LiveKpisToday";
+
+// Per-archetype subtitle for the "Today" header — the close page speaks each
+// trade's language (restaurant vs salon vs bar vs retail). Keys resolve in
+// useLanguage (en+da); unknown / generic archetype → the neutral navTodaySubtitle.
+const TODAY_SUBTITLE_KEY = {
+  food_service: "todaySubtitleFood",
+  bar: "todaySubtitleBar",
+  salon: "todaySubtitleSalon",
+  retail: "todaySubtitleRetail",
+  services: "todaySubtitleServices",
+  personal: "todaySubtitlePersonal",
+};
+
+// Per-vertical close TITLE ("X er låst · {time} af {who}"). Bakery is
+// business_type-specific (within food_service only a bakery says "bagning");
+// bar/salon/retail key on archetype (they cover many business_types). Café /
+// restaurant / everything else keeps the default closeLockedTitle. Every key
+// preserves the {time}/{who} placeholders so the .replace() calls still work.
+function closeTitleKeyFor(businessType) {
+  if (String(businessType || "").trim().toLowerCase() === "bakery") return "closeLockedTitleBakery";
+  const archId = archetypeIdFor(businessType);
+  if (archId === "bar") return "closeLockedTitleBar";
+  if (archId === "salon") return "closeLockedTitleSalon";
+  if (archId === "retail") return "closeLockedTitleRetail";
+  return "closeLockedTitle";
+}
 
 /**
  * Decode an axios error from a blob-typed request.
@@ -133,77 +160,108 @@ async function syncOfflineQueue() {
    ═══════════════════════════════════════════════════════════ */
 const REVENUE_CATS_BY_TYPE = {
   restaurant: [
-    { key: "food", label: "Food / Mad", icon: "🍽️" },
-    { key: "drinks", label: "Drinks / Drikkevarer", icon: "🍺" },
-    { key: "takeaway", label: "Takeaway / Udbringning", icon: "📦" },
+    { key: "food", label: "Food / Mad", icon: "Utensils" },
+    { key: "drinks", label: "Drinks / Drikkevarer", icon: "Beer" },
+    { key: "takeaway", label: "Takeaway / Udbringning", icon: "Package" },
   ],
   workshop: [
-    { key: "parts", label: "Parts / Reservedele", icon: "🔩" },
-    { key: "labor", label: "Labor / Arbejde", icon: "🔧" },
-    { key: "diagnostics", label: "Diagnostics", icon: "🔍" },
-    { key: "towing", label: "Towing / Bugsering", icon: "🚛" },
+    { key: "parts", label: "Parts / Reservedele", icon: "Wrench" },
+    { key: "labor", label: "Labor / Arbejde", icon: "Hammer" },
+    { key: "diagnostics", label: "Diagnostics", icon: "Search" },
+    { key: "towing", label: "Towing / Bugsering", icon: "Truck" },
   ],
   retail: [
-    { key: "products", label: "Products / Varer", icon: "👕" },
-    { key: "returns", label: "Returns / Returvarer", icon: "↩️" },
-    { key: "services", label: "Services / Ydelser", icon: "🛠️" },
+    { key: "products", label: "Products / Varer", icon: "ShoppingBag" },
+    { key: "returns", label: "Returns / Returvarer", icon: "RotateCcw" },
+    { key: "services", label: "Services / Ydelser", icon: "Wrench" },
+  ],
+  // Phase A — salon: the frisør's actual money view is the Behandlinger
+  // (service) vs Udsalgsvarer (retail product) split. Both are standard 25%
+  // MOMS revenue, so they sit in the normal revenue_breakdown (MOMS math
+  // unchanged). Gavekort is handled as a SEPARATE line below (NOT a revenue
+  // category — excluded from the day-of-sale MOMS base, flagged for revisor).
+  salon: [
+    { key: "treatments", label: "Behandlinger", icon: "Scissors" },
+    { key: "retail_products", label: "Udsalgsvarer", icon: "ShoppingBag" },
+  ],
+  // Phase A — bakery: counter trade. Standard food-service-style split.
+  bakery: [
+    { key: "bread_pastry", label: "Brød & bagværk", icon: "Croissant" },
+    { key: "drinks", label: "Drinks / Drikkevarer", icon: "Coffee" },
+    { key: "other", label: "Other / Andet", icon: "Package" },
   ],
   grocery: [
-    { key: "products", label: "Products / Dagligvarer", icon: "🛒" },
-    { key: "tobacco_lottery", label: "Tobacco & Lottery", icon: "🎰" },
-    { key: "fresh", label: "Fresh / Frisk", icon: "🥬" },
-    { key: "other", label: "Other / Andet", icon: "📦" },
+    { key: "products", label: "Products / Dagligvarer", icon: "ShoppingCart" },
+    { key: "tobacco_lottery", label: "Tobacco & Lottery", icon: "Ticket" },
+    { key: "fresh", label: "Fresh / Frisk", icon: "Leaf" },
+    { key: "other", label: "Other / Andet", icon: "Package" },
   ],
   ecommerce: [
-    { key: "online_sales", label: "Online Sales", icon: "🛍️" },
-    { key: "returns", label: "Returns / Refunds", icon: "↩️" },
-    { key: "shipping", label: "Shipping Revenue", icon: "📦" },
+    { key: "online_sales", label: "Online Sales", icon: "Globe" },
+    { key: "returns", label: "Returns / Refunds", icon: "RotateCcw" },
+    { key: "shipping", label: "Shipping Revenue", icon: "Truck" },
   ],
   general: [
-    { key: "revenue", label: "Revenue", icon: "💰" },
+    { key: "revenue", label: "Revenue", icon: "Coins" },
   ],
 };
 
 const PAYMENT_METHODS_BY_TYPE = {
   restaurant: [
-    { key: "cash", label: "Cash / Kontant", icon: "💵" },
-    { key: "card", label: "Card / Dankort", icon: "💳" },
-    { key: "mobilepay", label: "MobilePay", icon: "📱" },
-    { key: "invoice", label: "Invoice / Faktura", icon: "📄" },
+    { key: "cash", label: "Cash / Kontant", icon: "Banknote" },
+    { key: "card", label: "Card / Dankort", icon: "CreditCard" },
+    { key: "mobilepay", label: "MobilePay", icon: "Smartphone" },
+    { key: "invoice", label: "Invoice / Faktura", icon: "FileText" },
   ],
   workshop: [
-    { key: "cash", label: "Cash", icon: "💵" },
-    { key: "card", label: "Card", icon: "💳" },
-    { key: "bank_transfer", label: "Bank Transfer", icon: "🏦" },
-    { key: "invoice", label: "Invoice / Credit", icon: "📄" },
+    { key: "cash", label: "Cash", icon: "Banknote" },
+    { key: "card", label: "Card", icon: "CreditCard" },
+    { key: "bank_transfer", label: "Bank Transfer", icon: "Landmark" },
+    { key: "invoice", label: "Invoice / Credit", icon: "FileText" },
   ],
   retail: [
-    { key: "cash", label: "Cash / Kontant", icon: "💵" },
-    { key: "card", label: "Card / Dankort", icon: "💳" },
-    { key: "mobilepay", label: "MobilePay", icon: "📱" },
-    { key: "gift_card", label: "Gift Card / Gavekort", icon: "🎁" },
+    { key: "cash", label: "Cash / Kontant", icon: "Banknote" },
+    { key: "card", label: "Card / Dankort", icon: "CreditCard" },
+    { key: "mobilepay", label: "MobilePay", icon: "Smartphone" },
+    { key: "gift_card", label: "Gift Card / Gavekort", icon: "Gift" },
   ],
   grocery: [
-    { key: "cash", label: "Cash / Kontant", icon: "💵" },
-    { key: "card", label: "Card / Dankort", icon: "💳" },
-    { key: "mobilepay", label: "MobilePay", icon: "📱" },
+    { key: "cash", label: "Cash / Kontant", icon: "Banknote" },
+    { key: "card", label: "Card / Dankort", icon: "CreditCard" },
+    { key: "mobilepay", label: "MobilePay", icon: "Smartphone" },
   ],
   ecommerce: [
-    { key: "card", label: "Card / Online", icon: "💳" },
-    { key: "mobilepay", label: "MobilePay", icon: "📱" },
-    { key: "bank_transfer", label: "Bank Transfer", icon: "🏦" },
-    { key: "paypal", label: "PayPal", icon: "🅿️" },
+    { key: "card", label: "Card / Online", icon: "CreditCard" },
+    { key: "mobilepay", label: "MobilePay", icon: "Smartphone" },
+    { key: "bank_transfer", label: "Bank Transfer", icon: "Landmark" },
+    { key: "paypal", label: "PayPal", icon: "Wallet" },
   ],
 };
 
-/* Per-type close configuration — controls which steps appear */
+/* Per-type close configuration — controls which steps + extra fields appear.
+   Phase A flags:
+     hasCouverts  — show a guest/couvert count field. There is NO couvert input
+                    in the close form today, so this currently documents intent
+                    + future-proofs: salon/bakery/retail are explicitly false so
+                    a couvert field can never be added for them by default.
+     hasGavekort  — salon: show a separate "Gavekort solgt" line. It is EXCLUDED
+                    from the day-of-sale service MOMS base and flagged for the
+                    revisor (single- vs multi-purpose voucher MOMS is a judgment
+                    call we never auto-decide).
+     hasBatch     — bakery: show a "Parti / Batch" reference field (informational
+                    — appended to notes for the revisor, never part of MOMS). */
 const CLOSE_CONFIG = {
-  restaurant:  { hasTips: true,  hasCashDrawer: true,  stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — revenue, payments, cash drawer, tips." },
-  workshop:    { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue by Service",  stepOneLabelKey: "stepOneRevenueByService",  description: "End-of-day closing — parts & labor revenue, payments, cash drawer." },
-  retail:      { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — sales, returns, payments, cash drawer." },
-  grocery:     { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — sales, cash drawer, transactions." },
-  ecommerce:   { hasTips: false, hasCashDrawer: false, stepOneLabel: "Revenue by Channel",  stepOneLabelKey: "stepOneRevenueByChannel",  description: "End-of-day closing — online sales, returns, payments." },
-  general:     { hasTips: false, hasCashDrawer: true,  stepOneLabel: "Revenue",             stepOneLabelKey: "revenue",                   description: "End-of-day closing — revenue, expenses, payments." },
+  restaurant:  { hasTips: true,  hasCashDrawer: true,  hasCouverts: true,  stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — revenue, payments, cash drawer, tips." },
+  workshop:    { hasTips: false, hasCashDrawer: true,  hasCouverts: false, stepOneLabel: "Revenue by Service",  stepOneLabelKey: "stepOneRevenueByService",  description: "End-of-day closing — parts & labor revenue, payments, cash drawer." },
+  retail:      { hasTips: false, hasCashDrawer: true,  hasCouverts: false, stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — sales, returns, payments, cash drawer." },
+  grocery:     { hasTips: false, hasCashDrawer: true,  hasCouverts: false, stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — sales, cash drawer, transactions." },
+  ecommerce:   { hasTips: false, hasCashDrawer: false, hasCouverts: false, stepOneLabel: "Revenue by Channel",  stepOneLabelKey: "stepOneRevenueByChannel",  description: "End-of-day closing — online sales, returns, payments." },
+  // Phase A — salon: no couverts; service-vs-product split lives in the revenue
+  // cats; gavekort gets its own line; tips kept (DK salons take tips).
+  salon:       { hasTips: true,  hasCashDrawer: true,  hasCouverts: false, hasGavekort: true, stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — Behandlinger, Udsalgsvarer, gavekort, payments." },
+  // Phase A — bakery: no couverts; Parti/Batch reference field.
+  bakery:      { hasTips: false, hasCashDrawer: true,  hasCouverts: false, hasBatch: true, stepOneLabel: "Revenue by Category", stepOneLabelKey: "stepOneRevenueByCategory", description: "End-of-day closing — bagværk, drikkevarer, payments, cash drawer." },
+  general:     { hasTips: false, hasCashDrawer: true,  hasCouverts: false, stepOneLabel: "Revenue",             stepOneLabelKey: "revenue",                   description: "End-of-day closing — revenue, expenses, payments." },
 };
 
 function getRevenueCats(branchType) {
@@ -336,23 +394,25 @@ export default function DailyClosePage() {
     });
   };
 
+  const todaySubtitleKey = TODAY_SUBTITLE_KEY[archetypeForUser(user).id] || "navTodaySubtitle";
+
   return (
     <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
       <PageHeader
-        eyebrow="REPORTS"
+        eyebrow={t("dcReportsEyebrow", "REPORTS")}
         title={t("navToday") || "Today"}
-        subtitle={t("navTodaySubtitle") || "Live KPIs throughout the day · Close ritual at end of shift"}
+        subtitle={t(todaySubtitleKey)}
         actions={
           (!isOnline || pendingCount > 0) && (
             <div className="flex items-center gap-2">
               {!isOnline && (
                 <span className="text-[10px] px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-gray-500 rounded-full" /> Offline
+                  <span className="w-1.5 h-1.5 bg-gray-500 rounded-full" /> {t("dcOffline", "Offline")}
                 </span>
               )}
               {pendingCount > 0 && (
                 <Button variant="secondary" size="sm" onClick={doSync} disabled={!isOnline}>
-                  {isOnline ? `Sync ${pendingCount} pending` : `${pendingCount} queued`}
+                  {isOnline ? t("dcSyncPending", "Sync {count} pending", { count: pendingCount }) : t("dcQueued", "{count} queued", { count: pendingCount })}
                 </Button>
               )}
             </div>
@@ -370,6 +430,7 @@ export default function DailyClosePage() {
           t={t}
           close={lockedBannerClose}
           currency={currency}
+          businessType={user?.business_type}
           onDismiss={() => setLastLockedClose(null)}
         />
       )}
@@ -418,7 +479,7 @@ export default function DailyClosePage() {
 
       <DismissibleTip
         id="daily-close-intro-v1"
-        icon="📋"
+        iconName="ClipboardList"
         title={t("whatIsDailyClose")}
       >
         <p>{t("dailyCloseTipBody")}</p>
@@ -434,7 +495,7 @@ export default function DailyClosePage() {
         ]}
         activeId={tab}
         onChange={setTab}
-        ariaLabel="Daily close view"
+        ariaLabel={t("dcTabsAriaLabel", "Daily close view")}
       />
 
       <div ref={closeWizardRef}>
@@ -596,6 +657,17 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // Step 4: Tips
   const [tipsTotal, setTipsTotal] = useState("");
   const [staffCount, setStaffCount] = useState("");
+
+  // Phase A — per-archetype close fields.
+  //   gavekortSold (salon) — gift cards SOLD today. Surfaced on its own line,
+  //     EXCLUDED from the day-of-sale service MOMS base, flagged for the
+  //     revisor (single- vs multi-purpose voucher MOMS is a judgment call we
+  //     never auto-decide). Sent as forward-compat `gift_cards_sold` (the
+  //     backend ignores unknown fields today) + summarised into notes.
+  //   batchRef (bakery) — a Parti/Batch reference. Informational only; folded
+  //     into notes for the revisor, never part of any MOMS computation.
+  const [gavekortSold, setGavekortSold] = useState("");
+  const [batchRef, setBatchRef] = useState("");
 
   // Step 5: Meta
   const [closedBy, setClosedBy] = useState("");
@@ -1133,7 +1205,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 if (!existingKeys.has(k) && k !== "other") {
                   setPayMethods(prev => {
                     if (prev.find(m => m.key === k)) return prev;
-                    return [...prev, { key: k, label: k.charAt(0).toUpperCase() + k.slice(1), icon: "💰" }];
+                    return [...prev, { key: k, label: k.charAt(0).toUpperCase() + k.slice(1), icon: "Coins" }];
                   });
                 }
               });
@@ -1245,7 +1317,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     if (!customRevName.trim()) return;
     const key = customRevName.toLowerCase().replace(/\s+/g, "_");
     if (!revCats.find(c => c.key === key)) {
-      setRevCats([...revCats, { key, label: customRevName, icon: "📌" }]);
+      setRevCats([...revCats, { key, label: customRevName, icon: "Tag" }]);
     }
     setCustomRevName("");
   };
@@ -1277,6 +1349,22 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     const prices_include_moms_override = scanMode === "skipped" || scanMode === "result"
       ? scanMomsMode === "with-moms"
       : null;
+    // Phase A — fold the per-archetype extra fields into a revisor-readable
+    // note suffix so they survive on the close row + the revisor PDF even
+    // before the backend grows dedicated columns. Gavekort is explicitly
+    // marked as EXCLUDED from the MOMS base (never auto-decided).
+    const extraNoteParts = [];
+    const gavekortNum = gavekortSold ? parseFloat(gavekortSold) : 0;
+    if (gavekortNum > 0) {
+      extraNoteParts.push(
+        `Gavekort solgt: ${gavekortNum.toLocaleString()} ${currency} (uden for dagens moms-grundlag — vurderes af revisor).`,
+      );
+    }
+    if (config.hasBatch && batchRef.trim()) {
+      extraNoteParts.push(`Parti/Batch: ${batchRef.trim()}.`);
+    }
+    const notesWithExtras = [notes, ...extraNoteParts].filter(Boolean).join("\n") || null;
+
     return {
       date: businessDate,
       branch_id: branchId || null,
@@ -1289,7 +1377,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       tips_staff_count: staffCount ? parseInt(staffCount) : null,
       cash_counted: cashCounted ? parseFloat(cashCounted) : null,
       closed_by: closedBy || null,
-      notes: notes || null,
+      notes: notesWithExtras,
+      // Phase A forward-compat fields — the backend ignores unknown keys today
+      // (Pydantic v2 default), so these are safe to send and become available
+      // the moment DailyCloseCreate grows columns. Gavekort is deliberately a
+      // SEPARATE field, never merged into revenue_breakdown (which feeds MOMS).
+      gift_cards_sold: gavekortNum > 0 ? gavekortNum : null,
+      batch_ref: (config.hasBatch && batchRef.trim()) ? batchRef.trim() : null,
       // Z-report photo URL — backend stores on DailyClose.receipt_photo.
       // Only sent if the owner actually scanned a photo this session;
       // null preserves the existing value on update (server-side guard).
@@ -1356,6 +1450,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         return;
       }
       setAnomalyCheck(null);
+      // Sealed — one success haptic on a genuine confirmed lock. Native-only
+      // (no-op on web); the offline-queue + anomaly paths returned above, so
+      // this fires exactly once per real lock, never on draft/queue/validation-fail.
+      if (payload.status === "confirmed") haptic.success();
       trackEvent(
         payload.status === "draft" ? "daily_close_draft_saved" : "daily_close_completed",
         "daily-close",
@@ -1412,7 +1510,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6">
               <div className="flex items-start gap-3">
-                <div className="shrink-0 w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center text-xl">⚠️</div>
+                <div className="shrink-0 w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center"><Icon name="AlertTriangle" size={20} className="text-amber-600 dark:text-amber-400" /></div>
                 <div className="min-w-0">
                   <h3 className="text-lg font-bold text-gray-900 dark:text-white">{t("closeAnomalyTitle")}</h3>
                   <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t(msgKey, { today, pct, avg })}</p>
@@ -1458,7 +1556,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           <div className="space-y-4">
             <div className="rounded-xl p-6 text-center"
               style={{ background: "linear-gradient(135deg, #059669 0%, #10b981 50%, #34d399 100%)" }}>
-              <div className="text-4xl mb-3">📷</div>
+              <div className="flex justify-center mb-3"><Icon name="Image" size={36} className="text-white" /></div>
               <h2 className="text-xl font-bold text-white mb-1">{t("scanZReportTitle", "Scan your Z-report / kasserapport")}</h2>
               <p className="text-gray-100 text-sm mb-5">
                 {t("scanZReportBody", "Take photos or upload images of your Z-report — add multiple pages and we'll merge the results.")}
@@ -1466,13 +1564,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <div className="flex gap-3 justify-center">
                 <button
                   onClick={() => { if (fileInputRef.current) { fileInputRef.current.setAttribute("capture", "environment"); fileInputRef.current.click(); } }}
-                  className="px-5 py-2.5 bg-white text-gray-700 rounded-xl font-semibold shadow-sm hover:shadow-sm transition text-sm">
-                  📸 {t("takePhoto", "Take Photo")}
+                  className="px-5 py-2.5 bg-white text-gray-700 rounded-xl font-semibold shadow-sm hover:shadow-sm transition text-sm inline-flex items-center gap-1.5">
+                  <Icon name="Image" size={16} /> {t("takePhoto", "Take Photo")}
                 </button>
                 <button
                   onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
-                  className="px-5 py-2.5 bg-white/20 text-white border border-white/40 rounded-xl font-semibold hover:bg-white/30 transition text-sm">
-                  📁 {t("uploadImage", "Upload Image")}
+                  className="px-5 py-2.5 bg-white/20 text-white border border-white/40 rounded-xl font-semibold hover:bg-white/30 transition text-sm inline-flex items-center gap-1.5">
+                  <Icon name="FolderOpen" size={16} /> {t("uploadImage", "Upload Image")}
                 </button>
               </div>
               {/* MOMS / VAT toggle — owner picks before scan so OCR'd
@@ -1803,7 +1901,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   : scanFieldsDetected >= 3 ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
                     : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
               }`}>
-                🎯 {t("scanConfidenceLevel", "{level} confidence — {detected}/{total} fields detected", {
+                <Icon name="Target" size={14} className="inline align-text-bottom mr-1" /> {t("scanConfidenceLevel", "{level} confidence — {detected}/{total} fields detected", {
                   level: scanFieldsDetected >= 5 ? t("confidenceHigh", "High") : scanFieldsDetected >= 3 ? t("confidenceMedium", "Medium") : t("confidenceLow", "Low"),
                   detected: scanFieldsDetected,
                   total: scanFieldsTotal,
@@ -1831,7 +1929,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               return (
                 <div className="rounded-xl p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm text-amber-800 dark:text-amber-200 space-y-1">
                   <div>
-                    ℹ️ <strong>
+                    <Icon name="Info" size={14} className="inline align-text-bottom mr-1" /> <strong>
                       {allEmpty
                         ? t("scanGapNoBreakdown", "We couldn't detect the per-category breakdown")
                         : t("scanGapDetectedSome", "We detected {detected} of {total} revenue categories", { detected: detected.length, total: defaultRevCats.length })}
@@ -1858,8 +1956,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 return (
                   <div key={c.key} className="flex items-center gap-3">
                     <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
-                      {val ? <span className="text-emerald-600">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                      {c.icon} {c.label}
+                      {val ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                      <Icon name={c.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {c.label}
                       {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
                       {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
@@ -1919,8 +2017,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 return (
                   <div key={m.key} className="flex items-center gap-3">
                     <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
-                      {val ? <span className="text-emerald-600">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                      {m.icon} {m.label}
+                      {val ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                      <Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {m.label}
                       {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
                       {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
@@ -1968,8 +2066,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
               <div className="flex items-center gap-3">
                 <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
-                  {scanResult.tips ? <span className="text-emerald-600">✓</span> : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                  💰 {t("tipsLabel", "Tips")}
+                  {scanResult.tips ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                  <Icon name="Coins" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("tipsLabel", "Tips")}
                   {scanResult.tips && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
                   {!scanResult.tips && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">{t("scanBadgeMissing", "missing")}</span>}
                 </span>
@@ -2009,8 +2107,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {scanPhotos.length > 0 && (
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
-                    📷 {scanPhotos.length > 1 ? t("receiptPhotosLabel", "Receipt photos") : t("receiptPhotoLabel", "Receipt photo")}
+                  <span className="text-sm font-semibold text-gray-700 dark:text-gray-200 inline-flex items-center gap-1.5">
+                    <Icon name="Image" size={14} /> {scanPhotos.length > 1 ? t("receiptPhotosLabel", "Receipt photos") : t("receiptPhotoLabel", "Receipt photo")}
                   </span>
                   <span className="text-xs text-gray-500 dark:text-gray-400">
                     {t("tapToViewFullSize", "Tap to view full size")}
@@ -2034,12 +2132,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {/* Action buttons */}
             <div className="flex flex-col sm:flex-row gap-3">
               <button onClick={() => applyScanValues(true)}
-                className="flex-1 px-6 py-3 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 transition text-sm">
-                ✅ {t("useTheseValuesJumpReview", "Use these values — jump to review")}
+                className="flex-1 px-6 py-3 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 transition text-sm inline-flex items-center justify-center gap-1.5">
+                <Icon name="CheckCircle2" size={16} /> {t("useTheseValuesJumpReview", "Use these values — jump to review")}
               </button>
               <button onClick={() => applyScanValues(false)}
-                className="flex-1 px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl font-semibold hover:bg-gray-200 dark:hover:bg-gray-600 transition text-sm">
-                ✏️ {t("continueStepByStep", "Continue step-by-step")}
+                className="flex-1 px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl font-semibold hover:bg-gray-200 dark:hover:bg-gray-600 transition text-sm inline-flex items-center justify-center gap-1.5">
+                <Icon name="Pencil" size={16} /> {t("continueStepByStep", "Continue step-by-step")}
               </button>
             </div>
             <div className="flex justify-center gap-4">
@@ -2060,7 +2158,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* Date selector — defaults to today, allows past dates */}
         <div className="mb-4 flex items-center gap-3">
           <label className="text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
-            📅 {t("dateLabel", "Date")}
+            <Icon name="Calendar" size={14} /> {t("dateLabel", "Date")}
           </label>
           <input type="date" value={businessDate}
             max={getBusinessDate(cutoffHour)}
@@ -2095,7 +2193,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {prefill && !prefillLoading && (
           <div className="mb-4 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl text-sm text-blue-700 dark:text-blue-300">
             <div className="flex items-center gap-2 font-medium">
-              <span>🔄</span>
+              <Icon name="RefreshCw" size={16} />
               <span>
                 {prefill.sales.count === 1
                   ? t("syncedFromSaleOne", "Synced from {n} sale", { n: prefill.sales.count })
@@ -2113,10 +2211,46 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           </div>
         )}
 
+        {/* Gavekort redeemed today — attestation prompt. A gavekort is a TENDER,
+            not a second sale: the meal it paid for must be in revenue above, or
+            the MOMS is under-declared (DK MPV VAT falls at redemption). BonBox
+            NEVER auto-adds it — the owner confirms it's included. Amber-stronger
+            when redemptions materially exceed the gift-card tender on the day. */}
+        {prefill && !prefillLoading && (prefill.gavekort?.redeemed || 0) > 0 && (() => {
+          const redeemed = prefill.gavekort.redeemed;
+          const tender = prefill.gavekort.tender || 0;
+          const short = redeemed - tender;
+          const maybeMissing = short > 50 && short / redeemed > 0.1;
+          return (
+            <div className="mb-4 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl text-sm text-amber-800 dark:text-amber-300">
+              <div className="flex items-center gap-2 font-medium">
+                <Icon name="Gift" size={16} />
+                <span>
+                  {t("dcGkRedeemedToday", "Gavekort indløst i dag: {amount} {cur}", {
+                    amount: redeemed.toLocaleString(),
+                    cur: currency,
+                  })}
+                </span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed">
+                {maybeMissing
+                  ? t(
+                      "dcGkMaybeMissing",
+                      "Det ser ud til, at gavekort-måltidet måske ikke er med i omsætningen ovenfor. MOMS skal afregnes ved indløsning — tjek at salget er bogført, så det indgår i MOMS-grundlaget.",
+                    )
+                  : t(
+                      "dcGkConfirmIncluded",
+                      "Sørg for, at måltidet er med i omsætningen ovenfor — gavekort er en betalingsmåde, ikke et ekstra salg. BonBox lægger det ikke til automatisk.",
+                    )}
+              </p>
+            </div>
+          );
+        })()}
+
         {/* Night shift indicator */}
         {cutoffHour > 0 && businessDate !== new Date().toISOString().split("T")[0] && (
           <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl px-3 py-2 flex items-center gap-2 mb-3 border border-indigo-100 dark:border-indigo-800">
-            <span className="text-sm">🌙</span>
+            <Icon name="Moon" size={14} className="text-indigo-600 dark:text-indigo-300" />
             <p className="text-xs text-indigo-600 dark:text-indigo-300">
               <strong>{t("nightShiftLabel", "Night shift:")}</strong> {t("nightShiftClosingFor", "closing for {date} (cutoff {hour}:00 AM)", { date: new Date(businessDate + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }), hour: cutoffHour })}
             </p>
@@ -2215,7 +2349,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               if (pctOff <= 0.10) return null;  // <=10% is normal (rounding, etc.)
               return (
                 <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl p-3 text-sm text-amber-700 dark:text-amber-300">
-                  <strong>⚠️ {t("varianceFromRegister", "Variance from sales register: {amount}", { amount: `${variance > 0 ? "+" : ""}${variance.toLocaleString()} ${currency}` })}</strong>
+                  <strong><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1 text-amber-600 dark:text-amber-400" />{t("varianceFromRegister", "Variance from sales register: {amount}", { amount: `${variance > 0 ? "+" : ""}${variance.toLocaleString()} ${currency}` })}</strong>
                   <p className="text-xs mt-1 text-amber-600/80 dark:text-amber-400/80">
                     {t("closeDiffersBy", "Your close ({close}) differs by {pct}% from your POS total ({pos}). Double-check before locking — this number will be on your revisor's report.", { close: revenueTotal.toLocaleString(), pct: Math.round(pctOff * 100), pos: prefill.sales.total.toLocaleString() })}
                   </p>
@@ -2224,7 +2358,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             })()}
             {revCats.map(cat => (
               <div key={cat.key}>
-                <label className={labelClass}>{cat.icon} {cat.label}</label>
+                <label className={labelClass}><Icon name={cat.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {cat.label}</label>
                 <input type="number" inputMode="decimal" placeholder="0" className={inputClass}
                   value={revAmounts[cat.key] || ""}
                   onChange={e => setRevAmounts({ ...revAmounts, [cat.key]: e.target.value })} />
@@ -2248,7 +2382,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           <div className="space-y-4">
             {payMethods.map(m => (
               <div key={m.key}>
-                <label className={labelClass}>{m.icon} {m.label}</label>
+                <label className={labelClass}><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {m.label}</label>
                 <input type="number" inputMode="decimal" placeholder="0" className={inputClass}
                   value={payAmounts[m.key] || ""}
                   onChange={e => setPayAmounts({ ...payAmounts, [m.key]: e.target.value })} />
@@ -2269,8 +2403,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     : "bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400"
                 }`}>
                   {Math.abs(balanceDiff) < 1
-                    ? `✅ ${t("balanced", "Balanced!")}`
-                    : `⚠️ ${t("difference", "Difference")}: ${balanceDiff > 0 ? "+" : ""}${balanceDiff.toLocaleString()} ${currency}`}
+                    ? <><Icon name="CheckCircle2" size={14} className="inline align-text-bottom mr-1" />{t("balanced", "Balanced!")}</>
+                    : <><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />{`${t("difference", "Difference")}: ${balanceDiff > 0 ? "+" : ""}${balanceDiff.toLocaleString()} ${currency}`}</>}
                 </div>
               )}
             </div>
@@ -2299,7 +2433,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               )}
             </div>
             <div>
-              <label className={labelClass}>💵 {t("countedAmount", "Counted Amount")}</label>
+              <label className={labelClass}><Icon name="Banknote" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("countedAmount", "Counted Amount")}</label>
               <input type="number" inputMode="decimal" placeholder={t("countYourDrawer")} className={inputClass}
                 value={cashCounted} onChange={e => setCashCounted(e.target.value)} />
             </div>
@@ -2309,7 +2443,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   : "bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400"
               }`}>
                 {t("difference")}: {cashDiff > 0 ? "+" : ""}{cashDiff.toLocaleString()} {currency}
-                {Math.abs(cashDiff) > 100 && <p className="text-sm font-normal mt-1">⚠️ {t("offByMoreThan100", "Off by more than 100 — double-check your count")}</p>}
+                {Math.abs(cashDiff) > 100 && <p className="text-sm font-normal mt-1"><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" /> {t("offByMoreThan100", "Off by more than 100 — double-check your count")}</p>}
               </div>
             )}
             {!cashExpected && (
@@ -2322,12 +2456,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {currentStepId === "tips" && (
           <div className="space-y-4">
             <div>
-              <label className={labelClass}>💰 {t("totalTipsLabel", "Total Tips")}</label>
+              <label className={labelClass}><Icon name="Coins" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("totalTipsLabel", "Total Tips")}</label>
               <input type="number" inputMode="decimal" placeholder="0" className={inputClass}
                 value={tipsTotal} onChange={e => setTipsTotal(e.target.value)} />
             </div>
             <div>
-              <label className={labelClass}>👥 {t("staffCountLabel", "Staff Count")}</label>
+              <label className={labelClass}><Icon name="Users" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("staffCountLabel", "Staff Count")}</label>
               <input type="number" inputMode="numeric" placeholder={t("staffCountPrompt")} className={inputClass}
                 value={staffCount} onChange={e => setStaffCount(e.target.value)} />
             </div>
@@ -2348,7 +2482,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           <div className="space-y-4">
             {/* Date confirmation */}
             <div className="flex items-center gap-2 text-sm dark:text-gray-300">
-              <span>📅</span>
+              <Icon name="Calendar" size={14} className="text-gray-500 dark:text-gray-400" />
               <span className="font-medium">
                 {new Date(businessDate + "T12:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
               </span>
@@ -2362,7 +2496,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">{t("revenue")}</h3>
               {revCats.filter(c => revAmounts[c.key]).map(c => (
                 <div key={c.key} className="flex justify-between text-sm py-0.5 dark:text-gray-300">
-                  <span>{c.icon} {c.label}</span>
+                  <span><Icon name={c.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {c.label}</span>
                   <span>{parseFloat(revAmounts[c.key]).toLocaleString()} {currency}</span>
                 </div>
               ))}
@@ -2425,7 +2559,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 </div>
                 <div className="pt-2 border-t" style={{ borderColor: "rgba(99,102,241,0.15)" }}>
                   <p className="text-xs text-indigo-400">
-                    📊 {t("dailyCloseReconcileNotePre", "Daily Close is your cash-drawer reconciliation. Your moms filing in ")}<a href="/tax" className="font-bold underline hover:text-indigo-300">{t("dailyCloseReconcileNoteLink", "Skat Autopilot")}</a>{t("dailyCloseReconcileNotePost", " reads from the POS sales register — this close adds a cross-check that flags variance.")}
+                    <Icon name="BarChart3" size={14} className="inline align-text-bottom mr-1" /> {t("dailyCloseReconcileNotePre", "Daily Close is your cash-drawer reconciliation. Your moms filing in ")}<a href="/tax" className="font-bold underline hover:text-indigo-300">{t("dailyCloseReconcileNoteLink", "Skat Autopilot")}</a>{t("dailyCloseReconcileNotePost", " reads from the POS sales register — this close adds a cross-check that flags variance.")}
                   </p>
                 </div>
               </div>
@@ -2436,7 +2570,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">{t("paymentsLabel")}</h3>
               {payMethods.filter(m => payAmounts[m.key]).map(m => (
                 <div key={m.key} className="flex justify-between text-sm py-0.5 dark:text-gray-300">
-                  <span>{m.icon} {m.label}</span>
+                  <span><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {m.label}</span>
                   <span>{parseFloat(payAmounts[m.key]).toLocaleString()} {currency}</span>
                 </div>
               ))}
@@ -2483,6 +2617,38 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("total")}</span><span>{parseFloat(tipsTotal).toLocaleString()} {currency}</span></div>
                 <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("staffCountLabel", "Staff Count")}</span><span>{staffCount}</span></div>
                 {tipsPP && <div className="flex justify-between font-bold pt-2 border-t dark:border-gray-600 mt-2 dark:text-white"><span>{t("perPerson")}</span><span>{tipsPP.toLocaleString()} {currency}</span></div>}
+              </div>
+            )}
+
+            {/* Phase A — salon Gavekort solgt. Its own line, EXCLUDED from the
+                day-of-sale service MOMS base, flagged for the revisor (we never
+                auto-decide single- vs multi-purpose voucher MOMS). */}
+            {config.hasGavekort && (
+              <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-2">
+                <label className="text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
+                  <Icon name="Gift" size={14} className="text-gray-500 dark:text-gray-400" />
+                  {t("closeGavekortSoldLabel", "Gavekort solgt")}
+                </label>
+                <input type="number" inputMode="decimal" placeholder="0"
+                  className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl"
+                  value={gavekortSold} onChange={e => setGavekortSold(e.target.value)} />
+                <p className="text-xs text-amber-700 dark:text-amber-300">
+                  {t("closeGavekortMomsNote", "Holdes uden for dagens moms-grundlag — moms afgøres af din revisor (enkelt- vs flerformålsvoucher).")}
+                </p>
+              </div>
+            )}
+
+            {/* Phase A — bakery Parti / Batch reference. Informational only;
+                folded into notes for the revisor, never part of MOMS. */}
+            {config.hasBatch && (
+              <div>
+                <label className="text-sm font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
+                  <Icon name="Croissant" size={14} className="text-gray-500 dark:text-gray-400" />
+                  {t("closeBatchLabel", "Parti / Batch")}
+                </label>
+                <input type="text" placeholder={t("closeBatchPlaceholder", "fx morgenbatch #2")}
+                  className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl"
+                  value={batchRef} onChange={e => setBatchRef(e.target.value)} />
               </div>
             )}
 
@@ -2535,8 +2701,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       className="mt-1 h-4 w-4 rounded text-emerald-600 focus:ring-gray-400"
                     />
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
-                        📧 {t("autoEmailToggleLabel") || "Email owner + accountant automatically on lock"}
+                      <p className="text-sm font-medium text-gray-800 dark:text-gray-100 inline-flex items-center gap-1.5">
+                        <Icon name="Mail" size={14} className="text-gray-500 dark:text-gray-400" /> {t("autoEmailToggleLabel") || "Email owner + accountant automatically on lock"}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                         {t("autoEmailToggleHint") || "When you tap Confirm & Lock, we send one email with the kasserapport PDF + scanned Z-report photo to your owner email and your accountant."}
@@ -2545,7 +2711,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   </label>
                 ) : (
                   <div className="flex items-start gap-3">
-                    <span className="text-gray-400 mt-0.5">🔒</span>
+                    <Icon name="Lock" size={14} className="text-gray-400 mt-0.5 shrink-0" />
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
                         {t("autoEmailToggleStarterGate") || "Auto-email on lock is on Starter+"}
@@ -2604,7 +2770,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 <div className="flex flex-col items-end gap-1">
                   <button onClick={() => handleSubmit()} disabled={saving || willSave === 0}
                     className="px-6 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition disabled:opacity-50">
-                    {saving ? t("savingEllipsis", "Saving…") : !isOnline ? `📤 ${t("queueAndLockOffline", "Queue & Lock (offline)")}` : `🔒 ${t("confirmAndLock", "Confirm & Lock")}`}
+                    {saving ? (
+                      t("savingEllipsis", "Saving…")
+                    ) : !isOnline ? (
+                      <span className="inline-flex items-center gap-2"><Icon name="UploadCloud" size={16} /> {t("queueAndLockOffline", "Queue & Lock (offline)")}</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-2"><Icon name="Lock" size={16} /> {t("confirmAndLock", "Confirm & Lock")}</span>
+                    )}
                   </button>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {t("willSaveTotal", "Will save total:")} <strong className="text-gray-700 dark:text-gray-200">{willSave.toLocaleString()} {currency}</strong>
@@ -2621,7 +2793,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       guard already gates misreads. */}
                   {closeAutoEmailEntitled && autoEmailPref && (
                     <p className="text-xs text-gray-400 dark:text-gray-500 text-right max-w-[16rem]">
-                      📧 {t("lockEmailsRevisorNote", "Locking emails the kasserapport to your revisor.")}
+                      <span className="inline-flex items-start gap-1.5"><Icon name="Mail" size={13} className="mt-0.5 shrink-0" /> {t("lockEmailsRevisorNote", "Locking emails the kasserapport to your revisor.")}</span>
                     </p>
                   )}
                 </div>
@@ -2650,7 +2822,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
    L9 in the multi-barrier defense: never lie about state. If the email
    couldn't go, the card says so — it doesn't fake a green checkmark.
 */
-function JustLockedCard({ t, close, currency, onDismiss }) {
+function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
   const ritual = close.close_ritual || {};
   const closedAt = close.closed_at
     ? new Date(close.closed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
@@ -2704,10 +2876,10 @@ function JustLockedCard({ t, close, currency, onDismiss }) {
   if (emailStatus === "sent") {
     emailLine = (
       <p className="text-sm text-gray-700 dark:text-gray-200">
-        📧 {(t("closeLockedEmailSent") || "Sent to {recipients}").replace("{recipients}", recipients || "—")}
+        <Icon name="Mail" size={14} className="inline align-text-bottom mr-1" /> {(t("closeLockedEmailSent") || "Sent to {recipients}").replace("{recipients}", recipients || "—")}
         {ritual.scan_degraded && (
           <span className="block text-xs text-amber-600 dark:text-amber-400 mt-1">
-            ⚠️ {t("closeLockedScanDegraded") || "Z-report photo couldn't be fetched right now — your accountant got the PDF, no photo attached."}
+            <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedScanDegraded") || "Z-report photo couldn't be fetched right now — your accountant got the PDF, no photo attached."}
           </span>
         )}
       </p>
@@ -2715,7 +2887,7 @@ function JustLockedCard({ t, close, currency, onDismiss }) {
   } else if (emailStatus === "queued_retry") {
     emailLine = (
       <div className="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2 flex-wrap">
-        <span>📧 {t("closeLockedEmailQueued") || "Email queued for retry — we'll keep trying"}</span>
+        <span className="inline-flex items-center gap-1.5"><Icon name="Mail" size={14} /> {t("closeLockedEmailQueued") || "Email queued for retry — we'll keep trying"}</span>
         <button onClick={handleRetryEmail} disabled={retrying}
           className="text-xs px-2.5 py-1 bg-amber-500 text-white rounded-md font-medium hover:bg-amber-600 disabled:opacity-50">
           {retrying ? "..." : (t("closeLockedEmailRetry") || "Retry now")}
@@ -2725,19 +2897,19 @@ function JustLockedCard({ t, close, currency, onDismiss }) {
   } else if (emailStatus === "skipped_preference_off") {
     emailLine = (
       <p className="text-sm text-gray-600 dark:text-gray-300">
-        🔕 {t("closeLockedEmailSkippedPref") || "Auto-email is off in your settings — open Settings to turn it back on"}
+        <Icon name="BellOff" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailSkippedPref") || "Auto-email is off in your settings — open Settings to turn it back on"}
       </p>
     );
   } else if (emailStatus === "skipped_no_recipient") {
     emailLine = (
       <p className="text-sm text-amber-700 dark:text-amber-300">
-        ⚠️ {t("closeLockedEmailSkippedNoRecipient") || "No owner email on file — set one on Profile to enable auto-send"}
+        <Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailSkippedNoRecipient") || "No owner email on file — set one on Profile to enable auto-send"}
       </p>
     );
   } else if (emailStatus === "failed_skipped") {
     emailLine = (
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        ℹ️ {t("closeLockedEmailFailed") || "Email send is disabled in this environment."}
+        <Icon name="Info" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedEmailFailed") || "Email send is disabled in this environment."}
       </p>
     );
   } else if (emailStatus === "skipped_feature_locked") {
@@ -2746,12 +2918,12 @@ function JustLockedCard({ t, close, currency, onDismiss }) {
     // Starter" conversion nudge below.
     emailLine = isNativeApp() ? (
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        ℹ️ {t("closeLockedAutoSendNativeNote") || "Auto-send on lock isn't part of your current plan. You can still tap Send to revisor manually."}
+        <Icon name="Info" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedAutoSendNativeNote") || "Auto-send on lock isn't part of your current plan. You can still tap Send to revisor manually."}
       </p>
     ) : (
       <div className="text-sm bg-amber-50 dark:bg-amber-900/20 rounded-lg p-3 border border-amber-200 dark:border-amber-800">
         <p className="text-amber-800 dark:text-amber-200 font-medium">
-          💡 {t("closeLockedFreeUpgradeNudge") || "Want the kasserapport auto-sent to your accountant the moment you lock? Upgrade to Starter."}
+          <Icon name="Lightbulb" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedFreeUpgradeNudge") || "Want the kasserapport auto-sent to your accountant the moment you lock? Upgrade to Starter."}
         </p>
         {canPurchaseInApp() && (
           <a href="/subscription" className="inline-block mt-2 text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline">
@@ -2766,32 +2938,32 @@ function JustLockedCard({ t, close, currency, onDismiss }) {
   const showBankDrop = bankDrop && !bankDropDone;
 
   return (
-    <FadeIn>
+    <div className="animate-scaleIn">
       <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 rounded-xl p-4 sm:p-5 shadow-sm relative">
         <button
           onClick={onDismiss}
-          aria-label="Dismiss"
-          className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none"
+          aria-label={t("dismiss", "Dismiss")}
+          className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 leading-none"
         >
-          ×
+          <Icon name="X" size={18} />
         </button>
         <div className="flex items-start gap-3">
-          <div className="text-2xl">✓</div>
+          <Icon name="CheckCircle2" size={26} className="text-emerald-600 dark:text-emerald-500 shrink-0" />
           <div className="flex-1 space-y-3">
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-              🔒 {(t("closeLockedTitle") || "Tonight's close — locked at {time} by {who}")
+              <Icon name="Lock" size={14} className="inline align-text-bottom mr-1" /> {(t(closeTitleKeyFor(businessType)) || "Tonight's close — locked at {time} by {who}")
                 .replace("{time}", closedAt)
                 .replace("{who}", closedBy)}
             </p>
             {emailLine}
             {ritual.push_status === "sent" && (
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                🔔 {t("closeLockedPushSent") || "Owner notified via push"}
+                <Icon name="Bell" size={13} className="inline align-text-bottom mr-1" /> {t("closeLockedPushSent") || "Owner notified via push"}
               </p>
             )}
             {showBankDrop && (
               <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-amber-200 dark:border-amber-800 flex items-start gap-3">
-                <span className="text-xl">🏦</span>
+                <Icon name="Landmark" size={20} className="text-amber-600 dark:text-amber-400 shrink-0" />
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                     {t("bankDropReminderTitle") || "Bank-drop reminder"}
@@ -2811,13 +2983,13 @@ function JustLockedCard({ t, close, currency, onDismiss }) {
             )}
             {bankDropDone && (
               <p className="text-xs text-gray-700 dark:text-gray-300">
-                {t("bankDropDone") || "✓ In safe"}
+                <Icon name="Check" size={13} className="inline align-text-bottom mr-1 text-emerald-600" />{t("bankDropDone") || "In safe"}
               </p>
             )}
           </div>
         </div>
       </div>
-    </FadeIn>
+    </div>
   );
 }
 
@@ -2927,6 +3099,62 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     [data, activeRange],
   );
 
+  // ── Smart default + empty-range guidance ─────────────────────────
+  // Most owners don't close EVERY day, so a fixed "Last 7 days" default
+  // frequently lands on an empty window — "0 closes" with greyed-out
+  // export buttons reads as broken ("the report doesn't show"). We find
+  // the most recent close and, when the default window is empty,
+  // auto-advance to the smallest IN-CAP preset that actually contains
+  // it. A manual pick always wins and is never overridden; if a chosen
+  // range is still empty we show a one-tap "jump to it" hint instead of
+  // a silent dead end.
+  const mostRecentCloseDate = useMemo(() => {
+    if (!data || data.length === 0) return null;
+    return data.reduce((m, dc) => (dc.date > m ? dc.date : m), data[0].date);
+  }, [data]);
+
+  // Smallest preset (id) whose window both covers `latestIso` AND fits the
+  // user's export cap, or null if the close predates every in-cap preset.
+  const coveringPreset = (latestIso) => {
+    if (!latestIso) return null;
+    const daysAgo = Math.floor(
+      (Date.parse(todayIso()) - Date.parse(latestIso)) / 86400000,
+    );
+    // Day counts MUST match the activeRange windows exactly (7d→7, 14d→14,
+    // 1m→isoDaysAgo(29)=30, 3m→isoDaysAgo(89)=90). A mismatch (e.g. 1m=31)
+    // would resolve a 30-day-old close to "1m", whose window only spans 30
+    // days, leaving it empty and the "Show it" jump a no-op dead-end.
+    for (const [id, days] of [["7d", 7], ["14d", 14], ["1m", 30], ["3m", 90]]) {
+      if (days <= exportCapDays && daysAgo <= days - 1) return id;
+    }
+    return null;
+  };
+
+  const userPickedRange = useRef(false);
+  useEffect(() => {
+    if (userPickedRange.current) return;     // never override a manual choice
+    if (!data || data.length === 0) return;  // nothing to base a default on
+    const id = coveringPreset(mostRecentCloseDate) || "7d";
+    setRangePreset((prev) => (prev === id ? prev : id));
+    // Re-runs when exportCapDays resolves (e.g. Free → 7) so we never auto-land
+    // on a preset the user's tier has locked.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, exportCapDays, mostRecentCloseDate]);
+
+  // One-tap "show my most recent close" — used by the empty-range hint.
+  const jumpToMostRecent = () => {
+    userPickedRange.current = true;
+    const id = coveringPreset(mostRecentCloseDate);
+    if (id) {
+      setRangePreset(id);
+    } else if (mostRecentCloseDate) {
+      // Older than any in-cap preset → land a single-day custom range on it.
+      setRangePreset("custom");
+      setCustomFrom(mostRecentCloseDate);
+      setCustomTo(mostRecentCloseDate);
+    }
+  };
+
   // MIME types for the three supported export formats. Used both by
   // the download flow (blob() needs the right type for Safari to
   // render correctly) and by the accountant-send flow.
@@ -2996,7 +3224,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         );
         if (r.data?.ok) {
           setSendStatus(
-            (t("sentToAccountantOk") || "✓ Sent to") +
+            (t("sentToAccountantOk") || "Sent to") +
             ` ${r.data.sent_to}` +
             (r.data.cc_self ? ` (${t("ccdYou") || "you cc'd"})` : "")
           );
@@ -3202,7 +3430,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   if (!data.length) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
-        <p className="text-4xl mb-3">📋</p>
+        <div className="flex justify-center mb-3"><Icon name="ClipboardList" size={36} className="text-gray-400 dark:text-gray-500" /></div>
         <p className="font-semibold dark:text-white">{t("noDailyClosesYet")}</p>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("noDailyClosesYetHint") || "Submit your first end-of-day close to see history here."}</p>
       </div>
@@ -3229,6 +3457,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           t={t}
           close={lastLockedClose}
           currency={currency}
+          businessType={user?.business_type}
           onDismiss={onDismissLastLocked}
         />
       )}
@@ -3247,7 +3476,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             activeStreak.severity === "critical" ? "text-red-700 dark:text-red-300"
               : "text-amber-700 dark:text-amber-300"
           }`}>
-            {activeStreak.title} &mdash; check Insights for details
+            {activeStreak.title} &mdash; {t("dcCheckInsightsForDetails", "check Insights for details")}
           </p>
         </div>
       )}
@@ -3259,7 +3488,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           "send the whole month to my bookkeeper" format. */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
         <div className="flex items-center gap-2 mb-3">
-          <span className="text-lg">📦</span>
+          <Icon name="Package" size={18} className="text-gray-500 dark:text-gray-400" />
           <h3 className="font-bold dark:text-white text-sm">
             {t("exportToAccountantTitle") || "Export to accountant"}
           </h3>
@@ -3271,7 +3500,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
 
         {/* Preset buttons — cap-aware. Each preset declares its own
             day count; if it exceeds the user's tier cap, it renders
-            disabled with a 🔒 + upgrade tooltip. Backend re-checks
+            disabled with a lock icon + upgrade tooltip. Backend re-checks
             (defense in depth) and returns 402 if anyone bypasses. */}
         <div className="flex flex-wrap gap-2 mb-3">
           {[
@@ -3289,7 +3518,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             return (
               <button
                 key={p.id}
-                onClick={() => !locked && setRangePreset(p.id)}
+                onClick={() => { if (!locked) { userPickedRange.current = true; setRangePreset(p.id); } }}
                 disabled={locked}
                 title={locked
                   // App Store compliance (Apple 3.1.1): native tooltip drops
@@ -3309,7 +3538,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                       : "bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600 hover:border-gray-300"
                 }`}
               >
-                {locked && <span className="mr-1">🔒</span>}
+                {locked && <Icon name="Lock" size={12} className="inline align-text-bottom mr-1" />}
                 {p.label}
               </button>
             );
@@ -3324,7 +3553,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             the tier-labelled hint + upgrade link. */}
         {exportCapDays < 366 && (
           <div className="mb-3 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-2">
-            <span>💡</span>
+            <Icon name="Lightbulb" size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
             {isNativeApp() ? (
               <span className="flex-1">
                 {t("planCapHintNativePrefix") || "Export covers up to"}{" "}<strong>{exportCapDays} {t("planCapHintDays") || "days"}</strong>.
@@ -3351,7 +3580,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           <div>
             <div className="flex flex-wrap items-end gap-3 mb-3">
               <label className="text-xs text-gray-500 dark:text-gray-400">
-                From
+                {t("dcRangeFrom", "From")}
                 <input
                   type="date"
                   value={customFrom}
@@ -3362,7 +3591,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 />
               </label>
               <label className="text-xs text-gray-500 dark:text-gray-400">
-                To
+                {t("dcRangeTo", "To")}
                 <input
                   type="date"
                   value={customTo}
@@ -3383,7 +3612,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               if (span > exportCapDays) {
                 return (
                   <p className="mb-2 text-[11px] text-amber-700 dark:text-amber-400">
-                    ⚠️ This range is {span} days — your plan caps at {exportCapDays}. The export will be rejected by the server. {canPurchaseInApp() && (<a href="/subscription" className="underline font-semibold">Upgrade?</a>)}
+                    <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" /> {t("dcRangeExceedsCap", "This range is {span} days — your plan caps at {cap}. The export will be rejected by the server.", { span, cap: exportCapDays })} {canPurchaseInApp() && (<a href="/subscription" className="underline font-semibold">{t("dcUpgradeQuestion", "Upgrade?")}</a>)}
                   </p>
                 );
               }
@@ -3412,8 +3641,8 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               title={t("excelTooltip", "Best for your accountant — sortable, filterable, pivotable")}
             >
               {exportingFmt === "xlsx"
-                ? (t("generatingPdfBtn") || "⏳ Generating…")
-                : "📊 Excel"}
+                ? <><Icon name="Loader" size={14} className="animate-spin" /> {t("generatingPdfBtn") || "Generating…"}</>
+                : <><Icon name="BarChart3" size={14} /> Excel</>}
             </button>
             <button
               onClick={() => downloadRange("pdf")}
@@ -3422,8 +3651,8 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               title={t("pdfTooltip", "One-pager — easy to read, not editable")}
             >
               {exportingFmt === "pdf"
-                ? (t("generatingPdfBtn") || "⏳ Generating…")
-                : "📄 PDF"}
+                ? <><Icon name="Loader" size={14} className="animate-spin" /> {t("generatingPdfBtn") || "Generating…"}</>
+                : <><Icon name="FileText" size={14} /> PDF</>}
             </button>
             <button
               onClick={() => downloadRange("csv")}
@@ -3432,8 +3661,8 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               title={t("csvTooltip", "Raw data — for e-conomic / Dinero / Billy imports")}
             >
               {exportingFmt === "csv"
-                ? (t("generatingPdfBtn") || "⏳ Generating…")
-                : "📑 CSV"}
+                ? <><Icon name="Loader" size={14} className="animate-spin" /> {t("generatingPdfBtn") || "Generating…"}</>
+                : <><Icon name="FileSpreadsheet" size={14} /> CSV</>}
             </button>
 
             {/* Vertical divider + send-to-accountant group */}
@@ -3447,9 +3676,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 className="px-2 py-1.5 rounded-l-lg border border-amber-300 dark:border-amber-700 dark:bg-gray-800 text-amber-700 dark:text-amber-300 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50"
                 title={t("accountantFmtTooltip", "Pick the format your accountant prefers")}
               >
-                <option value="xlsx">📊 Excel</option>
-                <option value="pdf">📄 PDF</option>
-                <option value="csv">📑 CSV</option>
+                <option value="xlsx">Excel</option>
+                <option value="pdf">PDF</option>
+                <option value="csv">CSV</option>
               </select>
               <button
                 onClick={sendToAccountant}
@@ -3462,18 +3691,47 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 }
               >
                 {sendingToAccountant
-                  ? (t("sendingBtn") || "⏳ Sending…")
-                  : (t("sendToAccountantBtn") || "📤 Send to accountant")}
+                  ? <><Icon name="Loader" size={14} className="animate-spin" /> {t("sendingBtn") || "Sending…"}</>
+                  : <><Icon name="Send" size={14} /> {t("sendToAccountantBtn") || "Send to revisor"}</>}
               </button>
             </div>
           </div>
         </div>
 
+        {/* Empty-range guidance — when the chosen window has no closes but the
+            business HAS closed before, explain WHY it's empty and offer a
+            one-tap jump to the most recent close. Without this, "0 closes" +
+            greyed buttons reads as a broken report. */}
+        {rangeCount === 0 && data.length > 0 && (
+          <div className="mt-2 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 text-[11px] text-gray-600 dark:text-gray-300 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <Icon name="Lightbulb" size={14} className="shrink-0 text-gray-400 dark:text-gray-500" />
+            <span className="flex-1">
+              {t("dcRangeEmptyHint", "No closes in this window.")}
+              {mostRecentCloseDate && (
+                <>
+                  {" "}
+                  {t("dcRangeMostRecent", "Your most recent close was {date}.", {
+                    date: new Date(mostRecentCloseDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }),
+                  })}
+                </>
+              )}
+            </span>
+            {mostRecentCloseDate && (
+              <button
+                onClick={jumpToMostRecent}
+                className="font-semibold text-gray-900 dark:text-white underline hover:no-underline shrink-0"
+              >
+                {t("dcRangeShowRecent", "Show it →")}
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Hint when no accountant email is saved — points to Profile so
             the next send is one-tap. Hidden once the email is set. */}
         {!businessProfile?.accountant_email && rangeCount > 0 && (
           <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
-            💡 {t("accountantHint") || "Tip: save your accountant's email on "}
+            <Icon name="Lightbulb" size={12} className="inline align-text-bottom mr-1" /> {t("accountantHint") || "Tip: save your accountant's email on "}
             <a href="/profile" className="text-amber-600 dark:text-amber-400 hover:underline">
               {t("profileLinkLabel") || "Profile"}
             </a>
@@ -3482,7 +3740,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         )}
 
         {sendStatus && (
-          <p className="mt-2 text-xs text-emerald-600 dark:text-gray-300">✅ {sendStatus}</p>
+          <p className="mt-2 text-xs text-emerald-600 dark:text-gray-300 inline-flex items-center gap-1"><Icon name="CheckCircle2" size={14} /> {sendStatus}</p>
         )}
 
         {exportError && (
@@ -3491,12 +3749,12 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               ? "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300"
               : "text-red-500 dark:text-red-400"
           }`}>
-            <span>{exportErrorIsCap ? "🔒" : "⚠️"}</span>
+            <Icon name={exportErrorIsCap ? "Lock" : "AlertTriangle"} size={14} className="shrink-0 mt-0.5" />
             <span className="flex-1">
               {exportError}
               {exportErrorIsCap && canPurchaseInApp() && (
                 <a href="/subscription" className="ml-2 underline font-semibold hover:no-underline">
-                  Upgrade →
+                  {t("dcUpgradeArrow", "Upgrade →")}
                 </a>
               )}
             </span>
@@ -3524,21 +3782,21 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                     {new Date(dc.date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
                   </h3>
                   {(dc.status || "confirmed") === "confirmed" ? (
-                    <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded font-semibold">🔒 Locked</span>
+                    <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded font-semibold inline-flex items-center gap-1"><Icon name="Lock" size={11} /> {t("dcStatusLocked", "Locked")}</span>
                   ) : (
-                    <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded font-semibold">📝 Draft</span>
+                    <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded font-semibold inline-flex items-center gap-1"><Icon name="Pencil" size={11} /> {t("dcStatusDraft", "Draft")}</span>
                   )}
                 </div>
-                {dc.closed_by && <p className="text-xs text-gray-400">Closed by {dc.closed_by}</p>}
+                {dc.closed_by && <p className="text-xs text-gray-400">{t("dcClosedBy", "Closed by {name}", { name: dc.closed_by })}</p>}
                 {dc.unlock_reason && (
-                  <p className="text-xs text-amber-500 mt-0.5">Unlocked: {dc.unlock_reason}</p>
+                  <p className="text-xs text-amber-500 mt-0.5">{t("dcUnlockedReason", "Unlocked: {reason}", { reason: dc.unlock_reason })}</p>
                 )}
               </div>
               <div className="text-right">
                 <p className="text-lg font-bold text-emerald-600 dark:text-gray-300">{dc.revenue_total?.toLocaleString()} {currency}</p>
                 {revChange !== null && Math.abs(revChange) >= 1 && (
                   <p className={`text-[11px] font-semibold ${revChange > 0 ? "text-emerald-600" : "text-red-500"}`}>
-                    {revChange > 0 ? "↑" : "↓"} {Math.abs(revChange)}% vs prev
+                    {revChange > 0 ? "↑" : "↓"} {Math.abs(revChange)}% {t("dcVsPrev", "vs prev")}
                   </p>
                 )}
               </div>
@@ -3567,11 +3825,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               <div className="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
                 {dc.cash_difference !== null && (
                   <span className={dc.cash_difference < -100 ? "text-red-500" : ""}>
-                    Cash: {dc.cash_difference > 0 ? "+" : ""}{dc.cash_difference?.toLocaleString()}
+                    {t("dcCashLabel", "Cash")}: {dc.cash_difference > 0 ? "+" : ""}{dc.cash_difference?.toLocaleString()}
                   </span>
                 )}
                 {dc.tips_total > 0 && (
-                  <span>Tips: {dc.tips_total?.toLocaleString()} ({dc.tips_staff_count} staff)
+                  <span>{t("tipsLabel", "Tips")}: {dc.tips_total?.toLocaleString()} ({t("dcStaffCountInline", "{count} staff", { count: dc.tips_staff_count })})
                     {tipsChange !== null && Math.abs(tipsChange) >= 1 && (
                       <span className={`ml-1 font-semibold ${tipsChange > 0 ? "text-emerald-600" : "text-red-500"}`}>
                         {tipsChange > 0 ? "↑" : "↓"}{Math.abs(tipsChange)}%
@@ -3589,9 +3847,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                     retention made visible. */}
                 {dc.receipt_photo && (
                   <a href={dc.receipt_photo} target="_blank" rel="noreferrer"
-                    title="View original Z-report photo"
+                    title={t("dcViewOriginalZReport", "View original Z-report photo")}
                     className="inline-flex items-center gap-1.5 text-xs px-2 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/40 font-medium">
-                    📷 Receipt
+                    <Icon name="Image" size={13} /> {t("dcReceiptLabel", "Receipt")}
                   </a>
                 )}
                 {/* Locked closes: show Unlock; drafts: show Edit. Both
@@ -3600,23 +3858,23 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                     the now-draft row. */}
                 {(dc.status || "confirmed") === "confirmed" && (
                   <button onClick={() => { setUnlockId(dc.id); setUnlockReason(""); }}
-                    className="text-xs px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 font-medium">
-                    🔓 Unlock
+                    className="text-xs px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 font-medium inline-flex items-center gap-1.5">
+                    <Icon name="LockOpen" size={13} /> {t("dcUnlock", "Unlock")}
                   </button>
                 )}
                 {(dc.status || "confirmed") === "draft" && onEdit && (
                   <button onClick={() => onEdit(dc)}
-                    className="text-xs px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 font-medium">
-                    ✏️ Edit
+                    className="text-xs px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 font-medium inline-flex items-center gap-1.5">
+                    <Icon name="Pencil" size={13} /> {t("edit", "Edit")}
                   </button>
                 )}
                 <button onClick={() => shareDc(dc)} disabled={sharing === dc.id}
-                  className="text-xs px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 font-medium disabled:opacity-50">
-                  {sharing === dc.id ? "..." : `📨 ${t("send") || "Send"}`}
+                  className="text-xs px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 font-medium disabled:opacity-50 inline-flex items-center gap-1.5">
+                  {sharing === dc.id ? "..." : <><Icon name="Send" size={13} /> {t("send") || "Send"}</>}
                 </button>
                 <button onClick={() => downloadPdf(dc.id, dc.date)} disabled={downloading === dc.id}
-                  className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 font-medium dark:text-gray-300">
-                  {downloading === dc.id ? "..." : "📄 PDF"}
+                  className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 font-medium dark:text-gray-300 inline-flex items-center gap-1.5">
+                  {downloading === dc.id ? "..." : <><Icon name="FileText" size={13} /> PDF</>}
                 </button>
               </div>
             </div>
@@ -3628,22 +3886,22 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       {unlockId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setUnlockId(null)}>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-sm" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold dark:text-white mb-1">🔓 Unlock Daily Close</h3>
+            <h3 className="text-lg font-bold dark:text-white mb-1 inline-flex items-center gap-2"><Icon name="LockOpen" size={18} /> {t("dcUnlockModalTitle", "Unlock Daily Close")}</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-              This will allow editing. Enter a reason for the audit trail.
+              {t("dcUnlockModalBody", "This will allow editing. Enter a reason for the audit trail.")}
             </p>
-            <textarea placeholder="e.g. Accountant found an error in cash count..."
+            <textarea placeholder={t("dcUnlockReasonPlaceholder", "e.g. Accountant found an error in cash count…")}
               rows={3}
               className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none mb-4"
               value={unlockReason} onChange={e => setUnlockReason(e.target.value)} />
             <div className="flex gap-3">
               <button onClick={() => setUnlockId(null)}
                 className="flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-700 rounded-xl font-medium text-sm dark:text-gray-300">
-                Cancel
+                {t("cancel", "Cancel")}
               </button>
               <button onClick={handleUnlock} disabled={unlocking || !unlockReason.trim()}
-                className="flex-1 px-4 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm hover:bg-amber-600 transition disabled:opacity-50">
-                {unlocking ? "Unlocking..." : "🔓 Unlock"}
+                className="flex-1 px-4 py-2.5 bg-amber-500 text-white rounded-xl font-semibold text-sm hover:bg-amber-600 transition disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
+                {unlocking ? t("dcUnlocking", "Unlocking…") : <><Icon name="LockOpen" size={15} /> {t("dcUnlock", "Unlock")}</>}
               </button>
             </div>
           </div>
@@ -3695,8 +3953,8 @@ function BranchSummaryView({ currency }) {
   if (loading) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
-        <p className="text-4xl mb-3 animate-pulse">🏢</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400">Loading branch data...</p>
+        <div className="flex justify-center mb-3 animate-pulse"><Icon name="Building2" size={36} className="text-gray-400 dark:text-gray-500" /></div>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{t("dcLoadingBranchData", "Loading branch data…")}</p>
       </div>
     );
   }
@@ -3704,7 +3962,7 @@ function BranchSummaryView({ currency }) {
   if (!data || !data.branches?.length) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
-        <p className="text-4xl mb-3">🏢</p>
+        <div className="flex justify-center mb-3"><Icon name="Building2" size={36} className="text-gray-400 dark:text-gray-500" /></div>
         <p className="font-semibold dark:text-white">{t("noBranchData")}</p>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("noBranchDataHint") || "Submit daily closes for multiple branches to see comparisons."}</p>
       </div>
@@ -3719,10 +3977,10 @@ function BranchSummaryView({ currency }) {
       {/* Range toggle */}
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-sm dark:text-white flex items-center gap-1.5">
-          <span>🏢</span> Branch Comparison
+          <Icon name="Building2" size={15} /> {t("dcBranchComparison", "Branch Comparison")}
         </h3>
         <div className="flex gap-0.5 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
-          {[{ v: "1", l: "Today" }, { v: "7", l: "7 days" }, { v: "30", l: "30 days" }].map(r => (
+          {[{ v: "1", l: t("dcRangeToday", "Today") }, { v: "7", l: t("dcRange7Days", "7 days") }, { v: "30", l: t("dcRange30Days", "30 days") }].map(r => (
             <button key={r.v} onClick={() => setRange(r.v)}
               className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
                 range === r.v ? "bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
@@ -3764,14 +4022,16 @@ function BranchSummaryView({ currency }) {
                 <div className="flex items-center gap-2">
                   <h3 className="font-bold dark:text-white">{b.branch_name}</h3>
                   {i === 0 && branches.length > 1 && (
-                    <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded font-semibold">Top</span>
+                    <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded font-semibold">{t("dcTopBadge", "Top")}</span>
                   )}
                 </div>
-                <p className="text-xs text-gray-400 mt-0.5">{b.days_count} close{b.days_count !== 1 ? "s" : ""} &middot; avg {b.avg_daily_revenue?.toLocaleString()}/day</p>
+                <p className="text-xs text-gray-400 mt-0.5">{b.days_count === 1
+                  ? t("dcBranchClosesAvgOne", "{count} close · avg {avg}/day", { count: b.days_count, avg: b.avg_daily_revenue?.toLocaleString() })
+                  : t("dcBranchClosesAvgMany", "{count} closes · avg {avg}/day", { count: b.days_count, avg: b.avg_daily_revenue?.toLocaleString() })}</p>
               </div>
               <div className="text-right">
                 <p className="text-lg font-bold text-emerald-600 dark:text-gray-300">{b.revenue_total?.toLocaleString()} <span className="text-xs font-normal text-gray-400">{currency}</span></p>
-                <p className="text-[10px] text-gray-400">{revShare}% of total</p>
+                <p className="text-[10px] text-gray-400">{t("dcPctOfTotal", "{pct}% of total", { pct: revShare })}</p>
               </div>
             </div>
 
@@ -3782,8 +4042,8 @@ function BranchSummaryView({ currency }) {
 
             {/* Metrics row */}
             <div className="flex gap-4 mt-3 text-xs text-gray-500 dark:text-gray-400">
-              <span>Cash: <span className={b.cash_diff_total < -100 ? "text-red-500 font-semibold" : ""}>{b.cash_diff_total > 0 ? "+" : ""}{b.cash_diff_total?.toLocaleString()}</span></span>
-              {b.tips_total > 0 && <span>Tips: {b.tips_total?.toLocaleString()}</span>}
+              <span>{t("dcCashLabel", "Cash")}: <span className={b.cash_diff_total < -100 ? "text-red-500 font-semibold" : ""}>{b.cash_diff_total > 0 ? "+" : ""}{b.cash_diff_total?.toLocaleString()}</span></span>
+              {b.tips_total > 0 && <span>{t("tipsLabel", "Tips")}: {b.tips_total?.toLocaleString()}</span>}
             </div>
           </div>
         );
@@ -3861,16 +4121,16 @@ function CalendarHeatMap({ data, currency }) {
 
   const legendItems = mode === "revenue"
     ? [
-        { color: "bg-gray-200 dark:bg-gray-700", label: "None" },
-        { color: "bg-gray-200 dark:bg-gray-800", label: "Low" },
-        { color: "bg-emerald-500 dark:bg-gray-900", label: "Mid" },
-        { color: "bg-gray-800 dark:bg-emerald-500", label: "High" },
+        { color: "bg-gray-200 dark:bg-gray-700", label: t("dcLegendNone", "None") },
+        { color: "bg-gray-200 dark:bg-gray-800", label: t("dcLegendLow", "Low") },
+        { color: "bg-emerald-500 dark:bg-gray-900", label: t("dcLegendMid", "Mid") },
+        { color: "bg-gray-800 dark:bg-emerald-500", label: t("dcLegendHigh", "High") },
       ]
     : [
-        { color: "bg-gray-200 dark:bg-gray-700", label: "N/A" },
-        { color: "bg-emerald-300 dark:bg-gray-800", label: "Even/+" },
+        { color: "bg-gray-200 dark:bg-gray-700", label: t("dcLegendNA", "N/A") },
+        { color: "bg-emerald-300 dark:bg-gray-800", label: t("dcLegendEvenPlus", "Even/+") },
         { color: "bg-amber-300 dark:bg-amber-700", label: "-100" },
-        { color: "bg-red-500 dark:bg-red-500", label: "Short" },
+        { color: "bg-red-500 dark:bg-red-500", label: t("dcLegendShort", "Short") },
       ];
 
   return (
@@ -3878,10 +4138,10 @@ function CalendarHeatMap({ data, currency }) {
       {/* Header + mode toggle */}
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-semibold text-sm dark:text-white flex items-center gap-1.5">
-          <span>📆</span> 90-Day Overview
+          <Icon name="Calendar" size={15} /> {t("dcHeatmap90DayOverview", "90-Day Overview")}
         </h3>
         <div className="flex gap-0.5 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
-          {[{ id: "revenue", label: "Revenue" }, { id: "cash", label: "Cash +/-" }].map(m => (
+          {[{ id: "revenue", label: t("dcHeatmapRevenueMode", "Revenue") }, { id: "cash", label: t("dcHeatmapCashMode", "Cash +/-") }].map(m => (
             <button key={m.id} onClick={() => setMode(m.id)}
               className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
                 mode === m.id ? "bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
@@ -3929,10 +4189,10 @@ function CalendarHeatMap({ data, currency }) {
             {hovered.dc ? (
               mode === "revenue"
                 ? <> &mdash; {hovered.dc.revenue_total?.toLocaleString()} {currency}</>
-                : <> &mdash; Cash: {hovered.dc.cash_difference !== null && hovered.dc.cash_difference !== undefined
+                : <> &mdash; {t("dcHeatmapCashLabel", "Cash")}: {hovered.dc.cash_difference !== null && hovered.dc.cash_difference !== undefined
                     ? `${hovered.dc.cash_difference > 0 ? "+" : ""}${hovered.dc.cash_difference?.toLocaleString()} ${currency}`
-                    : "N/A"}</>
-            ) : <> &mdash; No close</>}
+                    : t("dcHeatmapNA", "N/A")}</>
+            ) : <> &mdash; {t("dcHeatmapNoClose", "No close")}</>}
           </p>
         ) : (
           <p className="text-[10px] text-gray-400 dark:text-gray-500">{t("hoverDayForDetails")}</p>
@@ -3941,11 +4201,11 @@ function CalendarHeatMap({ data, currency }) {
 
       {/* Legend */}
       <div className="flex items-center gap-2 mt-1">
-        <span className="text-[9px] text-gray-400">Less</span>
+        <span className="text-[9px] text-gray-400">{t("dcHeatmapLess", "Less")}</span>
         {legendItems.map((l, i) => (
           <div key={i} className={`w-2.5 h-2.5 rounded-[2px] ${l.color}`} title={l.label} />
         ))}
-        <span className="text-[9px] text-gray-400">More</span>
+        <span className="text-[9px] text-gray-400">{t("dcHeatmapMore", "More")}</span>
       </div>
     </div>
   );
@@ -3959,7 +4219,7 @@ function InsightsView({ data, currency, t }) {
   if (!data || !data.has_data) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
-        <p className="text-4xl mb-3">💡</p>
+        <div className="flex justify-center mb-3"><Icon name="Lightbulb" size={36} className="text-gray-400 dark:text-gray-500" /></div>
         <p className="font-semibold dark:text-white">{t("notEnoughDataYet")}</p>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("notEnoughDataHint") || "Submit a few daily closes to unlock insights about your revenue, tips, and cash handling."}</p>
       </div>
@@ -3979,9 +4239,9 @@ function InsightsView({ data, currency, t }) {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <SummaryCard label="Avg Daily Revenue" value={`${summary.avg_daily_revenue?.toLocaleString()} ${currency}`} />
-        <SummaryCard label="Total Tips (90d)" value={`${summary.total_tips?.toLocaleString()} ${currency}`} />
-        <SummaryCard label="Cash Drift (90d)" value={`${summary.total_cash_difference > 0 ? "+" : ""}${summary.total_cash_difference?.toLocaleString()} ${currency}`}
+        <SummaryCard label={t("dcInsightsAvgDailyRevenue", "Avg Daily Revenue")} value={`${summary.avg_daily_revenue?.toLocaleString()} ${currency}`} />
+        <SummaryCard label={t("dcInsightsTotalTips90d", "Total Tips (90d)")} value={`${summary.total_tips?.toLocaleString()} ${currency}`} />
+        <SummaryCard label={t("dcInsightsCashDrift90d", "Cash Drift (90d)")} value={`${summary.total_cash_difference > 0 ? "+" : ""}${summary.total_cash_difference?.toLocaleString()} ${currency}`}
           color={summary.total_cash_difference < -200 ? "red" : "green"} />
       </div>
 
@@ -3994,7 +4254,7 @@ function InsightsView({ data, currency, t }) {
               <h3 className="font-bold dark:text-white">{ins.title}</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{ins.detail}</p>
               {ins.benchmark && (
-                <p className="text-xs text-gray-400 mt-2">Industry benchmark: {ins.benchmark}</p>
+                <p className="text-xs text-gray-400 mt-2">{t("dcInsightsIndustryBenchmark", "Industry benchmark")}: {ins.benchmark}</p>
               )}
             </div>
           </div>
@@ -4003,7 +4263,7 @@ function InsightsView({ data, currency, t }) {
 
       {insights.length === 0 && (
         <div className="text-center text-gray-400 text-sm py-8">
-          Keep logging daily closes to unlock more insights.
+          {t("dcInsightsKeepLogging", "Keep logging daily closes to unlock more insights.")}
         </div>
       )}
     </div>
@@ -4011,6 +4271,7 @@ function InsightsView({ data, currency, t }) {
 }
 
 function StreakAlertCard({ alert, currency }) {
+  const { t } = useLanguage();
   const styles = {
     critical: {
       border: "border-red-300 dark:border-red-700",
@@ -4049,7 +4310,7 @@ function StreakAlertCard({ alert, currency }) {
             <h3 className={`font-bold ${s.title}`}>{alert.title}</h3>
             {alert.is_active && (
               <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${s.badge}`}>
-                Active
+                {t("dcStreakActiveBadge", "Active")}
               </span>
             )}
           </div>
@@ -4061,13 +4322,13 @@ function StreakAlertCard({ alert, currency }) {
               <div key={i} className={`w-2.5 h-2.5 rounded-full ${s.dot}`} />
             ))}
             <span className="text-xs ml-1.5 text-gray-500 dark:text-gray-400">
-              {alert.streak_length} consecutive days &middot; {alert.streak_total?.toLocaleString()} {currency}
+              {t("dcStreakConsecutiveDays", "{count} consecutive days", { count: alert.streak_length })} &middot; {alert.streak_total?.toLocaleString()} {currency}
             </span>
           </div>
 
           {alert.total_streaks > 1 && (
             <p className="text-xs mt-2 text-gray-400 dark:text-gray-500">
-              {alert.total_streaks} separate shortage streaks detected in last 90 days
+              {t("dcStreakSeparateShortages", "{count} separate shortage streaks detected in last 90 days", { count: alert.total_streaks })}
             </p>
           )}
         </div>
