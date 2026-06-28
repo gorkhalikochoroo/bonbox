@@ -6,6 +6,8 @@ the real detectors don't crash on an empty account (they all return None).
 Run:
   cd backend && python3 -m pytest tests/test_diagnostics.py -x -q
 """
+from datetime import timedelta
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -13,8 +15,10 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base
 from app.models.user import User
+from app.models.daily_close import DailyClose
 from app.services import diagnostics_service as ds
 from app.services.auth import hash_password
+from app.services.tz_utils import business_today_local
 
 
 @pytest.fixture
@@ -86,3 +90,104 @@ def test_finding_shape_is_structured_not_human_strings():
     assert set(f.keys()) == {"code", "severity", "deep_link", "meta"}
     assert f["meta"] == {"count": 2}
     assert "title" not in f and "message" not in f
+
+
+def _add_close(db, user, *, d, status, revenue, payment):
+    c = DailyClose(
+        user_id=user.id,
+        date=d,
+        status=status,
+        revenue_total=revenue,
+        payment_total=payment,
+    )
+    db.add(c)
+    db.commit()
+    db.refresh(c)
+    return c
+
+
+def _only(findings, code):
+    return [f for f in findings if f["code"] == code]
+
+
+def test_stale_draft_close_detected_with_ties_out_false(db):
+    """(a) A draft dated 30 days ago whose payments ≠ revenue → flagged
+    stale_draft_close, severity warn, ties_out False."""
+    user = _owner(db)
+    biz_today = business_today_local(user)
+    _add_close(
+        db, user,
+        d=biz_today - timedelta(days=30),
+        status="draft",
+        revenue=10000,
+        payment=7000,  # 3.000 kr off → does NOT tie out
+    )
+
+    findings = ds.run_diagnostics(db, user)
+    hits = _only(findings, "stale_draft_close")
+    assert len(hits) == 1
+    f = hits[0]
+    assert f["severity"] == "warn"
+    assert f["meta"]["ties_out"] is False
+    assert f["meta"]["count"] == 1
+    assert f["meta"]["date"] == (biz_today - timedelta(days=30)).isoformat()
+    # Deep-link uses the daily-close date grammar.
+    assert f["deep_link"] == f"/daily-close?date={f['meta']['date']}"
+
+
+def test_close_unreconciled_detected_urgent(db):
+    """(b) A CONFIRMED close with payment far from revenue → flagged
+    close_unreconciled, severity urgent."""
+    user = _owner(db)
+    biz_today = business_today_local(user)
+    _add_close(
+        db, user,
+        d=biz_today - timedelta(days=3),
+        status="confirmed",
+        revenue=10000,
+        payment=4000,  # 6.000 kr / 60% off → clear mismatch
+    )
+
+    findings = ds.run_diagnostics(db, user)
+    hits = _only(findings, "close_unreconciled")
+    assert len(hits) == 1
+    f = hits[0]
+    assert f["severity"] == "urgent"
+    assert f["meta"]["diff"] == -6000.0
+    assert f["meta"]["date"] == (biz_today - timedelta(days=3)).isoformat()
+    assert f["deep_link"] == f"/daily-close?date={f['meta']['date']}"
+    # urgent sorts to the very front of the queue.
+    assert findings[0]["code"] == "close_unreconciled"
+
+
+def test_confirmed_close_that_ties_out_is_not_flagged(db):
+    """(c) A CONFIRMED close that ties out (within tolerance) → NO false
+    positive. A tiny tips/rounding gap must never alarm."""
+    user = _owner(db)
+    biz_today = business_today_local(user)
+    _add_close(
+        db, user,
+        d=biz_today - timedelta(days=3),
+        status="confirmed",
+        revenue=10000,
+        payment=10050,  # 50 kr / 0.5% → under both thresholds, tied out
+    )
+
+    findings = ds.run_diagnostics(db, user)
+    assert _only(findings, "close_unreconciled") == []
+
+
+def test_draft_dated_today_is_not_flagged_as_stale(db):
+    """(d) A draft for TODAY → NOT stale (the day may still be open)."""
+    user = _owner(db)
+    biz_today = business_today_local(user)
+    _add_close(
+        db, user,
+        d=biz_today,
+        status="draft",
+        revenue=10000,
+        payment=7000,
+    )
+
+    findings = ds.run_diagnostics(db, user)
+    assert _only(findings, "stale_draft_close") == []

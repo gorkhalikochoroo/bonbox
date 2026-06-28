@@ -20,7 +20,7 @@ i18n stay on the client.
     }
 """
 import logging
-from datetime import timedelta
+from datetime import date, timedelta  # noqa: F401 — `date` used in type hint string
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from app.models.reservation import Reservation
 from app.models.payment_connection import PaymentConnection
 from app.models.daily_close import DailyClose
-from app.services.tz_utils import today_local
+from app.services.tz_utils import today_local, business_today_local
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,37 @@ logger = logging.getLogger(__name__)
 _STALE_FEED_DAYS = 3
 _CLOSES_REGULARLY_MIN = 3   # confirmed closes in the last 14 days
 _REGULAR_WINDOW_DAYS = 14
+
+# A draft close older than this (business days) is "stale" — the day is done
+# but the report was never locked, so nothing has tied out yet.
+_STALE_DRAFT_DAYS = 2
+# How far back we look for confirmed-but-unreconciled closes.
+_UNRECONCILED_WINDOW_DAYS = 31
+# A CONFIRMED close only counts as a CLEAR mismatch when the gap is BOTH
+# absolutely large (>100 kr) AND relatively large (>5%). Conservative on
+# purpose: tips / rounding / gift cards legitimately move a tied-out close a
+# little, and a false "doesn't tie out" on a locked report destroys trust.
+_UNRECONCILED_ABS_KR = 100.0
+_UNRECONCILED_PCT = 0.05
+# A draft "ties out" when payments and revenue agree within rounding noise.
+_TIE_OUT_ABS_KR = 1.0
+_TIE_OUT_PCT = 0.005
+
+
+def _close_date(close) -> "date | None":  # noqa: F821 — date is a runtime type
+    """The close's business date, falling back to created_at's date."""
+    d = getattr(close, "date", None)
+    if d is not None:
+        return d
+    created = getattr(close, "created_at", None)
+    return created.date() if created is not None else None
+
+
+def _ties_out(payment_total, revenue_total) -> bool:
+    """True when payments ≈ revenue within rounding noise (<=1 kr or 0.5%)."""
+    rev = float(revenue_total or 0)
+    pay = float(payment_total or 0)
+    return abs(pay - rev) <= max(_TIE_OUT_ABS_KR, _TIE_OUT_PCT * rev)
 
 
 def _finding(code, severity, deep_link, meta=None):
@@ -137,11 +168,108 @@ def _detect_close_missing(db: Session, user, now):
     )
 
 
+def _detect_stale_draft_close(db: Session, user, now):
+    """A daily close left in DRAFT for >2 business days — the day is over but
+    the report was never locked, so its numbers haven't tied out and it can't
+    reach the revisor. We surface the OLDEST offender (the one most at risk),
+    and flag whether its payments even agree with its revenue so the message
+    can say "…der ikke stemmer". Read-only: we point at the close, never lock
+    or alter it."""
+    cutoff_day = business_today_local(user) - timedelta(days=_STALE_DRAFT_DAYS)
+
+    drafts = (
+        db.query(DailyClose)
+        .filter(
+            DailyClose.user_id == user.id,
+            DailyClose.status == "draft",
+            DailyClose.is_deleted.isnot(True),
+        )
+        .all()
+    )
+    stale = []
+    for c in drafts:
+        d = _close_date(c)
+        if d is not None and d < cutoff_day:
+            stale.append((d, c))
+    if not stale:
+        return None
+
+    stale.sort(key=lambda pair: pair[0])  # oldest first
+    oldest_date, oldest = stale[0]
+    revenue_total = float(oldest.revenue_total or 0)
+    payment_total = float(oldest.payment_total or 0)
+    return _finding(
+        "stale_draft_close",
+        "warn",
+        f"/daily-close?date={oldest_date.isoformat()}",
+        {
+            "date": oldest_date.isoformat(),
+            "count": len(stale),
+            "revenue_total": revenue_total,
+            "payment_total": payment_total,
+            "ties_out": _ties_out(payment_total, revenue_total),
+        },
+    )
+
+
+def _detect_close_unreconciled(db: Session, user, now):
+    """A CONFIRMED (locked) close whose payments clearly don't match its
+    revenue — the kind of mismatch that must NOT silently flow to the revisor.
+    Conservative by design (>5% AND >100 kr): tips, rounding and gift cards
+    legitimately move a tied-out close a little, and a false alarm on a locked
+    report would destroy owner trust. We surface the WORST (largest gap) of the
+    most-recent window. Read-only: we route the owner to the close, never
+    'reconcile' it ourselves."""
+    window_start = business_today_local(user) - timedelta(days=_UNRECONCILED_WINDOW_DAYS)
+
+    closes = (
+        db.query(DailyClose)
+        .filter(
+            DailyClose.user_id == user.id,
+            DailyClose.status == "confirmed",
+            DailyClose.is_deleted.isnot(True),
+            DailyClose.date >= window_start,
+        )
+        .all()
+    )
+    worst = None
+    worst_diff = 0.0
+    for c in closes:
+        revenue_total = float(c.revenue_total or 0)
+        if revenue_total <= 0:
+            continue
+        payment_total = float(c.payment_total or 0)
+        diff = abs(payment_total - revenue_total)
+        if diff > max(_UNRECONCILED_ABS_KR, _UNRECONCILED_PCT * revenue_total):
+            if diff > worst_diff:
+                worst_diff = diff
+                worst = c
+    if worst is None:
+        return None
+
+    worst_date = _close_date(worst)
+    revenue_total = float(worst.revenue_total or 0)
+    payment_total = float(worst.payment_total or 0)
+    return _finding(
+        "close_unreconciled",
+        "urgent",
+        f"/daily-close?date={worst_date.isoformat()}" if worst_date else "/daily-close",
+        {
+            "date": worst_date.isoformat() if worst_date else None,
+            "revenue_total": revenue_total,
+            "payment_total": payment_total,
+            "diff": round(payment_total - revenue_total, 2),
+        },
+    )
+
+
 # Registry — add a detector here and it joins the queue. Each runs guarded.
 _DETECTORS = [
     _detect_unconfirmed_reservations,
     _detect_stale_bank_feed,
     _detect_close_missing,
+    _detect_stale_draft_close,
+    _detect_close_unreconciled,
 ]
 
 # Severity ordering for a stable, owner-friendly sort (urgent first).

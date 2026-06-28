@@ -1278,6 +1278,11 @@ const translations = {
     nyqStaleFeedAction: "Open connections",
     nyqCloseMissing: "You didn't close {date}",
     nyqCloseMissingAction: "Close the day",
+    nyqStaleDraft: "Unlocked kladde from {date}{notTie} — review and lock",
+    nyqNotTie: ", that doesn't tie out",
+    nyqStaleDraftAction: "Review",
+    nyqUnreconciled: "The {date} lukning doesn't tie out: payments {payment} ≠ omsætning {revenue}",
+    nyqUnreconciledAction: "Review",
     // Sign out all other devices (token_version revocation).
     signOutAllTitle: "Signed in elsewhere?",
     signOutAllDesc: "Sign out on every other phone, tablet or computer. This one stays signed in.",
@@ -7988,6 +7993,11 @@ const translations = {
     nyqStaleFeedAction: "Åbn forbindelser",
     nyqCloseMissing: "Du lukkede ikke {date}",
     nyqCloseMissingAction: "Luk dagen",
+    nyqStaleDraft: "Ulåst kladde fra {date}{notTie} — gennemgå og lås",
+    nyqNotTie: ", der ikke stemmer",
+    nyqStaleDraftAction: "Gennemgå",
+    nyqUnreconciled: "Lukningen {date} stemmer ikke: betalinger {payment} ≠ omsætning {revenue}",
+    nyqUnreconciledAction: "Gennemgå",
     // Log ud af alle andre enheder (token_version-spærring).
     signOutAllTitle: "Logget ind andre steder?",
     signOutAllDesc: "Log ud på alle andre telefoner, tablets og computere. Denne enhed forbliver logget ind.",

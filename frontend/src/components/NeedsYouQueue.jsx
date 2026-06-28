@@ -11,9 +11,10 @@
 // (amber/red), Lucide outline icons, no emoji.
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, CalendarCheck, Landmark, ChevronRight } from "lucide-react";
+import { AlertTriangle, CalendarCheck, Landmark, FileClock, Scale, ChevronRight } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { formatKr } from "../utils/currency";
 
 // code → { icon, title(t, meta), action(t) }. Adding a detector server-side +
 // a row here is all it takes to extend the queue.
@@ -35,6 +36,29 @@ const RENDERERS = {
     icon: CalendarCheck,
     title: (t, m) => t("nyqCloseMissing", "You didn't close {date}", { date: m.date }),
     action: (t) => t("nyqCloseMissingAction", "Close the day"),
+  },
+  // A draft kasserapport left unlocked past its day. When it doesn't tie out
+  // we say so ("…der ikke stemmer") — that's the trust-critical signal: a
+  // close that won't reconcile must be caught BEFORE it reaches the revisor.
+  stale_draft_close: {
+    icon: FileClock,
+    title: (t, m) =>
+      t("nyqStaleDraft", "Unlocked kladde from {date}{notTie} — review and lock", {
+        date: m.date,
+        notTie: m.ties_out === false ? t("nyqNotTie", ", that doesn't tie out") : "",
+      }),
+    action: (t) => t("nyqStaleDraftAction", "Review"),
+  },
+  // A confirmed (locked) close whose payments clearly don't match revenue.
+  close_unreconciled: {
+    icon: Scale,
+    title: (t, m) =>
+      t("nyqUnreconciled", "The {date} lukning doesn't tie out: payments {payment} ≠ omsætning {revenue}", {
+        date: m.date,
+        payment: formatKr(m.payment_total),
+        revenue: formatKr(m.revenue_total),
+      }),
+    action: (t) => t("nyqUnreconciledAction", "Review"),
   },
 };
 
