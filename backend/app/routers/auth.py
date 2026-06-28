@@ -558,7 +558,7 @@ def register(request: Request, response: Response, data: UserRegister, db: Sessi
     # rarely complete email verification, so notifying only at that step
     # filters out 90%+ of fake-account noise from the admin inbox.
 
-    token = create_access_token(str(user.id))
+    token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
@@ -639,7 +639,7 @@ def google_auth(request: Request, response: Response, data: GoogleAuthRequest, d
             except Exception:
                 pass
 
-    token = create_access_token(str(user.id))
+    token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
@@ -875,7 +875,7 @@ def apple_auth(
             except Exception:
                 pass
 
-    token = create_access_token(str(user.id))
+    token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
@@ -898,7 +898,7 @@ def login(request: Request, response: Response, data: UserLogin, db: Session = D
             detail="Invalid email or password",
         )
 
-    token = create_access_token(str(user.id))
+    token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))
 
@@ -910,6 +910,56 @@ def logout(request: Request, response: Response):
     """
     _clear_auth_cookie(response, request)
     return {"status": "ok"}
+
+
+@router.post("/sign-out-all")
+def sign_out_all(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Sign out every OTHER device for the logged-in human, keeping THIS one.
+
+    Bumps the principal's `token_version` so every token carrying an older
+    `tv` claim is rejected on its next request (offboarding, lost/stolen
+    device, suspected theft). We then mint a fresh token for the current
+    session with the new version + re-set the cookie so this device stays in.
+
+    Delegation-aware: for an invited member / accountant, `current_user` is
+    the delegated OWNER, but tokens carry the REAL human's id as `sub`, so we
+    bump the REAL actor's row (the one their tokens validate against).
+    """
+    real_id = (
+        getattr(current_user, "_real_actor_id", None)
+        or getattr(current_user, "_real_accountant_id", None)
+        or current_user.id
+    )
+    principal = db.query(User).filter(User.id == real_id).first()
+    if not principal:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    principal.token_version = int(getattr(principal, "token_version", 0) or 0) + 1
+    db.flush()
+
+    try:
+        from app.services import audit_service
+        audit_service.record(
+            db, principal.id, "auth.sign_out_all",
+            entity_type="user", entity_id=principal.id,
+            after={"token_version": principal.token_version},
+            actor_type="user",
+            ip_address=None,
+        )
+    except Exception:  # noqa: BLE001 — audit is best-effort, never block sign-out
+        pass
+
+    db.commit()
+
+    # Keep THIS device signed in with a fresh token at the new version.
+    fresh = create_access_token(str(principal.id), principal.token_version)
+    _set_auth_cookie(response, fresh, request)
+    return {"status": "ok", "token": fresh}
 
 
 @router.post("/verify-email")

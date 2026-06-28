@@ -38,7 +38,7 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_access_token(user_id: str) -> str:
+def create_access_token(user_id: str, token_version: int | None = None) -> str:
     """Mint a fresh BonBox JWT.
 
     Includes `iat` (issued-at) so the sliding-refresh middleware in
@@ -46,10 +46,20 @@ def create_access_token(user_id: str) -> str:
     point (~15 days into the 30-day lifetime). Without `iat` the middleware
     cannot tell a brand-new token from a 29-day-old one — it'd refresh
     every request, defeating rotation rate-limiting.
+
+    `token_version` (optional) embeds a `tv` claim used for server-side
+    revocation ("sign out all devices", offboarding, demotion). It is
+    SAFE-BY-OMISSION: when None we leave the claim out, and get_current_user
+    only enforces `tv` when it's present — so existing 30-day tokens and any
+    mint path that doesn't pass a version keep working (they're simply not
+    revocable). A token minted WITH a version is rejected once the user's
+    stored token_version moves past it.
     """
     now = datetime.now(timezone.utc)
     expire = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     payload = {"sub": user_id, "iat": now, "exp": expire}
+    if token_version is not None:
+        payload["tv"] = int(token_version)
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
@@ -137,9 +147,35 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    # ── Server-side revocation (token_version) ────────────────────────
+    # Enforced ONLY when the token carries a `tv` claim — so existing tokens
+    # (no claim) and un-updated mint paths grace-pass. A token whose `tv`
+    # is behind the user's stored token_version was revoked ("sign out all
+    # devices" / offboarding) → 401 to force a clean re-login.
+    tok_tv = payload.get("tv")
+    if tok_tv is not None and int(tok_tv) != int(getattr(user, "token_version", 0) or 0):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session was signed out. Please log in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     # ── Accountant-view delegation ────────────────────────────────────
     if (getattr(user, "role", "") or "").lower() == "accountant":
         return _resolve_accountant_view(user, request, db)
+
+    # ── Team-member delegation (manager / cashier / viewer) ───────────
+    # An invited member's User row carries owner_id → the business owner.
+    # Without delegation every owner-scoped query runs against the
+    # member's own (empty) id and they see a BLANK business (the known
+    # P0). We resolve the effective owner so reads are tenant-scoped, and
+    # annotate the REAL actor for honest audit. Writes stay default-DENIED
+    # by the member_write_guard middleware until per-router role scopes are
+    # wired — so this slice is strictly read-only and adds no write surface.
+    if (getattr(user, "role", "") or "").lower() in _MEMBER_ROLES and getattr(
+        user, "owner_id", None
+    ):
+        return _resolve_member_view(user, request, db)
 
     return user
 
@@ -288,6 +324,79 @@ def _resolve_accountant_view(accountant: User, request: Request, db: Session) ->
         owner._real_accountant_id = accountant.id  # noqa: SLF001
         owner._real_accountant_email = accountant.email  # noqa: SLF001
         owner._effective_grant_id = grant.id  # noqa: SLF001
+    except Exception:  # noqa: BLE001
+        pass
+
+    return owner
+
+
+# ─── Team-member delegation helpers ──────────────────────────────────
+#
+# Mirrors the accountant pattern but the owner link is a plain column
+# (User.owner_id), not a grant table — an invited member belongs to
+# exactly one business. The member_write_guard middleware (main.py)
+# enforces read-only until per-router role scopes land.
+
+_MEMBER_ROLES = frozenset({"manager", "cashier", "viewer"})
+
+# Identity paths a member hits AS THEMSELVES (not delegated) — so the UI
+# shows who is actually signed in, and sign-out targets their own session.
+# Everything else delegates to the owner so the business is visible.
+_MEMBER_SELF_PATHS = frozenset({
+    "/api/auth/me",
+    "/api/auth/logout",
+})
+
+
+def _resolve_member_view(member: User, request: Request, db: Session) -> User:
+    """Translate an invited member's JWT into the effective owner user so
+    tenant-scoped reads resolve to the real business. The member's own
+    identity is preserved on the returned object (_real_actor_id /
+    _actor_role) for honest audit attribution once writes are allowed.
+
+    Self-paths (/auth/me, /auth/logout) return the raw member so the UI
+    knows who is logged in and sign-out works on their own session.
+    """
+    path = request.url.path or ""
+    if path in _MEMBER_SELF_PATHS:
+        try:
+            member._is_member_view = True  # noqa: SLF001
+            member._actor_role = (member.role or "").lower()  # noqa: SLF001
+            member._real_actor_id = member.id  # noqa: SLF001
+            member._effective_owner_id = member.owner_id  # noqa: SLF001
+        except Exception:  # noqa: BLE001
+            pass
+        return member
+
+    owner = db.query(User).filter(User.id == member.owner_id).first()
+    if not owner:
+        # Defensive: the owner was hard-deleted. Treat the membership as
+        # dangling rather than leaking a half-resolved session.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "owner_missing",
+                "message": (
+                    "Your business owner account no longer exists. "
+                    "Ask to be re-invited."
+                ),
+            },
+        )
+    if getattr(owner, "is_locked", False):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Business account is locked. Contact support.",
+        )
+
+    # Request-lifetime annotations only (no columns) — preserve the REAL
+    # actor for audit, mark the view so the write-guard + future scope
+    # checks can fire.
+    try:
+        owner._is_member_view = True  # noqa: SLF001
+        owner._actor_role = (member.role or "").lower()  # noqa: SLF001
+        owner._real_actor_id = member.id  # noqa: SLF001
+        owner._real_actor_email = member.email  # noqa: SLF001
+        owner._effective_owner_id = owner.id  # noqa: SLF001
     except Exception:  # noqa: BLE001
         pass
 

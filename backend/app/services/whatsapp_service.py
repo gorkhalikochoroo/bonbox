@@ -8,6 +8,7 @@ from app.models.sale import Sale
 from app.models.expense import Expense, ExpenseCategory
 from app.models.inventory import InventoryItem
 from app.models.user import User
+from app.services import audit_service
 
 
 def get_display_currency(currency: str) -> str:
@@ -85,6 +86,25 @@ def handle_message(parsed: dict, user: User, db: Session) -> str:
             description="WhatsApp",
         )
         db.add(sale)
+        db.flush()
+        # This amount was parsed by a bot from a free-text message, with no
+        # human confirming it at write time — so it MUST land with an honest,
+        # machine-entered audit trail (a mis-parse becoming silent cash revenue
+        # is the money-write red-line). Reversible via the standard sale
+        # soft-delete. Provenance: source='whatsapp', machine_entered=True.
+        audit_service.record(
+            db, user.id, "sale.whatsapp_log",
+            entity_type="sale", entity_id=sale.id,
+            after={
+                "amount": str(amount),
+                "payment_method": "cash",
+                "source": "whatsapp",
+                "machine_entered": True,
+                "reversible": True,
+            },
+            actor_type="system.whatsapp_inbound",
+            ip_address=None,
+        )
         db.commit()
 
         # Get today's total

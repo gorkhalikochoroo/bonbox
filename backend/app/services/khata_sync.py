@@ -2,6 +2,7 @@
 from sqlalchemy.orm import Session
 from app.models.sale import Sale
 from app.models.cashbook import CashTransaction
+from app.services import audit_service
 import uuid
 
 
@@ -23,6 +24,23 @@ def sync_sale_for_khata_purchase(db: Session, txn, customer_name: str):
         reference_id=ref_id,
     )
     db.add(sale)
+    db.flush()
+    # Provenance for the auto-synced revenue row. Reversible via
+    # delete_khata_synced_entries; dedup'd by reference_id. (Money-write
+    # red-line doctrine: a sync-minted revenue write must carry an audit trail.)
+    audit_service.record(
+        db, txn.user_id, "sale.khata_sync",
+        entity_type="sale", entity_id=sale.id,
+        after={
+            "amount": str(sale.amount),
+            "payment_method": "credit",
+            "reference_id": ref_id,
+            "source": "khata_sync",
+            "reversible": True,
+        },
+        actor_type="system.khata_sync",
+        ip_address=None,
+    )
 
 
 def sync_cashbook_for_khata_payment(db: Session, txn, customer_name: str):

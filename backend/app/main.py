@@ -39,7 +39,7 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, event_log as event_log_router, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router, smart_pricing as smart_pricing_router, pillars as pillars_router
+from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, event_log as event_log_router, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router, smart_pricing as smart_pricing_router, pillars as pillars_router, diagnostics as diagnostics_router
 # Invoicing — Customer/Invoice/Mileage. Gated to Starter+ at the route level.
 from app.routers import activation as activation_router
 from app.routers import customers as customers_router, invoices as invoices_router, mileage as mileage_router
@@ -140,6 +140,8 @@ _migrations = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(100)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_attempts INTEGER DEFAULT 0",
+    # Server-side session revocation epoch (token_version / "sign out all").
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0 NOT NULL",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS is_personal BOOLEAN DEFAULT false",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS reference_id VARCHAR(100)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_digest_enabled BOOLEAN DEFAULT false",
@@ -3040,6 +3042,24 @@ def _is_path_allowlisted_for_accountant_write(path: str) -> bool:
     return False
 
 
+# ── Team-member write guard (read-only first slice of the manager seat) ──
+# Invited members (manager/cashier/viewer) now SEE the owner's business
+# (get_current_user delegation), but writes stay default-DENIED until each
+# money router is mapped to a role scope. This keeps the fix strictly
+# read-only and safe. A tiny allowlist keeps session self-service working.
+_MEMBER_WRITE_ROLES = frozenset({"manager", "cashier", "viewer"})
+_MEMBER_WRITE_ALLOWED = frozenset({
+    "/api/auth/logout",
+})
+
+
+def _is_path_allowlisted_for_member_write(path: str) -> bool:
+    """True iff an invited team member may mutate this path in the
+    read-only slice. Kept deliberately tiny — write-scopes per router
+    are the documented follow-up."""
+    return path in _MEMBER_WRITE_ALLOWED
+
+
 @app.middleware("http")
 async def accountant_write_guard(request: Request, call_next):
     """Refuse mutations from accountant sessions unless the path is on
@@ -3101,22 +3121,42 @@ async def accountant_write_guard(request: Request, call_next):
         return await call_next(request)
 
     role = (row[0] or "").lower() if row[0] else ""
-    if role != "accountant":
-        return await call_next(request)
-
     path = request.url.path or ""
-    if _is_path_allowlisted_for_accountant_write(path):
-        return await call_next(request)
 
-    return JSONResponse(
-        status_code=403,
-        content={
-            "detail": {
-                "code": "read_only",
-                "message": "Accountants can view but not modify.",
+    if role == "accountant":
+        if _is_path_allowlisted_for_accountant_write(path):
+            return await call_next(request)
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": {
+                    "code": "read_only",
+                    "message": "Accountants can view but not modify.",
+                },
             },
-        },
-    )
+        )
+
+    # Invited team members — default-DENY writes (read-only first slice of
+    # the manager seat). Per-router role scopes are the follow-up that
+    # selectively re-opens writes; until then a member can SEE the
+    # business but not change it.
+    if role in _MEMBER_WRITE_ROLES:
+        if _is_path_allowlisted_for_member_write(path):
+            return await call_next(request)
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": {
+                    "code": "read_only",
+                    "message": (
+                        "Your role can view this business but can't make "
+                        "changes yet. Ask the owner."
+                    ),
+                },
+            },
+        )
+
+    return await call_next(request)
 
 
 # --- Security Headers Middleware ---
@@ -3386,7 +3426,11 @@ async def sliding_refresh_middleware(request: Request, call_next):
         # refresh because the new token is signed with SECRET_KEY, while
         # _decode_token() still accepts SECRET_KEY_PREVIOUS for grace.
         from app.services.auth import create_access_token as _mint
-        new_token = _mint(str(user_id))
+        # Carry the session's revocation epoch forward on refresh — so a
+        # refreshed session stays revocable (and a no-`tv` legacy token keeps
+        # grace-passing). We preserve the OLD token's `tv` rather than re-read
+        # the DB: a refresh continues the same session, it doesn't re-auth.
+        new_token = _mint(str(user_id), payload.get("tv"))
 
         # ── Wire the new token into the response ──────────────────────
         if mode == "cookie":
@@ -3679,6 +3723,7 @@ app.include_router(modules_router.router, prefix="/api/modules", tags=["Modules"
 # 3-axis IA model (free + uncapped; see services/pillars.py). Owner-UI
 # nav preference only — never read by public surfaces or crons.
 app.include_router(pillars_router.router, prefix="/api/pillars", tags=["Pillars"])
+app.include_router(diagnostics_router.router, prefix="/api/diagnostics", tags=["Diagnostics"])
 # Activation-gated disclosure — GET /api/activation. The ACTIVATION axis of
 # the 4-axis IA model (DERIVED from real usage rows, new-accounts-only,
 # fail-open, feature-flagged). Owner-UI nav preference only; never stored,

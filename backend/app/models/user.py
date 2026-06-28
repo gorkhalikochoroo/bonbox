@@ -106,6 +106,10 @@ class User(Base):
     # Period end of the active subscription — for "renews on" display.
     subscription_period_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     owner_id: Mapped[uuid.UUID | None] = mapped_column(GUID(), ForeignKey("users.id"), nullable=True)  # NULL for owners
+    # Server-side session revocation epoch. Bumped by "sign out all devices"
+    # / offboarding / demotion; tokens carrying an older `tv` claim are
+    # rejected. Default 0; existing tokens (no `tv`) are unaffected.
+    token_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
     reset_token: Mapped[str | None] = mapped_column(String(100), nullable=True)
     reset_token_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Per-account failed-attempt counter for the password-reset code. The

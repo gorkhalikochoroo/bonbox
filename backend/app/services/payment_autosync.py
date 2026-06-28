@@ -20,6 +20,7 @@ from app.models.sale import Sale
 from app.models.expense import Expense, ExpenseCategory
 from app.services.payment_providers import fetch_transactions, PROVIDERS
 from app.services.cash_sync import sync_cash_in_for_sale, sync_cash_out_for_expense
+from app.services import audit_service
 from app.utils.time import utc_now
 
 
@@ -71,6 +72,26 @@ def _import_transactions_for_connection(db: Session, conn: PaymentConnection, ra
             )
             db.add(sale)
             db.flush()
+            # Honest provenance: this revenue row was minted by a background
+            # job (no human in the loop), so it carries an audit trail with a
+            # system actor. Reversible — the row is soft-deletable and dedup'd
+            # by reference_id, so re-runs never double-count. (Money-write
+            # red-line doctrine: a background revenue write must be audited +
+            # reversible.)
+            audit_service.record(
+                db, conn.user_id, "sale.auto_import",
+                entity_type="sale", entity_id=sale.id,
+                after={
+                    "amount": str(sale.amount),
+                    "payment_method": sale.payment_method,
+                    "provider": conn.provider,
+                    "reference_id": ref_id,
+                    "source": "payment_autosync",
+                    "reversible": True,
+                },
+                actor_type="system.payment_autosync",
+                ip_address=None,
+            )
             # Auto-sync to cashbook for cash/mixed payments
             if txn.get("payment_method") in ("cash", "mixed"):
                 sync_cash_in_for_sale(db, sale)
