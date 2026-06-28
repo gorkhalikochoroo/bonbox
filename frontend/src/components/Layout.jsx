@@ -184,7 +184,8 @@ const accountantNavGroups = [
     items: [
       { to: "/cashbook", icon: "BookOpen", labelKey: "cashBook" },
       { to: "/cashflow", icon: "LineChart", labelKey: "cashFlow" },
-      { to: "/khata", icon: "BookText", labelKey: "khata" },
+      // Khata (customer credit ledger) hidden for the Denmark-first product —
+      // see navManifest.js. Reversible: restore this line to bring it back.
       { to: "/faktura", icon: "FileText", labelKey: "faktura" },
     ],
   },
@@ -485,7 +486,7 @@ export default function Layout() {
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[100] focus:px-4 focus:py-2 focus:bg-gray-900 focus:text-white focus:rounded-lg focus:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
       >
-        Skip to main content
+        {t("layoutSkipToMainContent", "Skip to main content")}
       </a>
       {/* Task #49 — Sticky banner for accountant sessions. Renders its own
           markup only when user.role === "accountant"; otherwise null. */}

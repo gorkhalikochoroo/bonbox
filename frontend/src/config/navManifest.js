@@ -218,24 +218,21 @@ export const NAV_MANIFEST = [
     aliases: ["imports", "bank import", "payment imports", "csv", "mobilepay", "bankimport", "betalingsimport"],
   },
   {
-    // Khata = customer credit ledger (informal running tab). A DK
-    // café/restaurant/bar/bakery/salon doesn't run a khata, so gate it to the
-    // retail/services/general business types where a credit ledger genuinely
-    // fits — it stops cluttering the hospitality ICP's Money menu (the audit's
-    // clearest "not built for me" nav tell). Reversible: the /khata route +
-    // data are untouched; only nav visibility narrows by business type.
+    // Khata = customer credit ledger (informal running "tab"). It's a
+    // South-Asian retail convention, NOT part of the Denmark-first product —
+    // a DK business doesn't run a khata. HIDDEN for now (Manoj, 2026-06-28):
+    // `surfaces: []` removes it from the sidebar, More, and ⌘K everywhere.
+    // FULLY REVERSIBLE — the /khata route, the KhataPage, the backend, and any
+    // existing data are all untouched; restore visibility by putting the
+    // surfaces back (["sidebar","more","search"]). If a non-DK market ever
+    // needs it, also drop `personal`/add the right archetypes below.
     to: "/khata",
     icon: "BookText",
     labelKey: "khata",
     group: "money",
     pillar: null,
     frequency: "weekly",
-    surfaces: ["sidebar", "more", "search"],
-    // Off the DK hospitality + personal-service ICP — a café/restaurant/bar/
-    // salon doesn't run a running-tab. Archetype-gated so it works for single-
-    // location owners with no branch; still reachable via ⌘K (search surface)
-    // for the few who use it (retail / services / general keep it in nav).
-    // The /khata route + its data are untouched.
+    surfaces: [],
     hideForArchetypes: ["food_service", "bar", "salon", "personal"],
   },
   {

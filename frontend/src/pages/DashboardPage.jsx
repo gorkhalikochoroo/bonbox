@@ -51,6 +51,8 @@ import KpiStrip from "../components/dashboard/KpiStrip";
 import AllClearCard from "../components/dashboard/AllClearCard";
 import OutstandingFakturaCard from "../components/dashboard/OutstandingFakturaCard";
 import ComplianceCountdownCard from "../components/dashboard/ComplianceCountdownCard";
+import NeedsYouQueue from "../components/NeedsYouQueue";
+import SelfHealBoundary from "../components/SelfHealBoundary";
 import GrowthLeverCard from "../components/dashboard/GrowthLeverCard";
 import FirstRunCollapsedDashboard from "../components/dashboard/FirstRunCollapsedDashboard";
 import BusinessHealthCard from "../components/dashboard/BusinessHealthCard";
@@ -713,11 +715,22 @@ export default function DashboardPage() {
           actions={headerActions}
         />
 
-        <DashboardZones
-          cardSet={DASHBOARD_CARD_SET}
-          ctx={ctx}
-          registry={REGISTRY}
-        />
+        {/* The read-only "Skal ses nu" queue — the few things that need the
+            owner now, in order, each a deep-link. Self-hides when empty. */}
+        <SelfHealBoundary quiet>
+          <NeedsYouQueue />
+        </SelfHealBoundary>
+
+        {/* Auto-repair: a single crashed card re-mounts itself instead of
+            white-screening the whole dashboard (runtime self-heal only —
+            never touches money data). */}
+        <SelfHealBoundary>
+          <DashboardZones
+            cardSet={DASHBOARD_CARD_SET}
+            ctx={ctx}
+            registry={REGISTRY}
+          />
+        </SelfHealBoundary>
 
         <div className="mt-8 text-center">
           <Link

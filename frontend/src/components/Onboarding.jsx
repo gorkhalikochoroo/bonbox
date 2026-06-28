@@ -36,7 +36,7 @@ const VERTICAL_INTRO = {
     headline: "Let's set up your shop",
     bullets: [
       "Add inventory once → BonBox tracks stock and reorder needs",
-      "Khata for customer credit, with reminder messages",
+      "Send a faktura in seconds and see who still owes you",
       "Snap supplier receipts to log expenses without typing",
     ],
   },
@@ -55,7 +55,7 @@ const VERTICAL_INTRO = {
     bullets: [
       "Log every service in 2 taps with Quick Sale",
       "Track stylist tips and commission separately",
-      "Khata for repeat customers who pay monthly",
+      "Daily Close before you lock up — your MOMS stays ready",
     ],
   },
   workshop: {
@@ -63,7 +63,7 @@ const VERTICAL_INTRO = {
     headline: "Let's set up your workshop",
     bullets: [
       "Workshop Manager organises every job, parts, and labour",
-      "Track customer credit (Khata) for invoiced jobs",
+      "Send a faktura per job and track what's still unpaid",
       "Daily Close summarises the day's revenue + outstanding work",
     ],
   },
@@ -72,7 +72,7 @@ const VERTICAL_INTRO = {
     headline: "Let's set up your shop",
     bullets: [
       "Add inventory items so you see margin on every sale",
-      "Khata for regular customers paying monthly",
+      "Track expiry dates so stock never spoils on the shelf",
       "Daily Close = your day's takings in 30 seconds",
     ],
   },

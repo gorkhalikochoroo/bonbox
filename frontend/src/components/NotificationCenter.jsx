@@ -196,7 +196,7 @@ export default function NotificationCenter({ align = "right" }) {
                     <button
                       key={a.id}
                       type="button"
-                      onClick={() => { setOpen(false); live.openReservations(); }}
+                      onClick={() => { setOpen(false); live.openReservations(a); }}
                       className="w-full text-left px-1 py-1 flex items-start gap-2 rounded hover:bg-white dark:hover:bg-gray-700/40"
                     >
                       <span className={`mt-1 h-1.5 w-1.5 rounded-full shrink-0 ${a.kind === "cancelled" ? "bg-gray-400" : a.severe ? "bg-red-500" : a.hasAllergy ? "bg-amber-500" : "bg-emerald-500"}`} />

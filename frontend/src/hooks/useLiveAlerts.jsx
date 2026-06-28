@@ -144,9 +144,24 @@ export function LiveAlertsProvider({ children }) {
       if (c.kind === "cancelled") title = t("liveAlertCancelled", "Booking cancelled");
       else if (c.kind === "new") title = t("liveAlertNew", "New booking");
       else title = t("liveAlertChanged", "Booking updated");
+      // The booking's local day — lets the tap deep-link straight to the exact
+      // reservation on the right day, not the generic list. Local date parts
+      // mirror ReservationsPage's isoDay(); soft-fail to no date.
+      let bookingDate = "";
+      if (c.starts_at) {
+        try {
+          const d = new Date(c.starts_at);
+          const pad = (n) => String(n).padStart(2, "0");
+          bookingDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        } catch {
+          /* ignore */
+        }
+      }
       return {
         id: `t${++_toastSeq}`,
         changeId: c.id,
+        bookingId: c.id,
+        bookingDate,
         kind: c.kind,
         title,
         who,
@@ -259,11 +274,26 @@ export function LiveAlertsProvider({ children }) {
     return () => timers.forEach(clearTimeout);
   }, [toasts, dismissToast]);
 
-  const openReservations = useCallback(() => {
-    setToasts([]);
-    markAllRead();
-    navigate("/reservations");
-  }, [navigate, markAllRead]);
+  // Tapping a toast lands the owner on the EXACT booking (drawer opens, one
+  // calm ring) instead of the generic list. A collapsed "N changes" summary —
+  // or any item without a booking id — falls back to the list. The id is the
+  // only thing we carry; ReservationsPage re-derives the row from a fresh fetch.
+  const openReservations = useCallback(
+    (target) => {
+      setToasts([]);
+      markAllRead();
+      const id = target && typeof target === "object" ? target.bookingId : null;
+      if (id) {
+        const date = target.bookingDate;
+        const qs = new URLSearchParams({ booking: String(id) });
+        if (date) qs.set("date", date);
+        navigate(`/reservations?${qs.toString()}`);
+      } else {
+        navigate("/reservations");
+      }
+    },
+    [navigate, markAllRead],
+  );
 
   const value = useMemo(
     () => ({
@@ -301,7 +331,7 @@ export function LiveAlertsProvider({ children }) {
                     ? "border-amber-300 dark:border-amber-700"
                     : "border-gray-200 dark:border-gray-700"}`}
             >
-              <button type="button" onClick={openReservations} className="w-full text-left active:scale-[0.99] transition">
+              <button type="button" onClick={() => openReservations(tt)} className="w-full text-left active:scale-[0.99] transition">
                 <div className="flex items-center gap-2">
                   <span
                     className={`h-2 w-2 rounded-full shrink-0 ${
