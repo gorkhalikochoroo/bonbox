@@ -46,6 +46,7 @@ NOTE: no `from __future__ import annotations` — FastAPI's Pydantic-v2 body
 resolver fails to dereference inline request models under PEP-563 (same caveat
 as reservations.py / public_bookings.py).
 """
+import html as _html
 import logging
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
@@ -57,10 +58,13 @@ from slowapi.util import get_remote_address
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
+from app.models.business_profile import BusinessProfile
 from app.models.gift_card import (
     GiftCard, GiftCardTransaction, VOUCHER_CLASSES,
 )
+from app.models.gift_card_order import GiftCardOrder, GIFT_CARD_ORDER_STATUSES
 from app.models.user import User
 from app.services import audit_service
 from app.services.auth import get_current_user
@@ -206,27 +210,31 @@ def _require_signing_key():
         raise HTTPException(status_code=503, detail={"error": "gavekort_unconfigured"})
 
 
-# ═════════════════════════════════════════════════════════════════════
-# POST /issue — create a gavekort
-# ═════════════════════════════════════════════════════════════════════
-@router.post("/issue", status_code=201)
-@limiter.limit("30/minute")                          # D4/L3 per-endpoint brake
-def issue_gavekort(payload: IssueBody, request: Request,
-                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    enforce_feature(user, "gavekort")               # L1/feature gate
-    _require_signing_key()                           # L6 fail-closed (prod)
+def _create_gift_card(
+    db: Session,
+    user: User,
+    request: Request,
+    *,
+    amount_minor: int,
+    voucher_class: str = "mpv",
+    recipient_name: str | None = None,
+    note: str | None = None,
+    payment_method: str | None = None,
+    expires_at: datetime | None = None,
+    audit_action: str = "gavekort.issued",
+    audit_extra: dict | None = None,
+) -> tuple[GiftCard, str, dict]:
+    """Mint a gavekort: enforce the active-card cap, generate a unique code,
+    write the anchor issue ledger row, and audit. SHARED by the counter /issue
+    endpoint AND the online order-issue path, so BOTH produce byte-identical
+    accountant-grade records (same ledger anchor, same audit shape, same
+    qr_token derivation).
 
-    # D6 — refuse to mint an already-expired card. An expires_at at/in the past
-    # would produce a card that is "expired" the instant it's touched, which is
-    # never what an owner intends (and would silently swallow the face value).
-    if payload.expires_at is not None:
-        exp = payload.expires_at
-        if exp.tzinfo is None:
-            exp = exp.replace(tzinfo=timezone.utc)
-        if exp <= datetime.now(timezone.utc):
-            raise HTTPException(status_code=422,
-                                detail={"error": "expires_at_in_past"})
-
+    Does NOT commit — the caller owns the transaction boundary, so order-issue
+    can link the order + flip its status in the SAME transaction (atomic: a
+    minted card always has a fulfilled order, never an orphan). Returns the
+    flushed card, its one-time qr_token, and the owner-facing response dict.
+    Raises 402 (cap), 422 (expires_at in past), or 500 (code collision)."""
     # L7 cap — count ACTIVE cards only (outstanding-liability bound).
     active_count = (
         db.query(GiftCard)
@@ -235,14 +243,18 @@ def issue_gavekort(payload: IssueBody, request: Request,
     )
     enforce_cap(user, "gavekort_active_max", int(active_count))
 
-    expires_at = payload.expires_at
-    if expires_at is not None and expires_at.tzinfo is not None:
+    # D6 — refuse to mint an already-expired card. An expires_at at/in the past
+    # would produce a card that is "expired" the instant it's touched, which is
+    # never intended (and would silently swallow the face value).
+    if expires_at is not None:
+        exp = expires_at if expires_at.tzinfo is not None else expires_at.replace(tzinfo=timezone.utc)
+        if exp <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=422, detail={"error": "expires_at_in_past"})
         # Persist naive-UTC to match the utc_now() convention used elsewhere.
-        expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
+        expires_at = exp.astimezone(timezone.utc).replace(tzinfo=None)
 
     # Generate + persist, retrying on the (vanishingly rare) UNIQUE collision.
     card: GiftCard | None = None
-    plaintext_code: str | None = None
     for attempt in range(_ISSUE_COLLISION_RETRIES):
         code, short_code, code_last4 = generate_code()
         card = GiftCard(
@@ -250,29 +262,28 @@ def issue_gavekort(payload: IssueBody, request: Request,
             code_hash=hash_code(code),
             short_code=short_code,
             code_last4=code_last4,
-            face_value_minor=int(payload.amount_minor),
-            balance_minor=int(payload.amount_minor),
-            voucher_class=payload.voucher_class,
+            face_value_minor=int(amount_minor),
+            balance_minor=int(amount_minor),
+            voucher_class=voucher_class,
             status="active",
-            recipient_name=payload.recipient_name,
-            note=payload.note,
-            payment_method=payload.payment_method,
+            recipient_name=recipient_name,
+            note=note,
+            payment_method=payment_method,
             issued_at=utc_now(),
             expires_at=expires_at,
         )
         db.add(card)
         try:
             db.flush()
-            plaintext_code = code
             break
         except Exception:
             db.rollback()
             card = None
             if attempt == _ISSUE_COLLISION_RETRIES - 1:
-                logger.error("gavekort.issue: repeated code collision for user %s", user.id)
+                logger.error("gavekort: repeated code collision for user %s", user.id)
                 raise HTTPException(status_code=500, detail={"error": "code_generation_failed"})
 
-    assert card is not None and plaintext_code is not None
+    assert card is not None
 
     # The issue ledger row — the anchor. amount = +face_value, balance_after =
     # full balance. NULL idempotency_key (issues carry no key).
@@ -284,14 +295,14 @@ def issue_gavekort(payload: IssueBody, request: Request,
         business_day=utc_now(),
     ))
 
+    after = {"face_value_minor": int(card.face_value_minor), "voucher_class": card.voucher_class}
+    if audit_extra:
+        after.update(audit_extra)
     audit_service.record(
-        db, user, "gavekort.issued", "gift_card", card.id,
-        after={"face_value_minor": int(card.face_value_minor),
-               "voucher_class": card.voucher_class},
+        db, user, audit_action, "gift_card", card.id,
+        after=after,
         ip_address=getattr(getattr(request, "client", None), "host", None),
     )
-    db.commit()
-    db.refresh(card)
 
     # The QR token encodes the high-entropy code's BINDING (gid/uid/jti) — the
     # plaintext code itself stays out of any persisted column. Returned ONCE.
@@ -299,8 +310,7 @@ def issue_gavekort(payload: IssueBody, request: Request,
         gift_card_id=str(card.id), user_id=str(user.id), jti=uuid4().hex,
         expires_at=card.expires_at,
     )
-
-    return {
+    response = {
         "id": str(card.id),
         "short_code": card.short_code,
         "code_last4": card.code_last4,
@@ -313,6 +323,31 @@ def issue_gavekort(payload: IssueBody, request: Request,
         "issued_at": _iso(card.issued_at),
         "expires_at": _iso(card.expires_at),
     }
+    return card, qr_token, response
+
+
+# ═════════════════════════════════════════════════════════════════════
+# POST /issue — create a gavekort
+# ═════════════════════════════════════════════════════════════════════
+@router.post("/issue", status_code=201)
+@limiter.limit("30/minute")                          # D4/L3 per-endpoint brake
+def issue_gavekort(payload: IssueBody, request: Request,
+                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    enforce_feature(user, "gavekort")               # L1/feature gate
+    _require_signing_key()                           # L6 fail-closed (prod)
+
+    card, _qr_token, response = _create_gift_card(
+        db, user, request,
+        amount_minor=payload.amount_minor,
+        voucher_class=payload.voucher_class,
+        recipient_name=payload.recipient_name,
+        note=payload.note,
+        payment_method=payload.payment_method,
+        expires_at=payload.expires_at,
+    )
+    db.commit()
+    db.refresh(card)
+    return response
 
 
 # ═════════════════════════════════════════════════════════════════════
@@ -381,6 +416,293 @@ def list_gavekort(
         },
         "cards": [_card_summary_dict(c) for c in cards],
     }
+
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Online orders — "order online, owner collects" (the red-line-safe path)
+#
+# A customer REQUESTS a gavekort on a public /g/buy/<slug> page (handled in
+# public_gavekort.py). The owner sees the pending request here, collects
+# payment their own way (MobilePay box, bank transfer, in person), and taps
+# Issue — which mints the real card via _create_gift_card and emails the
+# buyer its /g/ link. BonBox never touches the money: the order row is a
+# REQUEST log, the GiftCard is only minted once the owner confirms payment.
+# ═════════════════════════════════════════════════════════════════════
+
+# Online-order amount guard rails (integer øre). The owner can narrow these
+# in settings; these are the platform defaults / absolute bounds.
+_ORDER_MIN_MINOR_DEFAULT = 5_000        # 50 kr.
+_ORDER_MAX_MINOR_DEFAULT = 500_000      # 5,000 kr.
+
+
+class OrderSettingsBody(BaseModel):
+    enabled: bool
+    min_amount_minor: int | None = Field(default=None, ge=100, le=100_000_000)
+    max_amount_minor: int | None = Field(default=None, ge=100, le=100_000_000)
+    instructions: str | None = Field(default=None, max_length=500)
+
+
+class OrderIssueBody(BaseModel):
+    # How the owner collected payment for THIS order. Recorded (not posted) —
+    # same "registreret", never "bogført" honesty as the counter sale.
+    payment_method: str | None = Field(default=None, pattern="^(card|mobilepay|cash|mixed)$")
+    expires_at: datetime | None = None
+
+
+def _order_settings_dict(profile: BusinessProfile | None) -> dict:
+    """Buy-page config with platform defaults filled in. Tolerant of legacy /
+    malformed JSON (falls back to defaults rather than 500-ing)."""
+    raw = getattr(profile, "gavekort_order_settings_json", None) if profile else None
+    data: dict = {}
+    if raw:
+        try:
+            import json
+            data = json.loads(raw) or {}
+        except Exception:  # noqa: BLE001
+            data = {}
+    mn = int(data.get("min_amount_minor") or _ORDER_MIN_MINOR_DEFAULT)
+    mx = int(data.get("max_amount_minor") or _ORDER_MAX_MINOR_DEFAULT)
+    if mx < mn:  # corrupt config → safe defaults
+        mn, mx = _ORDER_MIN_MINOR_DEFAULT, _ORDER_MAX_MINOR_DEFAULT
+    instr = (data.get("instructions") or "").strip()[:500] or None
+    return {"min_amount_minor": mn, "max_amount_minor": mx, "instructions": instr}
+
+
+def _allocate_gavekort_slug(db: Session, base: str) -> str:
+    """slug from the business name, deduped with a short random suffix.
+    Mirrors reservations._allocate_slug but on the gavekort_slug column."""
+    import random
+    import re
+    raw = re.sub(r"[^a-z0-9]+", "-", (base or "gavekort").lower()).strip("-")[:50] or "gavekort"
+    rng = random.SystemRandom()
+    alphabet = "abcdefghjkmnpqrstuvwxyz23456789"
+    for cand in [raw] + [f"{raw}-{''.join(rng.choices(alphabet, k=4))}" for _ in range(5)]:
+        exists = (
+            db.query(BusinessProfile)
+            .filter(BusinessProfile.gavekort_slug == cand)
+            .first()
+        )
+        if exists is None:
+            return cand
+    raise HTTPException(status_code=500, detail={"error": "slug_collision"})
+
+
+def _order_dict(o: GiftCardOrder) -> dict:
+    return {
+        "id": str(o.id),
+        "amount_minor": int(o.amount_minor),
+        "voucher_class": o.voucher_class,
+        "buyer_name": o.buyer_name,
+        "buyer_email": o.buyer_email,
+        "recipient_name": o.recipient_name,
+        "message": o.message,
+        "status": o.status,
+        "gift_card_id": str(o.gift_card_id) if o.gift_card_id else None,
+        "created_at": _iso(o.created_at),
+    }
+
+
+def _gavekort_public_url(qr_token: str) -> str:
+    """The customer-facing live card URL the issued gavekort points to."""
+    from urllib.parse import quote
+    base = (settings.FRONTEND_URL or "https://www.bonbox.dk").rstrip("/")
+    return f"{base}/g/{quote(qr_token, safe='')}"
+
+
+def _buy_public_url(slug: str | None) -> str | None:
+    if not slug:
+        return None
+    base = (settings.FRONTEND_URL or "https://www.bonbox.dk").rstrip("/")
+    return f"{base}/g/buy/{slug}"
+
+
+def _email_buyer_issued(order: GiftCardOrder, qr_token: str, owner: User) -> None:
+    """Best-effort transactional email to the buyer once the owner issues.
+    The buyer ASKED for this card and the owner CONFIRMED payment — so this is
+    a requested, owner-gated send, not unsolicited mail. Never blocks issue."""
+    to = (order.buyer_email or "").strip()
+    if not to:
+        return
+    try:
+        from app.services.email_service import send_email
+        # Escape the owner-set business name — it lands in a third party's
+        # (the buyer's) inbox, so a stray '&'/'<' must never render as markup
+        # (mirrors the escaping discipline in public_gavekort._notify_owner_new_order).
+        biz_raw = getattr(owner, "business_name", None) or "BonBox"
+        biz = _html.escape(biz_raw)
+        url = _gavekort_public_url(qr_token)
+        kr = f"{int(order.amount_minor) / 100:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        html = (
+            f"<p>Dit gavekort til <strong>{biz}</strong> er klar.</p>"
+            f"<p style=\"font-size:22px;font-weight:700\">{kr} kr.</p>"
+            f"<p><a href=\"{url}\">Åbn dit gavekort</a> — vis koden i butikken, "
+            f"når du vil bruge det. Saldoen opdateres automatisk.</p>"
+        )
+        send_email(
+            to=to,
+            subject=f"Dit gavekort til {biz_raw}",
+            html=html,
+            reply_to=getattr(owner, "email", None) or None,
+        )
+    except Exception as exc:  # noqa: BLE001 — best-effort
+        logger.warning("gavekort buyer issued-email failed: %s", exc)
+
+
+@router.get("/order-settings")
+def get_order_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    enforce_feature(user, "gavekort")
+    profile = (
+        db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    )
+    slug = getattr(profile, "gavekort_slug", None) if profile else None
+    return {
+        "enabled": bool(getattr(profile, "gavekort_orders_enabled", False)) if profile else False,
+        "slug": slug,
+        "public_url": _buy_public_url(slug),
+        **_order_settings_dict(profile),
+    }
+
+
+@router.put("/order-settings")
+def set_order_settings(payload: OrderSettingsBody, db: Session = Depends(get_db),
+                       user: User = Depends(get_current_user)):
+    enforce_feature(user, "gavekort")
+    profile = (
+        db.query(BusinessProfile).filter(BusinessProfile.user_id == user.id).first()
+    )
+    if profile is None:
+        raise HTTPException(status_code=404, detail={"error": "profile_not_found"})
+
+    cur = _order_settings_dict(profile)
+    new_min = int(payload.min_amount_minor) if payload.min_amount_minor is not None else cur["min_amount_minor"]
+    new_max = int(payload.max_amount_minor) if payload.max_amount_minor is not None else cur["max_amount_minor"]
+    if new_max < new_min:
+        raise HTTPException(status_code=422, detail={"error": "max_below_min"})
+
+    # Allocate the durable public slug on first enable (won't rotate after).
+    if payload.enabled and not getattr(profile, "gavekort_slug", None):
+        base = getattr(user, "business_name", None) or "gavekort"
+        profile.gavekort_slug = _allocate_gavekort_slug(db, base)
+
+    profile.gavekort_orders_enabled = bool(payload.enabled)
+    import json
+    profile.gavekort_order_settings_json = json.dumps({
+        "min_amount_minor": new_min,
+        "max_amount_minor": new_max,
+        "instructions": (payload.instructions.strip()[:500] or None)
+        if payload.instructions is not None else cur["instructions"],
+    })
+    db.add(profile)
+    db.commit()
+    db.refresh(profile)
+
+    slug = getattr(profile, "gavekort_slug", None)
+    return {
+        "enabled": bool(profile.gavekort_orders_enabled),
+        "slug": slug,
+        "public_url": _buy_public_url(slug),
+        **_order_settings_dict(profile),
+    }
+
+
+@router.get("/orders")
+def list_orders(db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                status_filter: str = Query("pending", alias="status")):
+    enforce_feature(user, "gavekort")
+    q = db.query(GiftCardOrder).filter(GiftCardOrder.user_id == user.id)
+    if status_filter in GIFT_CARD_ORDER_STATUSES:
+        q = q.filter(GiftCardOrder.status == status_filter)
+    orders = q.order_by(GiftCardOrder.created_at.desc()).limit(200).all()
+    pending_count = (
+        db.query(func.count(GiftCardOrder.id))
+        .filter(GiftCardOrder.user_id == user.id, GiftCardOrder.status == "pending")
+        .scalar()
+    )
+    return {"orders": [_order_dict(o) for o in orders], "pending_count": int(pending_count or 0)}
+
+
+@router.post("/orders/{order_id}/issue", status_code=201)
+@limiter.limit("30/minute")
+def issue_order(order_id: UUID, payload: OrderIssueBody, request: Request,
+                db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    enforce_feature(user, "gavekort")
+    _require_signing_key()
+    order = (
+        db.query(GiftCardOrder)
+        .filter(GiftCardOrder.id == order_id, GiftCardOrder.user_id == user.id)
+        .first()
+    )
+    if order is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    if order.status != "pending":
+        # Fast path: already issued/declined → never double-mint for one request.
+        raise HTTPException(status_code=409, detail={"error": "already_resolved"})
+
+    buyer_email = order.buyer_email  # snapshot before the raw-SQL claim flips the row
+
+    # Mint the card + link the order + flip its status, all in ONE transaction
+    # (atomic: a minted card always has a fulfilled order, never an orphan).
+    card, qr_token, response = _create_gift_card(
+        db, user, request,
+        amount_minor=int(order.amount_minor),
+        voucher_class=order.voucher_class,
+        recipient_name=order.recipient_name,
+        note=order.message,
+        payment_method=payload.payment_method,
+        expires_at=payload.expires_at,
+        audit_action="gavekort.issued",
+        audit_extra={"source": "online_order", "order_id": str(order.id)},
+    )
+    # CONDITIONAL ATOMIC CLAIM (mirrors the redeem decrement idiom). The
+    # fast-path check above is racy: two concurrent issues (double-tap, two
+    # tabs, a retried request) can BOTH read status='pending' and BOTH mint a
+    # card. So flip pending→issued only if STILL pending; zero rows ⇒ another
+    # request already won ⇒ roll back (discarding the just-minted card + its
+    # ledger/audit rows) and 409. The order row lock serialises the racers, so
+    # exactly ONE card is ever committed and the buyer is emailed ONCE.
+    claim = db.execute(
+        text(
+            "UPDATE gift_card_orders SET status='issued', gift_card_id=:cid, "
+            "updated_at=:now WHERE id=:id AND user_id=:uid AND status='pending'"
+        ),
+        {"cid": str(card.id), "id": str(order.id), "uid": str(user.id), "now": utc_now()},
+    )
+    if (claim.rowcount or 0) == 0:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={"error": "already_resolved"})
+    db.commit()
+    db.refresh(card)
+
+    # Send the buyer their live /g/ link (best-effort, strictly AFTER the single
+    # committed claim — so a losing racer never emails).
+    _email_buyer_issued(order, qr_token, user)
+    return {**response, "order_id": str(order.id), "buyer_email": buyer_email}
+
+
+@router.post("/orders/{order_id}/decline")
+def decline_order(order_id: UUID, request: Request, db: Session = Depends(get_db),
+                  user: User = Depends(get_current_user)):
+    enforce_feature(user, "gavekort")
+    order = (
+        db.query(GiftCardOrder)
+        .filter(GiftCardOrder.id == order_id, GiftCardOrder.user_id == user.id)
+        .first()
+    )
+    if order is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    if order.status != "pending":
+        raise HTTPException(status_code=409, detail={"error": "already_resolved"})
+    order.status = "declined"
+    db.add(order)
+    audit_service.record(
+        db, user, "gavekort.order_declined", "gift_card_order", order.id,
+        ip_address=getattr(getattr(request, "client", None), "host", None),
+    )
+    db.commit()
+    return {"id": str(order.id), "status": "declined"}
+
+
 
 
 # ═════════════════════════════════════════════════════════════════════

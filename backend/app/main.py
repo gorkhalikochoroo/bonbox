@@ -1929,6 +1929,34 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_gift_card_tx_gift_card_id ON gift_card_transactions (gift_card_id)",
     "CREATE INDEX IF NOT EXISTS ix_gift_card_tx_user ON gift_card_transactions (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_gift_card_tx_card_created ON gift_card_transactions (gift_card_id, created_at)",
+    # ── Migration 029 (2026-06-28): Gavekort ONLINE ORDERS ────────────────
+    # "Order online, owner collects" — the red-line-safe online buying flow.
+    # A customer requests a gavekort on a public /g/buy/<slug> page; the owner
+    # confirms payment out-of-band and issues the real card. gift_card_orders
+    # is a REQUEST log, NOT a payment record — no money flows through BonBox.
+    #   • gavekort_slug              — the business's public buy-page handle.
+    #   • gavekort_orders_enabled    — owner opt-in (off by default).
+    #   • gavekort_order_settings_json — min/max amount + payment instructions.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS gavekort_slug VARCHAR(80)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_business_gavekort_slug ON business_profiles (gavekort_slug)",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS gavekort_orders_enabled BOOLEAN DEFAULT FALSE",
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS gavekort_order_settings_json TEXT",
+    """CREATE TABLE IF NOT EXISTS gift_card_orders (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        amount_minor INTEGER NOT NULL,
+        voucher_class VARCHAR(8) NOT NULL DEFAULT 'mpv',
+        buyer_name VARCHAR(120),
+        buyer_email VARCHAR(255) NOT NULL,
+        recipient_name VARCHAR(120),
+        message VARCHAR(280),
+        status VARCHAR(12) NOT NULL DEFAULT 'pending',
+        gift_card_id VARCHAR(36) REFERENCES gift_cards(id),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_gift_card_orders_user_id ON gift_card_orders (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_gift_card_orders_user_status ON gift_card_orders (user_id, status)",
 ]
 
 

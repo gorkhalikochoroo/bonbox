@@ -183,6 +183,19 @@ class BusinessProfile(Base):
     # request threshold, booking lead time / advance window, GDPR
     # retention_days). JSON so config evolves without a migration.
     reservation_settings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # ── Gavekort online orders (Migration 029) ─────────────────────────
+    # Public buy-page handle: bonbox.dk/g/buy/<gavekort_slug>. A customer
+    # REQUESTS a gavekort; the owner confirms payment out-of-band and issues
+    # it (BonBox never holds money). NULL = online orders not set up. UNIQUE
+    # via index. Separate from reservation_slug so the two are independent.
+    gavekort_slug: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Owner opt-in for the public buy page (off by default).
+    gavekort_orders_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Buy-page config as JSON-as-text (min/max amount in øre, payment
+    # instructions shown to the buyer). JSON so it evolves without a migration.
+    gavekort_order_settings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Clock-in geofence (JSON-as-text, no migration churn):
     #   {"enabled": bool, "lat": float, "lng": float, "radius_m": int}
     # When enabled, staff portal clock-in verifies the device is within radius
