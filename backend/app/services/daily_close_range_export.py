@@ -163,6 +163,25 @@ def _payments_sum(c: DailyClose) -> float:
     return sum(_bucketed_payments(c).values())
 
 
+# Per-row tie-out tolerance: a single close row whose decoded payments differ
+# from its revenue by more than this (in kr) is FLAGGED inline in both the PDF
+# and the XLSX — drafts included. 0.5 kr absorbs øre rounding but catches the
+# real "Kort 1.850 vs Omsætning 1.070" (780 kr) mismatch the export must never
+# present silently. Mirrors the aggregate RECON_TOL used below.
+ROW_TIE_OUT_TOL = 0.50
+
+
+def _row_ties_out(c: DailyClose) -> bool:
+    """True when this close's decoded payments tie out to its revenue within
+    ROW_TIE_OUT_TOL — OR when there are no reconcilable payment methods at all
+    (a revenue-only / scan-and-lock close has nothing to tie out, so it is not
+    flagged). False means: payments were recorded AND they do not match revenue
+    → the row must carry the inline mismatch flag."""
+    if not _has_reconcilable_payments(c):
+        return True
+    return abs(_payments_sum(c) - float(c.revenue_total or 0)) <= ROW_TIE_OUT_TOL
+
+
 def _has_reconcilable_payments(c: DailyClose) -> bool:
     """True only when the close actually recorded payment-method amounts that
     sum to something. A revenue-only close (scan-and-lock / Z-report bottom
@@ -200,6 +219,16 @@ def compose_business_address(profile) -> str:
     if zipcity and not already:
         return f"{addr}, {zipcity}"
     return addr
+
+
+def _fmt_kr(v, currency: str = "DKK") -> str:
+    """Render a money value as the PDF's canonical Danish string ("1.850,00
+    kr."). Wraps the gold money_dk formatter (same one the PDF/MOMS artifacts
+    use) so the XLSX tie-out note text matches the PDF byte-for-byte. Imported
+    lazily — keeps this module import-light and mirrors the PDF builder, which
+    also imports money_dk inside the function."""
+    from app.services.bonbox_pdf_kit import money_dk
+    return money_dk(v, currency)
 
 
 def _voucher_ranges(db: Session, user_id, dt: date) -> tuple[str, str]:
@@ -297,6 +326,13 @@ def build_daily_close_range_pdf(
         "across_days": "over" if DA else "across",
         "days":        "dage" if DA else "days",
         "day_one":     "dag" if DA else "day",
+        # Header summary — count confirmed closes and drafts separately so a
+        # single Kladde never reads as "1 lukning" (which implies a booked,
+        # confirmed close). "bekræftede" + "kladde(r)" keep the distinction
+        # honest for the revisor.
+        "confirmed_word":   "bekræftede" if DA else "confirmed",
+        "draft_word":       "kladde" if DA else "draft",
+        "drafts_word":      "kladder" if DA else "drafts",
         "amounts_in":  "Alle beløb i" if DA else "All amounts in",
         "no_closes":   "Ingen lukninger i denne periode." if DA else "No daily closes in this range.",
         # KPI band labels (kept short for the 4-up grid)
@@ -319,6 +355,15 @@ def build_daily_close_range_pdf(
         # Status badges
         "locked":      "Lukket" if DA else "Confirmed",
         "draft":       "Kladde" if DA else "Draft",
+        # Per-row tie-out footnote — explains the "!" marker that flags any row
+        # whose payments do not equal its revenue (drafts included). The "!" is
+        # rendered as a bold amber glyph; this text is the explanation after it.
+        # The kasserapport must never present a non-tying row silently.
+        "row_flag_note": (
+            "betalinger stemmer ikke med omsætning"
+            if DA else
+            "payments do not match revenue"
+        ),
         # Totals row
         "totals":      "I alt (bekræftede)" if DA else "Totals (confirmed)",
         "draft_excl":  "Kladder ikke medregnet" if DA else "Drafts not summed",
@@ -406,6 +451,11 @@ def build_daily_close_range_pdf(
     note = ParagraphStyle("Note", parent=styles["Normal"], fontSize=8,
                           textColor=MUTED, fontName="Helvetica-Oblique",
                           leading=11)
+    # Centered cell style for the Status column when it carries the inline "!"
+    # tie-out marker (a Paragraph, not a bare string, so the "!" can be amber).
+    status_style = ParagraphStyle("Status", parent=styles["Normal"], fontSize=8.5,
+                                  textColor=INK, fontName="Helvetica",
+                                  leading=10, alignment=1)  # 1 = TA_CENTER
 
     def _make_story():
         # Returns a FRESH list of flowables each call — render_with_doc_hash
@@ -453,18 +503,23 @@ def build_daily_close_range_pdf(
         story.append(head_table)
         story.append(HRFlowable(width="100%", thickness=0.5, color=DIVIDER, spaceBefore=2, spaceAfter=8))
 
-        n_total = len(closes_sorted)
         confirmed = [c for c in closes_sorted if (getattr(c, "status", None) or "confirmed") == "confirmed"]
         drafts = [c for c in closes_sorted if (getattr(c, "status", None) or "confirmed") != "confirmed"]
         n_conf = len(confirmed)
         span_days = (to_date - from_date).days + 1 if to_date and from_date and to_date >= from_date else 1
 
-        # Singular/plural agreement: "1 lukning over 1 dag" vs "3 lukninger
-        # over 7 dage" (and EN "1 close across 1 day").
-        closes_word = L["close_one"] if n_total == 1 else L["closes"]
+        # Singular/plural agreement on confirmed + drafts SEPARATELY so a lone
+        # Kladde never reads as "1 lukning" (which implies a booked close). E.g.
+        # "0 bekræftede · 1 kladde over 30 dage" vs "3 bekræftede · 2 kladder
+        # over 7 dage". n_draft uses the plural-aware draft words.
+        n_draft = len(drafts)
         days_word = L["day_one"] if span_days == 1 else L["days"]
+        confirmed_part = f"{n_conf} {L['confirmed_word']}"
+        draft_word = L["draft_word"] if n_draft == 1 else L["drafts_word"]
+        draft_part = f"{n_draft} {draft_word}"
         story.append(Paragraph(
-            f"{n_total} {closes_word} {L['across_days']} {span_days} {days_word}  ·  {L['amounts_in']} {currency}",
+            f"{confirmed_part} · {draft_part} {L['across_days']} {span_days} {days_word}"
+            f"  ·  {L['amounts_in']} {currency}",
             subtitle,
         ))
 
@@ -531,6 +586,10 @@ def build_daily_close_range_pdf(
             L["h_diff"], L["h_status"],
         ]]
 
+        # Track whether ANY row (drafts included) failed its per-row tie-out so
+        # we can emit the footnote that explains the inline "!" marker.
+        any_row_flagged = False
+
         for c in closes_sorted:
             pay = _bucketed_payments(c)
             vsales, _vexp = _voucher_ranges(db, user_id, c.date)
@@ -550,6 +609,21 @@ def build_daily_close_range_pdf(
             # visible payment cells (Kontant+Kort+MobilePay+Øvrige) always add
             # up to the day's collected payments.
             other_amt = pay["gift_card"] + pay["bank_transfer"] + pay["other"]
+            # Per-row tie-out flag — DRAFTS INCLUDED. A row whose recorded
+            # payments do not equal its revenue carries an amber "!" next to its
+            # status badge (typographic marker, no emoji — matches the badge
+            # marks elsewhere). The kasserapport never shows a non-tying row,
+            # even a Kladde, without saying so.
+            status_label = L["locked"] if status == "confirmed" else L["draft"]
+            if not _row_ties_out(c):
+                any_row_flagged = True
+                status_cell = Paragraph(
+                    f"<font name='Helvetica-Bold' color='{AMBER.hexval()}'>!</font>"
+                    f" {status_label}",
+                    status_style,
+                )
+            else:
+                status_cell = status_label
             table_data.append([
                 _date_short(c.date),
                 vsales or "—",
@@ -561,7 +635,7 @@ def build_daily_close_range_pdf(
                 _fmt(pay["mobilepay"]) if pay["mobilepay"] else "—",
                 _fmt(other_amt) if other_amt else "—",
                 cash_diff_str or "—",
-                L["locked"] if status == "confirmed" else L["draft"],
+                status_cell,
             ])
 
         # Totals (confirmed only)
@@ -614,6 +688,19 @@ def build_daily_close_range_pdf(
             ("TEXTCOLOR", (0, -1), (-1, -1), EMERALD),
         ]))
         story.append(table)
+
+        # ─── Per-row tie-out footnote (if any row was flagged) ───────────
+        # Explains the amber "!" marker carried by any row — drafts included —
+        # whose payments do not equal its revenue. Placed directly under the
+        # table so the marker and its meaning sit together.
+        if any_row_flagged:
+            story.append(Spacer(1, 4))
+            story.append(Paragraph(
+                f"<font color='{AMBER.hexval()}' size='8.5'>"
+                f"<font name='Helvetica-Bold'>!</font>"
+                f" {L['row_flag_note']}</font>",
+                note,
+            ))
 
         # ─── Draft note (if any) ─────────────────────────────────────────
         if drafts:
@@ -885,7 +972,19 @@ def build_daily_close_range_xlsx(
     )
     total_tips = sum(float(c.tips_total or 0) for c in confirmed)
 
-    money_fmt = "# ##0,00" if DA else "#,##0.00"
+    # DKK money DISPLAY format — aligned to the PDF's "1.070,00 kr." (period
+    # thousands, comma decimal, " kr." suffix). Cells stay NUMERIC (real
+    # numbers the accountant can SUM); only the rendered string changes.
+    #
+    # We write the EXPLICIT Danish literal "#.##0,00" (period group / comma
+    # decimal) rather than the US-grammar "#,##0.00". openpyxl stores the
+    # format code VERBATIM in the sheet XML, and Excel/LibreOffice honour the
+    # literal separators in a stored custom format regardless of the opening
+    # machine's locale — so a US-locale accountant still sees Danish "1.070,00
+    # kr.", matching the PDF. The trailing literal is quoted: " kr." (leading
+    # space inside the quotes). Verified by reloading the saved file (see the
+    # scratchpad harness): cell.number_format round-trips to this exact code.
+    money_fmt = '#.##0,00" kr."' if DA else '#,##0.00" kr."'
     kpi_rows = [
         ("Omsætning i alt" if DA else "Total revenue", total_revenue),
         ("Salgsmoms i alt" if DA else "Total output VAT", total_moms),
@@ -925,6 +1024,21 @@ def build_daily_close_range_xlsx(
             float(c.revenue_ex_moms) if c.revenue_ex_moms is not None
             else (revenue - (moms or 0)) if revenue is not None else None
         )
+        # Per-row tie-out note (Bemærkninger) — DRAFTS INCLUDED. When a close's
+        # recorded payments don't equal its revenue, APPEND (never overwrite)
+        # an explicit "Betalinger (X kr.) ≠ omsætning (Y kr.)" note to whatever
+        # the owner already wrote, mirroring the PDF's "!" row flag. _fmt_kr
+        # renders the same currency string as the PDF (DKK → "1.850,00 kr.").
+        remarks = c.notes or ""
+        if not _row_ties_out(c):
+            pay_total = _payments_sum(c)
+            rev = float(c.revenue_total or 0)
+            mismatch = (
+                f"Betalinger ({_fmt_kr(pay_total, currency)}) ≠ omsætning ({_fmt_kr(rev, currency)})"
+                if DA else
+                f"Payments ({_fmt_kr(pay_total, currency)}) ≠ revenue ({_fmt_kr(rev, currency)})"
+            )
+            remarks = f"{remarks} · {mismatch}" if remarks else mismatch
         row_values = [
             c.date, vsales, vexp,
             revenue, moms, net,
@@ -941,7 +1055,7 @@ def build_daily_close_range_xlsx(
                 else ("Kladde" if DA else "Draft"),
             c.closed_by or "",
             c.closed_at.replace(tzinfo=None) if c.closed_at else None,
-            c.notes or "",
+            remarks,
         ]
         for col_idx, val in enumerate(row_values, start=1):
             cell = s2.cell(row=r, column=col_idx, value=val)
