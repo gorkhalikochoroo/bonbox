@@ -1029,6 +1029,7 @@ const translations = {
     gkErrInsufficient: "The amount exceeds the remaining balance.",
     gkErrCap: "You've reached your plan's limit for active gavekort. Upgrade to issue more.",
     gkErrFeature: "Gavekort isn't part of your plan.",
+    gkErrNetwork: "Couldn't connect. Check your internet connection and try again.",
     gkErrGeneric: "Something went wrong. Try again.",
     // Sell flow (counter sale) — selling frame + tender + honest reveal.
     gkSellTitle: "Sell gavekort",
@@ -7650,6 +7651,7 @@ const translations = {
     gkErrInsufficient: "Beløbet overstiger den resterende saldo.",
     gkErrCap: "Du har nået grænsen for aktive gavekort på dit abonnement. Opgradér for at udstede flere.",
     gkErrFeature: "Gavekort er ikke en del af dit abonnement.",
+    gkErrNetwork: "Kunne ikke få forbindelse. Tjek din internetforbindelse og prøv igen.",
     gkErrGeneric: "Noget gik galt. Prøv igen.",
     gkSellTitle: "Sælg gavekort",
     gkSellHint: "Vælg et beløb, og hvordan kunden betalte.",

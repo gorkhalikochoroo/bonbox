@@ -132,6 +132,16 @@ function gkErrText(e, t) {
     feature_locked: t("gkErrFeature", "Gavekort er ikke en del af dit abonnement."),
   };
   if (code && MAP[code]) return MAP[code];
+  // No HTTP response at all → request never reached the server (offline, DNS,
+  // or a blocked CORS preflight). Axios surfaces this as the bare "Network
+  // Error" string, which is opaque to an owner mid-redemption. Give a calm,
+  // actionable message instead of leaking the library's default.
+  if (!e?.response && (e?.request || e?.code === "ERR_NETWORK")) {
+    return t(
+      "gkErrNetwork",
+      "Kunne ikke få forbindelse. Tjek din internetforbindelse og prøv igen.",
+    );
+  }
   return errText(e, t("gkErrGeneric", "Noget gik galt. Prøv igen."));
 }
 
