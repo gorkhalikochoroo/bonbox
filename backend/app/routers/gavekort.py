@@ -66,7 +66,7 @@ from app.services import audit_service
 from app.services.auth import get_current_user
 from app.services.billing import enforce_cap, enforce_feature
 from app.services.gavekort_codes import generate_code, hash_code
-from app.services.qr_signer import GavekortKeyUnset, sign_gavekort
+from app.services.qr_signer import GavekortKeyUnset, sign_gavekort, verify_gavekort
 from app.services.tz_utils import business_today_local
 from app.utils.time import utc_now
 
@@ -112,6 +112,40 @@ class RedeemBody(BaseModel):
     # Idempotency key — required in the body OR the Idempotency-Key header.
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=120)
     sale_ref: str | None = Field(default=None, max_length=120)
+
+
+class ScanResolveBody(BaseModel):
+    # The scanned QR text — the signed token "BB1.G.<jwt>" OR the public URL
+    # ".../g/BB1.G.<jwt>" the camera reads. We extract + verify server-side.
+    token: str = Field(min_length=1, max_length=2048)
+
+
+# The envelope prefix carried by a gavekort QR. Everything after it is the JWT.
+_GK_ENVELOPE = "BB1.G."
+
+
+def _extract_gavekort_jwt(scanned: str) -> str | None:
+    """Pull the bare JWT out of whatever the scanner read. Accepts the public
+    URL (".../g/BB1.G.<jwt>", possibly percent-encoded), the bare envelope
+    ("BB1.G.<jwt>"), or a naked JWT. Returns None if no envelope is present."""
+    if not scanned:
+        return None
+    s = scanned.strip()
+    # Public URL form: take the last path segment after /g/.
+    if "/g/" in s:
+        s = s.rsplit("/g/", 1)[1].split("?", 1)[0].split("#", 1)[0]
+        # percent-decoded dots are fine; a URL-encoded envelope decodes here.
+        try:
+            from urllib.parse import unquote
+            s = unquote(s)
+        except Exception:  # noqa: BLE001
+            pass
+    if s.startswith(_GK_ENVELOPE):
+        return s[len(_GK_ENVELOPE):]
+    # A naked JWT (three dot-separated segments) is tolerated too.
+    if s.count(".") == 2:
+        return s
+    return None
 
 
 # ─── serializers ─────────────────────────────────────────────────────
@@ -403,6 +437,63 @@ def get_gavekort(card_id: UUID, db: Session = Depends(get_db),
             _tx_dict(t, staff_name=name_by_id.get(t.created_by_user_id)) for t in txns
         ],
     }
+
+
+# ═════════════════════════════════════════════════════════════════════
+# POST /scan-resolve — read a scanned gavekort QR → the card (NO redeem)
+# ═════════════════════════════════════════════════════════════════════
+@router.post("/scan-resolve")
+@limiter.limit("60/minute")
+def scan_resolve_gavekort(payload: ScanResolveBody, request: Request,
+                          db: Session = Depends(get_db),
+                          user: User = Depends(get_current_user)):
+    """Resolve a scanned gavekort QR (public URL or BB1.G envelope) to its card
+    so the scanner can SHOW the balance. The honesty lock: scanning READS; a
+    separate redeem-by-id call DEDUCTS. The QR signature is verified here, so
+    the signing key IS required (fail-closed in prod).
+
+    TENANT (L5): the token's uid claim MUST equal the authenticated user — staff
+    can only resolve/redeem THEIR OWN business's gavekort. A foreign card is an
+    IDOR-safe 404, never a leak that it exists.
+    """
+    enforce_feature(user, "gavekort")
+    _require_signing_key()                               # L6 fail-closed (prod)
+
+    jwt_token = _extract_gavekort_jwt(payload.token)
+    if not jwt_token:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    try:
+        claims = verify_gavekort(jwt_token)
+    except GavekortKeyUnset:
+        raise HTTPException(status_code=503, detail={"error": "gavekort_unconfigured"})
+    if not claims:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+    gid = claims.get("gid")
+    uid = claims.get("uid")
+    # You can only scan your OWN business's gavekort. Foreign uid → 404.
+    if not gid or not uid or str(uid) != str(user.id):
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+    card = (
+        db.query(GiftCard)
+        .filter(GiftCard.id == gid, GiftCard.user_id == user.id)
+        .first()
+    )
+    if card is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+    # Terminal states → 410 so the scanner shows "can't redeem", not a card.
+    if card.status == "voided":
+        raise HTTPException(status_code=410, detail={"error": "voided"})
+    if _is_expired(card):
+        raise HTTPException(status_code=410, detail={"error": "expired"})
+    if card.status == "redeemed" or int(card.balance_minor) <= 0:
+        raise HTTPException(status_code=410, detail={"error": "redeemed"})
+
+    # Enough for the scanner to show + then redeem-by-id. (Staff is the owner,
+    # so recipient_name here is the owner's own data — fine.)
+    return _card_summary_dict(card)
 
 
 # ═════════════════════════════════════════════════════════════════════

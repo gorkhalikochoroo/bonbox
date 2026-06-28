@@ -227,6 +227,54 @@ def test_public_gavekort_page_is_pii_safe(client, db):
     assert client.get(f"/api/public/gavekort/{voided['qr_token']}").status_code == 410
 
 
+def test_scan_resolve_reads_card_tenant_scoped(client, db):
+    """The scanner's /scan-resolve reads a scanned QR (URL or envelope) → the
+    card, WITHOUT redeeming. Tenant-scoped: another owner's token → 404.
+    Voided → 410."""
+    owner = _owner(db)
+    other = _owner(db)
+    _override_user(owner)
+    try:
+        out = _issue(client, amount_minor=50000, payment_method="card")
+        voided = _issue(client, amount_minor=10000)
+        client.post(f"/api/gavekort/{voided['id']}/void")
+    finally:
+        _clear_user_override()
+
+    token = out["qr_token"]                       # BB1.G.<jwt>
+
+    _override_user(owner)
+    try:
+        # Bare envelope resolves to the card (no redeem — balance untouched).
+        r = client.post("/api/gavekort/scan-resolve", json={"token": token})
+        assert r.status_code == 200, r.text
+        assert r.json()["id"] == out["id"]
+        assert r.json()["balance_minor"] == 50000
+
+        # The public-URL form (what the camera actually reads) also resolves.
+        url = f"https://www.bonbox.dk/g/{token}"
+        r2 = client.post("/api/gavekort/scan-resolve", json={"token": url})
+        assert r2.status_code == 200 and r2.json()["id"] == out["id"]
+
+        # Garbage → IDOR-safe 404.
+        assert client.post("/api/gavekort/scan-resolve",
+                           json={"token": "BB1.G.nope"}).status_code == 404
+
+        # A voided card → 410 (scanner shows "can't redeem").
+        assert client.post("/api/gavekort/scan-resolve",
+                           json={"token": voided["qr_token"]}).status_code == 410
+    finally:
+        _clear_user_override()
+
+    # Cross-tenant: a DIFFERENT owner scanning owner's token → 404 (never leak).
+    _override_user(other)
+    try:
+        assert client.post("/api/gavekort/scan-resolve",
+                           json={"token": token}).status_code == 404
+    finally:
+        _clear_user_override()
+
+
 # ═════════════════════════════════════════════════════════════════════
 # (b) list summary math
 # ═════════════════════════════════════════════════════════════════════

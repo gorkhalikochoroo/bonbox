@@ -34,7 +34,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Camera as CameraIcon, X, ArrowLeft, AlertTriangle, Check } from "lucide-react";
+import { Camera as CameraIcon, X, ArrowLeft, AlertTriangle, Check, Gift } from "lucide-react";
 import jsQR from "jsqr";
 
 import api from "../services/api";
@@ -42,6 +42,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
 import { platform } from "../utils/platform";
 import { haptic } from "../utils/haptics";
+import { formatKr } from "../utils/currency";
 
 import PageShell from "../components/ui/PageShell";
 import PageHeader from "../components/ui/PageHeader";
@@ -287,6 +288,172 @@ function ScanFlashCard({ entry }) {
 }
 
 // ── Main page ────────────────────────────────────────────────────────
+// ── Gavekort scan helpers ──────────────────────────────────────────────
+// A gavekort QR encodes the public URL ".../g/BB1.G.<jwt>". Pull the bare
+// envelope out of whatever the camera read (URL, raw envelope) so the door
+// scanner can route it to redeem instead of the ticket path. Tolerant — the
+// server re-verifies; this is just a client-side family hint.
+function extractGavekortToken(qrText) {
+  if (typeof qrText !== "string") return null;
+  const s = qrText.trim();
+  if (s.includes("/g/")) {
+    const tail = s.split("/g/").pop().split("?")[0].split("#")[0];
+    try {
+      const dec = decodeURIComponent(tail);
+      if (dec.startsWith("BB1.G.")) return dec;
+    } catch {
+      /* fall through */
+    }
+    if (tail.startsWith("BB1.G.")) return tail;
+  }
+  if (s.startsWith("BB1.G.")) return s;
+  return null;
+}
+
+function gkKr(minor) {
+  if (minor == null || Number.isNaN(minor)) return "—";
+  return formatKr(minor / 100);
+}
+
+function gkMinorFromInput(value) {
+  if (value === "" || value == null) return null;
+  const n = parseFloat(String(value).trim().replace(/\s/g, "").replace(",", "."));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n * 100);
+}
+
+function gkIdemKey() {
+  try {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  } catch {
+    /* fall through */
+  }
+  return `gkscan-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// The redeem sheet — opens when a gavekort QR is scanned. Honesty lock: the
+// scan READ the balance; this is the separate, deliberate REDEEM tap. Owner
+// enters/confirms the amount → one debit. Reuses the redeem-by-id endpoint.
+function GavekortRedeemSheet({ t, card, onClose, onRedeemed }) {
+  const balance = card?.balance_minor ?? 0;
+  const [amount, setAmount] = useState(String((balance / 100).toFixed(2)).replace(/\.00$/, ""));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const idemRef = useRef(gkIdemKey());
+
+  const minor = gkMinorFromInput(amount);
+  const canSubmit = !busy && minor != null && minor <= balance;
+
+  const redeem = async () => {
+    setError("");
+    const amt = gkMinorFromInput(amount);
+    if (amt == null) {
+      setError(t("gkScanAmountRequired", "Indtast et beløb større end 0."));
+      return;
+    }
+    if (amt > balance) {
+      setError(t("gkScanTooMuch", "Beløbet overstiger saldoen ({saldo}).", { saldo: gkKr(balance) }));
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await api.post(
+        `/gavekort/${card.id}/redeem`,
+        { amount_minor: amt, idempotency_key: idemRef.current },
+        { headers: { "Idempotency-Key": idemRef.current } },
+      );
+      const newBalance = res?.data?.balance_minor;
+      onRedeemed({
+        kind: "success",
+        title: t("gkScanRedeemed", "Indløst {amount}", { amount: gkKr(amt) }),
+        subtitle:
+          newBalance != null
+            ? t("gkScanNewBalance", "Ny saldo {saldo}", { saldo: gkKr(newBalance) })
+            : null,
+        at: new Date().toISOString(),
+      });
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 409) setError(t("gkScanInsufficient", "Ikke nok saldo. Indløsning afvist."));
+      else if (status === 410) setError(t("gkScanGone", "Gavekortet kan ikke indløses."));
+      else setError(t("gkScanRedeemFailed", "Kunne ikke indløse. Prøv igen."));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-2xl p-5 space-y-4"
+        style={{ paddingBottom: "max(1.25rem, env(safe-area-inset-bottom))" }}
+      >
+        <div className="flex items-center gap-2">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-900 dark:bg-gray-800 text-white">
+            <Gift className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              {t("gkScanEyebrow", "Indløs gavekort")}
+            </p>
+            <p className="text-2xl font-bold tabular-nums leading-tight text-gray-900 dark:text-gray-100">
+              {gkKr(balance)}
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            {t("gkScanAmountLabel", "Beløb at indløse")}
+          </label>
+          <div className="mt-1.5 flex items-center gap-2">
+            <input
+              type="number"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="flex-1 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2.5 text-lg tabular-nums text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100"
+              aria-label={t("gkScanAmountLabel", "Beløb at indløse")}
+            />
+            <button
+              type="button"
+              onClick={() => setAmount(String((balance / 100).toFixed(2)).replace(/\.00$/, ""))}
+              className="text-sm font-medium text-gray-600 dark:text-gray-300 underline underline-offset-2"
+            >
+              {t("gkScanAll", "Hele saldoen")}
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        )}
+
+        <div className="flex gap-2 pt-1">
+          <Button variant="ghost" size="lg" onClick={onClose} className="flex-1">
+            {t("gkScanCancel", "Annullér")}
+          </Button>
+          <Button
+            variant="primary"
+            size="lg"
+            busy={busy}
+            disabled={!canSubmit}
+            onClick={redeem}
+            className="flex-1 justify-center"
+          >
+            {minor != null
+              ? `${t("gkScanRedeemCta", "Indløs")} ${gkKr(minor)}`
+              : t("gkScanRedeemCta", "Indløs")}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function DoorScanPage() {
   const { t } = useLanguage();
   const { user } = useAuth(); // eslint-disable-line no-unused-vars
@@ -312,6 +479,17 @@ export default function DoorScanPage() {
   // Debounce: { text, until } — repeated reads of the same QR ignored
   const lastScanRef = useRef({ text: null, until: 0 });
   const audioRef = useRef(null);
+
+  // ── Gavekort redeem sheet ──────────────────────────────────────────
+  // When a gavekort QR is scanned we open a redeem sheet (show-then-redeem).
+  // gkOpenRef pauses the scan tick while it's up so the same code isn't
+  // re-resolved behind the modal.
+  const [gkSheet, setGkSheet] = useState(null);
+  const gkOpenRef = useRef(false);
+  const closeGkSheet = useCallback(() => {
+    gkOpenRef.current = false;
+    setGkSheet(null);
+  }, []);
 
   // ── Fetch organizer events on mount ────────────────────────────────
   useEffect(() => {
@@ -371,6 +549,29 @@ export default function DoorScanPage() {
   // the backend can re-verify the signature; client-side parse is purely
   // a UX optimization for the wrong-event short-circuit.
   const submitScan = useCallback(async (qrText, parsed) => {
+    // ── Gavekort QR? Resolve the card + open the redeem sheet. The scan only
+    // READS the balance — the actual debit is the deliberate tap in the sheet.
+    if (extractGavekortToken(qrText)) {
+      try {
+        const res = await api.post("/gavekort/scan-resolve", { token: qrText });
+        gkOpenRef.current = true; // pause the loop while the sheet is up
+        setGkSheet(res.data);
+        if (audioRef.current) audioRef.current.success();
+        haptic.success();
+      } catch (err) {
+        const status = err?.response?.status;
+        let title;
+        if (status === 410) title = t("gkScanGone", "Gavekortet kan ikke indløses");
+        else if (status === 404) title = t("gkScanNotYours", "Ukendt gavekort");
+        else if (status === 503) title = t("gkScanUnconfigured", "Gavekort er midlertidigt utilgængeligt");
+        else title = t("gkScanFailed", "Kunne ikke læse gavekortet");
+        pushHistory({ kind: "error", title, at: new Date().toISOString() });
+        if (audioRef.current) audioRef.current.failure();
+        haptic.error();
+      }
+      return;
+    }
+
     const tid = parsed?.tid || parsed?.sub;
     if (!tid) {
       pushHistory({
@@ -467,6 +668,9 @@ export default function DoorScanPage() {
         inversionAttempts: "dontInvert",
       });
       if (!code?.data) return;
+
+      // Gavekort redeem sheet is up → don't re-process scans behind it.
+      if (gkOpenRef.current) return;
 
       const now = Date.now();
       if (lastScanRef.current.text === code.data && now < lastScanRef.current.until) {
@@ -746,6 +950,21 @@ export default function DoorScanPage() {
             </Button>
           </div>
         </div>
+      )}
+
+      {gkSheet && (
+        <GavekortRedeemSheet
+          t={t}
+          card={gkSheet}
+          onClose={closeGkSheet}
+          onRedeemed={(entry) => {
+            pushHistory(entry);
+            setStats((s) => ({ ...s, scanned: (s.scanned || 0) + 1 }));
+            if (audioRef.current) audioRef.current.success();
+            haptic.success();
+            closeGkSheet();
+          }}
+        />
       )}
     </PageShell>
   );
