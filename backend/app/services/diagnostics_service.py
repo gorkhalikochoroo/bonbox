@@ -40,8 +40,11 @@ _REGULAR_WINDOW_DAYS = 14
 # A draft close older than this (business days) is "stale" — the day is done
 # but the report was never locked, so nothing has tied out yet.
 _STALE_DRAFT_DAYS = 2
-# How far back we look for confirmed-but-unreconciled closes.
-_UNRECONCILED_WINDOW_DAYS = 31
+# Confirmed-but-unreconciled closes are intentionally NOT time-windowed:
+# a locked, revisor-bound close that doesn't tie out matters MORE the
+# longer it sits unfixed, not less. We surface only the single worst, so
+# there is no recency blind spot (an old confirmed mismatch used to
+# vanish silently after ~31 days — exactly the worst item to drop).
 # A CONFIRMED close only counts as a CLEAR mismatch when the gap is BOTH
 # absolutely large (>100 kr) AND relatively large (>5%). Conservative on
 # purpose: tips / rounding / gift cards legitimately move a tied-out close a
@@ -217,18 +220,18 @@ def _detect_close_unreconciled(db: Session, user, now):
     revenue — the kind of mismatch that must NOT silently flow to the revisor.
     Conservative by design (>5% AND >100 kr): tips, rounding and gift cards
     legitimately move a tied-out close a little, and a false alarm on a locked
-    report would destroy owner trust. We surface the WORST (largest gap) of the
-    most-recent window. Read-only: we route the owner to the close, never
+    report would destroy owner trust. We surface the single WORST (largest
+    gap) across ALL the owner's confirmed closes — intentionally NOT
+    time-windowed: a locked, revisor-bound close that doesn't tie out
+    matters more the longer it sits unfixed, and worst-only keeps it to
+    one calm item. Read-only: we route the owner to the close, never
     'reconcile' it ourselves."""
-    window_start = business_today_local(user) - timedelta(days=_UNRECONCILED_WINDOW_DAYS)
-
     closes = (
         db.query(DailyClose)
         .filter(
             DailyClose.user_id == user.id,
             DailyClose.status == "confirmed",
             DailyClose.is_deleted.isnot(True),
-            DailyClose.date >= window_start,
         )
         .all()
     )

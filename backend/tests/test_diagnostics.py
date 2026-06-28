@@ -160,6 +160,29 @@ def test_close_unreconciled_detected_urgent(db):
     assert findings[0]["code"] == "close_unreconciled"
 
 
+def test_old_confirmed_close_unreconciled_still_surfaces(db):
+    """Regression: a CONFIRMED close that doesn't tie out must NOT age out
+    of the queue. A 60-day-old locked mismatch (the real 04-May case:
+    payment 573 ≠ revenue 1.118) is the worst kind — it may already be at
+    the revisor — yet the old 31-day window silently dropped it. The
+    detector is now unbounded in time and still surfaces the single worst."""
+    user = _owner(db)
+    biz_today = business_today_local(user)
+    _add_close(
+        db, user,
+        d=biz_today - timedelta(days=60),  # well past the old 31-day cap
+        status="confirmed",
+        revenue=1118,
+        payment=573,  # ~49% off → clear mismatch
+    )
+
+    findings = ds.run_diagnostics(db, user)
+    hits = _only(findings, "close_unreconciled")
+    assert len(hits) == 1
+    assert hits[0]["severity"] == "urgent"
+    assert hits[0]["meta"]["date"] == (biz_today - timedelta(days=60)).isoformat()
+
+
 def test_confirmed_close_that_ties_out_is_not_flagged(db):
     """(c) A CONFIRMED close that ties out (within tolerance) → NO false
     positive. A tiny tips/rounding gap must never alarm."""

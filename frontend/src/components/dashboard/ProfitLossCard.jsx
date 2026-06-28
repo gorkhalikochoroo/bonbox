@@ -61,25 +61,47 @@ export default function ProfitLossCard({ ctx = {} }) {
         </div>
       </div>
 
-      <div className="flex justify-between items-baseline">
-        <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
-          {t("netProfit", "Net profit")}
-        </span>
-        <div className="text-right">
-          <p
-            className={`text-xl font-bold tabular-nums ${
-              isProfit
-                ? "text-emerald-600 dark:text-emerald-400"
-                : "text-red-600 dark:text-red-400"
-            }`}
-          >
-            {formatKr(profit, { decimals: 0, sign: true })}
-          </p>
-          <p className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
-            {t("marginColonPct", "Margin: {pct}%").replace("{pct}", String(margin))}
-          </p>
+      {expenses > 0 ? (
+        <div className="flex justify-between items-baseline">
+          <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+            {t("netProfit", "Net profit")}
+          </span>
+          <div className="text-right">
+            <p
+              className={`text-xl font-bold tabular-nums ${
+                isProfit
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-red-600 dark:text-red-400"
+              }`}
+            >
+              {formatKr(profit, { decimals: 0, sign: true })}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+              {t("marginColonPct", "Margin: {pct}%").replace("{pct}", String(margin))}
+            </p>
+          </div>
         </div>
-      </div>
+      ) : (
+        // Honesty guard: with zero expenses logged, "Net profit = revenue"
+        // and "Margin 100%" are a lie — revenue is gross (incl. MOMS owed)
+        // and no costs are in yet. Don't fake profit; invite the one tap
+        // that makes it real.
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate("/expenses");
+          }}
+          className="block w-full text-left -mx-1 px-1 py-0.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
+        >
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+            {t("plNoExpensesTitle", "No expenses logged this month")}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            {t("plNoExpensesCta", "Add expenses to see your real profit →")}
+          </p>
+        </button>
+      )}
     </div>
   );
 }

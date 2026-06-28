@@ -418,8 +418,11 @@ export default function DailyBriefCard() {
 }
 
 function dotColor(type) {
-  if (type === "win") return "#22c55e";    // green-500
-  if (type === "watch") return "#f59e0b";  // amber-500
-  if (type === "action") return "#3b82f6"; // blue-500
-  return "#94a3b8";                        // slate-400 fallback
+  if (type === "win") return "#22c55e";    // green-500 (win signal)
+  if (type === "watch") return "#f59e0b";  // amber-500 (watch signal)
+  if (type === "risk") return "#ef4444";   // red-500 (risk signal)
+  // 'action' and any unknown type are a neutral "needs a tap", not an
+  // up/down status — gray, never blue. Keeps the hero on the gray-900 +
+  // status-only palette (no rainbow dot).
+  return "#9ca3af";                        // gray-400
 }

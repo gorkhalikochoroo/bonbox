@@ -30,11 +30,7 @@ import React from "react";
 import { TrendingUp, TrendingDown, Calendar } from "lucide-react";
 import { StatCard } from "../ui";
 import { useLanguage } from "../../hooks/useLanguage";
-
-function fmtDKK(n, currency = "DKK") {
-  if (n == null || Number.isNaN(Number(n))) return "—";
-  return `${Number(n).toLocaleString("da-DK", { maximumFractionDigits: 0 })} ${currency}`;
-}
+import { formatKr } from "../../utils/currency";
 
 function fmtPct(n) {
   if (n == null || Number.isNaN(Number(n))) return null;
@@ -84,7 +80,6 @@ export default function KpiStrip({
   className = "",
 }) {
   const { t } = useLanguage();
-  const currency = ctx?.summary?.currency || "DKK";
   const todayDelta = ctx?.weekComparison?.todayDeltaPct ?? null;
   const weekDelta = ctx?.weekComparison?.weekDeltaPct ?? null;
   const complianceDays = ctx?.compliance?.daysToNext ?? null;
@@ -98,7 +93,7 @@ export default function KpiStrip({
   const tileSpecs = {
     today: {
       label: t("liveRevenueToday", "Revenue today"),
-      value: fmtDKK(ctx?.summary?.todayRevenue ?? 0, currency),
+      value: formatKr(ctx?.summary?.todayRevenue ?? 0, { decimals: 0 }),
       helper: showDelta ? (
         <DeltaIndicator
           pct={todayDelta}
@@ -109,7 +104,7 @@ export default function KpiStrip({
     },
     week: {
       label: t("liveRevenueWeek", "Revenue this week"),
-      value: fmtDKK(ctx?.summary?.weekRevenue ?? 0, currency),
+      value: formatKr(ctx?.summary?.weekRevenue ?? 0, { decimals: 0 }),
       helper: showDelta ? (
         <DeltaIndicator
           pct={weekDelta}

@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import api from "../../services/api";
 import { useLanguage } from "../../hooks/useLanguage";
-import { formatMoney } from "../../utils/currency";
+import { formatKr } from "../../utils/currency";
 
 function fmtDate(iso) {
   if (!iso) return "";
@@ -211,7 +211,7 @@ export default function ComplianceCountdownCard({
     const action = fs.action || null;
     const noBalance = fs.verdict === "INSUFFICIENT_DATA";
 
-    const expected = moms.expected != null ? formatMoney(moms.expected, "DKK", { decimals: 0 }) : null;
+    const expected = moms.expected != null ? formatKr(moms.expected, { decimals: 0 }) : null;
 
     let detail;
     if (noBalance) {
@@ -220,13 +220,13 @@ export default function ComplianceCountdownCard({
         .replace("{date}", fmtDate(dl.date));
     } else if (fs.verdict === "SHORT" && action && !action.already_covered) {
       detail = t("fsActionWeekly", "Set aside {amt}/week")
-        .replace("{amt}", formatMoney(action.weekly_rate, "DKK", { decimals: 0 }));
+        .replace("{amt}", formatKr(action.weekly_rate, { decimals: 0 }));
     } else if (fs.verdict === "AT_RISK" && action && !action.already_covered) {
       detail = t("fsActionWeeklySafe", "Set aside {amt}/week to be safe")
-        .replace("{amt}", formatMoney(action.weekly_rate, "DKK", { decimals: 0 }));
+        .replace("{amt}", formatKr(action.weekly_rate, { decimals: 0 }));
     } else if (fs.verdict === "TIGHT" && fs.balance && fs.balance.lowest) {
       detail = t("fsTightDetail", "Dips to {low} before the deadline")
-        .replace("{low}", formatMoney(fs.balance.lowest.balance, "DKK", { decimals: 0 }));
+        .replace("{low}", formatKr(fs.balance.lowest.balance, { decimals: 0 }));
     } else {
       detail = t("fsCoveredDetail", "Expected MOMS ~{amt} — on track")
         .replace("{amt}", expected || "—");
@@ -238,7 +238,7 @@ export default function ComplianceCountdownCard({
     const hasManualBalance =
       fs.balance_source === "manual" && fs.balance && fs.balance.starting != null;
     const balanceStr = hasManualBalance
-      ? formatMoney(fs.balance.starting, "DKK", { decimals: 0 })
+      ? formatKr(fs.balance.starting, { decimals: 0 })
       : null;
     const balanceFooter = !hasManualBalance
       ? null

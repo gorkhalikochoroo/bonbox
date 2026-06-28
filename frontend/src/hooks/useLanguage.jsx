@@ -6107,6 +6107,8 @@ const translations = {
     avgShort: "Avg",
     trendFlat: "Stable",
     revenueTrendVs: "vs. start of period",
+    plNoExpensesTitle: "No expenses logged this month",
+    plNoExpensesCta: "Add expenses to see your real profit →",
     active: "active",
     // Task #204 P2.6 — "Today on shift" Zone 1 card.  Empty state uses
     // `vagtplan` and the "føj en til vagtplanen" copy in BOTH locales
@@ -12635,6 +12637,8 @@ const translations = {
     avgShort: "Gns.",
     trendFlat: "Stabil",
     revenueTrendVs: "ift. periodestart",
+    plNoExpensesTitle: "Ingen udgifter registreret denne måned",
+    plNoExpensesCta: "Tilføj udgifter for at se dit reelle overskud →",
     active: "aktive",
     // Task #204 P2.6 — "Today on shift" card (DK strings).
     todayOnShiftTitle: "På vagt i dag",
