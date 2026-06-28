@@ -6105,6 +6105,8 @@ const translations = {
     moreActions: "More actions",
     revenueTrendWindow: "Last {n} days",
     avgShort: "Avg",
+    trendFlat: "Stable",
+    revenueTrendVs: "vs. start of period",
     active: "active",
     // Task #204 P2.6 — "Today on shift" Zone 1 card.  Empty state uses
     // `vagtplan` and the "føj en til vagtplanen" copy in BOTH locales
@@ -12631,6 +12633,8 @@ const translations = {
     moreActions: "Flere handlinger",
     revenueTrendWindow: "Sidste {n} dage",
     avgShort: "Gns.",
+    trendFlat: "Stabil",
+    revenueTrendVs: "ift. periodestart",
     active: "aktive",
     // Task #204 P2.6 — "Today on shift" card (DK strings).
     todayOnShiftTitle: "På vagt i dag",

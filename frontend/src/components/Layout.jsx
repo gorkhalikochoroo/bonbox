@@ -847,7 +847,7 @@ export default function Layout() {
               value={lang}
               onChange={(e) => setLang(e.target.value)}
               aria-label="Language"
-              className="flex-1 bg-transparent text-sm font-medium outline-none cursor-pointer"
+              className="bg-transparent text-sm font-medium outline-none cursor-pointer pr-1"
             >
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>
