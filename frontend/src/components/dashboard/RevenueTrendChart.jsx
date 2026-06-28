@@ -20,7 +20,9 @@
  * as a real dip to zero, not a gap the line smooths over. Because every
  * calendar day is present, the empty / sparse / average / trend logic
  * below keys off the count of days that actually had revenue, never the
- * raw array length.
+ * raw array length. The leading no-sale runway (before the owner's first
+ * sale in the window) is trimmed so a sparse seller starts at real
+ * activity; gaps between sales and any recent quiet run are kept.
  */
 import React from "react";
 import { useNavigate } from "react-router-dom";
@@ -72,7 +74,13 @@ const meanNonZero = (arr) => {
 export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
   const { t, lang } = useLanguage();
   const navigate = useNavigate();
-  const data = (ctx?.dailyRevData || []).slice(-days);
+  const windowed = (ctx?.dailyRevData || []).slice(-days);
+  // Adaptive start: trim the leading no-sale days so the chart begins at
+  // the owner's first sale within the window instead of drawing a long
+  // flat-zero runway before they were active. Gaps BETWEEN sales and any
+  // recent quiet run are kept — those are real signal, not empty space.
+  const firstSold = windowed.findIndex((d) => (d.amount || 0) > 0);
+  const data = firstSold > 0 ? windowed.slice(firstSold) : windowed;
   const soldDays = data.filter((d) => (d.amount || 0) > 0);
 
   const cardCls =
