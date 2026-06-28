@@ -302,7 +302,7 @@ export default function StaffPayrollPage() {
     } catch (err) {
       // Surface the actual server detail when available — `responseType: "blob"`
       // means axios delivers the error body as a Blob, so we read it as text first.
-      let detail = "Could not generate PDF. Please try again.";
+      let detail = t("payrollPdfFailed", "Could not generate PDF. Please try again.");
       try {
         const data = err?.response?.data;
         if (data instanceof Blob) {
@@ -320,7 +320,7 @@ export default function StaffPayrollPage() {
       // A non-blob 422 makes data.detail an ARRAY ([{type,loc,msg,input}]);
       // rendering that as a child would crash. Keep the parsed string as-is,
       // else fall back to the generic message.
-      setError(typeof detail === "string" ? detail : "Could not generate PDF. Please try again.");
+      setError(typeof detail === "string" ? detail : t("payrollPdfFailed", "Could not generate PDF. Please try again."));
     }
     setPdfLoading(false);
   };
@@ -455,7 +455,7 @@ export default function StaffPayrollPage() {
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <Button variant="secondary" size="sm" onClick={() => navigatePeriod("prev")}>
-              ← Previous
+              ← {t("payrollPrevPeriod", "Previous")}
             </Button>
             <div className="text-center">
               <p className="text-sm text-gray-500 dark:text-gray-400">{t("payPeriod")}</p>
@@ -464,7 +464,7 @@ export default function StaffPayrollPage() {
               </p>
             </div>
             <Button variant="secondary" size="sm" onClick={() => navigatePeriod("next")}>
-              Next →
+              {t("next", "Next")} →
             </Button>
           </div>
           {/* DK lønperiode is often mid-month (16.→15., 25.→24.) rather than the
@@ -534,14 +534,14 @@ export default function StaffPayrollPage() {
             <div className="flex items-center justify-center py-8">
               <div className="text-center">
                 <div className="text-2xl mb-2 animate-pulse">👥</div>
-                <p className="text-sm text-gray-400">Loading staff...</p>
+                <p className="text-sm text-gray-400">{t("payrollLoadingStaff", "Loading staff...")}</p>
               </div>
             </div>
           ) : staffList.length === 0 ? (
             <div className="text-center py-8">
               <div className="text-3xl mb-2">👥</div>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                No staff members found. Add staff from the Staffing page to get started.
+                {t("payrollNoStaffFound", "No staff members found. Add staff from the Staffing page to get started.")}
               </p>
             </div>
           ) : (
@@ -599,7 +599,9 @@ export default function StaffPayrollPage() {
               onClick={() => setStaffOpen(true)}
               className="w-full text-left text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             >
-              {selectedIds.size} of {staffList.length} staff selected — tap to change
+              {t("payrollStaffSelectedTap", "{selected} of {total} staff selected — tap to change")
+                .replace("{selected}", selectedIds.size)
+                .replace("{total}", staffList.length)}
             </button>
           )}
         </div>
@@ -627,7 +629,7 @@ export default function StaffPayrollPage() {
             <div className="text-center py-8">
               <div className="text-3xl mb-2">📊</div>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Select staff members above to preview payroll
+                {t("payrollSelectToPreview", "Select staff members above to preview payroll")}
               </p>
             </div>
           ) : previewOpen ? (
@@ -639,7 +641,7 @@ export default function StaffPayrollPage() {
                     <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("hoursLabel")}</th>
                     <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("baseEarned")}</th>
                     <th className="text-right py-3 px-2 text-amber-600 dark:text-amber-400 font-medium">{t("overtime")}</th>
-                    <th className="text-right py-3 px-2 text-emerald-600 dark:text-gray-300 font-medium">Tips</th>
+                    <th className="text-right py-3 px-2 text-emerald-600 dark:text-gray-300 font-medium">{t("tips", "Tips")}</th>
                     <th className="text-right py-3 px-2 text-gray-500 dark:text-gray-400 font-medium">{t("total")}</th>
                   </tr>
                 </thead>
@@ -683,7 +685,7 @@ export default function StaffPayrollPage() {
                 <tfoot>
                   <tr className="border-t-2 border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50">
                     <td className="py-3 px-2 font-bold text-gray-800 dark:text-white">
-                      Grand Total ({payrollRows.length} staff)
+                      {t("payrollGrandTotal", "Grand Total ({count} staff)").replace("{count}", payrollRows.length)}
                     </td>
                     <td className="text-right py-3 px-2 font-bold text-gray-800 dark:text-white tabular-nums">
                       {fmtHours(totals.hours)}
@@ -710,7 +712,10 @@ export default function StaffPayrollPage() {
               onClick={() => setPreviewOpen(true)}
               className="w-full text-left text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             >
-              {payrollRows.length} staff · {fmtHours(totals.hours)} · {fmtMoney(totals.total, currency)} total — tap to see per-staff
+              {t("payrollPreviewSummaryTap", "{count} staff · {hours} · {total} total — tap to see per-staff")
+                .replace("{count}", payrollRows.length)
+                .replace("{hours}", fmtHours(totals.hours))
+                .replace("{total}", fmtMoney(totals.total, currency))}
             </button>
           )}
         </div>
@@ -728,19 +733,19 @@ export default function StaffPayrollPage() {
                 </p>
               </div>
               <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                Estimate
+                {t("payrollEstimateBadge", "Estimate")}
               </span>
             </div>
 
             {dkLoading ? (
-              <div className="text-sm text-gray-500 dark:text-gray-400">Loading estimate…</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">{t("payrollLoadingEstimate", "Loading estimate…")}</div>
             ) : !dkEstimate ? (
               <div className="text-sm text-gray-500 dark:text-gray-400">
-                No estimate available — log staff hours first.
+                {t("payrollNoEstimate", "No estimate available — log staff hours first.")}
               </div>
             ) : dkEstimate.staff_count === 0 ? (
               <div className="text-sm text-gray-500 dark:text-gray-400">
-                No active staff or hours logged in this period.
+                {t("payrollNoActiveStaff", "No active staff or hours logged in this period.")}
               </div>
             ) : (
               <>
@@ -781,12 +786,12 @@ export default function StaffPayrollPage() {
                         document.body.appendChild(a); a.click(); a.remove();
                         window.URL.revokeObjectURL(url);
                       } catch {
-                        setError("Could not generate CSV.");
+                        setError(t("payrollCsvFailed", "Could not generate CSV."));
                       }
                     }}
                     className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition"
                   >
-                    Download summary CSV (for DataLøn / Zenegy)
+                    {t("payrollDownloadCsv", "Download summary CSV (for DataLøn / Zenegy)")}
                   </button>
                   <button
                     onClick={async () => {
@@ -802,25 +807,25 @@ export default function StaffPayrollPage() {
                         document.body.appendChild(a); a.click(); a.remove();
                         window.URL.revokeObjectURL(url);
                       } catch (e) {
-                        setError(e?.response?.status === 404 ? "No staff hours logged in this period." : "Could not generate Lønseddel.");
+                        setError(e?.response?.status === 404 ? t("payrollNoHoursLogged", "No staff hours logged in this period.") : t("payrollLoenseddelFailed", "Could not generate Lønseddel."));
                       }
                     }}
                     className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
                   >
-                    Lønseddel PDF (one per employee)
+                    {t("payrollLoenseddelPdf", "Lønseddel PDF (one per employee)")}
                   </button>
                 </div>
 
                 {dkEstimate.per_staff?.length > 0 && (
                   <details className="mt-3">
                     <summary className="cursor-pointer text-xs font-medium text-gray-700 dark:text-gray-300 select-none">
-                      Per-employee breakdown ({dkEstimate.per_staff.length})
+                      {t("payrollPerEmployeeBreakdown", "Per-employee breakdown ({count})").replace("{count}", dkEstimate.per_staff.length)}
                     </summary>
                     <div className="overflow-x-auto mt-2">
                       <table className="w-full text-xs text-gray-700 dark:text-gray-300">
                         <thead className="text-[10px] uppercase text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                           <tr>
-                            <th className="text-left py-1.5 px-2">Name</th>
+                            <th className="text-left py-1.5 px-2">{t("name", "Name")}</th>
                             <th className="text-right py-1.5 px-2">{t("hoursLabel")}</th>
                             <th className="text-right py-1.5 px-2">{t("gross")}</th>
                             <th className="text-right py-1.5 px-2">AM</th>
@@ -864,7 +869,7 @@ export default function StaffPayrollPage() {
               iconLeft={!pdfLoading && <Icon name="FileText" size={16} />}
               title={t("downloadPdfTooltip", "Download PDF to your device")}
             >
-              {pdfLoading ? "Generating..." : t("generatePdf", "Generate PDF")}
+              {pdfLoading ? t("payrollGenerating", "Generating...") : t("generatePdf", "Generate PDF")}
             </Button>
             <Button
               variant="accent"
@@ -879,8 +884,8 @@ export default function StaffPayrollPage() {
             </Button>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {selectedIds.size === 0
-                ? "Select at least one staff member to export"
-                : `${selectedIds.size} staff member${selectedIds.size > 1 ? "s" : ""} selected · ${period ? periodLabel(period.period_start, period.period_end) : ""}`}
+                ? t("payrollSelectToExport", "Select at least one staff member to export")
+                : `${t(selectedIds.size > 1 ? "payrollStaffSelectedPlural" : "payrollStaffSelectedSingular", selectedIds.size > 1 ? "{count} staff members selected" : "{count} staff member selected").replace("{count}", selectedIds.size)} · ${period ? periodLabel(period.period_start, period.period_end) : ""}`}
             </p>
           </div>
           {sendToast && (

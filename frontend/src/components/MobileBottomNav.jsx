@@ -54,7 +54,11 @@ function getTabsForType(branchType) {
     cafe:       "/reservations",
     retail:     "/inventory",
     workshop:   "/workshop",
-    salon:      "/staff/schedule",
+    // Phase A bug fix (BUG #3): salon is reservations-first (Aftaler /
+    // Tidsbestilling). It contradicted its own archetype by routing the 4th
+    // tab to /staff/schedule; bring it in line with every other booking-first
+    // vertical.
+    salon:      "/reservations",
     hotel:      "/reservations",
     freelance:  "/cashflow",
     general:    "/daily-close",

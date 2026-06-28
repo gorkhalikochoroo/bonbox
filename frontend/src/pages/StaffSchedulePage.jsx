@@ -6,11 +6,25 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "../components/BranchSelector";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatKr } from "../utils/currency";
 import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
-import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2 } from "lucide-react";
+import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check } from "lucide-react";
+// Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
+// EMPTY cell (different staff and/or day) to REASSIGN it. dnd-kit gives us an
+// accessible (keyboard + pointer) drag with a 6px activation distance, so a
+// plain click still opens the modal / blooms a draft. Desktop grid ONLY.
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+  closestCenter,
+} from "@dnd-kit/core";
 // C7 Intelligence collapse — weather + smart-staffing forecasts fold into a
 // collapsed panel right here on the Schedule page (where shift decisions are
 // made), replacing the standalone /weather + /staffing Intelligence pages.
@@ -80,6 +94,27 @@ const ROLE_COLORS = {
   },
 };
 
+// Slice S: role as a 3px LEFT-BAR signal only (LOCKED design — no flood tint).
+// kitchen=red (Køkken), bar=blue (Bar), floor=emerald (Floor). Keyed by the
+// SAME category as ROLE_COLORS so the bar always agrees with the row dot
+// (which is already red-500/blue-500/emerald-500). border-* = the left-bar hue.
+const ROLE_BAR = {
+  kitchen: "border-red-500",
+  bar: "border-blue-500",
+  floor: "border-emerald-500",
+};
+
+// Role → its localized CATEGORY label (Køkken / Bar / Gulv in Danish). Used by
+// BOTH the color legend AND the cross-role chip on a shift block so they always
+// agree, and so the cryptic 3-char slice ("Che") is gone. DK terminology: a
+// kitchen shift reads "Køkken", never the ambiguous "Chef" (= boss in Danish).
+const ROLE_LABEL_KEY = { kitchen: "roleKitchen", bar: "roleBar", floor: "roleFloor" };
+const ROLE_LABEL_FALLBACK = { kitchen: "Kitchen", bar: "Bar", floor: "Floor" };
+function roleLabel(role, t) {
+  const cat = ROLE_CATEGORY[role] || "floor";
+  return t(ROLE_LABEL_KEY[cat], ROLE_LABEL_FALLBACK[cat]);
+}
+
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
@@ -134,14 +169,12 @@ function toISO(date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-/** Format shift time for display: "16:00-23:00" -> "16-23" */
+/** Format shift time at FULL precision: "16:00–23:00". Owners double-check
+    these times, so we never crush "16:00" to a bare "16"; both sides are full
+    HH:MM joined by a true en-dash (–). */
 function formatShiftTime(start, end) {
   if (!start || !end) return "";
-  const s = start.slice(0, 5);
-  const e = end.slice(0, 5);
-  const sShort = s.endsWith(":00") ? s.split(":")[0] : s;
-  const eShort = e.endsWith(":00") ? e.split(":")[0] : e;
-  return `${sShort}-${eShort}`;
+  return `${start.slice(0, 5)}–${end.slice(0, 5)}`;
 }
 
 /** Calculate hours between two HH:MM times minus break */
@@ -153,6 +186,60 @@ function calcHours(startTime, endTime, breakMinutes = 0) {
   if (totalMinutes < 0) totalMinutes += 24 * 60; // overnight shift
   totalMinutes -= breakMinutes;
   return Math.max(0, totalMinutes / 60);
+}
+
+/** Sum a staffer's net hours across the visible week (uses the same per-cell
+    getShiftForCell the grid renders, so the Timer column can never disagree
+    with the blocks above it). */
+function weeklyHoursFor(memberId, weekDates, getShiftForCell) {
+  let total = 0;
+  for (const d of weekDates) {
+    const s = getShiftForCell(memberId, d);
+    if (s) total += calcHours(s.start_time, s.end_time, s.break_minutes || 0);
+  }
+  return total;
+}
+
+/** Format hours for the Timer column: 1 decimal, trailing-zero trimmed, with
+    the localized unit. DK uses a comma decimal + 't' (timer); EN uses '.' + 'h'
+    so "32,5t" reads native in Danish and "32.5h" in English. */
+function formatTimer(h, unit) {
+  const r = Math.round(h * 10) / 10;
+  let s = Number.isInteger(r) ? String(r) : r.toFixed(1);
+  if (unit === "t") s = s.replace(".", ",");
+  return `${s}${unit}`;
+}
+
+/** Per-shift / per-day hours: keeps 2-decimal precision (an 07:00–15:20 shift is
+    8,33t, never crushed to 8,3 — matches the backend pay calc) and uses the
+    localized unit + DK comma decimal. */
+function formatShiftHours(hrs, unit) {
+  let s = String(Math.round((hrs || 0) * 100) / 100);
+  if (unit === "t") s = s.replace(".", ",");
+  return `${s}${unit}`;
+}
+
+/* ─── Saved shift presets (Vagt-skabeloner) ───
+   Reusable shift templates the owner defines once and drops onto cells.
+   Client-side only (localStorage) — no backend, no PII, instant. Shape:
+   { id, label, start, end, role, break_minutes }. */
+const SHIFT_TEMPLATES_KEY = "bonbox_shift_templates_v1";
+
+function loadShiftTemplates() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(SHIFT_TEMPLATES_KEY) || "[]");
+    return Array.isArray(arr) ? arr.filter((x) => x && x.start && x.end) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistShiftTemplates(list) {
+  try {
+    localStorage.setItem(SHIFT_TEMPLATES_KEY, JSON.stringify(list));
+  } catch {
+    /* private mode — presets just won't persist across reloads */
+  }
 }
 
 /** True if a shift row belongs to the given staff id (tolerates either
@@ -199,9 +286,96 @@ function laborTone(ratio, target) {
   return "text-red-600 dark:text-red-400";
 }
 
+/** Footer/grid labor% tone — like laborTone but NEVER emerald: inside the grid
+    green is the Floor ROLE signal, so "good/under-budget" stays neutral
+    gray-900 and only over-budget colours (amber→red). Keeps the only greens in
+    the grid the role bars. under→gray-900, near→amber, over→red. */
+function laborToneFooter(ratio, target) {
+  if (ratio == null || target == null || Number.isNaN(ratio) || Number.isNaN(target)) {
+    return "text-gray-400 dark:text-gray-500";
+  }
+  if (ratio <= target) return "text-gray-900 dark:text-gray-100";
+  if (ratio <= target * 1.15) return "text-amber-600 dark:text-amber-400";
+  return "text-red-600 dark:text-red-400";
+}
+
+/** Per-staff confirmation rollup for the owner grid from the staff-side
+    "Jeg har set det" (confirmed_at on each published shift this week).
+    "all" → every published shift confirmed (green check); "partial"/"none" →
+    amber; null → no published shifts OR confirmed_at isn't in the payload yet
+    (degrade to NO badge — never a misleading "nobody confirmed"). HONESTY:
+    green is gated strictly on every published shift carrying confirmed_at. */
+function staffConfirmState(memberId, weekDates, getShiftForCell) {
+  let published = 0;
+  let confirmed = 0;
+  let fieldSeen = false;
+  for (const date of weekDates) {
+    const s = getShiftForCell(memberId, date);
+    if (s && s.status === "published") {
+      published += 1;
+      if ("confirmed_at" in s) fieldSeen = true;
+      if (s.confirmed_at) confirmed += 1;
+    }
+  }
+  if (published === 0 || !fieldSeen) return null;
+  if (confirmed === published) return "all";
+  return confirmed > 0 ? "partial" : "none";
+}
+
 /* ═══════════════════════════════════════════════════════════
    MAIN PAGE
    ═══════════════════════════════════════════════════════════ */
+
+// Loading skeleton that mirrors the weekly grid (header + h-14 rows) so the
+// page settles instead of jumping from a bare spinner to a full table.
+function GridSkeleton() {
+  const cols = 7;
+  const rows = 5;
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden animate-pulse">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[700px]">
+          <thead>
+            <tr className="border-b border-gray-100 dark:border-gray-700">
+              <th className="px-4 py-3 w-40">
+                <div className="h-3 w-16 rounded bg-gray-200 dark:bg-gray-700" />
+              </th>
+              {Array.from({ length: cols }).map((_, i) => (
+                <th key={i} className="px-2 py-3">
+                  <div className="h-3 w-8 mx-auto rounded bg-gray-200 dark:bg-gray-700" />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+            {Array.from({ length: rows }).map((_, r) => (
+              <tr key={r}>
+                <td className="px-4 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-gray-200 dark:bg-gray-700" />
+                    <div className="space-y-1">
+                      <div className="h-3 w-24 rounded bg-gray-200 dark:bg-gray-700" />
+                      <div className="h-2 w-12 rounded bg-gray-100 dark:bg-gray-700/60" />
+                    </div>
+                  </div>
+                </td>
+                {Array.from({ length: cols }).map((_, c) => (
+                  <td key={c} className="px-1 py-2">
+                    {(r + c) % 3 === 0 ? (
+                      <div className="h-14 rounded-lg bg-gray-100 dark:bg-gray-700/50" />
+                    ) : (
+                      <div className="h-14" />
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 // Live "clocked in now" strip — who's currently on the clock (open punches),
 // auto-updating ~30s. Staff self-clock from their portal → they appear here in
@@ -404,6 +578,33 @@ export default function StaffSchedulePage() {
   // from this so a run of similar shifts is 1 tap, not 5. Cleared on reload.
   const [lastShiftTemplate, setLastShiftTemplate] = useState(null);
 
+  // Saved shift presets (Vagt-skabeloner) — reusable templates the owner keeps
+  // across sessions (localStorage). Arming one makes the next empty-cell click
+  // bloom from it instead of the most-recent-shift seed.
+  const [shiftTemplates, setShiftTemplates] = useState(loadShiftTemplates);
+  const [armedTemplateId, setArmedTemplateId] = useState(null);
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const armedTemplate = useMemo(
+    () => shiftTemplates.find((x) => x.id === armedTemplateId) || null,
+    [shiftTemplates, armedTemplateId]
+  );
+  const addTemplate = useCallback((tpl) => {
+    setShiftTemplates((prev) => {
+      const next = [...prev, tpl];
+      persistShiftTemplates(next);
+      return next;
+    });
+    setShowTemplateModal(false);
+  }, []);
+  const removeTemplate = useCallback((id) => {
+    setShiftTemplates((prev) => {
+      const next = prev.filter((x) => x.id !== id);
+      persistShiftTemplates(next);
+      return next;
+    });
+    setArmedTemplateId((cur) => (cur === id ? null : cur));
+  }, []);
+
   // Action states
   const [copying, setCopying] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -461,6 +662,146 @@ export default function StaffSchedulePage() {
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  /* ─── Click-to-bloom (one-tap add) ─── */
+  // Holds { id } of the just-bloomed draft for ~6s so a mis-tap is one tap to
+  // remove (Fortryd). null = nothing to undo. Drafts never notify, so this is
+  // a purely local convenience, NOT an "unsend".
+  const [undoShift, setUndoShift] = useState(null);
+
+  // Clicking an EMPTY cell drops a SEEDED DRAFT inline — no modal, no typing —
+  // pre-filled from that staffer's most-recent shift (or this session's last
+  // template). The modal stays as the deep-editor for OCCUPIED cells.
+  // SAFE BY CONSTRUCTION: the POST omits `status`, so the backend defaults it
+  // to 'draft' → a bloomed shift NEVER notifies staff. Only Publish notifies.
+  const bloomDraft = useCallback(
+    async (staffId, dateObj, memberRole) => {
+      // An armed preset wins; else the staffer's most-recent shift; else the
+      // session's last-used template. So tapping a preset then a day places it.
+      const seed = armedTemplate || mostRecentShiftFor(shifts, staffId) || lastShiftTemplate || null;
+      const payload = {
+        staff_id: staffId,
+        date: toISO(dateObj),
+        start_time: seed?.start_time || seed?.start || "16:00",
+        end_time: seed?.end_time || seed?.end || "23:00",
+        break_minutes: seed?.break_minutes || 0,
+        role_on_shift: roleToShiftOption(seed?.role_on_shift || seed?.role || memberRole),
+        branch_id: branchId || undefined,
+        // status intentionally OMITTED → backend defaults 'draft' → no notify.
+      };
+      try {
+        const res = await api.post("/staff/schedules", payload);
+        const createdId = res?.data?.id ?? null;
+        await fetchShifts();
+        if (createdId != null) {
+          setUndoShift({ id: createdId });
+          setTimeout(
+            () => setUndoShift((u) => (u && u.id === createdId ? null : u)),
+            6000
+          );
+        }
+      } catch (err) {
+        if (
+          err?.response?.status === 409 &&
+          err?.response?.data?.detail?.code === "shift_overlap"
+        ) {
+          setError(
+            t("schedSlotTaken", "That overlaps a shift they already have that day.")
+          );
+        } else {
+          setError(errText(err, t("shiftCreateFailed", "Failed to create shift.")));
+        }
+      }
+    },
+    [shifts, lastShiftTemplate, armedTemplate, branchId, fetchShifts, t]
+  );
+
+  const undoBloom = useCallback(async () => {
+    if (!undoShift) return;
+    const id = undoShift.id;
+    setUndoShift(null);
+    try {
+      await api.delete(`/staff/schedules/${id}`);
+      await fetchShifts();
+    } catch (err) {
+      setError(errText(err, t("shiftDeleteFailed", "Failed to delete shift.")));
+    }
+  }, [undoShift, fetchShifts, t]);
+
+  /* ─── Drag-to-move ([L] slice 1) ─── */
+  // Holds { id, prevStaffId, prevDateIso } of the just-moved shift for ~6s so a
+  // mis-drop is one tap to put it back (Fortryd). null = nothing to undo.
+  const [undoMove, setUndoMove] = useState(null);
+
+  // Reassign a shift to a NEW staff and/or day via PUT /staff/schedules/{id}
+  // with the full payload where staff_id + date are the new target. Backend
+  // update_schedule re-validates the staff belongs to the tenant. CRUCIALLY we
+  // keep start/end/status UNCHANGED — update_schedule only notifies when a
+  // PUBLISHED shift's start/end changed, so a move introduces NO notification.
+  const moveShift = useCallback(
+    async (shift, toStaffId, toDateIso) => {
+      const prevStaffId = shift.staff_id ?? shift.staff_member_id;
+      const prevDateIso = String(shift.date);
+      const payload = {
+        staff_id: toStaffId,
+        date: toDateIso,
+        start_time: shift.start_time,
+        end_time: shift.end_time,
+        break_minutes: shift.break_minutes || 0,
+        role_on_shift: shift.role_on_shift,
+        notes: shift.notes || undefined,
+        status: shift.status,
+        branch_id: branchId || undefined,
+      };
+      try {
+        await api.put(`/staff/schedules/${shift.id}`, payload);
+        setUndoMove({ id: shift.id, prevStaffId, prevDateIso });
+        setTimeout(
+          () => setUndoMove((u) => (u && u.id === shift.id ? null : u)),
+          6000
+        );
+        await fetchShifts();
+      } catch (err) {
+        // 409 shift_overlap → the target staffer already works an overlapping
+        // shift that day. Nothing moved (no undo to offer); just say so plainly.
+        if (
+          err?.response?.status === 409 &&
+          err?.response?.data?.detail?.code === "shift_overlap"
+        ) {
+          setError(
+            t("schedSlotTaken", "That overlaps a shift they already have that day.")
+          );
+        } else {
+          setError(errText(err, t("shiftUpdateFailed", "Failed to update shift.")));
+        }
+      }
+    },
+    [branchId, fetchShifts, t]
+  );
+
+  const undoMoveAction = useCallback(async () => {
+    if (!undoMove) return;
+    const { id, prevStaffId, prevDateIso } = undoMove;
+    setUndoMove(null);
+    const s = shifts.find((x) => x.id === id);
+    if (!s) return;
+    try {
+      await api.put(`/staff/schedules/${id}`, {
+        staff_id: prevStaffId,
+        date: prevDateIso,
+        start_time: s.start_time,
+        end_time: s.end_time,
+        break_minutes: s.break_minutes || 0,
+        role_on_shift: s.role_on_shift,
+        notes: s.notes || undefined,
+        status: s.status,
+        branch_id: branchId || undefined,
+      });
+      await fetchShifts();
+    } catch (err) {
+      setError(errText(err, t("shiftUpdateFailed", "Failed to update shift.")));
+    }
+  }, [undoMove, shifts, branchId, fetchShifts, t]);
 
   /* ─── Week navigation ─── */
   const goToPrevWeek = () => {
@@ -1050,7 +1391,7 @@ export default function StaffSchedulePage() {
             {/* Week nav */}
             <div className="flex items-center gap-2">
               <Button variant="secondary" size="sm" onClick={goToPrevWeek}>
-                {"\u2190"} Previous
+                {"\u2190"} {t("schedPrevWeek", "Previous")}
               </Button>
               <button
                 onClick={goToCurrentWeek}
@@ -1059,7 +1400,7 @@ export default function StaffSchedulePage() {
                 {formatWeekRange(weekStart)}
               </button>
               <Button variant="secondary" size="sm" onClick={goToNextWeek}>
-                Next {"\u2192"}
+                {t("schedNextWeek", "Next")} {"\u2192"}
               </Button>
             </div>
 
@@ -1076,10 +1417,10 @@ export default function StaffSchedulePage() {
                 size="sm"
                 onClick={() => setShiftModal({ staffId: null, date: null, shift: null })}
                 iconLeft={<Icon name="Plus" size={14} />}
-                title="Add shift"
+                title={t("schedAddShiftTitle", "Add shift")}
               >
-                <span className="hidden sm:inline">Add Shift</span>
-                <span className="sm:hidden">Add</span>
+                <span className="hidden sm:inline">{t("schedAddShift", "Add Shift")}</span>
+                <span className="sm:hidden">{t("schedAddShort", "Add")}</span>
               </Button>
               <Button
                 variant="secondary"
@@ -1087,14 +1428,14 @@ export default function StaffSchedulePage() {
                 onClick={handleCopyLastWeek}
                 disabled={copying}
                 busy={copying}
-                title="Copy last week's schedule"
+                title={t("schedCopyLastWeekTitle", "Copy last week's schedule")}
                 iconLeft={!copying && <Icon name="Copy" size={14} />}
               >
                 {copying
                   ? "…"
                   : (<>
-                      <span className="hidden sm:inline">Copy Last Week</span>
-                      <span className="sm:hidden">Copy</span>
+                      <span className="hidden sm:inline">{t("schedCopyLastWeek", "Copy Last Week")}</span>
+                      <span className="sm:hidden">{t("schedCopyShort", "Copy")}</span>
                     </>)}
               </Button>
               {/* Autopilot (Pro+ killer feature) — proposes next week's
@@ -1123,7 +1464,7 @@ export default function StaffSchedulePage() {
                 onClick={requestPublish}
                 disabled={publishing}
                 busy={publishing}
-                title={draftCount > 0 ? "Publish week" : "All shifts published"}
+                title={draftCount > 0 ? t("schedPublishWeekTitle", "Publish week") : t("schedAllPublishedTitle", "All shifts published")}
               >
                 {publishing ? (
                   "…"
@@ -1274,9 +1615,9 @@ export default function StaffSchedulePage() {
             className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40 transition rounded-xl"
           >
             <span className="font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-              <Icon name="Users" size={16} className="text-gray-500" /> Manage Staff
+              <Icon name="Users" size={16} className="text-gray-500" /> {t("schedManageStaff", "Manage Staff")}
               <span className="text-xs font-normal text-gray-500 dark:text-gray-400">
-                ({activeStaff.length} active)
+                ({activeStaff.length} {t("schedActiveCount", "active")})
               </span>
             </span>
             <Icon name="ChevronDown" size={16} className={`text-gray-500 transition-transform ${showManageStaff ? "rotate-180" : ""}`} />
@@ -1295,33 +1636,71 @@ export default function StaffSchedulePage() {
       {/* Color legend */}
       <FadeIn delay={0.12}>
         <div className="flex items-center gap-4 flex-wrap text-xs text-gray-500 dark:text-gray-400">
-          <span className="font-medium">Shift colors:</span>
+          <span className="font-medium">{t("schedShiftColors", "Shift colors:")}</span>
           {Object.entries(ROLE_COLORS).map(([key, c]) => (
             <span key={key} className="flex items-center gap-1.5">
               <span className={`w-3 h-3 rounded-full ${c.dot}`} />
-              {c.label}
+              {t(ROLE_LABEL_KEY[key] || "", c.label)}
             </span>
           ))}
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-full bg-gray-300 dark:bg-gray-600" />
-            OFF / No shift
+            {t("schedOffNoShift", "OFF / No shift")}
           </span>
         </div>
       </FadeIn>
 
+      {/* Saved shift presets — tap a chip to arm it, then tap a day to drop it. */}
+      {!loading && activeStaff.length > 0 && (
+        <FadeIn delay={0.13}>
+          <ShiftTemplatesTray
+            templates={shiftTemplates}
+            armedId={armedTemplateId}
+            onArm={setArmedTemplateId}
+            onAddClick={() => setShowTemplateModal(true)}
+            onRemove={removeTemplate}
+            t={t}
+          />
+        </FadeIn>
+      )}
+
       {/* Schedule Grid */}
       <FadeIn delay={0.15}>
         {loading ? (
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-12 text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-gray-100 mx-auto mb-3" />
-            <p className="text-gray-500 dark:text-gray-400 text-sm">{t("loadingSchedule")}</p>
-          </div>
+          <GridSkeleton />
         ) : activeStaff.length === 0 ? (
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-12 text-center">
-            <Icon name="Users" size={36} className="text-gray-400 mx-auto mb-3" />
-            <p className="text-gray-700 dark:text-gray-200 text-sm">
-              No staff members yet. Open "Manage Staff" above to add your team.
-            </p>
+          <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+            {/* Ghosted grid backdrop — first-run still reads as "this is where
+                your week lives"; the real first step is adding the team. */}
+            <div className="pointer-events-none absolute inset-0 opacity-[0.35] dark:opacity-[0.18]" aria-hidden="true">
+              <div className="grid grid-cols-7 gap-px p-4">
+                {Array.from({ length: 28 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={`h-10 rounded-md ${i % 4 === 0 ? "bg-gray-200 dark:bg-gray-700" : "bg-gray-100 dark:bg-gray-700/40"}`}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="relative px-6 py-14 text-center">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gray-900 text-white">
+                <Icon name="CalendarDays" size={22} />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {t("schedFirstRunTitle", "Build your first schedule")}
+              </h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto">
+                {t("schedFirstRunBody", "Add your team, then plan a week of shifts in seconds — click a day to drop a shift, or let Autopilot draft it.")}
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowManageStaff(true)}
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gray-900 text-white px-5 py-2.5 text-sm font-semibold hover:bg-gray-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-2"
+              >
+                <Icon name="Users" size={16} />
+                {t("schedFirstRunCta", "Add staff members")}
+              </button>
+            </div>
           </div>
         ) : (
           <>
@@ -1341,8 +1720,11 @@ export default function StaffSchedulePage() {
                 costBasis={costBasis}
                 targetPct={targetPct}
                 t={t}
+                onMoveShift={moveShift}
                 onCellClick={(staffId, date, existingShift) =>
-                  setShiftModal({ staffId, date: toISO(date), shift: existingShift || null })
+                  existingShift
+                    ? setShiftModal({ staffId, date: toISO(date), shift: existingShift })
+                    : bloomDraft(staffId, date, (activeStaff.find((m) => m.id === staffId) || {}).role)
                 }
               />
             </div>
@@ -1363,13 +1745,24 @@ export default function StaffSchedulePage() {
                 targetPct={targetPct}
                 t={t}
                 onCellClick={(staffId, date, existingShift) =>
-                  setShiftModal({ staffId, date: toISO(date), shift: existingShift || null })
+                  existingShift
+                    ? setShiftModal({ staffId, date: toISO(date), shift: existingShift })
+                    : bloomDraft(staffId, date, (activeStaff.find((m) => m.id === staffId) || {}).role)
                 }
               />
             </div>
           </>
         )}
       </FadeIn>
+
+      {/* Åbne vagter — unassigned slots staff claim one-tap. Portal-backed, so
+          shown only for paid plans (Free can't share/claim); the create call is
+          still server-gated on staff_portal_link as the real barrier. */}
+      {user?.plan !== "free" && (
+        <FadeIn delay={0.15}>
+          <OpenShiftsPanel weekStart={weekStart} t={t} />
+        </FadeIn>
+      )}
 
       {/* Week summary bar — the live labor-cost headline. Hidden on mobile;
           MobileSchedule embeds the per-day cost + labor% strip inline, so a
@@ -1409,7 +1802,7 @@ export default function StaffSchedulePage() {
                     )}
                   </div>
                   <div className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                    ≈ {weekSummary.cost.toLocaleString()} {currency}
+                    ≈ {formatKr(weekSummary.cost, { decimals: 0 })}
                   </div>
                 </div>
               </div>
@@ -1482,7 +1875,47 @@ export default function StaffSchedulePage() {
         </div>
       </FadeIn>
 
+      {/* Click-to-bloom undo — a calm one-tap Fortryd for the just-added draft.
+          Auto-dismisses after ~6s. Drafts never notify, so this is purely a
+          local convenience (no "unsend"). */}
+      {undoShift && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-gray-900 text-white px-4 py-2.5 shadow-lg">
+          <span className="text-sm">{t("schedShiftAdded", "Shift added as draft")}</span>
+          <button
+            type="button"
+            onClick={undoBloom}
+            className="text-sm font-semibold underline underline-offset-2"
+          >
+            {t("schedUndo", "Undo")}
+          </button>
+        </div>
+      )}
+
+      {/* Drag-to-move undo — a calm one-tap Fortryd for the just-moved shift.
+          Auto-dismisses after ~6s. A move never changes the time, so a published
+          shift is NOT re-notified by the move (or by this undo). */}
+      {undoMove && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-gray-900 text-white px-4 py-2.5 shadow-lg">
+          <span className="text-sm">{t("schedMoved", "Shift moved")}</span>
+          <button
+            type="button"
+            onClick={undoMoveAction}
+            className="text-sm font-semibold underline underline-offset-2"
+          >
+            {t("schedUndo", "Undo")}
+          </button>
+        </div>
+      )}
+
       {/* Shift Modal */}
+      {showTemplateModal && (
+        <TemplateCreateModal
+          t={t}
+          onClose={() => setShowTemplateModal(false)}
+          onSave={addTemplate}
+        />
+      )}
+
       {shiftModal && (
         <ShiftModal
           modal={shiftModal}
@@ -2506,21 +2939,21 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           <input
             type="text"
-            placeholder="Name"
+            placeholder={t("staffName", "Name")}
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
           <input
             type="email"
-            placeholder="Email (optional)"
+            placeholder={t("schedEmailOptional", "Email (optional)")}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
           <input
             type="tel"
-            placeholder="Phone (optional)"
+            placeholder={t("schedPhoneOptional", "Phone (optional)")}
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
@@ -2545,7 +2978,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
           </select>
           <input
             type="number"
-            placeholder={`Base rate (${currency}/hr)`}
+            placeholder={`${t("schedBaseRate", "Base rate")} (${currency}/hr)`}
             value={baseRate}
             onChange={(e) => setBaseRate(e.target.value)}
             min="0"
@@ -2557,7 +2990,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
             disabled={saving || !name.trim()}
             className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
           >
-            {saving ? "Adding..." : "Add"}
+            {saving ? t("schedAdding", "Adding...") : t("schedAddShort", "Add")}
           </button>
         </div>
       </div>
@@ -2571,7 +3004,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
       {/* Staff list */}
       {staff.length === 0 ? (
         <p className="text-gray-400 dark:text-gray-500 text-sm text-center py-4">
-          No staff members yet. Add your first team member above.
+          {t("schedNoStaffPanel", "No staff members yet. Add your first team member above.")}
         </p>
       ) : (
         <div className="space-y-2">
@@ -2817,7 +3250,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
               <div className="text-3xl mb-2">🔗</div>
               <h3 className="text-base font-bold text-gray-900 dark:text-white">{t("sharePortalLink")}</h3>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                Send this to <strong>{linkModal.staffName}</strong> — they can see their schedule, hours, and tips.
+                {t("schedSendThisTo", "Send this to")} <strong>{linkModal.staffName}</strong> {t("schedPortalLinkDesc", "— they can see their schedule, hours, and tips.")}
               </p>
             </div>
 
@@ -2839,17 +3272,17 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                         : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
                     }`}
                   >
-                    {linkCopied ? "✓ Copied!" : "📋 Copy"}
+                    {linkCopied ? `✓ ${t("schedCopied", "Copied!")}` : `📋 ${t("schedCopyBtn", "Copy")}`}
                   </button>
                   <button
                     onClick={shareLink}
                     className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition"
                   >
-                    📱 Share
+                    📱 {t("schedShareBtn", "Share")}
                   </button>
                 </div>
                 <p className="text-[11px] text-gray-400 dark:text-gray-600 text-center">
-                  No account needed. Staff just opens the link. You can deactivate it anytime.
+                  {t("schedPortalNoAccount", "No account needed. Staff just opens the link. You can deactivate it anytime.")}
                 </p>
               </>
             )}
@@ -2858,7 +3291,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
               onClick={() => setLinkModal(null)}
               className="w-full py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
             >
-              Close
+              {t("close", "Close")}
             </button>
           </div>
         </div>
@@ -2968,7 +3401,7 @@ function CostControls({ showCost, onToggleShowCost, costBasis, onCostBasis, t })
   );
 }
 
-function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForShift, showCost, weekCost, costBasis, targetPct, t, onCellClick }) {
+function MobileSchedule({ staff, weekDates, getShiftForCell, costForShift, showCost, weekCost, costBasis, targetPct, t, onCellClick }) {
   // Default to today within the current week range. If the user navigated
   // to a different week (Previous/Next), today falls outside — pick the
   // middle of the week (Thursday) as a sensible default.
@@ -3036,7 +3469,7 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForSh
             onClick={goPrev}
             disabled={dayIdx === 0}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
-            aria-label="Previous day"
+            aria-label={t("schedPrevDay", "Previous day")}
           >
             ←
           </button>
@@ -3055,7 +3488,7 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForSh
             onClick={goNext}
             disabled={dayIdx === 6}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
-            aria-label="Next day"
+            aria-label={t("schedNextDay", "Next day")}
           >
             →
           </button>
@@ -3099,12 +3532,12 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForSh
             <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{dayStats.staffOn}</strong> {t("schedOnShift")}
           </span>
           <span className="text-gray-300 dark:text-gray-600 flex-shrink-0" aria-hidden="true">·</span>
-          <span className="text-gray-900 dark:text-gray-100 font-medium tabular-nums flex-shrink-0">{dayStats.hours}h</span>
+          <span className="text-gray-900 dark:text-gray-100 font-medium tabular-nums flex-shrink-0">{formatShiftHours(dayStats.hours, t("schedHoursUnit", "h"))}</span>
           {showCost && (
             <>
               <span className="text-gray-300 dark:text-gray-600 flex-shrink-0" aria-hidden="true">·</span>
               <span className="text-gray-900 dark:text-gray-100 font-medium tabular-nums flex-shrink-0">
-                ≈ {dayStats.cost.toLocaleString()} {currency}
+                ≈ {formatKr(dayStats.cost, { decimals: 0 })}
               </span>
             </>
           )}
@@ -3128,7 +3561,7 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForSh
       <div className="divide-y divide-gray-50 dark:divide-gray-700/50">
         {staff.length === 0 ? (
           <div className="p-6 text-center text-sm text-gray-500 dark:text-gray-400">
-            No active staff. Add staff members from the Manage Staff section above.
+            {t("schedNoActiveStaff", "No active staff. Add staff members from the Manage Staff section above.")}
           </div>
         ) : (
           staff.map((member) => {
@@ -3136,7 +3569,6 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForSh
             const colors = ROLE_COLORS[cat];
             const shift = getShiftForCell(member.id, selectedDate);
             const shiftCat = shift ? (ROLE_CATEGORY[shift.role_on_shift || member.role] || cat) : cat;
-            const shiftColors = ROLE_COLORS[shiftCat];
             const hrs = shift ? calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0) : 0;
             const isDraft = shift?.status === "draft";
             const shiftCost = shift ? costForShift?.(shift.id) : null;
@@ -3147,7 +3579,9 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForSh
                 type="button"
                 onClick={() => onCellClick(member.id, selectedDate, shift || null)}
                 className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-750/50 transition-colors"
-                aria-label={shift ? `Edit ${member.name}'s shift` : `Add shift for ${member.name}`}
+                aria-label={shift
+                  ? t("schedEditShiftAria", "Edit {name}'s shift").replace("{name}", member.name)
+                  : t("schedAddShiftAria", "Add shift for {name}").replace("{name}", member.name)}
               >
                 {/* Role dot + initials avatar */}
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -3166,27 +3600,27 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForSh
                 {/* Shift chip OR "OFF / Add" */}
                 {shift ? (
                   <div
-                    className={`px-2.5 py-1.5 rounded-lg border tabular-nums text-right leading-tight ${shiftColors.bg} ${shiftColors.border} ${
+                    className={`px-2.5 py-1.5 rounded-lg bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 border-l-[3px] ${ROLE_BAR[shiftCat] || ROLE_BAR.floor} tabular-nums text-right leading-tight ${
                       isDraft ? "border-dashed" : ""
                     }`}
                   >
-                    <div className={`text-xs font-semibold ${shiftColors.text}`}>
+                    <div className="text-xs font-semibold text-gray-900 dark:text-gray-100">
                       {formatShiftTime(shift.start_time, shift.end_time)}
                     </div>
                     <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      {Math.round(hrs * 100) / 100}h
+                      {formatShiftHours(hrs, t("schedHoursUnit", "h"))}
                       {isDraft && <span className="ml-1 text-amber-500 dark:text-amber-400 font-medium">· {t("schedDraft")}</span>}
                     </div>
                     {/* Cost-per-shift — quietest line in the chip (matches grid). */}
                     {showCost && shiftCost != null && (
                       <div className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums mt-px">
-                        ≈ {Math.round(shiftCost).toLocaleString()} {currency}
+                        ≈ {formatKr(shiftCost, { decimals: 0 })}
                       </div>
                     )}
                   </div>
                 ) : (
                   <div className="text-[11px] text-gray-400 dark:text-gray-500 flex items-center gap-1">
-                    <span>OFF</span>
+                    <span>{t("schedOff", "OFF")}</span>
                     <span className="w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-500 dark:text-gray-400 font-bold">
                       +
                     </span>
@@ -3202,14 +3636,495 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, currency, costForSh
 }
 
 
+/* ─── Drag layer ([L] slice 1 — move only) ───
+   Honesty / design invariants:
+   • Only EMPTY cells accept a drop (occupied droppables are `disabled`) — this
+     is how we forbid overwrite/stacking; you can never drop onto a filled cell.
+   • A plain CLICK still fires the cell's onClick (modal / bloom) because the
+     PointerSensor has a 6px activation distance — sub-6px pointer travel is a
+     click, not a drag.
+   • A move keeps the shift's time (start/end unchanged) → update_schedule sends
+     NO notification even for a published shift. We never touch `status`.
+   • prefers-reduced-motion: no rotate / no lift on the drag ghost. */
+const PREFERS_REDUCED_MOTION =
+  typeof window !== "undefined" &&
+  typeof window.matchMedia === "function" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// The shift block, made draggable. Wraps the EXISTING block markup (passed as
+// children) so the cell's visual stays byte-identical; we only add grab cursor
+// + a dim while the ghost flies. touch-action:none lets pointer drag work on
+// touch/trackpad without the page scrolling underneath.
+function DraggableShiftBlock({ shift, member, dateIso, children }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: shift.id,
+    data: { shift, fromStaffId: member.id, fromDateIso: dateIso },
+  });
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      style={{ touchAction: "none" }}
+      className={`cursor-grab active:cursor-grabbing ${isDragging ? "opacity-40" : ""}`}
+    >
+      {children}
+    </div>
+  );
+}
+
+// The grid cell, made a drop target. OCCUPIED cells pass `occupied` → the
+// droppable is `disabled` (won't accept a drop), so the only legal targets are
+// EMPTY cells. The existing <td> (classes / onClick / title / aria-label) is
+// preserved verbatim; on hover-over we add a calm gray drop-ring (no rainbow).
+function DroppableCell({ staffId, dateIso, occupied, className, onClick, title, "aria-label": ariaLabel, children }) {
+  const { setNodeRef, isOver, active } = useDroppable({
+    id: `${staffId}::${dateIso}`,
+    data: { staffId, dateIso },
+    disabled: occupied,
+  });
+  const dropRing =
+    isOver && active && !occupied
+      ? " ring-2 ring-inset ring-gray-900/30 dark:ring-gray-100/30 rounded-lg"
+      : "";
+  return (
+    <td
+      ref={setNodeRef}
+      className={`${className}${dropRing}`}
+      onClick={onClick}
+      title={title}
+      aria-label={ariaLabel}
+    >
+      {children}
+    </td>
+  );
+}
+
+/* ─── Saved shift presets — the "Skabeloner" tray ─────────────────────────
+   A calm row of preset chips above the grid. Tap a chip to ARM it, then click
+   any empty day to drop a draft seeded from that preset (bloomDraft prefers the
+   armed template). Tap again to disarm. Pure client-side; the "New" button
+   opens a tiny modal to define one. */
+function ShiftTemplatesTray({ templates, armedId, onArm, onAddClick, onRemove, t }) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mr-0.5">
+        {t("schedTemplates", "Templates")}
+      </span>
+      {templates.map((tpl) => {
+        const cat = ROLE_CATEGORY[tpl.role] || "floor";
+        const armed = tpl.id === armedId;
+        return (
+          <div
+            key={tpl.id}
+            role="button"
+            tabIndex={0}
+            onClick={() => onArm(armed ? null : tpl.id)}
+            onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onArm(armed ? null : tpl.id)}
+            title={armed ? t("schedTemplateArmedHint", "Tap a day to place it · tap chip to cancel") : t("schedTemplateArmHint", "Tap, then tap a day to place it")}
+            className={`group inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] cursor-pointer transition ${
+              armed
+                ? "border-gray-900 dark:border-gray-100 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900"
+                : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600"
+            }`}
+          >
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${(ROLE_COLORS[cat] || ROLE_COLORS.floor).dot}`} />
+            <span className="font-medium max-w-[120px] truncate">{tpl.label}</span>
+            <span className="tabular-nums opacity-70">{tpl.start}–{tpl.end}</span>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onRemove(tpl.id); }}
+              title={t("schedTemplateRemove", "Remove template")}
+              className="opacity-0 group-hover:opacity-100 transition-opacity -mr-0.5 ml-0.5 hover:text-red-400"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        onClick={onAddClick}
+        className="inline-flex items-center gap-1 rounded-full border border-dashed border-gray-300 dark:border-gray-600 px-2.5 py-1 text-[12px] text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-400"
+      >
+        <Plus className="w-3 h-3" />
+        {t("schedTemplateNew", "New")}
+      </button>
+    </div>
+  );
+}
+
+function TemplateCreateModal({ t, onClose, onSave }) {
+  const [label, setLabel] = useState("");
+  const [startH, setStartH] = useState("16");
+  const [startM, setStartM] = useState("00");
+  const [endH, setEndH] = useState("23");
+  const [endM, setEndM] = useState("00");
+  const [role, setRole] = useState("Server");
+  const [err, setErr] = useState("");
+
+  const selCls =
+    "rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm px-2 py-1.5 text-gray-900 dark:text-gray-100";
+
+  const save = () => {
+    const start = `${startH}:${startM}`;
+    const end = `${endH}:${endM}`;
+    if (start === end) {
+      setErr(t("schedTemplateSameTime", "Start and end can't be the same."));
+      return;
+    }
+    onSave({
+      id: `tpl_${Date.now()}_${Math.floor(Math.random() * 1e6)}`,
+      label: (label.trim() || `${start}–${end}`).slice(0, 28),
+      start,
+      end,
+      role,
+      break_minutes: 0,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            {t("schedTemplateNewTitle", "New shift template")}
+          </h3>
+          <button onClick={onClose}><X className="w-5 h-5 text-gray-400" /></button>
+        </div>
+
+        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+          {t("schedTemplateLabel", "Name (optional)")}
+        </label>
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder={t("schedTemplateLabelPh", "e.g. Evening, Lunch")}
+          className={`${selCls} w-full mb-3`}
+          maxLength={28}
+        />
+
+        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+          {t("openShiftTime", "Time")}
+        </label>
+        <div className="flex items-center gap-1.5 mb-3">
+          <select value={startH} onChange={(e) => setStartH(e.target.value)} className={selCls}>
+            {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{h}</option>)}
+          </select>
+          <span className="text-gray-400">:</span>
+          <select value={startM} onChange={(e) => setStartM(e.target.value)} className={selCls}>
+            {MINUTE_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <span className="text-gray-400 mx-1">–</span>
+          <select value={endH} onChange={(e) => setEndH(e.target.value)} className={selCls}>
+            {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{h}</option>)}
+          </select>
+          <span className="text-gray-400">:</span>
+          <select value={endM} onChange={(e) => setEndM(e.target.value)} className={selCls}>
+            {MINUTE_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+
+        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+          {t("openShiftRole", "Role")}
+        </label>
+        <select value={role} onChange={(e) => setRole(e.target.value)} className={`${selCls} w-full mb-4`}>
+          {OPEN_ROLE_CHOICES.map((c) => (
+            <option key={c.value} value={c.value}>{t(c.key, c.fallback)}</option>
+          ))}
+        </select>
+
+        {err && <p className="text-xs text-red-600 mb-2">{err}</p>}
+
+        <Button variant="primary" className="w-full justify-center" onClick={save}>
+          {t("schedTemplateSave", "Save template")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+
+/* ─── Åbne vagter (open shifts) — owner lane ───────────────────────────────
+   A self-contained card under the grid: the owner posts UNASSIGNED slots that
+   any staffer claims one-tap from their portal (first-come). Isolated from
+   ScheduleGrid so it never touches the grid's drag/cost internals. Backend
+   guards the rest (Starter+ gate, overlap, atomic claim). */
+
+// Role choices for an open shift, mapped to a role value whose ROLE_CATEGORY
+// resolves to the right category label (Køkken / Bar / Gulv).
+const OPEN_ROLE_CHOICES = [
+  { value: "Server", key: "roleFloor", fallback: "Floor" },
+  { value: "Chef", key: "roleKitchen", fallback: "Kitchen" },
+  { value: "Bartender", key: "roleBar", fallback: "Bar" },
+];
+
+function OpenShiftChip({ row, t, onCancel }) {
+  const cat = ROLE_CATEGORY[row.role_on_shift] || "floor";
+  if (row.status === "filled") {
+    return (
+      <div className="rounded-lg ring-1 ring-emerald-200 dark:ring-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1.5 text-[11px] leading-tight">
+        <div className="flex items-center gap-1 text-emerald-800 dark:text-emerald-300 font-medium">
+          <Check className="w-3 h-3 shrink-0" />
+          <span className="truncate">{row.claimed_by_name || t("openTaken", "Taken")}</span>
+        </div>
+        <div className="text-emerald-700/80 dark:text-emerald-400/80 tabular-nums mt-0.5">
+          {formatShiftTime(row.start_time, row.end_time)}
+        </div>
+      </div>
+    );
+  }
+  // OPEN: a dashed gray box (intentionally gray on all 4 sides — no role flood);
+  // the role shows as a dot + label so we never hit the border-color footgun.
+  const dot = (ROLE_COLORS[cat] || ROLE_COLORS.floor).dot;
+  return (
+    <div className="group relative rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/30 px-2 py-1.5 text-[11px] leading-tight">
+      <div className="flex items-center gap-1 font-medium text-gray-700 dark:text-gray-200 tabular-nums">
+        <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
+        {formatShiftTime(row.start_time, row.end_time)}
+      </div>
+      <div className="text-gray-400 dark:text-gray-500 mt-0.5">{roleLabel(row.role_on_shift, t)}</div>
+      <button
+        onClick={() => onCancel(row.id)}
+        title={t("openCancel", "Remove")}
+        className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-500"
+      >
+        <X className="w-3 h-3" />
+      </button>
+    </div>
+  );
+}
+
+function OpenShiftCreateModal({ weekDates, t, onClose, onCreated }) {
+  const [dateIso, setDateIso] = useState(toISO(weekDates[0]));
+  const [startH, setStartH] = useState("16");
+  const [startM, setStartM] = useState("00");
+  const [endH, setEndH] = useState("23");
+  const [endM, setEndM] = useState("00");
+  const [role, setRole] = useState("Server");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async () => {
+    setSaving(true);
+    setErr("");
+    try {
+      await api.post("/staff/open-shifts", {
+        date: dateIso,
+        start_time: `${startH}:${startM}`,
+        end_time: `${endH}:${endM}`,
+        role_on_shift: role,
+      });
+      onCreated();
+    } catch (e) {
+      setErr(errText(e, t("openCreateFailed", "Couldn't add the open shift.")));
+      setSaving(false);
+    }
+  };
+
+  const selCls =
+    "rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm px-2 py-1.5 text-gray-900 dark:text-gray-100";
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-gray-800 rounded-xl shadow-xl w-full max-w-sm p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            {t("openShiftAddTitle", "Add open shift")}
+          </h3>
+          <button onClick={onClose}>
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+
+        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+          {t("openShiftDay", "Day")}
+        </label>
+        <select value={dateIso} onChange={(e) => setDateIso(e.target.value)} className={`${selCls} w-full mb-3`}>
+          {weekDates.map((d, i) => (
+            <option key={i} value={toISO(d)}>
+              {DAY_LABELS[i]} · {d.getDate()}/{d.getMonth() + 1}
+            </option>
+          ))}
+        </select>
+
+        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+          {t("openShiftTime", "Time")}
+        </label>
+        <div className="flex items-center gap-1.5 mb-3">
+          <select value={startH} onChange={(e) => setStartH(e.target.value)} className={selCls}>
+            {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{h}</option>)}
+          </select>
+          <span className="text-gray-400">:</span>
+          <select value={startM} onChange={(e) => setStartM(e.target.value)} className={selCls}>
+            {MINUTE_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <span className="text-gray-400 mx-1">–</span>
+          <select value={endH} onChange={(e) => setEndH(e.target.value)} className={selCls}>
+            {HOUR_OPTIONS.map((h) => <option key={h} value={h}>{h}</option>)}
+          </select>
+          <span className="text-gray-400">:</span>
+          <select value={endM} onChange={(e) => setEndM(e.target.value)} className={selCls}>
+            {MINUTE_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </div>
+
+        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+          {t("openShiftRole", "Role")}
+        </label>
+        <select value={role} onChange={(e) => setRole(e.target.value)} className={`${selCls} w-full mb-4`}>
+          {OPEN_ROLE_CHOICES.map((c) => (
+            <option key={c.value} value={c.value}>{t(c.key, c.fallback)}</option>
+          ))}
+        </select>
+
+        {err && <p className="text-xs text-red-600 mb-2">{err}</p>}
+
+        <Button variant="primary" className="w-full justify-center" onClick={submit} disabled={saving}>
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : t("openShiftAddCta", "Post open shift")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function OpenShiftsPanel({ weekStart, t }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const weekDates = useMemo(() => getWeekDates(weekStart), [weekStart]);
+  const wsIso = toISO(weekStart);
+
+  const fetchOpen = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get(`/staff/open-shifts?week_start=${wsIso}`);
+      setRows(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [wsIso]);
+
+  useEffect(() => { fetchOpen(); }, [fetchOpen]);
+
+  const cancelOpen = useCallback(async (id) => {
+    try {
+      await api.delete(`/staff/open-shifts/${id}`);
+      await fetchOpen();
+    } catch (err) {
+      setError(errText(err, t("openCancelFailed", "Couldn't remove the open shift.")));
+    }
+  }, [fetchOpen, t]);
+
+  const openCount = rows.filter((r) => r.status === "open").length;
+  const byDate = useMemo(() => {
+    const m = {};
+    for (const r of rows) (m[r.date] ||= []).push(r);
+    return m;
+  }, [rows]);
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 px-5 py-4 mt-4">
+      <div className="flex items-center justify-between mb-3 gap-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            {t("openShiftsTitle", "Open shifts")}
+            {openCount > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[1.25rem] h-5 px-1.5 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 text-[11px] font-medium tabular-nums">
+                {openCount}
+              </span>
+            )}
+          </h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            {t("openShiftsSubtitle", "Slots anyone can pick up — first to take it, gets it.")}
+          </p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => setShowCreate(true)} className="shrink-0">
+          <Plus className="w-4 h-4" />
+          {t("openShiftAdd", "Open shift")}
+        </Button>
+      </div>
+
+      {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
+
+      {loading ? (
+        <div className="h-12 rounded-lg bg-gray-100 dark:bg-gray-700/40 animate-pulse" />
+      ) : rows.length === 0 ? (
+        <p className="text-xs text-gray-400 dark:text-gray-500 py-1.5">
+          {t("openShiftsEmpty", "No open shifts this week.")}
+        </p>
+      ) : (
+        <>
+          {/* Desktop: 7-day columns aligned to the week. */}
+          <div className="hidden md:grid grid-cols-7 gap-2">
+            {weekDates.map((d, i) => {
+              const dayRows = byDate[toISO(d)] || [];
+              return (
+                <div key={i} className="min-h-[1.5rem]">
+                  <div className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">
+                    {DAY_LABELS[i]} {d.getDate()}
+                  </div>
+                  <div className="space-y-1.5">
+                    {dayRows.map((r) => (
+                      <OpenShiftChip key={r.id} row={r} t={t} onCancel={cancelOpen} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Mobile: a flat day-labelled list. */}
+          <div className="md:hidden space-y-1.5">
+            {weekDates.map((d, i) => {
+              const dayRows = byDate[toISO(d)] || [];
+              if (!dayRows.length) return null;
+              return (
+                <div key={i}>
+                  <div className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">
+                    {DAY_LABELS[i]} {d.getDate()}/{d.getMonth() + 1}
+                  </div>
+                  <div className="space-y-1.5">
+                    {dayRows.map((r) => (
+                      <OpenShiftChip key={r.id} row={r} t={t} onCancel={cancelOpen} />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {showCreate && (
+        <OpenShiftCreateModal
+          weekDates={weekDates}
+          t={t}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { setShowCreate(false); fetchOpen(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+
 function ScheduleGrid({
   staff,
   weekDates,
   getShiftForCell,
   onCellClick,
+  onMoveShift,
   costForShift,
   showCost,
-  currency,
   dailyCost,
   costBasis,
   targetPct,
@@ -3222,7 +4137,47 @@ function ScheduleGrid({
     return m;
   }, [dailyCost]);
 
+  // Drag-to-move is POINTER-only. 6px activation distance = a plain click still
+  // opens the modal / blooms a draft (sub-6px travel is not a drag). We do NOT
+  // register a KeyboardSensor: dnd-kit's default keyboard movement nudges the
+  // ghost by pixels and can't snap to grid cells, so a keyboard-only user could
+  // never reliably land a drop — a misleading half-feature. Reassigning by
+  // keyboard stays fully available via the cell → ShiftModal path (the modal
+  // lets you change staff + date directly).
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
+  // The shift currently being dragged — drives the DragOverlay ghost. null = idle.
+  const [activeShift, setActiveShift] = useState(null);
+
+  const handleDragStart = (event) => {
+    setActiveShift(event.active?.data?.current?.shift || null);
+  };
+  const handleDragEnd = (event) => {
+    setActiveShift(null);
+    const { active, over } = event;
+    if (!over || !over.data?.current || !active?.data?.current) return;
+    const to = over.data.current; // { staffId, dateIso } of the EMPTY target cell
+    const from = active.data.current; // { shift, fromStaffId, fromDateIso }
+    // No-op if dropped back where it started (same staff + same day).
+    if (to.staffId === from.fromStaffId && to.dateIso === from.fromDateIso) return;
+    onMoveShift?.(from.shift, to.staffId, to.dateIso);
+  };
+
+  // Ghost block for the DragOverlay — same markup as the in-cell block (white +
+  // 3px ROLE_BAR + the time line), lifted with a shadow and a tiny rotate. We
+  // respect prefers-reduced-motion: no rotate when the OS asks for less motion.
+  const ghostCat = activeShift
+    ? ROLE_CATEGORY[activeShift.role_on_shift] || "floor"
+    : "floor";
+
   return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[700px]">
@@ -3236,9 +4191,9 @@ function ScheduleGrid({
                 return (
                   <th
                     key={i}
-                    className={`px-2 py-3 text-center text-xs font-semibold uppercase tracking-wider w-[calc((100%-10rem)/7)] ${
+                    className={`px-2 py-3 text-center text-xs font-semibold uppercase tracking-wider w-[calc((100%-13rem)/7)] ${
                       isToday
-                        ? "text-emerald-600 dark:text-gray-300 bg-gray-50/50 dark:bg-gray-800/50"
+                        ? "text-gray-900 dark:text-gray-100 bg-gray-50/50 dark:bg-gray-800/50"
                         : "text-gray-500 dark:text-gray-400"
                     }`}
                   >
@@ -3249,6 +4204,10 @@ function ScheduleGrid({
                   </th>
                 );
               })}
+              {/* Timer column — weekly net hours per staffer (right edge). */}
+              <th className="px-3 py-3 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider w-12">
+                {t("schedTimerCol", "Hours")}
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
@@ -3262,8 +4221,27 @@ function ScheduleGrid({
                     <div className="flex items-center gap-2">
                       <span className={`w-2 h-2 rounded-full ${colors.dot} flex-shrink-0`} />
                       <div>
-                        <div className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[120px]">
-                          {member.name}
+                        <div className="flex items-center gap-1">
+                          <span className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[104px]">
+                            {member.name}
+                          </span>
+                          {/* Confirmation badge — surfaces the staff-side "Jeg har
+                              set det". Green ONLY when every published shift this
+                              week is confirmed; amber otherwise; nothing when no
+                              published shifts (or confirmed_at not in payload). */}
+                          {(() => {
+                            const cs = staffConfirmState(member.id, weekDates, getShiftForCell);
+                            if (!cs) return null;
+                            return cs === "all" ? (
+                              <span title={t("schedConfirmedAll", "Confirmed")} className="shrink-0 leading-none">
+                                <Icon name="CheckCircle2" size={13} className="text-emerald-500 dark:text-emerald-400" />
+                              </span>
+                            ) : (
+                              <span title={t("schedConfirmedPartial", "Not everyone has confirmed yet")} className="shrink-0 leading-none">
+                                <Icon name="AlertTriangle" size={12} className="text-amber-500 dark:text-amber-400" />
+                              </span>
+                            );
+                          })()}
                         </div>
                         <div className="text-[10px] text-gray-400 dark:text-gray-500">{member.role}</div>
                       </div>
@@ -3274,66 +4252,122 @@ function ScheduleGrid({
                     const isToday = toISO(date) === toISO(new Date());
 
                     if (!shift) {
+                      // EMPTY cell = a legal drop target (occupied={false}) AND a
+                      // one-tap bloom on click. The drop-ring appears on hover-over.
                       return (
-                        <td
+                        <DroppableCell
                           key={dayIdx}
-                          className={`px-1 py-2 text-center cursor-pointer transition-colors ${
+                          staffId={member.id}
+                          dateIso={toISO(date)}
+                          occupied={false}
+                          className={`group px-1 py-2 text-center cursor-pointer transition-colors ${
                             isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
-                          } hover:bg-gray-100 dark:hover:bg-gray-700/50`}
+                          } hover:bg-gray-50 dark:hover:bg-gray-800/40`}
                           onClick={() => onCellClick(member.id, date, null)}
+                          title={t("schedBloomHint", "Click to add a shift")}
+                          aria-label={t("schedAddShiftAria", "Add shift for {name}").replace("{name}", member.name)}
                         >
-                          <div className="h-10 flex items-center justify-center">
-                            <span className="text-gray-300 dark:text-gray-600 text-xs">{t("schedOff")}</span>
+                          {/* Empty cells render SILENCE (no "OFF" word) — a single
+                              hover-Plus advertises one-tap add so the grid stays
+                              calm at 16×7. h-14 matches the occupied block. */}
+                          <div className="h-14 flex items-center justify-center">
+                            <Icon
+                              name="Plus"
+                              size={14}
+                              className="text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                            />
                           </div>
-                        </td>
+                        </DroppableCell>
                       );
                     }
 
                     const shiftCat = ROLE_CATEGORY[shift.role_on_shift || member.role] || cat;
-                    const shiftColors = ROLE_COLORS[shiftCat];
                     const hrs = calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0);
                     const isDraft = shift.status === "draft";
                     const shiftCost = costForShift?.(shift.id);
 
                     return (
-                      <td
+                      // FILLED cell = NOT a drop target (occupied) — forbids
+                      // overwrite. Its block is the DRAG SOURCE. The cell's
+                      // onClick (open modal) still fires on a plain click thanks
+                      // to the 6px PointerSensor activation distance.
+                      <DroppableCell
                         key={dayIdx}
+                        staffId={member.id}
+                        dateIso={toISO(date)}
+                        occupied
                         className={`px-1 py-2 text-center cursor-pointer transition-colors ${
                           isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
                         } hover:bg-gray-100 dark:hover:bg-gray-700/50`}
                         onClick={() => onCellClick(member.id, date, shift)}
                       >
-                        <div
-                          className={`rounded-lg px-2 py-1.5 border leading-tight ${shiftColors.bg} ${shiftColors.border} ${
-                            isDraft ? "border-dashed" : ""
-                          }`}
-                        >
-                          <div className={`text-xs font-semibold ${shiftColors.text}`}>
-                            {formatShiftTime(shift.start_time, shift.end_time)}
-                          </div>
-                          <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                            {Math.round(hrs * 100) / 100}h
-                            {shift.role_on_shift && shift.role_on_shift !== member.role && (
-                              <span className="ml-1 opacity-70">({shift.role_on_shift.slice(0, 3)})</span>
+                        <DraggableShiftBlock shift={shift} member={member} dateIso={toISO(date)}>
+                          <div
+                            className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 border-l-[3px] ${ROLE_BAR[shiftCat] || ROLE_BAR.floor} ${
+                              isDraft ? "border-dashed" : ""
+                            }`}
+                          >
+                            <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                              {formatShiftTime(shift.start_time, shift.end_time)}
+                            </div>
+                            <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                              {formatShiftHours(hrs, t("schedHoursUnit", "h"))}
+                              {shift.role_on_shift && shift.role_on_shift !== member.role && (
+                                <span className="ml-1.5 inline-block rounded px-1 py-px bg-gray-100 dark:bg-gray-700 text-[9px] font-medium text-gray-500 dark:text-gray-400 align-middle leading-none">
+                                  {roleLabel(shift.role_on_shift, t)}
+                                </span>
+                              )}
+                            </div>
+                            {/* Cost-per-shift is the quietest line in the cell —
+                                kept smaller + lighter than the hours above so the
+                                grid stays calm at 16 staff × 7 days. */}
+                            {showCost && shiftCost != null && (
+                              <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-px tabular-nums">
+                                ≈ {formatKr(shiftCost, { decimals: 0 })}
+                              </div>
+                            )}
+                            {isDraft && (
+                              <div className="text-[9px] text-amber-500 dark:text-amber-400 mt-0.5 font-medium uppercase tracking-wide">
+                                {t("schedDraft")}
+                              </div>
                             )}
                           </div>
-                          {/* Cost-per-shift is the quietest line in the cell —
-                              kept smaller + lighter than the hours above so the
-                              grid stays calm at 16 staff × 7 days. */}
-                          {showCost && shiftCost != null && (
-                            <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-px tabular-nums">
-                              ≈ {Math.round(shiftCost).toLocaleString()} {currency}
-                            </div>
-                          )}
-                          {isDraft && (
-                            <div className="text-[9px] text-amber-500 dark:text-amber-400 mt-0.5 font-medium uppercase tracking-wide">
-                              {t("schedDraft")}
+                        </DraggableShiftBlock>
+                      </DroppableCell>
+                    );
+                  })}
+                  {/* Timer — this staffer's weekly net hours; amber when over
+                      their max_hours_week cap, with the over-amount beneath. */}
+                  <td className="px-3 py-2 text-right align-middle">
+                    {(() => {
+                      const wh = weeklyHoursFor(member.id, weekDates, getShiftForCell);
+                      if (wh <= 0) {
+                        return <span className="text-[12px] text-gray-300 dark:text-gray-600">—</span>;
+                      }
+                      const cap = member.max_hours_week;
+                      const over = cap && wh > cap;
+                      const unit = t("schedHoursUnit", "h");
+                      return (
+                        <div className="leading-tight">
+                          <div
+                            className={`text-[13px] font-semibold tabular-nums ${
+                              over
+                                ? "text-amber-600 dark:text-amber-400"
+                                : "text-gray-900 dark:text-gray-100"
+                            }`}
+                            title={over ? t("schedOvertimeTip", "Over weekly hours") : undefined}
+                          >
+                            {formatTimer(wh, unit)}
+                          </div>
+                          {over && (
+                            <div className="text-[10px] text-amber-500 dark:text-amber-400 tabular-nums">
+                              +{formatTimer(wh - cap, unit)}
                             </div>
                           )}
                         </div>
-                      </td>
-                    );
-                  })}
+                      );
+                    })()}
+                  </td>
                 </tr>
               );
             })}
@@ -3361,18 +4395,21 @@ function ScheduleGrid({
                     <td key={i} className="px-1 py-3 text-center align-top leading-tight">
                       {/* Per-day total hours — quiet context above the labor%. */}
                       <div className="text-[11px] text-gray-700 dark:text-gray-300 tabular-nums">
-                        {Math.round(hrs * 100) / 100}h
+                        {formatShiftHours(hrs, t("schedHoursUnit", "h"))}
                       </div>
                       {showCost && cost != null && (
                         <div className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums mt-px">
-                          ≈ {Math.round(cost).toLocaleString()} {currency}
+                          ≈ {formatKr(cost, { decimals: 0 })}
                         </div>
                       )}
                       {/* Labor% — the column headline, color-coded vs target. */}
                       <div className="mt-1">
                         {hasRev && typeof laborPct === "number" ? (
-                          <span className={`text-sm font-bold tabular-nums ${laborTone(laborPct, targetPct)}`}>
+                          <span className={`inline-flex items-center gap-0.5 text-sm font-bold tabular-nums ${laborToneFooter(laborPct, targetPct)}`}>
                             {pctLabel(laborPct)}
+                            {targetPct != null && laborPct > targetPct && (
+                              <Icon name="TrendingUp" size={11} className="shrink-0" aria-hidden="true" />
+                            )}
                           </span>
                         ) : (
                           <span className="text-sm font-bold text-gray-300 dark:text-gray-600 tabular-nums">—</span>
@@ -3381,12 +4418,42 @@ function ScheduleGrid({
                     </td>
                   );
                 })}
+                {/* Timer — the week's grand total hours across all staff. */}
+                <td className="px-3 py-3 text-right align-top">
+                  {(() => {
+                    const total = staff.reduce(
+                      (sum, m) => sum + weeklyHoursFor(m.id, weekDates, getShiftForCell),
+                      0
+                    );
+                    return (
+                      <div className="text-[13px] font-bold text-gray-900 dark:text-gray-100 tabular-nums">
+                        {formatTimer(total, t("schedHoursUnit", "h"))}
+                      </div>
+                    );
+                  })()}
+                </td>
               </tr>
             </tfoot>
           )}
         </table>
       </div>
     </div>
+    <DragOverlay dropAnimation={PREFERS_REDUCED_MOTION ? null : undefined}>
+      {activeShift ? (
+        <div
+          className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 border-l-[3px] ${ROLE_BAR[ghostCat] || ROLE_BAR.floor} shadow-lg cursor-grabbing`}
+          style={PREFERS_REDUCED_MOTION ? undefined : { transform: "rotate(2deg)" }}
+        >
+          <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+            {formatShiftTime(activeShift.start_time, activeShift.end_time)}
+          </div>
+          <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+            {formatShiftHours(calcHours(activeShift.start_time, activeShift.end_time, activeShift.break_minutes || 0), t("schedHoursUnit", "h"))}
+          </div>
+        </div>
+      ) : null}
+    </DragOverlay>
+    </DndContext>
   );
 }
 
@@ -3711,7 +4778,13 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
       const fallbackMsg = isEdit
         ? t("shiftUpdateFailed", "Failed to update shift.")
         : t("shiftCreateFailed", "Failed to create shift.");
-      setModalError(typeof d === "string" ? d : Array.isArray(d) ? d.map(e => e.msg || e).join(", ") : fallbackMsg);
+      if (err.response?.status === 409 && d?.code === "shift_overlap") {
+        setModalError(t("schedSlotTaken", "That overlaps a shift they already have that day."));
+      } else {
+        // errText safely coerces string / 422-array / {code,message} detail to a
+        // string (never the raw object → no React-child crash).
+        setModalError(errText(err, fallbackMsg));
+      }
     }
     setSaving(false);
   };

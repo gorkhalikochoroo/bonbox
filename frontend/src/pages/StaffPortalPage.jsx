@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, Inbox, Thermometer, StickyNote } from "lucide-react";
+import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, Inbox, Thermometer, StickyNote, MapPin, CalendarPlus, ChevronDown } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
@@ -110,19 +110,113 @@ function fmtClock(d) {
   }
 }
 
-// Roles are identity, not status — they render as neutral gray text. Color is
-// reserved for status only (emerald=live, amber=warn, red=error) per the
-// locked design system; a per-role rainbow + emoji read as "vibecoded".
-const ROLE_STYLE = { bg: "bg-gray-100", text: "text-gray-600", icon: "" };
+// Roles are identity, not status — in dense rows they render as neutral gray
+// text. Color is reserved for status only (emerald=live, amber=warn, red=error)
+// per the locked design system; a per-role rainbow + emoji read as "vibecoded".
+//
+// roleBarColor — NET-NEW thin SIGNAL helper. Role is rendered ONLY as a thin
+// 3–4px bar / underline (left-bar in the hero, underline in the week strip +
+// teammate avatars) — NEVER a flood tint. Returns a Tailwind bg-* class for
+// that thin element only. Match is case-insensitive + DK/EN aware; unknown
+// roles fall back to neutral gray (no rainbow). Status-color discipline holds:
+// these are identity hints on a hairline, not status semantics.
+function roleBarColor(role) {
+  const r = (role || "").toLowerCase();
+  if (r.includes("køkken") || r.includes("kitchen") || r.includes("chef") || r.includes("kok")) {
+    return "bg-red-500";
+  }
+  if (r.includes("bar") || r.includes("barista")) {
+    return "bg-blue-500";
+  }
+  if (r.includes("floor") || r.includes("gulv") || r.includes("tjener") || r.includes("waiter") || r.includes("server")) {
+    return "bg-emerald-500";
+  }
+  return "bg-gray-600";
+}
 
-function getRoleStyle() {
-  return ROLE_STYLE;
+// ─── Client-side .ics (calendar) export for a single shift ─────────────────
+//
+// buildShiftIcs(shift, venueName, summaryFn) → a self-contained VCALENDAR
+// string a staff member can add to Apple/Google Calendar from the portal.
+//
+// HONESTY / TIMEZONE: start_time/end_time are NAIVE "HH:MM" wall-clock strings
+// in Europe/Copenhagen local time (never UTC). We emit LOCAL datetime stamps
+// tagged with TZID=Europe/Copenhagen and EMBED a VTIMEZONE so the event lands
+// at the right wall-clock on any client — we NEVER append 'Z' and NEVER
+// UTC-convert (the naive-UTC bug class). CRLF line endings per RFC 5545.
+function _icsStamp(dateStr, hhmm) {
+  // "2026-06-22" + "16:00" → "20260622T160000" (local wall-clock digits)
+  return `${dateStr.replace(/-/g, "")}T${(hhmm || "00:00").replace(":", "")}00`;
+}
+
+function _icsStampUtc(d) {
+  // DTSTAMP is a creation marker (not the event time) — UTC 'Z' is correct here.
+  const p = (n) => String(n).padStart(2, "0");
+  return (
+    `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}` +
+    `T${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`
+  );
+}
+
+function buildShiftIcs(shift, venueName, summary) {
+  // Overnight edge: if the shift ends at/before it starts, the end is the next
+  // calendar day so DTEND > DTSTART.
+  const endDate =
+    shift.end_time && shift.start_time && shift.end_time <= shift.start_time
+      ? addDays(shift.date, 1)
+      : shift.date;
+  const dtStart = _icsStamp(shift.date, shift.start_time);
+  const dtEnd = _icsStamp(endDate, shift.end_time);
+  const uid = `bonbox-shift-${shift.id || `${shift.date}-${shift.start_time}`}@bonbox.dk`;
+  const safeSummary = summary || "Vagt";
+  const safeLocation = venueName || "";
+
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//BonBox//Staff Portal//DA",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VTIMEZONE",
+    "TZID:Europe/Copenhagen",
+    "BEGIN:DAYLIGHT",
+    "TZOFFSETFROM:+0100",
+    "TZOFFSETTO:+0200",
+    "TZNAME:CEST",
+    "DTSTART:19700329T020000",
+    "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU",
+    "END:DAYLIGHT",
+    "BEGIN:STANDARD",
+    "TZOFFSETFROM:+0200",
+    "TZOFFSETTO:+0100",
+    "TZNAME:CET",
+    "DTSTART:19701025T030000",
+    "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU",
+    "END:STANDARD",
+    "END:VTIMEZONE",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${_icsStampUtc(new Date())}`,
+    `DTSTART;TZID=Europe/Copenhagen:${dtStart}`,
+    `DTEND;TZID=Europe/Copenhagen:${dtEnd}`,
+    `SUMMARY:${safeSummary}`,
+    `LOCATION:${safeLocation}`,
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    "TRIGGER:-PT60M",
+    `DESCRIPTION:${safeSummary}`,
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  return lines.join("\r\n");
 }
 
 
 // ─── PIN Gate ─────────────────────────────────────────────────────────────
 
 function PinGate({ onVerified, token, staffName }) {
+  const { t } = useLanguage();
   const [pin, setPin] = useState(["", "", "", ""]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -156,7 +250,7 @@ function PinGate({ onVerified, token, staffName }) {
       await portalApi.post(`/portal/${token}/verify-pin`, { pin: code });
       onVerified();
     } catch {
-      setError("Wrong PIN. Try again.");
+      setError(t("portalPinWrong", "Wrong PIN. Try again."));
       setPin(["", "", "", ""]);
       document.getElementById("pin-0")?.focus();
     } finally {
@@ -170,8 +264,8 @@ function PinGate({ onVerified, token, staffName }) {
         <div className="w-16 h-16 bg-gray-100 border border-gray-200 rounded-xl flex items-center justify-center mx-auto mb-4">
           <Lock className="w-7 h-7 text-gray-400" strokeWidth={2} aria-hidden />
         </div>
-        <h1 className="text-xl font-bold text-gray-900 mb-1">Enter PIN</h1>
-        <p className="text-sm text-gray-500 mb-8">Hi {staffName}, enter your 4-digit PIN</p>
+        <h1 className="text-xl font-bold text-gray-900 mb-1">{t("portalPinTitle", "Enter PIN")}</h1>
+        <p className="text-sm text-gray-500 mb-8">{t("portalPinSubtitle", "Hi {name}, enter your 4-digit PIN", { name: staffName })}</p>
         <div className="flex gap-3 justify-center mb-6">
           {pin.map((d, i) => (
             <input
@@ -189,7 +283,7 @@ function PinGate({ onVerified, token, staffName }) {
           ))}
         </div>
         {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
-        {loading && <p className="text-gray-500 text-sm">Verifying...</p>}
+        {loading && <p className="text-gray-500 text-sm">{t("portalPinVerifying", "Verifying...")}</p>}
       </div>
     </div>
   );
@@ -247,7 +341,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
       setOpen(false);
       onCalledIn?.();
     } catch (err) {
-      setError(errText(err, "Couldn't send. Try again."));
+      setError(errText(err, t("portalSickSendFailed", "Couldn't send. Try again.")));
     } finally {
       setSubmitting(false);
     }
@@ -276,13 +370,13 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
         <button
           onClick={() => { setOpen(false); setError(""); setReason(""); }}
           className="text-gray-500 hover:text-gray-700 text-lg leading-none w-6 h-6 flex items-center justify-center"
-          aria-label="Close"
+          aria-label={t("close", "Close")}
         >
           ×
         </button>
       </div>
       <div>
-        <label className="text-[11px] text-gray-500 mb-1 block">Which day?</label>
+        <label className="text-[11px] text-gray-500 mb-1 block">{t("portalSickWhichDay", "Which day?")}</label>
         <input
           type="date"
           value={date}
@@ -293,19 +387,19 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
         />
         {matchingShift && (
           <div className="mt-1 text-[11px] text-gray-500">
-            Shift: {matchingShift.start_time} – {matchingShift.end_time}
+            {t("portalSickShiftLabel", "Shift")}: {matchingShift.start_time} – {matchingShift.end_time}
           </div>
         )}
       </div>
       <div>
         <label className="text-[11px] text-gray-500 mb-1 block">
-          Reason <span className="text-gray-400">(optional, only your owner sees this)</span>
+          {t("portalSickReason", "Reason")} <span className="text-gray-400">{t("portalSickReasonHint", "(optional, only your owner sees this)")}</span>
         </label>
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value.slice(0, 500))}
           rows={2}
-          placeholder="e.g. fever 39C, doctor advised rest"
+          placeholder={t("portalSickReasonPlaceholder", "e.g. fever 39C, doctor advised rest")}
           className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-amber-500/40 resize-none"
         />
       </div>
@@ -317,10 +411,10 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
         disabled={submitting || !date}
         className="w-full px-4 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold transition disabled:opacity-50"
       >
-        {submitting ? "Sending..." : "Send sick call"}
+        {submitting ? t("portalSending", "Sending...") : t("portalSickSubmit", "Send sick call")}
       </button>
       <div className="text-[10px] text-gray-400 text-center leading-snug">
-        Your owner will be notified. They can assign someone to cover.
+        {t("portalSickFootnote", "Your owner will be notified. They can assign someone to cover.")}
       </div>
     </div>
   );
@@ -360,7 +454,8 @@ function addDaysToDate(d, days) {
  *   • One tap → server returns confirmed_count → small "✓ N shifts
  *     confirmed" inline confirmation that fades after 4s.
  */
-function ConfirmScheduleButton({ token, shifts, onConfirmed }) {
+function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange }) {
+  const { t } = useLanguage();
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
@@ -380,49 +475,68 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed }) {
     try {
       const res = await portalApi.post(`/portal/${token}/confirm-schedule`, {});
       const n = res?.data?.confirmed_count ?? 0;
-      setFeedback(n > 0 ? `✓ ${n} shift${n === 1 ? "" : "s"} confirmed` : "✓ Already confirmed");
+      setFeedback(n > 0
+        ? `✓ ${t("portalConfirmCount", "{n} shifts confirmed", { n })}`
+        : `✓ ${t("portalConfirmAlready", "Already confirmed")}`);
       onConfirmed?.();
       setTimeout(() => setFeedback(""), 4000);
     } catch (e) {
-      setError(errText(e, "Couldn't confirm. Try again."));
+      setError(errText(e, t("portalConfirmFailed", "Couldn't confirm. Try again.")));
     } finally {
       setSubmitting(false);
     }
   };
 
+  // Truth logic above (allConfirmed = published>0 && every confirmed_at set)
+  // is UNTOUCHED. Only the CTA copy + styling change to a calm full-width strip
+  // labelled "Jeg har set det". The confirmed state still reads confirmed_at —
+  // never an optimistic local flag.
+  const needChangeLink = onNeedChange && (
+    <button
+      type="button"
+      onClick={onNeedChange}
+      className="mt-2 w-full text-center text-[12px] text-gray-500 hover:text-gray-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded-md py-1"
+    >
+      {t("portalNeedChange")}
+    </button>
+  );
+
   if (allConfirmed) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 flex items-center gap-2">
-        <span aria-hidden className="text-emerald-400">✓</span>
-        <span className="font-medium">You've confirmed this schedule. Thanks!</span>
+      <div>
+        <div className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-gray-700 flex items-center justify-center gap-2">
+          <Check className="w-4 h-4 shrink-0 text-emerald-600" strokeWidth={2.5} aria-hidden />
+          <span className="font-medium">{t("portalConfirmedThanks", "You've confirmed this schedule. Thanks!")}</span>
+        </div>
+        {needChangeLink}
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 flex items-center justify-between gap-3">
-      <div className="text-sm text-gray-700">
-        <div className="font-medium text-gray-900">Got the schedule?</div>
-        <div className="text-[12px] text-gray-500">Tap to let your owner know you've seen it.</div>
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {feedback && (
-          <span className="text-[12px] text-emerald-400 whitespace-nowrap" role="status">
-            {feedback}
-          </span>
+    <div>
+      <button
+        type="button"
+        onClick={submit}
+        disabled={submitting}
+        className="w-full inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-xl bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold disabled:opacity-50 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 focus-visible:ring-offset-1"
+      >
+        {submitting ? "…" : (
+          <>
+            <Check className="w-4 h-4 shrink-0" strokeWidth={2.5} aria-hidden />
+            {t("portalSeenIt")}
+          </>
         )}
-        <button
-          type="button"
-          onClick={submit}
-          disabled={submitting}
-          className="px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-700 text-white text-sm font-semibold disabled:opacity-50 transition"
-        >
-          {submitting ? "…" : "I've got it"}
-        </button>
-      </div>
-      {error && (
-        <span className="text-[12px] text-red-400 ml-2">{error}</span>
+      </button>
+      {feedback && (
+        <div className="mt-1.5 text-center text-[12px] text-emerald-600" role="status">
+          {feedback}
+        </div>
       )}
+      {error && (
+        <div className="mt-1.5 text-center text-[12px] text-red-500">{error}</div>
+      )}
+      {needChangeLink}
     </div>
   );
 }
@@ -430,10 +544,15 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed }) {
 
 // ── Punch-clock (Stempelur) — staff self-clock from the portal. Writes the
 // SAME HoursLogged rows the owner sees, so a clock-in/out flows straight to
-// the owner's "clocked in now" strip + hours. Server-stamps the time; the card
-// just reflects + polls state (auto-updates ~30s). Goes dark gray-900 while
-// clocked in — same "in use = dark" language as an occupied floor table.
-function ClockCard({ token }) {
+// the owner's "clocked in now" strip + hours. Server-stamps the time; the hook
+// just reflects + polls state (auto-updates ~30s).
+//
+// useClock(token) — lifted OUT of the old standalone <ClockCard/> so the dark
+// next-shift hero can render the live elapsed timer AND choose Stempl ind vs
+// Tilføj til kalender from the same state. act()/getPos()/the geolocation-
+// only-when-geofence_on guard / the too_far 403 → portalClockTooFar mapping /
+// the 30s poll are MOVED VERBATIM — ownership changed, behaviour did not.
+function useClock(token) {
   const { t } = useLanguage();
   const [st, setSt] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -499,72 +618,198 @@ function ClockCard({ token }) {
     return h > 0 ? `${h}t ${m}m` : `${m}m`;
   };
 
-  const clockedIn = !!st?.clocked_in;
-  const today = st?.today_hours;
+  return { st, busy, err, act, fmtDur };
+}
+
+// ── Live countdown to the next shift's start. No timer of its own; the parent
+// re-renders every 15s via the page-level freshnessTick, so this stays current
+// without a second interval. Honest: started/past → "I gang" ("Now"), never a
+// negative or fabricated future time. Returns null when there's no shift or the
+// shift is neither today nor within ~24h (the chip would be noise otherwise).
+// The impure Date.now() read is intentionally confined here, out of any
+// component render body.
+function nextShiftCountdown(shift, t) {
+  if (!shift) return null;
+  // Local-time parse matches the existing date+start_time pattern elsewhere.
+  const target = new Date(`${shift.date}T${shift.start_time || "00:00"}`);
+  if (Number.isNaN(target.getTime())) return null;
+  const ms = target.getTime() - Date.now();
+  // Only show today or within ~24h.
+  if (!isToday(shift.date) && ms >= 24 * 3600000) return null;
+  if (ms <= 0) return t("portalCountdownNow");
+  const totalMin = Math.floor(ms / 60000);
+  if (totalMin < 60) return t("portalCountdownSoonMin", { m: totalMin });
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return t("portalCountdownIn", { h, m });
+}
+
+// ── Initials for a teammate avatar (≤2 letters, uppercased). Privacy: only
+// initials + a role-underline are ever shown for teammates.
+function staffInitials(name) {
+  return (name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase() || "?";
+}
+
+// ── "På arbejde med dig" — teammate avatar strip for the next shift's date.
+// Fully client-side off /portal/{token}/team-schedule. The endpoint now filters
+// to published/confirmed shifts server-side (no draft leak), and we ALSO restrict
+// to nextShift.date only as defense-in-depth — never widen beyond the one date
+// the staffer is already trusted to see.
+function WhosOnStrip({ token, nextShift }) {
+  const { t } = useLanguage();
+  const [teamShifts, setTeamShifts] = useState([]);
+
+  useEffect(() => {
+    if (!token) return;
+    portalApi
+      .get(`/portal/${token}/team-schedule`)
+      .then((r) => setTeamShifts(r.data || []))
+      .catch(() => setTeamShifts([]));
+  }, [token]);
+
+  if (!nextShift) return null;
+
+  // Same date only; exclude YOUR OWN row structurally (no staff_id on the
+  // client) by matching start/end/role; dedupe by staff_id.
+  const seen = new Set();
+  const mates = [];
+  for (const s of teamShifts) {
+    if (s.date !== nextShift.date) continue;
+    const isMine =
+      s.start_time === nextShift.start_time &&
+      s.end_time === nextShift.end_time &&
+      (s.role || "") === (nextShift.role_on_shift || "");
+    if (isMine) continue;
+    const id = s.staff_id ?? `${s.staff_name}|${s.start_time}|${s.end_time}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    mates.push(s);
+  }
+
+  const CAP = 6;
+  const shown = mates.slice(0, CAP);
+  const overflow = mates.length - shown.length;
 
   return (
-    <div
-      className={
-        "rounded-xl border p-4 " +
-        (clockedIn ? "bg-gray-900 border-gray-900 text-white" : "bg-white border-gray-200")
-      }
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div
-            className={
-              "text-[11px] font-semibold uppercase tracking-wider " +
-              (clockedIn ? "text-gray-300" : "text-gray-500")
-            }
-          >
-            {t("portalClockTitle", "Time clock")}
-          </div>
-          {clockedIn ? (
-            <>
-              <div className="mt-1 flex items-center gap-2">
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
-                </span>
-                <span className="text-lg font-bold tabular-nums">{fmtDur(st.elapsed_min)}</span>
+    <div>
+      <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+        {t("portalWhosOnTitle")}
+      </div>
+      {mates.length === 0 ? (
+        <div className="text-[13px] text-gray-500">{t("portalWhosOnAlone")}</div>
+      ) : (
+        <div className="flex items-center gap-3 overflow-x-auto pb-1">
+          {shown.map((s, i) => (
+            <div key={`${s.staff_id ?? s.staff_name}-${i}`} className="flex flex-col items-center gap-1 shrink-0">
+              <div
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-800 text-[12px] font-semibold text-white ring-2 ring-gray-900"
+                title={staffInitials(s.staff_name)}
+                aria-hidden
+              >
+                {staffInitials(s.staff_name)}
               </div>
-              <div className="mt-0.5 text-[12px] text-gray-300 tabular-nums">
-                {t("portalClockedInSince", "Clocked in · since {t}", { t: st.since || "—" })}
-              </div>
-            </>
-          ) : (
-            <div className="mt-1 text-sm text-gray-600">
-              {today
-                ? t("portalClockToday", "{h} t today", { h: today })
-                : t("portalClockReady", "Tap to start your shift.")}
+              <span className={`block h-[3px] w-6 rounded-full ${roleBarColor(s.role)}`} aria-hidden />
+            </div>
+          ))}
+          {overflow > 0 && (
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-[12px] font-semibold text-gray-500">
+              +{overflow}
             </div>
           )}
         </div>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => act(clockedIn ? "out" : "in")}
-          className={
-            "shrink-0 inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 " +
-            (clockedIn
-              ? "bg-white text-gray-900 hover:bg-gray-100 focus-visible:ring-white focus-visible:ring-offset-gray-900"
-              : "bg-gray-900 text-white hover:bg-gray-800 focus-visible:ring-gray-900 focus-visible:ring-offset-white")
-          }
-        >
-          {clockedIn ? t("portalClockOut", "Clock out") : t("portalClockIn", "Clock in")}
-        </button>
-      </div>
-      {st?.geofence_on && !clockedIn && (
-        <div className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
-          {t("portalClockGeoNote", "We check you're at the venue when you clock in. Your location isn't stored.")}
-        </div>
       )}
-      {err && <div className="mt-2 text-[12px] text-red-500 dark:text-red-300">{err}</div>}
     </div>
   );
 }
 
-function ScheduleTab({ shifts: rawShifts, staffName, token, onShiftsChanged }) {
+// ── Åbne vagter — staff claim card ─────────────────────────────────────────
+// Open shifts the owner posted that this staffer can pick up one-tap (PULL
+// model — appears only when there's something to take, never a notification
+// blast). Claim is atomic + overlap-guarded server-side; on success the shift
+// lands in the staffer's own schedule, so we refresh.
+function OpenShiftsClaimCard({ token, onClaimed }) {
+  const { t } = useLanguage();
+  const [rows, setRows] = useState([]);
+  const [claiming, setClaiming] = useState(null);
+  const [msg, setMsg] = useState("");
+
+  const fetchOpen = useCallback(() => {
+    if (!token) return;
+    portalApi
+      .get(`/portal/${token}/open-shifts`)
+      .then((r) => setRows(Array.isArray(r.data) ? r.data : []))
+      .catch(() => setRows([]));
+  }, [token]);
+
+  useEffect(() => { fetchOpen(); }, [fetchOpen]);
+
+  const claim = async (id) => {
+    setClaiming(id);
+    setMsg("");
+    try {
+      await portalApi.post(`/portal/${token}/open-shifts/${id}/claim`);
+      setMsg(t("portalOpenClaimed", "Added to your schedule."));
+      setTimeout(() => setMsg(""), 3500);  // clear the confirmation after the moment
+      fetchOpen();
+      onClaimed?.();
+    } catch (err) {
+      const code = err?.response?.data?.detail?.code;
+      if (code === "already_taken") setMsg(t("portalOpenTaken", "That shift was just taken."));
+      else if (code === "shift_overlap") setMsg(t("portalOpenOverlap", "You already work then."));
+      else setMsg(errText(err, t("portalOpenClaimFailed", "Couldn't take the shift.")));
+      fetchOpen();
+    } finally {
+      setClaiming(null);
+    }
+  };
+
+  if (!rows.length) return null;  // silent when there's nothing to claim
+
+  return (
+    <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+        <CalendarPlus className="w-3.5 h-3.5" />
+        {t("portalOpenTitle", "Open shifts")}
+      </div>
+      {msg && <div className="text-[12px] text-gray-600 mb-2">{msg}</div>}
+      <div className="space-y-2">
+        {rows.map((o) => (
+          <div
+            key={o.id}
+            className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5"
+          >
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-[14px] font-semibold text-gray-900">
+                <span className={`block h-[3px] w-5 rounded-full ${roleBarColor(o.role)}`} aria-hidden />
+                {fmtDate(o.date)}
+              </div>
+              <div className="text-[13px] text-gray-500 tabular-nums mt-0.5">
+                {o.start_time}–{o.end_time}
+              </div>
+            </div>
+            <button
+              onClick={() => claim(o.id)}
+              disabled={claiming === o.id}
+              className="shrink-0 rounded-full bg-gray-900 text-white text-[13px] font-medium px-4 py-2 active:scale-95 transition disabled:opacity-60"
+            >
+              {claiming === o.id ? "…" : t("portalOpenClaim", "Take it")}
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+
+function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onShiftsChanged, onNeedChange }) {
   const { t } = useLanguage();
   // Defense-in-depth: the portal API already filters to published shifts
   // (get_portal_schedule), but never render a draft even if one ever slips
@@ -574,87 +819,216 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, onShiftsChanged }) {
   const today = toLocalISO(new Date());
   const weekStart = getWeekStart(today);
 
-  // Group shifts by week
-  const thisWeek = [];
-  const nextWeek = [];
-  const later = [];
+  const clock = useClock(token);
+  const clockedIn = !!clock.st?.clocked_in;
+
+  // Local UI state: which week-strip is shown + which day is expanded.
+  const [weekView, setWeekView] = useState("this"); // 'this' | 'next'
+  const [expandedDate, setExpandedDate] = useState(null);
+  // "Brug for en ændring?" reveals the sick-call form inline (and deep-links
+  // Swaps via onNeedChange from the confirm strip).
+  const [showSick, setShowSick] = useState(false);
 
   const nextWeekStart = addDays(weekStart, 7);
   const laterStart = addDays(weekStart, 14);
 
-  // Build all 7 days for current week (show OFF days too)
+  // Build all 7 days for current + next week (OFF days included as silent dots).
+  const thisWeek = [];
+  const nextWeek = [];
   for (let i = 0; i < 7; i++) {
     const d = addDays(weekStart, i);
-    const shift = shifts.find((s) => s.date === d);
-    thisWeek.push({ date: d, shift });
+    thisWeek.push({ date: d, shift: shifts.find((s) => s.date === d) });
   }
-
-  // Build next week
   for (let i = 0; i < 7; i++) {
     const d = addDays(nextWeekStart, i);
-    const shift = shifts.find((s) => s.date === d);
-    nextWeek.push({ date: d, shift });
+    nextWeek.push({ date: d, shift: shifts.find((s) => s.date === d) });
   }
 
-  // Anything beyond
-  shifts
-    .filter((s) => s.date >= laterStart)
-    .forEach((s) => later.push({ date: s.date, shift: s }));
+  const hasLater = shifts.some((s) => s.date >= laterStart);
 
-  // KPIs
+  // Hours / counts for the muted summary line under the strip.
   const thisWeekShifts = shifts.filter((s) => s.date >= weekStart && s.date < nextWeekStart);
   const thisWeekHours = Math.round(thisWeekShifts.reduce((a, s) => a + s.net_hours, 0) * 100) / 100;
 
-  // Next shift
+  // Next shift (drives the hero, countdown, teammate strip, .ics).
   const upcoming = shifts.filter((s) => s.date >= today).sort((a, b) => a.date.localeCompare(b.date));
   const nextShift = upcoming[0];
+  const nextShiftRole = nextShift?.role_on_shift || t("portalRoleStaff", "Staff");
 
-  const nextShiftRole = nextShift?.role_on_shift || "Staff";
+  // Countdown chip — null unless the shift is today or within ~24h. The
+  // Date.now() read lives inside the pure helper, recomputed each 15s render.
+  const countdownLabel = nextShiftCountdown(nextShift, t);
+
+  // Add-to-calendar (.ics) for the next shift — naive wall-clock + TZID, no UTC.
+  const addToCalendar = () => {
+    if (!nextShift) return;
+    const summary = restaurantName
+      ? t("portalIcsSummary", { venue: restaurantName })
+      : t("portalIcsSummaryNoVenue");
+    const ics = buildShiftIcs(nextShift, restaurantName, summary);
+    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+    const filename = `vagt-${nextShift.date}.ics`;
+    const file =
+      typeof File !== "undefined" ? new File([blob], filename, { type: "text/calendar" }) : null;
+    if (file && navigator.canShare?.({ files: [file] }) && navigator.share) {
+      navigator.share({ files: [file], title: summary }).catch(() => {});
+      return;
+    }
+    // Fallback: anchor download (some in-app browsers block share).
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const weekDays = weekView === "this" ? thisWeek : nextWeek;
+  const weekLabelStart = weekView === "this" ? weekStart : nextWeekStart;
+  const expandedShift = expandedDate
+    ? shifts.find((s) => s.date === expandedDate)
+    : null;
 
   return (
     <div className="space-y-4">
-      {/* HERO — the single most-glanceable thing: your next shift. Largest
-          type on the screen, gray-900. Day + time + role + hours. */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4">
-        <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1">
-          {t("portalNextShiftHero")}
+      {/* HERO — dark gray-900 next-shift card with a 4px role-colored left-bar.
+          Absorbs the punch-clock (elapsed timer + Stempl ind/ud) and a live
+          countdown. Role shows ONLY via the thin left-bar + a tiny label. */}
+      <div className="relative overflow-hidden rounded-xl bg-gray-900 text-white p-4">
+        {/* 4px role-colored left-bar — a thin SIGNAL, never a flood tint. */}
+        <span
+          className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${roleBarColor(nextShift?.role_on_shift)}`}
+          aria-hidden
+        />
+        <div className="flex items-start justify-between gap-2">
+          <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+            {t("portalNextShiftHero")}
+          </div>
+          {countdownLabel && (
+            <span className="shrink-0 rounded-full bg-white/10 text-gray-200 text-[12px] px-2 py-0.5 tabular-nums">
+              {countdownLabel}
+            </span>
+          )}
         </div>
+
         {nextShift ? (
           <>
-            <div className="text-3xl font-bold text-gray-900 leading-tight">
+            <div className="mt-1 text-3xl font-bold text-white leading-tight">
               {isToday(nextShift.date) ? t("portalToday") : fmtDate(nextShift.date)}
             </div>
-            <div className="mt-1 text-lg font-semibold text-gray-900">
-              {nextShift.start_time} – {nextShift.end_time}
+            <div className="mt-1 text-[13px] text-emerald-300/80 tabular-nums">
+              {nextShift.start_time}–{nextShift.end_time} · {nextShift.net_hours} {t("portalHrsShort")}
             </div>
-            <div className="mt-1 flex items-center gap-2 text-[13px] text-gray-500">
-              <span>{nextShiftRole}</span>
-              <span aria-hidden>·</span>
-              <span>{nextShift.net_hours} {t("portalHrsShort")}</span>
+            <div className="mt-1 text-[12px] text-gray-400">{nextShiftRole}</div>
+
+            {/* Venue line — name ONLY (never a fabricated address). When the
+                owner has turned ON the clock-in geofence, this becomes an honest
+                "Stempl kun ind ved <venue>" lock hint so the staffer knows the
+                clock-in is location-bound before they try it (the server's
+                too_far 403 is still the real gate). */}
+            {restaurantName && (
+              <div className="mt-2 flex items-center gap-1.5 text-[12px] text-gray-400">
+                {clock.st?.geofence_on ? (
+                  <>
+                    <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                    <span className="truncate">
+                      {t("portalClockOnlyAt", "Clock in only at {venue}", { venue: restaurantName })}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <MapPin className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                    <span className="truncate">{restaurantName}</span>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Live elapsed timer while clocked in (emerald ping, reused from
+                the old ClockCard). */}
+            {clockedIn && (
+              <div className="mt-3 flex items-center gap-2">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                </span>
+                <span className="text-lg font-bold tabular-nums">{clock.fmtDur(clock.st?.elapsed_min)}</span>
+                <span className="text-[12px] text-gray-300 tabular-nums">
+                  {t("portalClockedInSince", "Clocked in · since {t}", { t: clock.st?.since || "—" })}
+                </span>
+              </div>
+            )}
+
+            {/* ONE geofence-aware CTA. Honesty: the client can't verify "at
+                venue" (no coords) — the server's too_far 403 is the real gate.
+                Clocked in → Stempl ud. Else → Stempl ind (primary) + a quiet
+                ghost "Tilføj til kalender". Never claims presence. */}
+            <div className="mt-4">
+              {token && clockedIn ? (
+                <button
+                  type="button"
+                  disabled={clock.busy}
+                  onClick={() => clock.act("out")}
+                  className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-white text-gray-900 text-sm font-semibold hover:bg-gray-100 transition disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
+                >
+                  {t("portalClockOutCta")}
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  {token && (
+                    <button
+                      type="button"
+                      disabled={clock.busy}
+                      onClick={() => clock.act("in")}
+                      className="flex-1 inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-white text-gray-900 text-sm font-semibold hover:bg-gray-100 transition disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
+                    >
+                      {t("portalClockInCta")}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={addToCalendar}
+                    className="shrink-0 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-lg bg-white/10 text-gray-200 text-sm font-medium hover:bg-white/20 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
+                  >
+                    <CalendarPlus className="w-4 h-4 shrink-0" strokeWidth={2} aria-hidden />
+                    <span>{t("portalAddToCalendar")}</span>
+                  </button>
+                </div>
+              )}
             </div>
+            {clock.err && <div className="mt-2 text-[12px] text-red-300">{clock.err}</div>}
           </>
         ) : (
-          <div className="text-2xl font-bold text-gray-400">{t("portalNoUpcomingShift")}</div>
+          <div className="mt-1 text-2xl font-bold text-gray-500">{t("portalNoUpcomingShift")}</div>
         )}
       </div>
 
-      {/* Punch-clock — the on-arrival action, right under the next-shift hero. */}
-      {token && <ClockCard token={token} />}
+      {/* "På arbejde med dig" — teammate avatars on the next shift's date. */}
+      {token && <WhosOnStrip token={token} nextShift={nextShift} />}
 
-      {/* This week hrs KPI (kept, but no longer the headline). */}
-      <div className="grid grid-cols-1 gap-3">
-        <div className="bg-white border border-gray-200 rounded-xl p-3">
-          <div className="text-[11px] text-gray-500 mb-1">{t("portalThisWeek")}</div>
-          <div className="text-2xl font-bold text-gray-900">{thisWeekHours} <span className="text-sm text-gray-500">{t("portalHrsShort")}</span></div>
-          <div className="text-[11px] text-gray-500">{thisWeekShifts.length} {t("portalShiftsCount")}</div>
-        </div>
-      </div>
+      {/* Åbne vagter — open shifts this staffer can pick up one-tap. */}
+      {token && <OpenShiftsClaimCard token={token} onClaimed={onShiftsChanged} />}
 
-      {/* Sick-call self-service. Sits between KPIs and the schedule
-          so it's visible at-a-glance but doesn't fight for attention
-          with the actual shift list. token + onShiftsChanged are
-          passed in from the parent page. */}
+      {/* Bidirectional confirmation — calm "Jeg har set det" strip. Truth logic
+          (allConfirmed gated on every confirmed_at) untouched; only the CTA
+          copy + style change. The "Brug for en ændring?" link reveals the
+          sick-call form inline AND deep-links the Swaps tab. */}
       {token && (
+        <ConfirmScheduleButton
+          token={token}
+          shifts={shifts}
+          onConfirmed={onShiftsChanged}
+          onNeedChange={() => {
+            setShowSick(true);
+            onNeedChange?.();
+          }}
+        />
+      )}
+
+      {/* Sick-call self-service — revealed by "Brug for en ændring?". */}
+      {token && showSick && (
         <SickCallButton
           token={token}
           upcomingShifts={upcoming}
@@ -662,52 +1036,80 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, onShiftsChanged }) {
         />
       )}
 
-      {/* Bidirectional confirmation — staff taps "I've got it" to ack
-          the published schedule. Owner's dashboard reads aggregate
-          counts via /staff/schedule-confirmation-summary. Idempotent;
-          re-tap is a calm no-op. */}
-      {token && (
-        <ConfirmScheduleButton
-          token={token}
-          shifts={shifts}
-          onConfirmed={onShiftsChanged}
-        />
-      )}
-
-      {/* This week */}
-      <div>
-        <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
-          This week — {fmtShort(weekStart)} – {fmtShort(addDays(weekStart, 6))}
-        </div>
-        <div className="space-y-1.5">
-          {thisWeek.map(({ date: d, shift }) => (
-            <ShiftRow key={d} date={d} shift={shift} />
-          ))}
-        </div>
-      </div>
-
-      {/* Next week */}
-      <div>
-        <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
-          Next week — {fmtShort(nextWeekStart)} – {fmtShort(addDays(nextWeekStart, 6))}
-        </div>
-        <div className="space-y-1.5">
-          {nextWeek.map(({ date: d, shift }) => (
-            <ShiftRow key={d} date={d} shift={shift} />
-          ))}
-        </div>
-      </div>
-
-      {later.length > 0 && (
-        <div>
-          <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Coming up</div>
-          <div className="space-y-1.5">
-            {later.map(({ date: d, shift }) => (
-              <ShiftRow key={d} date={d} shift={shift} />
-            ))}
+      {/* 7-dot week-at-a-glance — replaces the three long ShiftRow scrolls. One
+          strip at a time (this/next week). Working day = thin role-colored bar;
+          OFF = silent hollow dot; TODAY = filled + gray-900 ring. Tap a working
+          day → expand ONE inline ShiftRow below. */}
+      <div className="bg-white border border-gray-200 rounded-xl p-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+            {weekView === "this" ? t("portalSecThisWeek", "This week") : t("portalSecNextWeek", "Next week")} — {fmtShort(weekLabelStart)} – {fmtShort(addDays(weekLabelStart, 6))}
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              setWeekView((v) => (v === "this" ? "next" : "this"));
+              setExpandedDate(null);
+            }}
+            className="text-[11px] font-medium text-gray-500 hover:text-gray-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded px-1 py-0.5"
+          >
+            {weekView === "this" ? t("portalSecNextWeek", "Next week") : t("portalSecThisWeek", "This week")} →
+          </button>
         </div>
-      )}
+
+        <div className="grid grid-cols-7 gap-1">
+          {weekDays.map(({ date: d, shift }, i) => {
+            const isTodayCell = isToday(d);
+            const isExpanded = expandedDate === d;
+            return (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setExpandedDate(isExpanded || !shift ? null : d)}
+                className={`flex flex-col items-center gap-1.5 rounded-lg py-2 min-h-[44px] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${isExpanded ? "bg-gray-50" : "hover:bg-gray-50"}`}
+                aria-label={`${DAYS[i]} ${fmtShort(d)}`}
+              >
+                <span className="text-[10px] text-gray-400">{DAYS[i]}</span>
+                {shift ? (
+                  <span
+                    className={`block w-[4px] h-5 rounded-full ${roleBarColor(shift.role_on_shift)} ${isTodayCell ? "ring-2 ring-gray-900 ring-offset-1" : ""}`}
+                    aria-hidden
+                  />
+                ) : (
+                  <span
+                    className={`block w-2 h-2 rounded-full ${isTodayCell ? "bg-gray-900 ring-2 ring-gray-900 ring-offset-1" : "border border-gray-300"}`}
+                    aria-hidden
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Opt-in detail: ONE inline ShiftRow for the tapped working day. */}
+        {expandedShift && (
+          <div className="mt-2">
+            <ShiftRow date={expandedShift.date} shift={expandedShift} />
+          </div>
+        )}
+
+        {/* Muted summary line (replaces the old "This week hrs" KPI card). */}
+        {weekView === "this" && (
+          <div className="mt-2 text-[11px] text-gray-500">
+            {t("portalWeekStripHrs", {
+              h: thisWeekHours,
+              hrs: t("portalHrsShort"),
+              n: thisWeekShifts.length,
+              shifts: t("portalShiftsCount"),
+            })}
+          </div>
+        )}
+
+        {/* Quiet pointer to shifts beyond next week. */}
+        {weekView === "next" && hasLater && (
+          <div className="mt-2 text-[11px] text-gray-400">{t("portalSecComingUp", "Coming up")}</div>
+        )}
+      </div>
     </div>
   );
 }
@@ -728,13 +1130,11 @@ function ShiftRow({ date: d, shift }) {
           <div className="text-sm font-bold text-gray-400">{dayNum}</div>
         </div>
         <div className="flex-1">
-          <div className="text-sm text-gray-400">OFF</div>
+          <div className="text-sm text-gray-400">{t("portalShiftOff", "OFF")}</div>
         </div>
       </div>
     );
   }
-
-  const role = getRoleStyle(shift.role_on_shift);
 
   return (
     <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-200 ${past && !today ? "opacity-50" : ""} ${today ? "border-gray-500/40 bg-white" : ""}`}>
@@ -744,7 +1144,7 @@ function ShiftRow({ date: d, shift }) {
       </div>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold text-gray-900">{shift.start_time} – {shift.end_time}</div>
-        <div className="text-[11px] text-gray-500">{shift.role_on_shift || "Staff"}</div>
+        <div className="text-[11px] text-gray-500">{shift.role_on_shift || t("portalRoleStaff", "Staff")}</div>
         {/* Owner's per-shift note — a quiet line so the time/role stay the
             focus. Only renders when the owner actually left a note. */}
         {shift.notes && (
@@ -760,11 +1160,11 @@ function ShiftRow({ date: d, shift }) {
       <div className="shrink-0 self-start">
         {today ? (
           <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-100 border border-gray-200 text-gray-700">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Today
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{t("portalPillToday", "Today")}
           </span>
         ) : past ? (
           <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-100 border border-gray-200 text-gray-700">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />Done
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{t("portalPillDone", "Done")}
           </span>
         ) : (
           <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-100 text-gray-500">{shift.net_hours}h</span>
@@ -869,6 +1269,7 @@ function HoursTab({ data, maxHours }) {
 // ─── Tips Tab ─────────────────────────────────────────────────────────────
 
 function TipsTab({ data }) {
+  const { t: tr } = useLanguage();
   if (!data) return <LoadingSkeleton />;
 
   const avgPerShift = data.entries.length > 0 ? (data.total_tips_30d / data.entries.length) : 0;
@@ -879,30 +1280,30 @@ function TipsTab({ data }) {
       {/* KPIs */}
       <div className="grid grid-cols-3 gap-2">
         <div className="bg-white border border-gray-200 rounded-xl p-3">
-          <div className="text-[10px] text-gray-500 mb-1">Last 30 days</div>
+          <div className="text-[10px] text-gray-500 mb-1">{tr("portalTipsLast30", "Last 30 days")}</div>
           <div className="text-lg font-bold text-gray-700">{Math.round(data.total_tips_30d).toLocaleString()}</div>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl p-3">
-          <div className="text-[10px] text-gray-500 mb-1">Last shift</div>
+          <div className="text-[10px] text-gray-500 mb-1">{tr("portalTipsLastShift", "Last shift")}</div>
           <div className="text-lg font-bold text-gray-900">{lastTip ? Math.round(lastTip.amount) : "—"}</div>
         </div>
         <div className="bg-white border border-gray-200 rounded-xl p-3">
-          <div className="text-[10px] text-gray-500 mb-1">Avg / shift</div>
+          <div className="text-[10px] text-gray-500 mb-1">{tr("portalTipsAvgPerShift", "Avg / shift")}</div>
           <div className="text-lg font-bold text-gray-900">{Math.round(avgPerShift)}</div>
         </div>
       </div>
 
       {/* Tip history */}
       <div>
-        <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Tip history</div>
+        <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">{tr("portalTipsHistory", "Tip history")}</div>
         <div className="space-y-1.5">
           {data.entries.length === 0 && (
-            <div className="text-sm text-gray-400 py-4 text-center">No tips recorded yet</div>
+            <div className="text-sm text-gray-400 py-4 text-center">{tr("portalTipsNone", "No tips recorded yet")}</div>
           )}
           {data.entries.map((t, i) => (
             <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white border border-gray-200">
               <span className="text-sm text-gray-500">{fmtDate(t.date)}</span>
-              {t.share_pct && <span className="text-[11px] text-gray-400">{t.share_pct.toFixed(1)}% share</span>}
+              {t.share_pct && <span className="text-[11px] text-gray-400">{tr("portalTipsShare", "{pct}% share", { pct: t.share_pct.toFixed(1) })}</span>}
               <span className="text-sm font-semibold text-gray-700">{Math.round(t.amount)} DKK</span>
             </div>
           ))}
@@ -911,7 +1312,7 @@ function TipsTab({ data }) {
 
       {data.entries.length > 0 && (
         <div className="text-center text-[11px] text-gray-400">
-          Split method: {data.entries[0]?.split_method === "by_hours" ? "By hours worked" : data.entries[0]?.split_method || "—"}
+          {tr("portalTipsSplitMethod", "Split method")}: {data.entries[0]?.split_method === "by_hours" ? tr("portalTipsByHours", "By hours worked") : data.entries[0]?.split_method || "—"}
         </div>
       )}
     </div>
@@ -1087,7 +1488,7 @@ function SwapRow({ swap, token, onChanged }) {
       )}
       {swap.owner_note && (
         <div className="text-[11px] text-gray-500">
-          <span className="text-gray-500">Owner:</span> {swap.owner_note}
+          <span className="text-gray-500">{t("portalSwapOwnerLabel", "Owner")}:</span> {swap.owner_note}
         </div>
       )}
 
@@ -1188,7 +1589,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
       });
       onProposed?.();
     } catch (err) {
-      setError(errText(err, "Couldn't propose. Try again."));
+      setError(errText(err, t("portalSwapProposeFailed", "Couldn't propose. Try again.")));
     } finally {
       setSubmitting(false);
     }
@@ -1201,7 +1602,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
         <button
           onClick={onClose}
           className="text-gray-500 hover:text-gray-700 text-lg w-6 h-6 flex items-center justify-center"
-          aria-label="Close"
+          aria-label={t("close", "Close")}
         >
           ×
         </button>
@@ -1209,14 +1610,14 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
 
       <div>
         <label className="text-[11px] text-gray-500 mb-1 block">
-          Your shift to give up
+          {t("portalSwapGiveUp", "Your shift to give up")}
         </label>
         <select
           value={fromShiftId}
           onChange={(e) => { setFromShiftId(e.target.value); setToShiftId(""); }}
           className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-gray-900"
         >
-          <option value="">Pick one of your shifts…</option>
+          <option value="">{t("portalSwapPickOwn", "Pick one of your shifts…")}</option>
           {upcomingOwn.map((s) => (
             <option key={s.id} value={s.id}>
               {s.date} · {s.start_time}–{s.end_time}
@@ -1228,14 +1629,14 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
       {fromShiftId && (
         <div>
           <label className="text-[11px] text-gray-500 mb-1 block">
-            Teammate's shift you'd take in exchange
+            {t("portalSwapTakeInExchange", "Teammate's shift you'd take in exchange")}
           </label>
           <select
             value={toShiftId}
             onChange={(e) => setToShiftId(e.target.value)}
             className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-gray-900"
           >
-            <option value="">Pick a teammate's shift…</option>
+            <option value="">{t("portalSwapPickTeammate", "Pick a teammate's shift…")}</option>
             {candidateTeamShifts.map((s) => (
               <option key={s.shift_id} value={s.shift_id}>
                 {s.staff_name} — {s.date} · {s.start_time}–{s.end_time}
@@ -1247,13 +1648,13 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
 
       <div>
         <label className="text-[11px] text-gray-500 mb-1 block">
-          Reason <span className="text-gray-400">(optional)</span>
+          {t("portalSwapReason", "Reason")} <span className="text-gray-400">{t("portalSwapReasonOptional", "(optional)")}</span>
         </label>
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value.slice(0, 500))}
           rows={2}
-          placeholder="e.g. family wedding, doctor appt"
+          placeholder={t("portalSwapReasonPlaceholder", "e.g. family wedding, doctor appt")}
           className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900 resize-none"
         />
       </div>
@@ -1265,7 +1666,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
         disabled={submitting || !fromShiftId || !toShiftId}
         className="w-full px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition disabled:opacity-50"
       >
-        {submitting ? "Sending..." : "Send swap request"}
+        {submitting ? t("portalSending", "Sending...") : t("portalSwapSubmit", "Send swap request")}
       </button>
       <div className="text-[10px] text-gray-400 text-center leading-snug">
         {t("portalSwapProposeHint", "Your teammate will see this in their inbox. If they accept, the two shifts swap automatically.")}
@@ -1313,9 +1714,9 @@ function AlertsTab({ token, staffName }) {
       <div className="space-y-4">
         <div className="text-center py-12">
           <Bell className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
-          <h3 className="text-base font-semibold text-gray-900 mb-1">No notifications yet</h3>
+          <h3 className="text-base font-semibold text-gray-900 mb-1">{t("portalAlertsEmptyTitle", "No notifications yet")}</h3>
           <p className="text-sm text-gray-500">
-            You'll see shift reminders, schedule updates, and tip notifications here.
+            {t("portalAlertsEmptyBody", "You'll see shift reminders, schedule updates, and tip notifications here.")}
           </p>
         </div>
       </div>
@@ -1325,7 +1726,7 @@ function AlertsTab({ token, staffName }) {
   return (
     <div className="space-y-4">
       <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
-        Recent notifications
+        {t("portalAlertsRecent", "Recent notifications")}
       </div>
       <div className="space-y-1.5">
         {notifications.map((n) => {
@@ -1393,12 +1794,13 @@ function LoadingSkeleton() {
 // ─── Error / Not Found ────────────────────────────────────────────────────
 
 function PortalError({ message }) {
+  const { t } = useLanguage();
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
       <div className="text-center max-w-xs">
         <Inbox className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
-        <h1 className="text-xl font-bold text-gray-900 mb-2">Link not working</h1>
-        <p className="text-sm text-gray-500">{message || "This link may have expired or been deactivated. Ask your manager for a new one."}</p>
+        <h1 className="text-xl font-bold text-gray-900 mb-2">{t("portalErrorTitle", "Link not working")}</h1>
+        <p className="text-sm text-gray-500">{message || t("portalErrorBody", "This link may have expired or been deactivated. Ask your manager for a new one.")}</p>
       </div>
     </div>
   );
@@ -1438,6 +1840,7 @@ function InstallNotifyCard({ token }) {
       return false;
     }
   });
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     const onPrompt = (e) => {
@@ -1488,24 +1891,47 @@ function InstallNotifyCard({ token }) {
   );
 
   return (
-    <div className="mb-4 rounded-xl bg-white border border-gray-200 p-4 relative">
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label={t("dismiss", "Dismiss")}
-        className="absolute top-2.5 right-2.5 text-gray-400 hover:text-gray-600"
-      >
-        <X className="w-4 h-4" strokeWidth={2} aria-hidden />
-      </button>
-      <div className="flex items-start gap-3">
-        <div className="w-9 h-9 rounded-lg bg-gray-900 flex items-center justify-center shrink-0">
-          <Smartphone className="w-5 h-5 text-white" strokeWidth={2} aria-hidden />
-        </div>
-        <div className="flex-1 min-w-0 pr-4">
-          <div className="text-sm font-bold text-gray-900">
-            {t("staffInstallTitle", "Keep your schedule one tap away")}
-          </div>
-          <div className="text-[12px] text-gray-500 mt-0.5 leading-relaxed">
+    <div className="mt-4 rounded-xl border border-gray-200 bg-white">
+      {/* Collapsed: one calm, tappable line — the schedule stays the hero. */}
+      <div className="flex items-center gap-2.5 px-3 py-2.5">
+        <Smartphone className="w-4 h-4 text-gray-500 shrink-0" strokeWidth={2} aria-hidden />
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+          className="flex-1 min-w-0 text-left text-[13px] font-medium text-gray-700 truncate"
+        >
+          {t("staffInstallTitleSlim", "Add to home screen + alerts")}
+        </button>
+        {installed && (
+          <Check className="w-4 h-4 text-emerald-600 shrink-0" strokeWidth={2.5} aria-hidden />
+        )}
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          aria-label={t("staffInstallToggle", "Show install options")}
+          className="text-gray-400 hover:text-gray-600 shrink-0"
+        >
+          <ChevronDown
+            className={`w-4 h-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+            strokeWidth={2}
+            aria-hidden
+          />
+        </button>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={t("dismiss", "Dismiss")}
+          className="text-gray-400 hover:text-gray-600 shrink-0"
+        >
+          <X className="w-4 h-4" strokeWidth={2} aria-hidden />
+        </button>
+      </div>
+
+      {/* Expanded: the install affordance + push opt-in (unchanged behaviour). */}
+      {expanded && (
+        <div className="px-3 pb-3 border-t border-gray-100">
+          <div className="text-[12px] text-gray-500 mt-2 leading-relaxed">
             {t(
               "staffInstallSub",
               "Add this to your home screen and turn on alerts — you'll know the moment your shifts change."
@@ -1517,7 +1943,7 @@ function InstallNotifyCard({ token }) {
             <button
               type="button"
               onClick={doInstall}
-              className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold bg-gray-900 text-white hover:bg-gray-700 transition"
+              className="mt-2.5 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold bg-gray-900 text-white hover:bg-gray-700 transition"
             >
               <Download className="w-4 h-4" strokeWidth={2} aria-hidden />
               {t("staffInstallBtn", "Install app")}
@@ -1526,19 +1952,16 @@ function InstallNotifyCard({ token }) {
 
           {/* iOS Safari — guide the Share → Add to Home Screen flow */}
           {!installed && !installPrompt && isIOS && (
-            <div className="mt-3 flex items-center gap-1.5 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[12px] text-gray-600">
+            <div className="mt-2.5 flex items-center gap-1.5 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[12px] text-gray-600">
               <span>{t("staffInstallIosA", "Tap")}</span>
               <Share className="w-4 h-4 text-gray-900 shrink-0" strokeWidth={2} aria-hidden />
               <span>{t("staffInstallIosB", 'then "Add to Home Screen"')}</span>
             </div>
           )}
 
-          {/* Any other context (desktop Chrome, Android before the prompt has
-              fired, Firefox, or an in-app browser like WhatsApp/Mail) — never a
-              dead end. Tell them exactly where the install lives so the
-              dedicated app can always be added. */}
+          {/* Any other context — never a dead end; tell them where install lives. */}
           {!installed && !installPrompt && !isIOS && (
-            <div className="mt-3 flex items-start gap-1.5 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[12px] text-gray-600 leading-relaxed">
+            <div className="mt-2.5 flex items-start gap-1.5 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[12px] text-gray-600 leading-relaxed">
               <Download className="w-4 h-4 text-gray-900 shrink-0 mt-0.5" strokeWidth={2} aria-hidden />
               <span>
                 {t(
@@ -1549,7 +1972,6 @@ function InstallNotifyCard({ token }) {
             </div>
           )}
 
-          {/* Installed — confirm it's set up */}
           {installed && (
             <div className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-emerald-700">
               <Check className="w-4 h-4" strokeWidth={2.5} aria-hidden />
@@ -1557,11 +1979,11 @@ function InstallNotifyCard({ token }) {
             </div>
           )}
 
-          <div className="mt-3">
+          <div className="mt-2.5">
             <StaffPushOptIn token={token} />
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -2223,7 +2645,7 @@ export default function StaffPortalPage() {
             <button
               onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setEmailMsg(""); setEmailStatus(null); }}
               className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-sm font-bold text-gray-700"
-              title="Edit email"
+              title={t("portalEditContact", "Edit email")}
             >
               {info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
             </button>
@@ -2289,15 +2711,19 @@ export default function StaffPortalPage() {
 
       {/* Content */}
       <div className="max-w-lg mx-auto px-4 py-4">
-        {tab === "schedule" && <InstallNotifyCard token={token} />}
         {tab === "schedule" && (
           <ScheduleTab
             shifts={shifts}
             staffName={info?.staff_name}
             token={token}
+            restaurantName={info?.restaurant_name}
             onShiftsChanged={loadData}
+            onNeedChange={() => setTab("swaps")}
           />
         )}
+        {/* Install/push nudge — BELOW the shift so the schedule leads; a calm
+            collapsed line, not a promo card above the fold. */}
+        {tab === "schedule" && <InstallNotifyCard token={token} />}
         {tab === "swaps" && (
           <SwapTab token={token} ownShifts={shifts} onChanged={loadData} />
         )}

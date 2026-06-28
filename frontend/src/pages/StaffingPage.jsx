@@ -136,10 +136,10 @@ export default function StaffingPage({ embedded = false }) {
         notes: logForm.notes || null,
       });
       setLogForm({ ...logForm, staff_count: "", total_hours: "", labor_cost: "", notes: "" });
-      setLogSuccess("Staff logged!");
+      setLogSuccess(t("stafStaffLogged", "Staff logged!"));
       setTimeout(() => setLogSuccess(""), 2000);
       fetchData();
-    } catch { setError("Failed to log staff"); }
+    } catch { setError(t("stafFailedToLog", "Failed to log staff")); }
   };
 
   const recs = forecast?.recommendations || [];
@@ -236,16 +236,16 @@ export default function StaffingPage({ embedded = false }) {
           <PageHeader
             eyebrow="INTEL"
             title={t("smartStaffing")}
-            subtitle={t("staffingSubtitle") || "Forecast headcount needs and spot over/under-staffed days."}
+            subtitle={t("staffingSubtitle", "Forecast headcount needs and spot over/under-staffed days.")}
           />
         </FadeIn>
       )}
 
       <TabPills
         tabs={[
-          { id: "forecast", label: t("staffingTabForecast") || "Forecast" },
-          { id: "intelligence", label: t("staffingTabInsights") || "Insights" },
-          { id: "log", label: t("staffingTabLog") || "Log Staff" },
+          { id: "forecast", label: t("staffingTabForecast", "Forecast") },
+          { id: "intelligence", label: t("staffingTabInsights", "Insights") },
+          { id: "log", label: t("staffingTabLog", "Log Staff") },
         ]}
         activeId={activeView}
         onChange={setActiveView}
@@ -328,11 +328,11 @@ export default function StaffingPage({ embedded = false }) {
                 <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 flex items-center justify-between flex-wrap gap-2">
                   <div>
                     <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                      {t("staffingApplyWeek") || "Apply this schedule"}
+                      {t("staffingApplyWeek", "Apply this schedule")}
                     </p>
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                      {t("staffingApplyHint") ||
-                        "Seeds next week as draft shifts. Edit before Publish."}
+                      {t("staffingApplyHint",
+                        "Seeds next week as draft shifts. Edit before Publish.")}
                     </p>
                   </div>
                   <button
@@ -342,19 +342,19 @@ export default function StaffingPage({ embedded = false }) {
                     className="px-3.5 py-2 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-200 text-sm font-semibold disabled:opacity-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
                   >
                     {autopilotApplying
-                      ? t("staffingApplyingWeek") || "Applying…"
-                      : t("staffingApplyWeek") || "Apply this schedule"}
+                      ? t("staffingApplyingWeek", "Applying…")
+                      : t("staffingApplyWeek", "Apply this schedule")}
                   </button>
                   {autopilotToast === "applied" && (
                     <p className="w-full text-xs text-emerald-700 dark:text-emerald-300">
-                      {t("staffingApplyAppliedToast") ||
-                        "Schedule applied — drafts created"}
+                      {t("staffingApplyAppliedToast",
+                        "Schedule applied — drafts created")}
                     </p>
                   )}
                   {autopilotToast === "failed" && (
                     <p className="w-full text-xs text-red-600 dark:text-red-400">
-                      {t("staffingApplyFailed") ||
-                        "Could not apply the schedule. Try again."}
+                      {t("staffingApplyFailed",
+                        "Could not apply the schedule. Try again.")}
                     </p>
                   )}
                 </div>
@@ -484,18 +484,18 @@ export default function StaffingPage({ embedded = false }) {
           {/* Key metrics */}
           {insights?.ready && (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatCard label="Days Analyzed" value={insights.days_logged} />
-              <StatCard label="Best Day" value={insights.peak_day?.slice(0, 3) || "—"} accent="success" />
-              <StatCard label="Weakest Day" value={insights.weakest_day?.slice(0, 3) || "—"} accent="critical" />
-              <StatCard label="Savings Potential" value={fmt(insights.monthly_savings_potential)} helper="/month" />
+              <StatCard label={t("stafDaysAnalyzed", "Days Analyzed")} value={insights.days_logged} />
+              <StatCard label={t("stafBestDay", "Best Day")} value={insights.peak_day?.slice(0, 3) || "—"} accent="success" />
+              <StatCard label={t("stafWeakestDay", "Weakest Day")} value={insights.weakest_day?.slice(0, 3) || "—"} accent="critical" />
+              <StatCard label={t("stafSavingsPotential", "Savings Potential")} value={fmt(insights.monthly_savings_potential)} helper={t("stafPerMonth", "/month")} />
             </div>
           )}
 
           {/* Revenue per Staff Chart */}
           {insightChartData.length > 0 && (
             <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">Revenue per Staff by Day</h2>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">Higher = more efficient. Red bars = overstaffed.</p>
+              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">{t("stafRevPerStaffByDay", "Revenue per Staff by Day")}</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">{t("stafRevPerStaffHint", "Higher = more efficient. Red bars = overstaffed.")}</p>
               <ResponsiveContainer width="100%" height={280}>
                 <ComposedChart data={insightChartData}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -504,18 +504,18 @@ export default function StaffingPage({ embedded = false }) {
                   <YAxis yAxisId="staff" orientation="right" domain={[0, 10]} tick={{ fontSize: 12 }} />
                   <Tooltip
                     formatter={(value, name) => {
-                      if (name === "rev_per_staff") return [`${fmt(value)} ${currency}`, "Rev/Staff"];
-                      if (name === "revenue") return [`${fmt(value)} ${currency}`, "Revenue"];
-                      return [value, "Staff"];
+                      if (name === "rev_per_staff") return [`${fmt(value)} ${currency}`, t("stafRevPerStaff", "Rev/Staff")];
+                      if (name === "revenue") return [`${fmt(value)} ${currency}`, t("revenue", "Revenue")];
+                      return [value, t("stafStaffSeries", "Staff")];
                     }}
                   />
                   <Legend />
-                  <Bar yAxisId="rps" dataKey="rev_per_staff" name="Rev/Staff" radius={[4, 4, 0, 0]}>
+                  <Bar yAxisId="rps" dataKey="rev_per_staff" name={t("stafRevPerStaff", "Rev/Staff")} radius={[4, 4, 0, 0]}>
                     {insightChartData.map((entry, i) => (
                       <rect key={i} fill={entry.status === "overstaffed" ? "#ef4444" : entry.status === "understaffed" ? "#f97316" : "#10b981"} />
                     ))}
                   </Bar>
-                  <Line yAxisId="staff" dataKey="staff" name="Avg Staff" stroke="#6366f1" strokeWidth={2} dot />
+                  <Line yAxisId="staff" dataKey="staff" name={t("stafAvgStaff", "Avg Staff")} stroke="#6366f1" strokeWidth={2} dot />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -524,7 +524,7 @@ export default function StaffingPage({ embedded = false }) {
           {/* Weekday breakdown cards */}
           {insights?.weekday_analysis?.length > 0 && (
             <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">Weekday Breakdown</h2>
+              <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">{t("stafWeekdayBreakdown", "Weekday Breakdown")}</h2>
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
                 {insights.weekday_analysis.map((w, i) => (
                   <div key={i} className={`p-3 rounded-xl border text-center ${STATUS_COLORS[w.status] || STATUS_COLORS.no_data}`}>
@@ -532,16 +532,16 @@ export default function StaffingPage({ embedded = false }) {
                     {w.avg_revenue > 0 ? (
                       <>
                         <p className="text-lg font-bold mt-1 text-gray-800 dark:text-white">{fmt(w.rev_per_staff)}</p>
-                        <p className="text-[10px] text-gray-500">{currency}/staff</p>
-                        <p className="text-xs text-gray-500 mt-1">{w.avg_staff} staff • {fmt(w.avg_revenue)} rev</p>
+                        <p className="text-[10px] text-gray-500">{currency}/{t("stafPerStaffUnit", "staff")}</p>
+                        <p className="text-xs text-gray-500 mt-1">{w.avg_staff} {t("stafStaffUnit", "staff")} • {fmt(w.avg_revenue)} {t("stafRevUnit", "rev")}</p>
                         {w.status !== "no_data" && w.status !== "ok" && (
                           <span className={`text-[10px] mt-1 px-1.5 py-0.5 rounded-full inline-block ${STATUS_BADGE[w.status] || ""}`}>
-                            {w.status === "overstaffed" ? "📉 Over" : w.status === "understaffed" ? "🔥 Under" : "✅ OK"}
+                            {w.status === "overstaffed" ? `📉 ${t("stafBadgeOver", "Over")}` : w.status === "understaffed" ? `🔥 ${t("stafBadgeUnder", "Under")}` : `✅ ${t("stafBadgeOk", "OK")}`}
                           </span>
                         )}
                       </>
                     ) : (
-                      <p className="text-xs text-gray-400 mt-2">No data</p>
+                      <p className="text-xs text-gray-400 mt-2">{t("noData", "No data")}</p>
                     )}
                   </div>
                 ))}
@@ -553,9 +553,9 @@ export default function StaffingPage({ embedded = false }) {
           {insights && !insights.ready && (
             <div className="bg-white dark:bg-gray-800 rounded-xl p-8 shadow-sm text-center">
               <div className="text-5xl mb-4">👥</div>
-              <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-2">Build Your Staff Intelligence</h2>
+              <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-2">{t("stafBuildIntelligence", "Build Your Staff Intelligence")}</h2>
               <p className="text-gray-500 dark:text-gray-400 mb-2">
-                {insights.days_logged}/14 days logged. Switch to "Log Staff" tab to log daily counts.
+                {insights.days_logged}{t("stafDaysLoggedHint", "/14 days logged. Switch to \"Log Staff\" tab to log daily counts.")}
               </p>
               <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden w-64 mx-auto">
                 <div
@@ -572,7 +572,7 @@ export default function StaffingPage({ embedded = false }) {
       {activeView === "log" && (
         <>
           <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">📝 Log Daily Staff</h2>
+            <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">📝 {t("stafLogDailyStaff", "Log Daily Staff")}</h2>
             <form onSubmit={logStaff} className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
               <input
                 type="date"
@@ -582,7 +582,7 @@ export default function StaffingPage({ embedded = false }) {
               />
               <input
                 type="number"
-                placeholder="Staff count *"
+                placeholder={t("stafStaffCountPlaceholder", "Staff count *")}
                 value={logForm.staff_count}
                 onChange={e => setLogForm({ ...logForm, staff_count: e.target.value })}
                 className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
@@ -591,24 +591,24 @@ export default function StaffingPage({ embedded = false }) {
               <input
                 type="number"
                 step="0.5"
-                placeholder="Total hours"
+                placeholder={t("stafTotalHoursPlaceholder", "Total hours")}
                 value={logForm.total_hours}
                 onChange={e => setLogForm({ ...logForm, total_hours: e.target.value })}
                 className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
               />
               <input
                 type="number"
-                placeholder={`Labor cost (${currency})`}
+                placeholder={t("stafLaborCostPlaceholder", "Labor cost ({currency})").replace("{currency}", currency)}
                 value={logForm.labor_cost}
                 onChange={e => setLogForm({ ...logForm, labor_cost: e.target.value })}
                 className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
               />
               <button type="submit" className="bg-gray-900 text-white py-2 rounded-lg hover:bg-gray-700 transition text-sm font-medium">
-                Log Staff
+                {t("staffingTabLog", "Log Staff")}
               </button>
             </form>
             {logSuccess && <p className="text-emerald-600 text-sm">{logSuccess}</p>}
-            <p className="text-xs text-gray-400 mt-2">Only staff count is required. Hours and cost are optional but improve insights.</p>
+            <p className="text-xs text-gray-400 mt-2">{t("stafLogHelper", "Only staff count is required. Hours and cost are optional but improve insights.")}</p>
           </div>
 
           {/* Recent logs */}
@@ -618,12 +618,12 @@ export default function StaffingPage({ embedded = false }) {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-gray-50 dark:bg-gray-700/50">
                     <tr>
-                      <th className="px-4 py-3 text-xs text-gray-500">Date</th>
-                      <th className="px-4 py-3 text-xs text-gray-500">Day</th>
-                      <th className="px-4 py-3 text-xs text-gray-500 text-center">Staff</th>
-                      <th className="px-4 py-3 text-xs text-gray-500 text-right">Hours</th>
-                      <th className="px-4 py-3 text-xs text-gray-500 text-right">Labor Cost</th>
-                      <th className="px-4 py-3 text-xs text-gray-500">Notes</th>
+                      <th className="px-4 py-3 text-xs text-gray-500">{t("date", "Date")}</th>
+                      <th className="px-4 py-3 text-xs text-gray-500">{t("day", "Day")}</th>
+                      <th className="px-4 py-3 text-xs text-gray-500 text-center">{t("stafStaffColumn", "Staff")}</th>
+                      <th className="px-4 py-3 text-xs text-gray-500 text-right">{t("stafHoursColumn", "Hours")}</th>
+                      <th className="px-4 py-3 text-xs text-gray-500 text-right">{t("stafLaborCostColumn", "Labor Cost")}</th>
+                      <th className="px-4 py-3 text-xs text-gray-500">{t("notes", "Notes")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -650,7 +650,7 @@ export default function StaffingPage({ embedded = false }) {
           {staffLogs.length === 0 && (
             <div className="text-center py-8 text-gray-400">
               <p className="text-3xl mb-2">📋</p>
-              <p>No staff logs yet. Start logging above!</p>
+              <p>{t("stafNoLogsYet", "No staff logs yet. Start logging above!")}</p>
             </div>
           )}
         </>

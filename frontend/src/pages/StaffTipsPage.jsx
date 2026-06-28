@@ -95,13 +95,13 @@ export default function StaffTipsPage() {
         ]}
         activeId={tab}
         onChange={setTab}
-        ariaLabel="Tips view"
+        ariaLabel={t("stTipsViewAria", "Tips view")}
       />
 
       {loading && (
         <div className="text-center py-12 text-gray-400 dark:text-gray-500">
           <div className="animate-spin inline-block w-6 h-6 border-2 border-gray-300 border-t-transparent rounded-full mb-3" />
-          <p className="text-sm">Loading...</p>
+          <p className="text-sm">{t("loading", "Loading...")}</p>
         </div>
       )}
 
@@ -273,19 +273,19 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
 
   const handleSubmit = async () => {
     if (!amount || amount <= 0) {
-      setError("Please enter a tip amount.");
+      setError(t("stErrEnterAmount", "Please enter a tip amount."));
       return;
     }
     if (staffHours.length === 0) {
-      setError("No staff available for distribution.");
+      setError(t("stErrNoStaff", "No staff available for distribution."));
       return;
     }
     if (splitMethod === "custom" && Math.abs(totalCustomPercent - 100) > 0.5) {
-      setError("Custom percentages must add up to 100%.");
+      setError(t("stErrCustomTotal", "Custom percentages must add up to 100%."));
       return;
     }
     if (splitMethod === "hours" && totalHours === 0) {
-      setError("No hours logged. Enter hours manually or switch to another split method.");
+      setError(t("stErrNoHours", "No hours logged. Enter hours manually or switch to another split method."));
       return;
     }
 
@@ -306,13 +306,13 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
           percentage: d.share_pct,
         })),
       });
-      setSuccess("Tips distributed successfully!");
+      setSuccess(t("stSuccessDistributed", "Tips distributed successfully!"));
       setTimeout(() => {
         setSuccess("");
         onDone();
       }, 1500);
     } catch (err) {
-      setError(errText(err, "Failed to save tip distribution."));
+      setError(errText(err, t("stErrSaveFailed", "Failed to save tip distribution.")));
     } finally {
       setSaving(false);
     }
@@ -325,11 +325,11 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
     <div className="space-y-4">
       {/* Date & Amount Card */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-4">
-        <h2 className="text-lg font-bold dark:text-white">{"\uD83D\uDCDD"} Tip Details</h2>
+        <h2 className="text-lg font-bold dark:text-white">{"\uD83D\uDCDD"} {t("stTipDetails", "Tip Details")}</h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className={labelClass}>{"\uD83D\uDCC5"} Date</label>
+            <label className={labelClass}>{"\uD83D\uDCC5"} {t("stDate", "Date")}</label>
             <input
               type="date"
               value={date}
@@ -339,7 +339,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
             />
           </div>
           <div>
-            <label className={labelClass}>{"\uD83D\uDCB0"} Total Tips ({currency})</label>
+            <label className={labelClass}>{"\uD83D\uDCB0"} {t("stTotalTips", "Total Tips")} ({currency})</label>
             <input
               type="number"
               inputMode="decimal"
@@ -354,7 +354,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
 
       {/* Split Method Card */}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-4">
-        <h2 className="text-lg font-bold dark:text-white">{"\u2696\uFE0F"} Split Method</h2>
+        <h2 className="text-lg font-bold dark:text-white">{"\u2696\uFE0F"} {t("stSplitMethod", "Split Method")}</h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
           {SPLIT_METHODS.map(method => (
@@ -389,7 +389,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <div className="p-5 sm:p-6 pb-0">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold dark:text-white">{"\uD83D\uDC65"} Staff Distribution</h2>
+            <h2 className="text-lg font-bold dark:text-white">{"\uD83D\uDC65"} {t("stStaffDistribution", "Staff Distribution")}</h2>
             {amount > 0 && (
               <span className="text-sm font-semibold text-emerald-600 dark:text-gray-300">
                 {amount.toLocaleString()} {currency}
@@ -400,16 +400,16 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
           {hoursLoading && (
             <div className="text-center py-8 text-gray-400">
               <div className="animate-spin inline-block w-5 h-5 border-2 border-gray-300 border-t-transparent rounded-full mb-2" />
-              <p className="text-sm">Loading staff hours...</p>
+              <p className="text-sm">{t("stLoadingHours", "Loading staff hours...")}</p>
             </div>
           )}
 
           {!hoursLoading && staffHours.length === 0 && (
             <div className="text-center py-8">
               <p className="text-3xl mb-2">{"\uD83D\uDC65"}</p>
-              <p className="font-semibold dark:text-white">No staff found</p>
+              <p className="font-semibold dark:text-white">{t("stNoStaffFound", "No staff found")}</p>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                Add staff members first, or check that hours are logged for {date}.
+                {t("stNoStaffHint", "Add staff members first, or check that hours are logged for {date}.").replace("{date}", date)}
               </p>
             </div>
           )}
@@ -421,21 +421,21 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-700">
                   <th className="text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-5 py-3">
-                    Staff
+                    {t("stColStaff", "Staff")}
                   </th>
                   <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-3 py-3 w-24">
-                    Hours
+                    {t("stColHours", "Hours")}
                   </th>
                   {splitMethod === "role" && (
                     <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-3 py-3 w-20">
-                      Weight
+                      {t("stColWeight", "Weight")}
                     </th>
                   )}
                   <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-3 py-3 w-24">
-                    Share %
+                    {t("stColShare", "Share %")}
                   </th>
                   <th className="text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-5 py-3 w-28">
-                    Amount
+                    {t("stColAmount", "Amount")}
                   </th>
                 </tr>
               </thead>
@@ -496,7 +496,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/50">
-                  <td className="px-5 py-3 text-sm font-bold dark:text-white">Total</td>
+                  <td className="px-5 py-3 text-sm font-bold dark:text-white">{t("total", "Total")}</td>
                   <td className="px-3 py-3 text-right text-sm font-semibold dark:text-gray-300">
                     {totalHours > 0 ? totalHours.toFixed(1) : "\u2014"}
                   </td>
@@ -525,13 +525,13 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
         {/* Validation messages */}
         {splitMethod === "custom" && Math.abs(totalCustomPercent - 100) > 0.5 && totalCustomPercent > 0 && (
           <div className="mx-5 mb-4 px-4 py-2.5 bg-red-50 dark:bg-red-900/20 rounded-xl text-sm text-red-600 dark:text-red-400">
-            {"\u26A0\uFE0F"} Percentages total {totalCustomPercent.toFixed(1)}% \u2014 must equal 100%
+            {"\u26A0\uFE0F"} {t("stPercentTotalPrefix", "Percentages total")} {totalCustomPercent.toFixed(1)}% \u2014 {t("stMustEqual100", "must equal 100%")}
           </div>
         )}
 
         {splitMethod === "hours" && totalHours === 0 && staffHours.length > 0 && (
           <div className="mx-5 mb-4 px-4 py-2.5 bg-amber-50 dark:bg-amber-900/20 rounded-xl text-sm text-amber-700 dark:text-amber-300">
-            {"\u26A0\uFE0F"} No hours logged for {date}. Enter hours manually above, or switch to Role or Custom split.
+            {"\u26A0\uFE0F"} {t("stNoHoursBanner", "No hours logged for {date}. Enter hours manually above, or switch to Role or Custom split.").replace("{date}", date)}
           </div>
         )}
       </div>
@@ -545,7 +545,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
               onClick={() => setShowPreview(true)}
               className="w-full py-3 text-sm font-medium text-emerald-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800/50 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800/50 transition"
             >
-              {"\uD83D\uDD0D"} Preview Distribution
+              {"\uD83D\uDD0D"} {t("stPreviewDistribution", "Preview Distribution")}
             </button>
           )}
 
@@ -553,28 +553,28 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
             <FadeIn>
               <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 sm:p-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-bold dark:text-white">{"\u2705"} Distribution Preview</h2>
+                  <h2 className="text-lg font-bold dark:text-white">{"\u2705"} {t("stDistributionPreview", "Distribution Preview")}</h2>
                   <button
                     onClick={() => setShowPreview(false)}
                     className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                   >
-                    Close
+                    {t("close", "Close")}
                   </button>
                 </div>
 
                 <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4 space-y-2">
                   <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
-                    <span>Date</span>
+                    <span>{t("stDate", "Date")}</span>
                     <span className="dark:text-gray-300">{formatDate(date)}</span>
                   </div>
                   <div className="flex justify-between text-sm text-gray-500 dark:text-gray-400">
-                    <span>Method</span>
+                    <span>{t("stMethod", "Method")}</span>
                     <span className="dark:text-gray-300">
                       {SPLIT_METHODS.find(m => m.id === splitMethod)?.label}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm font-bold pt-2 border-t dark:border-gray-600 dark:text-white">
-                    <span>Total Tips</span>
+                    <span>{t("stTotalTips", "Total Tips")}</span>
                     <span className="text-emerald-600 dark:text-gray-300">{amount.toLocaleString()} {currency}</span>
                   </div>
                 </div>
@@ -584,7 +584,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                     <div key={d.staff_id} className="flex items-center justify-between py-2 px-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
                       <div>
                         <p className="text-sm font-medium dark:text-white">{d.name}</p>
-                        <p className="text-xs text-gray-400">{d.share_pct.toFixed(1)}% share</p>
+                        <p className="text-xs text-gray-400">{d.share_pct.toFixed(1)}% {t("stShareSuffix", "share")}</p>
                       </div>
                       <span className="text-lg font-bold text-emerald-600 dark:text-gray-300">
                         {d.share_amount.toLocaleString()} {currency}
@@ -596,7 +596,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                 {/* Rounding note */}
                 {Math.abs(distributionTotal - amount) > 0.01 && (
                   <p className="text-xs text-gray-400 text-center">
-                    Rounding difference: {(amount - distributionTotal).toFixed(2)} {currency}
+                    {t("stRoundingDiff", "Rounding difference:")} {(amount - distributionTotal).toFixed(2)} {currency}
                   </p>
                 )}
               </div>
@@ -621,12 +621,12 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
             disabled={saving || amount <= 0}
             className="w-full py-3.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition disabled:opacity-50 text-base"
           >
-            {saving ? "Distributing..." : `\uD83D\uDCB0 Distribute ${amount > 0 ? amount.toLocaleString() + " " + currency : "Tips"}`}
+            {saving ? t("stDistributing", "Distributing...") : `\uD83D\uDCB0 ${t("stDistribute", "Distribute")} ${amount > 0 ? amount.toLocaleString() + " " + currency : t("tips", "Tips")}`}
           </button>
 
           {/* Tax reminder */}
           <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-xs text-amber-700 dark:text-amber-300">
-            <strong>Tax note:</strong> Tips must be reported per local tax law. Share distribution records with your accountant.
+            <strong>{t("stTaxNoteLabel", "Tax note:")}</strong> {t("stTaxNoteBody", "Tips must be reported per local tax law. Share distribution records with your accountant.")}
           </div>
         </div>
       )}
@@ -658,9 +658,9 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
         <p className="text-4xl mb-3">{"\uD83D\uDCB0"}</p>
-        <p className="font-semibold dark:text-white">No tip distributions yet</p>
+        <p className="font-semibold dark:text-white">{t("stNoDistributions", "No tip distributions yet")}</p>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          Create your first tip distribution to see history here.
+          {t("stNoDistributionsHint", "Create your first tip distribution to see history here.")}
         </p>
       </div>
     );
@@ -678,17 +678,17 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
       {/* Summary Row */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Total Distributed</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t("stTotalDistributed", "Total Distributed")}</p>
           <p className="text-lg font-bold text-emerald-600 dark:text-gray-300 mt-1">
             {totalTips.toLocaleString()} {currency}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Distributions</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t("stDistributions", "Distributions")}</p>
           <p className="text-lg font-bold dark:text-white mt-1">{data.length}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
-          <p className="text-xs text-gray-500 dark:text-gray-400">Confirmed</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t("stConfirmedLabel", "Confirmed")}</p>
           <p className="text-lg font-bold dark:text-white mt-1">
             {confirmedCount}/{data.length}
           </p>
@@ -716,7 +716,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                       <h3 className="font-bold dark:text-white">
                         {tip.date ? new Date(tip.date).toLocaleDateString("en-GB", {
                           weekday: "short", day: "numeric", month: "short", year: "numeric",
-                        }) : "Unknown date"}
+                        }) : t("stUnknownDate", "Unknown date")}
                       </h3>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs text-gray-400 capitalize">
@@ -725,7 +725,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                         </span>
                         <span className="text-xs text-gray-300 dark:text-gray-600">{"\u2022"}</span>
                         <span className="text-xs text-gray-400">
-                          {distributions.length} staff
+                          {distributions.length} {t("stStaffCountSuffix", "staff")}
                         </span>
                       </div>
                     </div>
@@ -735,11 +735,11 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                       </p>
                       {isConfirmed ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
-                          {"\u2713"} Confirmed
+                          {"\u2713"} {t("stConfirmedBadge", "Confirmed")}
                         </span>
                       ) : (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300">
-                          {"\u25CB"} Pending
+                          {"\u25CB"} {t("stPendingBadge", "Pending")}
                         </span>
                       )}
                     </div>
@@ -755,7 +755,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                       ))}
                       {distributions.length > 3 && (
                         <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-lg text-xs">
-                          +{distributions.length - 3} more
+                          +{distributions.length - 3} {t("stMoreSuffix", "more")}
                         </span>
                       )}
                     </div>
@@ -791,13 +791,13 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                         disabled={confirmingId === tip.id}
                         className="mt-4 w-full py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold text-sm transition disabled:opacity-50"
                       >
-                        {confirmingId === tip.id ? "Confirming..." : "\u2705 Confirm Distribution"}
+                        {confirmingId === tip.id ? t("stConfirming", "Confirming...") : `\u2705 ${t("stConfirmDistribution", "Confirm Distribution")}`}
                       </button>
                     )}
 
                     {isConfirmed && (
                       <div className="mt-4 px-4 py-2.5 bg-gray-50 dark:bg-gray-800/50 rounded-xl text-center text-sm text-emerald-600 dark:text-gray-300 font-medium">
-                        {"\uD83D\uDD12"} Locked \u2014 This distribution has been confirmed
+                        {"\uD83D\uDD12"} {t("stLockedNotice", "Locked \u2014 This distribution has been confirmed")}
                       </div>
                     )}
                   </div>

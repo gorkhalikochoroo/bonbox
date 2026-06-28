@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "../services/api";
+import { useLanguage } from "../hooks/useLanguage";
 
 /**
  * Anomaly Alerts Card — small banner above the dashboard listing
@@ -34,6 +35,7 @@ function dotColor(severity) {
 }
 
 export default function AnomalyAlertsCard() {
+  const { t } = useLanguage();
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
@@ -98,11 +100,15 @@ export default function AnomalyAlertsCard() {
             </svg>
           </div>
           <h3 className="text-[15px] sm:text-[15.5px] font-semibold text-gray-900 dark:text-white tracking-tight truncate">
-            {alerts.length === 1 ? "1 thing to review" : `${alerts.length} things to review`}
+            {alerts.length === 1
+              ? t("anomOneThingToReview", "1 thing to review")
+              : t("anomThingsToReview", "{count} things to review").replace("{count}", alerts.length)}
           </h3>
         </div>
         <span className="text-[11px] uppercase tracking-[0.08em] text-gray-400 dark:text-gray-500 shrink-0">
-          {alerts.some((a) => a.polished_by_ai) ? "AI watchdog" : "BonBox watchdog"}
+          {alerts.some((a) => a.polished_by_ai)
+            ? t("anomAiWatchdog", "AI watchdog")
+            : t("anomBonboxWatchdog", "BonBox watchdog")}
         </span>
       </div>
 
@@ -131,8 +137,8 @@ export default function AnomalyAlertsCard() {
               type="button"
               onClick={() => onDismiss(a.id)}
               disabled={dismissing.has(a.id)}
-              aria-label="Dismiss alert"
-              title="Mark reviewed"
+              aria-label={t("anomDismissAlert", "Dismiss alert")}
+              title={t("anomMarkReviewed", "Mark reviewed")}
               className="w-7 h-7 rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700/60 dark:hover:text-gray-200 disabled:opacity-50 transition flex items-center justify-center shrink-0"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -149,7 +155,7 @@ export default function AnomalyAlertsCard() {
           onClick={() => setExpanded(true)}
           className="mt-3 text-[12px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition"
         >
-          Show {hiddenCount} more…
+          {t("anomShowNMore", "Show {count} more…").replace("{count}", hiddenCount)}
         </button>
       )}
     </div>

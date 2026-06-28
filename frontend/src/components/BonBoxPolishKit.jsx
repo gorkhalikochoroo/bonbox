@@ -183,23 +183,24 @@ export function useKeyboardShortcuts(shortcuts) {
 }
 
 export function ShortcutsHelp({ open, onClose }) {
+  const { t } = useLanguage();
   if (!open) return null;
 
   const shortcuts = [
-    { key: "S", action: "Quick log sale" },
-    { key: "E", action: "Go to expenses" },
-    { key: "D", action: "Go to dashboard" },
-    { key: "I", action: "Go to inventory" },
-    { key: "R", action: "Go to reports" },
-    { key: "?", action: "Show this help" },
-    { key: "Esc", action: "Close modals" },
+    { key: "S", action: t("kshQuickLogSale", "Quick log sale") },
+    { key: "E", action: t("kshGoToExpenses", "Go to expenses") },
+    { key: "D", action: t("kshGoToDashboard", "Go to dashboard") },
+    { key: "I", action: t("kshGoToInventory", "Go to inventory") },
+    { key: "R", action: t("kshGoToReports", "Go to reports") },
+    { key: "?", action: t("kshShowThisHelp", "Show this help") },
+    { key: "Esc", action: t("kshCloseModals", "Close modals") },
   ];
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center" onClick={onClose}>
       <div className="bg-white dark:bg-gray-900 rounded-xl p-6 w-[360px] shadow-sm border border-gray-200 dark:border-gray-700 animate-scaleIn" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Keyboard Shortcuts</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t("kshTitle", "Keyboard Shortcuts")}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">&times;</button>
         </div>
         <div className="space-y-2">

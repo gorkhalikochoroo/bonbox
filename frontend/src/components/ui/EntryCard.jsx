@@ -68,6 +68,7 @@ import Card from "./Card";
 import Button from "./Button";
 import Chip from "./Chip";
 import Input from "./Input";
+import { useLanguage } from "../../hooks/useLanguage";
 
 function formatPreset(v) {
   // Presets come in as numbers (500, 1000, 2500). We format with
@@ -109,6 +110,7 @@ export default function EntryCard({
   disabled = false,
   className = "",
 }) {
+  const { t } = useLanguage();
   // Amount validity — submit unlocks only when a positive number parses.
   // We accept "1.234,56" (DK), "1234.56" (US), and bare ints. The parent
   // is responsible for sending the value to the API in its canonical
@@ -142,7 +144,7 @@ export default function EntryCard({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Amount presets — wrap on overflow, gap-2 between chips */}
         {amountPresets.length > 0 && (
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Amount presets">
+          <div className="flex flex-wrap gap-2" role="group" aria-label={t("entryCardAmountPresets", "Amount presets")}>
             {amountPresets.map((preset) => {
               const presetStr = typeof preset === "number" ? String(preset) : preset;
               const isSelected = String(amount).trim() === presetStr;
@@ -181,7 +183,7 @@ export default function EntryCard({
                   <button
                     type="button"
                     onClick={onVoiceClick}
-                    aria-label="Voice input"
+                    aria-label={t("voiceInput", "Voice input")}
                     className={
                       "inline-flex items-center justify-center w-6 h-6 " +
                       "rounded-md text-gray-500 hover:text-gray-900 " +
@@ -194,7 +196,7 @@ export default function EntryCard({
                 ) : null
               }
               suffix={amountSuffix}
-              aria-label="Amount"
+              aria-label={t("amount", "Amount")}
               required
             />
           </div>
@@ -216,7 +218,7 @@ export default function EntryCard({
           <div
             className="flex flex-wrap gap-2"
             role="radiogroup"
-            aria-label="Payment method"
+            aria-label={t("paymentMethod", "Payment method")}
           >
             {paymentMethods.map((m) => (
               <Chip
@@ -249,7 +251,7 @@ export default function EntryCard({
                   value={notes ?? ""}
                   onChange={(e) => onNotesChange(e.target.value)}
                   placeholder={notesPlaceholder}
-                  aria-label="Notes"
+                  aria-label={t("notes", "Notes")}
                 />
               </div>
             )}
@@ -260,7 +262,7 @@ export default function EntryCard({
                   size="md"
                   value={date ?? ""}
                   onChange={(e) => onDateChange(e.target.value)}
-                  aria-label="Date"
+                  aria-label={t("date", "Date")}
                 />
               </div>
             )}

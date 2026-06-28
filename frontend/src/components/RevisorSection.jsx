@@ -85,7 +85,7 @@ export default function RevisorSection() {
     const email = revisorEmail.trim().toLowerCase();
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       setRevisorError(
-        t("revisorEmailInvalid") || "Enter a valid email address.",
+        t("revisorEmailInvalid", "Enter a valid email address."),
       );
       return;
     }
@@ -96,8 +96,7 @@ export default function RevisorSection() {
         name: revisorName.trim() || null,
       });
       setRevisorMsg(
-        t("revisorInviteSent") ||
-          `Invite sent to ${email}. They have 7 days to accept.`,
+        t("revisorInviteSent", "Invite sent. They have 7 days to accept."),
       );
       setRevisorEmail("");
       setRevisorName("");
@@ -111,19 +110,16 @@ export default function RevisorSection() {
         // tier name / "upgrade"). Web keeps the conversion copy.
         setRevisorError(
           isNativeApp()
-            ? (t("revisorPlanRequiredNative") || "Inviting a revisor isn't part of your current plan.")
-            : (t("revisorPlanRequired") ||
-                "Inviting a revisor is on Starter. Upgrade to unlock read-only revisor access."),
+            ? t("revisorPlanRequiredNative", "Inviting a revisor isn't part of your current plan.")
+            : t("revisorPlanRequired", "Inviting a revisor is on Starter. Upgrade to unlock read-only revisor access."),
         );
       } else if (detail?.code === "already_active_grant") {
         setRevisorError(
-          t("revisorAlreadyActive") ||
-            "This revisor already has active access.",
+          t("revisorAlreadyActive", "This revisor already has active access."),
         );
       } else {
         setRevisorError(
-          errText(err, t("revisorInviteFailed") ||
-            "Could not send the invite. Try again."),
+          errText(err, t("revisorInviteFailed", "Could not send the invite. Try again.")),
         );
       }
     } finally {
@@ -132,15 +128,14 @@ export default function RevisorSection() {
   };
 
   const revokeRevisor = async (grantId) => {
-    if (!window.confirm(t("revisorRevokeConfirm") || "Revoke this revisor's access?")) return;
+    if (!window.confirm(t("revisorRevokeConfirm", "Revoke this revisor's access?"))) return;
     try {
       await api.delete(`/accountants/grants/${grantId}`);
       refreshGrants();
     } catch (err) {
       setRevisorError(
         err?.response?.data?.detail?.message ||
-          t("revisorRevokeFailed") ||
-          "Could not revoke. Try again.",
+          t("revisorRevokeFailed", "Could not revoke. Try again."),
       );
     }
   };
@@ -148,16 +143,16 @@ export default function RevisorSection() {
   return (
     <Card>
       <Card.Header
-        title={t("teamRevisorSectionTitle") || "Revisor"}
-        subtitle={
-          t("teamRevisorSectionSubtitle") ||
-          "Free read-only login for your accountant. They see fakturaer, daily closes, expenses, MOMS overview — they can't change a single thing."
-        }
+        title={t("teamRevisorSectionTitle", "Revisor")}
+        subtitle={t(
+          "teamRevisorSectionSubtitle",
+          "Free read-only login for your accountant. They see fakturaer, daily closes, expenses, MOMS overview — they can't change a single thing.",
+        )}
         icon={<Icon name="KeyRound" size={18} />}
       />
       <form onSubmit={inviteRevisor} className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label={t("revisorEmailLabel") || "Revisor email"}>
+          <Field label={t("revisorEmailLabel", "Revisor email")}>
             <input
               type="email"
               value={revisorEmail}
@@ -168,7 +163,7 @@ export default function RevisorSection() {
               autoComplete="off"
             />
           </Field>
-          <Field label={t("revisorNameLabel") || "Name (optional)"}>
+          <Field label={t("revisorNameLabel", "Name (optional)")}>
             <input
               type="text"
               value={revisorName}
@@ -187,11 +182,11 @@ export default function RevisorSection() {
             {/* App Store compliance (Apple 3.1.1): neutral hint on native (no
                 tier name / "upgrade"); the "See plans" link is web-only. */}
             {isNativeApp()
-              ? (t("revisorUpgradeHintNative") || "Inviting a revisor isn't part of your current plan.")
-              : (t("revisorUpgradeHint") || "Upgrade to Starter to invite revisors.")}{" "}
+              ? t("revisorUpgradeHintNative", "Inviting a revisor isn't part of your current plan.")
+              : t("revisorUpgradeHint", "Upgrade to Starter to invite revisors.")}{" "}
             {canPurchaseInApp() && (
               <a href="/subscription" className="underline font-medium">
-                {t("seePlans") || "See plans"}
+                {t("seePlans", "See plans")}
               </a>
             )}
           </div>
@@ -199,8 +194,8 @@ export default function RevisorSection() {
         <div className="flex justify-end pt-1">
           <Button type="submit" variant="primary" busy={revisorSaving}>
             {revisorSaving
-              ? t("sending") || "Sending…"
-              : t("revisorSendInvite") || "Send invite"}
+              ? t("sending", "Sending…")
+              : t("revisorSendInvite", "Send invite")}
           </Button>
         </div>
       </form>
@@ -208,16 +203,18 @@ export default function RevisorSection() {
       {/* Existing grants list */}
       <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
         <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
-          {t("revisorListTitle") || "Active and recent invites"}
+          {t("revisorListTitle", "Active and recent invites")}
         </div>
         {grantsLoading && grants.length === 0 ? (
           <div className="text-xs text-gray-500 dark:text-gray-400 py-2">
-            {t("loading") || "Loading…"}
+            {t("loading", "Loading…")}
           </div>
         ) : grants.length === 0 ? (
           <div className="text-xs text-gray-500 dark:text-gray-400 py-2">
-            {t("revisorEmptyState") ||
-              "No revisor invites yet. Send one above to give your revisor their own login."}
+            {t(
+              "revisorEmptyState",
+              "No revisor invites yet. Send one above to give your revisor their own login.",
+            )}
           </div>
         ) : (
           <ul className="space-y-2">
@@ -250,19 +247,16 @@ export default function RevisorSection() {
                         }
                       >
                         {isActive
-                          ? (t("teamRevisorChipActive") ||
-                              "Revisor — read-only · since {date}").replace(
-                              "{date}",
-                              sinceDate,
-                            )
+                          ? t("teamRevisorChipActive", "Revisor — read-only · since {date}", {
+                              date: sinceDate,
+                            })
                           : isPending
-                            ? t("teamRevisorChipPending") ||
-                              "Revisor — invited · awaiting accept"
-                            : t("revisorStatusRevoked") || "Revoked"}
+                            ? t("teamRevisorChipPending", "Revisor — invited · awaiting accept")
+                            : t("revisorStatusRevoked", "Revoked")}
                       </span>
                       {g.last_used_at && (
                         <>
-                          {t("revisorLastLogin") || "Last seen"}{" "}
+                          {t("revisorLastLogin", "Last seen")}{" "}
                           {new Date(g.last_used_at).toLocaleDateString()}
                         </>
                       )}
@@ -275,7 +269,7 @@ export default function RevisorSection() {
                       size="sm"
                       onClick={() => revokeRevisor(g.id)}
                     >
-                      {t("revoke") || "Revoke"}
+                      {t("revoke", "Revoke")}
                     </Button>
                   )}
                 </li>

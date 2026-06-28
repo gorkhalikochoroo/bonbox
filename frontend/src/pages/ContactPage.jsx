@@ -1,7 +1,9 @@
 import { useNavigate } from "react-router-dom";
+import { useLanguage } from "../hooks/useLanguage";
 
 export default function ContactPage() {
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
   return (
     <div className="p-6 space-y-6 max-w-2xl mx-auto">
@@ -14,13 +16,13 @@ export default function ContactPage() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">Contact & Support</h1>
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">{t("contactSupportTitle", "Contact & Support")}</h1>
       </div>
 
       <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">Get in Touch</h2>
+        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-4">{t("contactGetInTouch", "Get in Touch")}</h2>
         <p className="text-gray-600 dark:text-gray-400 mb-6">
-          Have questions, feedback, or need help? We'd love to hear from you.
+          {t("contactGetInTouchBody", "Have questions, feedback, or need help? We'd love to hear from you.")}
         </p>
 
         <div className="space-y-4">
@@ -29,7 +31,7 @@ export default function ContactPage() {
               @
             </div>
             <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Email</p>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("email", "Email")}</p>
               <a href="mailto:bonbox.dk@gmail.com" className="text-blue-600 dark:text-blue-400 hover:underline text-sm">
                 bonbox.dk@gmail.com
               </a>
@@ -41,9 +43,9 @@ export default function ContactPage() {
               *
             </div>
             <div>
-              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">In-App Feedback</p>
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("contactInAppFeedback", "In-App Feedback")}</p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Use the <a href="#" onClick={(e) => { e.preventDefault(); window.location.hash = ""; }} className="text-blue-600 dark:text-blue-400 hover:underline">Feedback</a> page to rate features and share suggestions directly.
+                {t("contactUseThe", "Use the")} <a href="#" onClick={(e) => { e.preventDefault(); window.location.hash = ""; }} className="text-blue-600 dark:text-blue-400 hover:underline">{t("feedback", "Feedback")}</a> {t("contactFeedbackPageHint", "page to rate features and share suggestions directly.")}
               </p>
             </div>
           </div>
@@ -51,14 +53,12 @@ export default function ContactPage() {
       </div>
 
       <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">About BonBox</h2>
+        <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">{t("contactAboutBonbox", "About BonBox")}</h2>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          BonBox is built by Manoj Chaudhary as part of a Master's thesis in Data-Driven Business Development
-          at the University of Southern Denmark (SDU). It's designed for small businesses — restaurants, retail shops,
-          clothing stores, cafes, and more — who need a simple, affordable way to track sales, expenses, cash flow, and inventory.
+          {t("contactAboutBody", "BonBox is built by Manoj Chaudhary as part of a Master's thesis in Data-Driven Business Development at the University of Southern Denmark (SDU). It's designed for small businesses — restaurants, retail shops, clothing stores, cafes, and more — who need a simple, affordable way to track sales, expenses, cash flow, and inventory.")}
         </p>
         <p className="text-sm text-gray-500 dark:text-gray-500 mt-3">
-          Based in Copenhagen, Denmark
+          {t("contactBasedIn", "Based in Copenhagen, Denmark")}
         </p>
       </div>
     </div>

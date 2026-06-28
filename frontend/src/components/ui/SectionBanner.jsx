@@ -45,6 +45,7 @@
  */
 import React from "react";
 import Icon from "./Icon";
+import { useLanguage } from "../../hooks/useLanguage";
 
 // Each severity gets its own surface + icon color. Border + bg use the
 // 50/200 paired shades; icon uses the 500/600 step so it stands out
@@ -77,6 +78,7 @@ export default function SectionBanner({
   onDismiss = null,
   className = "",
 }) {
+  const { t } = useLanguage();
   const style = SEVERITY_STYLE[severity] || SEVERITY_STYLE.info;
   // Body content is "children" by convention but we also accept `body`
   // prop for cases where the caller wants to pass a plain string from
@@ -117,7 +119,7 @@ export default function SectionBanner({
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="Dismiss"
+          aria-label={t("dismiss", "Dismiss")}
           className="absolute top-3 right-3 w-6 h-6 rounded-md inline-flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-black/5 dark:text-gray-500 dark:hover:text-gray-200 dark:hover:bg-white/10 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">

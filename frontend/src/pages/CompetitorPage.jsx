@@ -319,7 +319,7 @@ export default function CompetitorPage({ embedded = false }) {
       <div className={`${embedded ? "" : "p-4 md:p-8"} flex items-center justify-center min-h-[400px]`}>
         <div className="text-center">
           <div className="text-4xl mb-3 animate-pulse">🔍</div>
-          <p className="text-gray-500 dark:text-gray-400">Loading competitors...</p>
+          <p className="text-gray-500 dark:text-gray-400">{t("cpLoadingCompetitors", "Loading competitors...")}</p>
         </div>
       </div>
     );
@@ -343,12 +343,16 @@ export default function CompetitorPage({ embedded = false }) {
     underpriced_items, alerts,
   } = data;
 
-  const positionLabel = { premium: "👑 Premium", budget: "🏷️ Budget", balanced: "⚖️ Balanced" };
+  const positionLabel = {
+    premium: `👑 ${t("cpPositionPremium", "Premium")}`,
+    budget: `🏷️ ${t("cpPositionBudget", "Budget")}`,
+    balanced: `⚖️ ${t("cpPositionBalanced", "Balanced")}`,
+  };
 
   const tabs = [
-    { key: "discover", label: "Discover Nearby", icon: "📍" },
-    { key: "overview", label: "Overview", icon: "📊" },
-    { key: "competitors", label: `Tracked (${total_competitors})`, icon: "🎯" },
+    { key: "discover", label: t("cpTabDiscoverNearby", "Discover Nearby"), icon: "📍" },
+    { key: "overview", label: t("cpTabOverview", "Overview"), icon: "📊" },
+    { key: "competitors", label: `${t("cpTabTracked", "Tracked")} (${total_competitors})`, icon: "🎯" },
   ];
 
   return (
@@ -359,18 +363,18 @@ export default function CompetitorPage({ embedded = false }) {
       {embedded ? (
         <div className="flex justify-end">
           <Button variant="secondary" onClick={() => setShowManual(!showManual)}>
-            + Add Manually
+            {t("cpAddManually", "+ Add Manually")}
           </Button>
         </div>
       ) : (
         <FadeIn>
           <PageHeader
-            eyebrow="INTEL"
+            eyebrow={t("cpEyebrowIntel", "INTEL")}
             title={t("competitorScan") || "Competitor Scan"}
             subtitle={t("competitorSubtitle") || "Discover nearby businesses, track competitors & compare prices."}
             actions={
               <Button variant="secondary" onClick={() => setShowManual(!showManual)}>
-                + Add Manually
+                {t("cpAddManually", "+ Add Manually")}
               </Button>
             }
           />
@@ -390,7 +394,7 @@ export default function CompetitorPage({ embedded = false }) {
               className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" />
           </div>
           <div className="flex gap-2">
-            <button type="submit" className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium">Save</button>
+            <button type="submit" className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium">{t("save")}</button>
             <button type="button" onClick={() => setShowManual(false)} className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm">{t("cancel")}</button>
           </div>
         </form>
@@ -422,13 +426,13 @@ export default function CompetitorPage({ embedded = false }) {
       {/* ─── KEY METRICS ─── */}
       {total_competitors > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard label="Tracked" value={total_competitors} />
-          <StatCard label="Price Checks" value={total_price_checks} />
-          <StatCard label="Position" value={positionLabel[price_position] || "—"} />
+          <StatCard label={t("cpStatTracked", "Tracked")} value={total_competitors} />
+          <StatCard label={t("cpStatPriceChecks", "Price Checks")} value={total_price_checks} />
+          <StatCard label={t("cpStatPosition", "Position")} value={positionLabel[price_position] || "—"} />
           <StatCard
-            label="We're Cheaper"
+            label={t("cpStatWereCheaper", "We're Cheaper")}
             value={cheaper_count}
-            helper={`Higher: ${pricier_count}`}
+            helper={`${t("cpStatHigher", "Higher")}: ${pricier_count}`}
             accent={cheaper_count > pricier_count ? "success" : "neutral"}
           />
         </div>
@@ -570,14 +574,14 @@ export default function CompetitorPage({ embedded = false }) {
           {/* Search bar */}
           <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border border-gray-100 dark:border-gray-700">
             <h3 className="font-bold text-gray-800 dark:text-white mb-3 flex items-center gap-2">
-              📍 Find Nearby Competitors
+              📍 {t("cpFindNearbyCompetitors", "Find Nearby Competitors")}
             </h3>
             <div className="flex flex-wrap gap-3 items-end">
               <div className="flex-1 min-w-[200px]">
-                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Search keyword (optional)</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">{t("cpSearchKeywordOptional", "Search keyword (optional)")}</label>
                 <input type="text" value={searchKeyword} onChange={e => setSearchKeyword(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && handleDiscover()}
-                  placeholder="e.g. pizza, sushi, coffee..."
+                  placeholder={t("cpSearchKeywordPlaceholder", "e.g. pizza, sushi, coffee...")}
                   className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm" />
               </div>
               <div className="w-32">
@@ -594,15 +598,15 @@ export default function CompetitorPage({ embedded = false }) {
               <button onClick={handleDiscover} disabled={discoverLoading}
                 className="px-6 py-2.5 bg-gray-900 text-white rounded-xl text-sm font-bold hover:bg-gray-700 transition disabled:opacity-50 flex items-center gap-1.5">
                 {discoverLoading ? (
-                  <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> Scanning...</>
+                  <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> {t("cpScanning", "Scanning...")}</>
                 ) : (
-                  <>🔍 Discover</>
+                  <>🔍 {t("cpDiscover", "Discover")}</>
                 )}
               </button>
             </div>
             {!user?.latitude && (
               <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
-                ⚠️ Set your business location in <a href="/profile" className="underline font-medium">Profile</a> to discover nearby competitors.
+                ⚠️ {t("cpSetLocationBefore", "Set your business location in")} <a href="/profile" className="underline font-medium">{t("cpProfileLink", "Profile")}</a> {t("cpSetLocationAfter", "to discover nearby competitors.")}
               </p>
             )}
           </div>
@@ -619,7 +623,7 @@ export default function CompetitorPage({ embedded = false }) {
             <>
               <div className="flex items-center justify-between">
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Found <span className="font-bold text-gray-700 dark:text-gray-200">{places.length}</span> businesses nearby
+                  {t("cpFoundPrefix", "Found")} <span className="font-bold text-gray-700 dark:text-gray-200">{places.length}</span> {t("cpBusinessesNearby", "businesses nearby")}
                   {discoverSource === "google" && <span className="ml-1 text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 px-1.5 py-0.5 rounded">Google Places</span>}
                   {discoverSource === "osm" && <span className="ml-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-500 px-1.5 py-0.5 rounded">OpenStreetMap</span>}
                 </p>
@@ -642,7 +646,7 @@ export default function CompetitorPage({ embedded = false }) {
             <div className="text-center py-12 text-gray-400">
               <p className="text-5xl mb-3">📍</p>
               <p className="text-lg font-medium">{t("discoverYourCompetitors")}</p>
-              <p className="text-sm mt-1">Click "Discover" to scan for businesses near your location.</p>
+              <p className="text-sm mt-1">{t("cpClickDiscoverHint", "Click \"Discover\" to scan for businesses near your location.")}</p>
             </div>
           )}
         </div>
@@ -653,13 +657,13 @@ export default function CompetitorPage({ embedded = false }) {
         <div className="space-y-6">
           {overpriced_items?.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border-l-4 border-yellow-500">
-              <h2 className="font-bold text-gray-800 dark:text-white mb-3">📈 We're Priced Higher</h2>
+              <h2 className="font-bold text-gray-800 dark:text-white mb-3">📈 {t("cpWerePricedHigher", "We're Priced Higher")}</h2>
               <div className="space-y-2">
                 {overpriced_items.map((p, i) => (
                   <div key={i} className="flex items-center justify-between gap-3 bg-yellow-50 dark:bg-yellow-900/10 rounded-xl px-3 sm:px-4 py-3">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{p.item}</p>
-                      <p className="text-xs text-gray-500">vs {p.competitor}</p>
+                      <p className="text-xs text-gray-500">{t("cpVs", "vs")} {p.competitor}</p>
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-sm font-bold text-red-600">+{p.diff_pct}%</p>
@@ -673,13 +677,13 @@ export default function CompetitorPage({ embedded = false }) {
 
           {underpriced_items?.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border-l-4 border-gray-300">
-              <h2 className="font-bold text-gray-800 dark:text-white mb-3">💡 Room to Raise Prices</h2>
+              <h2 className="font-bold text-gray-800 dark:text-white mb-3">💡 {t("cpRoomToRaisePrices", "Room to Raise Prices")}</h2>
               <div className="space-y-2">
                 {underpriced_items.map((p, i) => (
                   <div key={i} className="flex items-center justify-between gap-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl px-3 sm:px-4 py-3">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{p.item}</p>
-                      <p className="text-xs text-gray-500">vs {p.competitor}</p>
+                      <p className="text-xs text-gray-500">{t("cpVs", "vs")} {p.competitor}</p>
                     </div>
                     <div className="text-right shrink-0">
                       <p className="text-sm font-bold text-emerald-600">{p.diff_pct}%</p>
@@ -766,7 +770,7 @@ export default function CompetitorPage({ embedded = false }) {
               <p className="text-4xl mb-3">📊</p>
               <p className="text-lg font-medium">{t("noDataYet")}</p>
               <p className="text-sm mt-1">
-                Go to <button onClick={() => setTab("discover")} className="text-emerald-600 underline font-medium">Discover</button> to find and track competitors first.
+                {t("cpGoToPrefix", "Go to")} <button onClick={() => setTab("discover")} className="text-emerald-600 underline font-medium">{t("cpDiscover", "Discover")}</button> {t("cpFindTrackFirst", "to find and track competitors first.")}
               </p>
             </div>
           )}
@@ -826,7 +830,7 @@ export default function CompetitorPage({ embedded = false }) {
                             p.position === "we_are_higher" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" :
                             "bg-gray-100 text-gray-500"
                           }`}>
-                            {p.position === "we_are_lower" ? `${p.diff_pct}%` : p.position === "we_are_higher" ? `+${p.diff_pct}%` : "Same"}
+                            {p.position === "we_are_lower" ? `${p.diff_pct}%` : p.position === "we_are_higher" ? `+${p.diff_pct}%` : t("cpSame", "Same")}
                           </span>
                         )}
                       </div>
@@ -834,7 +838,7 @@ export default function CompetitorPage({ embedded = false }) {
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-400 italic">No price checks yet — visit their menu and log prices in Overview tab.</p>
+                <p className="text-sm text-gray-400 italic">{t("cpNoPriceChecksYet", "No price checks yet — visit their menu and log prices in Overview tab.")}</p>
               )}
             </div>
           )) : (
@@ -842,7 +846,7 @@ export default function CompetitorPage({ embedded = false }) {
               <p className="text-5xl mb-3">🎯</p>
               <p className="text-lg font-medium">{t("noCompetitorsTracked")}</p>
               <p className="text-sm mt-1">
-                Go to <button onClick={() => setTab("discover")} className="text-emerald-600 underline font-medium">Discover</button> to find businesses near you.
+                {t("cpGoToPrefix", "Go to")} <button onClick={() => setTab("discover")} className="text-emerald-600 underline font-medium">{t("cpDiscover", "Discover")}</button> {t("cpFindBusinessesNearYou", "to find businesses near you.")}
               </p>
             </div>
           )}
@@ -1047,6 +1051,7 @@ export default function CompetitorPage({ embedded = false }) {
    PLACE CARD — discovered nearby business
    ═══════════════════════════════════════════════════════════ */
 function PlaceCard({ place, onTrack, isAdding }) {
+  const { t } = useLanguage();
   const p = place;
   const distLabel = p.distance_m != null
     ? p.distance_m < 1000 ? `${p.distance_m}m` : `${(p.distance_m / 1000).toFixed(1)}km`
@@ -1072,7 +1077,7 @@ function PlaceCard({ place, onTrack, isAdding }) {
               <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
                 p.open_now ? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
               }`}>
-                {p.open_now ? "Open" : "Closed"}
+                {p.open_now ? t("cpOpen", "Open") : t("cpClosed", "Closed")}
               </span>
             )}
           </div>
@@ -1098,12 +1103,12 @@ function PlaceCard({ place, onTrack, isAdding }) {
       <div className="mt-3 pt-2 border-t dark:border-gray-700">
         {p.already_tracked ? (
           <span className="text-xs text-emerald-600 dark:text-gray-300 font-medium flex items-center gap-1">
-            ✅ Already tracking
+            ✅ {t("cpAlreadyTracking", "Already tracking")}
           </span>
         ) : (
           <button onClick={onTrack} disabled={isAdding}
             className="w-full py-2 bg-gray-900 text-white rounded-lg text-xs font-bold hover:bg-gray-700 transition disabled:opacity-50">
-            {isAdding ? "Adding..." : "🎯 Track Competitor"}
+            {isAdding ? t("cpAdding", "Adding...") : "🎯 " + t("cpTrackCompetitor", "Track Competitor")}
           </button>
         )}
       </div>

@@ -87,7 +87,7 @@ export default function PricingPage({ embedded = false }) {
       <div className={`${embedded ? "" : "p-4 md:p-8"} flex items-center justify-center min-h-[400px]`}>
         <div className="text-center">
           <div className="text-4xl mb-3 animate-pulse">💰</div>
-          <p className="text-gray-500 dark:text-gray-400">Analyzing pricing...</p>
+          <p className="text-gray-500 dark:text-gray-400">{t("ppAnalyzing", "Analyzing pricing...")}</p>
         </div>
       </div>
     );
@@ -99,7 +99,7 @@ export default function PricingPage({ embedded = false }) {
         <div className="text-4xl mb-4">💰</div>
         <p className="text-red-500">{error}</p>
         <Button variant="secondary" onClick={fetchInsights} className="mt-4">
-          Try again
+          {t("tryAgain", "Try again")}
         </Button>
       </div>
     );
@@ -163,32 +163,32 @@ export default function PricingPage({ embedded = false }) {
       {/* ─── KEY METRICS ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard
-          label="Avg Ticket"
+          label={t("ppAvgTicket", "Avg Ticket")}
           value={`${fmt(avg_ticket)} ${currency}`}
           helper={`${trendIcon} ${ticket_change > 0 ? "+" : ""}${fmt(ticket_change)}`}
           accent={ticket_trend === "up" ? "success" : ticket_trend === "down" ? "critical" : "neutral"}
         />
         <StatCard
-          label="Previous Period"
+          label={t("ppPreviousPeriod", "Previous Period")}
           value={`${fmt(prev_avg_ticket)} ${currency}`}
-          helper="Last 30 days"
+          helper={t("ppLast30Days", "Last 30 days")}
         />
         <StatCard
-          label="Daily Volume"
+          label={t("ppDailyVolume", "Daily Volume")}
           value={daily_volume}
-          helper="transactions/day"
+          helper={t("ppTransactionsPerDay", "transactions/day")}
         />
         <StatCard
-          label="Monthly Revenue"
+          label={t("ppMonthlyRevenue", "Monthly Revenue")}
           value={`${fmt(monthly_revenue)} ${currency}`}
-          helper={`${total_transactions} transactions`}
+          helper={`${total_transactions} ${t("ppTransactions", "transactions")}`}
         />
       </div>
 
       {/* ─── PRICE SIMULATOR ─── */}
       <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-lg">
-        <h2 className="font-bold text-lg mb-1">🎛️ Price Simulator</h2>
-        <p className="text-sm opacity-80 mb-4">See how a small price increase per transaction impacts revenue</p>
+        <h2 className="font-bold text-lg mb-1">🎛️ {t("ppPriceSimulator", "Price Simulator")}</h2>
+        <p className="text-sm opacity-80 mb-4">{t("ppSimulatorIntro", "See how a small price increase per transaction impacts revenue")}</p>
 
         <div className="flex items-center gap-4 mb-4">
           <input
@@ -207,26 +207,26 @@ export default function PricingPage({ embedded = false }) {
         {sim && (
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
-              <p className="text-xs opacity-70">Monthly Impact</p>
+              <p className="text-xs opacity-70">{t("ppMonthlyImpact", "Monthly Impact")}</p>
               <p className="text-xl sm:text-3xl font-bold mt-1">+{fmt(sim.monthly_impact)}</p>
-              <p className="text-xs opacity-70 mt-1">{currency}/month</p>
+              <p className="text-xs opacity-70 mt-1">{currency}/{t("ppPerMonth", "month")}</p>
             </div>
             <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
-              <p className="text-xs opacity-70">Annual Impact</p>
+              <p className="text-xs opacity-70">{t("ppAnnualImpact", "Annual Impact")}</p>
               <p className="text-xl sm:text-3xl font-bold mt-1">+{fmt(sim.annual_impact)}</p>
-              <p className="text-xs opacity-70 mt-1">{currency}/year</p>
+              <p className="text-xs opacity-70 mt-1">{currency}/{t("ppPerYear", "year")}</p>
             </div>
           </div>
         )}
         <p className="text-xs opacity-60 mt-3">
-          Based on {sim?.daily_volume || daily_volume} daily transactions. Assumes no volume change.
+          {t("ppSimBasedOn", "Based on")} {sim?.daily_volume || daily_volume} {t("ppSimDailyTransactions", "daily transactions. Assumes no volume change.")}
         </p>
       </div>
 
       {/* ─── TOP ITEMS MARGIN CHART ─── */}
       {top_items?.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">📊 Item Margins</h2>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-4">📊 {t("ppItemMargins", "Item Margins")}</h2>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={top_items.slice(0, 10)} layout="vertical" margin={{ left: 10, right: 10, top: 5, bottom: 5 }}>
@@ -235,7 +235,7 @@ export default function PricingPage({ embedded = false }) {
                 <YAxis type="category" dataKey="name" width={70} tick={{ fontSize: 11 }} />
                 <Tooltip
                   formatter={(val, name) => {
-                    if (name === "margin_pct") return [`${val.toFixed(1)}%`, "Margin"];
+                    if (name === "margin_pct") return [`${val.toFixed(1)}%`, t("ppMarginLabel", "Margin")];
                     return [val, name];
                   }}
                   contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}
@@ -259,17 +259,17 @@ export default function PricingPage({ embedded = false }) {
       {/* ─── TOP ITEMS TABLE ─── */}
       {top_items?.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">🏆 Top Items by Revenue</h2>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-4">🏆 {t("ppTopItemsByRevenue", "Top Items by Revenue")}</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-gray-500 border-b dark:border-gray-700">
-                  <th className="text-left py-2 px-2">Item</th>
-                  <th className="text-right py-2 px-2">Qty Sold</th>
-                  <th className="text-right py-2 px-2">Revenue</th>
-                  <th className="text-right py-2 px-2">Avg Price</th>
-                  <th className="text-right py-2 px-2">Avg Cost</th>
-                  <th className="text-right py-2 px-2">Margin</th>
+                  <th className="text-left py-2 px-2">{t("item", "Item")}</th>
+                  <th className="text-right py-2 px-2">{t("ppQtySold", "Qty Sold")}</th>
+                  <th className="text-right py-2 px-2">{t("revenue", "Revenue")}</th>
+                  <th className="text-right py-2 px-2">{t("ppAvgPrice", "Avg Price")}</th>
+                  <th className="text-right py-2 px-2">{t("ppAvgCost", "Avg Cost")}</th>
+                  <th className="text-right py-2 px-2">{t("ppMarginCol", "Margin")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -300,20 +300,20 @@ export default function PricingPage({ embedded = false }) {
       {/* ─── LOW MARGIN WARNING ─── */}
       {low_margin_items?.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border-l-4 border-yellow-500">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-2">⚠️ Low Margin Items (&lt;30%)</h2>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-2">⚠️ {t("ppLowMarginItems", "Low Margin Items")} (&lt;30%)</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            These items are selling but margins are thin. Consider price adjustments or supplier renegotiation.
+            {t("ppLowMarginDesc", "These items are selling but margins are thin. Consider price adjustments or supplier renegotiation.")}
           </p>
           <div className="space-y-2">
             {low_margin_items.map((item, i) => (
               <div key={i} className="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/10 rounded-xl px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{item.name}</p>
-                  <p className="text-xs text-gray-500">Price: {fmt(item.avg_price)} {currency} | Cost: {fmt(item.avg_cost)} {currency}</p>
+                  <p className="text-xs text-gray-500">{t("ppPriceLabel", "Price")}: {fmt(item.avg_price)} {currency} | {t("ppCostLabel", "Cost")}: {fmt(item.avg_cost)} {currency}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-lg font-bold text-red-600">{pct(item.margin_pct)}</p>
-                  <p className="text-xs text-gray-400">{fmt(item.revenue)} {currency} revenue</p>
+                  <p className="text-xs text-gray-400">{fmt(item.revenue)} {currency} {t("ppRevenueSuffix", "revenue")}</p>
                 </div>
               </div>
             ))}
@@ -324,20 +324,20 @@ export default function PricingPage({ embedded = false }) {
       {/* ─── NO SALES ITEMS (dead stock pricing) ─── */}
       {no_sales_items?.length > 0 && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow-sm border-l-4 border-blue-500">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-2">🏷️ No Sales This Month</h2>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-2">🏷️ {t("ppNoSalesThisMonth", "No Sales This Month")}</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            These items are in stock but had zero sales in the last 30 days. Consider a sale, bundle, or discontinuation.
+            {t("ppNoSalesDesc", "These items are in stock but had zero sales in the last 30 days. Consider a sale, bundle, or discontinuation.")}
           </p>
           <div className="space-y-2">
             {no_sales_items.map((item, i) => (
               <div key={i} className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/10 rounded-xl px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{item.name}</p>
-                  <p className="text-xs text-gray-500">Stock: {item.stock} | Cost: {fmt(item.cost)} {currency}</p>
+                  <p className="text-xs text-gray-500">{t("ppStockLabel", "Stock")}: {item.stock} | {t("ppCostLabel", "Cost")}: {fmt(item.cost)} {currency}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-bold text-blue-600">{fmt(item.sell_price)} {currency}</p>
-                  <p className="text-xs text-gray-400">sell price</p>
+                  <p className="text-xs text-gray-400">{t("ppSellPrice", "sell price")}</p>
                 </div>
               </div>
             ))}
@@ -349,9 +349,9 @@ export default function PricingPage({ embedded = false }) {
       {!top_items?.length && !low_margin_items?.length && !no_sales_items?.length && (
         <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-sm text-center">
           <div className="text-5xl mb-3">📊</div>
-          <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-2">No item-level data yet</h2>
+          <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-2">{t("ppNoItemData", "No item-level data yet")}</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-            Start logging sales with item names and costs to unlock margin analysis, price recommendations, and more.
+            {t("ppNoItemDataDesc", "Start logging sales with item names and costs to unlock margin analysis, price recommendations, and more.")}
           </p>
         </div>
       )}

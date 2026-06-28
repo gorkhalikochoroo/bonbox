@@ -1045,12 +1045,10 @@ export default function ExpensesPage() {
 
       <DismissibleTip
         id="expenses-intro-v1"
-        title="Snap, log, claim back"
+        title={t("expIntroTitle", "Snap, log, claim back")}
       >
         <p>
-          Tap a quick amount, pick a category, done. Or hit <strong>Snap receipt</strong> to capture
-          a supplier invoice — the OCR pulls out the total, you confirm, and BonBox calculates the
-          input MOMS you can deduct on your next filing. Each expense gets a sequential bilagsnummer.
+          {t("expIntroBody", "Tap a quick amount, pick a category, done. Or hit Snap receipt to capture a supplier invoice — the OCR pulls out the total, you confirm, and BonBox calculates the input MOMS you can deduct on your next filing. Each expense gets a sequential bilagsnummer.")}
         </p>
       </DismissibleTip>
 
@@ -1072,7 +1070,7 @@ export default function ExpensesPage() {
           Tier-4 spec §6: two distinct data sources, not a progressive
           disclosure. */}
       <TabPills
-        ariaLabel="Expense type"
+        ariaLabel={t("expTypeAria", "Expense type")}
         tabs={[
           { id: "one_time", label: t("oneTimeTab", "One-time") },
           { id: "recurring", label: t("recurringTab", "Recurring") },

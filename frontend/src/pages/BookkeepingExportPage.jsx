@@ -8,6 +8,7 @@ import { useEntitlements } from "../hooks/useEntitlements";
 import { sendBundleToAccountant } from "../utils/shareDailyCloseRange";
 import { localIso } from "../utils/dateFormat";
 import { PageHeader, Button, SectionBanner, Icon, UpgradeNudge } from "../components/ui";
+import { useLanguage } from "../hooks/useLanguage";
 
 /**
  * Bookkeeping Export — push BonBox data into the user's existing
@@ -26,6 +27,7 @@ export default function BookkeepingExportPage() {
   // a calm UpgradeNudge for Free users so they don't have to wait for
   // the 402 to discover the gate. The /formats listing endpoint is
   // unchanged (no PII) so the picker can still preview what's available.
+  const { t } = useLanguage();
   const { hasFeature, loading: entLoading } = useEntitlements();
   const exportsUnlocked = hasFeature("custom_export_templates");
 
@@ -84,10 +86,10 @@ export default function BookkeepingExportPage() {
         const text = await res.data.text();
         try {
           const json = JSON.parse(text);
-          setErr(json?.detail || "Export returned no data.");
+          setErr(json?.detail || t("bkeErrNoData", "Export returned no data."));
           return;
         } catch (_) {
-          setErr("Unexpected response from the server.");
+          setErr(t("bkeErrUnexpected", "Unexpected response from the server."));
           return;
         }
       }
@@ -102,7 +104,7 @@ export default function BookkeepingExportPage() {
       a.remove();
       window.URL.revokeObjectURL(url);
       trackEvent("bookkeeping_export", "exports", `${selected} ${start}..${end}`);
-      setMsg(`Exported! Now open ${currentFormat?.label || selected} and import the file.`);
+      setMsg(t("bkeExportedMsg", "Exported! Now open {platform} and import the file.").replace("{platform}", currentFormat?.label || selected));
       setTimeout(() => setMsg(""), 6000);
     } catch (e) {
       // Backend now returns a structured 422 with detail when something fails
@@ -119,7 +121,7 @@ export default function BookkeepingExportPage() {
           detail = "";
         }
       }
-      setErr(detail || "Could not generate export — please try a different date range.");
+      setErr(detail || t("bkeErrGenerate", "Could not generate export — please try a different date range."));
     } finally {
       setDownloading(false);
     }
@@ -147,10 +149,10 @@ export default function BookkeepingExportPage() {
         const text = await res.data.text();
         try {
           const json = JSON.parse(text);
-          setErr(json?.detail || "Export returned no data.");
+          setErr(json?.detail || t("bkeErrNoData", "Export returned no data."));
           return;
         } catch (_) {
-          setErr("Unexpected response from the server.");
+          setErr(t("bkeErrUnexpected", "Unexpected response from the server."));
           return;
         }
       }
@@ -177,19 +179,19 @@ export default function BookkeepingExportPage() {
 
       if (result.ok) {
         if (result.channel === "share") {
-          setMsg("Share sheet opened — pick Mail / WhatsApp.");
+          setMsg(t("bkeMsgShareOpened", "Share sheet opened — pick Mail / WhatsApp."));
         } else if (result.channel === "mailto") {
           setMsg(
             businessProfile?.accountant_email
-              ? "Email opened — attach the downloaded file and send."
-              : "Email opened — add revisor's address on Profile to skip typing it next time.",
+              ? t("bkeMsgEmailAttach", "Email opened — attach the downloaded file and send.")
+              : t("bkeMsgEmailAddRevisor", "Email opened — add revisor's address on Profile to skip typing it next time."),
           );
         } else {
-          setMsg("Downloaded — attach manually to email.");
+          setMsg(t("bkeMsgDownloadedAttach", "Downloaded — attach manually to email."));
         }
         setTimeout(() => setMsg(""), 6000);
       } else {
-        setErr(result.reason || "Could not open the share. Try the Download button instead.");
+        setErr(result.reason || t("bkeErrShare", "Could not open the share. Try the Download button instead."));
         setTimeout(() => setErr(""), 5000);
       }
     } catch (e) {
@@ -204,7 +206,7 @@ export default function BookkeepingExportPage() {
           detail = "";
         }
       }
-      setErr(detail || "Could not send — please try a different date range.");
+      setErr(detail || t("bkeErrSend", "Could not send — please try a different date range."));
     } finally {
       setSending(false);
     }
@@ -217,15 +219,15 @@ export default function BookkeepingExportPage() {
     return (
       <div className="px-4 sm:px-6 py-6 sm:py-8 max-w-3xl mx-auto">
         <PageHeader
-          eyebrow="REPORTS"
-          title="Send to your accountant"
-          subtitle="Clean CSVs for Dinero, Billy, e-conomic, or generic — built so your accountant imports in one click."
+          eyebrow={t("taxAutopilotEyebrow", "REPORTS")}
+          title={t("bkeHeaderTitle", "Send to your accountant")}
+          subtitle={t("bkeFreeSubtitle", "Clean CSVs for Dinero, Billy, e-conomic, or generic — built so your accountant imports in one click.")}
         />
         <UpgradeNudge
           intent="card"
           tier="starter"
-          benefit="Export to Dinero / Billy / e-conomic / generic CSV — your accountant imports without re-typing a number."
-          ctaLabel="See plans"
+          benefit={t("bkeUpgradeBenefit", "Export to Dinero / Billy / e-conomic / generic CSV — your accountant imports without re-typing a number.")}
+          ctaLabel={t("seePlans", "See plans")}
         />
       </div>
     );
@@ -234,16 +236,16 @@ export default function BookkeepingExportPage() {
   return (
     <div className="px-4 sm:px-6 py-6 sm:py-8 max-w-3xl mx-auto">
       <PageHeader
-        eyebrow="REPORTS"
-        title="Send to your accountant"
-        subtitle="Export sales + expenses as a clean CSV that imports directly into Dinero, Billy, e-conomic, or any generic accounting tool. BonBox stays as your operational + AI layer; your accountant keeps using what they already know."
+        eyebrow={t("taxAutopilotEyebrow", "REPORTS")}
+        title={t("bkeHeaderTitle", "Send to your accountant")}
+        subtitle={t("bkeMainSubtitle", "Export sales + expenses as a clean CSV that imports directly into Dinero, Billy, e-conomic, or any generic accounting tool. BonBox stays as your operational + AI layer; your accountant keeps using what they already know.")}
       />
 
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 sm:p-6 space-y-5">
         {/* Format picker */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Bookkeeping platform
+            {t("bkePlatformLabel", "Bookkeeping platform")}
           </label>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {formats.map((f) => {
@@ -264,7 +266,7 @@ export default function BookkeepingExportPage() {
                 >
                   {isBundle && (
                     <span className="absolute -top-2 -right-2 bg-gray-900 text-white text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded">
-                      ★ Recommended
+                      ★ {t("bkeRecommended", "Recommended")}
                     </span>
                   )}
                   {f.label}
@@ -277,7 +279,7 @@ export default function BookkeepingExportPage() {
         {/* Date range */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">From</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("fromDate", "From")}</label>
             <input
               type="date"
               value={start}
@@ -286,7 +288,7 @@ export default function BookkeepingExportPage() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">To</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("toDate", "To")}</label>
             <input
               type="date"
               value={end}
@@ -299,11 +301,11 @@ export default function BookkeepingExportPage() {
         {/* Quick range chips */}
         <div className="flex flex-wrap gap-2">
           {[
-            { label: "This month", days: 0, fromFirstOfMonth: true },
-            { label: "Last month", days: -30, fromFirstOfMonth: true, lastMonth: true },
-            { label: "Last 7 days", days: 7 },
-            { label: "This quarter", days: 90 },
-            { label: "Year to date", days: 0, fromYearStart: true },
+            { label: t("thisMonthLabel", "This month"), days: 0, fromFirstOfMonth: true },
+            { label: t("bkeRangeLastMonth", "Last month"), days: -30, fromFirstOfMonth: true, lastMonth: true },
+            { label: t("rangePreset7d", "Last 7 days"), days: 7 },
+            { label: t("thisQuarter", "This quarter"), days: 90 },
+            { label: t("yearToDate", "Year to date"), days: 0, fromYearStart: true },
           ].map((r) => (
             <button
               key={r.label}
@@ -340,7 +342,7 @@ export default function BookkeepingExportPage() {
 
         {/* Instructions for the selected format */}
         {currentFormat?.instructions && (
-          <SectionBanner severity="info" title="How to import">
+          <SectionBanner severity="info" title={t("bkeHowToImport", "How to import")}>
             <p className="leading-relaxed">
               {currentFormat.instructions.split("→").map((part, i, arr) => (
                 <span key={i}>
@@ -357,7 +359,7 @@ export default function BookkeepingExportPage() {
         {/* Action */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-2">
           <div className="text-xs text-gray-500 dark:text-gray-400">
-            File: <span className="font-mono">bonbox-{selected}-{start}-to-{end}.{currentFormat?.ext || "csv"}</span>
+            {t("bkeFileLabel", "File:")} <span className="font-mono">bonbox-{selected}-{start}-to-{end}.{currentFormat?.ext || "csv"}</span>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
             <Button
@@ -366,7 +368,7 @@ export default function BookkeepingExportPage() {
               disabled={downloading || sending}
               busy={downloading}
             >
-              {downloading ? "Generating…" : `Download ${(currentFormat?.ext || "csv").toUpperCase()}`}
+              {downloading ? t("generating", "Generating…") : t("bkeDownloadExt", "Download {ext}").replace("{ext}", (currentFormat?.ext || "csv").toUpperCase())}
             </Button>
             <Button
               variant="accent"
@@ -376,17 +378,17 @@ export default function BookkeepingExportPage() {
               iconLeft={!sending && <Icon name="Send" size={14} />}
               title={
                 businessProfile?.accountant_email
-                  ? `Email to ${businessProfile.accountant_email}`
-                  : "Set revisor's email on Profile to skip typing it"
+                  ? t("bkeEmailToTitle", "Email to {email}").replace("{email}", businessProfile.accountant_email)
+                  : t("bkeSetRevisorEmailTitle", "Set revisor's email on Profile to skip typing it")
               }
             >
-              {sending ? "Sending…" : "Send to revisor"}
+              {sending ? t("bkeSending", "Sending…") : t("bkeSendToRevisor", "Send to revisor")}
             </Button>
           </div>
         </div>
         {!businessProfile?.accountant_email && (
           <p className="text-[11px] text-gray-500 dark:text-gray-400 -mt-2">
-            Tip: <a href="/profile" className="text-gray-700 dark:text-emerald-400 hover:underline font-medium">save your revisor's email on Profile</a> to skip typing it every month.
+            {t("bkeTipPrefix", "Tip:")} <a href="/profile" className="text-gray-700 dark:text-emerald-400 hover:underline font-medium">{t("bkeTipLink", "save your revisor's email on Profile")}</a> {t("bkeTipSuffix", "to skip typing it every month.")}
           </p>
         )}
 
@@ -402,26 +404,24 @@ export default function BookkeepingExportPage() {
       <div className="mt-6 grid sm:grid-cols-3 gap-3">
         <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
           <Icon name="Lock" size={20} className="text-gray-500 mb-1" />
-          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">Returns excluded</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Returned sales aren't double-counted.</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t("bkeCardReturnsTitle", "Returns excluded")}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("bkeCardReturnsDesc", "Returned sales aren't double-counted.")}</div>
         </div>
         <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
           <Icon name="BarChart3" size={20} className="text-gray-500 mb-1" />
-          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">MOMS-aware</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">25% MOMS by default; tax-exempt items marked correctly.</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t("bkeCardMomsTitle", "MOMS-aware")}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("bkeCardMomsDesc", "25% MOMS by default; tax-exempt items marked correctly.")}</div>
         </div>
         <div className="bg-white dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
           <Icon name="FileText" size={20} className="text-gray-500 mb-1" />
-          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">UTF-8 with BOM</div>
-          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Opens cleanly in Excel + Google Sheets.</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{t("bkeCardEncodingTitle", "UTF-8 with BOM")}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("bkeCardEncodingDesc", "Opens cleanly in Excel + Google Sheets.")}</div>
         </div>
       </div>
 
       {/* Trademark notice — referenced platform names belong to their owners */}
       <p className="mt-6 text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">
-        Dinero, Billy, and e-conomic are trademarks of their respective owners.
-        BonBox is not affiliated with or endorsed by any of these companies.
-        We provide CSV exports as an interoperability convenience for our users.
+        {t("bkeTrademarkNotice", "Dinero, Billy, and e-conomic are trademarks of their respective owners. BonBox is not affiliated with or endorsed by any of these companies. We provide CSV exports as an interoperability convenience for our users.")}
       </p>
     </div>
   );

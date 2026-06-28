@@ -48,6 +48,8 @@ import SmartStaffingCard from "../components/SmartStaffingCard";
 import { resetAllTips } from "../components/DismissibleTip";
 import { localIso } from "../utils/dateFormat";
 import { Button, Card, Icon, PageHeader } from "../components/ui";
+import { venueProfile, bookingModeFor } from "../config/venueProfiles";
+import { cutoffHourFor } from "../config/archetypes";
 
 /* ─── form primitives ─────────────────────────────────────────────
    Centralised here so every form field on the page lands at exactly
@@ -105,6 +107,10 @@ export default function ProfilePage() {
   };
   const [user, setUser] = useState(null);
   const [form, setForm] = useState({ business_name: "", business_type: "", currency: "", email: "" });
+  // The SAVED business type — so the venue preview can be honest that a changed
+  // selection is only a preview until the profile is actually saved. Set from
+  // /auth/me on load and again on a successful save.
+  const [savedBusinessType, setSavedBusinessType] = useState("");
   const [passwords, setPasswords] = useState({ current_password: "", new_password: "", confirm_password: "" });
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
@@ -219,6 +225,7 @@ export default function ProfilePage() {
         currency: res.data.currency || "DKK",
         email: res.data.email || "",
       });
+      setSavedBusinessType(res.data.business_type || "");
       setAnalyticsOptOut(!!res.data.analytics_opt_out);
     });
     api.get("/email/preferences").then((res) => setEmailPrefs(res.data)).catch(() => {});
@@ -303,11 +310,11 @@ export default function ProfilePage() {
         const changed = data.fields_changed || [];
         setReverifyMsg(
           changed.length === 0
-            ? "Profile is already up to date"
-            : `Updated: ${changed.join(", ")}`,
+            ? t("profReverifyUpToDate", "Profile is already up to date")
+            : `${t("profReverifyUpdated", "Updated")}: ${changed.join(", ")}`,
         );
       } else {
-        setReverifyMsg(data.message || "Could not refresh — try again");
+        setReverifyMsg(data.message || t("profReverifyCouldNotRefresh", "Could not refresh — try again"));
       }
       setTimeout(() => setReverifyMsg(""), 5000);
     } catch (err) {
@@ -320,7 +327,7 @@ export default function ProfilePage() {
       } else if (inner?.message) {
         msg = inner.message;
       } else {
-        msg = "Re-verify failed — try again";
+        msg = t("profReverifyFailed", "Re-verify failed — try again");
       }
       setReverifyMsg(msg);
       setTimeout(() => setReverifyMsg(""), 6000);
@@ -402,12 +409,12 @@ export default function ProfilePage() {
   const uploadLogo = async (file) => {
     if (!file) return;
     if (!["image/png", "image/jpeg"].includes(file.type)) {
-      setBrandMsg("Logo must be PNG or JPEG (SVG not allowed)");
+      setBrandMsg(t("profLogoFormatError", "Logo must be PNG or JPEG (SVG not allowed)"));
       setTimeout(() => setBrandMsg(""), 5000);
       return;
     }
     if (file.size > 1_000_000) {
-      setBrandMsg("Logo too large (max 1 MB)");
+      setBrandMsg(t("profLogoTooLargeError", "Logo too large (max 1 MB)"));
       setTimeout(() => setBrandMsg(""), 5000);
       return;
     }
@@ -423,7 +430,7 @@ export default function ProfilePage() {
       setBrandMsg(t("logoUploaded") || "Logo uploaded");
       setTimeout(() => setBrandMsg(""), 3000);
     } catch (err) {
-      const detail = errText(err, "Upload failed");
+      const detail = errText(err, t("uploadFailed", "Upload failed"));
       setBrandMsg(detail);
       setTimeout(() => setBrandMsg(""), 5000);
     } finally {
@@ -453,7 +460,7 @@ export default function ProfilePage() {
       setBrandMsg(t("brandSaved") || "Brand settings saved");
       setTimeout(() => setBrandMsg(""), 3000);
     } catch (err) {
-      const detail = errText(err, "Could not save");
+      const detail = errText(err, t("profBrandSaveFailed", "Could not save"));
       setBrandMsg(detail);
       setTimeout(() => setBrandMsg(""), 5000);
     } finally {
@@ -476,11 +483,13 @@ export default function ProfilePage() {
     setPrivacyMsg("");
     try {
       await api.patch("/auth/profile", { analytics_opt_out: next });
-      setPrivacyMsg(next ? "Analytics paused — no new events will be recorded." : "Analytics resumed.");
+      setPrivacyMsg(next
+        ? t("profAnalyticsPausedMsg", "Analytics paused — no new events will be recorded.")
+        : t("profAnalyticsResumedMsg", "Analytics resumed."));
       setTimeout(() => setPrivacyMsg(""), 4000);
     } catch {
       setAnalyticsOptOut(!next);
-      setPrivacyMsg("Couldn't update — please try again.");
+      setPrivacyMsg(t("profAnalyticsUpdateFailed", "Couldn't update — please try again."));
       setTimeout(() => setPrivacyMsg(""), 4000);
     }
   };
@@ -550,6 +559,7 @@ export default function ProfilePage() {
     try {
       const res = await api.patch("/auth/profile", form);
       setUser(res.data);
+      setSavedBusinessType(form.business_type);
       const stored = localStorage.getItem("bonbox_user");
       if (stored) {
         const parsed = JSON.parse(stored);
@@ -588,6 +598,28 @@ export default function ProfilePage() {
       setPwError(errText(err, t("failedToChangePassword")));
     }
     setChangingPw(false);
+  };
+
+  // "Sign out all other devices" — bumps the server-side token_version so every
+  // OTHER session is rejected on its next request (lost/shared tablet, etc.).
+  // This device stays in via the fresh token the endpoint returns.
+  const [signingOutAll, setSigningOutAll] = useState(false);
+  const signOutAll = async () => {
+    if (!window.confirm(t("signOutAllConfirm", "Sign out on every other device? This one stays signed in."))) return;
+    setSigningOutAll(true);
+    setPwError("");
+    setPwSuccess("");
+    try {
+      const res = await api.post("/auth/sign-out-all");
+      if (res.data?.token) {
+        try { localStorage.setItem("token", res.data.token); } catch { /* private mode — cookie covers web */ }
+      }
+      setPwSuccess(t("signOutAllDone", "Signed out on all other devices."));
+      setTimeout(() => setPwSuccess(""), 4000);
+    } catch (err) {
+      setPwError(errText(err, t("signOutAllError", "Couldn't sign out the other devices. Try again.")));
+    }
+    setSigningOutAll(false);
   };
 
   /** Cuisine quick-suggest chips, keyed by business_type. */
@@ -698,6 +730,21 @@ export default function ProfilePage() {
                   </Button>
                 </div>
               </form>
+
+              {/* Session security — revoke every other device in one tap. */}
+              <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                    {t("signOutAllTitle", "Signed in elsewhere?")}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    {t("signOutAllDesc", "Sign out on every other phone, tablet or computer. This one stays signed in.")}
+                  </p>
+                </div>
+                <Button variant="secondary" size="sm" busy={signingOutAll} onClick={signOutAll} className="shrink-0">
+                  {t("signOutAllBtn", "Sign out other devices")}
+                </Button>
+              </div>
             </Card>
           </SectionAnchor>
 
@@ -765,6 +812,13 @@ export default function ProfilePage() {
                     </select>
                   </Field>
                 </div>
+                {/* Per-business-type preview — re-dresses with one smooth,
+                    compositor-only crossfade when the type changes (Phase A).
+                    Reads the local venueProfiles config, so the new icon /
+                    booking-vocab / cutoff hint is ready instantly: no spinner,
+                    no refetch. The `key` swap restarts the .animate-venueSwap
+                    keyframe so the whole block fades as a unit. */}
+                <VenueTypePreview businessType={form.business_type} savedBusinessType={savedBusinessType} t={t} />
                 {error && <Message tone="error">{error}</Message>}
                 {success && <Message tone="success">{success}</Message>}
                 <div className="flex justify-end pt-1">
@@ -1106,7 +1160,7 @@ export default function ProfilePage() {
                     {brand.logo_url ? (
                       <img
                         src={brand.logo_url}
-                        alt="Current logo"
+                        alt={t("profLogoCurrentAlt", "Current logo")}
                         className="w-20 h-20 object-contain border border-gray-200 dark:border-gray-700 rounded-lg bg-white p-2"
                       />
                     ) : (
@@ -1151,9 +1205,10 @@ export default function ProfilePage() {
                       <button
                         key={opt.value}
                         type="button"
+                        disabled={brandSaving}
                         onClick={() => saveBrand({ logo_position: opt.value })}
                         className={
-                          "px-3.5 py-2 h-9 rounded-lg text-sm font-medium border transition " +
+                          "px-3.5 py-2 h-9 rounded-lg text-sm font-medium border transition disabled:opacity-60 disabled:cursor-not-allowed " +
                           (brand.logo_position === opt.value
                             ? "bg-gray-900 dark:bg-gray-100 border-gray-900 dark:border-gray-100 text-white dark:text-gray-900"
                             : "bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800")
@@ -1173,14 +1228,15 @@ export default function ProfilePage() {
                       role="radio"
                       aria-checked={!brand.accent_color}
                       aria-label={t("brandColorDefault") || "Default (no accent color)"}
+                      disabled={brandSaving}
                       onClick={() => saveBrand({ accent_color: null })}
                       className={
-                        "w-10 h-10 rounded-lg border-2 transition inline-flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
+                        "w-10 h-10 rounded-lg border-2 transition inline-flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
                         (!brand.accent_color
                           ? "border-gray-900 dark:border-gray-100"
                           : "border-gray-200 dark:border-gray-700")
                       }
-                      title="Default (no color)"
+                      title={t("profBrandColorDefaultTitle", "Default (no color)")}
                     >
                       <span className="text-gray-500 text-xs" aria-hidden="true">×</span>
                     </button>
@@ -1191,9 +1247,10 @@ export default function ProfilePage() {
                         role="radio"
                         aria-checked={(brand.accent_color || "").toUpperCase() === hex.toUpperCase()}
                         aria-label={name}
+                        disabled={brandSaving}
                         onClick={() => saveBrand({ accent_color: name })}
                         className={
-                          "w-10 h-10 rounded-lg border-2 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
+                          "w-10 h-10 rounded-lg border-2 transition disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-stone-900 " +
                           ((brand.accent_color || "").toUpperCase() === hex.toUpperCase()
                             ? "border-gray-900 dark:border-gray-100 scale-105"
                             : "border-gray-200 dark:border-gray-700")
@@ -1417,7 +1474,7 @@ export default function ProfilePage() {
               <div className="space-y-4">
                 <ToggleRow
                   label={t("pauseAnalytics")}
-                  desc="When ON, BonBox stops recording your clicks, page views and AI questions. Your business data (sales, expenses, inventory) is unaffected. You can resume any time. Existing analytics older than 180 days are auto-deleted."
+                  desc={t("profPauseAnalyticsDesc", "When ON, BonBox stops recording your clicks, page views and AI questions. Your business data (sales, expenses, inventory) is unaffected. You can resume any time. Existing analytics older than 180 days are auto-deleted.")}
                   checked={analyticsOptOut}
                   onChange={toggleAnalyticsOptOut}
                 />
@@ -1769,7 +1826,7 @@ function ProfileIdentity({ user, t }) {
           {user.email_verified ? (
             <span
               className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full text-[10px] font-medium shrink-0"
-              title="Email verified"
+              title={t("profEmailVerifiedTitle", "Email verified")}
             >
               <Icon name="CheckCircle2" size={10} />
               {t("profileVerified")}
@@ -1778,7 +1835,7 @@ function ProfileIdentity({ user, t }) {
             <a
               href="/verify-email"
               className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 rounded-full text-[10px] font-medium hover:bg-amber-100 dark:hover:bg-amber-950/60 transition shrink-0"
-              title="Click to verify your email"
+              title={t("profEmailVerifyCtaTitle", "Click to verify your email")}
             >
               <Icon name="AlertTriangle" size={10} />
               {t("profileUnverified")}
@@ -1798,6 +1855,67 @@ function Field({ label, hint, children }) {
       {label && <label className={LABEL_CLASS}>{label}</label>}
       {children}
       {hint && <p className={HINT_CLASS}>{hint}</p>}
+    </div>
+  );
+}
+
+/** VenueTypePreview — the business-type-dependent region that re-dresses with
+ *  one smooth, lag-free crossfade when the owner changes the type (Phase A).
+ *
+ *  It reads ONLY the local venueProfiles / archetypes config (no fetch, no
+ *  spinner), so the new glance icon + booking vocabulary + cutoff hint are
+ *  ready immediately. The `key={businessType}` forces React to remount the
+ *  inner block, restarting the `.animate-venueSwap` keyframe — a compositor-
+ *  only opacity+transform crossfade (`contain: content` scopes it). The global
+ *  prefers-reduced-motion rule makes the swap instant for those users. */
+function VenueTypePreview({ businessType, savedBusinessType, t }) {
+  const profile = venueProfile(businessType);
+  // True once the owner has changed the selector away from the saved value —
+  // the live re-dress is a PREVIEW until they save, so say so honestly.
+  const isUnsaved = (businessType || "") !== (savedBusinessType || "");
+  const GlanceIcon = profile.glanceIcon || profile.icon;
+  const mode = bookingModeFor(businessType);
+  const cutoff = cutoffHourFor(businessType);
+  const cutoffLabel = String(cutoff).padStart(2, "0") + ":00";
+
+  // bookingMode → a short, honest "what bookings look like" line. Provider is
+  // described as the appointment book (Aftaler) WITHOUT claiming it is
+  // appointment-grade; none = no public booking surface.
+  const modeKey =
+    mode === "table" ? "profileVenueModeTable"
+    : mode === "provider" ? "profileVenueModeProvider"
+    : "profileVenueModeNone";
+  const modeFallback =
+    mode === "table" ? "Bordbooking — gæster vælger bord på den offentlige side."
+    : mode === "provider" ? "Aftaler / Tidsbestilling — kunder bestiller tid."
+    : "Ingen offentlig booking — kasse- og lukkeflow.";
+
+  return (
+    <div
+      key={businessType || "none"}
+      className="animate-venueSwap rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/50 px-4 py-3"
+    >
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200">
+          <GlanceIcon size={18} strokeWidth={1.75} aria-hidden="true" />
+        </span>
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">
+            {t("profileVenuePreviewEyebrow", "Sådan tilpasses BonBox")}
+          </p>
+          <p className="text-sm text-gray-700 dark:text-gray-200 mt-0.5">
+            {t(modeKey, modeFallback)}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            {t("profileVenueCutoffHint", "Dagsskifte kl. {time}", { time: cutoffLabel })}
+          </p>
+          {isUnsaved && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-1.5">
+              {t("profileVenuePreviewUnsaved", "Preview — saved when you update your profile.")}
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1922,7 +2040,7 @@ function LaborTargetStepper() {
           value={pct}
           onChange={(e) => setPct(parseInt(e.target.value, 10))}
           className="flex-1 accent-emerald-600"
-          aria-label="Labor target percentage"
+          aria-label={t("profLaborTargetSliderAria", "Labor target percentage")}
         />
         <span className="text-xl font-semibold text-gray-900 dark:text-gray-100 w-14 text-right">
           {pct}%
@@ -2071,12 +2189,12 @@ function WhatsAppBlock({ t, waStatus, waPhone, setWaPhone, waCode, waMsg, waLink
             {t("quickCommandsLabel")}:
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
-            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">14500</code> Log revenue</span>
-            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">expense 2500 food</code> Log expense</span>
-            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">summary</code> Today's stats</span>
-            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">profit</code> Monthly profit</span>
-            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">inventory</code> Stock alerts</span>
-            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">help</code> All commands</span>
+            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">14500</code> {t("profWaCmdLogRevenue", "Log revenue")}</span>
+            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">expense 2500 food</code> {t("profWaCmdLogExpense", "Log expense")}</span>
+            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">summary</code> {t("profWaCmdTodayStats", "Today's stats")}</span>
+            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">profit</code> {t("profWaCmdMonthlyProfit", "Monthly profit")}</span>
+            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">inventory</code> {t("profWaCmdStockAlerts", "Stock alerts")}</span>
+            <span><code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">help</code> {t("profWaCmdAllCommands", "All commands")}</span>
           </div>
         </div>
         <button onClick={onUnlink} className="text-xs text-red-600 dark:text-red-400 hover:underline">
@@ -2144,6 +2262,7 @@ function WhatsAppBlock({ t, waStatus, waPhone, setWaPhone, waCode, waMsg, waLink
  * Stale threshold: 90 days.
  */
 function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify }) {
+  const { t } = useLanguage();
   if (!profile) return null;
 
   const verifiedAt = profile.cvr_verified_at ? new Date(profile.cvr_verified_at) : null;
@@ -2155,13 +2274,13 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
   const flags = (profile.status_flags || "").split("|").filter(Boolean);
 
   const ageLabel =
-    ageDays === null ? "Not yet verified"
-    : ageDays === 0 ? "Just now"
-    : ageDays === 1 ? "Yesterday"
-    : ageDays < 7 ? `${ageDays} days ago`
-    : ageDays < 30 ? `${Math.floor(ageDays / 7)} weeks ago`
-    : ageDays < 365 ? `${Math.floor(ageDays / 30)} months ago`
-    : `${Math.floor(ageDays / 365)} years ago`;
+    ageDays === null ? t("profVerifyAgeNotYet", "Not yet verified")
+    : ageDays === 0 ? t("profVerifyAgeJustNow", "Just now")
+    : ageDays === 1 ? t("profVerifyAgeYesterday", "Yesterday")
+    : ageDays < 7 ? `${ageDays} ${t("profVerifyAgeDaysAgo", "days ago")}`
+    : ageDays < 30 ? `${Math.floor(ageDays / 7)} ${t("profVerifyAgeWeeksAgo", "weeks ago")}`
+    : ageDays < 365 ? `${Math.floor(ageDays / 30)} ${t("profVerifyAgeMonthsAgo", "months ago")}`
+    : `${Math.floor(ageDays / 365)} ${t("profVerifyAgeYearsAgo", "years ago")}`;
 
   const surfaceClass = isVerified
     ? "bg-gray-50/60 dark:bg-gray-800/50 border-gray-100/70 dark:border-gray-700"
@@ -2197,14 +2316,14 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
             </p>
             <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
               {isVerified
-                ? `Verified · ${profile.cvr_verified_source || "register"} · ${ageLabel}`
+                ? `${t("profVerifyVerified", "Verified")} · ${profile.cvr_verified_source || t("profVerifyRegister", "register")} · ${ageLabel}`
                 : isStale
-                  ? `Last checked ${ageLabel} — re-verify to pick up any changes`
-                  : "Manual entry — not verified against any register"}
+                  ? `${t("profVerifyLastChecked", "Last checked")} ${ageLabel} — ${t("profVerifyReverifyHint", "re-verify to pick up any changes")}`
+                  : t("profVerifyManualEntry", "Manual entry — not verified against any register")}
             </p>
             {profile.dawa_address_id && (
               <p className="text-[10px] text-gray-500 dark:text-gray-500 mt-0.5">
-                Address cross-checked with DAWA postal register
+                {t("profVerifyDawaChecked", "Address cross-checked with DAWA postal register")}
               </p>
             )}
           </div>
@@ -2217,7 +2336,7 @@ function VerifiedBusinessBanner({ profile, reverifying, reverifyMsg, onReverify 
             busy={reverifying}
             onClick={onReverify}
           >
-            {reverifying ? "Checking…" : "Re-verify"}
+            {reverifying ? t("profVerifyChecking", "Checking…") : t("profVerifyReverifyBtn", "Re-verify")}
           </Button>
         )}
       </div>

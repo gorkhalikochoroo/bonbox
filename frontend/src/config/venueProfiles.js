@@ -36,12 +36,29 @@
  * coherent, non-restaurant floor.
  */
 
-import { Armchair, Beer, Scissors } from "lucide-react";
+import { Armchair, Beer, Scissors, Croissant, ShoppingBag, Wrench } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────
 // Archetypes. Each carries:
 //   id                 — stable key (analytics / debugging)
-//   icon               — Lucide component, rendered faint (decorative)
+//   icon               — Lucide component, rendered faint (decorative) on the
+//                        floor designer.
+//   glanceIcon         — the ONE Lucide glyph that reads this vertical at a
+//                        glance in chrome (settings preview, headers). Often
+//                        the same as `icon`; split out so a future header can
+//                        differ from the floor mark without breaking it.
+//   bookingMode        — "table" | "provider" | "none". Gates the table floor
+//                        / couverts / floor-map on the VENUE TYPE, never on
+//                        tables==0 (honesty gate #1): a salon is "provider", a
+//                        bakery/retail is "none", dining/bar is "table". This
+//                        is a LABEL/IA gate only — the booking primitive itself
+//                        stays table-shaped underneath in Phase A (NOT
+//                        appointment-grade; see plan honesty_gates #2).
+//   cutoffHour         — the display business-day cutoff hour this vertical
+//                        rolls over at (mirrors archetype default_cutoff_hour /
+//                        archetypes.js). Surfaced as a hint in chrome; the
+//                        authoritative value still lives on
+//                        BusinessProfile.day_cutoff_hour.
 //   nounKey/nounPluralKey   — "Table" / "Tables" etc. (i18n keys)
 //   unitKey            — how capacity reads ("seats" / "per chair" / "capacity")
 //   stationLike        — true → render ONE person/seat marker, not N chairs,
@@ -61,6 +78,9 @@ export const VENUE_ARCHETYPES = {
   dining: {
     id: "dining",
     icon: Armchair,
+    glanceIcon: Armchair,
+    bookingMode: "table",
+    cutoffHour: 6,
     nounKey: "venueNounTable",
     nounPluralKey: "venueNounTablePlural",
     unitKey: "venueUnitSeats",
@@ -81,6 +101,9 @@ export const VENUE_ARCHETYPES = {
   bar: {
     id: "bar",
     icon: Beer,
+    glanceIcon: Beer,
+    bookingMode: "table",
+    cutoffHour: 6,
     nounKey: "venueNounTable",
     nounPluralKey: "venueNounTablePlural",
     unitKey: "venueUnitSeats",
@@ -103,6 +126,17 @@ export const VENUE_ARCHETYPES = {
   salon: {
     id: "salon",
     icon: Scissors,
+    glanceIcon: Scissors,
+    // Salon books a PROVIDER (a chair/behandler tied to a person), not a table.
+    // bookingMode "provider" gates the table floor + couverts OFF on TYPE — the
+    // salon never flashes "no tables yet". As of S3b the booking primitive IS a
+    // real tidsbestilling: behandling → behandler → dato → tid, with the
+    // duration resolved from the behandlinger catalog, availability driven by
+    // the behandler's published shifts, and a pinned behandler failing closed
+    // (409) instead of silently rebooking. The owner New-booking sheet and the
+    // public /r/<slug> page both render this provider flow.
+    bookingMode: "provider",
+    cutoffHour: 0,
     nounKey: "venueNounStation",
     nounPluralKey: "venueNounStationPlural",
     unitKey: "venueUnitPerChair",
@@ -118,11 +152,64 @@ export const VENUE_ARCHETYPES = {
     floorEmptyKey: "venueFloorEmptyStations",
   },
 
-  // generic — retail / clinic / freelancer / anything we don't model yet.
-  // The most neutral vocabulary: "Space". No zone presets (don't presume).
+  // bakery — counter trade, no table reservations (honesty lock: NO
+  // pre-order / click-collect primitive exists — Reservations stays OFF
+  // rather than fake it). Kept distinct from generic only for the glance
+  // icon + the 04:00 overnight-bake cutoff; vocabulary is the neutral Space
+  // set since the floor designer is not offered to a bakery.
+  bakery: {
+    id: "bakery",
+    icon: Croissant,
+    glanceIcon: Croissant,
+    bookingMode: "none",
+    cutoffHour: 4,
+    nounKey: "venueNounSpace",
+    nounPluralKey: "venueNounSpacePlural",
+    unitKey: "venueUnitCapacity",
+    stationLike: false,
+    defaultShape: () => "round",
+    zonePresetKeys: [],
+    emptyTitleKey: "venueEmptySpacesTitle",
+    emptyBodyKey: "venueEmptySpacesBody",
+    tapHintKey: "venueTapSpace",
+    dragHintKey: "venueDragSpaces",
+    arrangeKey: "venueArrangeSpaces",
+    floorIntroKey: "venueFloorIntroSpaces",
+    floorEmptyKey: "venueFloorEmptySpaces",
+  },
+
+  // retail — inventory-led shop. No floor/covers; the cleanest non-restaurant
+  // fit. Glance icon is the bag; midnight cutoff (no late-night window).
+  retail: {
+    id: "retail",
+    icon: ShoppingBag,
+    glanceIcon: ShoppingBag,
+    bookingMode: "none",
+    cutoffHour: 0,
+    nounKey: "venueNounSpace",
+    nounPluralKey: "venueNounSpacePlural",
+    unitKey: "venueUnitCapacity",
+    stationLike: false,
+    defaultShape: () => "round",
+    zonePresetKeys: [],
+    emptyTitleKey: "venueEmptySpacesTitle",
+    emptyBodyKey: "venueEmptySpacesBody",
+    tapHintKey: "venueTapSpace",
+    dragHintKey: "venueDragSpaces",
+    arrangeKey: "venueArrangeSpaces",
+    floorIntroKey: "venueFloorIntroSpaces",
+    floorEmptyKey: "venueFloorEmptySpaces",
+  },
+
+  // generic — workshop / services / clinic / freelancer / anything we don't
+  // model yet. The most neutral vocabulary: "Space". No zone presets, no floor
+  // booking (bookingMode "none"). The Wrench glance icon reads "general work".
   generic: {
     id: "generic",
     icon: Armchair,
+    glanceIcon: Wrench,
+    bookingMode: "none",
+    cutoffHour: 0,
     nounKey: "venueNounSpace",
     nounPluralKey: "venueNounSpacePlural",
     unitKey: "venueUnitCapacity",
@@ -146,11 +233,31 @@ export const VENUE_ARCHETYPES = {
 export const BUSINESS_TYPE_TO_VENUE = {
   restaurant: "dining",
   cafe: "dining",
-  bakery: "dining",
+  // bakery now resolves to its OWN archetype (Croissant glance icon + 04:00
+  // cutoff + bookingMode "none") — NOT dining. A production bakery is counter
+  // trade and must never be offered a table floor it can't use.
+  bakery: "bakery",
   tea_shop: "dining",
   food_truck: "dining",
+  takeaway: "generic", // counter trade → generic (bookingMode "none", no floor)
   bar: "bar",
   salon: "salon",
+  // retail + retail siblings → the inventory-led "retail" archetype (no floor).
+  retail: "retail",
+  clothing: "retail",
+  online_clothing: "retail",
+  grocery: "retail",
+  veggie_shop: "retail",
+  kiosk: "retail",
+  electronics: "retail",
+  pharmacy: "retail",
+  cosmetics: "retail",
+  stationery: "retail",
+  hardware: "retail",
+  flower_shop: "retail",
+  jewelry: "retail",
+  thrift: "retail",
+  wholesale: "retail",
 };
 
 /**
@@ -174,4 +281,28 @@ export function venueProfile(businessType, resource = null) {
   }
   const id = BUSINESS_TYPE_TO_VENUE[businessType] || "generic";
   return VENUE_ARCHETYPES[id] || VENUE_ARCHETYPES.generic;
+}
+
+/**
+ * bookingModeFor(businessType) — the booking primitive a vertical uses, gated
+ * on the venue TYPE: "table" (dining/bar/cafe), "provider" (salon), or "none"
+ * (bakery/retail/takeaway/services/unknown).
+ *
+ * THIS IS THE HONESTY GATE (#1): consumers hide the table floor / floor-map /
+ * couverts when this is NOT "table" — keyed on the TYPE, never on tables==0.
+ * A salon (provider) and a bakery (none) therefore never flash "no tables yet".
+ *
+ * Note: in Phase A, "provider" still renders the table-shaped book underneath
+ * (it is a label/IA reskin, NOT an appointment engine). Only `bookingMode ===
+ * "table"` should mount the floor designer / floor-map / party+couvert UI.
+ */
+export function bookingModeFor(businessType) {
+  return venueProfile(businessType).bookingMode || "none";
+}
+
+/** True iff this vertical books physical TABLES (the only mode that should
+ *  render the floor designer, the public floor-map, party size + couverts).
+ *  Salon ("provider") and bakery/retail ("none") both return false. */
+export function usesTableFloor(businessType) {
+  return bookingModeFor(businessType) === "table";
 }

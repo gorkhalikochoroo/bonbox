@@ -32,8 +32,6 @@ import {
   Pencil,
   Check,
   X,
-  Circle,
-  Square,
   Move,
   RotateCcw,
   LayoutGrid,
@@ -43,6 +41,17 @@ import {
 import api from "../services/api";
 import Button from "./ui/Button";
 import { venueProfile } from "../config/venueProfiles";
+import {
+  SHAPES,
+  ARCHETYPES,
+  normalizeShape,
+  tableDims,
+  archetypeChairs,
+  bodyRadiusClass,
+  chairIsStool,
+  TableMark,
+  ShapeGlyph,
+} from "../config/tableArchetypes";
 
 // ── Status → visual tokens ────────────────────────────────────────────
 // Mirrors deriveFloorState's status vocabulary, mapped onto the brand
@@ -101,6 +110,16 @@ const STATUS_STYLE = {
   },
 };
 
+// Bar stools + high-top seats read as a RING (outline) rather than a solid
+// dot — status-tinted border, keyed on the same vocabulary as STATUS_STYLE.
+const STOOL_BORDER = {
+  free: "border-emerald-400 dark:border-emerald-600",
+  upcoming: "border-amber-400 dark:border-amber-600",
+  seated: "border-gray-500 dark:border-gray-400",
+  overdue: "border-red-300 dark:border-red-700",
+  inactive: "border-gray-300 dark:border-gray-600",
+};
+
 // Refine deriveFloorState's status into the room's richer vocabulary:
 // a seated booking whose end time has passed becomes "overdue".
 function visualStatus(cell, nowMs) {
@@ -129,41 +148,9 @@ function tableSizePx(seats) {
   return Math.round(Math.min(120, 44 + s * 10));
 }
 
-// Chair-dot positions around the table perimeter. For a circle we spread
-// evenly on the ring; for a square we distribute across the four edges so
-// it reads like seats pulled up to a table. Returns [{x,y}] in px offsets
-// from the table's center (the table box is sizePx square).
-function chairPositions(count, sizePx, shape, chairW = 9) {
-  const n = Math.max(0, Math.min(12, Number(count) || 0));
-  if (n === 0) return [];
-  const out = [];
-  const pad = chairW / 2 + 5; // gap from the table edge out to the chair
-  const r = sizePx / 2 + pad; // ring radius: just outside the table edge
-  if (shape === "square") {
-    // Distribute across 4 edges as evenly as possible.
-    const perEdge = [0, 0, 0, 0];
-    for (let i = 0; i < n; i++) perEdge[i % 4]++;
-    const half = sizePx / 2 + pad;
-    // k-th seat of `total` along one edge, centered across the table width.
-    const place = (k, total) => {
-      const span = sizePx * 0.82;
-      const step = total > 1 ? span / (total - 1) : 0;
-      return total > 1 ? -span / 2 + k * step : 0;
-    };
-    // top edge (y = -half), bottom (y = +half), left (x = -half), right (x = +half)
-    for (let k = 0; k < perEdge[0]; k++) out.push({ x: place(k, perEdge[0]), y: -half });
-    for (let k = 0; k < perEdge[1]; k++) out.push({ x: place(k, perEdge[1]), y: half });
-    for (let k = 0; k < perEdge[2]; k++) out.push({ x: -half, y: place(k, perEdge[2]) });
-    for (let k = 0; k < perEdge[3]; k++) out.push({ x: half, y: place(k, perEdge[3]) });
-    return out;
-  }
-  // Round: even spread on the ring, starting at top.
-  for (let i = 0; i < n; i++) {
-    const a = -Math.PI / 2 + (i / n) * Math.PI * 2;
-    out.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
-  }
-  return out;
-}
+// Chair/stool positions now come from the shared archetype library
+// (config/tableArchetypes → archetypeChairs), so a Langbord / Bås / Barplads /
+// Højbord seats the same here and on the public booker map.
 
 // Auto-layout fallback — arrange tables that have no pos_x/pos_y into a tidy
 // grid, grouped by zone (each zone is a horizontal band). Returns a map of
@@ -224,14 +211,15 @@ function buildLayout(cells, businessType) {
     const hasX = c.res.pos_x != null && Number.isFinite(Number(c.res.pos_x));
     const hasY = c.res.pos_y != null && Number.isFinite(Number(c.res.pos_y));
     const profile = venueProfile(businessType, c.res);
-    const shape =
-      c.res.shape === "square" || c.res.shape === "round"
-        ? c.res.shape
-        : profile.defaultShape(c.res.capacity_seats);
+    // Any saved archetype (round/square/rect/booth/bar/hightop) wins; tables
+    // with no saved shape fall back to the venue archetype's default.
+    const shape = SHAPES.includes(c.res.shape)
+      ? c.res.shape
+      : profile.defaultShape(c.res.capacity_seats);
     map[id] = {
       pos_x: hasX ? clampPct(Number(c.res.pos_x)) : auto[id]?.pos_x ?? 50,
       pos_y: hasY ? clampPct(Number(c.res.pos_y)) : auto[id]?.pos_y ?? 50,
-      shape: shape === "square" ? "square" : "round",
+      shape: normalizeShape(shape),
     };
   });
   return map;
@@ -262,13 +250,19 @@ function TableNode({
   // Chairs scale with the table so big tables get chunky seats, not tiny dots.
   const chairW = Math.max(9, Math.min(15, Math.round(sizePx * 0.17)));
   const shape = pos.shape;
+  // Footprint + seat layout come from the shared archetype library, so a
+  // Langbord / Bås / Barplads / Højbord is drawn identically here and on the
+  // public booker map. round/square keep the legacy square footprint (dims.w
+  // === dims.h === sizePx) so existing rooms don't shift.
+  const dims = tableDims(shape, res.capacity_seats);
+  const isStool = chairIsStool(shape);
   // Station-like resources (salon archetype, or any kind === "provider") read
   // as a single person at a chair — one marker, not a ring of N chair dots.
   // Everything else keeps the chair ring sized by capacity.
   const stationLike = profile.stationLike;
   const chairs = useMemo(
-    () => (stationLike ? [] : chairPositions(res.capacity_seats, sizePx, shape, chairW)),
-    [res.capacity_seats, sizePx, shape, stationLike, chairW],
+    () => (stationLike ? [] : archetypeChairs(shape, res.capacity_seats, dims.w, dims.h, chairW)),
+    [res.capacity_seats, dims.w, dims.h, shape, stationLike, chairW],
   );
   const combined = cell.combined;
   const booking = cell.booking;
@@ -318,8 +312,8 @@ function TableNode({
       style={{
         left: `${pos.pos_x}%`,
         top: `${pos.pos_y}%`,
-        width: sizePx,
-        height: sizePx,
+        width: dims.w,
+        height: dims.h,
         zIndex: selected ? 30 : status === "overdue" ? 20 : 10,
         touchAction: editing ? "none" : "auto",
       }}
@@ -331,7 +325,12 @@ function TableNode({
         <span
           key={i}
           aria-hidden
-          className={"absolute rounded-full " + style.chair}
+          className={
+            "absolute rounded-full " +
+            (isStool
+              ? "border-2 bg-transparent " + (STOOL_BORDER[status] || STOOL_BORDER.free)
+              : style.chair)
+          }
           style={{
             width: chairW,
             height: chairW,
@@ -350,7 +349,7 @@ function TableNode({
             height: 11,
             left: "50%",
             top: "50%",
-            transform: `translate(-50%, calc(-50% - ${sizePx / 2 + 9}px))`,
+            transform: `translate(-50%, calc(-50% - ${dims.h / 2 + 9}px))`,
           }}
         />
       )}
@@ -374,7 +373,7 @@ function TableNode({
           " " +
           (status !== "inactive" ? style.glow : "") +
           " " +
-          (shape === "square" ? "rounded-2xl" : "rounded-full") +
+          bodyRadiusClass(shape) +
           " " +
           (editing
             ? "cursor-grab active:cursor-grabbing shadow-lg"
@@ -385,6 +384,15 @@ function TableNode({
           (selected ? "scale-[1.05] shadow-xl ring-offset-2 ring-offset-transparent" : "")
         }
       >
+        {/* Archetype mark — the booth bench / high-top tall-ring, drawn the
+            same way on the public booker map (shared TableMark). */}
+        <TableMark
+          shape={shape}
+          w={dims.w}
+          h={dims.h}
+          benchClass={style.chair}
+          ringClass={STOOL_BORDER[status] || STOOL_BORDER.free}
+        />
         {/* Status dot — top-right corner of the table */}
         <span
           className={"absolute top-1 right-1 w-2.5 h-2.5 rounded-full " + style.dot}
@@ -460,7 +468,9 @@ function TableNode({
         )}
       </button>
 
-      {/* Edit affordances: round/square toggle pinned just below the table. */}
+      {/* Edit affordance: tap to cycle the table through the preset design
+          library (round → square → langbord → bås → barplads → højbord). The
+          glyph shows the CURRENT design so the room reads at a glance. */}
       {editing && (
         <button
           type="button"
@@ -468,15 +478,11 @@ function TableNode({
             e.stopPropagation();
             onToggleShape(res.id);
           }}
-          title={t("rsvpPlanToggleShape", "Round / square")}
-          aria-label={t("rsvpPlanToggleShape", "Round / square")}
+          title={t("rsvpPlanShapeCycle", "Skift bord-design")}
+          aria-label={t("rsvpPlanShapeCycle", "Skift bord-design")}
           className="absolute left-1/2 -translate-x-1/2 -bottom-3 z-40 h-7 w-7 inline-flex items-center justify-center rounded-full bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 shadow text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
         >
-          {shape === "square" ? (
-            <Circle className="w-3.5 h-3.5" aria-hidden />
-          ) : (
-            <Square className="w-3.5 h-3.5" aria-hidden />
-          )}
+          <ShapeGlyph shape={shape} size={18} />
         </button>
       )}
     </div>
@@ -618,16 +624,16 @@ export default function FloorPlan({
     });
   }, [cells, currentLayout]);
 
+  // Cycle a table through the preset design library (the order in SHAPES).
   const toggleShape = useCallback((id) => {
     setDraft((prev) => {
       if (!prev) return prev;
       const key = String(id);
       const cur = prev[key];
       if (!cur) return prev;
-      return {
-        ...prev,
-        [key]: { ...cur, shape: cur.shape === "square" ? "round" : "square" },
-      };
+      const i = SHAPES.indexOf(normalizeShape(cur.shape));
+      const next = SHAPES[(i + 1) % SHAPES.length];
+      return { ...prev, [key]: { ...cur, shape: next } };
     });
   }, []);
 
@@ -700,7 +706,7 @@ export default function FloorPlan({
           id: c.res.id,
           pos_x: Math.round((l?.pos_x ?? 50) * 10) / 10,
           pos_y: Math.round((l?.pos_y ?? 50) * 10) / 10,
-          shape: l?.shape === "square" ? "square" : "round",
+          shape: normalizeShape(l?.shape),
         };
       }),
     };

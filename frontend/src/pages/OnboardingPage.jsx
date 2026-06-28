@@ -109,11 +109,18 @@ function routeForFeature(key) {
 const BRANCH_TYPES = [
   { id: "restaurant", iconName: "UtensilsCrossed", labelKey: "branchRestaurant", labelFallback: "Restaurant" },
   { id: "cafe",       iconName: "Coffee",          labelKey: "branchCafe",       labelFallback: "Café" },
+  // Phase A — bakery is now self-selectable (was the #1 onboarding blocker: a
+  // bakery owner could not self-identify and fell to the generic preset).
+  // Croissant icon; its own preset (Reservations OFF, 04:00 overnight cutoff).
+  { id: "bakery",     iconName: "Croissant",       labelKey: "branchBakery",     labelFallback: "Bakery" },
   { id: "bar",        iconName: "Beer",            labelKey: "branchBar",        labelFallback: "Bar" },
   // C12: takeaway / fast food — counter trade, no table reservations. A real
   // signup business_type with its own DK preset (hides reservations/events/
   // inventory/insights; Staff stays on). Bike reads as takeaway/delivery.
   { id: "takeaway",   iconName: "Bike",            labelKey: "branchTakeaway",   labelFallback: "Takeaway" },
+  // Phase A — salon is now self-selectable (the #1 onboarding blocker). Salon
+  // is reservations-first (Aftaler/Tidsbestilling); Scissors icon.
+  { id: "salon",      iconName: "Scissors",        labelKey: "branchSalon",      labelFallback: "Salon" },
   { id: "retail",     iconName: "ShoppingBag",     labelKey: "branchRetail",     labelFallback: "Retail" },
   { id: "workshop",   iconName: "Wrench",          labelKey: "branchWorkshop",   labelFallback: "Workshop" },
   { id: "general",    iconName: "Package",         labelKey: "branchGeneral",    labelFallback: "Other" },
@@ -150,6 +157,25 @@ const CUTOFF_PRESETS = [
     labelFallback: "Restaurant / café (06:00)",
     descKey: "onbStep3CutoffRestaurantDesc",
     descFallback: "Late-night service (02:00) still counts toward yesterday — Danish standard.",
+  },
+  {
+    // Phase A — bakery overnight bake. The 03:00 batch belongs to the SAME
+    // business day as the morning counter sales, so roll over at 04:00.
+    id: "bakery", hour: 4,
+    labelKey: "onbStep3CutoffBakery",
+    labelFallback: "Bakery (04:00)",
+    descKey: "onbStep3CutoffBakeryDesc",
+    descFallback: "Overnight bake — the 03:00 batch stays on the same business day as the morning sale.",
+  },
+  {
+    // Phase A — salon / daytime service. No late-night window; calendar-day
+    // rollover at midnight (same hour as office, surfaced as its own label so
+    // a salon owner sees their own vertical named).
+    id: "salon", hour: 0,
+    labelKey: "onbStep3CutoffSalon",
+    labelFallback: "Salon (00:00)",
+    descKey: "onbStep3CutoffSalonDesc",
+    descFallback: "Daytime appointments — the day rolls over at midnight.",
   },
   {
     id: "office", hour: 0,
@@ -228,6 +254,7 @@ function StepHeader({ eyebrow, title, lede, center = false }) {
 
 // ── Field label — shared, calm form-label treatment ──────────────────
 function FieldLabel({ htmlFor, children, required = false }) {
+  const { t } = useLanguage();
   return (
     <label
       htmlFor={htmlFor}
@@ -237,7 +264,7 @@ function FieldLabel({ htmlFor, children, required = false }) {
       {required && (
         <>
           <span className="text-red-600 ml-0.5" aria-hidden="true">*</span>
-          <span className="sr-only"> (required)</span>
+          <span className="sr-only"> {t("onbFieldRequiredSr", "(required)")}</span>
         </>
       )}
     </label>
@@ -406,14 +433,22 @@ export default function OnboardingPage() {
   //   resolveCutoffHour() (NaN custom input / unrecognized mode).
   // day_cutoff_custom: 0-23 — only consulted when mode === "custom".
   const isDkk = ((user?.currency || "DKK").toUpperCase() === "DKK");
-  // Which preset does an archetype want? Restaurant 06:00 vs office 00:00.
-  const cutoffModeForArchetype = (arch) =>
-    arch?.id === "food_service" || arch?.id === "bar" ? "restaurant" : "office";
+  // Which cutoff preset does this account want? Type-specific presets win
+  // first (Phase A): bakery → 04:00 overnight bake, salon → 00:00 daytime.
+  // Then the archetype default: food_service / bar → restaurant 06:00, else
+  // office 00:00. Keyed on the RAW business_type so the bakery preset fires
+  // even though bakery resolves to the food_service archetype.
+  const cutoffModeFor = (businessType, arch) => {
+    const bt = String(businessType || "").trim().toLowerCase();
+    if (bt === "bakery") return "bakery";
+    if (bt === "salon") return "salon";
+    return arch?.id === "food_service" || arch?.id === "bar" ? "restaurant" : "office";
+  };
   const [tax, setTax] = useState({
     tax_filing_frequency: "half_yearly",
     prices_include_moms: true,
     accountant_email: "",
-    day_cutoff_mode: cutoffModeForArchetype(resolvedArchetype),
+    day_cutoff_mode: cutoffModeFor(biz.branch_type, resolvedArchetype),
     day_cutoff_custom: 6,
   });
   const [savingTax, setSavingTax] = useState(false);
@@ -427,11 +462,11 @@ export default function OnboardingPage() {
   // everything else → office (00:00). Once they tap a preset, this no-ops.
   useEffect(() => {
     if (cutoffTouched.current) return;
-    const nextMode = cutoffModeForArchetype(resolvedArchetype);
+    const nextMode = cutoffModeFor(biz.branch_type, resolvedArchetype);
     setTax((tx) =>
       tx.day_cutoff_mode === nextMode ? tx : { ...tx, day_cutoff_mode: nextMode },
     );
-  }, [resolvedArchetype]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [resolvedArchetype, biz.branch_type]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Resolve the UI choice to an integer hour for the API payload. */
   const resolveCutoffHour = () => {

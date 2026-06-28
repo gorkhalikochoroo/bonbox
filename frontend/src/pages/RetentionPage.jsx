@@ -51,7 +51,7 @@ export default function RetentionPage({ embedded = false }) {
       <div className={`${embedded ? "" : "p-4 md:p-8"} flex items-center justify-center min-h-[400px]`}>
         <div className="text-center">
           <div className="text-4xl mb-3 animate-pulse">🤝</div>
-          <p className="text-gray-500 dark:text-gray-400">Analyzing customer retention...</p>
+          <p className="text-gray-500 dark:text-gray-400">{t("retAnalyzing", "Analyzing customer retention...")}</p>
         </div>
       </div>
     );
@@ -63,7 +63,7 @@ export default function RetentionPage({ embedded = false }) {
         <div className="text-4xl mb-4">🤝</div>
         <p className="text-red-500">{error}</p>
         <Button variant="secondary" onClick={fetchData} className="mt-4">
-          Try again
+          {t("tryAgain", "Try again")}
         </Button>
       </div>
     );
@@ -126,38 +126,38 @@ export default function RetentionPage({ embedded = false }) {
 
       {/* ─── KEY METRICS ─── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatCard label="Total Customers" value={total_customers} />
+        <StatCard label={t("retTotalCustomers", "Total Customers")} value={total_customers} />
         <StatCard
-          label="Retention Rate"
+          label={t("retRetentionRate", "Retention Rate")}
           value={`${retention_rate}%`}
-          helper={`${active_customers} active`}
+          helper={`${active_customers} ${t("retActiveHelper", "active")}`}
           accent={retention_rate >= 60 ? "success" : "critical"}
         />
         <StatCard
-          label="Churn Rate"
+          label={t("retChurnRate", "Churn Rate")}
           value={`${churn_rate}%`}
-          helper={`${churned_customers} lost`}
+          helper={`${churned_customers} ${t("retLostHelper", "lost")}`}
           accent={churn_rate <= 20 ? "success" : "critical"}
         />
         <StatCard
-          label="Avg CLV"
+          label={t("retAvgClv", "Avg CLV")}
           value={`${fmt(avg_clv)} ${currency}`}
-          helper={`Total: ${fmt(total_clv)}`}
+          helper={`${t("retTotalHelper", "Total")}: ${fmt(total_clv)}`}
         />
       </div>
 
       {/* ─── TRANSACTION TRENDS ─── */}
       <div className="grid grid-cols-2 gap-3">
         <StatCard
-          label="Transaction Trend"
+          label={t("retTxnTrend", "Transaction Trend")}
           value={`${txn_trend_pct >= 0 ? "+" : ""}${txn_trend_pct}%`}
-          helper={`${current_month_txns} vs ${prev_month_txns} last month`}
+          helper={`${current_month_txns} vs ${prev_month_txns} ${t("retLastMonth", "last month")}`}
           accent={txn_trend_pct >= 0 ? "success" : "critical"}
         />
         <StatCard
-          label="Revenue Trend"
+          label={t("retRevenueTrend", "Revenue Trend")}
           value={`${rev_trend_pct >= 0 ? "+" : ""}${rev_trend_pct}%`}
-          helper="vs previous 30 days"
+          helper={t("retVsPrev30", "vs previous 30 days")}
           accent={rev_trend_pct >= 0 ? "success" : "critical"}
         />
       </div>
@@ -166,9 +166,9 @@ export default function RetentionPage({ embedded = false }) {
       <TabPills
         tabs={tabs.map(tab => ({
           id: tab.key,
-          label: tab.key === "overview" ? "Overview"
-            : tab.key === "customers" ? "Top Customers"
-            : "At Risk",
+          label: tab.key === "overview" ? t("retTabOverview", "Overview")
+            : tab.key === "customers" ? t("retTabTopCustomers", "Top Customers")
+            : t("retTabAtRisk", "At Risk"),
           count: tab.key === "customers" ? (top_customers?.length || 0)
             : tab.key === "at_risk" ? (at_risk_list?.length || 0)
             : undefined,
@@ -184,7 +184,7 @@ export default function RetentionPage({ embedded = false }) {
           {/* Status pie chart */}
           {pieData.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
-              <h2 className="font-bold text-gray-800 dark:text-white mb-4">📊 Customer Status</h2>
+              <h2 className="font-bold text-gray-800 dark:text-white mb-4">📊 {t("retCustomerStatus", "Customer Status")}</h2>
               <div className="flex flex-col md:flex-row items-center gap-6">
                 <div className="h-48 w-48">
                   <ResponsiveContainer width="100%" height="100%">
@@ -202,7 +202,7 @@ export default function RetentionPage({ embedded = false }) {
                           <Cell key={i} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Tooltip formatter={(val) => [val, "Customers"]} />
+                      <Tooltip formatter={(val) => [val, t("retCustomersLabel", "Customers")]} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -227,7 +227,7 @@ export default function RetentionPage({ embedded = false }) {
           {/* Monthly cohort chart */}
           {monthly_cohort?.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
-              <h2 className="font-bold text-gray-800 dark:text-white mb-4">📅 Monthly Customer Activity</h2>
+              <h2 className="font-bold text-gray-800 dark:text-white mb-4">📅 {t("retMonthlyActivity", "Monthly Customer Activity")}</h2>
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={monthly_cohort}>
@@ -236,8 +236,8 @@ export default function RetentionPage({ embedded = false }) {
                     <YAxis allowDecimals={false} />
                     <Tooltip contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }} />
                     <Legend />
-                    <Bar dataKey="returning" stackId="a" fill="#10b981" name="Returning" radius={[0, 0, 0, 0]} />
-                    <Bar dataKey="new" stackId="a" fill="#3b82f6" name="New" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="returning" stackId="a" fill="#10b981" name={t("retReturning", "Returning")} radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="new" stackId="a" fill="#3b82f6" name={t("retNew", "New")} radius={[4, 4, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -249,7 +249,7 @@ export default function RetentionPage({ embedded = false }) {
       {/* ─── TOP CUSTOMERS TAB ─── */}
       {tab === "customers" && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">👑 Top Customers by CLV</h2>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-4">👑 {t("retTopByClv", "Top Customers by CLV")}</h2>
           {top_customers?.length > 0 ? (
             <div className="space-y-3">
               {top_customers.map((c, i) => (
@@ -257,7 +257,7 @@ export default function RetentionPage({ embedded = false }) {
               ))}
             </div>
           ) : (
-            <EmptyState message="No customer data yet. Add customers in Khata to start tracking." />
+            <EmptyState message={t("retNoCustomerData", "No customer data yet. Add customers in Khata to start tracking.")} />
           )}
         </div>
       )}
@@ -267,8 +267,8 @@ export default function RetentionPage({ embedded = false }) {
         <div className="space-y-6">
           {at_risk_list?.length > 0 ? (
             <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border-l-4 border-yellow-500">
-              <h2 className="font-bold text-gray-800 dark:text-white mb-2">⚠️ At Risk (30-60 days inactive)</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">These customers may be slipping away. Reach out soon!</p>
+              <h2 className="font-bold text-gray-800 dark:text-white mb-2">⚠️ {t("retAtRiskHeading", "At Risk (30-60 days inactive)")}</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t("retAtRiskDesc", "These customers may be slipping away. Reach out soon!")}</p>
               <div className="space-y-3">
                 {at_risk_list.map((c) => (
                   <CustomerCard key={c.id} customer={c} currency={currency} showUrgency />
@@ -278,15 +278,15 @@ export default function RetentionPage({ embedded = false }) {
           ) : (
             <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm text-center">
               <div className="text-4xl mb-2">🎉</div>
-              <p className="text-gray-600 dark:text-gray-300 font-medium">No at-risk customers!</p>
-              <p className="text-sm text-gray-400">All your customers are active.</p>
+              <p className="text-gray-600 dark:text-gray-300 font-medium">{t("retNoAtRisk", "No at-risk customers!")}</p>
+              <p className="text-sm text-gray-400">{t("retAllActive", "All your customers are active.")}</p>
             </div>
           )}
 
           {churned_list?.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border-l-4 border-red-500">
-              <h2 className="font-bold text-gray-800 dark:text-white mb-2">🚨 Churned (60+ days inactive)</h2>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Haven't returned in over 60 days. Win-back campaign recommended.</p>
+              <h2 className="font-bold text-gray-800 dark:text-white mb-2">🚨 {t("retChurnedHeading", "Churned (60+ days inactive)")}</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t("retChurnedDesc", "Haven't returned in over 60 days. Win-back campaign recommended.")}</p>
               <div className="space-y-3">
                 {churned_list.map((c) => (
                   <CustomerCard key={c.id} customer={c} currency={currency} showUrgency />
@@ -301,6 +301,7 @@ export default function RetentionPage({ embedded = false }) {
 }
 
 function CustomerCard({ customer: c, rank, currency, showUrgency }) {
+  const { t } = useLanguage();
   const cfg = STATUS_CONFIG[c.status];
   return (
     <div className="bg-gray-50 dark:bg-gray-700/30 rounded-xl px-4 py-3">
@@ -318,8 +319,8 @@ function CustomerCard({ customer: c, rank, currency, showUrgency }) {
             </span>
           </div>
           <p className="text-xs text-gray-500 mt-0.5">
-            {c.txn_count} visits | Last: {c.last_visit}
-            {showUrgency && <span className="text-red-500 font-medium"> ({c.days_since_last}d ago)</span>}
+            {c.txn_count} {t("retVisits", "visits")} | {t("retLast", "Last")}: {c.last_visit}
+            {showUrgency && <span className="text-red-500 font-medium"> ({c.days_since_last}{t("retDaysAgoSuffix", "d ago")})</span>}
           </p>
         </div>
       </div>
@@ -330,7 +331,7 @@ function CustomerCard({ customer: c, rank, currency, showUrgency }) {
         </div>
         <div>
           <p className="text-sm font-bold text-gray-700 dark:text-gray-300">{fmt(c.monthly_avg)} {currency}</p>
-          <p className="text-[10px] text-gray-400">/month</p>
+          <p className="text-[10px] text-gray-400">{t("retPerMonth", "/month")}</p>
         </div>
       </div>
     </div>

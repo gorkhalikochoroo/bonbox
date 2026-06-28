@@ -109,7 +109,7 @@ export default function SmartTerminalsCard({ onComplete }) {
 
   async function startInference() {
     if (scans.length === 0) {
-      setError(t("smartTerminalsNoScans") || "Add at least one kasserapport photo first.");
+      setError(t("smartTerminalsNoScans", "Add at least one kasserapport photo first."));
       return;
     }
     setError("");
@@ -138,7 +138,7 @@ export default function SmartTerminalsCard({ onComplete }) {
     } catch (err) {
       // 401 redirects via global interceptor — suppress the error flash
       if (err?.response?.status === 401) return;
-      setError(errText(err, t("smartTerminalsInferFailed") || "Couldn't propose terminals."));
+      setError(errText(err, t("smartTerminalsInferFailed", "Couldn't propose terminals.")));
     }
   }
 
@@ -202,7 +202,7 @@ export default function SmartTerminalsCard({ onComplete }) {
       // we matched/skipped are untouched.
       const undoIds = createdTerminals.map((t) => t.id);
       showUndo({
-        message: t("smartTerminalsSavedToast") || "Terminals saved",
+        message: t("smartTerminalsSavedToast", "Terminals saved"),
         onUndo: async () => {
           for (const id of undoIds) {
             try { await api.delete(`/terminals/${id}`); } catch { /* best-effort */ }
@@ -215,7 +215,7 @@ export default function SmartTerminalsCard({ onComplete }) {
       setPhase("done");
       onComplete?.({ terminals: activeTerminals, scans });
     } catch (err) {
-      setError(errText(err, t("smartTerminalsSaveFailed") || "Couldn't save terminals."));
+      setError(errText(err, t("smartTerminalsSaveFailed", "Couldn't save terminals.")));
       setPhase("confirm");
     }
   }
@@ -239,15 +239,15 @@ export default function SmartTerminalsCard({ onComplete }) {
         <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 bg-white dark:bg-gray-800/40 p-5 sm:p-6 space-y-4">
           <div>
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-              {t("smartTerminalsTitle") || "Set up your terminals — the easy way"}
+              {t("smartTerminalsTitle", "Set up your terminals — the easy way")}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {t("smartTerminalsScanIntro") ||
-                "Snap one kasserapport from each terminal you have. We'll read the labels and propose your setup."}
+              {t("smartTerminalsScanIntro",
+                "Snap one kasserapport from each terminal you have. We'll read the labels and propose your setup.")}
             </p>
             <p className="text-[12px] text-gray-400 dark:text-gray-500 mt-1">
-              {t("smartTerminalsReassure") ||
-                "Don't have all of them tonight? Scan what you have — you can add more later."}
+              {t("smartTerminalsReassure",
+                "Don't have all of them tonight? Scan what you have — you can add more later.")}
             </p>
           </div>
 
@@ -259,8 +259,8 @@ export default function SmartTerminalsCard({ onComplete }) {
               className="px-4 py-2 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold disabled:opacity-50 transition"
             >
               {scanning
-                ? (t("scanning") || "Scanning…")
-                : (t("smartTerminalsPickPhotos") || "Pick kasserapport photos")}
+                ? t("scanning", "Scanning…")
+                : t("smartTerminalsPickPhotos", "Pick kasserapport photos")}
             </button>
             <input
               ref={fileInputRef}
@@ -271,18 +271,18 @@ export default function SmartTerminalsCard({ onComplete }) {
               className="hidden"
             />
             <p className="text-[11px] text-gray-400 mt-2">
-              {t("smartTerminalsPickHint") || "JPEG, PNG, HEIC. Up to 12 MB each."}
+              {t("smartTerminalsPickHint", "JPEG, PNG, HEIC. Up to 12 MB each.")}
             </p>
           </div>
 
           {scans.length > 0 && (
             <div className="space-y-2">
               <div className="text-[11px] uppercase tracking-wide font-semibold text-gray-500">
-                {t("smartTerminalsScanned") || "Scanned"} ({scans.length})
+                {t("smartTerminalsScanned", "Scanned")} ({scans.length})
               </div>
               <ul className="space-y-1.5">
                 {scans.map((s, i) => {
-                  const label = s?.data?.session?.terminal || (t("smartTerminalsLabelMissing") || "(no label found)");
+                  const label = s?.data?.session?.terminal || t("smartTerminalsLabelMissing", "(no label found)");
                   return (
                     <li
                       key={s.extraction_id || i}
@@ -295,7 +295,7 @@ export default function SmartTerminalsCard({ onComplete }) {
                         type="button"
                         onClick={() => clearScan(i)}
                         className="text-xs text-gray-400 hover:text-red-500"
-                        aria-label={t("remove") || "Remove"}
+                        aria-label={t("remove", "Remove")}
                       >
                         ×
                       </button>
@@ -317,7 +317,7 @@ export default function SmartTerminalsCard({ onComplete }) {
               disabled={scans.length === 0 || scanning}
               className="px-4 py-2 rounded-lg bg-gray-900 dark:bg-gray-900 hover:bg-gray-800 dark:hover:bg-gray-700 text-white text-sm font-semibold disabled:opacity-40 transition"
             >
-              {t("smartTerminalsContinue") || "Continue"}
+              {t("smartTerminalsContinue", "Continue")}
             </button>
           </div>
         </div>
@@ -327,7 +327,7 @@ export default function SmartTerminalsCard({ onComplete }) {
   }
 
   if (phase === "confirm" && proposal) {
-    const slipCountText = (t("smartTerminalsFoundN") ||
+    const slipCountText = t("smartTerminalsFoundN",
       "Found {labels} label{labelPlural} across {slips} slip{slipPlural}")
       .replace("{labels}", proposal.data_quality?.distinct_labels ?? proposal.proposals.length)
       .replace("{labelPlural}", (proposal.data_quality?.distinct_labels ?? proposal.proposals.length) === 1 ? "" : "s")
@@ -342,12 +342,12 @@ export default function SmartTerminalsCard({ onComplete }) {
           <div>
             <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
               {noLabelsFound
-                ? (t("smartTerminalsEmptyTitle") || "We couldn't read terminal labels")
-                : (t("smartTerminalsConfirmTitle") || "Here's what we found")}
+                ? t("smartTerminalsEmptyTitle", "We couldn't read terminal labels")
+                : t("smartTerminalsConfirmTitle", "Here's what we found")}
             </h2>
             <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-1">
               {noLabelsFound
-                ? (t("smartTerminalsEmptyBody") ||
+                ? t("smartTerminalsEmptyBody",
                     "The slips didn't have a clear terminal name. Want one default terminal to start with — you can rename it later.")
                 : slipCountText}
             </p>
@@ -357,7 +357,7 @@ export default function SmartTerminalsCard({ onComplete }) {
           {isMultiBranch && (
             <div className="space-y-1">
               <label htmlFor="smart-terminals-branch" className="text-[11px] uppercase tracking-wide font-semibold text-gray-500">
-                {t("smartTerminalsBranch") || "Branch"}
+                {t("smartTerminalsBranch", "Branch")}
               </label>
               <select
                 id="smart-terminals-branch"
@@ -366,7 +366,7 @@ export default function SmartTerminalsCard({ onComplete }) {
                 className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm"
               >
                 <option value="">
-                  {t("smartTerminalsBranchPick") || "Pick a branch…"}
+                  {t("smartTerminalsBranchPick", "Pick a branch…")}
                 </option>
                 {branches.map((b) => (
                   <option key={b.id} value={b.id}>
@@ -414,13 +414,13 @@ export default function SmartTerminalsCard({ onComplete }) {
                           <>
                             <span aria-hidden>·</span>
                             <span>{p.source_count} {p.source_count === 1
-                              ? (t("smartTerminalsSlipSeen") || "slip seen")
-                              : (t("smartTerminalsSlipsSeen") || "slips seen")}</span>
+                              ? t("smartTerminalsSlipSeen", "slip seen")
+                              : t("smartTerminalsSlipsSeen", "slips seen")}</span>
                           </>
                         )}
                         {isExisting && (
                           <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 font-semibold">
-                            {t("smartTerminalsAlreadySetUp") || "already set up"}
+                            {t("smartTerminalsAlreadySetUp", "already set up")}
                           </span>
                         )}
                       </div>
@@ -456,8 +456,8 @@ export default function SmartTerminalsCard({ onComplete }) {
                         className="px-2 py-1 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 rounded"
                       >
                         {isEditing
-                          ? (t("done") || "Done")
-                          : (t("smartTerminalsEditRow") || "Edit")}
+                          ? t("done", "Done")
+                          : t("smartTerminalsEditRow", "Edit")}
                       </button>
                     )}
                   </div>
@@ -476,7 +476,7 @@ export default function SmartTerminalsCard({ onComplete }) {
               onClick={cancelProposal}
               className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
             >
-              {t("back") || "Back"}
+              {t("back", "Back")}
             </button>
             <button
               type="button"
@@ -485,8 +485,8 @@ export default function SmartTerminalsCard({ onComplete }) {
               className="px-4 py-2 rounded-lg bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold disabled:opacity-50 transition"
             >
               {phase === "saving"
-                ? (t("saving") || "Saving…")
-                : (t("smartTerminalsSaveN") || "Save {n} terminal{plural}")
+                ? t("saving", "Saving…")
+                : t("smartTerminalsSaveN", "Save {n} terminal{plural}")
                     .replace("{n}", String(newCount))
                     .replace("{plural}", newCount === 1 ? "" : "s")}
             </button>
@@ -501,7 +501,7 @@ export default function SmartTerminalsCard({ onComplete }) {
     return (
       <>
         <div className="rounded-xl border border-gray-200 dark:border-gray-700/60 p-5 text-center text-sm text-gray-500">
-          {phase === "saving" ? (t("saving") || "Saving…") : (t("smartTerminalsSaved") || "Saved.")}
+          {phase === "saving" ? t("saving", "Saving…") : t("smartTerminalsSaved", "Saved.")}
         </div>
         {ToastUI}
       </>

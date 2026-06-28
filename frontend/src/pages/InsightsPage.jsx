@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import { trackEvent } from "../hooks/useEventLog";
+import { useLanguage } from "../hooks/useLanguage";
 
 /**
  * /insights — full AI insights inbox.
@@ -17,6 +18,7 @@ import { trackEvent } from "../hooks/useEventLog";
 // gutters + the local header block (title + "Refresh insights") so the hub
 // owns the shell. The Refresh action is re-surfaced inline in embedded mode.
 export default function InsightsPage({ embedded = false }) {
+  const { t } = useLanguage();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("active"); // active | dismissed | acted | expired | all
@@ -51,12 +53,12 @@ export default function InsightsPage({ embedded = false }) {
       setRefreshMsg(
         n > 0
           ? `Found ${n} new insight${n === 1 ? "" : "s"}.`
-          : "No new insights right now — patterns need at least 14 days of activity."
+          : t("insRefreshNone", "No new insights right now — patterns need at least 14 days of activity.")
       );
       trackEvent("insights_refreshed", "insights", String(n));
       await loadAll();
     } catch {
-      setRefreshMsg("Couldn't refresh — try again in a moment.");
+      setRefreshMsg(t("insRefreshError", "Couldn't refresh — try again in a moment."));
     } finally {
       setRefreshing(false);
       setTimeout(() => setRefreshMsg(""), 6000);
@@ -141,11 +143,11 @@ export default function InsightsPage({ embedded = false }) {
   }, [items, overrides]);
 
   const FILTERS = [
-    { key: "active", label: "Active", icon: "✨" },
-    { key: "acted", label: "Done", icon: "✅" },
-    { key: "dismissed", label: "Dismissed", icon: "🙈" },
-    { key: "expired", label: "Expired", icon: "🗓️" },
-    { key: "all", label: "All", icon: "📋" },
+    { key: "active", label: t("insFilterActive", "Active"), icon: "✨" },
+    { key: "acted", label: t("done", "Done"), icon: "✅" },
+    { key: "dismissed", label: t("insFilterDismissed", "Dismissed"), icon: "🙈" },
+    { key: "expired", label: t("insFilterExpired", "Expired"), icon: "🗓️" },
+    { key: "all", label: t("insFilterAll", "All"), icon: "📋" },
   ];
 
   return (
@@ -159,19 +161,17 @@ export default function InsightsPage({ embedded = false }) {
             disabled={refreshing}
             className="px-4 py-2 bg-gray-900 text-white dark:bg-white dark:text-gray-900 text-sm font-medium rounded-lg shadow-sm disabled:opacity-50"
           >
-            {refreshing ? "Refreshing…" : "Refresh insights"}
+            {refreshing ? t("insRefreshing", "Refreshing…") : t("insRefresh", "Refresh insights")}
           </button>
         </div>
       ) : (
         <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              <span>✨</span> Insights
+              <span>✨</span> {t("insTitle", "Insights")}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
-              Patterns BonBox AI detected about your business — anomalies, routines,
-              dormant features. Your 👍/👎 feedback teaches the system which
-              insights are worth surfacing again.
+              {t("insIntro", "Patterns BonBox AI detected about your business — anomalies, routines, dormant features. Your 👍/👎 feedback teaches the system which insights are worth surfacing again.")}
             </p>
           </div>
           <button
@@ -179,7 +179,7 @@ export default function InsightsPage({ embedded = false }) {
             disabled={refreshing}
             className="self-start sm:self-end px-4 py-2 bg-gray-900 text-white dark:bg-white dark:text-gray-900 text-sm font-medium rounded-lg shadow-sm disabled:opacity-50"
           >
-            {refreshing ? "Refreshing…" : "Refresh insights"}
+            {refreshing ? t("insRefreshing", "Refreshing…") : t("insRefresh", "Refresh insights")}
           </button>
         </div>
       )}
@@ -192,9 +192,9 @@ export default function InsightsPage({ embedded = false }) {
 
       {/* Summary stats */}
       <div className="grid grid-cols-3 gap-3 mb-6">
-        <StatCard label="👍 Useful" value={stats.useful} accent="green" />
-        <StatCard label="👎 Not useful" value={stats.notUseful} accent="red" />
-        <StatCard label="✅ Acted on" value={stats.acted} accent="blue" />
+        <StatCard label={t("insStatUseful", "👍 Useful")} value={stats.useful} accent="green" />
+        <StatCard label={t("insStatNotUseful", "👎 Not useful")} value={stats.notUseful} accent="red" />
+        <StatCard label={t("insStatActed", "✅ Acted on")} value={stats.acted} accent="blue" />
       </div>
 
       {/* Filter pills */}
@@ -244,9 +244,7 @@ export default function InsightsPage({ embedded = false }) {
 
       {/* Footer */}
       <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-8 leading-relaxed text-center">
-        Insights are computed on our servers from your account data only. We never
-        share insights about your business with anyone, and they're never used to
-        train external AI models.
+        {t("insPrivacyFooter", "Insights are computed on our servers from your account data only. We never share insights about your business with anyone, and they're never used to train external AI models.")}
       </p>
     </div>
   );
@@ -268,6 +266,7 @@ function StatCard({ label, value, accent }) {
 }
 
 function InsightCard({ pattern, onFeedback, onDismiss, onActed }) {
+  const { t } = useLanguage();
   const sevColors =
     pattern.severity === "critical"
       ? "border-red-300/70 dark:border-red-700/50"
@@ -283,9 +282,9 @@ function InsightCard({ pattern, onFeedback, onDismiss, onActed }) {
   };
 
   const stateLabel = {
-    acted: "Done",
-    dismissed: "Dismissed",
-    expired: "Expired",
+    acted: t("done", "Done"),
+    dismissed: t("insFilterDismissed", "Dismissed"),
+    expired: t("insFilterExpired", "Expired"),
   }[pattern.state];
 
   return (
@@ -309,9 +308,9 @@ function InsightCard({ pattern, onFeedback, onDismiss, onActed }) {
         </p>
       )}
       <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-2">
-        Detected {timeAgo(pattern.detected_at)}{" "}
+        {t("insDetected", "Detected")} {timeAgo(pattern.detected_at)}{" "}
         {pattern.valid_until && pattern.state === "active" && (
-          <>· valid until {new Date(pattern.valid_until).toLocaleDateString()}</>
+          <>· {t("insValidUntil", "valid until")} {new Date(pattern.valid_until).toLocaleDateString()}</>
         )}
       </p>
 
@@ -322,14 +321,14 @@ function InsightCard({ pattern, onFeedback, onDismiss, onActed }) {
               active={pattern.feedback === "useful"}
               onClick={() => onFeedback("useful")}
               icon="👍"
-              label="Useful"
+              label={t("insUseful", "Useful")}
               activeBg="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
             />
             <FeedbackButton
               active={pattern.feedback === "not_useful"}
               onClick={() => onFeedback("not_useful")}
               icon="👎"
-              label="Not useful"
+              label={t("insNotUseful", "Not useful")}
               activeBg="bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300"
             />
           </div>
@@ -339,14 +338,14 @@ function InsightCard({ pattern, onFeedback, onDismiss, onActed }) {
                 onClick={onActed}
                 className="text-xs px-2.5 py-1 rounded-md text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 font-medium"
               >
-                Done it
+                {t("insDoneIt", "Done it")}
               </button>
             )}
             <button
               onClick={onDismiss}
               className="text-xs px-2.5 py-1 rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
             >
-              Dismiss
+              {t("insDismiss", "Dismiss")}
             </button>
           </div>
         </div>
@@ -354,7 +353,7 @@ function InsightCard({ pattern, onFeedback, onDismiss, onActed }) {
 
       {pattern.feedback && pattern.state !== "active" && (
         <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-2">
-          You marked this {pattern.feedback === "useful" ? "👍 Useful" : "👎 Not useful"}
+          {t("insYouMarked", "You marked this")} {pattern.feedback === "useful" ? t("insStatUseful", "👍 Useful") : t("insStatNotUseful", "👎 Not useful")}
         </p>
       )}
     </div>
@@ -376,21 +375,21 @@ function FeedbackButton({ active, onClick, icon, label, activeBg }) {
 }
 
 function EmptyState({ filter }) {
+  const { t } = useLanguage();
   if (filter === "active") {
     return (
       <div className="text-center py-12 px-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-purple-200/40 dark:border-purple-800/30">
         <div className="text-4xl mb-2">✨</div>
-        <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">No active insights right now</h3>
+        <h3 className="text-base font-semibold text-gray-800 dark:text-gray-100">{t("insEmptyActiveTitle", "No active insights right now")}</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-md mx-auto">
-          BonBox AI needs at least 14 days of business activity (sales, expenses, daily closes)
-          before it can detect meaningful patterns. Keep using BonBox — insights will start appearing here.
+          {t("insEmptyActiveBody", "BonBox AI needs at least 14 days of business activity (sales, expenses, daily closes) before it can detect meaningful patterns. Keep using BonBox — insights will start appearing here.")}
         </p>
       </div>
     );
   }
   return (
     <div className="text-center py-12 text-gray-400 dark:text-gray-500">
-      No insights in this view.
+      {t("insEmptyOther", "No insights in this view.")}
     </div>
   );
 }

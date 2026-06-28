@@ -84,7 +84,7 @@ export default function BudgetPage() {
     try {
       await api.put("/budgets", { month, budgets: items });
       setEditing(false);
-      setToast("Budget saved");
+      setToast(t("bgtToastSaved", "Budget saved"));
       setTimeout(() => setToast(""), 2000);
       // Refresh
       const [sumRes, budRes] = await Promise.all([
@@ -94,7 +94,7 @@ export default function BudgetPage() {
       setSummary(sumRes.data);
       setBudgets(budRes.data);
     } catch {
-      setToast("Failed to save");
+      setToast(t("bgtToastSaveFailed", "Failed to save"));
       setTimeout(() => setToast(""), 2000);
     }
     setSaving(false);
@@ -127,13 +127,13 @@ export default function BudgetPage() {
         <PageHeader
           eyebrow="MONEY"
           title={t("budgetOverview") || "Budget"}
-          subtitle="Track spending vs budget by category"
+          subtitle={t("bgtSubtitle", "Track spending vs budget by category")}
           actions={
             <Button
               variant={editing ? "secondary" : "primary"}
               onClick={() => setEditing(!editing)}
             >
-              {editing ? "Cancel" : t("setBudget") || "Set Budgets"}
+              {editing ? t("cancel", "Cancel") : t("setBudget") || "Set Budgets"}
             </Button>
           }
         />
@@ -164,16 +164,16 @@ export default function BudgetPage() {
         /* ═══ EDIT MODE ═══ */
         <FadeIn>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-5 sm:p-6 border border-gray-100 dark:border-gray-700 shadow-sm space-y-5">
-            <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">Set monthly limits</h2>
+            <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("bgtSetMonthlyLimits", "Set monthly limits")}</h2>
 
             {/* Total budget */}
             <div className="flex items-center gap-3 pb-4 border-b border-gray-100 dark:border-gray-700">
-              <span className="text-sm font-medium text-gray-600 dark:text-gray-400 w-32">Total Budget</span>
+              <span className="text-sm font-medium text-gray-600 dark:text-gray-400 w-32">{t("bgtTotalBudget", "Total Budget")}</span>
               <input
                 type="number"
                 value={totalLimit}
                 onChange={(e) => setTotalLimit(e.target.value)}
-                placeholder="e.g. 50000"
+                placeholder={t("bgtTotalLimitPlaceholder", "e.g. 50000")}
                 className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
               />
               <span className="text-xs text-gray-400">{currency}</span>
@@ -209,7 +209,7 @@ export default function BudgetPage() {
                   onChange={(e) => setNewCat(e.target.value)}
                   className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-700 dark:text-gray-300"
                 >
-                  <option value="">Add category...</option>
+                  <option value="">{t("bgtAddCategoryOption", "Add category...")}</option>
                   {unusedCats.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               ) : (
@@ -225,7 +225,7 @@ export default function BudgetPage() {
                 disabled={!newCat.trim()}
                 className="px-3 py-2 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-lg text-sm font-medium disabled:opacity-40"
               >
-                + Add
+                + {t("add", "Add")}
               </button>
             </div>
 
@@ -236,7 +236,7 @@ export default function BudgetPage() {
               onClick={handleSave}
               className="w-full"
             >
-              {saving ? "Saving..." : "Save Budgets"}
+              {saving ? t("bgtSaving", "Saving...") : t("bgtSaveBudgets", "Save Budgets")}
             </Button>
           </div>
         </FadeIn>
@@ -248,7 +248,7 @@ export default function BudgetPage() {
             <FadeIn>
               <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">Overall Budget</span>
+                  <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{t("bgtOverallBudget", "Overall Budget")}</span>
                   <span className="text-sm font-semibold text-gray-800 dark:text-white">
                     {summary.total_spent.toLocaleString()} / {summary.total_budget.toLocaleString()} {currency}
                   </span>
@@ -265,10 +265,10 @@ export default function BudgetPage() {
                   <span className={`text-xs font-semibold ${
                     summary.total_pct > 100 ? "text-red-500" : summary.total_pct >= 80 ? "text-amber-500" : "text-emerald-600"
                   }`}>
-                    {summary.total_pct}% used
+                    {summary.total_pct}% {t("bgtUsed", "used")}
                   </span>
                   <span className="text-xs text-gray-400">
-                    {Math.max(0, summary.total_budget - summary.total_spent).toLocaleString()} {currency} remaining
+                    {Math.max(0, summary.total_budget - summary.total_spent).toLocaleString()} {currency} {t("bgtRemaining", "remaining")}
                   </span>
                 </div>
               </div>
@@ -281,7 +281,7 @@ export default function BudgetPage() {
             <SectionBanner
               severity="critical"
               icon="AlertTriangle"
-              title={`${overBudget.length} ${overBudget.length === 1 ? "category" : "categories"} over budget`}
+              title={`${overBudget.length} ${overBudget.length === 1 ? t("bgtCategory", "category") : t("bgtCategories", "categories")} ${t("bgtOverBudgetSuffix", "over budget")}`}
             >
               {overBudget.map((c) => c.category).join(", ")}
             </SectionBanner>
@@ -290,7 +290,7 @@ export default function BudgetPage() {
             <SectionBanner
               severity="warn"
               icon="AlertTriangle"
-              title={`${nearBudget.length} ${nearBudget.length === 1 ? "category" : "categories"} approaching limit (80%+)`}
+              title={`${nearBudget.length} ${nearBudget.length === 1 ? t("bgtCategory", "category") : t("bgtCategories", "categories")} ${t("bgtApproachingLimit", "approaching limit (80%+)")}`}
             />
           )}
 
@@ -298,20 +298,20 @@ export default function BudgetPage() {
               tiles (near limit = warn, over = critical). */}
           <StaggerGrid className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StaggerGridItem>
-              <StatCard label="Categories" value={String(cats.length)} />
+              <StatCard label={t("bgtStatCategories", "Categories")} value={String(cats.length)} />
             </StaggerGridItem>
             <StaggerGridItem>
               <StatCard
-                label="On Track"
+                label={t("bgtStatOnTrack", "On Track")}
                 value={String(cats.filter((c) => c.status === "green").length)}
                 accent="success"
               />
             </StaggerGridItem>
             <StaggerGridItem>
-              <StatCard label="Near Limit" value={String(nearBudget.length)} accent="warn" />
+              <StatCard label={t("bgtStatNearLimit", "Near Limit")} value={String(nearBudget.length)} accent="warn" />
             </StaggerGridItem>
             <StaggerGridItem>
-              <StatCard label="Over Budget" value={String(overBudget.length)} accent="critical" />
+              <StatCard label={t("bgtStatOverBudget", "Over Budget")} value={String(overBudget.length)} accent="critical" />
             </StaggerGridItem>
           </StaggerGrid>
 
@@ -327,7 +327,7 @@ export default function BudgetPage() {
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-semibold text-gray-800 dark:text-white">{cat.category}</span>
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${sc.badge}`}>
-                            {cat.status === "red" ? "Over" : cat.status === "yellow" ? "Warning" : "OK"}
+                            {cat.status === "red" ? t("bgtBadgeOver", "Over") : cat.status === "yellow" ? t("bgtBadgeWarning", "Warning") : t("bgtBadgeOk", "OK")}
                           </span>
                         </div>
                         <span className="text-sm text-gray-500 dark:text-gray-400">
@@ -344,12 +344,12 @@ export default function BudgetPage() {
                             />
                           </div>
                           <p className={`text-xs mt-1.5 ${sc.text} font-medium`}>
-                            {cat.pct}% used
-                            {cat.status === "red" && ` \u2014 ${(cat.spent - cat.limit_amount).toLocaleString()} ${currency} over`}
+                            {cat.pct}% {t("bgtUsed", "used")}
+                            {cat.status === "red" && ` \u2014 ${(cat.spent - cat.limit_amount).toLocaleString()} ${currency} ${t("bgtOverSuffix", "over")}`}
                           </p>
                         </>
                       ) : (
-                        <p className="text-xs text-gray-400 mt-1">No budget set \u2014 {cat.spent.toLocaleString()} {currency} spent</p>
+                        <p className="text-xs text-gray-400 mt-1">{t("bgtNoBudgetSet", "No budget set")} \u2014 {cat.spent.toLocaleString()} {currency} {t("bgtSpent", "spent")}</p>
                       )}
                     </div>
                   );
@@ -359,8 +359,8 @@ export default function BudgetPage() {
           ) : (
             <FadeIn>
               <div className="bg-white dark:bg-gray-800 rounded-xl p-10 border border-gray-100 dark:border-gray-700 text-center">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">No budgets yet</h3>
-                <p className="text-sm text-gray-500 mb-4">Set spending limits per category to track your expenses.</p>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">{t("bgtEmptyTitle", "No budgets yet")}</h3>
+                <p className="text-sm text-gray-500 mb-4">{t("bgtEmptyDesc", "Set spending limits per category to track your expenses.")}</p>
                 <Button variant="primary" onClick={() => setEditing(true)}>
                   {t("setBudget") || "Set Budgets"}
                 </Button>

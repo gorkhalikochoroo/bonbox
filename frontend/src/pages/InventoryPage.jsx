@@ -445,9 +445,9 @@ export default function InventoryPage() {
                 variant="secondary"
                 onClick={() => setShowSmartImport(true)}
                 iconLeft={<Icon name="Sparkles" size={16} />}
-                title="Paste, upload or photograph your stock list — AI fills in the rest"
+                title={t("invSmartImportTitle", "Paste, upload or photograph your stock list — AI fills in the rest")}
               >
-                Smart Import
+                {t("invSmartImport", "Smart Import")}
               </Button>
               <Button
                 variant="secondary"
@@ -477,11 +477,11 @@ export default function InventoryPage() {
                     setTimeout(() => URL.revokeObjectURL(url), 60_000);
                   } catch (e) {
                     console.error("Export PDF failed", e);
-                    setError(errText(e, "Couldn't generate PDF — please retry."));
+                    setError(errText(e, t("invPdfGenFailed", "Couldn't generate PDF — please retry.")));
                   }
                 }}
                 iconLeft={<Icon name="FileText" size={16} />}
-                title="Download a PDF stock-list report"
+                title={t("invExportPdfTitle", "Download a PDF stock-list report")}
                 className="hidden sm:inline-flex"
               >
                 PDF
@@ -501,11 +501,11 @@ export default function InventoryPage() {
                     setTimeout(() => URL.revokeObjectURL(url), 60_000);
                   } catch (e) {
                     console.error("Export CSV failed", e);
-                    setError(errText(e, "Couldn't generate CSV — please retry."));
+                    setError(errText(e, t("invCsvGenFailed", "Couldn't generate CSV — please retry.")));
                   }
                 }}
                 iconLeft={<Icon name="FileSpreadsheet" size={16} />}
-                title="Download stock list as CSV (Excel-friendly, semicolon delimited)"
+                title={t("invExportCsvTitle", "Download stock list as CSV (Excel-friendly, semicolon delimited)")}
                 className="hidden sm:inline-flex"
               >
                 CSV
@@ -544,13 +544,11 @@ export default function InventoryPage() {
       <DismissibleTip
         id="inventory-intro-v1"
         icon="📦"
-        title="How inventory works"
+        title={t("invHowItWorksTitle", "How inventory works")}
       >
         <p>
-          Add what you stock with a unit cost and minimum reorder level. BonBox watches your sales and{" "}
-          <strong>auto-deducts quantity</strong> as items sell, then alerts you when you drop below
-          minimum or when an expiry date is approaching. Use <strong>Load template</strong> to import
-          a starter list for cafés, bars and shops.
+          {t("invHowItWorksIntro", "Add what you stock with a unit cost and minimum reorder level. BonBox watches your sales and")}{" "}
+          <strong>{t("invHowItWorksAutoDeduct", "auto-deducts quantity")}</strong> {t("invHowItWorksMid", "as items sell, then alerts you when you drop below minimum or when an expiry date is approaching. Use")} <strong>{t("invHowItWorksLoadTemplate", "Load template")}</strong> {t("invHowItWorksEnd", "to import a starter list for cafés, bars and shops.")}
         </p>
       </DismissibleTip>
 
@@ -569,9 +567,9 @@ export default function InventoryPage() {
             <SectionBanner
               severity="critical"
               icon="AlertTriangle"
-              title={`${expired.length} item${expired.length === 1 ? "" : "s"} past expiry`}
+              title={`${expired.length} ${expired.length === 1 ? t("invExpiredItemSingular", "item") : t("invExpiredItemPlural", "items")} ${t("invPastExpiry", "past expiry")}`}
             >
-              <p className="mb-2">Move to Waste or remove from stock — usable inventory shouldn't include these.</p>
+              <p className="mb-2">{t("invExpiredBody", "Move to Waste or remove from stock — usable inventory shouldn't include these.")}</p>
               <ul className="space-y-0.5 text-[12px]">
                 {expired.slice(0, 3).map((it) => (
                   <li key={it.id} className="truncate">
@@ -584,7 +582,7 @@ export default function InventoryPage() {
                       to="/expiry"
                       className="underline hover:no-underline font-medium"
                     >
-                      + {expired.length - 3} more — view all →
+                      + {expired.length - 3} {t("invMoreViewAll", "more — view all →")}
                     </Link>
                   </li>
                 )}
@@ -595,9 +593,9 @@ export default function InventoryPage() {
             <SectionBanner
               severity="warn"
               icon="AlarmClock"
-              title={`${expiring.length} item${expiring.length === 1 ? "" : "s"} expiring within 7 days`}
+              title={`${expiring.length} ${expiring.length === 1 ? t("invExpiredItemSingular", "item") : t("invExpiredItemPlural", "items")} ${t("invExpiringWithin7", "expiring within 7 days")}`}
             >
-              <p className="mb-2">Use these first or plan a discount — first-expired-first-out keeps waste low.</p>
+              <p className="mb-2">{t("invExpiringBody", "Use these first or plan a discount — first-expired-first-out keeps waste low.")}</p>
               <ul className="space-y-0.5 text-[12px]">
                 {expiring.slice(0, 3).map((it) => (
                   <li key={it.id} className="truncate">
@@ -610,7 +608,7 @@ export default function InventoryPage() {
                       to="/expiry"
                       className="underline hover:no-underline font-medium"
                     >
-                      + {expiring.length - 3} more — view all →
+                      + {expiring.length - 3} {t("invMoreViewAll", "more — view all →")}
                     </Link>
                   </li>
                 )}
@@ -905,7 +903,7 @@ export default function InventoryPage() {
             </div>
           )}
           <TabPills
-            ariaLabel="Category filter"
+            ariaLabel={t("invCategoryFilter", "Category filter")}
             activeId={activeCategory}
             onChange={setActiveCategory}
             tabs={displayCategories.map((cat) => ({ id: cat, label: cat }))}
@@ -1020,11 +1018,11 @@ export default function InventoryPage() {
                 const auto = su === "pieces" && form.unit === "dozen" ? "12" : form.pieces_per_unit;
                 setForm({ ...form, sell_unit: su, pieces_per_unit: auto });
               }} className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg">
-                <option value="">Sell as ({form.unit})</option>
-                <option value="pieces">Sell as pieces</option>
+                <option value="">{t("invSellAsUnit", "Sell as")} ({form.unit})</option>
+                <option value="pieces">{t("invSellAsPieces", "Sell as pieces")}</option>
               </select>
               {form.sell_unit === "pieces" && (
-                <input type="number" step="1" placeholder={`Pieces per ${form.unit}`} value={form.pieces_per_unit}
+                <input type="number" step="1" placeholder={`${t("invPiecesPer", "Pieces per")} ${form.unit}`} value={form.pieces_per_unit}
                   onChange={(e) => setForm({ ...form, pieces_per_unit: e.target.value })}
                   className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" />
               )}

@@ -57,7 +57,7 @@ export const ARCHETYPES = {
     floorVocab: "generic",
     leadFeatures: ["inventory", "daily_close", "tax", "expenses"],
     firstWin: "inventory",
-    suggestedModules: ["khata", "expiry"],
+    suggestedModules: ["expiry"],
     emphasizeChannels: ["web", "phone"],
   },
   salon: {
@@ -79,7 +79,7 @@ export const ARCHETYPES = {
     floorVocab: "generic",
     leadFeatures: ["faktura", "expenses", "tax"],
     firstWin: "faktura",
-    suggestedModules: ["workshop", "loan", "khata"],
+    suggestedModules: ["workshop", "loan"],
     emphasizeChannels: ["phone", "web"],
   },
   personal: {
@@ -142,11 +142,35 @@ export const BUSINESS_TYPE_TO_ARCHETYPE = {
   other: "generic",
 };
 
+// ── Per-business-type day-cutoff OVERRIDES (Phase A, 2026-06) ─────────────
+// The TWIN of backend archetype.py BUSINESS_TYPE_CUTOFF_OVERRIDE — keep in
+// sync (the lock). A few business_types diverge from their archetype's default
+// cutoff without warranting a new archetype:
+//   bakery → 04:00 — overnight bake (the 03:00 batch stays on the same
+//            business day as the morning sale; food_service otherwise defaults
+//            to the 06:00 restaurant convention).
+// Mirrored also by OnboardingPage.jsx CUTOFF_PRESETS (bakery 04:00).
+export const BUSINESS_TYPE_CUTOFF_OVERRIDE = {
+  bakery: 4,
+};
+
 /** Resolve a business_type string → canonical archetype id (never throws;
  *  unknown / null / blank → "generic"). */
 export function archetypeIdFor(businessType) {
   if (!businessType) return "generic";
   return BUSINESS_TYPE_TO_ARCHETYPE[String(businessType).trim().toLowerCase()] || "generic";
+}
+
+/** The default day-cutoff hour for a business_type — the per-type override
+ *  first (bakery → 4), then the archetype's `default_cutoff_hour` equivalent.
+ *  archetypes.js does not carry default_cutoff_hour on each record (the backend
+ *  twin does), so we derive it: food_service/bar → 6, else 0 — matching
+ *  archetype.py's ARCHETYPES[*].default_cutoff_hour. Pure; unknown → 0. */
+export function cutoffHourFor(businessType) {
+  const bt = String(businessType || "").trim().toLowerCase();
+  if (bt in BUSINESS_TYPE_CUTOFF_OVERRIDE) return BUSINESS_TYPE_CUTOFF_OVERRIDE[bt];
+  const archId = archetypeIdFor(businessType);
+  return archId === "food_service" || archId === "bar" ? 6 : 0;
 }
 
 /** Resolve a business_type → the full archetype record (never undefined). */

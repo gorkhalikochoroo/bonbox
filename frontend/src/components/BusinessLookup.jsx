@@ -239,6 +239,7 @@ function AddressVerifyPicker({ cvrAddress, dawa, onPick }) {
 // ─── Main component ──────────────────────────────────────────────────
 
 export default function BusinessLookup({ onSave, initialProfile, currentBusinessType, defaultCountry }) {
+  const { t } = useLanguage();
   const [countries, setCountries] = useState([]);
   const [country, setCountry] = useState(detectCountry(initialProfile?.country, defaultCountry));
   const [query, setQuery] = useState("");
@@ -390,14 +391,14 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
   };
 
   const currentCountry = countries.find((c) => c.code === country);
-  const regLabel = currentCountry?.reg_label || "Registration Number";
+  const regLabel = currentCountry?.reg_label || t("blRegNumberFallback", "Registration Number");
   const hasAutoLookup = currentCountry?.auto_lookup;
 
   return (
     <div className="space-y-4">
       {/* Country selector */}
       <div>
-        <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">Country</label>
+        <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">{t("blCountryLabel", "Country")}</label>
         <select
           value={country}
           onChange={(e) => setCountry(e.target.value)}
@@ -405,7 +406,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
         >
           {countries.map((c) => (
             <option key={c.code} value={c.code}>
-              {c.name} {c.auto_lookup ? "(auto-lookup)" : ""}
+              {c.name} {c.auto_lookup ? t("blAutoLookupSuffix", "(auto-lookup)") : ""}
             </option>
           ))}
         </select>
@@ -415,18 +416,18 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
       {hasAutoLookup && !manual && (
         <div className="relative">
           <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">
-            Search by name, {regLabel}, or company email/domain
+            {t("blSearchLabel", "Search by name, {regLabel}, or company email/domain").replace("{regLabel}", regLabel)}
           </label>
           <input
             type="text"
             value={query}
             onChange={(e) => { setQuery(e.target.value); setSelected(null); setDawa(null); }}
-            placeholder={`e.g. "Mirabelle ApS", "39842851", or "anna@mirabelle.dk"`}
+            placeholder={t("blSearchPlaceholder", `e.g. "Mirabelle ApS", "39842851", or "anna@mirabelle.dk"`)}
             className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
             autoComplete="off"
           />
           {searching && (
-            <div className="absolute right-3 top-8 text-xs text-blue-500">Searching…</div>
+            <div className="absolute right-3 top-8 text-xs text-blue-500">{t("blSearching", "Searching…")}</div>
           )}
 
           {/* Smart-input hint chip — visible when query looks like a CVR/email */}
@@ -482,7 +483,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
             onClick={() => { setManual(true); setLookupError(""); }}
             className="mt-1 text-xs text-blue-500 hover:underline"
           >
-            Enter manually instead
+            {t("blEnterManually", "Enter manually instead")}
           </button>
         </div>
       )}
@@ -506,7 +507,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
               />
               {appliedBusinessType && (
                 <div className="px-3 py-1.5 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 text-xs text-gray-700 dark:text-gray-300">
-                  ✓ Business type set to <strong>{appliedBusinessType}</strong>
+                  ✓ {t("blBusinessTypeSet", "Business type set to")} <strong>{appliedBusinessType}</strong>
                 </div>
               )}
               {country === "DK" && (
@@ -517,14 +518,14 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
                 />
               )}
               {verifyingAddress && (
-                <p className="text-[11px] text-gray-400">Verifying address with DAWA…</p>
+                <p className="text-[11px] text-gray-400">{t("blVerifyingAddress", "Verifying address with DAWA…")}</p>
               )}
             </div>
           )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="text-[10px] text-gray-400 uppercase tracking-wider">Company Name</label>
+              <label className="text-[10px] text-gray-400 uppercase tracking-wider">{t("blFieldCompanyName", "Company Name")}</label>
               <input
                 type="text"
                 value={form.company_name}
@@ -542,7 +543,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
               />
             </div>
             <div className="sm:col-span-2">
-              <label className="text-[10px] text-gray-400 uppercase tracking-wider">Address</label>
+              <label className="text-[10px] text-gray-400 uppercase tracking-wider">{t("blFieldAddress", "Address")}</label>
               <input
                 type="text"
                 value={form.address}
@@ -551,7 +552,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
               />
             </div>
             <div>
-              <label className="text-[10px] text-gray-400 uppercase tracking-wider">City</label>
+              <label className="text-[10px] text-gray-400 uppercase tracking-wider">{t("blFieldCity", "City")}</label>
               <input
                 type="text"
                 value={form.city}
@@ -560,7 +561,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
               />
             </div>
             <div>
-              <label className="text-[10px] text-gray-400 uppercase tracking-wider">Zipcode</label>
+              <label className="text-[10px] text-gray-400 uppercase tracking-wider">{t("blFieldZipcode", "Zipcode")}</label>
               <input
                 type="text"
                 value={form.zipcode}
@@ -569,7 +570,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
               />
             </div>
             <div>
-              <label className="text-[10px] text-gray-400 uppercase tracking-wider">Industry</label>
+              <label className="text-[10px] text-gray-400 uppercase tracking-wider">{t("blFieldIndustry", "Industry")}</label>
               <input
                 type="text"
                 value={form.industry}
@@ -578,7 +579,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
               />
             </div>
             <div>
-              <label className="text-[10px] text-gray-400 uppercase tracking-wider">Phone</label>
+              <label className="text-[10px] text-gray-400 uppercase tracking-wider">{t("blFieldPhone", "Phone")}</label>
               <input
                 type="text"
                 value={form.phone}
@@ -593,7 +594,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
             disabled={saving || !form.company_name}
             className="w-full py-2.5 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 disabled:opacity-40 transition mt-2"
           >
-            {saving ? "Saving…" : saved ? "Saved!" : "Save Business Profile"}
+            {saving ? t("blSaving", "Saving…") : saved ? t("blSaved", "Saved!") : t("blSaveProfile", "Save Business Profile")}
           </button>
 
           {manual && hasAutoLookup && (
@@ -601,7 +602,7 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
               onClick={() => { setManual(false); setSelected(null); setDawa(null); }}
               className="text-xs text-blue-500 hover:underline"
             >
-              Search register instead
+              {t("blSearchRegister", "Search register instead")}
             </button>
           )}
         </div>
@@ -618,17 +619,18 @@ export default function BusinessLookup({ onSave, initialProfile, currentBusiness
  * lookup. Helps the user understand "ah, it's treating this as a CVR."
  */
 function SmartInputHint({ query }) {
+  const { t } = useLanguage();
   const detect = (q) => {
     const trimmed = q.trim();
     if (!trimmed) return null;
-    if (trimmed.includes("@")) return { kind: "domain", label: "Email → searching domain" };
+    if (trimmed.includes("@")) return { kind: "domain", label: t("blHintEmailDomain", "Email → searching domain") };
     const digits = trimmed.replace(/\D/g, "");
     if (digits.length >= 8 && digits.length <= 10) {
       // Strip common prefixes for the visible form
       return { kind: "cvr", label: `CVR ${digits.slice(0,2)} ${digits.slice(2,4)} ${digits.slice(4,6)} ${digits.slice(6)}` };
     }
     if (trimmed.includes(".") && !trimmed.includes(" ") && trimmed.length > 4) {
-      return { kind: "domain", label: "Domain → searching" };
+      return { kind: "domain", label: t("blHintDomain", "Domain → searching") };
     }
     return null;
   };

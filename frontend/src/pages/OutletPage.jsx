@@ -27,7 +27,7 @@ export default function OutletPage() {
     try {
       const res = await api.get("/outlets/intelligence");
       setData(res.data);
-    } catch { setError("Could not load outlet data"); }
+    } catch { setError(t("outlLoadError", "Could not load outlet data")); }
     setLoading(false);
   };
 
@@ -36,7 +36,7 @@ export default function OutletPage() {
       <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <div className="text-4xl mb-3 animate-pulse">🏪</div>
-          <p className="text-gray-500 dark:text-gray-400">Analyzing outlets...</p>
+          <p className="text-gray-500 dark:text-gray-400">{t("outlAnalyzing", "Analyzing outlets...")}</p>
         </div>
       </div>
     );
@@ -66,16 +66,16 @@ export default function OutletPage() {
   }));
 
   const tabs = [
-    { key: "compare", label: "Compare" },
-    { key: "inventory", label: `Stock Balance (${imbalances?.length || 0})` },
-    { key: "transfers", label: `Transfers (${transfer_suggestions?.length || 0})` },
+    { key: "compare", label: t("outlTabCompare", "Compare") },
+    { key: "inventory", label: `${t("outlTabStockBalance", "Stock Balance")} (${imbalances?.length || 0})` },
+    { key: "transfers", label: `${t("outlTabTransfers", "Transfers")} (${transfer_suggestions?.length || 0})` },
   ];
 
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
         <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-          🏪 {t("crossOutlet") || "Cross-Outlet Intelligence"}
+          🏪 {t("outlHeading", "Cross-Outlet Intelligence")}
         </h1>
       </FadeIn>
 
@@ -106,13 +106,13 @@ export default function OutletPage() {
       {/* ─── KEY METRICS ─── */}
       {outlet_count > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <MetricCard label="Outlets" value={outlet_count} color="text-blue-600" />
-          <MetricCard label="Total Revenue" value={fmt(total_revenue)} color="text-emerald-600" currency={currency} />
-          <MetricCard label="Total Transactions" value={fmt(total_transactions)} color="text-purple-600" />
+          <MetricCard label={t("outlMetricOutlets", "Outlets")} value={outlet_count} color="text-blue-600" />
+          <MetricCard label={t("totalRevenue", "Total Revenue")} value={fmt(total_revenue)} color="text-emerald-600" currency={currency} />
+          <MetricCard label={t("outlMetricTotalTransactions", "Total Transactions")} value={fmt(total_transactions)} color="text-purple-600" />
           <MetricCard
-            label="Imbalances"
+            label={t("outlMetricImbalances", "Imbalances")}
             value={imbalances?.length || 0}
-            sub={transfer_suggestions?.length ? `${transfer_suggestions.length} transfers` : null}
+            sub={transfer_suggestions?.length ? `${transfer_suggestions.length} ${t("outlTransfersSuffix", "transfers")}` : null}
             color={imbalances?.length > 0 ? "text-orange-600" : "text-emerald-600"}
           />
         </div>
@@ -122,7 +122,7 @@ export default function OutletPage() {
       {best_performer && weakest_performer && outlet_count >= 2 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-5 text-white shadow-sm">
-            <p className="text-sm opacity-80">🏆 Top Performer</p>
+            <p className="text-sm opacity-80">🏆 {t("outlTopPerformer", "Top Performer")}</p>
             <p className="text-xl font-bold mt-1">{best_performer.name}</p>
             <div className="grid grid-cols-2 gap-3 mt-3">
               <div>
@@ -136,7 +136,7 @@ export default function OutletPage() {
             </div>
           </div>
           <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-5 text-white shadow-sm">
-            <p className="text-sm opacity-80">📈 Needs Attention</p>
+            <p className="text-sm opacity-80">📈 {t("needsAttention", "Needs Attention")}</p>
             <p className="text-xl font-bold mt-1">{weakest_performer.name}</p>
             <div className="grid grid-cols-2 gap-3 mt-3">
               <div>
@@ -177,7 +177,7 @@ export default function OutletPage() {
           {/* Revenue comparison chart */}
           {compareData.length > 0 && (
             <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
-              <h2 className="font-bold text-gray-800 dark:text-white mb-4">📊 Performance Comparison</h2>
+              <h2 className="font-bold text-gray-800 dark:text-white mb-4">📊 {t("performanceComparison", "Performance comparison")}</h2>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={compareData}>
@@ -222,13 +222,13 @@ export default function OutletPage() {
                     <p className="font-bold text-red-500">{fmt(o.expenses)}</p>
                   </div>
                   <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2">
-                    <p className="text-gray-500">Txns / Avg</p>
+                    <p className="text-gray-500">{t("outlTxnsAvg", "Txns / Avg")}</p>
                     <p className="font-bold text-gray-700 dark:text-gray-300">{o.transactions} / {fmt(o.avg_ticket)}</p>
                   </div>
                   <div className="bg-gray-50 dark:bg-gray-700/30 rounded-lg p-2">
                     <p className="text-gray-500">{t("inventory")}</p>
-                    <p className="font-bold text-blue-600">{o.inventory_items} items</p>
-                    {o.low_stock_count > 0 && <p className="text-red-500 text-[10px]">{o.low_stock_count} low</p>}
+                    <p className="font-bold text-blue-600">{o.inventory_items} {t("items", "items")}</p>
+                    {o.low_stock_count > 0 && <p className="text-red-500 text-[10px]">{o.low_stock_count} {t("outlLow", "low")}</p>}
                   </div>
                 </div>
               </div>
@@ -236,7 +236,7 @@ export default function OutletPage() {
           </div>
           {/* Outlet detail table — desktop */}
           <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm hidden md:block">
-            <h2 className="font-bold text-gray-800 dark:text-white mb-4">📋 Outlet Details</h2>
+            <h2 className="font-bold text-gray-800 dark:text-white mb-4">📋 {t("outlDetails", "Outlet Details")}</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -291,7 +291,7 @@ export default function OutletPage() {
       {/* ─── INVENTORY TAB ─── */}
       {tab === "inventory" && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">⚖️ Stock Imbalances</h2>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-4">⚖️ {t("outlStockImbalances", "Stock Imbalances")}</h2>
           {imbalances?.length > 0 ? (
             <div className="space-y-3">
               {imbalances.map((item, i) => (
@@ -299,7 +299,7 @@ export default function OutletPage() {
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-sm font-bold text-gray-800 dark:text-gray-200">{item.item} ({item.unit})</p>
                     <span className="text-xs bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300 px-2 py-1 rounded-full">
-                      Avg: {item.avg_qty}
+                      {t("outlAvg", "Avg")}: {item.avg_qty}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -320,8 +320,8 @@ export default function OutletPage() {
           ) : (
             <div className="text-center py-8">
               <div className="text-4xl mb-2">✅</div>
-              <p className="text-gray-600 dark:text-gray-300">No stock imbalances detected.</p>
-              <p className="text-sm text-gray-400">Inventory is evenly distributed.</p>
+              <p className="text-gray-600 dark:text-gray-300">{t("outlNoImbalances", "No stock imbalances detected.")}</p>
+              <p className="text-sm text-gray-400">{t("outlEvenlyDistributed", "Inventory is evenly distributed.")}</p>
             </div>
           )}
         </div>
@@ -330,7 +330,7 @@ export default function OutletPage() {
       {/* ─── TRANSFERS TAB ─── */}
       {tab === "transfers" && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
-          <h2 className="font-bold text-gray-800 dark:text-white mb-4">🔄 Suggested Transfers</h2>
+          <h2 className="font-bold text-gray-800 dark:text-white mb-4">🔄 {t("outlSuggestedTransfers", "Suggested Transfers")}</h2>
           {transfer_suggestions?.length > 0 ? (
             <div className="space-y-3">
               {transfer_suggestions.map((t, i) => (
@@ -353,7 +353,7 @@ export default function OutletPage() {
           ) : (
             <div className="text-center py-8">
               <div className="text-4xl mb-2">✅</div>
-              <p className="text-gray-600 dark:text-gray-300">No transfers needed right now.</p>
+              <p className="text-gray-600 dark:text-gray-300">{t("outlNoTransfersNeeded", "No transfers needed right now.")}</p>
             </div>
           )}
         </div>
@@ -365,7 +365,7 @@ export default function OutletPage() {
           <div className="text-5xl mb-3">🏪</div>
           <h2 className="text-lg font-bold text-gray-800 dark:text-white mb-2">{t("noOutletsToCompare")}</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-            {t("noOutletsHint") || "Cross-outlet intelligence needs at least 2 team members. Add staff in the Team page to enable comparisons."}
+            {t("noOutletsHint", "Cross-outlet intelligence needs at least 2 team members. Add staff in the Team page to enable comparisons.")}
           </p>
           <a href="/team" className="inline-block mt-4 px-6 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition">
             {t("goToTeam")}

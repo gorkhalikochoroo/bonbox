@@ -592,7 +592,7 @@ export default function RegisterPage() {
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
                   </span>
                   <input type="password" name="password" value={form.password} onChange={handleChange}
-                    placeholder="8+ characters with letters and numbers" className={inputCls} required
+                    placeholder={t("regPasswordPlaceholder", "8+ characters with letters and numbers")} className={inputCls} required
                     minLength={8} />
                 </div>
               </div>
@@ -697,7 +697,7 @@ export default function RegisterPage() {
               <select
                 value={lang}
                 onChange={(e) => setLang(e.target.value)}
-                aria-label="Language"
+                aria-label={t("regLanguageLabel", "Language")}
                 className="text-[12px] bg-transparent border border-gray-200 dark:border-gray-700 rounded-md px-2.5 py-1
                   text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500
                   focus:outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer"

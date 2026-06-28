@@ -257,7 +257,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
           <button
             onClick={() => setStep(0)}
             className="w-7 h-7 -ml-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center text-gray-500 transition"
-            aria-label="Back"
+            aria-label={t("back") || "Back"}
           >
             <ChevronLeft size={16} />
           </button>
@@ -630,7 +630,7 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
               {provider?.name || conn.provider}
               {conn.last_synced_at && (
                 <span className="ml-1 truncate">
-                  · Synced {new Date(conn.last_synced_at).toLocaleDateString()}
+                  · {t("piSyncedLabel") || "Synced"} {new Date(conn.last_synced_at).toLocaleDateString()}
                 </span>
               )}
             </p>
@@ -810,7 +810,7 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
           <p className="text-sm text-gray-900 dark:text-gray-100 font-semibold">
             {importResult.imported} {t("imported") || "imported"}
             {importResult.skipped > 0 && (
-              <span className="text-gray-500 dark:text-gray-400 font-normal ml-1">({importResult.skipped} duplicates skipped)</span>
+              <span className="text-gray-500 dark:text-gray-400 font-normal ml-1">({importResult.skipped} {t("duplicatesSkipped") || "duplicates skipped"})</span>
             )}
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("addedToCashbook") || "Added to your cash book"}</p>

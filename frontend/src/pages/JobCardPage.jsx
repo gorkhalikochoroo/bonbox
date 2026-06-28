@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import { errText } from "../utils/errText";
@@ -17,6 +18,7 @@ const STATUS_LABELS = {
    ═══════════════════════════════════════════════════════════ */
 export function NewJobPage() {
   const nav = useNavigate();
+  const { t } = useLanguage();
   const [plateSearch, setPlateSearch] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
@@ -92,16 +94,16 @@ export function NewJobPage() {
   return (
     <div className="p-4 sm:p-6 max-w-2xl mx-auto space-y-6">
       <FadeIn>
-        <h1 className="text-2xl font-bold dark:text-white">🔧 New Job Card</h1>
+        <h1 className="text-2xl font-bold dark:text-white">🔧 {t("jcNewJobCardTitle", "New Job Card")}</h1>
       </FadeIn>
 
       {/* Vehicle Search */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700">
-        <h2 className="font-bold dark:text-white mb-3">Vehicle</h2>
+        <h2 className="font-bold dark:text-white mb-3">{t("jcVehicle", "Vehicle")}</h2>
 
         {!selectedVehicle && !showNewVehicle && (
           <>
-            <input type="text" placeholder="Search by plate number..." className={inputClass}
+            <input type="text" placeholder={t("jcSearchByPlate", "Search by plate number...")} className={inputClass}
               value={plateSearch} onChange={e => searchPlate(e.target.value)} />
 
             {searchResults.length > 0 && (
@@ -118,7 +120,7 @@ export function NewJobPage() {
 
             <button onClick={() => setShowNewVehicle(true)}
               className="mt-3 text-sm text-blue-600 dark:text-blue-400 hover:underline">
-              + Register new vehicle
+              + {t("jcRegisterNewVehicle", "Register new vehicle")}
             </button>
           </>
         )}
@@ -131,7 +133,7 @@ export function NewJobPage() {
                 <p className="text-sm text-gray-600 dark:text-gray-300">{selectedVehicle.make} {selectedVehicle.model} {selectedVehicle.color}</p>
                 <p className="text-sm text-gray-500 dark:text-gray-400">{selectedVehicle.customer_name} — {selectedVehicle.customer_phone}</p>
               </div>
-              <button onClick={() => setSelectedVehicle(null)} className="text-xs text-red-500 hover:underline">Change</button>
+              <button onClick={() => setSelectedVehicle(null)} className="text-xs text-red-500 hover:underline">{t("change", "Change")}</button>
             </div>
           </div>
         )}
@@ -140,63 +142,63 @@ export function NewJobPage() {
           <div className="space-y-3 mt-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Plate Number *</label>
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcPlateNumber", "Plate Number")} *</label>
                 <input type="text" className={inputClass} value={plate} onChange={e => setPlate(e.target.value)} placeholder="BA 1 PA 1234" />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Make</label>
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcMake", "Make")}</label>
                 <input type="text" className={inputClass} value={make} onChange={e => setMake(e.target.value)} placeholder="Toyota, Bajaj..." />
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Model</label>
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcModel", "Model")}</label>
                 <input type="text" className={inputClass} value={model} onChange={e => setModel(e.target.value)} placeholder="Corolla" />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Year</label>
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcYear", "Year")}</label>
                 <input type="number" className={inputClass} value={year} onChange={e => setYear(e.target.value)} placeholder="2020" />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Color</label>
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcColor", "Color")}</label>
                 <input type="text" className={inputClass} value={color} onChange={e => setColor(e.target.value)} placeholder="White" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Customer Name</label>
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcCustomerName", "Customer Name")}</label>
                 <input type="text" className={inputClass} value={custName} onChange={e => setCustName(e.target.value)} />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Phone</label>
+                <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcPhone", "Phone")}</label>
                 <input type="text" className={inputClass} value={custPhone} onChange={e => setCustPhone(e.target.value)} />
               </div>
             </div>
-            <button onClick={() => setShowNewVehicle(false)} className="text-xs text-gray-400 hover:underline">Cancel — search instead</button>
+            <button onClick={() => setShowNewVehicle(false)} className="text-xs text-gray-400 hover:underline">{t("jcCancelSearchInstead", "Cancel — search instead")}</button>
           </div>
         )}
       </div>
 
       {/* Job Details */}
       <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 space-y-4">
-        <h2 className="font-bold dark:text-white">Job Details</h2>
+        <h2 className="font-bold dark:text-white">{t("jcJobDetails", "Job Details")}</h2>
         <div>
-          <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Complaint / Issue</label>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcComplaintIssue", "Complaint / Issue")}</label>
           <textarea className={inputClass} rows={3} value={complaint} onChange={e => setComplaint(e.target.value)}
-            placeholder="Describe the customer's complaint or requested service..." />
+            placeholder={t("jcComplaintPlaceholder", "Describe the customer's complaint or requested service...")} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Assign Mechanic</label>
-            <input type="text" className={inputClass} value={mechanic} onChange={e => setMechanic(e.target.value)} placeholder="Mechanic name" />
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcAssignMechanic", "Assign Mechanic")}</label>
+            <input type="text" className={inputClass} value={mechanic} onChange={e => setMechanic(e.target.value)} placeholder={t("jcMechanicNamePlaceholder", "Mechanic name")} />
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Est. Completion</label>
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcEstCompletion", "Est. Completion")}</label>
             <input type="date" className={inputClass} value={estDate} onChange={e => setEstDate(e.target.value)} />
           </div>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Estimated Cost</label>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcEstimatedCost", "Estimated Cost")}</label>
           <input type="number" className={inputClass} value={estCost} onChange={e => setEstCost(e.target.value)} placeholder="0" />
         </div>
       </div>
@@ -205,7 +207,7 @@ export function NewJobPage() {
 
       <button onClick={handleSubmit} disabled={saving}
         className="w-full py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold transition disabled:opacity-50">
-        {saving ? "Creating..." : "Create Job Card"}
+        {saving ? t("jcCreating", "Creating...") : t("jcCreateJobCard", "Create Job Card")}
       </button>
     </div>
   );
@@ -218,6 +220,7 @@ export function NewJobPage() {
 export default function JobCardPage() {
   const { id } = useParams();
   const { user } = useAuth();
+  const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
   const nav = useNavigate();
 
@@ -276,8 +279,8 @@ export default function JobCardPage() {
     } catch (err) { setError(errText(err, "Failed")); }
   };
 
-  if (loading) return <div className="p-8 text-center text-gray-400">Loading...</div>;
-  if (!job) return <div className="p-8 text-center text-gray-400">Job not found</div>;
+  if (loading) return <div className="p-8 text-center text-gray-400">{t("loading", "Loading...")}</div>;
+  if (!job) return <div className="p-8 text-center text-gray-400">{t("jcJobNotFound", "Job not found")}</div>;
 
   const currentIdx = STATUS_FLOW.indexOf(job.status);
   const inputClass = "w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900";
@@ -288,14 +291,14 @@ export default function JobCardPage() {
       <FadeIn>
         <div className="flex items-start justify-between">
           <div>
-            <button onClick={() => nav("/workshop")} className="text-sm text-blue-600 dark:text-blue-400 hover:underline mb-1">← Back</button>
+            <button onClick={() => nav("/workshop")} className="text-sm text-blue-600 dark:text-blue-400 hover:underline mb-1">← {t("back", "Back")}</button>
             <h1 className="text-2xl font-bold dark:text-white">{job.job_number}</h1>
             <p className="text-gray-500 dark:text-gray-400 text-sm">{job.vehicle?.plate_number} — {job.vehicle?.make} {job.vehicle?.model}</p>
             {job.vehicle?.customer_name && <p className="text-sm text-gray-400">{job.vehicle.customer_name} · {job.vehicle?.customer_phone}</p>}
           </div>
           <div className="text-right">
             <p className="text-2xl font-bold text-emerald-600 dark:text-gray-300">{job.grand_total?.toLocaleString()} {currency}</p>
-            <p className="text-xs text-gray-400">Parts: {job.parts_total?.toLocaleString()} + Labor: {job.labor_total?.toLocaleString()}</p>
+            <p className="text-xs text-gray-400">{t("jcPartsLabel", "Parts")}: {job.parts_total?.toLocaleString()} + {t("jcLaborLabel", "Labor")}: {job.labor_total?.toLocaleString()}</p>
           </div>
         </div>
       </FadeIn>
@@ -305,7 +308,7 @@ export default function JobCardPage() {
         <div className="flex items-center gap-1 min-w-[600px]">
           {STATUS_FLOW.map((s, i) => (
             <div key={s} className="flex items-center flex-1">
-              <button onClick={() => updateStatus(s)} title={`Set to ${STATUS_LABELS[s]}`}
+              <button onClick={() => updateStatus(s)} title={`${t("jcSetTo", "Set to")} ${STATUS_LABELS[s]}`}
                 className={`w-full py-1.5 text-xs font-medium rounded-lg transition ${
                   i <= currentIdx
                     ? "bg-blue-600 text-white"
@@ -323,11 +326,11 @@ export default function JobCardPage() {
       {(job.complaint_description || job.diagnosis) && (
         <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border dark:border-gray-700 space-y-2">
           {job.complaint_description && (
-            <div><span className="text-xs font-medium text-gray-500 dark:text-gray-400">Complaint:</span>
+            <div><span className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcComplaintLabel", "Complaint")}:</span>
               <p className="text-sm dark:text-gray-300">{job.complaint_description}</p></div>
           )}
           {job.diagnosis && (
-            <div><span className="text-xs font-medium text-gray-500 dark:text-gray-400">Diagnosis:</span>
+            <div><span className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcDiagnosisLabel", "Diagnosis")}:</span>
               <p className="text-sm dark:text-gray-300">{job.diagnosis}</p></div>
           )}
         </div>
@@ -338,11 +341,11 @@ export default function JobCardPage() {
         <div className="flex border-b dark:border-gray-700">
           <button onClick={() => setActiveTab("parts")}
             className={`flex-1 py-3 text-sm font-medium ${activeTab === "parts" ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-400"}`}>
-            🔩 Parts ({job.parts?.length || 0})
+            🔩 {t("jcPartsLabel", "Parts")} ({job.parts?.length || 0})
           </button>
           <button onClick={() => setActiveTab("labor")}
             className={`flex-1 py-3 text-sm font-medium ${activeTab === "labor" ? "border-b-2 border-blue-600 text-blue-600" : "text-gray-400"}`}>
-            🛠️ Labor ({job.labor?.length || 0})
+            🛠️ {t("jcLaborLabel", "Labor")} ({job.labor?.length || 0})
           </button>
         </div>
 
@@ -354,24 +357,24 @@ export default function JobCardPage() {
                   <div>
                     <p className="font-medium dark:text-white">{p.part_name}</p>
                     <p className="text-xs text-gray-400">{p.quantity} × {p.unit_cost.toLocaleString()} {currency}
-                      {p.is_from_stock && " · from stock"}</p>
+                      {p.is_from_stock && ` · ${t("jcFromStock", "from stock")}`}</p>
                   </div>
                   <span className="font-semibold dark:text-white">{p.total_cost.toLocaleString()} {currency}</span>
                 </div>
               ))}
               {/* Add part form */}
               <div className="pt-3 border-t dark:border-gray-700 space-y-2">
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Add Part</p>
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcAddPart", "Add Part")}</p>
                 <div className="grid grid-cols-3 gap-2">
-                  <input type="text" className={inputClass} placeholder="Part name" value={partName} onChange={e => setPartName(e.target.value)} />
-                  <input type="number" className={inputClass} placeholder="Qty" value={partQty} onChange={e => setPartQty(e.target.value)} />
-                  <input type="number" className={inputClass} placeholder="Unit cost" value={partCost} onChange={e => setPartCost(e.target.value)} />
+                  <input type="text" className={inputClass} placeholder={t("jcPartNamePlaceholder", "Part name")} value={partName} onChange={e => setPartName(e.target.value)} />
+                  <input type="number" className={inputClass} placeholder={t("jcQtyPlaceholder", "Qty")} value={partQty} onChange={e => setPartQty(e.target.value)} />
+                  <input type="number" className={inputClass} placeholder={t("jcUnitCostPlaceholder", "Unit cost")} value={partCost} onChange={e => setPartCost(e.target.value)} />
                 </div>
                 <div className="flex items-center justify-between">
                   <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                    <input type="checkbox" checked={partFromStock} onChange={e => setPartFromStock(e.target.checked)} /> From stock (auto-deduct)
+                    <input type="checkbox" checked={partFromStock} onChange={e => setPartFromStock(e.target.checked)} /> {t("jcFromStockAutoDeduct", "From stock (auto-deduct)")}
                   </label>
-                  <button onClick={addPart} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Add</button>
+                  <button onClick={addPart} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">{t("add", "Add")}</button>
                 </div>
               </div>
             </div>
@@ -390,15 +393,15 @@ export default function JobCardPage() {
               ))}
               {/* Add labor form */}
               <div className="pt-3 border-t dark:border-gray-700 space-y-2">
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Add Labor</p>
-                <input type="text" className={inputClass} placeholder="Work description" value={laborDesc} onChange={e => setLaborDesc(e.target.value)} />
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcAddLabor", "Add Labor")}</p>
+                <input type="text" className={inputClass} placeholder={t("jcWorkDescriptionPlaceholder", "Work description")} value={laborDesc} onChange={e => setLaborDesc(e.target.value)} />
                 <div className="grid grid-cols-3 gap-2">
-                  <input type="text" className={inputClass} placeholder="Mechanic" value={laborMechanic} onChange={e => setLaborMechanic(e.target.value)} />
-                  <input type="number" className={inputClass} placeholder="Hours" value={laborHours} onChange={e => setLaborHours(e.target.value)} />
-                  <input type="number" className={inputClass} placeholder="Rate/hr" value={laborRate} onChange={e => setLaborRate(e.target.value)} />
+                  <input type="text" className={inputClass} placeholder={t("jcMechanicPlaceholder", "Mechanic")} value={laborMechanic} onChange={e => setLaborMechanic(e.target.value)} />
+                  <input type="number" className={inputClass} placeholder={t("jcHoursPlaceholder", "Hours")} value={laborHours} onChange={e => setLaborHours(e.target.value)} />
+                  <input type="number" className={inputClass} placeholder={t("jcRatePerHrPlaceholder", "Rate/hr")} value={laborRate} onChange={e => setLaborRate(e.target.value)} />
                 </div>
                 <div className="text-right">
-                  <button onClick={addLabor} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Add</button>
+                  <button onClick={addLabor} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">{t("add", "Add")}</button>
                 </div>
               </div>
             </div>
@@ -408,15 +411,15 @@ export default function JobCardPage() {
         {/* Running total */}
         <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-3 border-t dark:border-gray-700">
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500 dark:text-gray-400">Parts</span>
+            <span className="text-gray-500 dark:text-gray-400">{t("jcPartsLabel", "Parts")}</span>
             <span className="dark:text-gray-300">{job.parts_total?.toLocaleString()} {currency}</span>
           </div>
           <div className="flex justify-between text-sm mt-1">
-            <span className="text-gray-500 dark:text-gray-400">Labor</span>
+            <span className="text-gray-500 dark:text-gray-400">{t("jcLaborLabel", "Labor")}</span>
             <span className="dark:text-gray-300">{job.labor_total?.toLocaleString()} {currency}</span>
           </div>
           <div className="flex justify-between font-bold text-lg mt-2 pt-2 border-t dark:border-gray-600 dark:text-white">
-            <span>Total</span>
+            <span>{t("jcTotal", "Total")}</span>
             <span>{job.grand_total?.toLocaleString()} {currency}</span>
           </div>
         </div>

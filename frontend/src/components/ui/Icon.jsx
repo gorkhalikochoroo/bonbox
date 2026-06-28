@@ -81,6 +81,19 @@ import {
   // Scale for the Arbejdstidsloven legal note. ChevronUp pairs with the
   // already-mapped ChevronDown on the expandable employee register rows.
   ChevronLeft, ChevronRight, ChevronUp, Scale,
+  // Daily Close de-emoji (feel PR, 2026-06-21) — JustLockedCard email-status
+  // lines (ℹ️/💡/🔕) + offline lock button (📤 → UploadCloud).
+  Info, Lightbulb, BellOff, UploadCloud,
+  // Daily Close de-emoji sweep (feel PR cont., 2026-06-21) — revenue/payment
+  // category icons + inline render glyphs. Hammer=labor, Truck=towing/shipping,
+  // RotateCcw=returns, ShoppingCart=grocery products, Ticket=tobacco/lottery,
+  // Leaf=fresh, Smartphone=MobilePay, Gift=gift card, FolderOpen=upload image,
+  // LockOpen=unlock, RefreshCw=auto-detect refresh.
+  Hammer, Truck, RotateCcw, ShoppingCart, Ticket, Leaf, Smartphone, Gift,
+  FolderOpen, LockOpen, RefreshCw,
+  // Per-vertical adaptation (Phase A, 2026-06) — Onboarding branch tiles +
+  // venueProfiles glance icons. Scissors=salon, Croissant=bakery.
+  Scissors, Croissant,
   // Misc / fallback
   Circle, ChevronDown,
 } from "lucide-react";
@@ -138,6 +151,13 @@ const ICONS = {
   Cpu,
   // Tidsregistrering — working-time nav + legal note (2026-06)
   ChevronLeft, ChevronRight, ChevronUp, Scale,
+  // Daily Close de-emoji (feel PR, 2026-06-21)
+  Info, Lightbulb, BellOff, UploadCloud,
+  // Daily Close de-emoji sweep (feel PR cont., 2026-06-21)
+  Hammer, Truck, RotateCcw, ShoppingCart, Ticket, Leaf, Smartphone, Gift,
+  FolderOpen, LockOpen, RefreshCw,
+  // Per-vertical adaptation (Phase A) — salon + bakery onboarding tiles
+  Scissors, Croissant,
   // Utility
   ChevronDown,
 };

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { AlertTriangle } from "lucide-react";
+import { useLanguage } from "../hooks/useLanguage";
 
 /**
  * Multi-layer defense — Layer 5 (frontend).
@@ -16,6 +17,7 @@ import { AlertTriangle } from "lucide-react";
  *   - Inert if no errors — zero render cost
  */
 export default function SoftErrorBanner() {
+  const { t } = useLanguage();
   const [errors, setErrors] = useState([]);
   // Track recent URL+message combos so we don't spam duplicates
   const recentRef = useRef(new Map());
@@ -72,7 +74,7 @@ export default function SoftErrorBanner() {
           <button
             type="button"
             onClick={() => setErrors((prev) => prev.filter((x) => x.id !== e.id))}
-            aria-label="Dismiss"
+            aria-label={t("dismiss", "Dismiss")}
             className="shrink-0 text-amber-600 hover:text-amber-800 dark:hover:text-amber-300 text-lg leading-none"
           >
             ×

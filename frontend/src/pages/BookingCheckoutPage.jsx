@@ -316,7 +316,7 @@ export default function BookingCheckoutPage() {
       aria-valuemin={1}
       aria-valuemax={3}
       aria-valuenow={step}
-      aria-label="Checkout step"
+      aria-label={t("bookingStepAria", "Checkout step")}
     >
       {[1, 2, 3].map((n) => (
         <span

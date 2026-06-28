@@ -341,7 +341,7 @@ export default function LoginPage() {
           <select
             value={lang}
             onChange={(e) => setLang(e.target.value)}
-            aria-label="Language"
+            aria-label={t("loginLanguageLabel", "Language")}
             className="text-[13px] bg-transparent border border-gray-200 rounded-md px-2.5 py-1.5
               text-gray-700 hover:border-gray-400
               focus:outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer"

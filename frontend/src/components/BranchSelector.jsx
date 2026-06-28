@@ -12,6 +12,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback } from "react";
 import api from "../services/api";
+import { useLanguage } from "../hooks/useLanguage";
 
 const BTYPE_ICONS = {
   restaurant: "🍽️",
@@ -86,6 +87,7 @@ export function useBranch() {
 
 export default function BranchSelector({ compact = false }) {
   const { branches, branchId, setBranchId, hasBranches, loading } = useBranch();
+  const { t } = useLanguage();
 
   if (loading || !hasBranches) return null;
 
@@ -96,7 +98,7 @@ export default function BranchSelector({ compact = false }) {
         onChange={(e) => setBranchId(e.target.value || null)}
         className="text-xs px-2 py-1 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 bg-white dark:text-gray-200"
       >
-        <option value="">All Branches</option>
+        <option value="">{t("bselAllBranches", "All Branches")}</option>
         {branches.map((b) => (
           <option key={b.id} value={b.id}>{BTYPE_ICONS[b.business_type] || "🏢"} {b.name}</option>
         ))}
@@ -112,10 +114,10 @@ export default function BranchSelector({ compact = false }) {
         onChange={(e) => setBranchId(e.target.value || null)}
         className="text-sm px-3 py-1.5 rounded-xl border border-gray-300 dark:border-gray-600 dark:bg-gray-700 bg-white dark:text-gray-200 font-medium"
       >
-        <option value="">All Branches</option>
+        <option value="">{t("bselAllBranches", "All Branches")}</option>
         {branches.map((b) => (
           <option key={b.id} value={b.id}>
-            {BTYPE_ICONS[b.business_type] || "🏢"} {b.name} {b.is_default ? "(Default)" : ""}
+            {BTYPE_ICONS[b.business_type] || "🏢"} {b.name} {b.is_default ? t("bselDefaultParen", "(Default)") : ""}
           </option>
         ))}
       </select>

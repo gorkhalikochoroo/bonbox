@@ -140,7 +140,7 @@ export default function SmartImportModal({
       let resp;
       if (mode === "text") {
         if (!textInput.trim()) {
-          setError("Paste or type your inventory list first.");
+          setError(t("siErrPasteFirst", "Paste or type your inventory list first."));
           setLoading(false);
           return;
         }
@@ -149,7 +149,7 @@ export default function SmartImportModal({
         });
       } else {
         if (!fileInput) {
-          setError("Pick a file first.");
+          setError(t("siErrPickFile", "Pick a file first."));
           setLoading(false);
           return;
         }
@@ -172,7 +172,7 @@ export default function SmartImportModal({
       setError(
         typeof detail === "string"
           ? detail
-          : "Couldn't extract — check the file or paste, then retry.",
+          : t("siErrExtract", "Couldn't extract — check the file or paste, then retry."),
       );
     } finally {
       setLoading(false);
@@ -210,7 +210,7 @@ export default function SmartImportModal({
       })).filter((it) => it.name);
 
       if (items.length === 0) {
-        setError("All rows are empty — nothing to save.");
+        setError(t("siErrAllEmpty", "All rows are empty — nothing to save."));
         setCommitting(false);
         return;
       }
@@ -226,7 +226,7 @@ export default function SmartImportModal({
       setError(
         typeof detail === "string"
           ? detail
-          : "Save failed — please review the items and retry.",
+          : t("siErrSaveFailed", "Save failed — please review the items and retry."),
       );
     } finally {
       setCommitting(false);
@@ -244,16 +244,16 @@ export default function SmartImportModal({
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-              ✨ Smart Inventory Import
+              ✨ {t("siTitle", "Smart Inventory Import")}
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-              Paste, upload, or photograph your stock list — AI fills in the rest.
+              {t("siSubtitle", "Paste, upload, or photograph your stock list — AI fills in the rest.")}
             </p>
           </div>
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl leading-none"
-            aria-label="Close"
+            aria-label={t("close", "Close")}
           >
             ×
           </button>
@@ -306,6 +306,7 @@ export default function SmartImportModal({
               loading={loading}
               onRun={runExtract}
               history={history}
+              t={t}
             />
           ) : (
             <ReviewStep
@@ -329,7 +330,7 @@ export default function SmartImportModal({
 /* ─── Extract step UI ─────────────────────────────────────────────── */
 function ExtractStep({
   mode, setMode, textInput, setTextInput, fileInput, setFileInput,
-  fileRef, error, loading, onRun, history,
+  fileRef, error, loading, onRun, history, t,
 }) {
   const isInputMode = mode !== "history";
   return (
@@ -337,11 +338,11 @@ function ExtractStep({
       {/* Mode tabs */}
       <div className="flex gap-2 flex-wrap">
         {[
-          { id: "text",    label: "📝 Paste text" },
+          { id: "text",    label: `📝 ${t("siTabPasteText", "Paste text")}` },
           { id: "csv",     label: "📄 CSV" },
           { id: "excel",   label: "📊 Excel" },
-          { id: "image",   label: "Photo", iconKey: "camera" },
-          { id: "history", label: "📜 Recent" },
+          { id: "image",   label: t("siTabPhoto", "Photo"), iconKey: "camera" },
+          { id: "history", label: `📜 ${t("siTabRecent", "Recent")}` },
         ].map((m) => (
           <button
             key={m.id}
@@ -359,7 +360,7 @@ function ExtractStep({
 
       {/* History list */}
       {mode === "history" && (
-        <HistoryList history={history} />
+        <HistoryList history={history} t={t} />
       )}
 
       {/* Body — one input per mode (input modes only) */}
@@ -374,7 +375,7 @@ function ExtractStep({
             onChange={(e) => setTextInput(e.target.value)}
           />
           <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-            One item per line. Quantity and unit are auto-detected.
+            {t("siTextHint", "One item per line. Quantity and unit are auto-detected.")}
           </p>
         </div>
       )}
@@ -389,11 +390,11 @@ function ExtractStep({
               {mode === "csv" ? "📄" : "📊"}
             </div>
             <p className="text-gray-700 dark:text-gray-300 font-medium">
-              {fileInput ? fileInput.name : `Click to choose a ${mode.toUpperCase()}`}
+              {fileInput ? fileInput.name : t("siChooseFile", "Click to choose a {kind}", { kind: mode.toUpperCase() })}
             </p>
             <p className="text-xs text-gray-500 mt-1">
-              {mode === "csv" && "Up to 1 MB"}
-              {mode === "excel" && "Up to 5 MB"}
+              {mode === "csv" && t("siCsvMax", "Up to 1 MB")}
+              {mode === "excel" && t("siExcelMax", "Up to 5 MB")}
             </p>
           </button>
           <input
@@ -423,7 +424,7 @@ function ExtractStep({
                   {(fileInput.size / 1024).toFixed(0)} KB
                   {fileInput.size > 1.5 * 1024 * 1024 && (
                     <span className="ml-1 text-blue-600 dark:text-blue-400">
-                      · will be auto-resized
+                      · {t("siWillResize", "will be auto-resized")}
                     </span>
                   )}
                 </p>
@@ -431,7 +432,7 @@ function ExtractStep({
               <button
                 onClick={() => setFileInput(null)}
                 className="text-xs px-2 py-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-600">
-                Change
+                {t("siChange", "Change")}
               </button>
             </div>
           ) : (
@@ -452,10 +453,10 @@ function ExtractStep({
                 >
                   <div className="text-4xl mb-2 group-hover:scale-110 transition">📸</div>
                   <p className="text-gray-700 dark:text-gray-300 font-semibold">
-                    Take Photo
+                    {t("siTakePhoto", "Take Photo")}
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    Opens camera on iPhone / iPad
+                    {t("siTakePhotoHint", "Opens camera on iPhone / iPad")}
                   </p>
                 </button>
                 <button
@@ -469,16 +470,15 @@ function ExtractStep({
                 >
                   <div className="text-4xl mb-2 group-hover:scale-110 transition">🖼️</div>
                   <p className="text-gray-700 dark:text-gray-300 font-semibold">
-                    Choose Photo
+                    {t("siChoosePhoto", "Choose Photo")}
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    From photo library or files
+                    {t("siChoosePhotoHint", "From photo library or files")}
                   </p>
                 </button>
               </div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
-                JPG, PNG, HEIC, WebP up to 12 MB · iPhone HEIC + big photos
-                auto-resize on upload
+                {t("siImageFormats", "JPG, PNG, HEIC, WebP up to 12 MB · iPhone HEIC + big photos auto-resize on upload")}
               </p>
             </>
           )}
@@ -505,7 +505,7 @@ function ExtractStep({
             disabled={loading}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition"
           >
-            {loading ? "Extracting…" : "Extract items →"}
+            {loading ? t("siExtracting", "Extracting…") : t("siExtractItems", "Extract items →")}
           </button>
         </div>
       )}
@@ -514,22 +514,20 @@ function ExtractStep({
 }
 
 /* ─── History list UI ─────────────────────────────────────────────── */
-function HistoryList({ history }) {
+function HistoryList({ history, t }) {
   if (history === null) {
     return (
       <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
-        Loading…
+        {t("loading", "Loading…")}
       </div>
     );
   }
   if (history.length === 0) {
     return (
       <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
-        <p>No imports yet.</p>
+        <p>{t("siHistEmpty", "No imports yet.")}</p>
         <p className="text-xs mt-1 opacity-80">
-          Switch to <strong>Paste text</strong>, <strong>CSV</strong>,
-          <strong> Excel</strong> or <strong>Photo</strong> to start your
-          first one.
+          {t("siHistEmptyHint", "Switch to Paste text, CSV, Excel or Photo to start your first one.")}
         </p>
       </div>
     );
@@ -576,22 +574,22 @@ function HistoryList({ history }) {
               <span className="text-lg shrink-0">{kindIcon}</span>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                  {h.source_filename || `${h.source_kind} import`}
+                  {h.source_filename || t("siKindImport", "{kind} import", { kind: h.source_kind })}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {fmt(h.created_at)}
                   {" · "}
                   {h.status === "committed"
-                    ? `${h.committed_count} of ${h.item_count} saved`
-                    : `${h.item_count} item${h.item_count === 1 ? "" : "s"} extracted`}
+                    ? t("siSavedOf", "{saved} of {total} saved", { saved: h.committed_count, total: h.item_count })
+                    : t("siItemsExtracted", "{count} item(s) extracted", { count: h.item_count })}
                   {h.user_corrected && (
-                    <span className="ml-1 text-purple-600 dark:text-purple-400" title="AI learned from your corrections on this import">
-                      · ✨ trained AI
+                    <span className="ml-1 text-purple-600 dark:text-purple-400" title={t("siTrainedAiTitle", "AI learned from your corrections on this import")}>
+                      · ✨ {t("siTrainedAi", "trained AI")}
                     </span>
                   )}
                   {h.error && (
                     <span className="ml-1 text-red-500" title={h.error}>
-                      · error
+                      · {t("siErrorLabel", "error")}
                     </span>
                   )}
                 </p>
@@ -604,8 +602,8 @@ function HistoryList({ history }) {
               {h.source_kind === "image" && (
                 <button
                   onClick={openPhoto}
-                  title="View the original uploaded photo"
-                  aria-label="View original photo"
+                  title={t("siViewOriginalTitle", "View the original uploaded photo")}
+                  aria-label={t("siViewOriginalAria", "View original photo")}
                   className="text-xs px-2 py-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-200 dark:hover:bg-gray-700 font-medium inline-flex items-center justify-center">
                   <Camera className="w-3.5 h-3.5" />
                 </button>
@@ -678,7 +676,7 @@ function SupplierUpgradeNudge({ t }) {
  *
  * Colors follow DNA: black text on tinted background, no shouty fills.
  */
-function SupplierBanner({ supplier, supplierMatch, invoiceTotals, ocrProvider }) {
+function SupplierBanner({ supplier, supplierMatch, invoiceTotals, ocrProvider, t }) {
   if (!supplier && !supplierMatch) return null;
   const rawName = supplier?.name || null;
   const cvr = supplier?.cvr || null;
@@ -705,8 +703,8 @@ function SupplierBanner({ supplier, supplierMatch, invoiceTotals, ocrProvider })
         </span>
         <span className="font-semibold text-gray-900 dark:text-gray-100">
           {matched
-            ? <>Detected: <span className="capitalize">{canonical}</span></>
-            : (rawName ? <>Detected supplier: {rawName}</> : <>Unknown supplier</>)}
+            ? <>{t("siDetected", "Detected:")} <span className="capitalize">{canonical}</span></>
+            : (rawName ? <>{t("siDetectedSupplier", "Detected supplier:")} {rawName}</> : <>{t("siUnknownSupplier", "Unknown supplier")}</>)}
         </span>
         {cvr && (
           <span className="text-xs text-gray-600 dark:text-gray-300">
@@ -720,17 +718,17 @@ function SupplierBanner({ supplier, supplierMatch, invoiceTotals, ocrProvider })
         )}
         {ocrProvider === "claude_inventory" && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
-            Invoice OCR
+            {t("siInvoiceOcr", "Faktura OCR")}
           </span>
         )}
       </div>
       {(invoiceNo || invoiceDate || hasTotals) && (
         <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
-          {invoiceNo && <span>Invoice #{invoiceNo}</span>}
-          {invoiceDate && <span>Date: {invoiceDate}</span>}
+          {invoiceNo && <span>{t("siInvoiceNo", "Faktura #")}{invoiceNo}</span>}
+          {invoiceDate && <span>{t("siDateLabel", "Date:")} {invoiceDate}</span>}
           {totals.grand_total != null && (
             <span>
-              Total: <span className="font-medium text-gray-800 dark:text-gray-200">
+              {t("siTotalLabel", "Total:")} <span className="font-medium text-gray-800 dark:text-gray-200">
                 {Number(totals.grand_total).toLocaleString(undefined, {
                   minimumFractionDigits: 2, maximumFractionDigits: 2,
                 })} {totals.currency || "DKK"}
@@ -755,7 +753,7 @@ function SupplierBanner({ supplier, supplierMatch, invoiceTotals, ocrProvider })
  * Low (<0.6)              → amber pill + "category needed" hint
  * Always black text per DNA — color signals only via background tint.
  */
-function CategoryPill({ category, confidence }) {
+function CategoryPill({ category, confidence, t }) {
   if (!category) return null;
   const c = typeof confidence === "number" ? confidence : null;
   let bg = "bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200";
@@ -763,9 +761,9 @@ function CategoryPill({ category, confidence }) {
   if (c != null) {
     if (c < 0.6) {
       bg = "bg-amber-100 dark:bg-amber-900/40 text-gray-900 dark:text-amber-100";
-      hint = "category needed";
+      hint = t("siCategoryNeeded", "category needed");
     } else if (c < 0.85) {
-      hint = "verify";
+      hint = t("siVerify", "verify");
     }
   }
   return (
@@ -818,15 +816,16 @@ function ReviewStep({
           supplierMatch={draft.supplier_match}
           invoiceTotals={draft.invoice_totals}
           ocrProvider={draft.ocr_provider}
+          t={t}
         />
       )}
 
       {/* Stats banner */}
       <div className="flex flex-wrap gap-3 text-sm items-center">
-        <Stat label="Items" value={items.length} color="blue" />
-        <Stat label="Rule-matched" value={ruleCount} color="green" />
-        {aiCount > 0 && <Stat label="AI-classified" value={aiCount} color="purple" />}
-        {fallbackCount > 0 && <Stat label="Needs review" value={fallbackCount} color="amber" />}
+        <Stat label={t("siStatItems", "Items")} value={items.length} color="blue" />
+        <Stat label={t("siStatRuleMatched", "Rule-matched")} value={ruleCount} color="green" />
+        {aiCount > 0 && <Stat label={t("siStatAiClassified", "AI-classified")} value={aiCount} color="purple" />}
+        {fallbackCount > 0 && <Stat label={t("siStatNeedsReview", "Needs review")} value={fallbackCount} color="amber" />}
         {/* Original-photo link — only image-kind imports have a stored
             blob. Backend's GET /smart-import/{id}/image is auth-required,
             so a plain <a href> in a new tab won't carry the bearer
@@ -852,14 +851,14 @@ function ReviewStep({
               }
             }}
             className="px-2 py-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 text-xs font-medium inline-flex items-center gap-1"
-            title="View the original uploaded photo"
+            title={t("siViewOriginalTitle", "View the original uploaded photo")}
           >
-            <Camera className="w-3.5 h-3.5" /> View original photo
+            <Camera className="w-3.5 h-3.5" /> {t("siViewOriginalPhoto", "View original photo")}
           </button>
         )}
         {draft.duplicate_of && (
           <span className="px-2 py-1 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-200 text-xs">
-            Duplicate of an earlier upload — same draft returned
+            {t("siDuplicate", "Duplicate of an earlier upload — same draft returned")}
           </span>
         )}
       </div>
@@ -867,10 +866,10 @@ function ReviewStep({
       {/* Review table */}
       <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
         <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-medium">
-          <div className="col-span-5">Name</div>
-          <div className="col-span-2">Qty</div>
-          <div className="col-span-2">Unit</div>
-          <div className="col-span-2">Category</div>
+          <div className="col-span-5">{t("siColName", "Name")}</div>
+          <div className="col-span-2">{t("siColQty", "Qty")}</div>
+          <div className="col-span-2">{t("siColUnit", "Unit")}</div>
+          <div className="col-span-2">{t("siColCategory", "Category")}</div>
           <div className="col-span-1"></div>
         </div>
         <div className="max-h-[380px] overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
@@ -918,6 +917,7 @@ function ReviewStep({
                     <CategoryPill
                       category={it.category}
                       confidence={it.category_confidence}
+                      t={t}
                     />
                   </div>
                 )}
@@ -925,7 +925,7 @@ function ReviewStep({
               <button
                 onClick={() => removeRow(idx)}
                 className="col-span-1 text-gray-400 hover:text-red-500 text-sm"
-                aria-label="Remove row"
+                aria-label={t("siRemoveRow", "Remove row")}
               >
                 ✕
               </button>
@@ -946,14 +946,14 @@ function ReviewStep({
           disabled={committing}
           className="px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
         >
-          ← Back
+          ← {t("back", "Back")}
         </button>
         <button
           onClick={onCommit}
           disabled={committing || items.length === 0}
           className="px-4 py-2 bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-60 disabled:cursor-not-allowed text-white font-medium rounded-lg transition"
         >
-          {committing ? "Saving…" : `Save ${items.length} item${items.length === 1 ? "" : "s"}`}
+          {committing ? t("siSaving", "Saving…") : t("siSaveItems", "Save {count} item(s)", { count: items.length })}
         </button>
       </div>
     </div>

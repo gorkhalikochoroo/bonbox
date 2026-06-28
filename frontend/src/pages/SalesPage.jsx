@@ -244,7 +244,7 @@ export default function SalesPage() {
       fetchReturnSummary();
       window.dispatchEvent(new CustomEvent("bonbox-data-changed"));
     } catch (err) {
-      setError(errText(err, "Failed to process return"));
+      setError(errText(err, t("salPgFailedProcessReturn", "Failed to process return")));
       setTimeout(() => setError(""), 4000);
     }
   };
@@ -888,13 +888,12 @@ export default function SalesPage() {
 
       <DismissibleTip
         id="sales-intro-v1"
-        title="Three ways to log a sale"
+        title={t("salPgTipTitle", "Three ways to log a sale")}
       >
         <p>
-          <strong>Tap an amount</strong> below for a quick gross-total sale, hit{" "}
-          <strong>+ Item sale</strong> when you need line items + inventory deduction, or{" "}
-          <strong>scan a receipt</strong> with the camera and BonBox auto-fills the total.
-          Every sale you log here gets a sequential bilagsnummer for SKAT.
+          <strong>{t("salPgTipTapAmount", "Tap an amount")}</strong> {t("salPgTipBody1", "below for a quick gross-total sale, hit")}{" "}
+          <strong>{t("salPgTipItemSale", "+ Item sale")}</strong> {t("salPgTipBody2", "when you need line items + inventory deduction, or")}{" "}
+          <strong>{t("salPgTipScanReceipt", "scan a receipt")}</strong> {t("salPgTipBody3", "with the camera and BonBox auto-fills the total. Every sale you log here gets a sequential bilagsnummer for SKAT.")}
         </p>
       </DismissibleTip>
 
@@ -971,7 +970,7 @@ export default function SalesPage() {
         <SectionBanner
           severity="warn"
           icon="AlertTriangle"
-          title={`${pendingReturnCount} return${pendingReturnCount > 1 ? "s" : ""} pending`}
+          title={`${pendingReturnCount} ${pendingReturnCount === 1 ? t("salPgReturnPendingOne", "return pending") : t("salPgReturnPendingMany", "returns pending")}`}
         >
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <span>{t("needsRefundReplaceRestock", "Needs your action — refund, replace, or restock")}</span>
@@ -1033,7 +1032,7 @@ export default function SalesPage() {
               ]}
               activeId={statusFilter}
               onChange={setStatusFilter}
-              ariaLabel="Sales status filter"
+              ariaLabel={t("salPgStatusFilterAria", "Sales status filter")}
             />
           </div>
           <Button

@@ -54,10 +54,15 @@ import { useLanguage } from "../hooks/useLanguage";
 import FounderRatePill from "../components/FounderRatePill";
 import useFounderRateStatus from "../hooks/useFounderRateStatus";
 import {
+  tableDims, archetypeChairs, bodyRadiusClass, chairIsStool, TableMark,
+} from "../config/tableArchetypes";
+import {
   Clock, Sparkles, Check, ArrowRight, Menu, X, ChevronDown, Apple, Mail,
-  // Capability-showcase glyphs — one Lucide outline icon per core
-  // capability, all at the single decorative stroke weight (1.5).
-  CalendarClock, FileText, Calendar, Eye,
+  // Pillar/day glyphs — one Lucide outline icon per surface,
+  // all at the single decorative stroke weight (1.5).
+  CalendarClock, FileText, Calendar, CalendarCheck,
+  // Proof-tile + trust glyphs.
+  Users, FileCheck, Globe, Server, BookCheck,
 } from "lucide-react";
 
 // tx(t, key, fallback) — wrapper around the i18n t() helper that falls
@@ -148,47 +153,6 @@ function CenteredIntro({ eyebrow, title, sub }) {
   );
 }
 
-// ─── Capability glyphs (one stroke weight, 20px) ────────────────────
-const CAP_ICON = { size: 20, strokeWidth: STROKE, "aria-hidden": "true" };
-const ICON_CAP_BRIEF = <Sparkles {...CAP_ICON} />;
-const ICON_CAP_CLOSE = <Clock {...CAP_ICON} />;
-const ICON_CAP_MOMS = <CalendarClock {...CAP_ICON} />;
-const ICON_CAP_FAKTURA = <FileText {...CAP_ICON} />;
-const ICON_CAP_STAFF = <Calendar {...CAP_ICON} />;
-const ICON_CAP_REVISOR = <Eye {...CAP_ICON} />;
-
-// CapabilityRow — borderless row on the canvas (task #3). The list's
-// divide-y handles separation; whitespace + the icon tile structure it.
-// `highlight` gives the wedge feature (8am Brief) its soft gray-50 fill —
-// the one "designed, not generated" row the founder's reference shows.
-// Crisper "settings-app" icon tile: gray-50 + ring + gray-900 glyph.
-function CapabilityRow({ icon, title, body, pro = false, highlight = false }) {
-  return (
-    <div
-      className={`flex items-start gap-4 py-5 ${
-        highlight ? "bg-gray-50 rounded-lg -mx-3 px-3" : ""
-      }`}
-    >
-      <span className="shrink-0 inline-flex items-center justify-center w-11 h-11 rounded-lg bg-gray-50 ring-1 ring-gray-200/70 text-gray-900">
-        {icon}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight leading-snug">
-            {title}
-          </h3>
-          {pro && (
-            <span className="inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-              Pro
-            </span>
-          )}
-        </div>
-        <p className="mt-1.5 text-[15px] text-gray-600 leading-[1.65]">{body}</p>
-      </div>
-    </div>
-  );
-}
-
 // ─── Hero product surface — Daily Close card ───────────────────────
 //
 // Concentric nesting (task #4): outer rounded-2xl, inner tiles rounded-lg.
@@ -222,9 +186,19 @@ function DailyCloseHero({ tx_ }) {
           <p className="text-[40px] sm:text-[44px] font-bold text-gray-900 tabular-nums leading-tight tracking-tight mt-0.5">
             14.230<span className="text-gray-400 ml-1.5 text-[22px] font-semibold">kr</span>
           </p>
-          <p className="text-[13px] text-emerald-700 mt-0.5">
-            {tx_("landingDailyCloseDelta", "+12% vs. forrige tirsdag")}
-          </p>
+          <div className="mt-3 flex items-end gap-1.5 h-12" aria-hidden="true">
+            {[46, 58, 43, 67, 54, 73, 100].map((hPct, i) => (
+              <span
+                key={i}
+                className={`closeBar flex-1 rounded-sm ${i === 6 ? "bg-gray-900" : "bg-gray-200"}`}
+                style={{ height: `${hPct}%`, animationDelay: `${i * 55}ms` }}
+              />
+            ))}
+          </div>
+          <div className="mt-2 flex items-center justify-between text-[12px]">
+            <span className="text-gray-400">{tx_("landingDailyCloseTrend", "Last 7 days")}</span>
+            <span className="text-emerald-700 font-medium tabular-nums">{tx_("landingDailyCloseDelta", "+12% vs. forrige tirsdag")}</span>
+          </div>
         </div>
 
         {/* Kontant + kort breakdown — inner tiles on gray-50, rounded-lg */}
@@ -246,18 +220,25 @@ function DailyCloseHero({ tx_ }) {
 
         {/* MOMS row — amber severity surface (time-sensitive deadline) */}
         <div className="mx-5 sm:mx-6 mt-5 rounded-lg bg-amber-50 border border-amber-200/80 px-4 py-3">
-          <div className="flex items-baseline justify-between gap-3">
+          <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">
                 {tx_("landingDailyCloseMomsLabel", "MOMS Q2 · Frist 1. juni")}
               </p>
               <p className="text-[15px] font-semibold text-amber-900 mt-0.5">
-                {tx_("landingDailyCloseMomsAside", "4.230 kr. afsat automatisk")}
+                {tx_("landingDailyCloseMomsAside", "4.230 kr. klar til at afsætte")}
               </p>
             </div>
-            <p className="text-[22px] font-bold tabular-nums text-amber-700 shrink-0">
-              13<span className="text-[13px] font-medium ml-1">dage</span>
-            </p>
+            <div className="relative shrink-0 h-12 w-12" aria-hidden="true">
+              <svg viewBox="0 0 36 36" className="h-12 w-12 -rotate-90">
+                <circle cx="18" cy="18" r="15.5" fill="none" strokeWidth="3" className="stroke-amber-200" />
+                <circle cx="18" cy="18" r="15.5" fill="none" strokeWidth="3" strokeLinecap="round" className="stroke-amber-500" strokeDasharray="97.4" strokeDashoffset="16" />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
+                <span className="text-[15px] font-bold tabular-nums text-amber-700">13</span>
+                <span className="text-[8px] font-semibold text-amber-600 uppercase tracking-wide mt-0.5">dage</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -275,6 +256,207 @@ function DailyCloseHero({ tx_ }) {
           <p className="text-[13px] text-gray-500 text-center mt-2.5">
             {tx_("landingDailyCloseFooterMicro", "Z-rapport · kasserapport · revisor-eksport · ét tryk")}
           </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Showcase surface — Reservations 2D floor (the showpiece) ──────
+// Static, honest illustration of the public booking floor. Renders from the
+// SAME archetype geometry (config/tableArchetypes) the real owner floor +
+// public map use, so a Langbord/Højbord here is byte-identical to the product.
+// Status vocabulary mirrors PublicFloorMap: emerald = open, gray-900 = the
+// guest's pick, muted gray = taken.
+const FLOOR_TOK = {
+  open:  { box: "bg-emerald-50 ring-emerald-300 text-emerald-900", chair: "bg-emerald-300/80", stool: "border-emerald-400" },
+  taken: { box: "bg-gray-100 ring-gray-200 text-gray-400",         chair: "bg-gray-200",        stool: "border-gray-300" },
+  pick:  { box: "bg-gray-900 ring-gray-900 text-white",            chair: "bg-gray-700",        stool: "border-gray-500" },
+};
+const FLOOR_TABLES = [
+  { id: "b1", label: "Bord 1",   shape: "round",   seats: 2, x: 15, y: 27, status: "open" },
+  { id: "b2", label: "Bord 2",   shape: "round",   seats: 2, x: 45, y: 21, status: "taken" },
+  { id: "b3", label: "Bord 3",   shape: "square",  seats: 4, x: 83, y: 26, status: "open" },
+  { id: "b5", label: "Langbord", shape: "rect",    seats: 6, x: 31, y: 62, status: "pick" },
+  { id: "b7", label: "Højbord",  shape: "hightop", seats: 2, x: 85, y: 60, status: "open" },
+  { id: "b8", label: "Baren",    shape: "bar",     seats: 5, x: 64, y: 87, status: "open" },
+];
+function LandingFloorMini({ tx_ }) {
+  const SCALE = 0.86;
+  return (
+    <div className="relative w-full max-w-[520px] mx-auto">
+      <div className={`bg-white border border-gray-200 rounded-2xl overflow-hidden ${SHADOW_FLOAT}`}>
+        <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-gray-100 flex items-end justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{tx_("landingShowFloorPickHint", "Pick your table")}</p>
+            <p className="text-[15px] font-semibold text-gray-900 mt-0.5">Lør 27. juni · 19:00</p>
+          </div>
+          <span className="inline-flex items-center gap-1 text-[13px] text-gray-500 tabular-nums">
+            <Users size={13} strokeWidth={2} aria-hidden="true" />2
+          </span>
+        </div>
+        <div className="px-5 sm:px-6 py-5">
+          <div className="relative w-full rounded-xl border border-gray-200 bg-gradient-to-b from-gray-50/40 to-gray-100/60 ring-1 ring-inset ring-white/50 overflow-hidden" style={{ aspectRatio: "16 / 10" }}>
+            {FLOOR_TABLES.map((tb) => {
+              const raw = tableDims(tb.shape, tb.seats);
+              const w = Math.round(raw.w * SCALE), h = Math.round(raw.h * SCALE);
+              const chairs = archetypeChairs(tb.shape, tb.seats, w, h);
+              const stool = chairIsStool(tb.shape);
+              const tok = FLOOR_TOK[tb.status];
+              const thin = h < 34;
+              return (
+                <div key={tb.id} className="absolute" style={{ left: `${tb.x}%`, top: `${tb.y}%`, transform: "translate(-50%, -50%)" }}>
+                  <div className="relative" style={{ width: w, height: h }}>
+                    {tb.status === "pick" && (
+                      <span aria-hidden="true" className={`floorPulse absolute inset-0 ${bodyRadiusClass(tb.shape)} ring-2 ring-gray-900`} />
+                    )}
+                    {chairs.map((c, i) => (
+                      <span key={i} aria-hidden="true"
+                        className={`absolute rounded-full ${stool ? `border-2 bg-transparent ${tok.stool}` : tok.chair}`}
+                        style={{ width: 8, height: 8, left: "50%", top: "50%", transform: `translate(calc(-50% + ${c.x}px), calc(-50% + ${c.y}px))` }} />
+                    ))}
+                    <div className={`absolute inset-0 flex flex-col items-center justify-center ring-2 ${bodyRadiusClass(tb.shape)} ${tok.box} shadow-sm`}>
+                      <TableMark shape={tb.shape} w={w} h={h} benchClass={tok.chair} ringClass={tok.stool} />
+                      <span className="px-1 text-[9px] font-semibold leading-none truncate max-w-full">{tb.label}</span>
+                      {!thin && (
+                        <span className="mt-0.5 inline-flex items-center gap-0.5 text-[9px] leading-none opacity-90">
+                          <Users size={8} strokeWidth={2} aria-hidden="true" />{tb.seats}
+                        </span>
+                      )}
+                    </div>
+                    {tb.status === "pick" && (
+                      <span className="absolute -top-1.5 -right-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-gray-900 text-white ring-2 ring-white">
+                        <Check size={10} strokeWidth={3} aria-hidden="true" />
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500">
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-50 ring-1 ring-emerald-300" />{tx_("landingShowFloorOpen", "Open")}</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-gray-900" />{tx_("landingShowFloorPick", "Guest's pick")}</span>
+            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-gray-100 ring-1 ring-gray-200" />{tx_("landingShowFloorTaken", "Taken")}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Showcase surface — Vagtplan week grid ─────────────────────────
+// Honest illustration of the autopilot-proposed roster: silent empty cells,
+// white shift blocks with a 3px gray-900 role bar (no flood tint), a labour-%
+// ledger pill. Mirrors the owner Vagtplan grid's design language.
+const SCHED_DAYS = ["Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn"];
+const SCHED_ROWS = [
+  { who: "Mette", init: "M", bar: "bg-gray-900", shifts: { 0: "10–18", 2: "10–18", 4: "12–20" } },
+  { who: "Jonas", init: "J", bar: "bg-gray-500", shifts: { 1: "16–23", 3: "16–23", 5: "16–23" } },
+  { who: "Sara",  init: "S", bar: "bg-gray-400", shifts: { 4: "17–23", 5: "12–20", 6: "11–17" } },
+];
+function LandingScheduleMini({ tx_ }) {
+  const weekend = (i) => i >= 5;
+  return (
+    <div className="relative w-full max-w-[520px] mx-auto">
+      <div className={`bg-white border border-gray-200 rounded-2xl overflow-hidden ${SHADOW_FLOAT}`}>
+        <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-gray-100 flex items-center justify-between gap-3">
+          <p className="text-[15px] font-semibold text-gray-900">{tx_("landingShowSchedWeek", "Week 26 · auto-proposed")}</p>
+          <span className="inline-flex items-center rounded-full bg-gray-900 text-white text-[12px] font-semibold px-2.5 py-1 tabular-nums">
+            {tx_("landingShowSchedLabor", "Labour 28%")}
+          </span>
+        </div>
+        <div className="px-5 sm:px-6 py-5">
+          <div className="grid gap-1" style={{ gridTemplateColumns: "auto repeat(7, 1fr)" }}>
+            <div className="border-b border-gray-100" />
+            {SCHED_DAYS.map((d, i) => (
+              <div key={d} className={`text-center text-[10px] font-semibold uppercase tracking-wide pb-1.5 border-b border-gray-100 ${weekend(i) ? "text-gray-300" : "text-gray-400"}`}>{d}</div>
+            ))}
+            {SCHED_ROWS.flatMap((r, ri) => [
+              <div key={`l-${ri}`} className="flex items-center gap-2 pr-2 pt-1">
+                <span className="grid h-6 w-6 place-items-center rounded-full bg-gray-100 text-[10px] font-semibold text-gray-600 shrink-0">{r.init}</span>
+                <span className="text-[12px] font-medium text-gray-700">{r.who}</span>
+              </div>,
+              ...SCHED_DAYS.map((d, i) => (
+                <div key={`c-${ri}-${i}`} className={`h-9 mt-1 rounded-md flex items-center justify-center px-0.5 ${weekend(i) ? "bg-gray-100/70" : "bg-gray-50/70"}`}>
+                  {r.shifts[i] && (
+                    <div className="relative w-full h-7 rounded-md bg-white border border-gray-200 shadow-sm flex items-center justify-center overflow-hidden">
+                      <span className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-l-md ${r.bar}`} />
+                      <span className="text-[10px] font-semibold text-gray-700 tabular-nums leading-none">{r.shifts[i]}</span>
+                    </div>
+                  )}
+                </div>
+              )),
+            ])}
+          </div>
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <p className="text-[12px] text-gray-400 leading-snug max-w-[280px]">
+              {tx_("landingShowSchedFoot", "Proposed by revenue + weather — you review and publish.")}
+            </p>
+            <button type="button" tabIndex={-1} aria-hidden="true"
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-gray-900 text-white text-[12px] font-semibold px-3 py-1.5">
+              {tx_("landingShowSchedPublish", "Publish week")}
+              <ArrowRight size={13} strokeWidth={2} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Showcase surface — Faktura (2D invoice) ───────────────────────
+// Honest illustration of a faktura: gap-less §7 number, line items, MOMS,
+// a paid (netbank-matched) chip, and the kreditnota path. Demo amounts add up.
+const FAKTURA_LINES = [
+  { d: "Catering · 40 couverts", a: "6.000,00" },
+  { d: "Drikkevarer", a: "1.850,00" },
+  { d: "Levering", a: "350,00" },
+];
+function LandingFakturaMini({ tx_ }) {
+  return (
+    <div className="relative w-full max-w-[520px] mx-auto">
+      <div className={`bg-white border border-gray-200 rounded-2xl overflow-hidden ${SHADOW_FLOAT}`}>
+        <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-gray-100 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Faktura</p>
+            <p className="text-[15px] font-semibold text-gray-900 mt-0.5 tabular-nums">2026-0042</p>
+          </div>
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 text-[12px] font-semibold px-2.5 py-1">
+            <Check size={12} strokeWidth={2.5} aria-hidden="true" />{tx_("landingShowFakturaPaid", "Paid")}
+          </span>
+        </div>
+        <div className="px-5 sm:px-6 py-5">
+          <p className="text-[12px] text-gray-500">
+            {tx_("landingShowFakturaTo", "To")} <span className="text-gray-800 font-medium">Café Nord ApS · CVR 38221144</span>
+          </p>
+          <div className="mt-4 space-y-2.5">
+            {FAKTURA_LINES.map((l) => (
+              <div key={l.d} className="flex items-center justify-between text-[13px]">
+                <span className="text-gray-600">{l.d}</span>
+                <span className="text-gray-900 tabular-nums">{l.a}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 pt-3 border-t border-gray-100 space-y-1.5">
+            <div className="flex items-center justify-between text-[12px] text-gray-500">
+              <span>{tx_("landingShowFakturaVat", "MOMS 25%")}</span>
+              <span className="tabular-nums">2.050,00</span>
+            </div>
+            <div className="flex items-center justify-between text-[15px] font-semibold text-gray-900">
+              <span>{tx_("landingShowFakturaTotal", "Total")}</span>
+              <span className="tabular-nums">10.250,00 kr</span>
+            </div>
+          </div>
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <p className="text-[12px] text-gray-400 leading-snug max-w-[280px]">
+              {tx_("landingShowFakturaFoot", "Gap-less number per Bogføringsloven §7.")}
+            </p>
+            <button type="button" tabIndex={-1} aria-hidden="true"
+              className="shrink-0 inline-flex items-center rounded-lg border border-gray-300 bg-white text-gray-700 text-[12px] font-semibold px-3 py-1.5">
+              {tx_("landingShowFakturaCredit", "Kreditnota")}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -349,6 +531,181 @@ function MomsCountdownSpotlight({ tx_ }) {
   );
 }
 
+// ─── Day timeline — narrative bridge (pure-CSS rail, NO faux surface) ─
+//
+// A single 1px gray-200 vertical rail with gray-900 dots; each node is a
+// flat CARD to the right. Reuse-of-copy only (no new product chrome) so
+// build + TDZ risk stay low. Time chip = tabular-nums on gray-100.
+// `node.href` anchor-links to the matching pillar card in #pillars.
+function DayTimeline({ nodes }) {
+  return (
+    <ol className="relative max-w-3xl mx-auto pl-8 sm:pl-10">
+      {/* The rail — 1px gray-200, runs the full height behind the dots. */}
+      <span
+        className="absolute left-[7px] sm:left-[11px] top-2 bottom-2 w-px bg-gray-200"
+        aria-hidden="true"
+      />
+      {nodes.map((node, idx) => (
+        <li
+          key={node.key}
+          className={`relative dayNode ${idx === nodes.length - 1 ? "" : "mb-4"}`}
+          style={{ animationDelay: `${idx * 80}ms` }}
+        >
+          {/* Dot on the rail. */}
+          <span
+            className="absolute -left-8 sm:-left-10 top-5 w-3.5 h-3.5 rounded-full bg-gray-900 ring-4 ring-gray-50"
+            aria-hidden="true"
+          />
+          <a
+            href={node.href}
+            className="block bg-white border border-gray-200 rounded-xl p-5 hover:border-gray-300 transition-colors"
+          >
+            <div className="flex items-center gap-3 mb-1.5">
+              <span className="inline-flex items-center rounded-lg bg-gray-100 px-2 py-0.5 text-[13px] font-semibold text-gray-900 tabular-nums">
+                {node.time}
+              </span>
+              <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-gray-50 ring-1 ring-gray-200/70 text-gray-900 shrink-0">
+                {node.icon}
+              </span>
+              <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight leading-snug">
+                {node.title}
+              </h3>
+            </div>
+            <p className="text-[15px] text-gray-600 leading-[1.65]">{node.body}</p>
+          </a>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+// ─── Pillar card — the centrepiece grid (5 cards) ──────────────────
+//
+// Flat CARD (no SHADOW_FLOAT) + hover:border-gray-300. Lucide glyph in a
+// rounded-xl gray-50 tile; H3 title; one-line save-promise; an optional
+// gray-900-fill tier Chip; and the verbatim honesty micro-footnote.
+function PillarCard({ icon, title, promise, foot, tier, tap, className = "" }) {
+  return (
+    <div
+      className={`bg-white border border-gray-200 rounded-xl p-6 hover:border-gray-300 transition-colors flex flex-col ${className}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span className="inline-flex items-center justify-center size-11 rounded-xl bg-gray-50 text-gray-900 shrink-0">
+          {icon}
+        </span>
+        {tier && (
+          <span className="inline-flex items-center rounded-md bg-gray-900 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-white">
+            {tier}
+          </span>
+        )}
+      </div>
+      <h3 className="mt-4 text-[17px] font-semibold text-gray-900 tracking-tight leading-snug">
+        {title}
+      </h3>
+      <p className="mt-2 text-[15px] text-gray-600 leading-[1.65] flex-1">
+        {promise}
+        {tap && (
+          <span className="text-gray-400">
+            {" · "}
+            {tap}
+          </span>
+        )}
+      </p>
+      {foot && (
+        <p className="mt-3 text-[13px] text-gray-400 leading-[1.5]">{foot}</p>
+      )}
+    </div>
+  );
+}
+
+// ─── Proof tile — definitionally-true fact (not measured ROI) ──────
+function ProofTile({ icon, fig, label, sub }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
+      <span className="inline-flex items-center justify-center size-9 rounded-lg bg-gray-50 ring-1 ring-gray-200/70 text-gray-900">
+        {icon}
+      </span>
+      <p className="mt-4 text-[34px] sm:text-[36px] font-bold text-gray-900 tabular-nums leading-none tracking-tight">
+        {fig}
+      </p>
+      <p className="mt-2 text-[13px] font-medium text-gray-700 leading-snug">{label}</p>
+      <p className="mt-1.5 text-[13px] text-gray-500 leading-[1.5]">{sub}</p>
+    </div>
+  );
+}
+
+// ─── Pricing card — one of three tiers ─────────────────────────────
+//
+// `recommended` gives the Pro card its gray-900 ring + "Most popular"
+// Chip (gray-900, NOT emerald — emphasis is not a success state).
+// `priceNow` is the live number; `priceWas` (when founding) struck
+// through in gray-400 beside it. CTA always → /register.
+function PricingCard({
+  name, tagline, priceNow, priceWas, perMonth, foundingLabel,
+  bullets, ctaLabel, ctaStyle, recommended = false, popularLabel,
+}) {
+  const ctaCls =
+    ctaStyle === "primary"
+      ? "bg-emerald-600 text-white hover:bg-emerald-700"
+      : ctaStyle === "dark"
+        ? "bg-gray-900 text-white hover:bg-gray-800"
+        : "bg-gray-100 text-gray-900 hover:bg-gray-200";
+  return (
+    <div
+      className={`relative bg-white rounded-xl p-6 sm:p-7 flex flex-col ${
+        recommended
+          ? "ring-1 ring-gray-900 border border-gray-900"
+          : "border border-gray-200"
+      }`}
+    >
+      {recommended && popularLabel && (
+        <span className="absolute -top-3 left-6 inline-flex items-center rounded-full bg-gray-900 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-white">
+          {popularLabel}
+        </span>
+      )}
+      <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight">{name}</h3>
+      <p className="mt-1 text-[13px] text-gray-500 leading-[1.5] min-h-[2.6em]">{tagline}</p>
+
+      {/* Price — live founding number big; standard rate struck through. */}
+      <div className="mt-5 flex items-baseline gap-2 flex-wrap">
+        <span className="text-[40px] font-bold text-gray-900 tabular-nums leading-none tracking-tight">
+          {priceNow}
+        </span>
+        <span className="text-[15px] font-medium text-gray-500">{perMonth}</span>
+        {priceWas && (
+          <span className="text-[15px] text-gray-400 line-through tabular-nums">
+            {priceWas}
+          </span>
+        )}
+      </div>
+      {foundingLabel && (
+        <p className="mt-1 text-[12px] font-medium uppercase tracking-wider text-emerald-700">
+          {foundingLabel}
+        </p>
+      )}
+
+      <ul className="mt-6 space-y-2 flex-1">
+        {bullets.map((b) => (
+          <li key={b} className="flex gap-2 text-[14px] text-gray-700 leading-snug">
+            <Check size={16} strokeWidth={2} className="mt-0.5 text-emerald-600 shrink-0" aria-hidden="true" />
+            <span>{b}</span>
+          </li>
+        ))}
+      </ul>
+
+      <Link
+        to="/register"
+        className={`mt-6 inline-flex items-center justify-center w-full h-11 px-5 text-[15px] font-semibold rounded-lg transition-colors ${ctaCls}`}
+      >
+        {ctaLabel}
+        {ctaStyle === "primary" && (
+          <ArrowRight size={16} strokeWidth={2} className="ml-2" aria-hidden="true" />
+        )}
+      </Link>
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════
 //                        Main component
 // ═══════════════════════════════════════════════════════════════════
@@ -360,9 +717,13 @@ export default function LandingPage() {
   const [heroPassed, setHeroPassed] = useState(false);
   const heroRef = useRef(null);
 
-  // Founder-rate live count — feeds the FounderRatePill in the hero.
-  // Defensive: fetch failure falls back to the static founding copy.
-  useFounderRateStatus();
+  // Founder-rate live count — feeds the FounderRatePill in the hero AND
+  // the pricing table's founding-vs-standard number. Defensive: fetch
+  // failure (status null / !valid / sold out) falls back to showing the
+  // standard rate as the live number with no strike-through — never a
+  // bait-and-switch "founding" promise we can't honour.
+  const { status: founderStatus, valid: founderValid } = useFounderRateStatus();
+  const foundingOpen = founderValid && founderStatus?.locked === true;
 
   // Bind tx() to this component's t() so call sites stay clean.
   const tx_ = (key, fallback) => tx(t, key, fallback);
@@ -389,54 +750,207 @@ export default function LandingPage() {
     return () => io.disconnect();
   }, []);
 
+  // Scroll-reveal — each .reveal surface settles in once as it enters view.
+  // Honours prefers-reduced-motion and a missing IntersectionObserver
+  // (both just show everything immediately — never leaves a surface hidden).
+  useEffect(() => {
+    const els = Array.from(document.querySelectorAll(".reveal"));
+    if (!els.length) return;
+    const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce || typeof IntersectionObserver === "undefined") {
+      els.forEach((el) => el.classList.add("reveal-in"));
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => entries.forEach((e) => {
+        if (e.isIntersecting) { e.target.classList.add("reveal-in"); io.unobserve(e.target); }
+      }),
+      { threshold: 0.12, rootMargin: "0px 0px -8% 0px" },
+    );
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, []);
+
   const navLinks = [
-    { href: "#features", label: tx_("landingNavFeatures", "Features") },
-    { href: "#how", label: tx_("landingNavHow", "How it works") },
+    { href: "#pillars", label: tx_("landingNavFeatures", "Features") },
+    { href: "#pricing", label: tx_("landingNavPricing", "Pricing") },
   ];
 
-  // The 6 core capabilities (task #3). 8am Brief is the highlighted row.
-  // Honesty: MOMS line = owner submits to SKAT; faktura line folds the
-  // Receipt-OCR benefit in and notes matching is from an uploaded netbank
-  // CSV (not a live bank feed). Reservations / Inventory / standalone
-  // Receipt-OCR live in the "everything else" disclosure below.
-  const capabilities = [
+  // ── Day timeline (4 moments) — the narrative bridge. Reuse-of-copy
+  // only; each node anchor-links into its pillar card in #pillars.
+  const dayNodes = [
     {
-      key: "Brief",
-      icon: ICON_CAP_BRIEF,
-      highlight: true,
-      title: tx_("landingCapBriefTitle", "8am Daily Brief"),
-      body: tx_("landingCapBriefBody", "Open the app at 8 and already know your day: revenue, MOMS countdown, overdue invoices, regulars drifting away."),
+      key: "brief",
+      href: "#pillars",
+      icon: <Sparkles size={16} strokeWidth={STROKE} aria-hidden="true" />,
+      time: tx_("landingDay1Time", "08:00"),
+      title: tx_("landingDay1Title", "Your brief is waiting"),
+      body: tx_("landingDay1Body", "Revenue, MOMS countdown, overdue fakturaer, regulars drifting — before your first coffee."),
     },
     {
-      key: "Close",
-      icon: ICON_CAP_CLOSE,
-      title: tx_("landingCapCloseTitle", "30-second daily close"),
-      body: tx_("landingCapCloseBody", "Snap the Z-report and the kasserapport signs itself — dated, locked, and SKAT-ready before you lock up."),
+      key: "staff",
+      href: "#pillars",
+      icon: <Calendar size={16} strokeWidth={STROKE} aria-hidden="true" />,
+      time: tx_("landingDay2Time", "11:30"),
+      title: tx_("landingDay2Title", "Next week's Vagtplan, proposed"),
+      body: tx_("landingDay2Body", "One tap proposes a roster sized to your revenue and the weather — at your target labour %."),
     },
     {
-      key: "Moms",
-      icon: ICON_CAP_MOMS,
-      title: tx_("landingCapMomsTitle", "MOMS on autopilot"),
-      body: tx_("landingCapMomsBody", "A live countdown to every frist plus a filing-ready PDF. You submit to SKAT — BonBox makes sure you never miss the date."),
+      key: "reservations",
+      href: "#pillars",
+      icon: <CalendarClock size={16} strokeWidth={STROKE} aria-hidden="true" />,
+      time: tx_("landingDay3Time", "18:00"),
+      title: tx_("landingDay3Title", "Tables book themselves"),
+      body: tx_("landingDay3Body", "Guests self-book on your floor plan. Double-booking a table is physically impossible."),
     },
     {
-      key: "Faktura",
-      icon: ICON_CAP_FAKTURA,
-      title: tx_("landingCapFakturaTitle", "Faktura that gets paid"),
-      body: tx_("landingCapFakturaBody2", "One-click invoices with gap-less numbering per Bogføringsloven §7. Snap a kvittering and the expense fills itself; upload your netbank CSV and deposits match to open fakturaer."),
+      key: "close",
+      href: "#pillars",
+      icon: <Clock size={16} strokeWidth={STROKE} aria-hidden="true" />,
+      time: tx_("landingDay4Time", "22:30"),
+      title: tx_("landingDay4Title", "Close the day in 30 seconds"),
+      body: tx_("landingDay4Body", "Snap the Z-report. A dated, locked, revisor-ready kasserapport signs itself while you cash up."),
+    },
+  ];
+
+  // ── Pillars grid (5 cards). The Dagsafslutning card spans 2 cols.
+  // Honesty micro-footnotes verbatim; tier Chips (gray-900) where real.
+  const pillars = [
+    {
+      key: "close",
+      span: true,
+      icon: <Clock size={22} strokeWidth={STROKE} aria-hidden="true" />,
+      title: tx_("landingPillarCloseTitle", "Daily close · kasserapport"),
+      promise: tx_("landingPillarClosePromise", "Snap the Z-report — a dated, locked, revisor-ready kasserapport signs itself. No more 22:30 cash-up."),
+      foot: tx_("landingPillarCloseFoot", "You scan the Z-report — BonBox isn't the POS."),
+      tier: null,
     },
     {
-      key: "Staff",
-      icon: ICON_CAP_STAFF,
-      pro: true,
-      title: tx_("landingCapStaffTitle", "Staff schedule autopilot"),
-      body: tx_("landingCapStaffBody", "Next week's roster from the weather forecast, your own revenue, and DK labour law — proposed in one tap. Tweak per shift, publish."),
+      key: "staff",
+      icon: <Calendar size={22} strokeWidth={STROKE} aria-hidden="true" />,
+      title: tx_("landingPillarStaffTitle", "Vagtplan autopilot"),
+      promise: tx_("landingPillarStaffPromise", "Next week's Vagtplan proposed in one tap — sized to your revenue, the weather and DK labour law, at your target labour %."),
+      foot: tx_("landingPillarStaffFoot", "Proposes — never auto-publishes. You publish."),
+      tier: tx_("pricingTierPro", "Pro"),
     },
     {
-      key: "Revisor",
-      icon: ICON_CAP_REVISOR,
-      title: tx_("landingCapRevisorTitle", "Your revisor, read-only"),
-      body: tx_("landingCapRevisorBody", "Invite your bogholder to a read-only login where every action is audit-logged. No more \"send me the CSVs.\""),
+      key: "reservations",
+      icon: <CalendarCheck size={22} strokeWidth={STROKE} aria-hidden="true" />,
+      title: tx_("landingPillarReservationsTitle", "Reservationer"),
+      promise: tx_("landingPillarReservationsPromise", "A public booking page on a tap-to-pick 2D floor plan — double-booking a table is physically impossible."),
+      foot: tx_("landingPillarReservationsFoot", "Free taste: 20 bookings/mo, 3 tables."),
+      tier: null,
+    },
+    {
+      key: "faktura",
+      icon: <FileText size={22} strokeWidth={STROKE} aria-hidden="true" />,
+      title: tx_("landingPillarFakturaTitle", "Faktura"),
+      promise: tx_("landingPillarFakturaPromise", "One-click fakturaer with gap-less numbering per Bogføringsloven §7 — and a proper kreditnota when you void one. Upload your netbank CSV and deposits self-match."),
+      foot: tx_("landingPillarFakturaFoot", "Matching reads your uploaded netbank CSV — no live bank feed."),
+      tier: tx_("pricingTierStarter", "Starter"),
+    },
+    {
+      key: "skat",
+      icon: <CalendarClock size={22} strokeWidth={STROKE} aria-hidden="true" />,
+      title: tx_("landingPillarSkatTitle", "Skat Autopilot · MOMS"),
+      promise: tx_("landingPillarSkatPromise", "A live countdown to every MOMS frist and the weekly kroner to set aside — plus a filing-ready angivelse PDF you submit to SKAT."),
+      foot: tx_("landingPillarSkatFoot", "BonBox doesn't file to SKAT — you submit; the amount is an estimate."),
+      tier: null,
+    },
+  ];
+
+  // ── Proof tiles (4 facts). Definitionally true — NOT measured ROI.
+  const proofTiles = [
+    {
+      key: "wages",
+      icon: <Users size={18} strokeWidth={STROKE} aria-hidden="true" />,
+      fig: tx_("landingSaveWagesFig", "30–40%"),
+      label: tx_("landingSaveWagesLabel", "of café revenue is wages"),
+      sub: tx_("landingSaveWagesSub", "Autopilot sizes the roster to demand at your target labour %."),
+    },
+    {
+      key: "frist",
+      icon: <CalendarClock size={18} strokeWidth={STROKE} aria-hidden="true" />,
+      fig: tx_("landingSaveFristFig", "1"),
+      label: tx_("landingSaveFristLabel", "missed MOMS frist = a fine"),
+      sub: tx_("landingSaveFristSub", "A live countdown + weekly set-aside rate so the date never surprises you."),
+    },
+    {
+      key: "close",
+      icon: <Clock size={18} strokeWidth={STROKE} aria-hidden="true" />,
+      fig: tx_("landingSaveCloseFig", "~30 sec"),
+      label: tx_("landingSaveCloseLabel", "to close, not 30 minutes"),
+      sub: tx_("landingSaveCloseSub", "Snap-and-confirm replaces the spreadsheet cash-up — you review before locking."),
+    },
+    {
+      key: "rekey",
+      icon: <FileCheck size={18} strokeWidth={STROKE} aria-hidden="true" />,
+      fig: tx_("landingSaveRekeyFig", "0"),
+      label: tx_("landingSaveRekeyLabel", "lines re-keyed for the revisor"),
+      sub: tx_("landingSaveRekeySub", "OCR pre-fills; the PDF is already §10-stored."),
+    },
+  ];
+
+  // ── Pricing tiers (3). Numbers LOCKED to billing.py PLAN_CAPS:
+  // Free 0 / Starter 199 (129 founding) / Pro 349 (249 founding).
+  // The founding number shows as the live figure with the standard
+  // rate struck through ONLY while the founder rate is open (live).
+  const perMonth = tx_("landingPricingPerMonth", "kr./mo");
+  const foundingLabel = tx_("landingPricingFoundingFrom", "founding rate");
+  const pricingTiers = [
+    {
+      key: "free",
+      name: tx_("landingPricingFreeName", "Free"),
+      tagline: tx_("landingPricingFreeTagline", "Close the day, kasserapport PDF, MOMS countdown — forever free."),
+      priceNow: "0",
+      priceWas: null,
+      foundingLabel: null,
+      bullets: [
+        tx_("landingPricingFreeB1", "Daily close + kasserapport PDF (§10)"),
+        tx_("landingPricingFreeB2", "MOMS countdown + weekly set-aside rate"),
+        tx_("landingPricingFreeB3", "Reservationer — up to 20/mo, 3 tables"),
+        tx_("landingPricingFreeB4", "10 receipt scans/mo"),
+        tx_("landingPricingFreeB5", "7-day export window"),
+      ],
+      ctaLabel: tx_("landingPricingCtaFree", "Start free"),
+      ctaStyle: "secondary",
+      recommended: false,
+    },
+    {
+      key: "starter",
+      name: tx_("landingPricingStarterName", "Starter"),
+      tagline: tx_("landingPricingStarterTagline", "Faktura, auto-email close to your revisor, bank reconcile from CSV."),
+      priceNow: foundingOpen ? "129" : "199",
+      priceWas: foundingOpen ? "199" : null,
+      foundingLabel: foundingOpen ? foundingLabel : null,
+      bullets: [
+        tx_("landingPricingStarterB1", "Everything in Free"),
+        tx_("landingPricingStarterB2", "Faktura + kreditnota (30/mo), gap-less §7"),
+        tx_("landingPricingStarterB3", "Auto-email close + Z-photo to revisor"),
+        tx_("landingPricingStarterB4", "Reservationer unlimited · SMS reminders 300/mo"),
+        tx_("landingPricingStarterB5", "Netbank-CSV reconciliation · 300 receipt scans/mo"),
+      ],
+      ctaLabel: tx_("landingPricingCtaStarter", "Try 14 days free"),
+      ctaStyle: "dark",
+      recommended: false,
+    },
+    {
+      key: "pro",
+      name: tx_("landingPricingProName", "Pro"),
+      tagline: tx_("landingPricingProTagline", "Vagtplan autopilot, multi-terminal close, filing-ready MOMS PDF."),
+      priceNow: foundingOpen ? "249" : "349",
+      priceWas: foundingOpen ? "349" : null,
+      foundingLabel: foundingOpen ? foundingLabel : null,
+      bullets: [
+        tx_("landingPricingProB1", "Everything in Starter"),
+        tx_("landingPricingProB2", "Vagtplan autopilot (revenue + weather + labour %)"),
+        tx_("landingPricingProB3", "Filing-ready MOMS angivelse PDF + email to revisor"),
+        tx_("landingPricingProB4", "Multi-terminal consolidated close (up to 3 sites)"),
+        tx_("landingPricingProB5", "White-label faktura · unlimited faktura · 1,000 scans + 1,000 SMS/mo"),
+      ],
+      ctaLabel: tx_("landingPricingCtaPro", "Try 14 days free"),
+      ctaStyle: "primary",
+      recommended: true,
     },
   ];
 
@@ -525,8 +1039,30 @@ export default function LandingPage() {
         .flowStep1 { animation-delay: 0s; }
         .flowStep2 { animation-delay: 1.5s; }
         .flowStep3 { animation-delay: 3s; }
+        /* One calm settle beat for the day timeline (fade-up, <=600ms). */
+        @keyframes dayFadeUp {
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .dayNode { animation: dayFadeUp 0.4s ease-out both; }
+        /* Gentle halo on the booker's picked table — one calm slow beat. */
+        @keyframes floorPulse {
+          0%, 100% { opacity: 0; transform: scale(1); }
+          50%      { opacity: 0.45; transform: scale(1.4); }
+        }
+        .floorPulse { animation: floorPulse 2.6s ease-in-out infinite; }
+        /* Hero revenue bars rise once on load — the creative 2D beat. */
+        @keyframes barRise { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+        .closeBar { transform-origin: bottom; animation: barRise 0.55s cubic-bezier(0.22,1,0.36,1) both; }
+        /* Scroll-reveal — each product surface settles in as it enters view. */
+        .reveal { opacity: 0; transform: translateY(16px); }
+        .reveal-in { opacity: 1; transform: none; transition: opacity 0.5s ease-out, transform 0.55s cubic-bezier(0.22,1,0.36,1); }
         @media (prefers-reduced-motion: reduce) {
           .flowStep { animation: none; opacity: 1; }
+          .dayNode  { animation: none; opacity: 1; transform: none; }
+          .floorPulse { animation: none; opacity: 0; }
+          .closeBar { animation: none; transform: none; }
+          .reveal, .reveal-in { opacity: 1; transform: none; transition: none; }
         }
       `}</style>
 
@@ -566,7 +1102,7 @@ export default function LandingPage() {
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value)}
-              aria-label="Language"
+              aria-label={tx_("languageLabel", "Language")}
               className="hidden sm:block text-[13px] font-medium tracking-wider uppercase bg-transparent border border-gray-200 rounded-md px-2 py-1.5 text-gray-700 hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-900 cursor-pointer"
             >
               {LANGUAGES.map((l) => (
@@ -592,7 +1128,7 @@ export default function LandingPage() {
             <button
               onClick={() => setMenuOpen(!menuOpen)}
               className="md:hidden text-gray-700 p-2 -mr-2"
-              aria-label="Menu"
+              aria-label={tx_("landingNavMenuAria", "Menu")}
             >
               {menuOpen ? <X size={20} strokeWidth={2} /> : <Menu size={20} strokeWidth={2} />}
             </button>
@@ -674,10 +1210,10 @@ export default function LandingPage() {
                   <ArrowRight size={16} strokeWidth={2} className="ml-2" aria-hidden="true" />
                 </Link>
                 <a
-                  href="#how"
+                  href="#day"
                   className="inline-flex items-center justify-center h-11 px-4 text-[15px] font-medium text-gray-700 hover:text-gray-900 transition-colors"
                 >
-                  {tx_("landingCtaSecondary", "Se Daily Close i 60 sek")}
+                  {tx_("landingHeroSecondaryDay", "See the 4 moments")}
                   <ArrowRight size={14} strokeWidth={2} className="ml-1.5" aria-hidden="true" />
                 </a>
               </div>
@@ -705,69 +1241,115 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── 2 · FLOW — "Snap. Merge. Done in 36s" (the magic moment) ─ */}
-      <Section className="bg-white border-y border-gray-200">
+      {/* ── 2 · DAY — the four-moment timeline (narrative bridge) ──── */}
+      <Section id="day" className="bg-white border-y border-gray-200">
         <CenteredIntro
-          eyebrow={tx_("landingFlowTag", "See it in action")}
-          title={tx_("landingFlowTitle", "Snap. Merge. Done — in 36 seconds.")}
-          sub={tx_("landingFlowSub", "Three steps. No retyping. The owner sees the consolidated PDF before lights out.")}
+          eyebrow={tx_("landingDayTag", "One day, handled")}
+          title={tx_("landingDayTitle", "Your day, from first coffee to lights-out.")}
+          sub={tx_("landingDaySub", "Four moments that used to eat your evening. Now they run while you work — and the revisor-ready paperwork writes itself.")}
         />
-
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr] gap-3 items-stretch max-w-5xl mx-auto">
-          {[
-            { n: "01", titleKey: "landingFlow1", titleFb: "Snap the kasserapport", subKey: "landingFlow1Sub", subFb: "Front-of-house photographs the receipt strip from each terminal.", micro: tx_("landingFlow1Micro", "~6s per terminal"), stepClass: "flowStep1" },
-            null,
-            { n: "02", titleKey: "landingFlow2", titleFb: "AI merges them", subKey: "landingFlow2Sub", subFb: "OCR reads each strip. BonBox cross-checks the totals across all terminals.", micro: tx_("landingFlow2Micro", "~6s"), stepClass: "flowStep2" },
-            null,
-            { n: "03", titleKey: "landingFlow3", titleFb: "PDF in owner's inbox", subKey: "landingFlow3Sub", subFb: "Consolidated kasserapport PDF — signed, dated, ready for the revisor.", micro: tx_("landingFlow3Micro", "before close-up"), stepClass: "flowStep3" },
-          ].map((step, idx) =>
-            step === null ? (
-              <div key={`arrow-${idx}`} aria-hidden="true">
-                <div className="hidden md:flex items-center justify-center h-full">
-                  <ArrowRight size={20} strokeWidth={STROKE} className="text-gray-300" />
-                </div>
-                <div className="flex md:hidden items-center justify-center -my-1">
-                  <ChevronDown size={18} strokeWidth={STROKE} className="text-gray-300" />
-                </div>
-              </div>
-            ) : (
-              <div key={step.n} className={`${CARD} text-center flowStep ${step.stepClass}`}>
-                <p className="text-[11px] uppercase tracking-wider font-semibold text-gray-400 mb-2">{step.n}</p>
-                <h3 className="text-[15px] font-semibold text-gray-900 mb-1.5 tracking-tight">
-                  {tx_(step.titleKey, step.titleFb)}
-                </h3>
-                <p className="text-[15px] text-gray-600 leading-[1.65]">
-                  {tx_(step.subKey, step.subFb)}
-                </p>
-                <p className="mt-4 text-[13px] font-medium text-gray-400 tabular-nums">{step.micro}</p>
-              </div>
-            ),
-          )}
-        </div>
-
-        <p className="mt-12 text-center text-[13px] text-gray-500">
-          {tx_("landingFlowFootnote", "Built for multi-terminal closes — restaurants, bars, cafés, takeaways with 2-6 registers.")}
+        <DayTimeline nodes={dayNodes} />
+        <p className="mt-10 text-center text-[15px] text-gray-500 max-w-2xl mx-auto leading-[1.6]">
+          {tx_("landingDayClose", "And while you sleep: it's already in the books, ready for your revisor.")}
         </p>
       </Section>
 
-      {/* ── 3 · CAPABILITY SHOWCASE — the calm list of 6 ───────────── */}
-      <Section id="features">
+      {/* ── 2c · SHOWCASE — see the two most visual products in 2D ──── */}
+      <Section id="showcase" className="bg-gray-50">
+        <div className="space-y-20 lg:space-y-28">
+          {/* Reservations — copy left, real 2D floor right */}
+          <div className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-16 items-center reveal">
+            <div className="max-w-lg">
+              <Eyebrow>{tx_("landingShowFloorTag", "Reservationer")}</Eyebrow>
+              <Heading>{tx_("landingShowFloorTitle", "Guests book themselves — on your real floor.")}</Heading>
+              <p className="mt-4 text-[17px] text-gray-600 leading-[1.6] max-w-[560px]">
+                {tx_("landingShowFloorSub", "Share one link. Diners pick their own table on a 2D map of your room — round tables, langborde, bås, the bar. Double-booking is physically impossible: the engine re-checks before it confirms.")}
+              </p>
+              <ul className="mt-6 space-y-2.5 text-[15px] text-gray-700">
+                {[
+                  tx_("landingShowFloorB1", "A booking page that looks like your room, not a form"),
+                  tx_("landingShowFloorB2", "Guest taps a free table — you get the booking instantly"),
+                  tx_("landingShowFloorB3", "No-double-booking is enforced in the database, not by hope"),
+                ].map((b) => (
+                  <li key={b} className="flex items-start gap-2">
+                    <Check size={16} strokeWidth={2} className="mt-1 text-emerald-600 shrink-0" aria-hidden="true" />
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div><LandingFloorMini tx_={tx_} /></div>
+          </div>
+
+          {/* Vagtplan — real 2D grid left, copy right (alternate) */}
+          <div className="grid lg:grid-cols-[1.05fr_1fr] gap-12 lg:gap-16 items-center reveal">
+            <div className="order-2 lg:order-1"><LandingScheduleMini tx_={tx_} /></div>
+            <div className="order-1 lg:order-2 max-w-lg">
+              <Eyebrow>{tx_("landingShowSchedTag", "Vagtplan")}</Eyebrow>
+              <Heading>{tx_("landingShowSchedTitle", "Next week's rota, proposed in one tap.")}</Heading>
+              <p className="mt-4 text-[17px] text-gray-600 leading-[1.6] max-w-[560px]">
+                {tx_("landingShowSchedSub", "Autopilot sizes the week to your revenue, the weather and Danish labour law — at your target labour %. It proposes; you review and publish. Staff get the shift on their phone.")}
+              </p>
+              <ul className="mt-6 space-y-2.5 text-[15px] text-gray-700">
+                {[
+                  tx_("landingShowSchedB1", "Sized to demand, kept at your target labour %"),
+                  tx_("landingShowSchedB2", "Proposes — never auto-publishes. You stay in control"),
+                  tx_("landingShowSchedB3", "Published shifts land on each phone, with .ics + reminders"),
+                ].map((b) => (
+                  <li key={b} className="flex items-start gap-2">
+                    <Check size={16} strokeWidth={2} className="mt-1 text-emerald-600 shrink-0" aria-hidden="true" />
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          {/* Faktura — copy left, real 2D invoice right */}
+          <div className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-16 items-center reveal">
+            <div className="max-w-lg">
+              <Eyebrow>{tx_("landingShowFakturaTag", "Faktura")}</Eyebrow>
+              <Heading>{tx_("landingShowFakturaTitle", "Send a faktura. Numbered exactly right.")}</Heading>
+              <p className="mt-4 text-[17px] text-gray-600 leading-[1.6] max-w-[560px]">
+                {tx_("landingShowFakturaSub", "One tap makes a faktura with gap-less numbering per Bogføringsloven §7. Void one and you get a proper kreditnota — never a deleted line. Upload your netbank CSV and paid invoices match themselves.")}
+              </p>
+              <ul className="mt-6 space-y-2.5 text-[15px] text-gray-700">
+                {[
+                  tx_("landingShowFakturaB1", "Gap-less §7 numbering — your revisor's favourite"),
+                  tx_("landingShowFakturaB2", "A real kreditnota on void, never a silent delete"),
+                  tx_("landingShowFakturaB3", "Netbank-CSV reconciliation matches payments for you"),
+                ].map((b) => (
+                  <li key={b} className="flex items-start gap-2">
+                    <Check size={16} strokeWidth={2} className="mt-1 text-emerald-600 shrink-0" aria-hidden="true" />
+                    <span>{b}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div><LandingFakturaMini tx_={tx_} /></div>
+          </div>
+        </div>
+      </Section>
+
+      {/* ── 3 · PILLARS — the five-card centrepiece grid ───────────── */}
+      <Section id="pillars">
         <SectionIntro
-          eyebrow={tx_("landingCapTag", "What BonBox does")}
-          title={tx_("landingCapTitle", "A few powerful things, done properly.")}
-          sub={tx_("landingCapSub2", "Not a wall of half-finished features. Six things at the core of running a Danish small business — close, MOMS, faktura, staff, your revisor — each built to actually carry its weight.")}
+          eyebrow={tx_("landingPillarsTag", "What BonBox does for you")}
+          title={tx_("landingPillarsTitle", "Five things. Each one saves you money or time.")}
+          sub={tx_("landingPillarsSub", "Not a wall of half-finished features. Five things at the core of running a Danish business — each built to actually carry its weight.")}
         />
 
-        {/* Borderless rows in ONE white card; divide-y separates them. */}
-        <div className={`${CARD} divide-y divide-gray-100 py-2 sm:py-3`}>
-          {capabilities.map((c) => (
-            <CapabilityRow
-              key={c.key}
-              icon={c.icon}
-              pro={c.pro}
-              highlight={c.highlight}
-              title={c.title}
-              body={c.body}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {pillars.map((p) => (
+            <PillarCard
+              key={p.key}
+              icon={p.icon}
+              title={p.title}
+              promise={p.promise}
+              foot={p.foot}
+              tier={p.tier}
+              tap={tx_("landingPillarsTap", "one tap")}
+              className={p.span ? "lg:col-span-2 reveal" : "reveal"}
             />
           ))}
         </div>
@@ -776,14 +1358,14 @@ export default function LandingPage() {
         <details className="group mt-6 bg-white border border-gray-200 rounded-xl overflow-hidden">
           <summary className="flex items-center justify-between cursor-pointer px-6 py-4 hover:bg-gray-50 transition-colors list-none gap-3 min-h-[44px]">
             <span className="text-[15px] font-semibold text-gray-900 tracking-tight">
-              {tx_("landingMoreToggle2", "See everything else BonBox does")}
+              {tx_("landingPillarsMoreToggle", "See everything else BonBox does")}
             </span>
             <ChevronDown size={18} strokeWidth={STROKE} className="text-gray-400 group-open:rotate-180 transition-transform shrink-0" aria-hidden="true" />
           </summary>
 
           <div className="px-6 pb-7 pt-1 border-t border-gray-100">
             <p className="mt-5 mb-7 text-[15px] text-gray-600 leading-[1.65] max-w-[560px]">
-              {tx_("landingMoreSub2", "Reservations, inventory, the credit book and more — every module shares the same data, so the morning Brief always knows what you sold yesterday.")}
+              {tx_("landingPillarsMoreSub", "Receipt OCR, netbank-CSV reconciliation, inventory, the 8am Brief and more — every module shares the same data, so the morning Brief always knows what you sold yesterday.")}
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-7">
               {moduleIndex.map((cat) => (
@@ -806,25 +1388,48 @@ export default function LandingPage() {
         </details>
       </Section>
 
-      {/* ── 4 · MOMS COUNTDOWN spotlight ───────────────────────────── */}
+      {/* ── 4 · PROOF — definitionally-true fact tiles (not ROI) ───── */}
+      <Section className="bg-gray-50">
+        <CenteredIntro
+          eyebrow={tx_("landingSaveTag", "Where the money and time hide")}
+          title={tx_("landingSaveTitle", "The four places BonBox pays for itself.")}
+          sub={tx_("landingSaveSub", "No invented numbers. Just the places an hour — or a fine — disappears every month. These are jobs BonBox does, not a promise about your numbers.")}
+        />
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-5xl mx-auto">
+          {proofTiles.map((tile) => (
+            <ProofTile
+              key={tile.key}
+              icon={tile.icon}
+              fig={tile.fig}
+              label={tile.label}
+              sub={tile.sub}
+            />
+          ))}
+        </div>
+        <p className="mt-10 text-center text-[13px] text-gray-400 max-w-2xl mx-auto leading-[1.5]">
+          {tx_("landingSaveFootnote", "30 sec is happy-path scan-and-confirm, not a guarantee. Figures you already know — not customer claims.")}
+        </p>
+      </Section>
+
+      {/* ── 5 · MOMS COUNTDOWN spotlight (reused, honesty-edited) ──── */}
       <Section className="bg-white border-y border-gray-200">
         <div className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-16 items-center">
           <div className="max-w-lg">
-            <Eyebrow>{tx_("landingMomsTag", "Aldrig mere en MOMS-bøde")}</Eyebrow>
+            <Eyebrow>{tx_("landingMomsTag", "Never another MOMS fine")}</Eyebrow>
             <Heading>
-              {tx_("landingMomsHeading", "Din MOMS er en dato — ikke en rapport.")}
+              {tx_("landingMomsHeading", "Your MOMS is a date — not a report.")}
             </Heading>
             <p className="mt-4 text-[17px] text-gray-600 leading-[1.6] max-w-[560px]">
               {tx_(
                 "landingMomsBody",
-                "BonBox sætter pengene til side automatisk i takt med dine fakturaer og kasserapport. Når fristen nærmer sig, ved du præcis hvor meget der skal indberettes — og hvor meget der allerede ligger klar.",
+                "BonBox computes your set-aside rate at every sale, from your fakturaer and kasserapport. When the deadline approaches, you know exactly how much to file — and how much to keep aside. BonBox tells you the number; it never holds your money.",
               )}
             </p>
             <ul className="mt-6 space-y-2.5 text-[15px] text-gray-700">
               {[
-                tx_("landingMomsBullet1", "Auto-afsætning ved hvert salg"),
-                tx_("landingMomsBullet2", "Q1 / Q2 / halvår — vi følger din kadence"),
-                tx_("landingMomsBullet3", "Indberetnings-PDF klar til SKAT"),
+                tx_("landingMomsBullet1", "Set-aside rate computed at every sale"),
+                tx_("landingMomsBullet2", "Q1 / Q2 / half-year — we follow your cadence"),
+                tx_("landingMomsBullet3", "Filing-ready PDF for SKAT"),
               ].map((b) => (
                 <li key={b} className="flex items-start gap-2">
                   <Check size={16} strokeWidth={2} className="mt-1 text-emerald-600 shrink-0" aria-hidden="true" />
@@ -839,149 +1444,46 @@ export default function LandingPage() {
         </div>
       </Section>
 
-      {/* ── 5 · BRIEF PREVIEW — "see the product" moment ───────────── */}
-      <Section>
-        <div className="grid lg:grid-cols-[1fr_1.05fr] gap-12 lg:gap-14 items-center">
-          <div className="max-w-lg">
-            <Eyebrow>{tx_("landingBriefPreviewTag", "See it before you sign up")}</Eyebrow>
-            <Heading>
-              {tx_("landingBriefPreviewTitle", "This is your 9am brief.")}
-            </Heading>
-            <p className="mt-4 text-[17px] text-gray-600 leading-[1.6] max-w-[560px]">
-              {tx_(
-                "landingBriefPreviewSub",
-                "Every morning at 8am Copenhagen, BonBox pulls together yesterday's revenue, this week's trend, your MOMS deadline, regulars who haven't been back, and bills due — into one card you can read in 30 seconds. Each insight is one tap to the action that matters.",
-              )}
-            </p>
-            <p className="mt-3 text-[15px] text-gray-500 leading-[1.65] max-w-[560px]">
-              {tx_(
-                "landingBriefPreviewShare",
-                "Forward to your business partner with one tap. The shareable moment that turned BonBox from \"an app I open\" into \"the advisor that arrives.\"",
-              )}
-            </p>
-          </div>
-
-          {/* Static replica of DailyBriefCard — product surface, floats. */}
-          <div className={`bg-white border border-gray-200 rounded-2xl p-6 sm:p-7 ${SHADOW_FLOAT}`}>
-            <div className="flex items-start gap-3 mb-3">
-              <div className="w-9 h-9 rounded-lg bg-gray-50 ring-1 ring-gray-200/70 flex items-center justify-center shrink-0 mt-0.5">
-                <Sparkles size={16} strokeWidth={STROKE} className="text-gray-900" aria-hidden="true" />
-              </div>
-              <div className="min-w-0">
-                <h3 className="text-[16px] font-semibold text-gray-900 tracking-tight">
-                  {tx_("landingBriefPreviewGreeting", "God morgen, Manoj")}
-                </h3>
-                <p className="text-[13px] text-gray-500 mt-0.5">
-                  {tx_("landingBriefPreviewDate", "Tirsdag, 19. maj 2026")}
-                </p>
-              </div>
-            </div>
-
-            <p className="text-[15px] leading-snug text-gray-900 mb-1.5">
-              {tx_(
-                "landingBriefPreviewHeadline",
-                "MOMS filing in 8 days — est. 96,405 DKK owed. Slightly ahead of pace this month.",
-              )}
-            </p>
-            <span className="inline-flex items-center gap-1 text-[13px] font-medium text-gray-900 mb-3">
-              {tx_("landingBriefPreviewHeadCta", "Review filing")}
-              <ArrowRight size={12} strokeWidth={2} aria-hidden="true" />
-            </span>
-
-            <ul className="space-y-3 mt-2">
-              {[
-                {
-                  text: tx_("landingBriefPreviewIns1", "Today is tracking +12% above your usual Tuesday — strong start."),
-                  cta: null,
-                  tone: "info",
-                },
-                {
-                  text: tx_("landingBriefPreviewIns2", "Recurring posts tomorrow: Husleje, Yousee, Spotify Business (19,547 DKK)."),
-                  cta: tx_("landingBriefPreviewIns2Cta", "Manage recurring"),
-                  tone: "warn",
-                },
-                {
-                  text: tx_("landingBriefPreviewIns3", "3 regulars haven't been back in ~18 days (Marie, Andreas, Lukas) — a quick hello could bring them in this week."),
-                  cta: tx_("landingBriefPreviewIns3Cta", "Open Khata"),
-                  tone: "info",
-                },
-                {
-                  text: tx_("landingBriefPreviewIns4", "Saturday forecast is sunny 19°C — terrace will fill. Schedule autopilot suggests 1 extra waiter."),
-                  cta: tx_("landingBriefPreviewIns4Cta", "Review schedule"),
-                  tone: "warn",
-                },
-              ].map((ins, i) => (
-                <li key={i} className="flex items-start gap-2.5">
-                  <span
-                    className={`w-1.5 h-1.5 rounded-full mt-[8px] shrink-0 ${
-                      ins.tone === "warn" ? "bg-amber-500" : "bg-gray-400"
-                    }`}
-                    aria-hidden="true"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[15px] leading-[1.65] text-gray-700">{ins.text}</p>
-                    {ins.cta && (
-                      <span className="inline-flex items-center gap-1 mt-1 text-[13px] font-medium text-gray-900">
-                        {ins.cta}
-                        <ArrowRight size={11} strokeWidth={2} aria-hidden="true" />
-                      </span>
-                    )}
-                  </div>
-                </li>
-              ))}
-            </ul>
-
-            <div className="mt-5 pt-3.5 border-t border-gray-100 flex items-center justify-between gap-3">
-              <span className="text-[11px] uppercase tracking-wider text-gray-400">
-                {tx_("landingBriefPreviewFooter", "AI Insight · BonBox")}
-              </span>
-            </div>
-          </div>
-        </div>
-      </Section>
-
-      {/* ── 6 · HOW IT WORKS — 3 steps (moved up) ──────────────────── */}
-      <Section id="how" className="bg-white border-y border-gray-200">
-        <SectionIntro
-          eyebrow={tx_("landingHowDeepTag", "How it works")}
-          title={tx_("landingHowDeepTitle", "From signup to first sale in under 5 minutes.")}
+      {/* ── 6 · PRICING — 3 real tiers + founder + trial ───────────── */}
+      <Section id="pricing">
+        <CenteredIntro
+          eyebrow={tx_("landingPricingTag", "Simple pricing")}
+          title={tx_("landingPricingHeadline", "Simple pricing. Founders lock the low rate.")}
+          sub={tx_("landingPricingLede", "Start free for 14 days on full Pro — no card. Prices ex. MOMS, per business.")}
         />
 
-        <div className="grid md:grid-cols-3 gap-8 md:gap-10">
-          {[
-            {
-              n: "01",
-              titleKey: "landingHow1Title", titleFallback: "Pick your business type",
-              bodyKey: "landingHow1Body", bodyFallback: "Café, bar, restaurant, shop, freelancer. We pre-fill the right modules so you're not staring at a blank slate.",
-            },
-            {
-              n: "02",
-              titleKey: "landingHow2Title", titleFallback: "Add your first customer or sale",
-              bodyKey: "landingHow2Body", bodyFallback: "Type a CVR — we auto-fill name + address from the public register. Or just log today's revenue and grow from there.",
-            },
-            {
-              n: "03",
-              titleKey: "landingHow3Title", titleFallback: "Open the Brief tomorrow morning",
-              bodyKey: "landingHow3Body", bodyFallback: "BonBox is most useful 24 hours in. The morning Brief tells you what you'd otherwise have asked your accountant.",
-            },
-          ].map((s) => (
-            <div key={s.n}>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2 tabular-nums">{s.n}</p>
-              <h3 className="text-[17px] font-semibold text-gray-900 mb-2 tracking-tight">
-                {tx_(s.titleKey, s.titleFallback)}
-              </h3>
-              <p className="text-[15px] text-gray-600 leading-[1.65]">
-                {tx_(s.bodyKey, s.bodyFallback)}
-              </p>
-            </div>
+        <div className="grid md:grid-cols-3 gap-4 items-stretch max-w-5xl mx-auto">
+          {pricingTiers.map((tier) => (
+            <PricingCard
+              key={tier.key}
+              name={tier.name}
+              tagline={tier.tagline}
+              priceNow={tier.priceNow}
+              priceWas={tier.priceWas}
+              perMonth={perMonth}
+              foundingLabel={tier.foundingLabel}
+              bullets={tier.bullets}
+              ctaLabel={tier.ctaLabel}
+              ctaStyle={tier.ctaStyle}
+              recommended={tier.recommended}
+              popularLabel={tx_("landingPricingPopular", "Most popular")}
+            />
           ))}
+        </div>
+
+        {/* Trial reassurance + founder honesty. */}
+        <div className="mt-10 max-w-3xl mx-auto text-center">
+          <p className="inline-flex items-start gap-2 text-[15px] text-gray-700 leading-[1.6]">
+            <Check size={16} strokeWidth={2} className="mt-1 text-emerald-600 shrink-0" aria-hidden="true" />
+            <span>{tx_("landingPricingTrial", "Every account starts on 14 days of full Pro — free, no card required. On day 15 you choose Pro, Starter, or stay on Free.")}</span>
+          </p>
+          <p className="mt-4 text-[13px] text-gray-400 leading-[1.5]">
+            {tx_("landingPricingHonesty", "Per business, ex. MOMS. Founder rate holds while your subscription stays active.")}
+          </p>
         </div>
       </Section>
 
-      {/* ── 7 · PROOF BAND — "Built for the Danish reality" ─────────
-          One merged band: definitionally-true facts (task #5) + the
-          compliance badges + the audience list. No traction/savings
-          numbers — every figure here is true by definition. */}
+      {/* ── 7 · TRUST — definitionally-true facts + compliance ─────── */}
       <Section>
         <CenteredIntro
           eyebrow={tx_("landingProofTag", "Built for the Danish reality")}
@@ -991,10 +1493,10 @@ export default function LandingPage() {
         {/* Definitionally-true fact row — replaces the killed "target" stats. */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 max-w-4xl mx-auto">
           {[
-            { val: tx_("landingFactLangVal", "6 sprog"), label: tx_("landingFactLangLabel", "i appen") },
-            { val: tx_("landingFactEuVal", "EU-servere"), label: tx_("landingFactEuLabel", "GDPR fra bunden") },
-            { val: tx_("landingFactBogfVal", "§7 & §10"), label: tx_("landingFactBogfLabel", "Bogføringsloven-klar") },
-            { val: tx_("landingFactFristVal", "0"), label: tx_("landingFactFristLabel", "mistede MOMS-frister") },
+            { val: tx_("landingFactLangVal", "6 languages"), label: tx_("landingFactLangLabel", "in the app") },
+            { val: tx_("landingFactEuVal", "EU servers"), label: tx_("landingFactEuLabel", "GDPR from the ground up") },
+            { val: tx_("landingFactBogfVal", "§7 & §10"), label: tx_("landingFactBogfLabel", "Bogføringsloven-ready") },
+            { val: tx_("landingFactFristVal", "0"), label: tx_("landingFactFristLabel", "missed MOMS deadlines") },
           ].map((s) => (
             <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-5 text-center">
               <p className="text-[24px] sm:text-[30px] font-semibold tracking-tight text-gray-900 tabular-nums leading-tight">
@@ -1024,7 +1526,7 @@ export default function LandingPage() {
           ))}
         </div>
 
-        {/* Built-for — audience list moved here from the hero (task #9). */}
+        {/* Built-for — audience list. */}
         <p className="mt-12 text-center text-[13px] text-gray-500">
           <span className="font-medium text-gray-700">{tx_("landingBuiltFor", "Built for")}</span>
           <span className="mx-2 text-gray-300">·</span>

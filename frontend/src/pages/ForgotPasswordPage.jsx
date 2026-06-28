@@ -99,10 +99,10 @@ export default function ForgotPasswordPage() {
               </g>
             </svg>
             <h2 className="text-2xl font-bold text-gray-800 dark:text-white mt-6">
-              No worries!
+              {t("fpNoWorries", "No worries!")}
             </h2>
             <p className="text-gray-500 dark:text-gray-400 mt-2 max-w-xs mx-auto">
-              We'll send you a code to reset your password in seconds.
+              {t("fpSendCodeBlurb", "We'll send you a code to reset your password in seconds.")}
             </p>
           </div>
         </div>
@@ -122,11 +122,11 @@ export default function ForgotPasswordPage() {
                 </div>
                 <span className="text-xl font-bold text-gray-800 dark:text-white">BonBox</span>
               </div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Reset password</h1>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{t("fpResetPasswordTitle", "Reset password")}</h1>
               <p className="text-gray-500 dark:text-gray-400 mt-1.5">
                 {step === 1 && t("forgotPwStep1")}
                 {step === 2 && t("forgotPwStep2")}
-                {step === 3 && "You're all set!"}
+                {step === 3 && t("fpAllSet", "You're all set!")}
               </p>
             </div>
 
@@ -160,7 +160,7 @@ export default function ForgotPasswordPage() {
             {step === 1 && (
               <form onSubmit={handleRequestReset} className="space-y-5">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Email address</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("fpEmailAddress", "Email address")}</label>
                   <div className="relative">
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
@@ -180,7 +180,7 @@ export default function ForgotPasswordPage() {
                   {loading ? t("sending") : t("sendResetCode")}
                 </button>
                 <p className="text-center text-sm text-gray-500 dark:text-gray-400">
-                  <Link to="/login" className="text-emerald-600 dark:text-gray-300 hover:underline font-medium">Back to sign in</Link>
+                  <Link to="/login" className="text-emerald-600 dark:text-gray-300 hover:underline font-medium">{t("fpBackToSignIn", "Back to sign in")}</Link>
                 </p>
               </form>
             )}
@@ -189,13 +189,13 @@ export default function ForgotPasswordPage() {
               <div style={{ animation: "slideUp 0.3s ease-out" }}>
                 <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 p-4 rounded-xl mb-5 text-center">
                   <p className="text-sm text-blue-800 dark:text-blue-300">
-                    If an account exists with <strong>{email}</strong>, we've sent a reset code.
+                    {t("fpAccountExistsPre", "If an account exists with")} <strong>{email}</strong>{t("fpAccountExistsPost", ", we've sent a reset code.")}
                   </p>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">Check inbox & spam</p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">{t("fpCheckInboxSpam", "Check inbox & spam")}</p>
                 </div>
                 <form onSubmit={handleResetPassword} className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">6-digit code</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("fpSixDigitCode", "6-digit code")}</label>
                     <input
                       type="text"
                       inputMode="numeric"
@@ -208,7 +208,7 @@ export default function ForgotPasswordPage() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">New Password</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("fpNewPassword", "New Password")}</label>
                     <div className="relative">
                       <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
@@ -218,7 +218,7 @@ export default function ForgotPasswordPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">Confirm Password</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">{t("fpConfirmPassword", "Confirm Password")}</label>
                     <div className="relative">
                       <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
@@ -234,11 +234,11 @@ export default function ForgotPasswordPage() {
                   <div className="flex justify-between text-sm">
                     <button type="button" onClick={() => { setStep(1); setError(""); setCode(""); }}
                       className="text-emerald-600 dark:text-gray-300 hover:underline font-medium">
-                      Try different email
+                      {t("fpTryDifferentEmail", "Try different email")}
                     </button>
                     <button type="button" onClick={handleRequestReset}
                       className="text-gray-500 dark:text-gray-400 hover:underline">
-                      Resend code
+                      {t("resendCode", "Resend code")}
                     </button>
                   </div>
                 </form>
@@ -255,7 +255,7 @@ export default function ForgotPasswordPage() {
                 </div>
                 <Link to="/login"
                   className="inline-block w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 active:scale-[0.98] transition-all font-semibold text-center shadow-sm">
-                  Sign in with new password
+                  {t("fpSignInNewPassword", "Sign in with new password")}
                 </Link>
               </div>
             )}

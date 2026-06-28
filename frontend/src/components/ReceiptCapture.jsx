@@ -274,7 +274,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl h-48 flex items-center justify-center overflow-hidden">
                     <img
                       src={preview}
-                      alt="Receipt"
+                      alt={t("rcReceiptImageAlt", "Receipt")}
                       className="max-h-48 w-auto object-contain"
                     />
                   </div>

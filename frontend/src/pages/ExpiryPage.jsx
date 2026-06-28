@@ -28,10 +28,10 @@ import {
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "\u2014"; }
 
 const STATUS_CONFIG = {
-  expired:  { label: "Expired",   color: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" },
-  critical: { label: "< 7 days",  color: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300" },
-  warning:  { label: "7-14 days", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300" },
-  upcoming: { label: "14-30 days",color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
+  expired:  { labelKey: "expStatusExpired",  label: "Expired",   color: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" },
+  critical: { labelKey: "expStatusCritical", label: "< 7 days",  color: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300" },
+  warning:  { labelKey: "expStatusWarning",  label: "7-14 days", color: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300" },
+  upcoming: { labelKey: "expStatusUpcoming", label: "14-30 days",color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
 };
 
 export default function ExpiryPage() {
@@ -67,7 +67,7 @@ export default function ExpiryPage() {
       ]);
       setData(forecast.data);
       setUpcoming(upcomingRes.data);
-    } catch { setError("Could not load expiry data"); }
+    } catch { setError(t("expLoadError", "Could not load expiry data")); }
     setLoading(false);
   };
 
@@ -80,7 +80,7 @@ export default function ExpiryPage() {
       extended: t("expiryConfirmExtended", "Extend expiry by 3 days?"),
       sold_discount: t("expiryConfirmDiscount", "Mark as sold at discount?"),
     };
-    if (!window.confirm(promptMap[action] || "Confirm?")) return;
+    if (!window.confirm(promptMap[action] || t("expConfirmGeneric", "Confirm?"))) return;
     setActingId(`${itemId}:${action}`);
     try {
       await api.post(`/expiry/item/${itemId}/mark`, { action });
@@ -97,7 +97,7 @@ export default function ExpiryPage() {
       <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <div className="text-4xl mb-3 animate-pulse">📦</div>
-          <p className="text-gray-500 dark:text-gray-400">Checking expiry dates...</p>
+          <p className="text-gray-500 dark:text-gray-400">{t("expChecking", "Checking expiry dates...")}</p>
         </div>
       </div>
     );
@@ -108,8 +108,8 @@ export default function ExpiryPage() {
       <div className="p-4 md:p-8 max-w-lg mx-auto">
         <Empty
           icon="📦"
-          title={error || "Could not load expiry data"}
-          cta={<Button variant="primary" onClick={fetchData}>Try again</Button>}
+          title={error || t("expLoadError", "Could not load expiry data")}
+          cta={<Button variant="primary" onClick={fetchData}>{t("tryAgain", "Try again")}</Button>}
         />
       </div>
     );
@@ -132,9 +132,9 @@ export default function ExpiryPage() {
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
         <PageHeader
-          eyebrow="STOCK"
+          eyebrow={t("expEyebrowStock", "STOCK")}
           title={t("expiryForecasting") || "Expiry Forecasting"}
-          subtitle="Track items approaching their expiry date and avoid waste."
+          subtitle={t("expSubtitle", "Track items approaching their expiry date and avoid waste.")}
         />
       </FadeIn>
 
@@ -267,27 +267,27 @@ export default function ExpiryPage() {
           3 real ones"). */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard
-          label="Tracked Items"
+          label={t("expStatTracked", "Tracked Items")}
           value={total_tracked_items}
         />
         {expiryAlertsAvailable && (
           <StatCard
-            label="At-Risk Value"
+            label={t("expStatAtRisk", "At-Risk Value")}
             value={`${fmt(total_at_risk_value)} ${currency}`}
             accent={total_at_risk_value > 0 ? "critical" : "neutral"}
           />
         )}
         <StatCard
-          label="Expired Items"
+          label={t("expStatExpired", "Expired Items")}
           value={expired_items.length}
           accent={expired_items.length > 0 ? "critical" : "success"}
-          helper={expired_items.length > 0 ? "Remove now" : null}
+          helper={expired_items.length > 0 ? t("expRemoveNow", "Remove now") : null}
         />
         <StatCard
-          label="Expiring < 7d"
+          label={t("expStatExpiringSoon", "Expiring < 7d")}
           value={expiring_soon.length}
           accent={expiring_soon.length > 0 ? "warn" : "success"}
-          helper={expiring_soon.length > 0 ? "Act fast" : null}
+          helper={expiring_soon.length > 0 ? t("expActFast", "Act fast") : null}
         />
       </div>
 
@@ -296,7 +296,7 @@ export default function ExpiryPage() {
         <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
             <Icon name="Sparkles" size={16} className="text-emerald-600 dark:text-emerald-400" />
-            Recommendations
+            {t("expRecommendations", "Recommendations")}
           </h2>
           <div className="space-y-3">
             {recommendations.map((rec, i) => (
@@ -312,7 +312,7 @@ export default function ExpiryPage() {
                 </div>
                 {rec.priority === "high" && (
                   <span className="text-xs bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 px-2 py-1 rounded-full font-medium ml-auto whitespace-nowrap">
-                    Urgent
+                    {t("expUrgent", "Urgent")}
                   </span>
                 )}
               </div>
@@ -326,7 +326,7 @@ export default function ExpiryPage() {
         <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
             <Icon name="Calendar" size={16} />
-            Expiry Timeline
+            {t("expTimeline", "Expiry Timeline")}
           </h2>
           {/* Mobile: card layout */}
           <div className="space-y-2 md:hidden">
@@ -340,18 +340,20 @@ export default function ExpiryPage() {
                 }`}>
                   <div className="flex items-center justify-between mb-1">
                     <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate flex-1">{item.name}</p>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ml-2 ${cfg.color}`}>{cfg.label}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ml-2 ${cfg.color}`}>{t(cfg.labelKey, cfg.label)}</span>
                   </div>
                   <div className="flex items-center justify-between text-xs text-gray-500">
                     <span>{item.quantity} {item.unit} | {item.category}</span>
                     <span className={`font-bold ${
                       item.days_left < 0 ? "text-red-600" : item.days_left <= 7 ? "text-orange-600" : "text-gray-600"
                     }`}>
-                      {item.days_left < 0 ? `${Math.abs(item.days_left)}d overdue` : `${item.days_left}d left`}
+                      {item.days_left < 0
+                        ? t("expDaysOverdue", "{n}d overdue").replace("{n}", String(Math.abs(item.days_left)))
+                        : t("expDaysLeftFull", "{n}d left").replace("{n}", String(item.days_left))}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs mt-1">
-                    <span className="text-gray-400">Expires: {item.expiry_date}</span>
+                    <span className="text-gray-400">{t("expExpiresLabel", "Expires:")} {item.expiry_date}</span>
                     <span className="text-gray-600 dark:text-gray-400 font-medium">{fmt(item.cost_at_risk)} {currency}</span>
                   </div>
                 </div>
@@ -363,13 +365,13 @@ export default function ExpiryPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-gray-500 border-b dark:border-gray-700">
-                  <th className="text-left py-2 px-2">Item</th>
-                  <th className="text-left py-2 px-2">Category</th>
-                  <th className="text-right py-2 px-2">Stock</th>
-                  <th className="text-left py-2 px-2">Expiry</th>
-                  <th className="text-right py-2 px-2">Days Left</th>
-                  <th className="text-right py-2 px-2">Cost at Risk</th>
-                  <th className="text-center py-2 px-2">Status</th>
+                  <th className="text-left py-2 px-2">{t("item", "Item")}</th>
+                  <th className="text-left py-2 px-2">{t("category", "Category")}</th>
+                  <th className="text-right py-2 px-2">{t("stock", "Stock")}</th>
+                  <th className="text-left py-2 px-2">{t("expColExpiry", "Expiry")}</th>
+                  <th className="text-right py-2 px-2">{t("expColDaysLeft", "Days Left")}</th>
+                  <th className="text-right py-2 px-2">{t("expColCostAtRisk", "Cost at Risk")}</th>
+                  <th className="text-center py-2 px-2">{t("status", "Status")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -387,12 +389,14 @@ export default function ExpiryPage() {
                       <td className={`py-3 px-2 text-right font-bold ${
                         item.days_left < 0 ? "text-red-600" : item.days_left <= 7 ? "text-orange-600" : "text-gray-600 dark:text-gray-400"
                       }`}>
-                        {item.days_left < 0 ? `${Math.abs(item.days_left)}d overdue` : `${item.days_left}d`}
+                        {item.days_left < 0
+                          ? t("expDaysOverdue", "{n}d overdue").replace("{n}", String(Math.abs(item.days_left)))
+                          : t("expDaysShort", "{n}d").replace("{n}", String(item.days_left))}
                       </td>
                       <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400">{fmt(item.cost_at_risk)} {currency}</td>
                       <td className="py-3 px-2 text-center">
                         <span className={`text-xs px-2 py-1 rounded-full font-medium ${cfg.color}`}>
-                          {cfg.label}
+                          {t(cfg.labelKey, cfg.label)}
                         </span>
                       </td>
                     </tr>
@@ -409,10 +413,10 @@ export default function ExpiryPage() {
         <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1 flex items-center gap-2">
             <Icon name="Trash2" size={16} />
-            Waste History (90 days)
+            {t("expWasteHistory", "Waste History (90 days)")}
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            Total waste: {fmt(waste_summary.total_cost_90d)} {currency} | Expired: {fmt(waste_summary.expired_cost_90d)} {currency}
+            {t("expTotalWaste", "Total waste:")} {fmt(waste_summary.total_cost_90d)} {currency} | {t("expExpiredLabel", "Expired:")} {fmt(waste_summary.expired_cost_90d)} {currency}
           </p>
 
           {/* Waste trend chart */}
@@ -424,7 +428,7 @@ export default function ExpiryPage() {
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={(v) => fmt(v)} />
                   <Tooltip
-                    formatter={(val) => [`${fmt(val)} ${currency}`, "Waste Cost"]}
+                    formatter={(val) => [`${fmt(val)} ${currency}`, t("expWasteCost", "Waste Cost")]}
                     contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}
                   />
                   <Bar dataKey="cost" fill="#ef4444" radius={[6, 6, 0, 0]} />
@@ -439,11 +443,11 @@ export default function ExpiryPage() {
               <div key={i} className="flex items-center justify-between bg-red-50 dark:bg-red-900/10 rounded-xl px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{item.name}</p>
-                  <p className="text-xs text-gray-500">{item.count} times wasted</p>
+                  <p className="text-xs text-gray-500">{t("expTimesWasted", "{n} times wasted").replace("{n}", String(item.count))}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-bold text-red-600">{fmt(item.total_cost)} {currency}</p>
-                  <p className="text-xs text-gray-400">total loss</p>
+                  <p className="text-xs text-gray-400">{t("expTotalLoss", "total loss")}</p>
                 </div>
               </div>
             ))}
@@ -457,9 +461,9 @@ export default function ExpiryPage() {
         <SectionBanner
           severity="info"
           icon="FileText"
-          title="Missing Expiry Dates"
+          title={t("expMissingTitle", "Missing Expiry Dates")}
         >
-          <p className="mb-3">These perishable items need expiry dates for better forecasting.</p>
+          <p className="mb-3">{t("expMissingBody", "These perishable items need expiry dates for better forecasting.")}</p>
           <div className="flex flex-wrap gap-2 mb-3">
             {missing_expiry.map((item, i) => (
               <span key={i} className="bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-xs px-3 py-1.5 rounded-full">
@@ -468,7 +472,7 @@ export default function ExpiryPage() {
             ))}
           </div>
           <a href="/inventory" className="text-sm font-medium text-gray-700 dark:text-emerald-400 hover:underline">
-            Go to Inventory to add expiry dates →
+            {t("expGoToInventoryAdd", "Go to Inventory to add expiry dates →")}
           </a>
         </SectionBanner>
       )}
@@ -479,14 +483,14 @@ export default function ExpiryPage() {
           <Empty
             size="hero"
             icon="📦"
-            title="No expiry data yet"
-            body="Add expiry dates to your inventory items to unlock expiry forecasting, waste prediction, and order recommendations."
+            title={t("expEmptyTitle", "No expiry data yet")}
+            body={t("expEmptyBody", "Add expiry dates to your inventory items to unlock expiry forecasting, waste prediction, and order recommendations.")}
             cta={
               <a
                 href="/inventory"
                 className="inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors h-9 px-3.5 text-sm bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
               >
-                Go to Inventory
+                {t("expGoToInventory", "Go to Inventory")}
               </a>
             }
           />

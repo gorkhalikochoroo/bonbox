@@ -49,11 +49,11 @@ export default function WorkshopPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold dark:text-white">🔧 {t("workshop") || "Workshop"}</h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Job cards, vehicles, mechanics</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{t("wsSubtitle", "Job cards, vehicles, mechanics")}</p>
           </div>
           <button onClick={() => nav("/workshop/new-job")}
             className="px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold text-sm transition">
-            + New Job
+            + {t("wsNewJob", "New Job")}
           </button>
         </div>
       </FadeIn>
@@ -61,11 +61,11 @@ export default function WorkshopPage() {
       {/* KPI Cards */}
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <KpiCard icon="🚗" label="In Workshop" value={summary.vehicles_in_workshop}
+          <KpiCard icon="🚗" label={t("wsInWorkshop", "In Workshop")} value={summary.vehicles_in_workshop}
             sub={Object.entries(summary.status_breakdown || {}).map(([k, v]) => `${v} ${k.replace("_", " ")}`).join(", ")} />
-          <KpiCard icon="💰" label="Week Revenue" value={`${summary.week_revenue?.toLocaleString()} ${currency}`} />
-          <KpiCard icon="📊" label="Avg Job Value" value={`${summary.avg_job_value?.toLocaleString()} ${currency}`} />
-          <KpiCard icon="⏱️" label="Avg Turnaround" value={summary.avg_turnaround_days ? `${summary.avg_turnaround_days}d` : "—"} />
+          <KpiCard icon="💰" label={t("wsWeekRevenue", "Week Revenue")} value={`${summary.week_revenue?.toLocaleString()} ${currency}`} />
+          <KpiCard icon="📊" label={t("wsAvgJobValue", "Avg Job Value")} value={`${summary.avg_job_value?.toLocaleString()} ${currency}`} />
+          <KpiCard icon="⏱️" label={t("wsAvgTurnaround", "Avg Turnaround")} value={summary.avg_turnaround_days ? `${summary.avg_turnaround_days}d` : "—"} />
         </div>
       )}
 
@@ -83,9 +83,9 @@ export default function WorkshopPage() {
       {/* Tab bar */}
       <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1">
         {[
-          { id: "board", label: "Job Board", icon: "📋" },
-          { id: "jobs", label: "All Jobs", icon: "📑" },
-          { id: "mechanics", label: "Mechanics", icon: "👨‍🔧" },
+          { id: "board", label: t("wsJobBoard", "Job Board"), icon: "📋" },
+          { id: "jobs", label: t("wsAllJobs", "All Jobs"), icon: "📑" },
+          { id: "mechanics", label: t("wsMechanics", "Mechanics"), icon: "👨‍🔧" },
         ].map(tb => (
           <button key={tb.id} onClick={() => setTab(tb.id)}
             className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${

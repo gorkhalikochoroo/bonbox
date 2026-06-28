@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { trackEvent } from "../hooks/useEventLog";
+import { useLanguage } from "../hooks/useLanguage";
 import Icon from "./ui/Icon";
 
 /**
@@ -15,6 +16,7 @@ import Icon from "./ui/Icon";
  * list and this component renders nothing (no fake-content placeholder).
  */
 export default function InsightsCard({ className = "" }) {
+  const { t } = useLanguage();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   // Local optimistic state for items the user just dismissed / acted-on /
@@ -102,14 +104,14 @@ export default function InsightsCard({ className = "" }) {
         <div className="flex items-center gap-2">
           <Icon name="Sparkles" size={20} className="text-gray-500 dark:text-gray-400" />
           <h2 className="text-base font-bold text-gray-800 dark:text-gray-100">
-            Insights for your business
+            {t("icHeading", "Insights for your business")}
           </h2>
         </div>
         <Link
           to="/insights"
           className="text-xs text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-medium"
         >
-          View all ({visible.length}) →
+          {t("icViewAll", "View all")} ({visible.length}) →
         </Link>
       </div>
 
@@ -151,7 +153,7 @@ export default function InsightsCard({ className = "" }) {
                   <button
                     onClick={() => handleFeedback(p.id, "useful")}
                     disabled={!!fb}
-                    aria-label="Useful insight"
+                    aria-label={t("icUsefulAria", "Useful insight")}
                     className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md transition ${
                       fb === "useful"
                         ? "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
@@ -159,12 +161,12 @@ export default function InsightsCard({ className = "" }) {
                     }`}
                   >
                     <Icon name="ThumbsUp" size={14} />
-                    <span>{fb === "useful" ? "Thanks" : "Useful"}</span>
+                    <span>{fb === "useful" ? t("icThanks", "Thanks") : t("icUseful", "Useful")}</span>
                   </button>
                   <button
                     onClick={() => handleFeedback(p.id, "not_useful")}
                     disabled={!!fb}
-                    aria-label="Not useful"
+                    aria-label={t("icNotUsefulAria", "Not useful")}
                     className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-md transition ${
                       fb === "not_useful"
                         ? "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"
@@ -172,7 +174,7 @@ export default function InsightsCard({ className = "" }) {
                     }`}
                   >
                     <Icon name="ThumbsDown" size={14} />
-                    <span>{fb === "not_useful" ? "Noted" : "Not useful"}</span>
+                    <span>{fb === "not_useful" ? t("icNoted", "Noted") : t("icNotUseful", "Not useful")}</span>
                   </button>
                 </div>
                 <div className="flex gap-1.5">
@@ -181,15 +183,15 @@ export default function InsightsCard({ className = "" }) {
                       onClick={() => handleActed(p.id)}
                       className="text-xs px-2 py-1 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium"
                     >
-                      Done it
+                      {t("icDoneIt", "Done it")}
                     </button>
                   )}
                   <button
                     onClick={() => handleDismiss(p.id)}
-                    aria-label="Dismiss"
+                    aria-label={t("dismiss", "Dismiss")}
                     className="text-xs px-2 py-1 rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                   >
-                    Dismiss
+                    {t("dismiss", "Dismiss")}
                   </button>
                 </div>
               </div>

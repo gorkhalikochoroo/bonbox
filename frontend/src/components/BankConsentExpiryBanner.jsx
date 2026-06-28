@@ -138,7 +138,7 @@ export default function BankConsentExpiryBanner() {
         err?.response?.data?.detail?.message
         || err?.response?.data?.detail
         || err?.message
-        || "Couldn't start reconnect — please try again from /connections",
+        || t("bankExpiryReconnectError", "Couldn't start reconnect — please try again from /connections"),
       );
       setReconnecting(false);
     }
@@ -205,7 +205,7 @@ export default function BankConsentExpiryBanner() {
             variant="ghost"
             size="sm"
             onClick={onDismiss}
-            aria-label="Dismiss for today"
+            aria-label={t("bankExpiryDismissAria", "Dismiss for today")}
           >
             {t("notNow") || "Not now"}
           </Button>

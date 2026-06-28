@@ -183,7 +183,7 @@ export default function StaffHoursPage() {
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4 sm:space-y-6">
       <PageHeader
-        eyebrow="STAFF"
+        eyebrow={t("shpEyebrow", "STAFF")}
         title={t("staffHours", "Staff Hours")}
         subtitle={t("staffHoursSubtitle", "Track working hours, clock in/out, and confirm schedules.")}
       />
@@ -208,7 +208,7 @@ export default function StaffHoursPage() {
           activeId={mobileTab}
           onChange={setMobileTab}
           wrap={false}
-          ariaLabel="Hours view"
+          ariaLabel={t("shpHoursViewAria", "Hours view")}
         />
       </div>
 
@@ -330,7 +330,7 @@ function HoursSummaryTable({ summary, loading, currency }) {
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
         <Icon name="Clock" size={28} className="text-gray-400 mx-auto mb-2" />
         <p className="text-gray-700 dark:text-gray-200 font-medium">{t("noHoursLogged")}</p>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">Use the logging section below to start tracking hours.</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{t("shpSummaryEmptyHint", "Use the logging section below to start tracking hours.")}</p>
       </div>
     );
   }
@@ -428,7 +428,7 @@ function HoursSummaryTable({ summary, loading, currency }) {
           {/* Totals row */}
           <tfoot>
             <tr className="bg-gray-50 dark:bg-gray-750 font-semibold text-gray-800 dark:text-white">
-              <td className="px-3 sm:px-5 py-3 text-sm">Total ({summary.length})</td>
+              <td className="px-3 sm:px-5 py-3 text-sm">{t("shpTotalCount", "Total ({count})").replace("{count}", summary.length)}</td>
               <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
                 {summary.reduce((s, r) => s + (r.scheduled_hours || 0), 0).toFixed(1)}h
               </td>
@@ -467,9 +467,9 @@ function LoggingSection({ staffList, currency, periodFrom, onLogged }) {
   const [logTab, setLogTab] = useState("quick");
 
   const tabs = [
-    { id: "quick", label: "Quick Log" },
-    { id: "clock", label: "Clock In/Out" },
-    { id: "schedule", label: "From Schedule" },
+    { id: "quick", label: t("shpTabQuickLog", "Quick Log") },
+    { id: "clock", label: t("shpTabClockInOut", "Clock In/Out") },
+    { id: "schedule", label: t("shpTabFromSchedule", "From Schedule") },
   ];
 
   return (
@@ -530,12 +530,12 @@ function QuickLogForm({ staffList, currency, onLogged }) {
         total_hours: parseFloat(hours),
         entry_method: "quick",
       });
-      setSuccess("Hours logged successfully!");
+      setSuccess(t("shpHoursLoggedSuccess", "Hours logged successfully!"));
       setHours("");
       onLogged();
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(errText(err, "Failed to log hours"));
+      setError(errText(err, t("shpFailedLogHours", "Failed to log hours")));
     } finally {
       setSaving(false);
     }
@@ -544,7 +544,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        Fastest way to log hours. Select staff, pick the date, enter total hours.
+        {t("shpQuickLogDesc", "Fastest way to log hours. Select staff, pick the date, enter total hours.")}
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -557,7 +557,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
             required
             className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
-            <option value="">Select staff...</option>
+            <option value="">{t("shpSelectStaff", "Select staff...")}</option>
             {staffList.map(s => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
@@ -566,7 +566,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
 
         {/* Date */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Date</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("date", "Date")}</label>
           <input
             type="date"
             value={date}
@@ -586,7 +586,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
             max="24"
             value={hours}
             onChange={e => setHours(e.target.value)}
-            placeholder="e.g. 8"
+            placeholder={t("shpHoursPlaceholder", "e.g. 8")}
             required
             className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
@@ -601,7 +601,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
         disabled={saving || !staffId || !hours}
         className="bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-5 py-2.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
       >
-        {saving ? "Saving..." : "Log Hours"}
+        {saving ? t("shpSaving", "Saving...") : t("shpLogHoursBtn", "Log Hours")}
       </button>
     </form>
   );
@@ -647,13 +647,13 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
         break_minutes: parseInt(breakMin) || 0,
         entry_method: "clock",
       });
-      setSuccess("Clock entry logged!");
+      setSuccess(t("shpClockEntryLogged", "Clock entry logged!"));
       setStartTime("");
       setEndTime("");
       onLogged();
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(errText(err, "Failed to log entry"));
+      setError(errText(err, t("shpFailedLogEntry", "Failed to log entry")));
     } finally {
       setSaving(false);
     }
@@ -662,7 +662,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        Enter clock-in and clock-out times. Break is auto-deducted.
+        {t("shpClockDesc", "Enter clock-in and clock-out times. Break is auto-deducted.")}
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -675,7 +675,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
             required
             className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
-            <option value="">Select staff...</option>
+            <option value="">{t("shpSelectStaff", "Select staff...")}</option>
             {staffList.map(s => (
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
@@ -684,7 +684,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
 
         {/* Date */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Date</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("date", "Date")}</label>
           <input
             type="date"
             value={date}
@@ -720,7 +720,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
 
         {/* Break minutes */}
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Break (minutes)</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("shpBreakMinutes", "Break (minutes)")}</label>
           <input
             type="number"
             step="5"
@@ -756,7 +756,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
         disabled={saving || !staffId || !startTime || !endTime}
         className="bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-5 py-2.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
       >
-        {saving ? "Saving..." : "Log Clock Entry"}
+        {saving ? t("shpSaving", "Saving...") : t("shpLogClockEntryBtn", "Log Clock Entry")}
       </button>
     </form>
   );
@@ -766,6 +766,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
    Tab 3: From Schedule
    ───────────────────────────────────────────────────────── */
 function FromScheduleForm({ periodFrom, onLogged }) {
+  const { t } = useLanguage();
   const [weekStart, setWeekStart] = useState(() => getMonday(today()));
   const [confirming, setConfirming] = useState(false);
   const [result, setResult] = useState(null);
@@ -782,7 +783,7 @@ function FromScheduleForm({ periodFrom, onLogged }) {
       setResult(res.data);
       onLogged();
     } catch (err) {
-      setError(errText(err, "Failed to confirm schedule"));
+      setError(errText(err, t("shpFailedConfirmSchedule", "Failed to confirm schedule")));
     } finally {
       setConfirming(false);
     }
@@ -791,12 +792,12 @@ function FromScheduleForm({ periodFrom, onLogged }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        Confirm all published shifts for a given week as actual hours worked. This copies the scheduled shifts into the hours log.
+        {t("shpFromScheduleDesc", "Confirm all published shifts for a given week as actual hours worked. This copies the scheduled shifts into the hours log.")}
       </p>
 
       <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Week Starting (Monday)</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{t("shpWeekStarting", "Week Starting (Monday)")}</label>
           <input
             type="date"
             value={weekStart}
@@ -816,10 +817,10 @@ function FromScheduleForm({ periodFrom, onLogged }) {
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              Confirming...
+              {t("shpConfirming", "Confirming...")}
             </span>
           ) : (
-            "Confirm All Published Shifts for This Week"
+            t("shpConfirmAllShifts", "Confirm All Published Shifts for This Week")
           )}
         </button>
       </div>
@@ -829,16 +830,16 @@ function FromScheduleForm({ periodFrom, onLogged }) {
       {result && (
         <div className="bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-800 rounded-lg p-4">
           <p className="text-sm font-medium text-gray-800 dark:text-gray-300">
-            Schedule confirmed!
+            {t("shpScheduleConfirmed", "Schedule confirmed!")}
           </p>
           {result.confirmed_count != null && (
             <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
-              {result.confirmed_count} shift{result.confirmed_count !== 1 ? "s" : ""} logged as actual hours.
+              {t("shpShiftsLogged", "{count} shifts logged as actual hours.").replace("{count}", result.confirmed_count)}
             </p>
           )}
           {result.skipped_count > 0 && (
             <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
-              {result.skipped_count} shift{result.skipped_count !== 1 ? "s" : ""} skipped (already logged).
+              {t("shpShiftsSkipped", "{count} shifts skipped (already logged).").replace("{count}", result.skipped_count)}
             </p>
           )}
         </div>
@@ -908,7 +909,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-8 text-center">
         <div className="text-3xl mb-2">&#128203;</div>
         <p className="text-gray-500 dark:text-gray-400 font-medium">{t("noHourEntries")}</p>
-        <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">Logged entries will appear here with edit and delete options.</p>
+        <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">{t("shpLogEmptyHint", "Logged entries will appear here with edit and delete options.")}</p>
       </div>
     );
   }
@@ -920,13 +921,18 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
         <h2 className="text-base font-semibold text-gray-800 dark:text-white">{t("recentHoursLog")}</h2>
-        <span className="text-xs text-gray-400 dark:text-gray-500">{sorted.length} entries</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">{t("shpEntriesCount", "{count} entries").replace("{count}", sorted.length)}</span>
       </div>
 
       <AnimatedList className="divide-y divide-gray-100 dark:divide-gray-700">
         {sorted.map(entry => {
-          const staffName = entry.staff_name || nameMap[entry.staff_id] || "Unknown";
+          const staffName = entry.staff_name || nameMap[entry.staff_id] || t("shpUnknownStaff", "Unknown");
           const badge = METHOD_BADGES[entry.entry_method] || METHOD_BADGES.quick;
+          const badgeLabel = {
+            quick: t("shpBadgeQuick", "Quick"),
+            clock: t("shpBadgeClock", "Clock"),
+            schedule: t("shpBadgeSchedule", "Schedule"),
+          }[entry.entry_method] || badge.label;
           const isEditing = editingId === entry.id;
           const isDeleting = deletingId === entry.id;
 
@@ -943,7 +949,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-800 dark:text-white text-sm truncate">{staffName}</span>
                     <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${badge.color}`}>
-                      {badge.label}
+                      {badgeLabel}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
@@ -963,7 +969,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                     {entry.break_minutes > 0 && (
                       <>
                         <span className="text-gray-300 dark:text-gray-600">|</span>
-                        <span>{entry.break_minutes}min break</span>
+                        <span>{t("shpMinBreak", "{count}min break").replace("{count}", entry.break_minutes)}</span>
                       </>
                     )}
                   </div>
@@ -992,13 +998,13 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                         disabled={editSaving}
                         className="text-emerald-600 hover:text-gray-700 dark:text-gray-300 text-xs font-medium"
                       >
-                        {editSaving ? "..." : "Save"}
+                        {editSaving ? "..." : t("save", "Save")}
                       </button>
                       <button
                         onClick={() => { setEditingId(null); setEditHours(""); }}
                         className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xs"
                       >
-                        Cancel
+                        {t("cancel", "Cancel")}
                       </button>
                     </div>
                   ) : (

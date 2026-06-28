@@ -126,7 +126,7 @@ const buildTiers = (t) => [
       { text: t("featStarterAccountantLogin", "Your revisor logs in for free — read-only, audit-logged, GDPR-safe") || "Your revisor logs in for free — read-only, audit-logged, GDPR-safe" },
       { text: t("featStarterBankRec", "Bank reconciliation — upload netbank CSV, auto-match payments to fakturaer") || "Bank reconciliation — upload netbank CSV, auto-match payments to fakturaer" },
       { text: t("featStarterRecurring", "Recurring expenses — rent, internet, subscriptions auto-post on schedule") || "Recurring expenses — rent, internet, subscriptions auto-post on schedule" },
-      { text: t("featStarterReceipt200", "Receipt OCR — 200 / month, AI vision-grade accuracy") || "Receipt OCR — 200 / month, AI vision-grade accuracy" },
+      { text: t("featStarterReceipt200", "Receipt OCR — 300 / month, AI vision-grade accuracy") || "Receipt OCR — 300 / month, AI vision-grade accuracy" },
       // Supplier auto-detection — Starter-exclusive value-add. Pairs
       // naturally with bank reconciliation: snap the supplier invoice,
       // 30 categorized inventory rows appear, the matching MobilePay /

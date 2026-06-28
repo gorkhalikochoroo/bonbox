@@ -332,7 +332,7 @@ export default function FakturaPage() {
       </div>
 
       <TabPills
-        ariaLabel="Status filter"
+        ariaLabel={t("fakturaStatusFilterAria", "Status filter")}
         tabs={[
           { id: "", label: t("all") || "All" },
           { id: "draft", label: t("draft") || "Draft" },
@@ -1366,8 +1366,8 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
                     onChange={(e) => setLine(i, "moms_rate", e.target.value)}
                     className="col-span-2 px-2 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
                   >
-                    <option value="0.250">Moms 25%</option>
-                    <option value="0">Moms 0%</option>
+                    <option value="0.250">{t("fkMomsRate25", "Moms 25%")}</option>
+                    <option value="0">{t("fkMomsRate0", "Moms 0%")}</option>
                   </select>
                   <button
                     type="button"

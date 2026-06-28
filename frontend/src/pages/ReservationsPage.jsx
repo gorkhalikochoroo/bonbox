@@ -56,8 +56,9 @@ import {
   ChevronLeft,
   ChevronRight,
   BarChart3,
+  Scissors,
 } from "lucide-react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -73,7 +74,8 @@ import FloorPlan from "../components/FloorPlan";
 import InsightsSection from "../components/reservations/InsightsSection";
 import { QRCodeSVG } from "qrcode.react";
 import { canPurchaseInApp } from "../utils/platform";
-import { venueProfile } from "../config/venueProfiles";
+import { venueProfile, bookingModeFor, usesTableFloor } from "../config/venueProfiles";
+import { formatKr } from "../utils/currency";
 
 // Status → colored-dot token for the status pill. Severe = red, the
 // terminal-good states emerald, requests amber, dead states gray.
@@ -175,7 +177,7 @@ function serializeBookingHours(hours) {
 
 // Tab ids — kept as a const so the ?tab= deep-link (e.g. from the Insights
 // "Turn on SMS reminders" action) can validate against the real set.
-const RSVP_TABS = ["book", "floor", "insights", "settings"];
+const RSVP_TABS = ["book", "floor", "behandlinger", "insights", "settings"];
 
 export default function ReservationsPage() {
   const { user } = useAuth();
@@ -183,6 +185,33 @@ export default function ReservationsPage() {
   const { hasFeature, isReady } = useEntitlements();
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Per-vertical adaptation (Phase A). `bookingMode` gates the Floor tab
+  // (TABLE-only) on the venue TYPE; `isProvider` (salon) drives the
+  // Aftaler/Tidsbestilling vocabulary swap. Pure config read — no refetch.
+  const businessType = user?.business_type;
+  // Resources fetched at page level (Insights zone filter + the floor
+  // grandfather just below). Soft-fail: the page works without it. The state
+  // lives up here so the grandfather flag is in scope before the tab logic.
+  const [pageResources, setPageResources] = useState([]);
+  // GRANDFATHER: a venue whose TYPE isn't table-booking but that has ALREADY
+  // configured tables keeps its Floor — Phase A type-gating must never strip a
+  // surface the owner already built (e.g. a legacy / personal-mode account with
+  // a real table plan + live reservations). A table is any non-provider resource.
+  const hasTableResources = useMemo(
+    () => pageResources.some((r) => r.kind !== "provider"),
+    [pageResources],
+  );
+  const isProvider = bookingModeFor(businessType) === "provider";
+  // A real TABLE plan exists → the 2D table-plan view + table-style authoring.
+  // (A salon with leftover tables from an earlier setup also counts, so the
+  // grandfather/clear-tables path stays reachable.)
+  const tablePlan = usesTableFloor(businessType) || hasTableResources;
+  // The authoring tab is visible for table venues, venues with existing
+  // tables, AND provider venues that need to author stylist (behandler)
+  // stations — without it a fresh salon could never create a bookable
+  // provider station, so the engine would never return slots.
+  const showFloor = tablePlan || isProvider;
 
   // The active tab is DERIVED from the URL (?tab=), so the query string is the
   // single source of truth — a deep-link (e.g. the Insights "Turn on SMS
@@ -192,15 +221,20 @@ export default function ReservationsPage() {
   const tab = useMemo(() => {
     try {
       const q = new URLSearchParams(location.search).get("tab");
-      return RSVP_TABS.includes(q) ? q : "book";
+      const resolved = RSVP_TABS.includes(q) ? q : "book";
+      // A provider/no-floor venue has no Floor tab — a deep-link to ?tab=floor
+      // (or a stale bookmark) falls back to the book view, never a dead tab.
+      if (resolved === "floor" && !showFloor) return "book";
+      // Behandlinger is salon-only — a non-provider deep-link to it falls back.
+      if (resolved === "behandlinger" && !isProvider) return "book";
+      return resolved;
     } catch {
       return "book";
     }
-  }, [location.search]);
+  }, [location.search, showFloor, isProvider]);
 
-  // Resources fetched once at page level — only to populate the Insights zone
-  // filter. Soft-fail: the page (and Insights range-only) work without it.
-  const [pageResources, setPageResources] = useState([]);
+  // Fetch the page-level resources (used by the Insights zone filter + the
+  // floor grandfather above). Soft-fail — the page works without it.
   useEffect(() => {
     if (!isReady || !hasFeature("reservations")) return;
     let alive = true;
@@ -244,7 +278,7 @@ export default function ReservationsPage() {
   if (!hasFeature("reservations")) {
     return (
       <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-6">
-        <PageTitle t={t} />
+        <PageTitle t={t} isProvider={isProvider} />
         <UpgradeNudge
           intent="card"
           tier="starter"
@@ -262,11 +296,30 @@ export default function ReservationsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6">
-      <PageTitle t={t} />
+      <PageTitle t={t} isProvider={isProvider} />
       <TabPills
         tabs={[
-          { id: "book", label: t("rsvpTabBook", "Reservation book") },
-          { id: "floor", label: t("rsvpTabFloor", "Floor") },
+          // Salon (provider) reads "Aftaler" (the appointment book) instead of
+          // "Reservation book"; the booking primitive underneath is unchanged.
+          { id: "book", label: isProvider ? t("rsvpTabBookProvider", "Aftaler") : t("rsvpTabBook", "Reservation book") },
+          // Floor/station tab — table venues, venues with existing tables, AND
+          // provider venues (where it authors stylist stations). Provider venues
+          // read "Behandlere"; table venues keep "Floor".
+          ...(showFloor
+            ? [
+                {
+                  id: "floor",
+                  label: isProvider
+                    ? t("rsvpTabProviders", "Stylists")
+                    : t("rsvpTabFloor", "Floor"),
+                },
+              ]
+            : []),
+          // Behandlinger (salon service catalog) — salon (provider) venues only.
+          // "Behandlinger" stays Danish in every UI language (DK terminology lock).
+          ...(isProvider
+            ? [{ id: "behandlinger", label: t("rsvpTabBehandlinger", "Behandlinger") }]
+            : []),
           { id: "insights", label: t("rsvpTabInsights", "Insights") },
           { id: "settings", label: t("rsvpTabSettings", "Settings") },
         ]}
@@ -276,8 +329,9 @@ export default function ReservationsPage() {
         size="lg"
       />
 
-      {tab === "book" && <BookSection t={t} businessType={user?.business_type} />}
-      {tab === "floor" && <FloorSection t={t} businessType={user?.business_type} />}
+      {tab === "book" && <BookSection t={t} businessType={user?.business_type} tableFloor={tablePlan} />}
+      {tab === "floor" && showFloor && <FloorSection t={t} businessType={user?.business_type} />}
+      {tab === "behandlinger" && isProvider && <BehandlingerSection t={t} />}
       {/* Insights mounts lazily (only when its tab is open) so it never blocks
           the Book view's first paint; the fetch fires on mount. */}
       {tab === "insights" && <InsightsSection t={t} zones={insightsZones} />}
@@ -286,18 +340,26 @@ export default function ReservationsPage() {
   );
 }
 
-function PageTitle({ t }) {
+function PageTitle({ t, isProvider = false }) {
+  // Salon (provider) reads "Tidsbestilling" with an Aftaler-flavoured subtitle.
+  // The booking primitive underneath is unchanged — this is vocabulary + IA
+  // only (Phase A is NOT appointment-grade; honesty gate #2).
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-800 dark:text-white flex items-center gap-2">
         <CalendarCheck className="w-6 h-6 text-gray-700 dark:text-gray-200" aria-hidden />
-        {t("rsvpOwnerTitle", "Reservations")}
+        {isProvider ? t("rsvpOwnerTitleProvider", "Tidsbestilling") : t("rsvpOwnerTitle", "Reservations")}
       </h1>
       <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-        {t(
-          "rsvpOwnerSubtitle",
-          "Your booking book, floor plan, and the public page guests book through.",
-        )}
+        {isProvider
+          ? t(
+              "rsvpOwnerSubtitleProvider",
+              "Dine aftaler og den offentlige side, dine kunder bestiller tid på.",
+            )
+          : t(
+              "rsvpOwnerSubtitle",
+              "Your booking book, floor plan, and the public page guests book through.",
+            )}
       </p>
     </div>
   );
@@ -532,6 +594,9 @@ function ReservationDrawer({
   onAssign = null,
   assignBusy = false,
   assignError = "",
+  isProvider = false,
+  behandlerName = "",
+  highlight = false,
 }) {
   if (!reservation) return null;
   const r = reservation;
@@ -568,7 +633,12 @@ function ReservationDrawer({
   return (
     <div className="fixed inset-0 z-[60] flex" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
-      <div className="relative ml-auto w-full max-w-md h-full bg-white dark:bg-gray-900 shadow-2xl border-l border-gray-200 dark:border-gray-800 flex flex-col animate-slideIn">
+      <div
+        className={
+          "relative ml-auto w-full max-w-md h-full bg-white dark:bg-gray-900 shadow-2xl border-l border-gray-200 dark:border-gray-800 flex flex-col animate-slideIn transition-shadow duration-700 " +
+          (highlight ? "ring-2 ring-inset ring-gray-900 dark:ring-gray-100" : "")
+        }
+      >
         {/* Scrollable detail — the action bar below stays pinned. */}
         <div className="flex-1 overflow-auto p-5 space-y-4">
           <div className="flex items-start justify-between gap-3">
@@ -579,9 +649,19 @@ function ReservationDrawer({
               <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                 {r.guest_name || "—"}
               </div>
-              <div className="text-[13px] text-gray-500 dark:text-gray-400 tabular-nums">
-                {r.party_size + " " + t("rsvpCoversHelper", "guests")}
-              </div>
+              {/* Provider (salon) → the behandling sub-line; table venues keep
+                  the party-size sub-line. */}
+              {isProvider ? (
+                r.service_name ? (
+                  <div className="text-[13px] text-gray-500 dark:text-gray-400 truncate">
+                    {r.service_name}
+                  </div>
+                ) : null
+              ) : (
+                <div className="text-[13px] text-gray-500 dark:text-gray-400 tabular-nums">
+                  {r.party_size + " " + t("rsvpCoversHelper", "guests")}
+                </div>
+              )}
             </div>
             <button
               type="button"
@@ -613,7 +693,21 @@ function ReservationDrawer({
           )}
 
           <div className="space-y-1.5">
-            {tableLabel && <DetailRow label={t("rsvpColTable", "Table")} value={tableLabel} />}
+            {/* Provider (salon) → Behandling + Behandler rows; table venues
+                keep the Table row. */}
+            {isProvider ? (
+              <>
+                {r.service_name && (
+                  <DetailRow label={t("rsvpColBehandling", "Behandling")} value={r.service_name} />
+                )}
+                <DetailRow
+                  label={t("rsvpColBehandler", "Behandler")}
+                  value={behandlerName || t("rsvpBookValgfriOwner", "Valgfri behandler")}
+                />
+              </>
+            ) : (
+              tableLabel && <DetailRow label={t("rsvpColTable", "Table")} value={tableLabel} />
+            )}
             {r.guest_phone && (
               <DetailRow
                 label={t("rsvpDetailPhone", "Phone")}
@@ -648,7 +742,8 @@ function ReservationDrawer({
               which span multiple tables and are managed by the engine).
               Picking a table PATCHes immediately; 409 slot_unavailable shows
               an honest inline error and leaves the booking untouched. */}
-          {onAssign &&
+          {!isProvider &&
+            onAssign &&
             tables.length > 0 &&
             ["requested", "confirmed", "seated"].includes(r.status) &&
             !(Array.isArray(r.combined_resource_ids) && r.combined_resource_ids.length > 1) && (
@@ -844,7 +939,19 @@ function defaultBookingTime(forDay) {
 // party, name, optional phone. Submits through the page-level handler so
 // the 409 room_full warning ("honest pushback") can keep the sheet open
 // and offer "book anyway (no table)" vs "pick another time".
-function NewBookingSheet({ day, t, busy, warning, onClearWarning, error, onSubmit, onClose }) {
+function NewBookingSheet({
+  day,
+  t,
+  busy,
+  warning,
+  onClearWarning,
+  error,
+  onSubmit,
+  onClose,
+  isProvider = false,
+  behandlinger = [],
+  providerStations = [],
+}) {
   const [date, setDate] = useState(day);
   const [time, setTime] = useState(() => defaultBookingTime(day));
   const [party, setParty] = useState("2");
@@ -852,11 +959,33 @@ function NewBookingSheet({ day, t, busy, warning, onClearWarning, error, onSubmi
   const [phone, setPhone] = useState("");
   const [nameMissing, setNameMissing] = useState(false);
   const sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  // Provider (salon) selections. behandlingId is required; stylistId "" =
+  // Valgfri behandler (no pinned behandler).
+  const [behandlingId, setBehandlingId] = useState(() =>
+    behandlinger.length === 1 ? String(behandlinger[0].id) : "",
+  );
+  const [stylistId, setStylistId] = useState("");
+  const [behandlingMissing, setBehandlingMissing] = useState(false);
 
   const submit = (allowOverflow) => {
     const guest_name = name.trim();
     if (!guest_name) {
       setNameMissing(true);
+      return;
+    }
+    if (isProvider) {
+      if (!behandlingId) {
+        setBehandlingMissing(true);
+        return;
+      }
+      onSubmit({
+        guest_name,
+        guest_phone: phone.trim() || null,
+        date,
+        time,
+        behandling_id: behandlingId,
+        stylist_resource_id: stylistId || null,
+      });
       return;
     }
     onSubmit(
@@ -884,7 +1013,9 @@ function NewBookingSheet({ day, t, busy, warning, onClearWarning, error, onSubmi
       >
         <div className="flex items-start justify-between gap-3">
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            {t("rsvpNewBooking", "New booking")}
+            {isProvider
+              ? t("rsvpNewBookingProvider", "Book en tid")
+              : t("rsvpNewBooking", "New booking")}
           </h3>
           <button
             type="button"
@@ -895,6 +1026,72 @@ function NewBookingSheet({ day, t, busy, warning, onClearWarning, error, onSubmi
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Provider (salon) tidsbestilling — behandling → behandler, ahead of
+            dato → tid. No behandlinger yet → an honest guide to add them
+            first; the Create button is disabled below until one is added. */}
+        {isProvider && behandlinger.length === 0 && (
+          <div className="rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 px-3 py-2.5 text-sm text-gray-600 dark:text-gray-300">
+            {t(
+              "rsvpBookNoBehandlinger",
+              "Add a behandling first (Behandlinger tab) to take a tidsbestilling.",
+            )}
+          </div>
+        )}
+        {isProvider && behandlinger.length > 0 && (
+          <>
+            <div>
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                {t("rsvpBookBehandlingLabel", "Behandling")}
+              </label>
+              <select
+                value={behandlingId}
+                onChange={(e) => {
+                  setBehandlingId(e.target.value);
+                  if (e.target.value) setBehandlingMissing(false);
+                }}
+                aria-label={t("rsvpPublicPickBehandling", "Vælg behandling")}
+                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+              >
+                <option value="">{t("rsvpPublicPickBehandling", "Vælg behandling")}</option>
+                {behandlinger.map((b) => {
+                  const mins = t("rsvpBehandlingMinutes", "{n} min", { n: b.duration_min });
+                  const price = b.price_kr != null ? ` · ${b.price_kr} kr.` : "";
+                  return (
+                    <option key={b.id} value={String(b.id)}>
+                      {b.name} · {mins}
+                      {price}
+                    </option>
+                  );
+                })}
+              </select>
+              {behandlingMissing && (
+                <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                  {t("rsvpBookBehandlingRequired", "Choose a behandling.")}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                {t("rsvpBookBehandlerLabel", "Behandler")}
+              </label>
+              <select
+                value={stylistId}
+                onChange={(e) => setStylistId(e.target.value)}
+                aria-label={t("rsvpPublicPickBehandler", "Vælg behandler")}
+                className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+              >
+                {/* Default = Valgfri behandler (no pinned behandler). */}
+                <option value="">{t("rsvpBookValgfriOwner", "Valgfri behandler")}</option>
+                {providerStations.map((s) => (
+                  <option key={s.id} value={String(s.id)}>
+                    {s.staff_name || s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
 
         <div className="grid grid-cols-2 gap-2">
           <div>
@@ -932,31 +1129,35 @@ function NewBookingSheet({ day, t, busy, warning, onClearWarning, error, onSubmi
           </div>
         </div>
 
-        <div>
-          <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-            {t("rsvpPartySize", "Party size")}
-          </label>
-          <div className="flex flex-wrap gap-2 mt-1.5">
-            {sizes.map((n) => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => {
-                  setParty(String(n));
-                  if (warning) onClearWarning();
-                }}
-                className={
-                  "h-11 min-w-[44px] px-3 rounded-lg border text-sm font-medium tabular-nums " +
-                  (String(n) === party
-                    ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
-                    : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600")
-                }
-              >
-                {n}
-              </button>
-            ))}
+        {/* Party size — TABLE venues only. A provider tidsbestilling is one
+            customer; the behandling sets the booking length, not party size. */}
+        {!isProvider && (
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              {t("rsvpPartySize", "Party size")}
+            </label>
+            <div className="flex flex-wrap gap-2 mt-1.5">
+              {sizes.map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => {
+                    setParty(String(n));
+                    if (warning) onClearWarning();
+                  }}
+                  className={
+                    "h-11 min-w-[44px] px-3 rounded-lg border text-sm font-medium tabular-nums " +
+                    (String(n) === party
+                      ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+                      : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600")
+                  }
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         <div>
           <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -1022,6 +1223,7 @@ function NewBookingSheet({ day, t, busy, warning, onClearWarning, error, onSubmi
           variant="primary"
           size="lg"
           busy={busy}
+          disabled={isProvider && behandlinger.length === 0}
           className="w-full justify-center"
           onClick={() => submit(false)}
         >
@@ -1407,12 +1609,23 @@ function TimelineSkeleton() {
   );
 }
 
-function BookSection({ t, businessType }) {
+function BookSection({ t, businessType, tableFloor = false }) {
   const { lang } = useLanguage();
+  // TABLE venues (dining/bar) get the Floor ("plan") lens; provider (salon) /
+  // no-floor (bakery/retail) venues never do — gated on the venue TYPE, with a
+  // grandfather for venues that already have a real table plan. `tableFloor`
+  // is computed once by the parent (type OR has-tables) and passed down.
+  // Provider (salon) venues take a real tidsbestilling (behandling → behandler
+  // → dato → tid) instead of a table booking — an ADDITIVE branch; the table
+  // flow is left byte-identical.
+  const isProvider = bookingModeFor(businessType) === "provider";
   const [day, setDay] = useState(() => isoDay(new Date()));
   const [view, setView] = useState(() => {
     try {
-      return localStorage.getItem(RSVP_VIEW_KEY) || "liste";
+      const saved = localStorage.getItem(RSVP_VIEW_KEY) || "liste";
+      // A non-table venue can't show the plan lens — a stale "plan" preference
+      // falls back to the list, never a dead Floor view.
+      return saved === "plan" && !tableFloor ? "liste" : saved;
     } catch {
       return "liste";
     }
@@ -1440,6 +1653,25 @@ function BookSection({ t, businessType }) {
   // Assign/move table from the detail drawer.
   const [assigning, setAssigning] = useState(false);
   const [assignError, setAssignError] = useState("");
+  // Provider (salon) only — the behandlinger catalog the New-booking sheet
+  // picks from (active only). Soft-fail to []. Stylist stations come from
+  // `resources` (kind:"provider"); the public list/drawer resolves the
+  // behandler name from those.
+  const [behandlinger, setBehandlinger] = useState([]);
+
+  // ── Deep-link: /reservations?booking=<id>&date=<iso> ──────────────────
+  // A live host-stand alert, the 8am brief, or a push lands the owner on the
+  // EXACT booking instead of the generic list. We treat the URL id as a hint
+  // only — the drawer is re-pointed from the freshly-fetched row, never from
+  // anything carried in the URL (PSD2-callback doctrine: re-derive, don't
+  // trust). The id is enough; no PII ever rides in the query string.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepBookingId = searchParams.get("booking");
+  const deepDate = searchParams.get("date");
+  // One calm ring on the opened drawer (~one ceremonial beat, then stillness).
+  const [deepLinkPulse, setDeepLinkPulse] = useState(false);
+  // Honest dead-link note: the booking was cancelled/purged before we arrived.
+  const [deepLinkGone, setDeepLinkGone] = useState(false);
 
   const pickView = (v) => {
     setView(v);
@@ -1487,6 +1719,72 @@ function BookSection({ t, businessType }) {
   useEffect(() => {
     fetchResources();
   }, [fetchResources]);
+
+  // Provider venues only — load the active behandlinger catalog the New-
+  // booking sheet offers. Soft-fail: no catalog → the sheet shows the
+  // "add a behandling first" guidance and stays closed-friendly.
+  useEffect(() => {
+    if (!isProvider) return;
+    let alive = true;
+    api
+      .get("/reservations/behandlinger")
+      .then((res) => {
+        if (!alive) return;
+        const list = Array.isArray(res.data?.behandlinger) ? res.data.behandlinger : [];
+        setBehandlinger(list.filter((b) => b.active !== false));
+      })
+      .catch(() => {
+        if (alive) setBehandlinger([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isProvider]);
+
+  // Step 1 — a deep-link for another day switches the book to that day first;
+  // the day effect above then refetches. (No-op when the date matches or is
+  // absent — we just resolve against the day already loaded.)
+  useEffect(() => {
+    if (!deepBookingId) return;
+    if (deepDate && /^\d{4}-\d{2}-\d{2}$/.test(deepDate) && deepDate !== day) {
+      setDay(deepDate);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepBookingId, deepDate]);
+
+  // Step 2 — once the target day's book has landed, re-point the drawer to the
+  // fresh row and strip the params so a refresh doesn't re-open. A booking that
+  // no longer exists (cancelled / purged) shows an honest inline note, never a
+  // blank drawer or a 404.
+  useEffect(() => {
+    if (!deepBookingId) return;
+    // Still waiting to arrive on the right day, or mid-fetch — let it settle.
+    if (deepDate && /^\d{4}-\d{2}-\d{2}$/.test(deepDate) && deepDate !== day) return;
+    if (loading) return;
+    const fresh = (data?.reservations || []).find(
+      (r) => String(r.id) === String(deepBookingId),
+    );
+    if (fresh) {
+      setSelected(fresh);
+      setDeepLinkPulse(true);
+      setDeepLinkGone(false);
+    } else {
+      setSelected(null);
+      setDeepLinkGone(true);
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete("booking");
+    next.delete("date");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepBookingId, deepDate, day, loading, data]);
+
+  // The ring is a single beat — fade it after the drawer has settled.
+  useEffect(() => {
+    if (!deepLinkPulse) return;
+    const id = setTimeout(() => setDeepLinkPulse(false), 1400);
+    return () => clearTimeout(id);
+  }, [deepLinkPulse]);
 
   const setStatus = async (r, status) => {
     if (status === "cancelled") {
@@ -1567,17 +1865,35 @@ function BookSection({ t, businessType }) {
     setCreateError("");
     if (!allowOverflow) setRoomFull(null);
     try {
-      await api.post("/reservations/book", {
-        guest_name: form.guest_name,
-        guest_phone: form.guest_phone,
-        party_size: form.party_size,
-        starts_at: `${form.date}T${form.time}:00`,
-        resource_id: null,
-        source: "manual",
-        status: "confirmed",
-        auto_assign: true,
-        ...(allowOverflow ? { allow_overflow: true } : {}),
-      });
+      // Provider (salon) tidsbestilling — the server resolves the duration +
+      // service_name from the behandlinger catalog and books a PROVIDER. A
+      // pinned behandler (stylist_resource_id) FAILS CLOSED with 409
+      // stylist_unavailable — we surface it and NEVER silently rebook.
+      // Omitting stylist_resource_id = "Valgfri behandler" (any free provider).
+      const payload = isProvider
+        ? {
+            guest_name: form.guest_name,
+            guest_phone: form.guest_phone,
+            starts_at: `${form.date}T${form.time}:00`,
+            source: "manual",
+            status: "confirmed",
+            behandling_id: form.behandling_id,
+            ...(form.stylist_resource_id
+              ? { stylist_resource_id: form.stylist_resource_id }
+              : {}),
+          }
+        : {
+            guest_name: form.guest_name,
+            guest_phone: form.guest_phone,
+            party_size: form.party_size,
+            starts_at: `${form.date}T${form.time}:00`,
+            resource_id: null,
+            source: "manual",
+            status: "confirmed",
+            auto_assign: true,
+            ...(allowOverflow ? { allow_overflow: true } : {}),
+          };
+      await api.post("/reservations/book", payload);
       setNewOpen(false);
       setRoomFull(null);
       // Jump the book to the booked date so the new booking is visible.
@@ -1585,7 +1901,17 @@ function BookSection({ t, businessType }) {
       else await fetchBook(day);
     } catch (e) {
       const d = e?.response?.data?.detail || {};
-      if (e?.response?.status === 409 && d.error === "room_full") {
+      if (e?.response?.status === 409 && d.error === "stylist_unavailable") {
+        // The pinned behandler was just taken — honest inline message, the
+        // sheet stays open with the same selections so the host can pick a new
+        // time or switch to Valgfri behandler. No auto-rebook.
+        setCreateError(
+          t(
+            "rsvpBookStylistUnavailable",
+            "Den valgte behandler er ikke ledig på det tidspunkt — vælg et andet tidspunkt eller 'Valgfri behandler'.",
+          ),
+        );
+      } else if (e?.response?.status === 409 && d.error === "room_full") {
         const seats = d.seats ?? d.total_seats ?? d.capacity ?? (totalCapacity || null);
         setRoomFull({ seats });
       } else {
@@ -1664,6 +1990,23 @@ function BookSection({ t, businessType }) {
     () => resources.filter((r) => r.kind !== "provider" && r.is_active !== false),
     [resources],
   );
+  // Provider (salon) booking — the stylist stations the New-booking sheet
+  // pins to (kind:"provider"), and a resource_id → behandler-name resolver
+  // for the list/drawer. Each station carries staff_name (or label as a
+  // fallback) from the resources serializer.
+  const providerStations = useMemo(
+    () => resources.filter((r) => r.kind === "provider" && r.is_active !== false),
+    [resources],
+  );
+  const behandlerByResourceId = useMemo(() => {
+    const m = {};
+    resources.forEach((r) => {
+      if (r.kind === "provider") {
+        m[String(r.id)] = r.staff_name || r.label || "";
+      }
+    });
+    return m;
+  }, [resources]);
 
   const seatedCount = summary.by_status?.seated || 0;
   const requestedCount = summary.by_status?.requested || 0;
@@ -1815,24 +2158,55 @@ function BookSection({ t, businessType }) {
         </div>
       ),
     },
-    {
-      id: "party",
-      label: t("rsvpColParty", "Party"),
-      align: "right",
-      width: "w-16",
-      render: (r) => (
-        <span className="inline-flex items-center gap-1 tabular-nums text-gray-700 dark:text-gray-300">
-          <Users className="w-3.5 h-3.5 text-gray-400" aria-hidden />
-          {r.party_size}
-        </span>
-      ),
-    },
-    {
-      id: "tables",
-      label: t("rsvpColTable", "Table"),
-      width: "w-36",
-      render: (r) => <TablesCell r={r} labelById={labelById} t={t} />,
-    },
+    // Provider (salon) venues replace Party + Table with Behandling +
+    // Behandler; table venues keep the original two columns byte-identical.
+    ...(isProvider
+      ? [
+          {
+            id: "behandling",
+            label: t("rsvpColBehandling", "Behandling"),
+            width: "w-40",
+            render: (r) => (
+              <span className="text-sm text-gray-700 dark:text-gray-300 truncate">
+                {r.service_name || "—"}
+              </span>
+            ),
+          },
+          {
+            id: "behandler",
+            label: t("rsvpColBehandler", "Behandler"),
+            width: "w-36",
+            render: (r) => {
+              const who = r.resource_id ? behandlerByResourceId[String(r.resource_id)] : "";
+              return (
+                <span className="inline-flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300 truncate">
+                  <Scissors className="w-3.5 h-3.5 text-gray-400 shrink-0" aria-hidden />
+                  {who || t("rsvpBookValgfriOwner", "Valgfri behandler")}
+                </span>
+              );
+            },
+          },
+        ]
+      : [
+          {
+            id: "party",
+            label: t("rsvpColParty", "Party"),
+            align: "right",
+            width: "w-16",
+            render: (r) => (
+              <span className="inline-flex items-center gap-1 tabular-nums text-gray-700 dark:text-gray-300">
+                <Users className="w-3.5 h-3.5 text-gray-400" aria-hidden />
+                {r.party_size}
+              </span>
+            ),
+          },
+          {
+            id: "tables",
+            label: t("rsvpColTable", "Table"),
+            width: "w-36",
+            render: (r) => <TablesCell r={r} labelById={labelById} t={t} />,
+          },
+        ]),
     {
       id: "status",
       label: t("rsvpColStatus", "Status"),
@@ -1928,7 +2302,8 @@ function BookSection({ t, businessType }) {
           <TabPills
             tabs={[
               { id: "liste", label: t("rsvpViewListe", "List") },
-              { id: "plan", label: t("rsvpViewPlan", "Floor") },
+              // Floor lens only for TABLE venues (gated on venue TYPE).
+              ...(tableFloor ? [{ id: "plan", label: t("rsvpViewPlan", "Floor") }] : []),
               { id: "tidslinje", label: t("rsvpViewTimeline", "Timeline") },
             ]}
             activeId={view}
@@ -1941,7 +2316,9 @@ function BookSection({ t, businessType }) {
             iconLeft={<Plus className="w-4 h-4" />}
             onClick={openNewBooking}
           >
-            {t("rsvpNewBooking", "New booking")}
+            {isProvider
+              ? t("rsvpNewBookingProvider", "Book en tid")
+              : t("rsvpNewBooking", "New booking")}
           </Button>
         </div>
       </div>
@@ -1995,6 +2372,26 @@ function BookSection({ t, businessType }) {
       {error && (
         <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
           {error}
+        </div>
+      )}
+
+      {/* Honest dead-link note — a deep-link pointed at a booking that's since
+          been cancelled or purged. We land on its day, say so plainly, and let
+          the owner dismiss it. Never a blank drawer or a 404. */}
+      {deepLinkGone && (
+        <div className="flex items-start gap-2 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300 px-4 py-3 rounded-xl text-sm">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" aria-hidden />
+          <span className="flex-1">
+            {t("rsvpDeepLinkGone", "This reservation no longer exists.")}
+          </span>
+          <button
+            type="button"
+            onClick={() => setDeepLinkGone(false)}
+            aria-label={t("close", "Close")}
+            className="shrink-0 -my-0.5 -mr-1 h-7 w-7 inline-flex items-center justify-center rounded-lg hover:bg-amber-100/70 dark:hover:bg-amber-900/40"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -2091,12 +2488,17 @@ function BookSection({ t, businessType }) {
         <ReservationDrawer
           reservation={selected}
           tableLabel={resolveTableLabel(selected, labelById)}
+          isProvider={isProvider}
+          behandlerName={
+            selected.resource_id ? behandlerByResourceId[String(selected.resource_id)] : ""
+          }
           t={t}
           busy={actioningId === selected.id}
           tables={assignableTables}
           onAssign={assignTable}
           assignBusy={assigning}
           assignError={assignError}
+          highlight={deepLinkPulse}
           onStatus={(r, to) => {
             setStatus(r, to);
             setSelected(null);
@@ -2104,6 +2506,7 @@ function BookSection({ t, businessType }) {
           onClose={() => {
             setSelected(null);
             setAssignError("");
+            setDeepLinkPulse(false);
           }}
         />
       )}
@@ -2119,7 +2522,9 @@ function BookSection({ t, businessType }) {
         />
       )}
 
-      {/* New booking sheet — the host takes a future (phone) booking. */}
+      {/* New booking sheet — the host takes a future (phone) booking. For a
+          provider (salon) venue this is a tidsbestilling: behandling →
+          behandler → dato → tid. */}
       {newOpen && (
         <NewBookingSheet
           day={day}
@@ -2129,6 +2534,9 @@ function BookSection({ t, businessType }) {
           onClearWarning={() => setRoomFull(null)}
           error={createError}
           onSubmit={createBooking}
+          isProvider={isProvider}
+          behandlinger={behandlinger}
+          providerStations={providerStations}
           onClose={() => {
             setNewOpen(false);
             setRoomFull(null);
@@ -2185,10 +2593,23 @@ function FloorSection({ t, businessType }) {
   // intro, empty state, icon) and the suggested zone-preset chips.
   const profile = venueProfile(businessType);
   const VenueIcon = profile.icon;
+  // Provider (salon) venues author STYLIST STATIONS instead of tables: each
+  // station is a `kind:"provider"` resource bound to a StaffMember, and its
+  // availability comes 100% from that staff member's published shifts.
+  const isProvider = bookingModeFor(businessType) === "provider";
   const [resources, setResources] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [capMsg, setCapMsg] = useState(null); // {cap, current, limit, plan, upgrade_to}
+
+  // Provider-mode: the staff roster the stylist picker chooses from. Fetched
+  // once on mount, only when isProvider. Soft-fail to [].
+  const [staffMembers, setStaffMembers] = useState([]);
+  const [staffId, setStaffId] = useState("");
+
+  // Clear-leftover-tables (provider venues with tables from an earlier setup).
+  const [clearingTables, setClearingTables] = useState(false);
+  const [tablesNoticeDismissed, setTablesNoticeDismissed] = useState(false);
 
   // Add-form state.
   const [label, setLabel] = useState("");
@@ -2227,6 +2648,129 @@ function FloorSection({ t, businessType }) {
   useEffect(() => {
     fetchResources();
   }, [fetchResources]);
+
+  // Provider mode only — fetch the staff roster the stylist picker chooses
+  // from. `GET /staff/members` returns a top-level array of StaffMember rows
+  // ({ id, name, … }); normalise the `{ members: [...] }` shape too. Soft-fail.
+  useEffect(() => {
+    if (!isProvider) return;
+    let alive = true;
+    api
+      .get("/staff/members")
+      .then((res) => {
+        if (!alive) return;
+        const list = Array.isArray(res.data)
+          ? res.data
+          : Array.isArray(res.data?.members)
+            ? res.data.members
+            : [];
+        setStaffMembers(list);
+      })
+      .catch(() => {
+        if (alive) setStaffMembers([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isProvider]);
+
+  // staff_id → display name, for resource rows. Falls back to a server-supplied
+  // staff name field if the serializer ever adds one.
+  const staffNameById = useMemo(() => {
+    const m = {};
+    for (const s of staffMembers) m[String(s.id)] = s.name || s.full_name || "";
+    return m;
+  }, [staffMembers]);
+
+  const chosenStaff = staffMembers.find((s) => String(s.id) === String(staffId)) || null;
+
+  // Provider mode: create a stylist (behandler) station. Same 402 cap-handling
+  // + error handling as the table path — only the payload + validation branch.
+  const addProviderStation = async () => {
+    if (!staffId) {
+      setError(t("rsvpProviderStaffRequired", "Pick a stylist for this station."));
+      return;
+    }
+    const stationLabel =
+      label.trim() || (chosenStaff && (chosenStaff.name || chosenStaff.full_name)) || "";
+    setSaving(true);
+    setError("");
+    setCapMsg(null);
+    try {
+      const res = await api.post("/reservations/resources", {
+        kind: "provider",
+        staff_id: staffId,
+        label: stationLabel,
+        capacity_seats: 1,
+        combinable: false,
+        zone: null,
+      });
+      setResources((prev) => [...prev, res.data]);
+      setStaffId("");
+      setLabel("");
+    } catch (e) {
+      if (e?.response?.status === 402) {
+        const d = e?.response?.data?.detail || e?.response?.data || {};
+        setCapMsg({
+          cap: d.cap,
+          current: d.current,
+          limit: d.limit,
+          plan: d.plan,
+          upgrade_to: d.upgrade_to,
+        });
+      } else {
+        setError(
+          e?.response?.data?.detail?.error ||
+            t("rsvpTableAddError", "Couldn't add the table."),
+        );
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Provider venue with leftover tables (from a previous setup / test data):
+  // delete each non-provider resource sequentially. STOP on the first failure
+  // (e.g. the backend rejects a table that still has upcoming reservations) and
+  // surface the backend error — never delete provider stations, never swallow.
+  const leftoverTables = useMemo(
+    () => resources.filter((r) => r.kind !== "provider"),
+    [resources],
+  );
+  const clearLeftoverTables = async () => {
+    const n = leftoverTables.length;
+    if (n === 0) return;
+    if (
+      !confirm(
+        t("rsvpClearTablesConfirm", "Remove the {n} leftover tables? This can't be undone.", { n }),
+      )
+    )
+      return;
+    setClearingTables(true);
+    setError("");
+    setCapMsg(null);
+    try {
+      for (const r of leftoverTables) {
+        try {
+          await api.delete(`/reservations/resources/${r.id}`);
+        } catch (e) {
+          // Halt and report: some tables may have deleted, this one is blocked.
+          setError(
+            e?.response?.data?.detail?.error ||
+              t(
+                "rsvpClearTablesBlocked",
+                "Some tables still have upcoming bookings — cancel or move those first.",
+              ),
+          );
+          return;
+        }
+      }
+    } finally {
+      setClearingTables(false);
+      // Refresh either way so the list reflects exactly what was removed.
+      fetchResources();
+    }
+  };
 
   const addResource = async () => {
     if (!label.trim()) {
@@ -2378,13 +2922,117 @@ function FloorSection({ t, businessType }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-500 dark:text-gray-400">
-        {t(
-          profile.floorIntroKey,
-          "Add the tables guests can be seated at. Capacity drives which party sizes a slot can take.",
-        )}
-      </p>
+      {isProvider ? (
+        <div>
+          <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">
+            {t("rsvpProvidersTitle", "Stylists & stations")}
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {t(
+              "rsvpProvidersIntro",
+              "Add each stylist as a bookable station. Their published shifts decide when guests can book them.",
+            )}
+          </p>
+        </div>
+      ) : (
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          {t(
+            profile.floorIntroKey,
+            "Add the tables guests can be seated at. Capacity drives which party sizes a slot can take.",
+          )}
+        </p>
+      )}
 
+      {/* Provider venue with leftover tables — offer a one-click clear so the
+          owner can switch fully to the stylist view. Dismissible; never touches
+          provider stations. */}
+      {isProvider && leftoverTables.length > 0 && !tablesNoticeDismissed && (
+        <div className="rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30 p-4 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              {t(
+                "rsvpClearTablesNotice",
+                "You have {n} tables from an earlier setup. Clear them to switch fully to the stylist view.",
+                { n: leftoverTables.length },
+              )}
+            </p>
+            <div className="mt-3">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                busy={clearingTables}
+                onClick={clearLeftoverTables}
+                iconLeft={<Trash2 className="w-4 h-4" />}
+              >
+                {t("rsvpClearTablesBtn", "Clear tables")}
+              </Button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setTablesNoticeDismissed(true)}
+            aria-label={t("dismiss", "Dismiss")}
+            className="shrink-0 w-9 h-9 inline-flex items-center justify-center rounded-lg text-amber-700/70 hover:text-amber-900 hover:bg-amber-100 dark:text-amber-300/70 dark:hover:text-amber-100 dark:hover:bg-amber-900/40"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Provider add-form — a stylist picker + optional label override. The
+          station's availability is its staff member's published shifts. */}
+      {isProvider && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!saving) addProviderStation();
+          }}
+          className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3"
+        >
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {t("rsvpAddStation", "Add a station")}
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <select
+              value={staffId}
+              onChange={(e) => setStaffId(e.target.value)}
+              aria-label={t("rsvpProviderPickStaff", "Choose a stylist")}
+              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+            >
+              <option value="">{t("rsvpProviderPickStaff", "Choose a stylist")}</option>
+              {staffMembers.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name || s.full_name || String(s.id)}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder={t("rsvpStationLabelPh", "Station name (optional)")}
+              maxLength={120}
+              className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+            />
+          </div>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            {t(
+              "rsvpProviderShiftHint",
+              "A stylist is bookable only during their published shifts. Add shifts in Vagtplan.",
+            )}
+          </p>
+          <div className="flex justify-end">
+            <Button type="submit" variant="primary" size="lg" busy={saving} iconLeft={<Plus className="w-4 h-4" />}>
+              {t("rsvpAddStationBtn", "Add station")}
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {/* Table authoring (quick setup + add-table) — only for table venues. */}
+      {!isProvider && (
+      <>
       {/* Quick setup — bulk-add tables by size. The fast path for a fresh
           floor: "5 of 2, 4 of 4, 2 of 6" → one click, auto-numbered. */}
       <form
@@ -2588,6 +3236,8 @@ function FloorSection({ t, businessType }) {
           </Button>
         </div>
       </form>
+      </>
+      )}
 
       {/* Cap-exceeded message + upgrade nudge */}
       {capMsg && (
@@ -2620,9 +3270,53 @@ function FloorSection({ t, businessType }) {
         <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 py-10 text-center">
           <VenueIcon className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" aria-hidden />
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            {t(profile.floorEmptyKey, "No tables yet — add your first above.")}
+            {isProvider
+              ? t("rsvpProvidersEmpty", "No stylists yet — add one to take appointments.")
+              : t(profile.floorEmptyKey, "No tables yet — add your first above.")}
           </p>
         </div>
+      ) : isProvider ? (
+        <ul className="space-y-2">
+          {resources
+            .filter((r) => r.kind === "provider")
+            .map((r) => {
+              const staffName = r.staff_name || staffNameById[String(r.staff_id)] || "";
+              return (
+                <li
+                  key={r.id}
+                  className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0 flex items-center gap-2">
+                    <VenueIcon className="w-4 h-4 text-gray-400 shrink-0" aria-hidden />
+                    <span className="min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-100">
+                      {r.label}
+                    </span>
+                    {r.staff_id ? (
+                      staffName && staffName !== r.label ? (
+                        <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {staffName}
+                        </span>
+                      ) : null
+                    ) : (
+                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                        {t("rsvpProviderNoStaff", "No stylist")}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => removeResource(r)}
+                      aria-label={t("delete", "Delete")}
+                      className="w-11 h-11 inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 text-gray-400 hover:text-red-600 hover:border-red-300"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+        </ul>
       ) : (
         <ul className="space-y-2">
           {resources.map((r) => (
@@ -2693,6 +3387,272 @@ function FloorSection({ t, businessType }) {
                 <button
                   type="button"
                   onClick={() => removeResource(r)}
+                  aria-label={t("delete", "Delete")}
+                  className="w-11 h-11 inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 text-gray-400 hover:text-red-600 hover:border-red-300"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ─── Behandlinger (salon service catalog) — S2 ─────────────────────────
+// Salon owners curate their list of services (treatments): a name, a duration,
+// and an OPTIONAL display price. Mirrors FloorSection's add/list/delete + 402
+// cap-nudge idiom (same gray-900 primitives, same setCapMsg shape). Honesty:
+// the price is DISPLAY-ONLY and durations are informational for now — the
+// intro copy says so; this does NOT take bookings or charge (that's S3).
+function BehandlingerSection({ t }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [capMsg, setCapMsg] = useState(null); // {cap, current, limit, plan, upgrade_to}
+
+  // Add-form state.
+  const [name, setName] = useState("");
+  const [duration, setDuration] = useState("30");
+  const [price, setPrice] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const fetchItems = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await api.get("/reservations/behandlinger");
+      setItems(Array.isArray(res.data?.behandlinger) ? res.data.behandlinger : []);
+    } catch (e) {
+      setError(
+        e?.response?.data?.detail?.error ||
+          t("rsvpBehandlingError", "Couldn't load your behandlinger."),
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    fetchItems();
+  }, [fetchItems]);
+
+  const addItem = async () => {
+    if (!name.trim()) {
+      setError(t("rsvpBehandlingNameRequired", "Give the behandling a name."));
+      return;
+    }
+    setSaving(true);
+    setError("");
+    setCapMsg(null);
+    try {
+      // duration clamps to the backend's 15..600; an empty price → null (the
+      // display-only field is optional).
+      const duration_min = Math.max(15, Math.min(600, parseInt(duration, 10) || 30));
+      const priceNum = price.trim() === "" ? null : Math.max(0, parseInt(price, 10) || 0);
+      const res = await api.post("/reservations/behandlinger", {
+        name: name.trim(),
+        duration_min,
+        price_kr: priceNum,
+      });
+      // Prepend the new service so the owner sees it immediately.
+      setItems((prev) => [res.data, ...prev]);
+      setName("");
+      setDuration("30");
+      setPrice("");
+    } catch (e) {
+      // Same 402 cap-handling as FloorSection — structured payload under
+      // `detail` (billing.enforce_cap), with a top-level fallback.
+      if (e?.response?.status === 402) {
+        const d = e?.response?.data?.detail || e?.response?.data || {};
+        setCapMsg({
+          cap: d.cap,
+          current: d.current,
+          limit: d.limit,
+          plan: d.plan,
+          upgrade_to: d.upgrade_to,
+        });
+      } else {
+        setError(
+          e?.response?.data?.detail?.error ||
+            t("rsvpBehandlingAddError", "Couldn't add the behandling."),
+        );
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleActive = async (b) => {
+    const next = !b.active;
+    // Optimistic.
+    setItems((prev) => prev.map((x) => (x.id === b.id ? { ...x, active: next } : x)));
+    try {
+      await api.patch(`/reservations/behandlinger/${b.id}`, { active: next });
+    } catch {
+      fetchItems();
+    }
+  };
+
+  const removeItem = async (b) => {
+    if (!confirm(t("rsvpBehandlingDeleteConfirm", "Remove this behandling?"))) return;
+    setItems((prev) => prev.filter((x) => x.id !== b.id));
+    try {
+      await api.delete(`/reservations/behandlinger/${b.id}`);
+    } catch {
+      fetchItems();
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">
+          {t("rsvpBehandlingerTitle", "Behandlinger")}
+        </h2>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          {t(
+            "rsvpBehandlingerIntro",
+            "List the behandlinger you offer with a duration and an optional price. Durations are informational and the price is display-only for now — this doesn't take bookings or charge yet.",
+          )}
+        </p>
+      </div>
+
+      {/* Add behandling — a real <form> so Enter submits from any field. */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!saving) addItem();
+        }}
+        className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3"
+      >
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+          {t("rsvpBehandlingAddTitle", "Add a behandling")}
+        </h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={t("rsvpBehandlingNamePh", "Name (e.g. Klip dame)")}
+            maxLength={120}
+            aria-label={t("rsvpBehandlingNameLabel", "Behandling name")}
+            className="h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+          />
+          <div className="relative">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={duration}
+              onChange={(e) => setDuration(e.target.value.replace(/[^\d]/g, "").slice(0, 3))}
+              placeholder={t("rsvpBehandlingDurationLabel", "Duration")}
+              aria-label={t("rsvpBehandlingDurationLabel", "Duration")}
+              className="w-full h-11 pl-3 pr-12 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+              {t("rsvpBehandlingMinSuffix", "min")}
+            </span>
+          </div>
+          <div className="relative">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={price}
+              onChange={(e) => setPrice(e.target.value.replace(/[^\d]/g, "").slice(0, 6))}
+              placeholder={t("rsvpBehandlingPriceLabel", "Price (optional)")}
+              aria-label={t("rsvpBehandlingPriceLabel", "Price (optional)")}
+              className="w-full h-11 pl-3 pr-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm tabular-nums"
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">
+              kr.
+            </span>
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <Button type="submit" variant="primary" size="lg" busy={saving} iconLeft={<Plus className="w-4 h-4" />}>
+            {t("rsvpBehandlingAddBtn", "Add behandling")}
+          </Button>
+        </div>
+      </form>
+
+      {/* Cap-exceeded message + upgrade nudge — same shape as FloorSection. */}
+      {capMsg && (
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/60 p-4 space-y-3">
+          <p className="text-sm text-gray-700 dark:text-gray-300">
+            {t(
+              "rsvpBehandlingCapHit",
+              "You've reached your plan's behandling limit ({limit}). Upgrade to add more.",
+              { limit: capMsg.limit ?? capMsg.current ?? "" },
+            )}
+          </p>
+          <UpgradeNudge
+            intent="inline"
+            tier={capMsg.upgrade_to === "pro" ? "pro" : "starter"}
+            benefit={t("rsvpBehandlingCapBenefit", "More behandlinger")}
+          />
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">
+          {error}
+        </div>
+      )}
+
+      {/* Behandling list */}
+      {loading ? (
+        <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>
+      ) : items.length === 0 ? (
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 py-10 text-center">
+          <Clock className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" aria-hidden />
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {t("rsvpBehandlingEmpty", "No behandlinger yet — add your first above.")}
+          </p>
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((b) => (
+            <li
+              key={b.id}
+              className={
+                "rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center justify-between gap-3 " +
+                (b.active ? "" : "opacity-60")
+              }
+            >
+              <div className="min-w-0 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-gray-400 shrink-0" aria-hidden />
+                <span className="min-w-0 truncate text-sm font-medium text-gray-800 dark:text-gray-100">
+                  {b.name}
+                </span>
+                <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+                  {t("rsvpBehandlingDurationValue", "{n} min", { n: b.duration_min })}
+                </span>
+                <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+                  {b.price_kr != null ? formatKr(b.price_kr, { decimals: 0 }) : "—"}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => toggleActive(b)}
+                  aria-pressed={!!b.active}
+                  aria-label={t("rsvpBehandlingActiveLabel", "Active")}
+                  title={t("rsvpBehandlingActiveLabel", "Active")}
+                  className={
+                    "h-11 px-3 inline-flex items-center gap-1.5 rounded-lg border text-xs font-medium transition-colors " +
+                    (b.active
+                      ? "border-gray-900 bg-gray-900 text-white dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900"
+                      : "border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200")
+                  }
+                >
+                  <CheckCircle2 className="w-4 h-4" aria-hidden />
+                  <span className="hidden sm:inline">{t("rsvpBehandlingActiveLabel", "Active")}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeItem(b)}
                   aria-label={t("delete", "Delete")}
                   className="w-11 h-11 inline-flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 text-gray-400 hover:text-red-600 hover:border-red-300"
                 >

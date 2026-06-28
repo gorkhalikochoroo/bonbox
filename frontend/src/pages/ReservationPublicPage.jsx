@@ -43,12 +43,15 @@ import {
   Info,
   Phone,
   Hash,
+  Scissors,
 } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import Button from "../components/ui/Button";
 import Chip from "../components/ui/Chip";
 import Input from "../components/ui/Input";
+import PublicFloorMap from "../components/PublicFloorMap";
+import { bookingModeFor, usesTableFloor } from "../config/venueProfiles";
 
 // ── Severity ladder ────────────────────────────────────────────────
 // Mirrors backend app/services/allergens.py SEVERITY_LEVELS. Stored as
@@ -74,6 +77,17 @@ function addDays(isoStr, n) {
   const d = new Date(`${isoStr}T00:00:00`);
   d.setDate(d.getDate() + n);
   return isoDay(d);
+}
+
+// "HH:MM" from a provider-availability slot's ISO start (local time). Used to
+// fold the {start,resource_id,...} provider slots into the same time-chip grid
+// the table flow uses. Returns "" on a bad value (defensive).
+function hhmmOf(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 // Pretty DK date for the header / success screen: "lørdag 13. juni".
@@ -182,6 +196,40 @@ export default function ReservationPublicPage() {
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState("");
 
+  // ── Salon (provider) booking state (S3b) ─────────────────────────
+  // A provider venue reorders step 1 to behandling → behandler → dato → tid.
+  // Slots come from .../provider-availability (keyed by behandling_id +
+  // optional stylist_id), so we keep the picked stylist's resource_id (for
+  // the submit + the recap) alongside the slot times. Table venues never
+  // touch any of this — provider is an additive branch.
+  const isProvider = !!page && bookingModeFor(page.business_type) === "provider";
+  const [behandlinger, setBehandlinger] = useState([]);
+  const [behandlingId, setBehandlingId] = useState("");
+  const [stylistId, setStylistId] = useState(""); // "" = Valgfri behandler
+  // Distinct behandlere (resource_id → display name) the provider-availability
+  // response surfaces, for the behandler picker + recap. The public page
+  // exposes no separate stylist roster, so names come from the page payload's
+  // optional `providers` list when present (forward-compatible); we always
+  // offer "Valgfri behandler" as the honest default.
+  const providers = useMemo(
+    () => (Array.isArray(page?.providers) ? page.providers : []),
+    [page],
+  );
+  const providerNameById = useMemo(() => {
+    const m = {};
+    providers.forEach((p) => {
+      m[String(p.id)] = p.name || p.label || "";
+    });
+    return m;
+  }, [providers]);
+
+  // ── 2D floor map: tables for the chosen slot + the guest's tapped table ──
+  // The booker picks a real table on the same room the owner arranges. A pick
+  // is a PREFERENCE — the server re-checks and auto-assigns if it's gone.
+  const [floor, setFloor] = useState([]); // [{id,label,capacity_seats,zone,shape,pos_x,pos_y,status}]
+  const [floorLoading, setFloorLoading] = useState(false);
+  const [selectedTable, setSelectedTable] = useState(null); // resource_id | null
+
   // Step 2 — guest details.
   const [guestName, setGuestName] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
@@ -284,19 +332,83 @@ export default function ReservationPublicPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  // ── Fetch availability whenever day or party changes ─────────────
+  // ── Provider venue: load the active behandlinger catalog (S3b) ────
+  // Drives the behandling picker (the FIRST step for a salon). Soft-fail to []
+  // → the page shows an honest "nothing bookable online" line. Auto-select the
+  // sole behandling so a one-service salon skips a redundant tap.
+  useEffect(() => {
+    if (!isProvider) return;
+    let alive = true;
+    api
+      .get(`/public/reservations/${slug}/behandlinger`)
+      .then((res) => {
+        if (!alive) return;
+        const list = Array.isArray(res.data?.behandlinger) ? res.data.behandlinger : [];
+        setBehandlinger(list);
+        if (list.length === 1) setBehandlingId(String(list[0].id));
+      })
+      .catch(() => {
+        if (alive) setBehandlinger([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isProvider, slug]);
+
+  // ── Fetch availability whenever the relevant inputs change ────────
+  // TABLE venues: GET /availability?day=&party= (unchanged). PROVIDER venues:
+  // GET /provider-availability?day=&behandling_id=&stylist_id= — slots are
+  // {start, resource_id, staff_id, duration_min}; we fold their distinct HH:MM
+  // start times into the same chip grid the table flow uses. The server
+  // re-resolves duration + the (pinned or Valgfri) behandler at booking time
+  // from behandling_id/stylist_id/time, so the raw slot ids aren't needed here.
   const fetchAvailability = useCallback(
-    async (forDay, forParty) => {
-      if (!forDay || !forParty) return;
+    async (forDay, forParty, forBehandling, forStylist) => {
+      if (!forDay) return;
+      // Provider needs a behandling chosen first; until then, no slots.
+      if (isProvider && !forBehandling) {
+        setSlots([]);
+        setGroupRequest(false);
+        setSlot("");
+        return;
+      }
+      if (!isProvider && !forParty) return;
       setSlotsLoading(true);
       setSlotsError("");
       setSlot("");
       try {
-        const res = await api.get(`/public/reservations/${slug}/availability`, {
-          params: { day: forDay, party: forParty },
-        });
-        setSlots(Array.isArray(res.data?.slots) ? res.data.slots : []);
-        setGroupRequest(!!res.data?.group_request);
+        if (isProvider) {
+          const res = await api.get(
+            `/public/reservations/${slug}/provider-availability`,
+            {
+              params: {
+                day: forDay,
+                behandling_id: forBehandling,
+                ...(forStylist ? { stylist_id: forStylist } : {}),
+              },
+            },
+          );
+          const raw = Array.isArray(res.data?.slots) ? res.data.slots : [];
+          // The grid shows distinct HH:MM start times across all behandlere
+          // (or just the pinned one); the server picks/rechecks the behandler.
+          const seen = new Set();
+          const times = [];
+          for (const s of raw) {
+            const hhmm = hhmmOf(s.start);
+            if (hhmm && !seen.has(hhmm)) {
+              seen.add(hhmm);
+              times.push(hhmm);
+            }
+          }
+          setSlots(times);
+          setGroupRequest(false);
+        } else {
+          const res = await api.get(`/public/reservations/${slug}/availability`, {
+            params: { day: forDay, party: forParty },
+          });
+          setSlots(Array.isArray(res.data?.slots) ? res.data.slots : []);
+          setGroupRequest(!!res.data?.group_request);
+        }
       } catch (err) {
         setSlots([]);
         setGroupRequest(false);
@@ -308,13 +420,52 @@ export default function ReservationPublicPage() {
         setSlotsLoading(false);
       }
     },
-    [slug, t],
+    [slug, t, isProvider],
   );
 
   useEffect(() => {
-    if (!page || !day || !party) return;
-    fetchAvailability(day, party);
-  }, [page, day, party, fetchAvailability]);
+    if (!page || !day) return;
+    if (isProvider) {
+      fetchAvailability(day, party, behandlingId, stylistId);
+    } else {
+      if (!party) return;
+      fetchAvailability(day, party);
+    }
+  }, [page, day, party, behandlingId, stylistId, isProvider, fetchAvailability]);
+
+  // ── Fetch the floor map for the chosen slot ──────────────────────
+  // A chosen TIME defines the room snapshot (which tables are free then). Any
+  // change to day/party/slot resets the pick. Group requests don't pick a
+  // table — the venue assigns on approval — so we skip the floor there.
+  useEffect(() => {
+    setSelectedTable(null);
+    // Honesty gate #1 (+ grandfather). A PROVIDER venue (salon) books people,
+    // never tables, so it never probes for a floor. Every other venue fetches:
+    // the render below shows the table picker only when free tables actually
+    // come back — so a no-floor (bakery/retail) venue with zero tables shows
+    // nothing, while a venue that ALREADY has a real table plan (e.g. a legacy /
+    // personal-mode account) keeps its floor instead of having it silently pulled.
+    if (!page || !day || !party || !slot || groupRequest || bookingModeFor(page.business_type) === "provider") {
+      setFloor([]);
+      return;
+    }
+    let alive = true;
+    setFloorLoading(true);
+    api
+      .get(`/public/reservations/${slug}/floor`, { params: { day, party, at: slot } })
+      .then((r) => {
+        if (alive) setFloor(Array.isArray(r?.data?.tables) ? r.data.tables : []);
+      })
+      .catch(() => {
+        if (alive) setFloor([]); // no map → graceful fall back to auto-assign
+      })
+      .finally(() => {
+        if (alive) setFloorLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [slug, page, day, party, slot, groupRequest]);
 
   // ── Derived ──────────────────────────────────────────────────────
   const maxParty = Number(page?.max_party_size) || 10;
@@ -327,11 +478,23 @@ export default function ReservationPublicPage() {
   // Period-grouped slots (Frokost / Eftermiddag / Aften), computed once per
   // availability response. Only non-empty groups survive.
   const slotGroups = useMemo(() => groupSlots(slots), [slots]);
+  // Provider recap pieces: the chosen behandling (name + duration) and the
+  // pinned behandler's name (empty = Valgfri behandler).
+  const chosenBehandling = useMemo(
+    () => behandlinger.find((b) => String(b.id) === String(behandlingId)) || null,
+    [behandlinger, behandlingId],
+  );
+  const chosenStylistName = stylistId ? providerNameById[String(stylistId)] || "" : "";
   const nameValid = guestName.trim().length >= 1 && guestName.trim().length <= 160;
   // A group request doesn't need a chosen slot (the visitor sends a
   // request for the day; the restaurant confirms a time). A normal
-  // booking requires a slot.
-  const canSubmit = nameValid && (groupRequest || !!slot) && !submitting;
+  // booking requires a slot. A provider (salon) tidsbestilling also needs a
+  // chosen behandling.
+  const canSubmit =
+    nameValid &&
+    (groupRequest || !!slot) &&
+    (!isProvider || !!behandlingId) &&
+    !submitting;
 
   const partyOptions = useMemo(() => {
     const list = [];
@@ -381,6 +544,18 @@ export default function ReservationPublicPage() {
       allergy_note: hasAllergy ? allergyNote.trim() || null : null,
       allergy_severity: hasAllergy ? allergySeverity : null,
       consent_marketing: !!consentMarketing,
+      // The table the guest tapped on the 2D floor map (a preference — the
+      // server honors it only if still free, else auto-assigns). Group
+      // requests never carry one. Provider venues never pick a table.
+      resource_id: isProvider ? null : groupRequest ? null : selectedTable || null,
+      // ── Salon tidsbestilling (S3b) ──────────────────────────────────
+      // The server resolves duration + service_name from behandling_id and
+      // books a PROVIDER. stylist_id pins a behandler and FAILS CLOSED (409)
+      // if taken — omitting it = Valgfri behandler (server auto-assigns a free
+      // behandler). party_size is ignored server-side for a salon booking.
+      ...(isProvider
+        ? { behandling_id: behandlingId || null, stylist_id: stylistId || null }
+        : {}),
     };
     try {
       const res = await api.post(`/public/reservations/${slug}`, payload, {
@@ -403,12 +578,14 @@ export default function ReservationPublicPage() {
       const status = err?.response?.status;
       const code = err?.response?.data?.detail?.error;
       if (status === 409 || status === 410) {
-        // slot_unavailable | party_too_large | not_accepting
+        // slot_unavailable | stylist_unavailable | party_too_large | not_accepting
         setSubmitError(code || "slot_unavailable");
-        // The slot is gone — refetch availability so the visitor sees a
-        // fresh set without manually changing the date.
-        if (code === "slot_unavailable") {
-          fetchAvailability(day, party);
+        // The slot (or the pinned behandler) is gone — refetch availability so
+        // the visitor sees a fresh set without manually changing the date, and
+        // bounce back to step 1. We NEVER silently rebook a different behandler.
+        if (code === "slot_unavailable" || code === "stylist_unavailable") {
+          if (isProvider) fetchAvailability(day, party, behandlingId, stylistId);
+          else fetchAvailability(day, party);
           setStep(1);
         }
       } else {
@@ -708,11 +885,29 @@ export default function ReservationPublicPage() {
                 value={slot}
               />
             )}
-            <SummaryRow
-              icon={<Users size={16} strokeWidth={1.75} />}
-              label={t("rsvpPartyLabel", "Antal gæster")}
-              value={String(party)}
-            />
+            {/* Provider (salon): behandling + behandler instead of party. */}
+            {isProvider ? (
+              <>
+                {chosenBehandling && (
+                  <SummaryRow
+                    icon={<Scissors size={16} strokeWidth={1.75} />}
+                    label={t("rsvpColBehandling", "Behandling")}
+                    value={chosenBehandling.name}
+                  />
+                )}
+                <SummaryRow
+                  icon={<Users size={16} strokeWidth={1.75} />}
+                  label={t("rsvpColBehandler", "Behandler")}
+                  value={chosenStylistName || t("rsvpBookValgfri", "Valgfri behandler")}
+                />
+              </>
+            ) : (
+              <SummaryRow
+                icon={<Users size={16} strokeWidth={1.75} />}
+                label={t("rsvpPartyLabel", "Antal gæster")}
+                value={String(party)}
+              />
+            )}
             <SummaryRow
               icon={<Info size={16} strokeWidth={1.75} />}
               label={t("rsvpGuestLabel", "Navn")}
@@ -816,7 +1011,7 @@ export default function ReservationPublicPage() {
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                {t("rsvpBookATable", "Book a table")}
+                {isProvider ? t("rsvpBookATime", "Book en tid") : t("rsvpBookATable", "Book a table")}
               </p>
               <h1 className="text-[26px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 leading-tight truncate">
                 {page.business_name}
@@ -857,9 +1052,85 @@ export default function ReservationPublicPage() {
 
         <StepDots step={step} t={t} />
 
-        {/* ── Step 1 — date + party + slot ──────────────────────────── */}
+        {/* ── Step 1 — (provider) behandling + behandler, then date + slot;
+              (table) date + party + slot ────────────────────────────── */}
         {step === 1 && (
           <section className="space-y-5">
+            {/* Provider (salon): behandling → behandler come FIRST. The chosen
+                behandling drives slot length (server-resolved); behandler
+                defaults to Valgfri behandler. */}
+            {isProvider && (
+              <>
+                <div>
+                  <label
+                    htmlFor="rsvp-behandling"
+                    className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                  >
+                    {t("rsvpPublicPickBehandling", "Vælg behandling")}
+                  </label>
+                  {behandlinger.length === 0 ? (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {t(
+                        "rsvpBehandlingNoneOnPage",
+                        "No behandlinger are bookable online right now.",
+                      )}
+                    </p>
+                  ) : (
+                    <select
+                      id="rsvp-behandling"
+                      value={behandlingId}
+                      onChange={(e) => setBehandlingId(e.target.value)}
+                      className="w-full h-12 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-base text-gray-900 dark:text-gray-100"
+                    >
+                      <option value="">{t("rsvpPublicPickBehandling", "Vælg behandling")}</option>
+                      {behandlinger.map((b) => {
+                        const mins = t("rsvpBehandlingMinutes", "{n} min", { n: b.duration_min });
+                        const price = b.price_kr != null ? ` · ${b.price_kr} kr.` : "";
+                        return (
+                          <option key={b.id} value={String(b.id)}>
+                            {b.name} · {mins}
+                            {price}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  )}
+                </div>
+                {/* Behandler — Valgfri behandler is the default. Named behandlere
+                    appear only when the page exposes a roster; otherwise Valgfri
+                    is the honest single option. */}
+                <div>
+                  <label
+                    htmlFor="rsvp-behandler"
+                    className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                  >
+                    {t("rsvpPublicPickBehandler", "Vælg behandler")}
+                  </label>
+                  {providers.length > 0 ? (
+                    <select
+                      id="rsvp-behandler"
+                      value={stylistId}
+                      onChange={(e) => setStylistId(e.target.value)}
+                      className="w-full h-12 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-base text-gray-900 dark:text-gray-100"
+                    >
+                      <option value="">{t("rsvpBookValgfri", "Valgfri behandler")}</option>
+                      {providers.map((p) => (
+                        <option key={p.id} value={String(p.id)}>
+                          {p.name || p.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-3 py-2.5 text-sm text-gray-600 dark:text-gray-300">
+                      {t("rsvpBookValgfri", "Valgfri behandler")} ·{" "}
+                      <span className="text-gray-500 dark:text-gray-400">
+                        {t("rsvpBookValgfriHint", "We'll match you with the first free behandler.")}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
             {/* Date */}
             <div>
               <label
@@ -880,31 +1151,34 @@ export default function ReservationPublicPage() {
               />
             </div>
 
-            {/* Party size */}
-            <div>
-              <p className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-                {t("rsvpPartySize", "Antal gæster")}
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {partyOptions.map((n) => (
-                  <Chip
-                    key={n}
-                    size="md"
-                    selected={party === n}
-                    onClick={() => setParty(n)}
-                    aria-label={t("rsvpPartyN", "{n} guests", { n })}
-                  >
-                    {n}
-                  </Chip>
-                ))}
+            {/* Party size — TABLE venues only. A salon tidsbestilling is one
+                customer; the behandling sets the length, not party size. */}
+            {!isProvider && (
+              <div>
+                <p className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  {t("rsvpPartySize", "Antal gæster")}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {partyOptions.map((n) => (
+                    <Chip
+                      key={n}
+                      size="md"
+                      selected={party === n}
+                      onClick={() => setParty(n)}
+                      aria-label={t("rsvpPartyN", "{n} guests", { n })}
+                    >
+                      {n}
+                    </Chip>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+                  {t(
+                    "rsvpPartyHint",
+                    "Større selskab? Vælg det højeste antal — vi sender en forespørgsel.",
+                  )}
+                </p>
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-                {t(
-                  "rsvpPartyHint",
-                  "Større selskab? Vælg det højeste antal — vi sender en forespørgsel.",
-                )}
-              </p>
-            </div>
+            )}
 
             {/* Time — for a normal booking we show the period-grouped slot
                 grid. For a group request the grid is REPLACED by a calm
@@ -940,7 +1214,12 @@ export default function ReservationPublicPage() {
                 <p className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   {t("rsvpPickTime", "Vælg tidspunkt")}
                 </p>
-                {slotsLoading ? (
+                {isProvider && !behandlingId ? (
+                  // Provider: no behandling chosen yet → don't imply "no times".
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {t("rsvpPublicPickBehandling", "Vælg behandling")}
+                  </p>
+                ) : slotsLoading ? (
                   <div className="grid grid-cols-4 gap-2">
                     {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
                       <div
@@ -1003,26 +1282,106 @@ export default function ReservationPublicPage() {
                 )}
               </div>
             )}
+            {/* ── Pick your table on the 2D floor (matches the owner room) ──
+                Honesty gate #1 (+ grandfather): TABLE venues (dining/bar) show the
+                floor; a provider (salon) never fetches one so floor stays empty and
+                this stays hidden; a no-floor (bakery/retail) venue with zero tables
+                likewise shows nothing. A venue that ALREADY has a real table plan
+                renders it because free tables actually came back (floor.length > 0).
+            */}
+            {(usesTableFloor(page.business_type) || floor.length > 0) && !groupRequest && slot && (floorLoading || floor.length > 0) && (
+              <div>
+                <p className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                  {t("rsvpFloorPickTitle", "Vælg dit bord")}
+                </p>
+                {floorLoading ? (
+                  <div className="animate-pulse h-44 rounded-xl bg-gray-100 dark:bg-gray-800" />
+                ) : floor.some((tb) => tb.status === "free") ? (
+                  <>
+                    <PublicFloorMap
+                      tables={floor}
+                      selectedId={selectedTable}
+                      onSelect={setSelectedTable}
+                      t={t}
+                      bookingMode={usesTableFloor(page.business_type) ? bookingModeFor(page.business_type) : "table"}
+                    />
+                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                      {selectedTable
+                        ? t("rsvpFloorPicked", "Fint valg — vi holder bordet til dig.")
+                        : t("rsvpFloorOptional", "Tryk på et ledigt bord — eller spring over, så finder vi det bedste ledige.")}
+                    </p>
+                  </>
+                ) : (
+                  <div className="rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 p-3 text-sm text-gray-600 dark:text-gray-300">
+                    {t("rsvpFloorAllTaken", "Bordene til {n} er fyldt på dette tidspunkt — vi sætter jer ved det bedste ledige bord.", { n: party })}
+                  </div>
+                )}
+              </div>
+            )}
           </section>
         )}
 
         {/* ── Step 2 — guest details ────────────────────────────────── */}
         {step === 2 && (
           <section className="space-y-5">
-            {/* Recap of the slot picked in step 1 */}
+            {/* Recap of the picks from step 1. Provider (salon): behandling +
+                behandler + duration + dato/tid (e.g. "Klip · Marta · 30 min ·
+                lørdag 13. juni 14:00", or "Valgfri behandler"). Table venues
+                keep the date · time · party · table line. */}
             <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-4 py-3 flex items-center gap-3 text-sm text-gray-700 dark:text-gray-300">
               <Calendar size={16} strokeWidth={1.75} className="text-gray-500 shrink-0" />
-              <span className="font-medium">{fmtDayLabel(day)}</span>
-              {!groupRequest && slot && (
+              {isProvider ? (
+                <span className="min-w-0">
+                  {chosenBehandling && (
+                    <span className="font-medium">{chosenBehandling.name}</span>
+                  )}
+                  <span aria-hidden="true"> · </span>
+                  <span className={chosenStylistName ? "font-medium" : ""}>
+                    {chosenStylistName || t("rsvpBookValgfri", "Valgfri behandler")}
+                  </span>
+                  {chosenBehandling && (
+                    <>
+                      <span aria-hidden="true"> · </span>
+                      <span>
+                        {t("rsvpBehandlingMinutes", "{n} min", {
+                          n: chosenBehandling.duration_min,
+                        })}
+                      </span>
+                    </>
+                  )}
+                  <span aria-hidden="true"> · </span>
+                  <span>{fmtDayLabel(day)}</span>
+                  {slot && (
+                    <>
+                      <span aria-hidden="true"> </span>
+                      <span>{slot}</span>
+                    </>
+                  )}
+                </span>
+              ) : (
                 <>
+                  <span className="font-medium">{fmtDayLabel(day)}</span>
+                  {!groupRequest && slot && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span>{slot}</span>
+                    </>
+                  )}
                   <span aria-hidden="true">·</span>
-                  <span>{slot}</span>
+                  <span>
+                    {t("rsvpPartyN", "{n} guests", { n: party })}
+                  </span>
+                  {!groupRequest && selectedTable && (() => {
+                    const tb = floor.find((x) => String(x.id) === String(selectedTable));
+                    return tb ? (
+                      <>
+                        <span aria-hidden="true">·</span>
+                        <span className="font-medium">{tb.label}</span>
+                      </>
+                    ) : null;
+                  })()}
                 </>
               )}
-              <span aria-hidden="true">·</span>
-              <span>
-                {t("rsvpPartyN", "{n} guests", { n: party })}
-              </span>
             </div>
 
             {/* Field discipline: NAME is the one first-class field (lg).
@@ -1316,7 +1675,9 @@ export default function ReservationPublicPage() {
             >
               {groupRequest
                 ? t("rsvpSendRequest", "Send forespørgsel →")
-                : t("rsvpConfirm", "Bekræft reservation →")}
+                : isProvider
+                  ? t("rsvpConfirmTime", "Bekræft tidsbestilling →")
+                  : t("rsvpConfirm", "Bekræft reservation →")}
             </Button>
           )}
         </div>
@@ -1413,6 +1774,12 @@ function submitErrorMessage(code, t) {
       return t(
         "rsvpErrSlot",
         "Beklager — tidspunktet blev lige optaget. Vælg venligst en anden tid.",
+      );
+    case "stylist_unavailable":
+      // Named-behandler race-loss — fail closed, never silently rebook.
+      return t(
+        "rsvpErrStylist",
+        "Den behandler blev lige booket på det tidspunkt. Vælg et andet tidspunkt, eller vælg Valgfri behandler.",
       );
     case "party_too_large":
       return t(

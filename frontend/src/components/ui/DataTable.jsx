@@ -77,6 +77,7 @@
 import React from "react";
 import Button from "./Button";
 import Card from "./Card";
+import { useLanguage } from "../../hooks/useLanguage";
 
 const ALIGN = {
   left: "text-left",
@@ -145,6 +146,7 @@ export default function DataTable({
   // Row-action buttons already stopPropagation, so they won't double-fire.
   onRowClick = null,
 }) {
+  const { t } = useLanguage();
   const tableHide = BREAKPOINT_TABLE_HIDE[mobileBreakpoint] || BREAKPOINT_TABLE_HIDE.md;
   const cardsHide = BREAKPOINT_CARDS_HIDE[mobileBreakpoint] || BREAKPOINT_CARDS_HIDE.md;
 
@@ -205,7 +207,7 @@ export default function DataTable({
                   type="checkbox"
                   checked={!!allChecked}
                   onChange={onToggleAll}
-                  aria-label="Select all rows"
+                  aria-label={t("dtSelectAllRows", "Select all rows")}
                   className="rounded border-gray-300 dark:border-gray-700 text-gray-900 focus:ring-gray-400"
                 />
               </th>
@@ -226,7 +228,7 @@ export default function DataTable({
             ))}
             {typeof rowActions === "function" && (
               <th className="px-3 py-2.5 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400 w-px whitespace-nowrap">
-                <span className="sr-only">Actions</span>
+                <span className="sr-only">{t("actions", "Actions")}</span>
               </th>
             )}
           </tr>
@@ -296,7 +298,7 @@ export default function DataTable({
                         onChange={() =>
                           onToggleSelect && onToggleSelect(key, row)
                         }
-                        aria-label={`Select row ${idx + 1}`}
+                        aria-label={t("dtSelectRow", "Select row {n}", { n: idx + 1 })}
                         className="rounded border-gray-300 dark:border-gray-700 text-gray-900 focus:ring-gray-400"
                       />
                     </td>
@@ -387,7 +389,7 @@ export default function DataTable({
                     onClick={(e) => e.stopPropagation()}
                   >
                     <label className="text-xs text-gray-500 dark:text-gray-400">
-                      Select
+                      {t("dtSelect", "Select")}
                     </label>
                     <input
                       type="checkbox"

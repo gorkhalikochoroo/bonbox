@@ -302,6 +302,7 @@ export function Locked({
   badgePlacement = "top-right",
 }) {
   const ent = useEntitlements();
+  const { t } = useLanguage();
   const [promptOpen, setPromptOpen] = useState(false);
 
   // Tier-flicker fix: while entitlements are still loading, ent.hasFeature()
@@ -367,7 +368,7 @@ export function Locked({
           type="button"
           onClick={() => setPromptOpen(true)}
           className="absolute inset-0 w-full h-full cursor-pointer"
-          aria-label="Upgrade required"
+          aria-label={t("entUpgradeRequiredAria", "Upgrade required")}
         />
         {/* Badge floats in the corner. Z-10 keeps it above the click
             overlay. */}

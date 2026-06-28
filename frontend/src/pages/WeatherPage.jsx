@@ -112,7 +112,7 @@ export default function WeatherPage({ embedded = false }) {
       if (alertsRes.status === "fulfilled") setAlerts(alertsRes.value.data.alerts || []);
       if (statusRes.status === "fulfilled") setIntelStatus(statusRes.value.data);
     } catch (e) {
-      setSyncResult({ error: "Sync failed" });
+      setSyncResult({ error: t("wxSyncFailed", "Sync failed") });
     }
     setSyncing(false);
   };
@@ -260,7 +260,7 @@ export default function WeatherPage({ embedded = false }) {
       {preds.length > 0 && prediction?.available && (
         <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 text-white shadow-sm">
           <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
-            <span>🔮</span> Revenue Predictions
+            <span>🔮</span> {t("wxRevenuePredictions", "Revenue Predictions")}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {preds.map((p, i) => {
@@ -289,7 +289,7 @@ export default function WeatherPage({ embedded = false }) {
                       p.confidence === "high" ? "bg-emerald-500/15" :
                       p.confidence === "medium" ? "bg-yellow-400/30" : "bg-gray-400/30"
                     }`}>
-                      {p.confidence === "high" ? "🎯" : p.confidence === "medium" ? "📊" : "🔄"} {p.confidence} confidence ({p.sample_days} days)
+                      {p.confidence === "high" ? "🎯" : p.confidence === "medium" ? "📊" : "🔄"} {p.confidence} {t("wxConfidence", "confidence")} ({p.sample_days} {t("wxDays", "days")})
                     </span>
                   </div>
                 </div>
@@ -304,20 +304,20 @@ export default function WeatherPage({ embedded = false }) {
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
-              <span>📊</span> Intelligence Progress
+              <span>📊</span> {t("wxIntelligenceProgress", "Intelligence Progress")}
             </h2>
             <button
               onClick={syncWeather}
               disabled={syncing}
               className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition disabled:opacity-50"
             >
-              {syncing ? "Syncing..." : "⚡ Sync Weather Data"}
+              {syncing ? t("wxSyncing", "Syncing...") : `⚡ ${t("wxSyncWeatherData", "Sync Weather Data")}`}
             </button>
           </div>
           <div className="mb-2">
             <div className="flex justify-between text-sm mb-1">
               <span className="text-gray-600 dark:text-gray-400">
-                {intelStatus.paired_days || 0} / 30 days paired
+                {intelStatus.paired_days || 0} / 30 {t("wxDaysPaired", "days paired")}
               </span>
               <span className="text-emerald-600 font-medium">{progressPct}%</span>
             </div>
@@ -329,11 +329,11 @@ export default function WeatherPage({ embedded = false }) {
             </div>
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            {intelStatus.sales_days || 0} sales days logged • {intelStatus.weather_days || 0} weather days stored
+            {intelStatus.sales_days || 0} {t("wxSalesDaysLogged", "sales days logged")} • {intelStatus.weather_days || 0} {t("wxWeatherDaysStored", "weather days stored")}
           </p>
           {syncResult && (
             <div className={`mt-3 p-3 rounded-lg text-sm ${syncResult.error ? "bg-red-50 dark:bg-red-900/20 text-red-600" : "bg-gray-50 dark:bg-gray-800/50 text-emerald-600"}`}>
-              {syncResult.error || `✅ Synced ${syncResult.synced} new days! (${syncResult.skipped} already existed)`}
+              {syncResult.error || `✅ ${t("wxSyncedNewDays", "Synced {synced} new days! ({skipped} already existed)").replace("{synced}", syncResult.synced).replace("{skipped}", syncResult.skipped)}`}
             </div>
           )}
         </div>
@@ -344,14 +344,14 @@ export default function WeatherPage({ embedded = false }) {
         <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3">
           <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
             <span>✅</span>
-            <span>Intelligence active — {intelStatus.paired_days} days of data</span>
+            <span>{t("wxIntelligenceActive", "Intelligence active")} — {intelStatus.paired_days} {t("wxDaysOfData", "days of data")}</span>
           </div>
           <button
             onClick={syncWeather}
             disabled={syncing}
             className="px-3 py-1.5 text-xs bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition disabled:opacity-50"
           >
-            {syncing ? "..." : "↻ Sync"}
+            {syncing ? "..." : `↻ ${t("wxSync", "Sync")}`}
           </button>
         </div>
       )}
@@ -421,19 +421,19 @@ export default function WeatherPage({ embedded = false }) {
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <div className="flex items-center gap-2 mb-1">
             <span className="text-lg">🧠</span>
-            <h2 className="font-bold text-gray-800 dark:text-white">Weather × Revenue Intelligence</h2>
+            <h2 className="font-bold text-gray-800 dark:text-white">{t("wxWeatherRevenueIntel", "Weather × Revenue Intelligence")}</h2>
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-            Based on {correlation.days_collected} days of weather + sales data
+            {t("wxBasedOn", "Based on")} {correlation.days_collected} {t("wxDaysWeatherSalesData", "days of weather + sales data")}
           </p>
 
           {/* Tab switcher */}
           <div className="mb-4">
             <TabPills
               tabs={[
-                { id: "conditions", label: "By Condition" },
-                { id: "temperature", label: "By Temperature" },
-                { id: "rain", label: "By Rainfall" },
+                { id: "conditions", label: t("wxByCondition", "By Condition") },
+                { id: "temperature", label: t("wxByTemperature", "By Temperature") },
+                { id: "rain", label: t("wxByRainfall", "By Rainfall") },
               ]}
               activeId={intelTab}
               onChange={setIntelTab}
@@ -465,7 +465,7 @@ export default function WeatherPage({ embedded = false }) {
                         </div>
                         <div className="flex items-center justify-between text-xs text-gray-400 mt-0.5">
                           <span>{t("avg")}: {Math.round(data.average_revenue)} {currency} / {t("day")}</span>
-                          <span>{data.sample_days} days • Best: {Math.round(data.best_day)} {currency}</span>
+                          <span>{data.sample_days} {t("wxDays", "days")} • {t("wxBest", "Best")}: {Math.round(data.best_day)} {currency}</span>
                         </div>
                       </div>
                     </div>
@@ -473,7 +473,7 @@ export default function WeatherPage({ embedded = false }) {
                 })}
               {correlation.overall_average > 0 && (
                 <p className="text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-100 dark:border-gray-700">
-                  Overall average: {Math.round(correlation.overall_average)} {currency} / day
+                  {t("overallAverage")}: {Math.round(correlation.overall_average)} {currency} / {t("day")}
                 </p>
               )}
             </div>
@@ -483,9 +483,9 @@ export default function WeatherPage({ embedded = false }) {
           {intelTab === "temperature" && correlation.temperature_analysis && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {[
-                { key: "cold_below_5", label: "Cold (<5°C)", icon: "🥶", bg: "bg-blue-50 dark:bg-blue-900/20" },
-                { key: "mild_5_to_20", label: "Mild (5-20°C)", icon: "😊", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
-                { key: "warm_20plus", label: "Warm (>20°C)", icon: "🔥", bg: "bg-red-50 dark:bg-red-900/20" },
+                { key: "cold_below_5", label: t("wxTempCold", "Cold (<5°C)"), icon: "🥶", bg: "bg-blue-50 dark:bg-blue-900/20" },
+                { key: "mild_5_to_20", label: t("wxTempMild", "Mild (5-20°C)"), icon: "😊", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
+                { key: "warm_20plus", label: t("wxTempWarm", "Warm (>20°C)"), icon: "🔥", bg: "bg-red-50 dark:bg-red-900/20" },
               ].map(({ key, label, icon, bg }) => {
                 const d = correlation.temperature_analysis[key];
                 if (!d) return null;
@@ -497,25 +497,25 @@ export default function WeatherPage({ embedded = false }) {
                     <p className="text-sm font-medium mt-2 text-gray-700 dark:text-gray-300">{label}</p>
                     <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{Math.round(d.avg_revenue)} {currency}</p>
                     <p className={`text-sm font-semibold mt-1 ${pct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                      {pct >= 0 ? "+" : ""}{pct}% vs avg
+                      {pct >= 0 ? "+" : ""}{pct}% {t("wxVsAvg", "vs avg")}
                     </p>
-                    <p className="text-xs text-gray-400 mt-1">{d.days} days analyzed</p>
+                    <p className="text-xs text-gray-400 mt-1">{d.days} {t("wxDaysAnalyzed", "days analyzed")}</p>
                   </div>
                 );
               })}
             </div>
           )}
           {intelTab === "temperature" && !correlation.temperature_analysis && (
-            <p className="text-sm text-gray-500 text-center py-4">Not enough temperature data yet</p>
+            <p className="text-sm text-gray-500 text-center py-4">{t("wxNotEnoughTempData", "Not enough temperature data yet")}</p>
           )}
 
           {/* By Rainfall */}
           {intelTab === "rain" && correlation.rain_analysis && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {[
-                { key: "dry", label: "Dry (<1mm)", icon: "☀️", bg: "bg-gray-50 dark:bg-gray-800/50" },
-                { key: "light_rain", label: "Light (1-5mm)", icon: "🌦️", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
-                { key: "heavy_rain", label: "Heavy (>5mm)", icon: "🌧️", bg: "bg-red-50 dark:bg-red-900/20" },
+                { key: "dry", label: t("wxRainDry", "Dry (<1mm)"), icon: "☀️", bg: "bg-gray-50 dark:bg-gray-800/50" },
+                { key: "light_rain", label: t("wxRainLight", "Light (1-5mm)"), icon: "🌦️", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
+                { key: "heavy_rain", label: t("wxRainHeavy", "Heavy (>5mm)"), icon: "🌧️", bg: "bg-red-50 dark:bg-red-900/20" },
               ].map(({ key, label, icon, bg }) => {
                 const d = correlation.rain_analysis[key];
                 if (!d) return null;
@@ -527,16 +527,16 @@ export default function WeatherPage({ embedded = false }) {
                     <p className="text-sm font-medium mt-2 text-gray-700 dark:text-gray-300">{label}</p>
                     <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{Math.round(d.avg_revenue)} {currency}</p>
                     <p className={`text-sm font-semibold mt-1 ${pct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                      {pct >= 0 ? "+" : ""}{pct}% vs avg
+                      {pct >= 0 ? "+" : ""}{pct}% {t("wxVsAvg", "vs avg")}
                     </p>
-                    <p className="text-xs text-gray-400 mt-1">{d.days} days analyzed</p>
+                    <p className="text-xs text-gray-400 mt-1">{d.days} {t("wxDaysAnalyzed", "days analyzed")}</p>
                   </div>
                 );
               })}
             </div>
           )}
           {intelTab === "rain" && !correlation.rain_analysis && (
-            <p className="text-sm text-gray-500 text-center py-4">Not enough rainfall data yet</p>
+            <p className="text-sm text-gray-500 text-center py-4">{t("wxNotEnoughRainData", "Not enough rainfall data yet")}</p>
           )}
         </div>
       )}

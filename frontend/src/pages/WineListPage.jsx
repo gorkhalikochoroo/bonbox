@@ -153,12 +153,12 @@ export default function WineListPage() {
             <ScanButton onResult={handleScanDone} />
             <button onClick={() => setShowAdd(true)}
               className="px-4 py-2 bg-purple-600 text-white rounded-xl text-sm font-semibold hover:bg-purple-700 transition">
-              + Add Manually
+              + {t("wineAddManually", "Add Manually")}
             </button>
             <button onClick={() => setShowQR(true)} disabled={!menuToken}
               className="px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition disabled:opacity-40"
               title={t("wineQrMenuTooltip")}>
-              📱 QR Menu
+              📱 {t("wineQrMenu", "QR Menu")}
             </button>
             <button onClick={handlePdfExport} disabled={wines.length === 0}
               className="px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition disabled:opacity-40">
@@ -230,11 +230,11 @@ export default function WineListPage() {
             <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
               <button onClick={selected.size === filtered.length ? selectNone : selectAll}
                 className="underline hover:text-gray-700 dark:hover:text-gray-200">
-                {selected.size === filtered.length ? "Deselect all" : `Select all ${filtered.length}`}
+                {selected.size === filtered.length ? t("wineDeselectAll", "Deselect all") : `${t("wineSelectAll", "Select all")} ${filtered.length}`}
               </button>
               {selected.size > 0 && (
                 <span className="text-purple-600 dark:text-purple-400 font-medium">
-                  {selected.size} selected — click PDF to export
+                  {selected.size} {t("wineSelectedClickPdf", "selected — click PDF to export")}
                 </span>
               )}
             </div>
@@ -247,10 +247,10 @@ export default function WineListPage() {
                 <>
                   <p className="text-4xl mb-3">🍷</p>
                   <p className="text-lg font-medium">{t("wineNoWinesYet")}</p>
-                  <p className="text-sm mt-1">Scan a bottle or add manually to start your catalog.</p>
+                  <p className="text-sm mt-1">{t("wineScanOrAddToStart", "Scan a bottle or add manually to start your catalog.")}</p>
                 </>
               ) : (
-                <p>No wines match your filter.</p>
+                <p>{t("wineNoMatchFilter", "No wines match your filter.")}</p>
               )}
             </div>
           ) : (
@@ -294,6 +294,7 @@ export default function WineListPage() {
    SCAN BUTTON — camera capture → AI label reading
    ═══════════════════════════════════════════════════════════ */
 function ScanButton({ onResult }) {
+  const { t } = useLanguage();
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
 
@@ -330,9 +331,9 @@ function ScanButton({ onResult }) {
       <button onClick={() => fileRef.current?.click()} disabled={scanning}
         className="px-4 py-2 bg-gray-50 dark:bg-gray-800/50 text-white rounded-xl text-sm font-semibold transition disabled:opacity-60 flex items-center gap-1.5">
         {scanning ? (
-          <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> Reading...</>
+          <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> {t("wineReading", "Reading...")}</>
         ) : (
-          <>📷 Scan Bottle</>
+          <>📷 {t("wineScanBottle", "Scan Bottle")}</>
         )}
       </button>
     </>
@@ -385,15 +386,15 @@ function WineCard({ wine: w, currency, isSelected, onToggle, onSell, onDelete })
         <div className="flex items-center gap-4 flex-shrink-0 text-right">
           <div>
             <p className={`text-sm font-bold ${marginColor}`}>{w.margin_pct}%</p>
-            <p className="text-[10px] text-gray-400">margin</p>
+            <p className="text-[10px] text-gray-400">{t("wineMarginLabel", "margin")}</p>
           </div>
           <div>
             <p className="text-sm font-bold dark:text-white">{w.sell_price.toLocaleString()} {currency}</p>
-            <p className="text-[10px] text-gray-400">{w.cost_price.toLocaleString()} cost</p>
+            <p className="text-[10px] text-gray-400">{w.cost_price.toLocaleString()} {t("wineCostLabel", "cost")}</p>
           </div>
           <div>
             <p className={`text-sm font-bold ${stockColor}`}>{w.stock_qty}</p>
-            <p className="text-[10px] text-gray-400">bottles</p>
+            <p className="text-[10px] text-gray-400">{t("wineBottlesLabel", "bottles")}</p>
           </div>
           <div className="flex gap-1">
             <button onClick={onSell} title={t("wineSell1Bottle")} disabled={w.stock_qty <= 0}
@@ -427,9 +428,9 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
 
   const TYPE_ORDER = ["sparkling", "white", "rosé", "orange", "red", "natural", "dessert"];
   const TYPE_LABELS = {
-    red: "Red Wines", white: "White Wines", "rosé": "Rosé Wines",
-    sparkling: "Sparkling & Champagne", natural: "Natural Wines",
-    dessert: "Dessert Wines", orange: "Orange Wines",
+    red: t("wineGroupRed", "Red Wines"), white: t("wineGroupWhite", "White Wines"), "rosé": t("wineGroupRose", "Rosé Wines"),
+    sparkling: t("wineGroupSparkling", "Sparkling & Champagne"), natural: t("wineGroupNatural", "Natural Wines"),
+    dessert: t("wineGroupDessert", "Dessert Wines"), orange: t("wineGroupOrange", "Orange Wines"),
   };
 
   const grouped = useMemo(() => {
@@ -529,7 +530,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
         <div>
           <p className="text-sm font-medium text-amber-800 dark:text-amber-300">{t("wineMenuEditor")}</p>
           <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-            Set display names for your printed menu, add glass pricing, then export a beautiful restaurant-style wine card PDF.
+            {t("wineMenuEditorDesc", "Set display names for your printed menu, add glass pricing, then export a beautiful restaurant-style wine card PDF.")}
           </p>
         </div>
       </div>
@@ -542,17 +543,17 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
             {dirtyCount > 0 && (
               <button onClick={handleSaveAll}
                 className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition">
-                Save {dirtyCount} Change{dirtyCount > 1 ? "s" : ""}
+                {t("wineSaveLabel", "Save")} {dirtyCount} {dirtyCount > 1 ? t("wineChangesPlural", "Changes") : t("wineChangeSingular", "Change")}
               </button>
             )}
             <button onClick={handlePdfExport} disabled={pdfLoading || wines.length === 0}
               className="px-5 py-2 bg-gray-50 dark:bg-gray-800/50 text-white rounded-xl text-sm font-bold transition disabled:opacity-50 flex items-center gap-1.5">
               {pdfLoading ? (
-                <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> Generating...</>
+                <><span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> {t("wineGenerating", "Generating...")}</>
               ) : pdfSuccess ? (
-                <>✅ Downloaded!</>
+                <>✅ {t("wineDownloaded", "Downloaded!")}</>
               ) : (
-                <>📄 Export Wine Card PDF</>
+                <>📄 {t("wineExportWineCardPdf", "Export Wine Card PDF")}</>
               )}
             </button>
           </div>
@@ -562,24 +563,24 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
           <div className="flex-1 min-w-[200px]">
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">{t("wineMenuTitle")}</label>
             <input type="text" value={menuTitle} onChange={e => setMenuTitle(e.target.value)}
-              placeholder="Your restaurant name (default)"
+              placeholder={t("wineRestaurantNamePlaceholder", "Your restaurant name (default)")}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm" />
           </div>
           <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
             <input type="checkbox" checked={showNotes} onChange={e => setShowNotes(e.target.checked)}
               className="rounded border-gray-300 text-purple-600 focus:ring-purple-500" />
-            Tasting Notes
+            {t("wineTastingNotesToggle", "Tasting Notes")}
           </label>
           <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 cursor-pointer">
             <input type="checkbox" checked={showPairing} onChange={e => setShowPairing(e.target.checked)}
               className="rounded border-gray-300 text-purple-600 focus:ring-purple-500" />
-            Food Pairing
+            {t("wineFoodPairingToggle", "Food Pairing")}
           </label>
         </div>
 
         {hasAnyGlass && (
           <p className="text-xs text-emerald-600 dark:text-gray-300 mt-2">
-            Glass pricing detected — PDF will show Glass / Bottle columns
+            {t("wineGlassPricingDetected", "Glass pricing detected — PDF will show Glass / Bottle columns")}
           </p>
         )}
       </div>
@@ -589,7 +590,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
         <div className="text-center py-16 text-gray-400">
           <p className="text-4xl mb-3">📜</p>
           <p className="text-lg font-medium">{t("wineNoWinesInCatalog")}</p>
-          <p className="text-sm mt-1">Add wines in the Catalog tab first.</p>
+          <p className="text-sm mt-1">{t("wineAddInCatalogFirst", "Add wines in the Catalog tab first.")}</p>
         </div>
       ) : (
         TYPE_ORDER.filter(t => grouped[t]).map(wtype => (
@@ -635,7 +636,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
                           </div>
                           <div>
                             <label className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold block mb-0.5">
-                              Bottle Price ({currency})
+                              {t("wineBottlePriceLabel", "Bottle Price")} ({currency})
                             </label>
                             <input type="number" step="0.01"
                               value={e.sell_price}
@@ -644,7 +645,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
                           </div>
                           <div>
                             <label className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold block mb-0.5">
-                              Glass Price ({currency})
+                              {t("wineGlassPriceLabel", "Glass Price")} ({currency})
                             </label>
                             <input type="number" step="0.01"
                               value={e.glass_price}
@@ -659,18 +660,18 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
                       <div className="flex flex-col items-end gap-2 flex-shrink-0">
                         {/* Mini preview */}
                         <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg px-3 py-2 text-right min-w-[140px]">
-                          <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">On menu shows as:</p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500 mb-0.5">{t("wineOnMenuShowsAs", "On menu shows as:")}</p>
                           <p className="text-sm font-serif font-bold text-gray-800 dark:text-gray-200 italic">
                             {displayName}
                           </p>
                           <div className="flex justify-end gap-3 mt-1">
                             {e.glass_price && parseFloat(e.glass_price) > 0 && (
                               <span className="text-xs text-gray-500">
-                                Glass: <span className="font-semibold">{parseFloat(e.glass_price).toLocaleString()}</span>
+                                {t("wineGlassColon", "Glass:")} <span className="font-semibold">{parseFloat(e.glass_price).toLocaleString()}</span>
                               </span>
                             )}
                             <span className="text-xs text-gray-500">
-                              Bottle: <span className="font-semibold">{parseFloat(e.sell_price || w.sell_price).toLocaleString()}</span>
+                              {t("wineBottleColon", "Bottle:")} <span className="font-semibold">{parseFloat(e.sell_price || w.sell_price).toLocaleString()}</span>
                             </span>
                           </div>
                         </div>
@@ -678,7 +679,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
                         {dirty && (
                           <button onClick={() => handleSave(w)} disabled={saving === w.id}
                             className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-700 transition disabled:opacity-50">
-                            {saving === w.id ? "Saving..." : "Save"}
+                            {saving === w.id ? t("wineSaving", "Saving...") : t("wineSaveLabel", "Save")}
                           </button>
                         )}
                       </div>
@@ -706,7 +707,7 @@ function StaffSheet({ wines, currency }) {
   return (
     <div className="space-y-4">
       <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-3 text-sm text-blue-700 dark:text-blue-300">
-        📋 Quick reference for your staff during service. Each card has what to say, food pairings, and key facts.
+        📋 {t("wineStaffSheetIntro", "Quick reference for your staff during service. Each card has what to say, food pairings, and key facts.")}
       </div>
 
       <div className="flex gap-1 flex-wrap">
@@ -722,7 +723,7 @@ function StaffSheet({ wines, currency }) {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="text-center text-gray-400 py-8">No wines to show.</p>
+        <p className="text-center text-gray-400 py-8">{t("wineNoWinesToShow", "No wines to show.")}</p>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {filtered.map(w => (
@@ -742,29 +743,29 @@ function StaffSheet({ wines, currency }) {
               {/* What to tell the customer */}
               {w.staff_description ? (
                 <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 mb-2">
-                  <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">💬 What to say:</p>
+                  <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1">💬 {t("wineWhatToSay", "What to say:")}</p>
                   <p className="text-sm text-gray-800 dark:text-gray-300 leading-relaxed">{w.staff_description}</p>
                 </div>
               ) : w.tasting_notes ? (
                 <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-3 mb-2">
-                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">🍷 Tasting notes:</p>
+                  <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-1">🍷 {t("wineTastingNotesColon", "Tasting notes:")}</p>
                   <p className="text-sm text-gray-700 dark:text-gray-300 italic">{w.tasting_notes}</p>
                 </div>
               ) : null}
 
               {w.food_pairing && (
                 <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3">
-                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">🍽️ Pairs with:</p>
+                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">🍽️ {t("winePairsWith", "Pairs with:")}</p>
                   <p className="text-sm text-amber-800 dark:text-amber-300">{w.food_pairing}</p>
                 </div>
               )}
 
               <div className="flex items-center justify-between mt-3 pt-2 border-t dark:border-gray-700">
                 <span className={`text-xs font-medium ${w.stock_qty <= w.reorder_level ? "text-red-500" : "text-gray-400"}`}>
-                  {w.stock_qty} bottles left
+                  {w.stock_qty} {t("wineBottlesLeft", "bottles left")}
                 </span>
                 <span className={`text-xs font-bold ${w.margin_pct >= 40 ? "text-emerald-600" : w.margin_pct >= 25 ? "text-yellow-600" : "text-red-600"}`}>
-                  {w.margin_pct}% margin
+                  {w.margin_pct}% {t("wineMarginSuffix", "margin")}
                 </span>
               </div>
             </div>
@@ -804,7 +805,7 @@ function SommelierTab({ currency }) {
       <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4 text-center">
         <p className="text-3xl mb-2">🤖🍷</p>
         <p className="text-sm text-purple-700 dark:text-purple-300 font-medium">
-          Ask like a customer would: "Something fruity and light under 400 DKK"
+          {t("wineSommelierIntro", "Ask like a customer would: \"Something fruity and light under 400 DKK\"")}
         </p>
       </div>
 
@@ -815,18 +816,18 @@ function SommelierTab({ currency }) {
           className="flex-1 px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-purple-500" />
         <button onClick={handleSearch} disabled={loading || !query.trim()}
           className="px-6 py-3 bg-purple-600 text-white rounded-xl text-sm font-bold hover:bg-purple-700 transition disabled:opacity-50">
-          {loading ? "Thinking..." : "Ask"}
+          {loading ? t("wineThinking", "Thinking...") : t("wineAsk", "Ask")}
         </button>
       </div>
 
       {/* Quick suggestions */}
       <div className="flex flex-wrap gap-2">
         {[
-          "Something fruity under 400",
-          "Best white for seafood",
-          "Bold red for steak night",
-          "Light and refreshing for summer",
-          "Natural wine recommendation",
+          t("wineSuggestFruity", "Something fruity under 400"),
+          t("wineSuggestWhiteSeafood", "Best white for seafood"),
+          t("wineSuggestBoldRed", "Bold red for steak night"),
+          t("wineSuggestLightSummer", "Light and refreshing for summer"),
+          t("wineSuggestNatural", "Natural wine recommendation"),
         ].map(q => (
           <button key={q} onClick={() => { setQuery(q); }}
             className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg text-xs hover:bg-gray-200 dark:hover:bg-gray-700 transition">
@@ -841,12 +842,12 @@ function SommelierTab({ currency }) {
           {results.length === 0 ? (
             <div className="text-center py-8 text-gray-400">
               <p className="text-2xl mb-2">🤔</p>
-              <p>No matching wines in stock. Try a different description.</p>
+              <p>{t("wineNoMatchingInStock", "No matching wines in stock. Try a different description.")}</p>
             </div>
           ) : (
             <>
               {isAI && (
-                <p className="text-xs text-purple-500 dark:text-purple-400 font-medium">✨ AI-powered recommendations</p>
+                <p className="text-xs text-purple-500 dark:text-purple-400 font-medium">✨ {t("wineAiPoweredRecs", "AI-powered recommendations")}</p>
               )}
               {results.map((w, i) => (
                 <div key={w.id} className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
@@ -861,7 +862,7 @@ function SommelierTab({ currency }) {
                         <span className="capitalize">{w.wine_type}</span>
                         {w.grape_variety && <span>· {w.grape_variety}</span>}
                         {w.region && <span>· {w.region}</span>}
-                        <span>· {w.stock_qty} in stock</span>
+                        <span>· {w.stock_qty} {t("wineInStock", "in stock")}</span>
                       </div>
                       {w.recommendation && (
                         <p className="mt-2 text-sm text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-900/20 rounded-lg px-3 py-2">
@@ -898,11 +899,11 @@ function QRModal({ token, onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
       onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm w-full max-w-sm p-6 text-center">
-        <h2 className="text-lg font-bold dark:text-white mb-1">📱 Customer Wine Menu</h2>
+        <h2 className="text-lg font-bold dark:text-white mb-1">📱 {t("wineCustomerWineMenu", "Customer Wine Menu")}</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t("winePrintQrTables")}</p>
 
         <div className="bg-white rounded-xl p-4 inline-block mb-4">
-          <img src={qrImageUrl} alt="QR Code" className="w-48 h-48 mx-auto" />
+          <img src={qrImageUrl} alt={t("wineQrCodeAlt", "QR Code")} className="w-48 h-48 mx-auto" />
         </div>
 
         <p className="text-xs text-gray-400 break-all mb-4">{menuUrl}</p>
@@ -910,11 +911,11 @@ function QRModal({ token, onClose }) {
         <div className="flex gap-2">
           <button onClick={() => { navigator.clipboard.writeText(menuUrl); }}
             className="flex-1 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-medium hover:bg-purple-700 transition">
-            📋 Copy Link
+            📋 {t("wineCopyLink", "Copy Link")}
           </button>
           <button onClick={() => { window.open(menuUrl, "_blank"); }}
             className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl text-sm font-medium hover:bg-gray-200 transition">
-            🔗 Open
+            🔗 {t("wineOpen", "Open")}
           </button>
         </div>
 
@@ -991,12 +992,12 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
         <div className="sticky top-0 bg-white dark:bg-gray-800 px-5 pt-5 pb-3 border-b dark:border-gray-700 z-10">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold dark:text-white">
-              {prefill ? "📷 Scanned Wine — confirm details" : "🍷 Add Wine"}
+              {prefill ? `📷 ${t("wineScannedConfirm", "Scanned Wine — confirm details")}` : `🍷 ${t("wineAddWine", "Add Wine")}`}
             </h2>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
           </div>
           {prefill && (
-            <p className="text-xs text-emerald-600 dark:text-gray-300 mt-1">✅ AI filled the details from your label photo. Just add pricing and confirm.</p>
+            <p className="text-xs text-emerald-600 dark:text-gray-300 mt-1">✅ {t("wineAiFilledNote", "AI filled the details from your label photo. Just add pricing and confirm.")}</p>
           )}
         </div>
 
@@ -1029,11 +1030,11 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
           </div>
 
           <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-3">PRICING & STOCK</p>
+            <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-3">{t("winePricingStock", "PRICING & STOCK")}</p>
             <div className="grid grid-cols-4 gap-3">
-              <div><label className={labelClass}>Cost ({currency})</label>
+              <div><label className={labelClass}>{t("wineCostLabelFull", "Cost")} ({currency})</label>
                 <input className={inputClass + " text-right"} type="number" step="0.01" value={form.cost_price} onChange={e => set("cost_price", e.target.value)} placeholder="120" /></div>
-              <div><label className={labelClass}>Sell ({currency})</label>
+              <div><label className={labelClass}>{t("wineSellLabel", "Sell")} ({currency})</label>
                 <input className={inputClass + " text-right"} type="number" step="0.01" value={form.sell_price} onChange={e => set("sell_price", e.target.value)} placeholder="350" /></div>
               <div><label className={labelClass}>{t("wineStockLabel")}</label>
                 <input className={inputClass + " text-right"} type="number" value={form.stock_qty} onChange={e => set("stock_qty", e.target.value)} placeholder="12" /></div>
@@ -1042,8 +1043,8 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
             </div>
             {margin > 0 && (
               <div className={`mt-3 text-center text-sm font-bold ${margin >= 40 ? "text-emerald-600" : margin >= 25 ? "text-yellow-600" : "text-red-600"}`}>
-                {margin}% margin
-                {margin < 30 && <span className="font-normal text-xs ml-2">— consider raising your price</span>}
+                {margin}% {t("wineMarginSuffix", "margin")}
+                {margin < 30 && <span className="font-normal text-xs ml-2">— {t("wineConsiderRaising", "consider raising your price")}</span>}
               </div>
             )}
           </div>
@@ -1063,7 +1064,7 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
             <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-300">{t("cancel")}</button>
             <button type="submit" disabled={saving || !form.name.trim()}
               className="flex-1 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-bold hover:bg-purple-700 transition disabled:opacity-50">
-              {saving ? "Adding..." : "🍷 Add Wine"}
+              {saving ? t("wineAdding", "Adding...") : `🍷 ${t("wineAddWine", "Add Wine")}`}
             </button>
           </div>
         </form>

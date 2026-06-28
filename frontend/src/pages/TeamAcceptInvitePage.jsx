@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import { useLanguage } from "../hooks/useLanguage";
 
 /**
  * Magic-link landing page for a TEAM MEMBER accepting an invite.
@@ -35,6 +36,7 @@ export default function TeamAcceptInvitePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { setUser } = useAuth() || {};
+  const { t } = useLanguage();
 
   const [resolving, setResolving] = useState(true);
   const [resolveError, setResolveError] = useState("");
@@ -57,13 +59,13 @@ export default function TeamAcceptInvitePage() {
     if (password.length >= 12) score += 1;
     if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score += 1;
     if (/\d/.test(password) || /[^A-Za-z0-9]/.test(password)) score += 1;
-    const labels = ["", "Weak", "Okay", "Strong", "Excellent"];
+    const labels = ["", t("taiPwWeak", "Weak"), t("taiPwOkay", "Okay"), t("taiPwStrong", "Strong"), t("taiPwExcellent", "Excellent")];
     return { score, label: labels[score] };
   })();
 
   useEffect(() => {
     if (!token || token.length < 32) {
-      setResolveError("This invitation link looks invalid. Ask the business owner to send a new one.");
+      setResolveError(t("taiErrInvalidLink", "This invitation link looks invalid. Ask the business owner to send a new one."));
       setResolving(false);
       return;
     }
@@ -79,9 +81,9 @@ export default function TeamAcceptInvitePage() {
         const status = err?.response?.status;
         const code = err?.response?.data?.detail?.code;
         if (status === 410 || code === "invite_expired") {
-          setResolveError("This invitation link has expired. Ask the business owner to send a new one.");
+          setResolveError(t("taiErrExpiredLink", "This invitation link has expired. Ask the business owner to send a new one."));
         } else {
-          setResolveError("This invitation could not be found. It may have been revoked or already used.");
+          setResolveError(t("taiErrNotFound", "This invitation could not be found. It may have been revoked or already used."));
         }
       })
       .finally(() => {
@@ -96,11 +98,11 @@ export default function TeamAcceptInvitePage() {
     e.preventDefault();
     setError("");
     if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+      setError(t("taiErrPwTooShort", "Password must be at least 8 characters."));
       return;
     }
     if (password !== confirmPassword) {
-      setError("Passwords don't match.");
+      setError(t("taiErrPwMismatch", "Passwords don't match."));
       return;
     }
     setSubmitting(true);
@@ -126,19 +128,19 @@ export default function TeamAcceptInvitePage() {
       const code = detail?.code;
       const msg = detail?.message || (typeof detail === "string" ? detail : null);
       if (err?.response?.status === 410 || code === "invite_expired") {
-        setError("This invitation has expired. Ask the business owner to send a new one.");
+        setError(t("taiErrExpired", "This invitation has expired. Ask the business owner to send a new one."));
       } else if (code === "already_accepted") {
-        setError("This invitation has already been used. Sign in with the password you chose.");
+        setError(t("taiErrAlreadyUsed", "This invitation has already been used. Sign in with the password you chose."));
       } else if (err?.response?.status === 404) {
-        setError("This invitation could not be found. It may have been revoked.");
+        setError(t("taiErrRevoked", "This invitation could not be found. It may have been revoked."));
       } else {
-        setError(msg || "Something went wrong. Try again or contact the business owner.");
+        setError(msg || t("taiErrGeneric", "Something went wrong. Try again or contact the business owner."));
       }
       setSubmitting(false);
     }
   };
 
-  const roleLabel = (invite?.role || linkRole || "team member").replace(/_/g, " ");
+  const roleLabel = (invite?.role || linkRole || t("taiDefaultRole", "team member")).replace(/_/g, " ");
   const ownerName = invite?.owner_business_name || "BonBox";
 
   return (
@@ -147,12 +149,12 @@ export default function TeamAcceptInvitePage() {
         {resolving ? (
           <div className="text-center py-8">
             <div className="inline-block w-6 h-6 border-2 border-gray-300 border-t-gray-700 rounded-full animate-spin" />
-            <p className="text-sm text-gray-500 mt-3">Looking up your invitation...</p>
+            <p className="text-sm text-gray-500 mt-3">{t("taiLookingUp", "Looking up your invitation...")}</p>
           </div>
         ) : resolveError ? (
           <>
             <h1 className="text-xl font-semibold text-gray-900 dark:text-white mb-3">
-              Invitation unavailable
+              {t("taiUnavailableTitle", "Invitation unavailable")}
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-300 mb-6 leading-relaxed">
               {resolveError}
@@ -161,19 +163,19 @@ export default function TeamAcceptInvitePage() {
               onClick={() => navigate("/login")}
               className="w-full bg-gray-900 text-white py-2.5 rounded-lg font-medium hover:bg-gray-700 transition"
             >
-              Back to sign in
+              {t("taiBackToSignIn", "Back to sign in")}
             </button>
           </>
         ) : (
           <>
             <h1 className="text-2xl font-semibold text-gray-900 dark:text-white mb-2">
-              Join {ownerName}
+              {t("taiJoin", "Join")} {ownerName}
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-300 mb-6 leading-relaxed">
-              You've been invited as a <span className="font-semibold capitalize">{roleLabel}</span>.
-              Choose a password to finish setting up your account.
+              {t("taiInvitedAs", "You've been invited as a")} <span className="font-semibold capitalize">{roleLabel}</span>.
+              {" "}{t("taiChoosePassword", "Choose a password to finish setting up your account.")}
               {invite?.email && (
-                <span className="block mt-1 text-xs text-gray-500">Account email: {invite.email}</span>
+                <span className="block mt-1 text-xs text-gray-500">{t("taiAccountEmail", "Account email:")} {invite.email}</span>
               )}
             </p>
 
@@ -186,7 +188,7 @@ export default function TeamAcceptInvitePage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  Your name (optional)
+                  {t("taiYourName", "Your name (optional)")}
                 </label>
                 <input
                   type="text"
@@ -200,13 +202,13 @@ export default function TeamAcceptInvitePage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  Password
+                  {t("password", "Password")}
                 </label>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 8 characters"
+                  placeholder={t("taiPwPlaceholder", "At least 8 characters")}
                   minLength={8}
                   maxLength={200}
                   className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:border-gray-300"
@@ -233,13 +235,13 @@ export default function TeamAcceptInvitePage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
-                  Confirm password
+                  {t("taiConfirmPassword", "Confirm password")}
                 </label>
                 <input
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Type the same password again"
+                  placeholder={t("taiConfirmPwPlaceholder", "Type the same password again")}
                   minLength={8}
                   maxLength={200}
                   className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:border-gray-300"
@@ -253,12 +255,12 @@ export default function TeamAcceptInvitePage() {
                 disabled={submitting || password.length < 8 || password !== confirmPassword}
                 className="w-full bg-gray-900 text-white py-2.5 rounded-lg font-medium hover:bg-gray-700 disabled:opacity-60 transition"
               >
-                {submitting ? "Setting up your account..." : "Accept invitation"}
+                {submitting ? t("taiSettingUp", "Setting up your account...") : t("taiAcceptInvitation", "Accept invitation")}
               </button>
             </form>
 
             <p className="text-xs text-gray-500 dark:text-gray-400 text-center mt-5 leading-relaxed">
-              By accepting, you agree to BonBox's Terms. The business owner can revoke your access at any time.
+              {t("taiTermsNotice", "By accepting, you agree to BonBox's Terms. The business owner can revoke your access at any time.")}
             </p>
           </>
         )}

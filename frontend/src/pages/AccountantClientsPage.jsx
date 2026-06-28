@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import { useLanguage } from "../hooks/useLanguage";
 
 /**
  * Client picker for accountant sessions.
@@ -22,6 +23,7 @@ import { useAuth } from "../hooks/useAuth";
  */
 export default function AccountantClientsPage() {
   const { user, logout } = useAuth() || {};
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const [clients, setClients] = useState(null);
   const [error, setError] = useState("");
@@ -68,17 +70,18 @@ export default function AccountantClientsPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">
-              Choose a client
+              {t("aclChooseClient", "Choose a client")}
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-              Signed in as <strong>{user?.email}</strong> · read-only access
+              {t("aclSignedInAs", "Signed in as")}{" "}
+              <strong>{user?.email}</strong> · {t("aclReadOnlyAccess", "read-only access")}
             </p>
           </div>
           <button
             onClick={() => logout?.()}
             className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
           >
-            Sign out
+            {t("aclSignOut", "Sign out")}
           </button>
         </div>
 
@@ -90,16 +93,18 @@ export default function AccountantClientsPage() {
 
         {clients === null && (
           <div className="text-center text-gray-500 dark:text-gray-400 py-12">
-            Loading your clients…
+            {t("aclLoadingClients", "Loading your clients…")}
           </div>
         )}
 
         {clients && clients.length === 0 && (
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-8 text-center">
-            <p className="text-gray-700 dark:text-gray-200 mb-2">No active client grants.</p>
+            <p className="text-gray-700 dark:text-gray-200 mb-2">{t("aclNoGrants", "No active client grants.")}</p>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Ask one of your client businesses to invite you from their BonBox
-              Profile → Revisor access.
+              {t(
+                "aclNoGrantsHelp",
+                "Ask one of your client businesses to invite you from their BonBox Profile → Revisor access."
+              )}
             </p>
           </div>
         )}
@@ -119,12 +124,12 @@ export default function AccountantClientsPage() {
                 <div className="text-xs text-gray-500 dark:text-gray-400">
                   {c.currency || "DKK"} ·{" "}
                   {c.last_visited_at
-                    ? `Last opened ${new Date(c.last_visited_at).toLocaleDateString()}`
-                    : "Never opened"}
+                    ? `${t("aclLastOpened", "Last opened")} ${new Date(c.last_visited_at).toLocaleDateString()}`
+                    : t("aclNeverOpened", "Never opened")}
                 </div>
                 {switching === c.owner_user_id && (
                   <div className="text-xs text-gray-700 dark:text-gray-300 mt-2">
-                    Opening…
+                    {t("aclOpening", "Opening…")}
                   </div>
                 )}
               </button>
