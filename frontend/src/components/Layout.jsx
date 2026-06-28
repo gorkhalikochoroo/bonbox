@@ -837,16 +837,21 @@ export default function Layout() {
             <span className="w-5 flex items-center justify-center"><Icon name={dark ? "Sun" : "Moon"} size={16} /></span>
             {dark ? t("lightMode") : t("darkMode")}
           </button>
-          {/* Theme picker lives on Profile / More page now — sidebar kept lean */}
-          <div className="px-1 py-1">
+          {/* Language — same footer-row treatment as Profile / Dark mode:
+              a Lucide Globe + the short code (EN / DK), no flag emoji, no
+              bordered box. Keeps the footer one consistent icon+text set so
+              the dark-mode glyph sits flush with its neighbours. */}
+          <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
+            <span className="w-5 flex items-center justify-center"><Icon name="Globe" size={16} /></span>
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value)}
-              className="w-full px-3 py-1.5 rounded-lg text-xs bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-600 outline-none cursor-pointer"
+              aria-label="Language"
+              className="flex-1 bg-transparent text-sm font-medium outline-none cursor-pointer"
             >
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>
-                  {l.flag} {l.label}
+                  {l.short}
                 </option>
               ))}
             </select>
