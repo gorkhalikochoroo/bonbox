@@ -14,19 +14,160 @@
 // runs against DashboardPage in parallel) will delete the originals
 // from DashboardPage.jsx; replicating them locally avoids a circular
 // dependency between the two pages and keeps both refactors atomic.
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { getVatTerms } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatKr } from "../utils/currency";
 import { formatDate, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, Button, StatCard, SectionBanner, TabPills, Icon } from "../components/ui";
 import Card from "../components/ui/Card";
 
 const currentDate = new Date();
+
+// ───────────────────────────────────────────────────────────────────────────
+// Danish-standard tax/MOMS period presets (Pulse tax bundle)
+// ───────────────────────────────────────────────────────────────────────────
+// DK SMBs file MOMS half-yearly by default (SKAT), quarterly or monthly as
+// turnover rises. The preset control mirrors those calendar boundaries so the
+// owner picks a real filing period in one tap rather than fiddling four
+// selects. period_start/period_end are computed here as plain Y-M-D and sent
+// to /reports/overview, which recomputes MOMS over [start,end] via the SAME
+// filing engine (compute_filing_data) — so the on-screen number always equals
+// the MOMS-angivelse for that period (honesty invariant).
+//
+// "9 months" = Jan 1 → Sep 30 (the first three quarters of the year). DK has
+// no statutory 9-month MOMS period; this preset exists as a convenience window
+// for owners reconciling the first three quarters together. It navigates by
+// year.
+
+const PERIOD_TYPES = ["monthly", "quarterly", "halfYearly", "nineMonth", "custom"];
+
+const pad2 = (n) => String(n).padStart(2, "0");
+const isoOf = (y, m, d) => `${y}-${pad2(m)}-${pad2(d)}`;
+const lastDayOfMonth = (y, m) => new Date(y, m, 0).getDate(); // m is 1-based
+
+// Lowercase Danish month abbreviations (da-DK), used in period labels like
+// "juni 2026" and "jan.–sep. 2026". Index 0 = January.
+const DA_MONTH_ABBR = [
+  "jan.", "feb.", "mar.", "apr.", "maj", "jun.",
+  "jul.", "aug.", "sep.", "okt.", "nov.", "dec.",
+];
+const DA_MONTH_FULL = [
+  "januar", "februar", "marts", "april", "maj", "juni",
+  "juli", "august", "september", "oktober", "november", "december",
+];
+
+// Map the user's saved filing frequency to a default preset type. DK SMB
+// fallback is half-yearly (the SKAT default). "bimonthly" has no dedicated
+// preset, so it lands on monthly (the finest-grained safe default).
+function defaultPeriodTypeFor(frequency, currency) {
+  // Non-DK currencies fall back to Monthly so nothing about the DK calendar
+  // presets surprises a non-DK owner (the engine still works for any range).
+  if (currency && currency !== "DKK") return "monthly";
+  switch (frequency) {
+    case "monthly": return "monthly";
+    case "quarterly": return "quarterly";
+    case "half_yearly": return "halfYearly";
+    default: return "halfYearly"; // DK SMB default
+  }
+}
+
+// Anchor = a reference point inside the period: { year, month } where month is
+// 1-based. For yearly-navigated presets (nineMonth) only year matters.
+// Returns { start, end, anchor } with start/end as ISO yyyy-mm-dd strings and a
+// normalized anchor snapped to the period's first month.
+function resolvePeriod(type, anchor) {
+  const y = anchor.year;
+  const m = anchor.month; // 1-based
+  switch (type) {
+    case "monthly":
+      return {
+        start: isoOf(y, m, 1),
+        end: isoOf(y, m, lastDayOfMonth(y, m)),
+        anchor: { year: y, month: m },
+      };
+    case "quarterly": {
+      const q = Math.floor((m - 1) / 3); // 0..3
+      const startM = q * 3 + 1;
+      const endM = startM + 2;
+      return {
+        start: isoOf(y, startM, 1),
+        end: isoOf(y, endM, lastDayOfMonth(y, endM)),
+        anchor: { year: y, month: startM },
+      };
+    }
+    case "halfYearly": {
+      const h = m <= 6 ? 0 : 1;
+      const startM = h === 0 ? 1 : 7;
+      const endM = h === 0 ? 6 : 12;
+      return {
+        start: isoOf(y, startM, 1),
+        end: isoOf(y, endM, lastDayOfMonth(y, endM)),
+        anchor: { year: y, month: startM },
+      };
+    }
+    case "nineMonth":
+      // First three quarters: Jan 1 → Sep 30. Navigated by year.
+      return {
+        start: isoOf(y, 1, 1),
+        end: isoOf(y, 9, 30),
+        anchor: { year: y, month: 1 },
+      };
+    default:
+      return null; // custom handled separately
+  }
+}
+
+// Step the anchor forward/back by one unit of the chosen period type.
+function stepAnchor(type, anchor, dir) {
+  const y = anchor.year;
+  const m = anchor.month;
+  switch (type) {
+    case "monthly": {
+      const next = new Date(y, m - 1 + dir, 1);
+      return { year: next.getFullYear(), month: next.getMonth() + 1 };
+    }
+    case "quarterly": {
+      const next = new Date(y, m - 1 + dir * 3, 1);
+      return { year: next.getFullYear(), month: next.getMonth() + 1 };
+    }
+    case "halfYearly": {
+      const next = new Date(y, m - 1 + dir * 6, 1);
+      return { year: next.getFullYear(), month: next.getMonth() + 1 };
+    }
+    case "nineMonth":
+      return { year: y + dir, month: 1 };
+    default:
+      return anchor;
+  }
+}
+
+// Premium da-DK period label: "juni 2026" · "2. kvartal 2026" · "1. halvår
+// 2026" · "jan.–sep. 2026". Danish ordinals (1./2.) for quarter & half.
+function periodLabel(type, anchor) {
+  const y = anchor.year;
+  const m = anchor.month; // 1-based, already snapped to period start
+  switch (type) {
+    case "monthly":
+      return `${DA_MONTH_FULL[m - 1]} ${y}`;
+    case "quarterly": {
+      const q = Math.floor((m - 1) / 3) + 1; // 1..4
+      return `${q}. kvartal ${y}`;
+    }
+    case "halfYearly": {
+      const h = m <= 6 ? 1 : 2;
+      return `${h}. halvår ${y}`;
+    }
+    case "nineMonth":
+      return `${DA_MONTH_ABBR[0]}–${DA_MONTH_ABBR[8]} ${y}`; // jan.–sep.
+    default:
+      return "";
+  }
+}
 
 const SECTION_DEFS = [
   { key: "sales_breakdown", labelKey: "salesBreakdown", descKey: "salesBreakdownDesc", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
@@ -58,8 +199,46 @@ export default function ReportsPage() {
   const [activeTab, setActiveTab] = useState(getInitialTab);
   const [pulseSubTab, setPulseSubTab] = useState("daily");
   const months = [t("january"),t("february"),t("march"),t("april"),t("may"),t("june"),t("july"),t("august"),t("september"),t("october"),t("november"),t("december")];
-  const [month, setMonth] = useState(currentDate.getMonth() + 1);
-  const [year, setYear] = useState(currentDate.getFullYear());
+
+  // ── Danish period preset state (Pulse tax bundle) ──────────────────────────
+  // periodType: one of PERIOD_TYPES. Defaulted from the user's saved filing
+  // frequency (DK SMB fallback = half-yearly; non-DKK currency = monthly).
+  // anchor: { year, month } reference point that the prev/next stepper moves;
+  // resolvePeriod() snaps it to the real calendar boundary for the type.
+  const [periodType, setPeriodType] = useState(() =>
+    defaultPeriodTypeFor(user?.tax_filing_frequency, user?.currency),
+  );
+  const [anchor, setAnchor] = useState({
+    year: currentDate.getFullYear(),
+    month: currentDate.getMonth() + 1,
+  });
+  // Custom range — draft inputs + the applied range that actually drives fetch.
+  const [customStart, setCustomStart] = useState(
+    isoOf(currentDate.getFullYear(), currentDate.getMonth() + 1, 1),
+  );
+  const [customEnd, setCustomEnd] = useState(localIso());
+  const [appliedCustom, setAppliedCustom] = useState(null); // { start, end }
+  const [periodError, setPeriodError] = useState(null);
+
+  // Re-default the period type once auth resolves (user may be null on first
+  // render). Only snaps before the user has interacted — a manual change sets
+  // the ref so we never clobber an owner's explicit pick.
+  const [periodTouched, setPeriodTouched] = useState(false);
+  useEffect(() => {
+    if (periodTouched || !user) return;
+    setPeriodType(defaultPeriodTypeFor(user.tax_filing_frequency, user.currency));
+  }, [user, periodTouched]);
+
+  // Resolve the active period to ISO start/end. Custom uses the applied range
+  // (falling back to the draft so the first paint has a valid window).
+  const resolved = useMemo(() => {
+    if (periodType === "custom") {
+      const r = appliedCustom || { start: customStart, end: customEnd };
+      return { start: r.start, end: r.end, anchor };
+    }
+    return resolvePeriod(periodType, anchor);
+  }, [periodType, anchor, appliedCustom, customStart, customEnd]);
+
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -76,19 +255,24 @@ export default function ReportsPage() {
   const [batchError, setBatchError] = useState(null);
   const needsBatch = activeTab !== "pulse" && activeTab !== "budget";
 
-  const yearOptions = [];
-  for (let y = currentDate.getFullYear(); y >= currentDate.getFullYear() - 5; y--) yearOptions.push(y);
-
+  // Period-preset fetch — drives the Pulse tax-bundle cards off the resolved
+  // [start,end] window. The backend recomputes MOMS over that exact range via
+  // the filing engine, so the on-screen MOMS equals the angivelse for the
+  // period. We always send period_start/period_end (Monthly included) so a
+  // single code path covers every preset.
   const fetchOverview = () => {
+    if (!resolved?.start || !resolved?.end) return;
     setLoading(true);
     setError(null);
-    api.get("/reports/overview", { params: { month, year } })
+    api.get("/reports/overview", {
+      params: { period_start: resolved.start, period_end: resolved.end },
+    })
       .then(res => setOverview(res.data))
       .catch(() => setError(t("failedToLoadOverview")))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchOverview(); }, [month, year]);
+  useEffect(() => { fetchOverview(); }, [resolved?.start, resolved?.end]);
 
   // Lazy hydrate batch data the first time a non-Pulse tab is opened.
   // The Phase B Dashboard refactor will keep /dashboard/batch as the
@@ -130,18 +314,27 @@ export default function ReportsPage() {
   const selectAll = () => setSelected(new Set(SECTION_DEFS.map(s => s.key)));
   const selectNone = () => setSelected(new Set());
 
+  // The custom-pdf endpoint is still month/year-scoped (out of scope for the
+  // period-preset work). Derive a representative month/year from the resolved
+  // period's start month so the existing PDF download keeps working from any
+  // preset — the PDF covers that month. (A full period-aware PDF is a separate
+  // follow-up that touches tax_filing_pdf.py.)
+  const pdfStart = resolved?.start ? new Date(resolved.start + "T00:00:00") : currentDate;
+  const pdfMonth = pdfStart.getMonth() + 1;
+  const pdfYear = pdfStart.getFullYear();
+
   const downloadPdf = async () => {
     setDownloading(true);
     setError(null);
     try {
       const res = await api.post("/reports/custom-pdf",
-        { year, month, sections: [...selected] },
+        { year: pdfYear, month: pdfMonth, sections: [...selected] },
         { responseType: "blob" }
       );
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a");
       a.href = url;
-      a.download = `BonBox_Report_${months[month-1]}_${year}.pdf`;
+      a.download = `BonBox_Report_${months[pdfMonth-1]}_${pdfYear}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch {
@@ -152,8 +345,72 @@ export default function ReportsPage() {
     }
   };
 
-  const fmt = (v) => v != null ? Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—";
+  // ── Period control handlers ────────────────────────────────────────────────
+  const isDk = (user?.currency || "DKK") === "DKK";
+
+  const changePeriodType = (nextType) => {
+    setPeriodTouched(true);
+    setPeriodError(null);
+    // Re-snap the anchor into the new type's boundary so the label reads true
+    // immediately (e.g. switching Monthly→Kvartal lands on the quarter that
+    // contains the current anchor month).
+    if (nextType !== "custom") {
+      const r = resolvePeriod(nextType, anchor);
+      if (r) setAnchor(r.anchor);
+    }
+    setPeriodType(nextType);
+  };
+
+  const stepPeriod = (dir) => {
+    setPeriodTouched(true);
+    setAnchor((a) => stepAnchor(periodType, a, dir));
+  };
+
+  const applyCustom = () => {
+    setPeriodError(null);
+    const s = new Date(customStart + "T00:00:00");
+    const e = new Date(customEnd + "T00:00:00");
+    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) {
+      setPeriodError(t("periodInvalidDates"));
+      return;
+    }
+    if (e < s) {
+      setPeriodError(t("periodEndBeforeStart"));
+      return;
+    }
+    const spanDays = Math.round((e - s) / 86400000);
+    if (spanDays > 366) {
+      setPeriodError(t("periodRangeTooLong"));
+      return;
+    }
+    setPeriodTouched(true);
+    setAppliedCustom({ start: customStart, end: customEnd });
+  };
+
+  // Human label for the active period. Presets use da-DK ordinals/abbr; Custom
+  // shows the applied dd.mm.yyyy range via formatDate.
+  const periodHuman =
+    periodType === "custom"
+      ? (resolved?.start && resolved?.end
+          ? `${formatDate(resolved.start)} – ${formatDate(resolved.end)}`
+          : t("periodCustom"))
+      : periodLabel(periodType, anchor);
+
+  const periodTypeTabs = [
+    { id: "monthly", label: t("periodMonthly") },
+    { id: "quarterly", label: t("periodQuarterly") },
+    { id: "halfYearly", label: t("periodHalfYearly") },
+    { id: "nineMonth", label: t("periodNineMonth") },
+    { id: "custom", label: t("periodCustom") },
+  ];
+
+  // Money on this surface renders via formatKr (da-DK "kr.") for DK owners;
+  // non-DK currencies keep the plain grouped number + currency code so a
+  // non-DK owner never sees a mismatched "kr." suffix.
   const cur = user?.currency?.startsWith("EUR_") ? "EUR" : (user?.currency || "DKK");
+  const fmt = (v) => v != null ? Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—";
+  const money = (v) =>
+    isDk ? formatKr(v, { decimals: 0 }) : `${fmt(v)} ${cur}`;
 
   const sections = SECTION_DEFS.map(s => ({
     ...s,
@@ -227,19 +484,93 @@ export default function ReportsPage() {
                 eyebrow="REPORTS"
                 title={t("reportBuilder")}
                 subtitle={t("buildCustomReport")}
-                actions={
-                  <>
-                    <select value={month} onChange={e => setMonth(Number(e.target.value))}
-                      className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
-                      {months.map((name, i) => <option key={i+1} value={i+1}>{name}</option>)}
-                    </select>
-                    <select value={year} onChange={e => setYear(Number(e.target.value))}
-                      className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900">
-                      {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
-                    </select>
-                  </>
-                }
               />
+
+              {/* ── Danish-standard period preset control ──────────────────
+                  Type pills (Månedlig / Kvartal / Halvår / 9 måneder /
+                  Brugerdefineret) + a one-tap prev/next stepper that moves by
+                  the chosen unit. Custom swaps the stepper for two date inputs
+                  + Anvend. The resolved [start,end] drives the cards and the
+                  MOMS number (recomputed server-side via the filing engine). */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-3 sm:p-4 space-y-3">
+                <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("periodType")}>
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400 mr-1">{t("periodType")}</span>
+                  {periodTypeTabs.map((pt) => {
+                    const on = periodType === pt.id;
+                    return (
+                      <button
+                        key={pt.id}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => changePeriodType(pt.id)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                          on
+                            ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600"
+                        }`}
+                      >
+                        {pt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {periodType !== "custom" ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={() => stepPeriod(-1)}
+                      aria-label={t("periodPrev")}
+                      className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    >
+                      <Icon name="ChevronLeft" size={18} />
+                    </button>
+                    <div className="flex-1 text-center">
+                      <span className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                        {periodHuman}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => stepPeriod(1)}
+                      aria-label={t("periodNext")}
+                      className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                    >
+                      <Icon name="ChevronRight" size={18} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+                    <label className="flex flex-col gap-1 text-xs text-gray-500 dark:text-gray-400">
+                      {t("periodStart")}
+                      <input
+                        type="date"
+                        value={customStart}
+                        max={customEnd || undefined}
+                        onChange={(e) => setCustomStart(e.target.value)}
+                        className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs text-gray-500 dark:text-gray-400">
+                      {t("periodEnd")}
+                      <input
+                        type="date"
+                        value={customEnd}
+                        min={customStart || undefined}
+                        onChange={(e) => setCustomEnd(e.target.value)}
+                        className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      />
+                    </label>
+                    <Button variant="secondary" size="md" onClick={applyCustom}>
+                      {t("periodApply")}
+                    </Button>
+                  </div>
+                )}
+
+                {periodError && (
+                  <p className="text-xs text-red-600 dark:text-red-400">{periodError}</p>
+                )}
+              </div>
 
               {error && (
                 <SectionBanner severity="critical" title={error} />
@@ -257,16 +588,16 @@ export default function ReportsPage() {
                 </div>
               ) : overview && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <StatCard label={t("revenue")} value={fmt(overview.revenue)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
-                  <StatCard label={t("expenses")} value={fmt(overview.expenses)} helper={`${fmt(overview.total_expense_count)} ${t("entries")}`} />
-                  <StatCard label={t("netProfit")} value={fmt(overview.net_profit)} helper={overview.revenue > 0 ? `${Math.round((overview.net_profit/overview.revenue)*100)}% ${t("margin")}` : "—"} accent={overview.net_profit < 0 ? "critical" : "neutral"} />
-                  <StatCard label={`${vat.vatName} ${t("payable")}`} value={fmt(overview.vat_payable)} helper={`${t("to")} ${vat.taxAuthority}`} />
-                  <StatCard label={t("stockValue")} value={fmt(overview.inventory_value)} helper={`${overview.low_stock_count} ${t("lowStock")}`} accent={overview.low_stock_count > 0 ? "warn" : "neutral"} />
-                  <StatCard label={t("khataOutstanding")} value={fmt(overview.khata_outstanding)} helper={t("creditOwed")} />
-                  <StatCard label={t("cashIn")} value={fmt(overview.cash_in)} />
-                  <StatCard label={t("cashOut")} value={fmt(overview.cash_out)} />
-                  <StatCard label={t("avgPerSale") || "Avg/Sale"} value={fmt(overview.avg_per_sale)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
-                  <StatCard label={t("avgDailySales") || "Avg/Day"} value={fmt(overview.avg_daily_sales)} helper={`${overview.days_with_sales || 0} ${t("days") || "days"}`} />
+                  <StatCard label={t("revenue")} value={money(overview.revenue)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
+                  <StatCard label={t("expenses")} value={money(overview.expenses)} helper={`${fmt(overview.total_expense_count)} ${t("entries")}`} />
+                  <StatCard label={t("netProfit")} value={money(overview.net_profit)} helper={overview.revenue > 0 ? `${Math.round((overview.net_profit/overview.revenue)*100)}% ${t("margin")}` : "—"} accent={overview.net_profit < 0 ? "critical" : "neutral"} />
+                  <StatCard label={`${vat.vatName} ${t("payable")}`} value={money(overview.vat_payable)} helper={`${t("to")} ${vat.taxAuthority}`} />
+                  <StatCard label={t("stockValue")} value={money(overview.inventory_value)} helper={`${overview.low_stock_count} ${t("lowStock")}`} accent={overview.low_stock_count > 0 ? "warn" : "neutral"} />
+                  <StatCard label={t("khataOutstanding")} value={money(overview.khata_outstanding)} helper={t("creditOwed")} />
+                  <StatCard label={t("cashIn")} value={money(overview.cash_in)} />
+                  <StatCard label={t("cashOut")} value={money(overview.cash_out)} />
+                  <StatCard label={t("avgPerSale") || "Avg/Sale"} value={money(overview.avg_per_sale)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
+                  <StatCard label={t("avgDailySales") || "Avg/Day"} value={money(overview.avg_daily_sales)} helper={`${overview.days_with_sales || 0} ${t("days") || "days"}`} />
                 </div>
               )}
 
@@ -329,7 +660,7 @@ export default function ReportsPage() {
                     <span className="text-gray-400 dark:text-gray-500 ml-1">({t("includingOverview")})</span>
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                    {months[month-1]} {year} &middot; {cur}
+                    {months[pdfMonth-1]} {pdfYear} &middot; {cur}
                   </p>
                 </div>
                 <Button

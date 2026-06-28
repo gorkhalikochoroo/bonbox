@@ -1211,20 +1211,88 @@ def vat_export_pdf(
 # REPORT BUILDER — Overview metrics + Custom PDF
 # ===========================================================================
 
+# Defense-in-depth bound on the overview period span. Mirrors
+# tax.py:_MAX_FILING_PERIOD_DAYS so the Pulse tax bundle and the official
+# filing share the same ceiling (annual = 366 days; quarterly = 92,
+# half-yearly = 184). The Danish period presets (Monthly/Kvartal/Halvår/
+# 9 months) all fall under this cap; the Custom picker is the only path
+# that can approach it, so we validate it server-side too.
+_MAX_OVERVIEW_PERIOD_DAYS = 366
+
+
 @router.get("/overview")
 def report_overview(
-    month: int = Query(..., ge=1, le=12),
+    month: int = Query(None, ge=1, le=12),
     year: int = Query(None),
+    period_start: date | None = Query(None, description="Inclusive ISO date (period preset start)"),
+    period_end: date | None = Query(None, description="Inclusive ISO date (period preset end)"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Return overview metrics for the selected month/year (used by Report Builder cards)."""
-    if year is None:
-        year = date.today().year
+    """Return overview metrics for a period (used by the Pulse tax-bundle cards).
 
-    _, last_day = calendar.monthrange(year, month)
-    start = date(year, month, 1)
-    end = date(year, month, last_day)
+    Callers pass EITHER a Danish period preset (period_start + period_end,
+    both inclusive ISO dates — Monthly / Kvartal / Halvår / 9-months /
+    Custom) OR the legacy month/year pair. If a period is supplied it wins;
+    otherwise we fall back to the month/year branch exactly as before so
+    existing callers keep working.
+    """
+    if period_start or period_end:
+        # Both endpoints required if either is supplied (avoid half-spec),
+        # end >= start, span <= 366 days. Mirrors tax.py:_resolve_filing_period
+        # so the overview and the filing reject the same out-of-bounds ranges.
+        if not (period_start and period_end):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "incomplete_period",
+                    "message": "Provide both period_start and period_end, or neither.",
+                },
+            )
+        if period_end < period_start:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "invalid_period",
+                    "message": "period_end must be on or after period_start",
+                },
+            )
+        span_days = (period_end - period_start).days
+        if span_days > _MAX_OVERVIEW_PERIOD_DAYS:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "period_too_long",
+                    "message": (
+                        f"Report period is limited to {_MAX_OVERVIEW_PERIOD_DAYS} days. "
+                        "Use a shorter range."
+                    ),
+                    "max_days": _MAX_OVERVIEW_PERIOD_DAYS,
+                    "got_days": span_days,
+                },
+            )
+        start = period_start
+        end = period_end
+        # Echo the month/year of the period start for backward-compat callers
+        # that still read those keys; the period_start/period_end echo below is
+        # the authoritative range.
+        month = start.month
+        year = start.year
+    else:
+        if month is None:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "missing_period",
+                    "message": "Provide month (with optional year) or period_start + period_end.",
+                },
+            )
+        if year is None:
+            year = date.today().year
+        _, last_day = calendar.monthrange(year, month)
+        start = date(year, month, 1)
+        end = date(year, month, last_day)
+
     cur = get_display_currency(user.currency or "DKK")
 
     # Revenue
@@ -1308,6 +1376,8 @@ def report_overview(
     return {
         "month": month,
         "year": year,
+        "period_start": start.isoformat(),
+        "period_end": end.isoformat(),
         "revenue": round(total_revenue, 2),
         "expenses": round(total_expenses, 2),
         "net_profit": round(net_profit, 2),

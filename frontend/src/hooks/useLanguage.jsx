@@ -3229,6 +3229,13 @@ const translations = {
     budgetExceededBy: "Budget exceeded by",
     // Reports page
     reportBuilder: "Report Builder", buildCustomReport: "Build a custom report and download as PDF",
+    // Danish-standard tax/MOMS period presets (Pulse tax bundle)
+    periodType: "Period", periodMonthly: "Monthly", periodQuarterly: "Quarterly",
+    periodHalfYearly: "Half-year", periodNineMonth: "9 months", periodCustom: "Custom",
+    periodStart: "Start", periodEnd: "End", periodApply: "Apply",
+    periodPrev: "Previous period", periodNext: "Next period",
+    periodRangeTooLong: "Max 12 months", periodEndBeforeStart: "End must be on or after start",
+    periodInvalidDates: "Enter valid start and end dates",
     selectSections: "Select Sections", overviewAlwaysIncluded: "Overview is always included. Pick what else to add.",
     all: "All", noneSelect: "None", sectionsSelected: "sections selected",
     includingOverview: "including overview", downloadReportPdf: "Download Report PDF",
@@ -9854,6 +9861,13 @@ const translations = {
     budgetExceededBy: "Budget overskredet med",
     // Reports page
     reportBuilder: "Rapportbygger", buildCustomReport: "Byg en tilpasset rapport og download som PDF",
+    // Danish-standard tax/MOMS period presets (Pulse tax bundle)
+    periodType: "Periode", periodMonthly: "Månedlig", periodQuarterly: "Kvartalsvis",
+    periodHalfYearly: "Halvår", periodNineMonth: "9 måneder", periodCustom: "Brugerdefineret",
+    periodStart: "Start", periodEnd: "Slut", periodApply: "Anvend",
+    periodPrev: "Forrige periode", periodNext: "Næste periode",
+    periodRangeTooLong: "Maks. 12 måneder", periodEndBeforeStart: "Slut skal være på eller efter start",
+    periodInvalidDates: "Indtast gyldige start- og slutdatoer",
     selectSections: "Vælg sektioner", overviewAlwaysIncluded: "Oversigt er altid inkluderet. Vælg hvad du vil tilføje.",
     all: "Alle", noneSelect: "Ingen", sectionsSelected: "sektioner valgt",
     includingOverview: "inkl. oversigt", downloadReportPdf: "Download rapport PDF",
