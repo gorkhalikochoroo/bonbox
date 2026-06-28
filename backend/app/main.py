@@ -3464,7 +3464,11 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-BonBox-Platform", "Stripe-Signature", "X-CSRF-Token", "X-Idempotency-Key"],
+    # NB: BOTH "Idempotency-Key" (Stripe-style, sent by the gavekort redeem POST
+    # which the backend reads via Header(alias="Idempotency-Key")) AND the older
+    # "X-Idempotency-Key" (reservations public booking) must be whitelisted, or
+    # the browser preflight 400s and the real POST is silently blocked.
+    allow_headers=["Content-Type", "Authorization", "X-BonBox-Platform", "Stripe-Signature", "X-CSRF-Token", "X-Idempotency-Key", "Idempotency-Key"],
     expose_headers=["X-New-Token"],
     max_age=600,  # cache preflights for 10min — fewer OPTIONS roundtrips
 )
