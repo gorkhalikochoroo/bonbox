@@ -50,6 +50,8 @@ import {
   Share2,
   Maximize2,
   Link2,
+  Inbox,
+  Clock,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import api from "../services/api";
@@ -130,6 +132,12 @@ function gkErrText(e, t) {
       "Du har nået grænsen for aktive gavekort på dit abonnement. Opgradér for at udstede flere.",
     ),
     feature_locked: t("gkErrFeature", "Gavekort er ikke en del af dit abonnement."),
+    // Online order already issued/declined (race: double-tap / two tabs / stale list).
+    already_resolved: t("gkErrOrderResolved", "Bestillingen er allerede behandlet."),
+    too_many_orders: t(
+      "gkErrTooManyOrders",
+      "For mange bestillinger lige nu. Prøv igen om lidt.",
+    ),
   };
   if (code && MAP[code]) return MAP[code];
   // No HTTP response at all → request never reached the server (offline, DNS,
@@ -249,12 +257,27 @@ function StatusPill({ card, t }) {
 }
 
 // ─── page shell ───────────────────────────────────────────────────────
-const GK_TABS = ["udsted", "oversigt"];
+const GK_TABS = ["udsted", "oversigt", "bestillinger"];
 
 export default function GavekortPage() {
   const { t } = useLanguage();
   const { hasFeature, isReady } = useEntitlements();
   const [tab, setTab] = useState("udsted");
+  const [pendingOrders, setPendingOrders] = useState(0);
+
+  // Pending online-order count drives the tab badge. Fetched once on mount so
+  // the badge is visible without opening the tab; refreshed by OrdersSection.
+  useEffect(() => {
+    if (!isReady || !hasFeature("gavekort")) return;
+    let alive = true;
+    api
+      .get("/gavekort/orders", { params: { status: "pending" } })
+      .then((r) => alive && setPendingOrders(r.data?.pending_count ?? 0))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [isReady, hasFeature]);
 
   // Tier-flicker doctrine: render NOTHING while entitlements resolve, then
   // either the locked nudge or the page.
@@ -285,6 +308,13 @@ export default function GavekortPage() {
         tabs={[
           { id: "udsted", label: t("gkTabIssue", "Udsted gavekort") },
           { id: "oversigt", label: t("gkTabLedger", "Oversigt") },
+          {
+            id: "bestillinger",
+            label:
+              pendingOrders > 0
+                ? `${t("gkTabOrders", "Bestillinger")} · ${pendingOrders}`
+                : t("gkTabOrders", "Bestillinger"),
+          },
         ]}
         activeId={tab}
         onChange={(next) => setTab(GK_TABS.includes(next) ? next : "udsted")}
@@ -293,6 +323,9 @@ export default function GavekortPage() {
       />
       {tab === "udsted" && <IssueSection t={t} onIssued={() => setTab("oversigt")} />}
       {tab === "oversigt" && <LedgerSection t={t} />}
+      {tab === "bestillinger" && (
+        <OrdersSection t={t} onPendingCount={setPendingOrders} />
+      )}
     </div>
   );
 }
@@ -1506,5 +1539,338 @@ function TransactionTrail({ transactions, t }) {
         );
       })}
     </ol>
+  );
+}
+
+// ─── Online orders ("order online, owner collects") ───────────────────
+// The red-line-safe purchase: a customer requests a gavekort on the public
+// /g/buy/<slug> page; the owner confirms payment its OWN way and issues here.
+// BonBox never holds money — this surface only enables the link, lists pending
+// requests, and lets the owner Issue (mint + email the buyer) or Decline.
+function OrdersSection({ t, onPendingCount }) {
+  const [settings, setSettings] = useState(null);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [savingToggle, setSavingToggle] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [s, o] = await Promise.all([
+        api.get("/gavekort/order-settings"),
+        api.get("/gavekort/orders", { params: { status: "pending" } }),
+      ]);
+      setSettings(s.data);
+      setOrders(o.data?.orders || []);
+      onPendingCount?.(o.data?.pending_count ?? 0);
+    } catch {
+      /* leave prior state */
+    } finally {
+      setLoading(false);
+    }
+  }, [onPendingCount]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const toggleEnabled = async (next) => {
+    setSavingToggle(true);
+    try {
+      const r = await api.put("/gavekort/order-settings", {
+        enabled: next,
+        min_amount_minor: settings?.min_amount_minor,
+        max_amount_minor: settings?.max_amount_minor,
+        instructions: settings?.instructions ?? null,
+      });
+      setSettings(r.data);
+    } catch {
+      /* keep prior toggle */
+    } finally {
+      setSavingToggle(false);
+    }
+  };
+
+  const copyLink = async () => {
+    if (!settings?.public_url) return;
+    try {
+      await navigator.clipboard.writeText(settings.public_url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* clipboard blocked — no-op */
+    }
+  };
+
+  if (loading) {
+    return (
+      <Card className="p-8 text-center">
+        <div className="h-8 w-8 mx-auto rounded-full border-2 border-gray-200 border-t-gray-900 animate-spin" />
+      </Card>
+    );
+  }
+
+  const enabled = !!settings?.enabled;
+
+  return (
+    <div className="space-y-5">
+      {/* Setup: enable the public buy page + share its link */}
+      <Card className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {t("gkOrdersSetupTitle", "Online bestillinger")}
+            </h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
+              {t(
+                "gkOrdersSetupBody",
+                "Lad kunder bestille gavekort online. Du bekræfter betalingen på din egen måde og udsteder — BonBox håndterer ikke betalingen.",
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            disabled={savingToggle}
+            onClick={() => toggleEnabled(!enabled)}
+            className={
+              "relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition disabled:opacity-50 " +
+              (enabled ? "bg-emerald-600" : "bg-gray-300 dark:bg-gray-700")
+            }
+          >
+            <span
+              className={
+                "inline-block h-5 w-5 transform rounded-full bg-white shadow transition " +
+                (enabled ? "translate-x-5" : "translate-x-0.5")
+              }
+            />
+          </button>
+        </div>
+
+        {enabled && settings?.public_url && (
+          <div className="mt-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+              {t("gkOrdersLinkLabel", "Din bestillingsside")}
+            </p>
+            <div className="mt-1.5 flex items-center gap-2">
+              <code className="flex-1 truncate rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+                {settings.public_url}
+              </code>
+              <Button variant="secondary" size="sm" onClick={copyLink}>
+                {copied ? (
+                  <Check className="h-4 w-4" aria-hidden />
+                ) : (
+                  <Link2 className="h-4 w-4" aria-hidden />
+                )}
+                <span className="ml-1">
+                  {copied ? t("gkLinkCopied", "Kopieret") : t("gkCopyLink", "Kopiér link")}
+                </span>
+              </Button>
+            </div>
+            <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
+              {t(
+                "gkOrdersLinkHint",
+                "Del den på din hjemmeside, Instagram eller i butikken.",
+              )}
+            </p>
+          </div>
+        )}
+      </Card>
+
+      {/* Pending requests */}
+      <div>
+        <h3 className="mb-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+          {t("gkOrdersPendingTitle", "Afventer betaling")}
+        </h3>
+        {orders.length === 0 ? (
+          <Card className="p-8 text-center">
+            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-400">
+              <Inbox className="h-6 w-6" aria-hidden />
+            </div>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">
+              {t("gkOrdersEmpty", "Ingen bestillinger lige nu.")}
+            </p>
+            <p className="mt-1 text-sm text-gray-400 dark:text-gray-500">
+              {enabled
+                ? t("gkOrdersEmptyHint", "Nye bestillinger fra din side dukker op her.")
+                : t("gkOrdersEnableHint", "Slå online bestillinger til for at modtage dem.")}
+            </p>
+          </Card>
+        ) : (
+          <div className="space-y-3">
+            {orders.map((o) => (
+              <OrderCard key={o.id} t={t} order={o} onResolved={refresh} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OrderCard({ t, order, onResolved }) {
+  const [mode, setMode] = useState("view"); // view | issue
+  const [tender, setTender] = useState("mobilepay");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [sentTo, setSentTo] = useState(null); // buyer email after a confirmed issue
+
+  const created = order.created_at
+    ? new Date(order.created_at).toLocaleDateString("da-DK", {
+        day: "numeric",
+        month: "short",
+      })
+    : "";
+
+  const doIssue = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await api.post(`/gavekort/orders/${order.id}/issue`, {
+        payment_method: tender,
+      });
+      // ONE ceremonial beat: confirm the buyer was emailed before the card
+      // refreshes out of the pending list (premium-feel doctrine).
+      setSentTo(res.data?.buyer_email || order.buyer_email || "");
+      setTimeout(() => onResolved?.(), 1500);
+    } catch (e) {
+      setError(gkErrText(e, t));
+      setBusy(false);
+      // A 409 means another tab/device already resolved this — drop the stale card.
+      if (e?.response?.status === 409) onResolved?.();
+    }
+  };
+
+  const doDecline = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await api.post(`/gavekort/orders/${order.id}/decline`);
+      onResolved?.();
+    } catch (e) {
+      setError(gkErrText(e, t));
+      setBusy(false);
+      if (e?.response?.status === 409) onResolved?.();
+    }
+  };
+
+  // Success beat — the card stays a moment, confirming the buyer was emailed.
+  if (sentTo) {
+    return (
+      <Card className="p-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+            <Check className="h-5 w-5" aria-hidden />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              {t("gkOrderIssued", "Gavekort udstedt")}
+            </p>
+            <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+              {t("gkOrderSentTo", "Sendt til {email}", { email: sentTo })}
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  const TENDERS = [
+    { id: "card", label: t("gkTenderCard", "Kort"), Icon: CreditCard },
+    { id: "mobilepay", label: t("gkTenderMobilepay", "MobilePay"), Icon: Smartphone },
+    { id: "cash", label: t("gkTenderCash", "Kontant"), Icon: Banknote },
+  ];
+
+  return (
+    <Card className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-lg font-bold tabular-nums text-gray-900 dark:text-gray-100">
+            {krFromMinor(order.amount_minor)}
+          </p>
+          <p className="mt-0.5 truncate text-sm text-gray-600 dark:text-gray-300">
+            {order.buyer_name || t("gkOrderNoName", "Ukendt køber")}
+            {order.buyer_email ? ` · ${order.buyer_email}` : ""}
+          </p>
+          {order.recipient_name && (
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              {t("gkOrderToLabel", "Til: {name}", { name: order.recipient_name })}
+            </p>
+          )}
+          {order.message && (
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 italic truncate">
+              "{order.message}"
+            </p>
+          )}
+        </div>
+        <span className="inline-flex items-center gap-1 flex-shrink-0 text-[11px] text-gray-400 dark:text-gray-500">
+          <Clock className="h-3 w-3" aria-hidden />
+          {created}
+        </span>
+      </div>
+
+      {error && <p className="mt-2 text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+      {mode === "view" ? (
+        <div className="mt-3 flex items-center gap-2">
+          <Button variant="primary" size="sm" onClick={() => setMode("issue")}>
+            {t("gkOrderIssue", "Bekræft & udsted")}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={doDecline} disabled={busy}>
+            <Ban className="h-4 w-4" aria-hidden />
+            <span className="ml-1">{t("gkOrderDecline", "Afvis")}</span>
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-3 rounded-xl bg-gray-50 dark:bg-gray-800/50 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+            {t("gkOrderTenderLabel", "Hvordan blev der betalt?")}
+          </p>
+          <div className="mt-2 flex gap-2">
+            {TENDERS.map(({ id, label, Icon }) => {
+              const active = tender === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setTender(id)}
+                  className={
+                    "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition " +
+                    (active
+                      ? "border-gray-900 bg-gray-900 text-white dark:border-gray-100 dark:bg-gray-100 dark:text-gray-900"
+                      : "border-gray-200 bg-white text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300")
+                  }
+                >
+                  <Icon className="h-3.5 w-3.5" aria-hidden />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
+            {t(
+              "gkOrderIssueNote",
+              "Registreres som betalt med den valgte metode. Køberen får gavekortet på e-mail.",
+            )}
+          </p>
+          <div className="mt-3 flex items-center gap-2">
+            <Button variant="primary" size="sm" onClick={doIssue} disabled={busy}>
+              {busy ? (
+                <span className="h-4 w-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+              ) : (
+                <>
+                  <Check className="h-4 w-4" aria-hidden />
+                  <span className="ml-1">{t("gkOrderConfirmIssue", "Udsted gavekort")}</span>
+                </>
+              )}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setMode("view")} disabled={busy}>
+              {t("gkCancel", "Annullér")}
+            </Button>
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }
