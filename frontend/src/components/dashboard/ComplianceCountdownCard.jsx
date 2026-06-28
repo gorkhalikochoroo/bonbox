@@ -211,10 +211,32 @@ export default function ComplianceCountdownCard({
     const action = fs.action || null;
     const noBalance = fs.verdict === "INSUFFICIENT_DATA";
 
+    const expectedNum = Number(moms.expected ?? 0);
     const expected = moms.expected != null ? formatKr(moms.expected, { decimals: 0 }) : null;
 
+    // Balance-free value: even with NO balance we can give the owner the
+    // safe plan — what to set aside each week to fund the bill from zero by
+    // the deadline (conservative; adding a balance only lowers it). Turns
+    // the hero from a "type your balance" ask into an actionable number.
+    // Rounded up to a clean 100 kr so it reads tidy and never under-funds.
+    const _weeksToDeadline = Math.max(1, Math.round(Number(dl.days_until ?? 0) / 7));
+    const weeklyToFund =
+      noBalance && expectedNum > 0
+        ? Math.ceil(expectedNum / _weeksToDeadline / 100) * 100
+        : 0;
+
+    let displayHeadline = headline;
     let detail;
-    if (noBalance) {
+    if (noBalance && weeklyToFund > 0) {
+      displayHeadline = t("fsFundHeadline", "Set aside ~{amt}/week to cover MOMS")
+        .replace("{amt}", formatKr(weeklyToFund, { decimals: 0 }));
+      detail = t(
+        "fsFundDetail",
+        "~{amt} due {date} · add your balance to see if you're already covered",
+      )
+        .replace("{amt}", expected || "—")
+        .replace("{date}", fmtDate(dl.date));
+    } else if (noBalance) {
       detail = t("fsConnectDetail", "Expected MOMS ~{amt} · due {date}")
         .replace("{amt}", expected || "—")
         .replace("{date}", fmtDate(dl.date));
@@ -264,7 +286,7 @@ export default function ComplianceCountdownCard({
           }
           data-component="ComplianceCountdownCard"
           data-foresight-verdict={fs.verdict}
-          aria-label={t("fsHeroAria", "Open MOMS foresight — {headline}").replace("{headline}", headline)}
+          aria-label={t("fsHeroAria", "Open MOMS foresight — {headline}").replace("{headline}", displayHeadline)}
         >
           <div className="flex items-start gap-3">
             <div
@@ -282,7 +304,7 @@ export default function ComplianceCountdownCard({
                 {eyebrow}
               </p>
               <p className="text-base font-semibold text-gray-900 dark:text-gray-100 leading-snug">
-                {headline}
+                {displayHeadline}
               </p>
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5 leading-snug">
                 {detail}
