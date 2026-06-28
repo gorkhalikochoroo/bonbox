@@ -334,7 +334,7 @@ export default function ReportsPage() {
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const a = document.createElement("a");
       a.href = url;
-      a.download = `BonBox_Report_${months[pdfMonth-1]}_${pdfYear}.pdf`;
+      a.download = `BonBox_Ledelsesrapport_${months[pdfMonth-1]}_${pdfYear}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch {
@@ -671,8 +671,28 @@ export default function ReportsPage() {
                   busy={downloading}
                   iconLeft={!downloading && <Icon name="Download" size={16} />}
                 >
-                  {downloading ? t("generatingPdf") : t("downloadReportPdf")}
+                  {downloading ? t("generatingPdf") : t("downloadManagementReport")}
                 </Button>
+              </div>
+
+              {/* Not-a-tax-document notice + pointer to the real filing.
+                  This report is an internal management overview — anything that
+                  must be SENT to SKAT / revisor goes through Skat Autopilot
+                  (build_moms_filing_pdf), never this PDF. */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-900/10 p-4">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <Icon name="Info" size={16} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <p className="text-xs text-gray-700 dark:text-gray-300">
+                    {t("managementReportNotTaxDoc")}
+                  </p>
+                </div>
+                <Link
+                  to="/tax"
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-900 hover:text-gray-700 dark:text-gray-100 dark:hover:text-gray-300 underline underline-offset-2 shrink-0"
+                >
+                  {t("openSkatAutopilot")}
+                  <Icon name="ChevronRight" size={14} />
+                </Link>
               </div>
 
               {/* Disclaimer */}

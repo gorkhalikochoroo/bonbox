@@ -3228,7 +3228,10 @@ const translations = {
     overspentThisMonth: "You overspent this month. Review your spending.",
     budgetExceededBy: "Budget exceeded by",
     // Reports page
-    reportBuilder: "Report Builder", buildCustomReport: "Build a custom report and download as PDF",
+    reportBuilder: "Report Builder", buildCustomReport: "Build an internal management report (ledelsesrapport) — not a momsangivelse",
+    downloadManagementReport: "Download management report",
+    managementReportNotTaxDoc: "This is an internal management overview — not a momsangivelse. For anything you need to send to SKAT or your revisor, use Skat Autopilot.",
+    openSkatAutopilot: "Open Skat Autopilot",
     // Danish-standard tax/MOMS period presets (Pulse tax bundle)
     periodType: "Period", periodMonthly: "Monthly", periodQuarterly: "Quarterly",
     periodHalfYearly: "Half-year", periodNineMonth: "9 months", periodCustom: "Custom",
@@ -9860,7 +9863,10 @@ const translations = {
     overspentThisMonth: "Du overforbrugte denne måned. Gennemgå dit forbrug.",
     budgetExceededBy: "Budget overskredet med",
     // Reports page
-    reportBuilder: "Rapportbygger", buildCustomReport: "Byg en tilpasset rapport og download som PDF",
+    reportBuilder: "Rapportbygger", buildCustomReport: "Byg en intern ledelsesrapport — ikke en momsangivelse",
+    downloadManagementReport: "Download ledelsesrapport",
+    managementReportNotTaxDoc: "Dette er et internt overblik — ikke en momsangivelse. Til alt, der skal sendes til SKAT eller din revisor, så brug Skat Autopilot.",
+    openSkatAutopilot: "Åbn Skat Autopilot",
     // Danish-standard tax/MOMS period presets (Pulse tax bundle)
     periodType: "Periode", periodMonthly: "Månedlig", periodQuarterly: "Kvartalsvis",
     periodHalfYearly: "Halvår", periodNineMonth: "9 måneder", periodCustom: "Brugerdefineret",
