@@ -502,13 +502,27 @@ export default function ExpensesPage() {
       // with a real category_id and the rest of the app's filters /
       // reports keep working.
       if (!finalCatId && !customCat.trim()) {
-        let otherCat = categories.find(c => c.name === "Other");
-        if (!otherCat) {
-          const res = await api.post("/expenses/categories", { name: "Other" });
-          otherCat = res.data;
-          setCategories(prev => prev.find(c => c.id === res.data.id) ? prev : [...prev, res.data]);
+        // AI-propose a category from the description (zero extra taps); the
+        // owner sees the result on the row and can change it. Only when
+        // there's a description to read — never guess from an amount alone.
+        if (desc && desc.trim().length >= 2) {
+          try {
+            const sg = await api.get("/expenses/suggest-category", { params: { q: desc.trim() } });
+            if (sg.data?.suggestion?.category_id) finalCatId = sg.data.suggestion.category_id;
+          } catch { /* fall through to the honest bucket */ }
         }
-        finalCatId = otherCat.id;
+        // No category + no signal → land honestly as "Ukategoriseret", never
+        // mislabel an uncategorized expense as a fake-clean "Other" (that
+        // silent default was the root cause of the junk-category ledger).
+        if (!finalCatId) {
+          let uncat = categories.find(c => c.name === "Ukategoriseret");
+          if (!uncat) {
+            const res = await api.post("/expenses/categories", { name: "Ukategoriseret" });
+            uncat = res.data;
+            setCategories(prev => prev.find(c => c.id === res.data.id) ? prev : [...prev, res.data]);
+          }
+          finalCatId = uncat.id;
+        }
       } else if (!finalCatId && customCat.trim()) {
         // Detailed path — owner typed a custom category. Create it.
         const catRes = await api.post("/expenses/categories", { name: customCat.trim() });
