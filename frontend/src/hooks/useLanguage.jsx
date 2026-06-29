@@ -3075,6 +3075,7 @@ const translations = {
     expSnapHeroTitle: "Snap a receipt",
     expSnapHeroSub: "We read the amount, date and MOMS — you just confirm",
     expOrTypeManually: "or enter it manually",
+    paidWith: "Paid with",
     typeCustomCategory: "Type custom category...", moveToTrash: "Move to trash",
     actions: "Actions", notes: "Notes",
     // Cash Book
@@ -9741,6 +9742,7 @@ const translations = {
     expSnapHeroTitle: "Tag billede af kvittering",
     expSnapHeroSub: "Vi læser beløb, dato og moms — du bekræfter bare",
     expOrTypeManually: "eller indtast manuelt",
+    paidWith: "Betalt med",
     typeCustomCategory: "Skriv egen kategori...", moveToTrash: "Flyt til papirkurv",
     actions: "Handlinger", notes: "Noter",
     // Cash Book

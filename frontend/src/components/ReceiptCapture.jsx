@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Camera, ImageIcon, Search, Info, Check } from "lucide-react";
+import { Camera, ImageIcon, Search, Info, Check, ChevronDown } from "lucide-react";
 import Modal from "./Modal";
 import ReceiptViewer from "./ReceiptViewer";
 import Chip from "./ui/Chip";
@@ -27,6 +27,11 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   const [result, setResult] = useState(null);
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState(isExpense ? "card" : "mixed");
+  // Payment picker stays collapsed on the OCR confirm — after the scan the
+  // amount + confirm are what matter; method is almost always card. One tap
+  // expands the chips. (design critique: don't make the owner scan 6 equal
+  // options before the one thing that matters.)
+  const [methodOpen, setMethodOpen] = useState(false);
   const [preview, setPreview] = useState(null);
   const [success, setSuccess] = useState("");
   const [desc, setDesc] = useState("");
@@ -493,17 +498,31 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-1.5 mb-4">
-                  {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
-                    <Chip
-                      key={m}
-                      size="sm"
-                      selected={method === m}
-                      onClick={() => setMethod(m)}
+                <div className="mb-4">
+                  {!methodOpen ? (
+                    <button
+                      type="button"
+                      onClick={() => setMethodOpen(true)}
+                      className="inline-flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition"
                     >
-                      {t(m)}
-                    </Chip>
-                  ))}
+                      {t("paidWith", "Paid with")}:{" "}
+                      <span className="font-medium text-gray-700 dark:text-gray-200">{t(method)}</span>
+                      <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+                    </button>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t("paymentMethod", "Payment method")}>
+                      {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
+                        <Chip
+                          key={m}
+                          size="sm"
+                          selected={method === m}
+                          onClick={() => { setMethod(m); setMethodOpen(false); }}
+                        >
+                          {t(m)}
+                        </Chip>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <button
