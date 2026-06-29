@@ -416,3 +416,122 @@ def test_find_matching_items_skips_items_without_metadata(db, owner):
         db, owner_id=owner.id, sale_item_name="Plates",
     )
     assert all(m.id != plain.id for m in matches)
+
+
+# ─── Recipe-based auto-deduct (G2 keystone) ──────────────────────────────
+# record_sale_consumption decrements recipe ingredients when a generic
+# menu-item sale is recorded. Opt-in (complete recipe), fail-closed,
+# idempotent (batch_id="sale:<id>"), floored at 0, never raises.
+from app.models.inventory import InventoryLog as _InventoryLog  # noqa: E402
+from app.services.inventory_consumption_service import (  # noqa: E402
+    record_sale_consumption,
+)
+
+
+def _coffee(db, owner, *, qty=5.0, **over):
+    """A coffee-beans item with a COMPLETE recipe: 18 g per espresso/cappuccino,
+    stocked in kg."""
+    fields = dict(
+        user_id=owner.id, name="Kaffebønner", quantity=qty, unit="kg",
+        cost_per_unit=80, category="General",
+        consumption_pattern="per_serving", serving_size=18,
+        consumption_unit="g", usage_keywords="espresso,cappuccino,latte",
+    )
+    fields.update(over)
+    it = InventoryItem(**fields)
+    db.add(it); db.commit(); db.refresh(it)
+    return it
+
+
+def _sale(db, owner, name, *, qty=None, item_id=None):
+    s = Sale(
+        user_id=owner.id, date=date.today(), amount=35,
+        payment_method="card", item_name=name,
+        quantity_sold=qty, inventory_item_id=item_id,
+    )
+    db.add(s); db.commit(); db.refresh(s)
+    return s
+
+
+def test_record_sale_consumption_deducts_recipe(db, owner):
+    item = _coffee(db, owner, qty=5.0)          # 5 kg
+    sale = _sale(db, owner, "Cappuccino (stor)")  # matches "cappuccino"
+    applied = record_sale_consumption(db, sale=sale)
+    db.commit(); db.refresh(item)
+    # 18 g = 0.018 kg removed from 5 kg.
+    assert len(applied) == 1
+    assert round(float(item.quantity), 2) == 4.98
+    log = db.query(_InventoryLog).filter(_InventoryLog.item_id == item.id).one()
+    assert log.reason == "forbrug"
+    assert log.batch_id == f"sale:{sale.id}"
+    assert round(float(log.change_qty), 2) == -0.02
+
+
+def test_record_sale_consumption_is_idempotent(db, owner):
+    item = _coffee(db, owner, qty=5.0)
+    sale = _sale(db, owner, "Espresso")
+    record_sale_consumption(db, sale=sale); db.commit()
+    second = record_sale_consumption(db, sale=sale); db.commit()
+    db.refresh(item)
+    assert second == []                          # nothing applied the 2nd time
+    assert round(float(item.quantity), 2) == 4.98  # only deducted once
+    assert db.query(_InventoryLog).filter(_InventoryLog.item_id == item.id).count() == 1
+
+
+def test_record_sale_consumption_skips_incomplete_recipe(db, owner):
+    # Pattern + keywords present but NO serving_size → fail-closed, no deduct.
+    item = _coffee(db, owner, qty=5.0, serving_size=None)
+    sale = _sale(db, owner, "Latte")
+    assert record_sale_consumption(db, sale=sale) == []
+    db.refresh(item)
+    assert float(item.quantity) == 5.0
+
+
+def test_record_sale_consumption_skips_explicit_item_linked_sale(db, owner):
+    # Sale already carries inventory_item_id → the 1:1 router path handled it;
+    # the recipe hook must not double-deduct.
+    item = _coffee(db, owner, qty=5.0)
+    sale = _sale(db, owner, "Cappuccino", item_id=item.id)
+    assert record_sale_consumption(db, sale=sale) == []
+    db.refresh(item)
+    assert float(item.quantity) == 5.0
+
+
+def test_record_sale_consumption_no_keyword_match(db, owner):
+    item = _coffee(db, owner, qty=5.0)
+    sale = _sale(db, owner, "Cheese sandwich")   # no keyword overlap
+    assert record_sale_consumption(db, sale=sale) == []
+    db.refresh(item)
+    assert float(item.quantity) == 5.0
+
+
+def test_record_sale_consumption_floors_at_zero(db, owner):
+    # Only 0.01 kg left but a serving needs 0.018 kg → floor at 0, log the
+    # actual applied amount (0.01), never go negative.
+    item = _coffee(db, owner, qty=0.01)
+    sale = _sale(db, owner, "Espresso")
+    applied = record_sale_consumption(db, sale=sale); db.commit()
+    db.refresh(item)
+    assert float(item.quantity) == 0.0
+    assert round(applied[0]["qty"], 3) == 0.01
+    log = db.query(_InventoryLog).filter(_InventoryLog.item_id == item.id).one()
+    assert round(float(log.change_qty), 3) == -0.01
+
+
+def test_record_sale_consumption_scales_by_quantity_sold(db, owner):
+    item = _coffee(db, owner, qty=5.0)
+    sale = _sale(db, owner, "Cappuccino", qty=3)   # 3 × 18 g = 54 g = 0.054 kg
+    record_sale_consumption(db, sale=sale); db.commit()
+    db.refresh(item)
+    assert round(float(item.quantity), 2) == 4.95
+
+
+def test_record_sale_consumption_is_tenant_scoped(db, owner, other_owner):
+    # Another owner's matching coffee item is never touched.
+    mine = _coffee(db, owner, qty=5.0)
+    theirs = _coffee(db, other_owner, qty=5.0)
+    sale = _sale(db, owner, "Cappuccino")
+    record_sale_consumption(db, sale=sale); db.commit()
+    db.refresh(mine); db.refresh(theirs)
+    assert round(float(mine.quantity), 2) == 4.98
+    assert float(theirs.quantity) == 5.0

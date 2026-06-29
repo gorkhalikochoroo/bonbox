@@ -240,6 +240,26 @@ def create_sale(
         sync_cash_in_for_sale(db, sale)
         db.commit()
         db.refresh(sale)
+
+    # Recipe-based auto-deduct (G2 keystone of the inventory redesign): a
+    # generic menu-item sale with NO explicit inventory_item_id decrements the
+    # recipe ingredients whose usage_keywords match (e.g. "Cappuccino" → coffee
+    # + milk). Opt-in per item (complete recipe required), fail-closed,
+    # idempotent. Runs in its own commit and is failure-isolated — a
+    # consumption hiccup must NEVER break the sale that already committed above.
+    try:
+        from app.services.inventory_consumption_service import (
+            record_sale_consumption,
+        )
+        if record_sale_consumption(db, sale=sale):
+            db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        log.warning(
+            "recipe auto-deduct failed for sale %s",
+            getattr(sale, "id", "?"),
+            exc_info=True,
+        )
     return sale
 
 
@@ -341,6 +361,26 @@ def repeat_yesterday(
         sync_cash_in_for_sale(db, sale)
         db.commit()
         db.refresh(sale)
+
+    # Recipe-based auto-deduct (G2 keystone of the inventory redesign): a
+    # generic menu-item sale with NO explicit inventory_item_id decrements the
+    # recipe ingredients whose usage_keywords match (e.g. "Cappuccino" → coffee
+    # + milk). Opt-in per item (complete recipe required), fail-closed,
+    # idempotent. Runs in its own commit and is failure-isolated — a
+    # consumption hiccup must NEVER break the sale that already committed above.
+    try:
+        from app.services.inventory_consumption_service import (
+            record_sale_consumption,
+        )
+        if record_sale_consumption(db, sale=sale):
+            db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        log.warning(
+            "recipe auto-deduct failed for sale %s",
+            getattr(sale, "id", "?"),
+            exc_info=True,
+        )
     return sale
 
 
@@ -992,6 +1032,26 @@ def create_sale_from_receipt(
         sync_cash_in_for_sale(db, sale)
         db.commit()
         db.refresh(sale)
+
+    # Recipe-based auto-deduct (G2 keystone of the inventory redesign): a
+    # generic menu-item sale with NO explicit inventory_item_id decrements the
+    # recipe ingredients whose usage_keywords match (e.g. "Cappuccino" → coffee
+    # + milk). Opt-in per item (complete recipe required), fail-closed,
+    # idempotent. Runs in its own commit and is failure-isolated — a
+    # consumption hiccup must NEVER break the sale that already committed above.
+    try:
+        from app.services.inventory_consumption_service import (
+            record_sale_consumption,
+        )
+        if record_sale_consumption(db, sale=sale):
+            db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        log.warning(
+            "recipe auto-deduct failed for sale %s",
+            getattr(sale, "id", "?"),
+            exc_info=True,
+        )
     return sale
 
 

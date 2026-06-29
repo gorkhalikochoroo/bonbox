@@ -384,3 +384,140 @@ def find_matching_items_for_sale(
         .all()
     )
     return [i for i in items if keyword_matches(i, sale_item_name)]
+
+
+def record_sale_consumption(db: Session, *, sale: Sale) -> list[dict]:
+    """Recipe-based auto-deduct (the keystone that keeps "on hand" live).
+
+    When a generic menu-item sale is recorded — e.g. "Cappuccino" — decrement
+    every inventory item whose usage_keywords match, each by
+    `serving_size × servings`, converted from consumption_unit → storage unit.
+    This is the path the explicit `inventory_item_id` 1:1 deduction in the
+    sales router does NOT cover.
+
+    Design (every guardrail from the inventory-redesign honesty doctrine):
+      • OPT-IN BY CONSTRUCTION — only items with a COMPLETE recipe
+        (consumption_pattern + serving_size + consumption_unit + unit +
+        usage_keywords) are touched. No recipe → skipped. Default OFF: an
+        item the owner hasn't given a recipe never moves.
+      • FAIL-CLOSED — unknown unit conversion or no keyword match = NO
+        decrement (convert_units already returns None rather than guessing).
+        Silently miscounting stock is worse than not auto-decrementing.
+      • SKIP THE 1:1 PATH — if the sale already carries an explicit
+        inventory_item_id, the router deducted that item directly; we don't
+        double-count.
+      • IDEMPOTENT — keyed on InventoryLog.batch_id = "sale:<id>"; replaying
+        the same sale never double-decrements (retry-safe).
+      • INSPECTABLE — every decrement writes a visible InventoryLog row
+        (reason="forbrug", batch_id linking the sale) the owner can open and
+        the count ritual reconciles against.
+      • COMPUTED, NOT COUNTED — stock is floored at 0; the result is the
+        "beregnet" on-hand, never presented as a physical count. Drift is
+        resolved by the optælling ritual.
+
+    Pure + caller-committed: this mutates the session but does NOT commit;
+    the caller commits and wraps in try/except so a consumption hiccup can
+    never break the sale write.
+
+    Returns the list of applied decrements ([] when nothing matched).
+    """
+    if sale is None or getattr(sale, "is_deleted", False):
+        return []
+    # The explicit item-linked path already deducted 1:1 — don't double-count.
+    if getattr(sale, "inventory_item_id", None):
+        return []
+    sale_name = getattr(sale, "item_name", None)
+    if not sale_name:
+        return []
+
+    items = find_matching_items_for_sale(
+        db, owner_id=sale.user_id, sale_item_name=sale_name
+    )
+    if not items:
+        return []
+
+    batch = f"sale:{sale.id}"
+    # Scale by the quantity actually sold on this sale row (Quick Sale rows
+    # are usually 1; an explicit quantity_sold scales the recipe).
+    try:
+        servings = float(getattr(sale, "quantity_sold", None) or 1) or 1.0
+    except (TypeError, ValueError):
+        servings = 1.0
+    if servings <= 0:
+        servings = 1.0
+
+    applied: list[dict] = []
+    for item in items:
+        # Require a COMPLETE recipe — fail-closed on anything missing.
+        if not (
+            item.consumption_pattern
+            and item.serving_size
+            and item.consumption_unit
+            and item.unit
+            and item.usage_keywords
+        ):
+            continue
+
+        # Idempotency: this sale already decremented this item → skip.
+        already = (
+            db.query(InventoryLog.id)
+            .filter(
+                InventoryLog.item_id == item.id,
+                InventoryLog.batch_id == batch,
+            )
+            .first()
+        )
+        if already:
+            continue
+
+        consumed_cu = float(item.serving_size) * servings  # in consumption_unit
+        # Identity shortcut — convert_units only knows cross-unit factors, so a
+        # same-unit recipe (e.g. stocked + consumed in "stk") would otherwise
+        # fail-closed and never decrement.
+        if (item.consumption_unit or "").lower() == (item.unit or "").lower():
+            consumed_su = consumed_cu
+        else:
+            consumed_su = convert_units(
+                consumed_cu, from_unit=item.consumption_unit, to_unit=item.unit
+            )
+        if consumed_su is None or consumed_su <= 0:
+            continue  # unknown conversion → fail-closed, no decrement
+
+        # The quantity column is Numeric(10,2); quantize the decrement to 2 dp
+        # so the applied amount, the new on-hand, and the log row all agree and
+        # don't desync row-to-row. Round-to-nearest keeps the computed on-hand
+        # honest; the optælling ritual reconciles drift. LIMITATION: a recipe
+        # that consumes <0.005 of a storage unit per serving (e.g. 2 g stocked
+        # in kg) rounds to 0 and won't visibly move stock — stock such items in
+        # a finer unit, or bump the column to Numeric(10,4) later.
+        consumed_su = round(consumed_su, 2)
+        if consumed_su <= 0:
+            continue
+
+        current = float(item.quantity or 0)
+        new_qty = current - consumed_su
+        if new_qty < 0:
+            new_qty = 0.0
+        applied_delta = round(current - new_qty, 2)  # what we actually removed
+        if applied_delta <= 0:
+            continue  # already empty — nothing to remove
+
+        item.quantity = new_qty
+        db.add(
+            InventoryLog(
+                item_id=item.id,
+                change_qty=-round(applied_delta, 2),
+                reason="forbrug",  # DK: consumption auto-deducted from a sale
+                date=getattr(sale, "date", None) or date_cls.today(),
+                batch_id=batch,
+            )
+        )
+        applied.append(
+            {
+                "item_id": str(item.id),
+                "qty": round(applied_delta, 4),
+                "unit": item.unit,
+            }
+        )
+
+    return applied
