@@ -3070,6 +3070,8 @@ const translations = {
     backdatedEntry: "Backdated entry", personalExpense: "Personal expense",
     businessExpense: "Business expense", excludedFromReports: "Excluded from reports & VAT",
     expBusinessOrPersonal: "Business or personal",
+    expMissingBilagTitle: "{n} expenses missing a receipt",
+    expMissingBilagSub: "{amt} in expenses with no bilag — snap it to keep the fradrag",
     typeCustomCategory: "Type custom category...", moveToTrash: "Move to trash",
     actions: "Actions", notes: "Notes",
     // Cash Book
@@ -9731,6 +9733,8 @@ const translations = {
     backdatedEntry: "Tilbagedateret post", personalExpense: "Personlig udgift",
     businessExpense: "Forretningsudgift", excludedFromReports: "Ekskluderet fra rapporter & moms",
     expBusinessOrPersonal: "Erhverv eller privat",
+    expMissingBilagTitle: "{n} udgifter mangler bilag",
+    expMissingBilagSub: "{amt} i udgifter uden bilag — snap det for at beholde fradraget",
     typeCustomCategory: "Skriv egen kategori...", moveToTrash: "Flyt til papirkurv",
     actions: "Handlinger", notes: "Noter",
     // Cash Book

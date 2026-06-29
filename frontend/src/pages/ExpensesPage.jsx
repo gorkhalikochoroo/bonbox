@@ -59,7 +59,7 @@ import EntryCard from "../components/ui/EntryCard";
 import PageShell from "../components/ui/PageShell";
 import DataTable from "../components/ui/DataTable";
 import FilterBar from "../components/ui/FilterBar";
-import { Mic, Camera, Pencil, Trash2, ChevronDown, ChevronUp, Receipt } from "lucide-react";
+import { Mic, Camera, Pencil, Trash2, ChevronDown, ChevronUp, Receipt, ChevronRight } from "lucide-react";
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
@@ -1207,6 +1207,53 @@ export default function ExpensesPage() {
               {t("viewBreakdown", "View breakdown in /reports →")}
             </Link>
           </p>
+
+          {/* Mangler bilag — fradrag at risk. Surfacing the gap IS the
+              compliance value: a live count of business expenses with no
+              receipt_photo, whose MOMS-fradrag the revisor can't defend
+              under Bogføringsloven. Pull-only + page-local (no nagging);
+              self-hides at zero. Personal / tax-exempt rows are excluded
+              (they carry no fradrag). */}
+          {(() => {
+            const missing = expenses.filter(
+              (e) => !e.receipt_photo && !e.is_personal && !e.is_tax_exempt,
+            );
+            if (!missing.length) return null;
+            const missTotal = missing.reduce(
+              (s, e) => s + (parseFloat(e.amount) || 0),
+              0,
+            );
+            return (
+              <button
+                type="button"
+                onClick={() =>
+                  document
+                    .getElementById("bonbox-recent-expenses")
+                    ?.scrollIntoView({ behavior: "smooth" })
+                }
+                className="w-full text-left flex items-center gap-3 rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50/60 dark:bg-amber-900/10 px-4 py-3 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition"
+              >
+                <Receipt
+                  className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400"
+                  strokeWidth={1.75}
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    {t("expMissingBilagTitle", "{n} expenses missing a receipt").replace("{n}", String(missing.length))}
+                  </span>
+                  <span className="block text-xs text-gray-600 dark:text-gray-400 mt-0.5 tabular-nums">
+                    {t("expMissingBilagSub", "{amt} in expenses with no bilag — snap it to keep the fradrag").replace("{amt}", `${missTotal.toLocaleString()} ${currency}`)}
+                  </span>
+                </span>
+                <ChevronRight
+                  className="w-4 h-4 shrink-0 text-amber-500"
+                  strokeWidth={2}
+                  aria-hidden="true"
+                />
+              </button>
+            );
+          })()}
 
           {/* Recent expenses — DataTable + FilterBar (Tier-4 doctrine
               §5). The id anchor matches the InboxBanner hero CTA's
