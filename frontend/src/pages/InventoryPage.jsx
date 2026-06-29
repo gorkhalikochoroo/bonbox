@@ -82,7 +82,8 @@ export default function InventoryPage() {
   // always visible so the upsell remains discoverable. Tier is also
   // re-checked server-side by every /autopilot/* endpoint.
   const { hasFeature: _hasFeatureAutopilot } = useEntitlements();
-  const [showAutopilot, setShowAutopilot] = useState(false);
+  // showAutopilot removed — the autopilot panel is now the always-on hero
+  // at the top of the page (rendered with the `hero` prop), not a toggle.
   const [items, setItems] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -419,28 +420,27 @@ export default function InventoryPage() {
     ? ["All", ...categories.filter((c) => templateFilter.includes(c))]
     : ["All", ...categories];
 
+  // Per-vertical page title (S1 of the inventory redesign). DK trade terms
+  // stay Danish across all UI languages — same lock as kasserapport / MOMS.
+  // A salon owner should never read kitchen-framed "Inventory Monitor".
+  // (S2 will move this into a proper verticalVoice map.)
+  const heroTitle = ({
+    restaurant: "Lager & bestilling",
+    cafe: "Lager & bestilling",
+    bar: "Lager & bar",
+    salon: "Lager & ordre",
+    bakery: "Lager",
+    retail: "Lager",
+  })[(user?.business_type || "").toLowerCase()] || "Lager";
+
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <FadeIn>
         <PageHeader
-          eyebrow="STOCK"
-          title={t("inventoryMonitor")}
+          eyebrow="LAGER"
+          title={heroTitle}
           actions={
             <>
-              {/* Order autopilot — Pro tier killer feature (Task #63). Visible
-                  to everyone so the upsell remains discoverable. The panel
-                  itself renders an UpgradeNudge for Free / Starter. This is
-                  the page's one accent (money-moment) action. */}
-              <Button
-                variant="accent"
-                onClick={() => setShowAutopilot((v) => !v)}
-                title={t(
-                  "inventoryAutopilotButtonTitle",
-                  "Group reorder suggestions by supplier and email them in one tap.",
-                )}
-              >
-                {t("inventoryAutopilotButton", "Order autopilot")}
-              </Button>
               <Button
                 variant="secondary"
                 onClick={() => setShowSmartImport(true)}
@@ -515,6 +515,13 @@ export default function InventoryPage() {
         />
       </FadeIn>
 
+      {/* Reorder hero (S1 of the inventory redesign) — the autopilot draft is
+          now the FIRST thing the owner sees, always-on, instead of a buried
+          "Order autopilot" button. It auto-loads "this week's order, ready to
+          approve" for Pro; Free/Starter see the upsell card. AI proposes the
+          quantities; nothing is sent until the owner taps Godkend og send. */}
+      <InventoryAutopilotPanel hero />
+
       <SmartImportModal
         open={showSmartImport}
         onClose={() => {
@@ -532,13 +539,7 @@ export default function InventoryPage() {
         }}
       />
 
-      {/* Order Autopilot — Pro tier panel. The panel itself renders an
-          UpgradeNudge for Free / Starter users (no need to gate here). */}
-      {showAutopilot && (
-        <InventoryAutopilotPanel onClose={() => setShowAutopilot(false)} />
-      )}
-
-      {success && <div className="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
+      {success &&<div className="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300 px-4 py-3 rounded-xl text-sm">{error}</div>}
 
       <DismissibleTip

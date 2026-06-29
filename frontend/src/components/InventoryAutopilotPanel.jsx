@@ -17,7 +17,7 @@
  * No emojis except the small "📦" panel icon (matches the brand style).
  * UI strings translatable via t() with English/Danish fallbacks.
  */
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -210,7 +210,7 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
 }
 
 
-export default function InventoryAutopilotPanel({ branchId = null, onClose }) {
+export default function InventoryAutopilotPanel({ branchId = null, onClose, hero = false }) {
   const { t } = useLanguage();
   const { user } = useAuth();
   const { hasFeature, loading: entLoading } = useEntitlements();
@@ -263,6 +263,17 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose }) {
       setLoading(false);
     }
   };
+
+  // Hero mode (always-on at the top of /inventory): auto-load the draft so
+  // the owner lands on "this week's order, ready to approve" — no extra tap.
+  // Only fires for unlocked (Pro) accounts; Free/Starter render the locked
+  // upsell card and never hit the Pro-gated suggest endpoint.
+  useEffect(() => {
+    if (hero && !entLoading && isUnlocked && !suggestion && !loading) {
+      fetchSuggestion();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hero, entLoading, isUnlocked]);
 
   const sendItems = async (lines) => {
     if (!lines.length) return;
