@@ -108,9 +108,19 @@ export default function EntryCard({
   onSubmit,
   busy = false,
   disabled = false,
+  density = "comfortable",
   className = "",
 }) {
   const { t } = useLanguage();
+  // Density — opt-in `compact` tightens the card chrome (Card padding,
+  // header margin, inter-row gap) for height-constrained surfaces like the
+  // /expenses capture keypad. Default "comfortable" leaves every token
+  // byte-identical, so the other EntryCard consumers (Sales, …) are
+  // untouched. The amount Input + submit Button stay size="lg" in BOTH
+  // densities — input[type=number] is NOT covered by the global coarse-
+  // pointer 44px floor, so shrinking it would break the daily-typed field's
+  // touch target. We only trim chrome, never the tap surfaces.
+  const compact = density === "compact";
   // Amount validity — submit unlocks only when a positive number parses.
   // We accept "1.234,56" (DK), "1234.56" (US), and bare ints. The parent
   // is responsible for sending the value to the API in its canonical
@@ -139,9 +149,9 @@ export default function EntryCard({
   };
 
   return (
-    <Card className={className}>
-      <Card.Header title={title} subtitle={hint} />
-      <form onSubmit={handleSubmit} className="space-y-4">
+    <Card className={className} padding={compact ? "compact" : "default"}>
+      <Card.Header title={title} subtitle={hint} dense={compact} />
+      <form onSubmit={handleSubmit} className={compact ? "space-y-3" : "space-y-4"}>
         {/* Amount presets — wrap on overflow, gap-2 between chips */}
         {amountPresets.length > 0 && (
           <div className="flex flex-wrap gap-2" role="group" aria-label={t("entryCardAmountPresets", "Amount presets")}>

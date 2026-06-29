@@ -53,12 +53,19 @@ function Card({
   variant = "default",
   to = null,
   onClick = null,
+  padding = "default",
   className = "",
   children,
   ...rest
 }) {
+  // Density knob — `compact` is opt-in (the /expenses capture keypad asks
+  // for a tighter card). Default keeps the byte-identical p-5 sm:p-6 token,
+  // so every other consumer renders exactly as before. Swap the TOKEN here
+  // rather than appending a `p-4` via className — two padding utilities on
+  // one element resolve by Tailwind source order, which is unpredictable.
+  const pad = padding === "compact" ? "p-4" : "p-5 sm:p-6";
   const base =
-    "rounded-xl p-5 sm:p-6 " + (SURFACE[variant] || SURFACE.default);
+    "rounded-xl " + pad + " " + (SURFACE[variant] || SURFACE.default);
   const interactive = !!(to || onClick);
   const classes =
     base + (interactive ? INTERACTIVE_EXTRA : "") +
@@ -86,9 +93,9 @@ function Card({
 }
 
 /** Card.Header — top of a card. Title + optional subtitle + action. */
-function CardHeader({ title, subtitle, icon = null, action = null }) {
+function CardHeader({ title, subtitle, icon = null, action = null, dense = false }) {
   return (
-    <div className="flex items-start justify-between gap-3 mb-4">
+    <div className={"flex items-start justify-between gap-3 " + (dense ? "mb-3" : "mb-4")}>
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           {icon && <span className="text-gray-500 shrink-0">{icon}</span>}

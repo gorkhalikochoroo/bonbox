@@ -1181,20 +1181,20 @@ export default function ExpensesPage() {
               <button
                 type="button"
                 onClick={() => setReceiptOpen(true)}
-                className="flex-1 flex items-center gap-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition text-left"
+                className="flex-1 flex items-center gap-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition text-left"
               >
-                <span className="shrink-0 inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900">
-                  <Camera size={22} strokeWidth={1.75} aria-hidden="true" />
+                <span className="shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900">
+                  <Camera size={20} strokeWidth={1.75} aria-hidden="true" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-base font-semibold text-gray-900 dark:text-gray-100">
+                  <span className="block text-[15px] font-semibold text-gray-900 dark:text-gray-100">
                     {t("expSnapHeroTitle", "Snap a receipt")}
                   </span>
-                  <span className="block text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                  <span className="block text-sm text-gray-500 dark:text-gray-400 mt-0">
                     {t("expSnapHeroSub", "We read the amount, date and MOMS — you just confirm")}
                   </span>
                 </span>
-                <ChevronRight size={20} strokeWidth={2} className="shrink-0 text-gray-300 dark:text-gray-600" aria-hidden="true" />
+                <ChevronRight size={18} strokeWidth={2} className="shrink-0 text-gray-300 dark:text-gray-600" aria-hidden="true" />
               </button>
               {/* Scan bunke — inline next to snap on desktop, full-width below it
                   on mobile; each receipt lands as a draft in the Godkend-kø above. */}
@@ -1202,7 +1202,7 @@ export default function ExpensesPage() {
                 type="button"
                 onClick={triggerBurst}
                 disabled={bursting}
-                className="sm:w-44 shrink-0 min-h-11 flex items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 p-3 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition disabled:opacity-50"
+                className="sm:w-44 shrink-0 min-h-11 flex items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 py-2.5 px-3 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition disabled:opacity-50"
               >
                 <Layers size={16} strokeWidth={1.75} aria-hidden="true" />
                 {bursting ? t("expScanning", "Scanning…") : t("expScanPile", "Scan a pile")}
@@ -1218,6 +1218,7 @@ export default function ExpensesPage() {
           {/* EntryCard — the manual fallback (secondary to the snap tile).
               The detailed disclosure lives inside `extras`. */}
           <EntryCard
+            density="compact"
             title={t("addExpense")}
             hint={t("quickAmountAndGo")}
             amountPresets={QUICK_AMOUNTS}

@@ -261,8 +261,7 @@ export default function InboxBanner({
 
   return (
     <div
-      className="relative rounded-xl border bg-white dark:bg-gray-800
-                 border-gray-200 dark:border-gray-700 p-3.5 sm:p-4 shadow-sm"
+      className={"relative rounded-xl border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 shadow-sm " + (isExpanded ? "p-3.5 sm:p-4" : "px-3.5 py-2 sm:py-2.5")}
       role="region"
       aria-label={t("inboxBannerAria", "Receipt-forwarding email inbox")}
     >
@@ -277,10 +276,7 @@ export default function InboxBanner({
             ? t("inboxCollapse", "Hide receipt inbox details")
             : t("inboxExpand", "Show receipt inbox details")}
           aria-expanded={expanded}
-          className="absolute top-3 right-3 w-8 h-8 rounded-full inline-flex items-center justify-center
-                     hover:bg-black/5 dark:hover:bg-white/10 transition
-                     text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200
-                     focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+          className={"absolute right-3 w-8 h-8 rounded-full inline-flex items-center justify-center hover:bg-black/5 dark:hover:bg-white/10 transition text-gray-400 hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 " + (expanded ? "top-3" : "top-1/2 -translate-y-1/2")}
         >
           {expanded
             ? <ChevronUp className="w-4 h-4" aria-hidden="true" />
@@ -288,7 +284,7 @@ export default function InboxBanner({
         </button>
       )}
 
-      <div className={"flex items-start gap-2.5 " + (heroMode ? "" : "pr-8 sm:pr-10")}>
+      <div className={"flex gap-2.5 " + (isExpanded ? "items-start" : "items-center") + (heroMode ? "" : " pr-8 sm:pr-10")}>
         <div className="shrink-0 p-1.5 rounded-lg bg-gray-50 dark:bg-gray-800/50">
           <Mail className="w-4 h-4 text-gray-700 dark:text-gray-300"
                 strokeWidth={1.75} aria-hidden="true" />
@@ -305,7 +301,7 @@ export default function InboxBanner({
           {/* Alias row — focal element when infra is on; replaced by an
               honest preview when infra is off. Mobile breakpoint stacks
               the [Copy] button below the address. */}
-          {infraEnabled && alias ? (
+          {isExpanded && (infraEnabled && alias ? (
             <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-2">
               <code className="flex-1 min-w-0 truncate font-mono text-[13px]
                                px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-900
@@ -341,7 +337,7 @@ export default function InboxBanner({
                 {t("inboxAliasPreview", "sudip-xyz@in.bonbox.dk")}
               </code>
             </div>
-          )}
+          ))}
 
           {/* Description — hidden in collapsed mode to keep the page un-
               cluttered. The alias + status row above remain visible so the
@@ -392,7 +388,7 @@ export default function InboxBanner({
           )}
 
           {/* Status row — dot + label, optional CTA on the right. */}
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 justify-between">
+          <div className={"flex flex-wrap items-center gap-x-3 gap-y-2 justify-between " + (isExpanded ? "mt-2.5" : "mt-0.5")}>
             <div className="flex items-center gap-2 text-[12.5px]">
               <span
                 className={`w-2 h-2 rounded-full ${
