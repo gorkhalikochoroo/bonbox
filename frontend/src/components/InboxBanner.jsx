@@ -262,7 +262,7 @@ export default function InboxBanner({
   return (
     <div
       className="relative rounded-xl border bg-white dark:bg-gray-800
-                 border-gray-200 dark:border-gray-700 p-4 sm:p-5 shadow-sm"
+                 border-gray-200 dark:border-gray-700 p-3.5 sm:p-4 shadow-sm"
       role="region"
       aria-label={t("inboxBannerAria", "Receipt-forwarding email inbox")}
     >
@@ -288,13 +288,13 @@ export default function InboxBanner({
         </button>
       )}
 
-      <div className={"flex items-start gap-3 " + (heroMode ? "" : "pr-8 sm:pr-10")}>
-        <div className="shrink-0 p-2 rounded-xl bg-gray-50 dark:bg-gray-800/50">
-          <Mail className="w-5 h-5 text-gray-700 dark:text-gray-300"
+      <div className={"flex items-start gap-2.5 " + (heroMode ? "" : "pr-8 sm:pr-10")}>
+        <div className="shrink-0 p-1.5 rounded-lg bg-gray-50 dark:bg-gray-800/50">
+          <Mail className="w-4 h-4 text-gray-700 dark:text-gray-300"
                 strokeWidth={1.75} aria-hidden="true" />
         </div>
         <div className="flex-1 min-w-0">
-          <h3 className="text-[15px] font-semibold text-gray-900 dark:text-gray-100">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
             {heroMode
               ? t("inboxHeroTitle", "{n} new receipt(s) to review", { n: count })
               : infraEnabled
@@ -306,9 +306,9 @@ export default function InboxBanner({
               honest preview when infra is off. Mobile breakpoint stacks
               the [Copy] button below the address. */}
           {infraEnabled && alias ? (
-            <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
-              <code className="flex-1 min-w-0 truncate font-mono text-[13.5px] sm:text-sm
-                               px-3 py-2.5 rounded-lg bg-gray-100 dark:bg-gray-900
+            <div className="mt-2 flex flex-col sm:flex-row sm:items-center gap-2">
+              <code className="flex-1 min-w-0 truncate font-mono text-[13px]
+                               px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-900
                                border border-gray-200 dark:border-gray-700
                                text-gray-900 dark:text-gray-100 select-all">
                 {alias}
@@ -319,8 +319,8 @@ export default function InboxBanner({
                 aria-label={copied
                   ? t("inboxCopied", "Copied!")
                   : t("inboxCopyAria", "Copy receipt inbox address")}
-                className="inline-flex items-center justify-center gap-1.5 min-h-[44px]
-                           px-3.5 py-2 rounded-lg text-[13px] font-semibold
+                className="inline-flex items-center justify-center gap-1.5 min-h-[36px]
+                           px-3 py-1.5 rounded-lg text-[13px] font-semibold
                            bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900
                            hover:bg-gray-700 dark:hover:bg-gray-200 transition
                            focus-visible:outline-none focus-visible:ring-2
@@ -392,7 +392,7 @@ export default function InboxBanner({
           )}
 
           {/* Status row — dot + label, optional CTA on the right. */}
-          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 justify-between">
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 justify-between">
             <div className="flex items-center gap-2 text-[12.5px]">
               <span
                 className={`w-2 h-2 rounded-full ${
