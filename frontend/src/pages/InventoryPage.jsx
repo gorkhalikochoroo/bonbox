@@ -523,7 +523,7 @@ export default function InventoryPage() {
           "Order autopilot" button. It auto-loads "this week's order, ready to
           approve" for Pro; Free/Starter see the upsell card. AI proposes the
           quantities; nothing is sent until the owner taps Godkend og send. */}
-      <InventoryAutopilotPanel hero />
+      <InventoryAutopilotPanel hero onAddSupplier={() => setShowSmartImport(true)} />
 
       {/* Weekly count entry (S4) — now that the recipe auto-deduct keeps stock
           live, the optælling is "confirm only what's off". One tap opens the

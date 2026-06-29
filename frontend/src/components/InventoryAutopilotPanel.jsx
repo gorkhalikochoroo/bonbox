@@ -1,21 +1,39 @@
 /**
  * InventoryAutopilotPanel — Pro-tier inventory reorder autopilot UI.
  *
- * Reads /inventory/autopilot/suggest, renders per-supplier cards with
+ * Reads /inventory/autopilot/suggest, renders per-leverandør cards with
  * editable per-row qty, urgency badges (today/this_week/monitor), and a
- * "Send order" button per supplier. The "Send all" footer ships every
- * pending supplier in one click.
+ * "Send bestilling" button per leverandør. The "Send all" footer ships
+ * every pending leverandør in one click.
  *
- * Mobile-first layout: cards stack on phones, a 2-column grid only kicks
- * in at lg+. The per-row qty input is full-width on phones (44px tap
- * target) and only goes inline on sm+.
+ * Calm state machine (a never-configured account is NOT a five-alarm fire):
+ *   loading      → one quiet "Læser dit lager…" beat.
+ *   locked       → Free/Starter UpgradeNudge (unchanged).
+ *   not-set-up   → an activation hero, not a warning wall. Fires when the
+ *                  autopilot can't do anything useful yet — no leverandør
+ *                  email AND no cost on any vare. One calm Truck tile + one
+ *                  primary tap (add your varer + priser) + a collapsed,
+ *                  de-amber'd "what's running low" peek. No confidence chip,
+ *                  no disabled Send, no 23-card grid, no amber wall.
+ *   ready        → leverandør-grouped cards + Send / Send-all (unchanged).
+ *   all-healthy  → calm "intet at bestille".
+ *
+ * The old uncapped amber compliance_warnings <ul> is gone: real risk is
+ * summarised from the structured items[].notes[] tags into one quiet,
+ * collapsible row BELOW the cards (status colour is a 6px dot, never a
+ * canvas). Confidence is shown ONLY when there is real history.
+ *
+ * Honesty: suggest is read-only (auto-runs in hero); apply is the only
+ * write/send and always needs an explicit tap. The not-set-up CTA only
+ * routes the owner to where leverandør/pris is set — it never emails anyone.
  *
  * Tier-gated client-side (UpgradeNudge for non-Pro), but the backend is
  * the source of truth — every /autopilot/* endpoint also enforces the
  * Pro tier gate via _enforce_inventory_autopilot_tier().
  *
- * No emojis except the small "📦" panel icon (matches the brand style).
- * UI strings translatable via t() with English/Danish fallbacks.
+ * Lucide outline icons only (no emoji chrome). UI strings translatable via
+ * t() with English/Danish fallbacks; DK trade terms (leverandør, bestilling,
+ * lager, vareforbrug, letfordærvelig) stay Danish in every language.
  */
 import { useState, useMemo, useEffect } from "react";
 import api from "../services/api";
@@ -91,6 +109,160 @@ function ConfidenceBadge({ confidence, t }) {
 }
 
 
+// ─── Warning summary (replaces the old uncapped amber <ul>) ───────────
+//
+// Tallies the structured items[].notes[] tags into at most three quiet
+// rows. Status colour is a 6px DOT only — never a card/banner fill.
+// Collapsed by default; expanding reveals the affected vare names (capped,
+// with "+n flere"). 'no_supplier_email' is deliberately excluded — in
+// not-set-up it IS the headline, and on a real card it's the per-card note.
+const WARN_TAGS = [
+  { key: "late_for_lead_time", labelKey: "inventoryAutopilotWarnLate", labelFallback: "Ordered late for lead time", dot: "bg-red-500" },
+  { key: "perishable_waste_risk", labelKey: "inventoryAutopilotWarnPerishable", labelFallback: "Letfordærvelig — verify before bestilling", dot: "bg-amber-500" },
+  { key: "low_history", labelKey: "inventoryAutopilotWarnLowHistory", labelFallback: "Thin data", dot: "bg-gray-400" },
+];
+
+function WarningSummaryRow({ warn, t }) {
+  const [open, setOpen] = useState(false);
+  const active = WARN_TAGS.filter((tag) => (warn[tag.key]?.length || 0) > 0);
+  if (!active.length) return null;
+
+  const label = (tag) =>
+    t(tag.labelKey, tag.labelFallback).replace("{n}", String(warn[tag.key].length));
+
+  return (
+    <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2 text-left text-[13px] text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 transition"
+      >
+        <Icon
+          name={open ? "ChevronDown" : "ChevronRight"}
+          size={15}
+          className="shrink-0 text-gray-400"
+        />
+        <span className="font-medium text-gray-700 dark:text-gray-300">
+          {t("inventoryAutopilotWarnNote", "Bemærk")}
+        </span>
+        <span className="min-w-0 truncate text-gray-500 dark:text-gray-400">
+          {active
+            .map((tag) => (
+              <span key={tag.key} className="whitespace-nowrap">
+                <span className={"inline-block w-1.5 h-1.5 rounded-full align-middle mr-1 " + tag.dot} />
+                {label(tag)}
+              </span>
+            ))
+            .reduce((acc, el, i) => (i === 0 ? [el] : [...acc, " · ", el]), [])}
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-2.5 space-y-2.5 pl-6">
+          {active.map((tag) => {
+            const names = warn[tag.key];
+            const shown = names.slice(0, 8);
+            const extra = names.length - shown.length;
+            return (
+              <div key={tag.key}>
+                <div className="flex items-center gap-1.5 text-xs font-medium text-gray-700 dark:text-gray-300">
+                  <span className={"w-1.5 h-1.5 rounded-full " + tag.dot} />
+                  {label(tag)}
+                </div>
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                  {shown.join(", ")}
+                  {extra > 0 && (
+                    <span className="text-gray-400 dark:text-gray-500">
+                      {" "}
+                      {t("inventoryAutopilotMoreNames", "+{n} more").replace("{n}", String(extra))}
+                    </span>
+                  )}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ─── Not-set-up hero — the calm activation state ──────────────────────
+function NotSetUpHero({ suggestion, onAddSupplier, t }) {
+  const [showRisk, setShowRisk] = useState(false);
+  const items = suggestion?.items || [];
+  const total = suggestion?.basis?.items_total ?? items.length;
+  const withSupplier = items.filter((i) => i.supplier_email).length;
+  const atRisk = [...items].sort(
+    (a, b) =>
+      (URGENCY[a.urgency]?.sortRank ?? 9) - (URGENCY[b.urgency]?.sortRank ?? 9) ||
+      String(a.name || "").localeCompare(String(b.name || "")),
+  );
+
+  return (
+    <div className="px-2 sm:px-4 py-8 text-center">
+      <span className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 mb-4">
+        <Icon name="Truck" size={26} />
+      </span>
+      <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 max-w-sm mx-auto leading-snug">
+        {t("inventoryAutopilotNotSetupHeadline", "Add a leverandør and autopilot drafts the order")}
+      </h3>
+      <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto leading-relaxed">
+        {t(
+          "inventoryAutopilotNotSetupBody",
+          "BonBox can already see what's running low. To draft a bestilling you approve in one tap, it just needs who you buy from and roughly what it costs — add a leverandør and price to your varer and the order writes itself. Nothing is sent until you tap.",
+        )}
+      </p>
+      <div className="mt-5">
+        <Button variant="primary" onClick={onAddSupplier}>
+          {t("inventoryAutopilotNotSetupCta", "Add leverandør to your varer")}
+        </Button>
+      </div>
+      <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
+        {t("inventoryAutopilotNotSetupMeta", "{total} varer in lager · {with} with a leverandør")
+          .replace("{total}", String(total))
+          .replace("{with}", String(withSupplier))}
+      </p>
+
+      {atRisk.length > 0 && (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setShowRisk((v) => !v)}
+            className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition"
+          >
+            <Icon name={showRisk ? "ChevronDown" : "ChevronRight"} size={13} className="text-gray-400" />
+            {t("inventoryAutopilotSeeAtRisk", "See what's running low ({n} varer)").replace(
+              "{n}",
+              String(atRisk.length),
+            )}
+          </button>
+          {showRisk && (
+            <ul className="mt-2 max-w-sm mx-auto text-left divide-y divide-gray-100 dark:divide-gray-800 rounded-lg border border-gray-100 dark:border-gray-800">
+              {atRisk.map((it) => (
+                <li key={it.item_id} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className={"w-1.5 h-1.5 rounded-full shrink-0 " + (URGENCY[it.urgency]?.dot || "bg-gray-400")} />
+                    <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{it.name}</span>
+                  </span>
+                  {it.days_until_stockout != null && (
+                    <span className="text-[11px] text-gray-400 dark:text-gray-500 shrink-0 tabular-nums">
+                      {t("inventoryAutopilotStockoutIn", "Out in")} {it.days_until_stockout}{" "}
+                      {t("inventoryAutopilotDays", "days")}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency }) {
   const hasEmail = !!group.supplier_email;
   const groupItems = group.items;
@@ -103,7 +275,7 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
               {group.supplier_name ||
                 group.supplier_email ||
-                t("inventoryAutopilotNoSupplier", "No supplier set")}
+                t("inventoryAutopilotNoSupplier", "No leverandør set")}
             </h3>
             <UrgencyBadge urgency={group.urgency} t={t} />
           </div>
@@ -115,7 +287,7 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
             <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
               {t(
                 "inventoryAutopilotAddSupplier",
-                "Add a supplier email on these items to send an order",
+                "Add a leverandør email on these varer to send a bestilling",
               )}
             </p>
           )}
@@ -193,7 +365,7 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
         })}
       </ul>
 
-      {/* Send order — disabled when no supplier email or when sending */}
+      {/* Send bestilling — disabled when no leverandør email or when sending */}
       <div className="mt-4 flex items-center justify-end gap-2 flex-wrap">
         <Button
           variant="primary"
@@ -202,7 +374,7 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
         >
           {sending
             ? t("inventoryAutopilotSending", "Sending…")
-            : t("inventoryAutopilotSendOrder", "Send order")}
+            : t("inventoryAutopilotSendOrder", "Send bestilling")}
         </Button>
       </div>
     </Card>
@@ -210,7 +382,7 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
 }
 
 
-export default function InventoryAutopilotPanel({ branchId = null, onClose, hero = false }) {
+export default function InventoryAutopilotPanel({ branchId = null, onClose, hero = false, onAddSupplier = null }) {
   const { t } = useLanguage();
   const { user } = useAuth();
   const { hasFeature, loading: entLoading } = useEntitlements();
@@ -380,6 +552,40 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
     return n;
   }, [visibleSuppliers]);
 
+  // ─── Derived state for the calm state machine ───────────────────────
+  const sendableSupplierCount = useMemo(
+    () => visibleSuppliers.filter((g) => g.supplier_email).length,
+    [visibleSuppliers],
+  );
+  // Honest confidence: only when there is real history behind the number.
+  const hasHistory = (suggestion?.basis?.items_with_history || 0) > 0;
+  // Any cost data at all → the autopilot can at least estimate/group, so we
+  // leave the not-set-up hero and show the (de-walled) grouped suggestions.
+  const hasAnyCost = useMemo(
+    () => (suggestion?.items || []).some((i) => (i.cost_per_unit || 0) > 0),
+    [suggestion],
+  );
+  // Truly nothing actionable yet: can't send (no leverandør email) AND can't
+  // even estimate (no cost). This is the calm activation hero, not an alarm.
+  const isNotSetUp = !!suggestion && sendableSupplierCount === 0 && !hasAnyCost;
+
+  // Tally structured note tags → at most three quiet summary rows.
+  const warn = useMemo(() => {
+    const tags = { late_for_lead_time: [], perishable_waste_risk: [], low_history: [] };
+    for (const it of suggestion?.items || []) {
+      for (const n of it.notes || []) {
+        if (n in tags) tags[n].push(it.name);
+      }
+    }
+    return tags;
+  }, [suggestion]);
+
+  const handleAddSupplier =
+    onAddSupplier ||
+    (() => {
+      document.getElementById("inventory-items-table")?.scrollIntoView({ behavior: "smooth" });
+    });
+
   // ─── Locked render (Free / Starter) ─────────────────────────────────
   if (!entLoading && !isUnlocked) {
     return (
@@ -391,7 +597,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {t(
               "inventoryAutopilotIntro",
-              "BonBox reads 8 weeks of consumption + the weather forecast and proposes one order per supplier.",
+              "BonBox reads 8 weeks of vareforbrug + the weather forecast and proposes one bestilling per leverandør.",
             )}
           </p>
         </div>
@@ -400,7 +606,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
           tier="pro"
           benefit={t(
             "inventoryAutopilotUpgradeBenefit",
-            "One tap: BonBox emails every supplier the right order at the right time",
+            "One tap: BonBox emails every leverandør the right bestilling at the right time",
           )}
           ctaLabel={t("seePlans", "See plans")}
           icon={<Icon name="Package" size={28} />}
@@ -408,6 +614,10 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
       </Card>
     );
   }
+
+  // Header controls (horizon + refresh) only make sense for an active /
+  // ready suggestion — hidden during loading and in the not-set-up hero.
+  const showControls = !loading && !isNotSetUp;
 
   // ─── Pro render ────────────────────────────────────────────────────
   return (
@@ -417,43 +627,47 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {t("inventoryAutopilotHeading", "Order autopilot")}
           </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {t(
-              "inventoryAutopilotSubtitle",
-              "Suggestions grouped by supplier. Edit qty before sending.",
-            )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <label className="text-xs text-gray-500 dark:text-gray-400">
-            {t("inventoryAutopilotHorizon", "Horizon")}
-          </label>
-          <select
-            value={daysAhead}
-            onChange={(e) => setDaysAhead(parseInt(e.target.value, 10) || 7)}
-            className="h-9 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
-          >
-            <option value={7}>7 {t("inventoryAutopilotDays", "days")}</option>
-            <option value={14}>14 {t("inventoryAutopilotDays", "days")}</option>
-            <option value={30}>30 {t("inventoryAutopilotDays", "days")}</option>
-          </select>
-          <Button
-            variant={suggestion ? "secondary" : "primary"}
-            onClick={fetchSuggestion}
-            disabled={loading}
-          >
-            {loading
-              ? t("inventoryAutopilotLoading", "Calculating…")
-              : suggestion
-                ? t("inventoryAutopilotRefresh", "Refresh")
-                : t("inventoryAutopilotRun", "Run autopilot")}
-          </Button>
-          {onClose && (
-            <Button variant="ghost" onClick={onClose}>
-              {t("close", "Close")}
-            </Button>
+          {!isNotSetUp && (
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              {t(
+                "inventoryAutopilotSubtitle",
+                "Suggestions grouped by leverandør. Edit qty before sending — nothing is sent until you tap.",
+              )}
+            </p>
           )}
         </div>
+        {showControls && (
+          <div className="flex items-center gap-2 shrink-0">
+            <label className="text-xs text-gray-500 dark:text-gray-400">
+              {t("inventoryAutopilotHorizon", "Horizon")}
+            </label>
+            <select
+              value={daysAhead}
+              onChange={(e) => setDaysAhead(parseInt(e.target.value, 10) || 7)}
+              className="h-9 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+            >
+              <option value={7}>7 {t("inventoryAutopilotDays", "days")}</option>
+              <option value={14}>14 {t("inventoryAutopilotDays", "days")}</option>
+              <option value={30}>30 {t("inventoryAutopilotDays", "days")}</option>
+            </select>
+            <Button
+              variant={suggestion ? "secondary" : "primary"}
+              onClick={fetchSuggestion}
+              disabled={loading}
+            >
+              {loading
+                ? t("inventoryAutopilotLoading", "Calculating…")
+                : suggestion
+                  ? t("inventoryAutopilotRefresh", "Refresh")
+                  : t("inventoryAutopilotRun", "Run autopilot")}
+            </Button>
+            {onClose && (
+              <Button variant="ghost" onClick={onClose}>
+                {t("close", "Close")}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -467,20 +681,27 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
         </div>
       )}
 
-      {suggestion && (
+      {loading ? (
+        <div className="px-4 py-12 text-center">
+          <p className="text-sm text-gray-500 dark:text-gray-400 animate-pulse">
+            {t("inventoryAutopilotLoadingLager", "Reading your lager…")}
+          </p>
+        </div>
+      ) : isNotSetUp ? (
+        <NotSetUpHero suggestion={suggestion} onAddSupplier={handleAddSupplier} t={t} />
+      ) : suggestion ? (
         <>
-          {/* Basis chip — confidence + weather + lookback */}
+          {/* Basis chip — confidence (only with real history) + weather + counts */}
           <div className="mb-4 flex items-center gap-3 flex-wrap text-xs text-gray-500 dark:text-gray-400">
-            <ConfidenceBadge confidence={suggestion.confidence} t={t} />
-            <span>•</span>
+            {hasHistory && <ConfidenceBadge confidence={suggestion.confidence} t={t} />}
+            {hasHistory && <span>•</span>}
             <span>
               {t("inventoryAutopilotItemsFlagged", "Items flagged")}:{" "}
               {suggestion.items?.length || 0}
             </span>
             <span>•</span>
             <span>
-              {t("inventoryAutopilotSuppliers", "Suppliers")}:{" "}
-              {visibleSuppliers.filter((g) => g.supplier_email).length}
+              {t("inventoryAutopilotSuppliers", "Leverandører")}: {sendableSupplierCount}
             </span>
             {suggestion.basis?.weather_used ? (
               <>
@@ -490,25 +711,11 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
             ) : null}
           </div>
 
-          {/* Compliance warnings */}
-          {suggestion.compliance_warnings?.length > 0 && (
-            <div className="mb-4 px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-sm text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800">
-              <p className="font-medium mb-1">
-                {t("inventoryAutopilotWarnings", "Heads up")}
-              </p>
-              <ul className="list-disc pl-5 space-y-0.5">
-                {suggestion.compliance_warnings.map((w, idx) => (
-                  <li key={idx} className="text-xs">{w}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
           {visibleSuppliers.length === 0 ? (
             <div className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
               {t(
                 "inventoryAutopilotEmpty",
-                "Nothing to reorder — your shelves look healthy.",
+                "Your lager looks healthy — autopilot is watching and will flag varer before they run out.",
               )}
             </div>
           ) : (
@@ -528,13 +735,13 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
             </div>
           )}
 
-          {/* Send all footer — only visible when at least one supplier has email */}
+          {/* Send all footer — only visible when at least one leverandør has email */}
           {totalPending > 0 && (
             <div className="mt-5 flex items-center justify-between gap-3 flex-wrap pt-4 border-t border-gray-200 dark:border-gray-800">
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 {t(
                   "inventoryAutopilotSendAllHint",
-                  "Sends one consolidated email per supplier.",
+                  "Sends one consolidated email per leverandør.",
                 )}
               </p>
               <Button
@@ -548,10 +755,11 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
               </Button>
             </div>
           )}
-        </>
-      )}
 
-      {!suggestion && !loading && (
+          {/* Quiet, collapsible risk summary — never an amber wall */}
+          <WarningSummaryRow warn={warn} t={t} />
+        </>
+      ) : (
         <div className="px-4 py-8 text-center">
           <Icon name="Package" size={36} className="mx-auto text-gray-400 mb-3" />
           <p className="text-sm text-gray-600 dark:text-gray-300">
