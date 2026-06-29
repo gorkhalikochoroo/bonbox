@@ -2857,6 +2857,7 @@ const translations = {
     setupCategories: "Set Up Categories",
     // Inventory
     inventoryMonitor: "Inventory Monitor", lowStockAlerts: "Low Stock Alerts", itemsBelowMinStock: "items below min stock",
+    countTitle: "Optælling", countCardTitle: "Weekly stock count", countCardSub: "BonBox keeps your stock live from sales — confirm it on the shelf.", countStart: "Start count", countProgress: "Item {n} of {total}", countRemaining: "{n} left", countDoneTitle: "Stock updated", countDoneNoChange: "All matched — nothing adjusted", countDoneAdjusted: "{n} items adjusted", countStockValue: "Lagerværdi", countSendRevisor: "Download stock report for revisor", countCloseDone: "Done", countEmpty: "No items to count yet.", countAiCounted: "AI estimated — confirm or fix", countBlind: "Count on the shelf", countMinus: "Fewer", countPlus: "More", countQty: "Quantity", countPrefilled: "BonBox suggested {n} {u}", countConfirmNext: "Correct · next", countConfirmFinish: "Correct · finish", countSkip: "Skip", countFinishEarly: "Finish count",
     addItem: "Add Item", itemName: "Item name", quantity: "Quantity", unit: "Unit",
     costPerUnit: "Cost/Unit", threshold: "Threshold",
     pieces: "Pieces", kg: "Kg", liters: "Liters", boxes: "Boxes",
@@ -9539,6 +9540,7 @@ const translations = {
     setupCategories: "Opret kategorier",
     // Inventory
     inventoryMonitor: "Lageroversigt", lowStockAlerts: "Advarsler om lav beholdning", itemsBelowMinStock: "varer under minimum",
+    countTitle: "Optælling", countCardTitle: "Ugentlig optælling", countCardSub: "BonBox holder dit lager opdateret fra salget — bekræft det på hylden.", countStart: "Start optælling", countProgress: "Vare {n} af {total}", countRemaining: "{n} tilbage", countDoneTitle: "Lager opdateret", countDoneNoChange: "Alt stemte — intet justeret", countDoneAdjusted: "{n} varer justeret", countStockValue: "Lagerværdi", countSendRevisor: "Hent lagerrapport til revisor", countCloseDone: "Færdig", countEmpty: "Ingen varer at tælle endnu.", countAiCounted: "AI har beregnet — bekræft eller ret", countBlind: "Tæl på hylden", countMinus: "Færre", countPlus: "Flere", countQty: "Antal", countPrefilled: "BonBox foreslog {n} {u}", countConfirmNext: "Stemmer · næste", countConfirmFinish: "Stemmer · afslut", countSkip: "Spring over", countFinishEarly: "Afslut optælling",
     addItem: "Tilføj vare", itemName: "Varenavn", quantity: "Antal", unit: "Enhed",
     costPerUnit: "Pris/enhed", threshold: "Grænseværdi",
     pieces: "Styk", kg: "Kg", liters: "Liter", boxes: "Kasser",

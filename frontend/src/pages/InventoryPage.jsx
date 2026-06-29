@@ -22,6 +22,8 @@ import DismissibleTip from "../components/DismissibleTip";
 import SmartImportModal from "../components/SmartImportModal";
 import InventoryConsumptionModal from "../components/InventoryConsumptionModal";
 import InventoryAutopilotPanel from "../components/InventoryAutopilotPanel";
+import CountRitual from "../components/CountRitual";
+import { ClipboardCheck as ClipboardCheckIcon, ArrowRight as ArrowRightIcon } from "lucide-react";
 import SmartPricingModal from "../components/SmartPricingModal";
 import { localIso } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
@@ -84,6 +86,7 @@ export default function InventoryPage() {
   const { hasFeature: _hasFeatureAutopilot } = useEntitlements();
   // showAutopilot removed — the autopilot panel is now the always-on hero
   // at the top of the page (rendered with the `hero` prop), not a toggle.
+  const [countOpen, setCountOpen] = useState(false);
   const [items, setItems] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -521,6 +524,38 @@ export default function InventoryPage() {
           approve" for Pro; Free/Starter see the upsell card. AI proposes the
           quantities; nothing is sent until the owner taps Godkend og send. */}
       <InventoryAutopilotPanel hero />
+
+      {/* Weekly count entry (S4) — now that the recipe auto-deduct keeps stock
+          live, the optælling is "confirm only what's off". One tap opens the
+          guided ritual; it writes back in one call via /count/reconcile. */}
+      <button
+        type="button"
+        onClick={() => setCountOpen(true)}
+        className="w-full text-left flex items-center gap-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
+      >
+        <span className="shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+          <ClipboardCheckIcon size={20} strokeWidth={1.75} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[15px] font-semibold text-gray-900 dark:text-gray-100">
+            {t("countCardTitle", "Ugentlig optælling")}
+          </span>
+          <span className="block text-sm text-gray-500 dark:text-gray-400">
+            {t("countCardSub", "BonBox holder dit lager opdateret fra salget — bekræft det på hylden.")}
+          </span>
+        </span>
+        <span className="shrink-0 hidden sm:inline-flex items-center gap-1.5 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 px-3 py-2 text-sm font-semibold">
+          {t("countStart", "Start optælling")}
+          <ArrowRightIcon size={15} strokeWidth={2} aria-hidden="true" />
+        </span>
+      </button>
+
+      <CountRitual
+        open={countOpen}
+        items={items}
+        onClose={() => setCountOpen(false)}
+        onDone={() => fetchData()}
+      />
 
       <SmartImportModal
         open={showSmartImport}

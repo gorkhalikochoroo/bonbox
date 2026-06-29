@@ -318,6 +318,121 @@ def create_log(
     return log
 
 
+# ── Optælling (stock count) — bulk reconcile ─────────────────────────────
+class _CountReconcileLine(BaseModel):
+    item_id: uuid.UUID
+    counted_qty: float = Field(..., ge=0, le=1_000_000)
+
+
+class _CountReconcileBody(BaseModel):
+    # Cap lines per count — a café/restaurant has well under 1000 SKUs; this
+    # is a bulk-write guardrail, not a real limit.
+    lines: list[_CountReconcileLine] = Field(..., min_length=1, max_length=1000)
+
+
+@router.post("/count/reconcile")
+@_limiter.limit("6/minute")
+def inventory_count_reconcile(
+    request: Request,
+    body: _CountReconcileBody,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Commit a weekly/monthly stock count (optælling) in ONE call — the
+    write-back for the count ritual. For each line: set item.quantity :=
+    counted_qty (the owner's physical count is the only stored TRUTH) and write
+    ONE InventoryLog reason='optælling' with change_qty = counted − previous,
+    so the drift between the computed on-hand and the real shelf is inspectable.
+
+    Returns the count, the adjusted lines, and the new lagerværdi (stock value)
+    for the month-end "Send til revisor" hand-off.
+
+    Multi-barrier (accountant-facing money/stock surface):
+      L1 — auth (get_current_user)
+      L2 — Pydantic bounds (≤1000 lines, counted_qty in [0, 1e6])
+      L3 — SlowAPI rate limit (6/min per IP)
+      L4 — strict tenant scope: only the caller's own items are touched;
+           foreign / unknown ids are silently skipped (no cross-tenant write,
+           no error leak)
+      L5 — audit row (inventory.counted) for the owner + revisor trail
+      L6 — honest value: lagerværdi sums quantity×cost across ALL items, not
+           just the counted subset
+    """
+    ids = [ln.item_id for ln in body.lines]
+    owned = {
+        i.id: i
+        for i in db.query(InventoryItem)
+        .filter(InventoryItem.user_id == user.id, InventoryItem.id.in_(ids))
+        .all()
+    }
+
+    today = date.today()
+    batch = f"count:{today.isoformat()}"
+    adjustments: list[dict] = []
+    reconciled = 0
+    for ln in body.lines:
+        item = owned.get(ln.item_id)
+        if not item:
+            continue  # not the caller's item → skip, never write cross-tenant
+        prev = round(float(item.quantity or 0), 2)
+        counted = round(float(ln.counted_qty), 2)
+        item.quantity = counted
+        reconciled += 1
+        delta = round(counted - prev, 2)
+        if delta != 0:
+            db.add(
+                InventoryLog(
+                    item_id=item.id,
+                    change_qty=delta,
+                    reason="optælling",
+                    date=today,
+                    batch_id=batch,
+                )
+            )
+            adjustments.append(
+                {
+                    "item_id": str(item.id),
+                    "name": item.name,
+                    "from": prev,
+                    "to": counted,
+                    "delta": delta,
+                    "unit": item.unit,
+                }
+            )
+
+    # Lagerværdi across the WHOLE stock (not just counted lines).
+    stock_value = 0.0
+    for i in (
+        db.query(InventoryItem).filter(InventoryItem.user_id == user.id).all()
+    ):
+        stock_value += float(i.quantity or 0) * float(i.cost_per_unit or 0)
+    stock_value = round(stock_value, 2)
+
+    audit_service.record(
+        db,
+        user=user,
+        action="inventory.counted",
+        entity_type="inventory",
+        entity_id=None,
+        after={
+            "reconciled": reconciled,
+            "adjusted": len(adjustments),
+            "stock_value": stock_value,
+        },
+        ip_address=getattr(request.client, "host", None)
+        if request and request.client
+        else None,
+    )
+    db.commit()
+    return {
+        "reconciled": reconciled,
+        "adjusted": len(adjustments),
+        "adjustments": adjustments,
+        "stock_value": stock_value,
+        "counted_at": today.isoformat(),
+    }
+
+
 # ── Dead Stock Detection ──────────────────────────────────
 
 @router.get("/dead-stock")
