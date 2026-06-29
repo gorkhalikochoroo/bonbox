@@ -6,7 +6,7 @@ misread digit means wrong money. It runs the Anthropic Messages call
 twice at most:
 
   1. ACCURACY_MODEL  (claude-opus-4-8) — the premium accuracy tier.
-  2. DEFAULT_MODEL   (claude-sonnet-4-5) — on ANY exception from step 1,
+  2. DEFAULT_MODEL   (claude-sonnet-4-6) — on ANY exception from step 1,
      log a warning and retry the EXACT same call once.
 
 So a model outage / 404 / rate-limit on Opus degrades to today's exact
@@ -71,7 +71,7 @@ def call_with_fallback(
     # tier passes PREMIUM_MODEL → DEFAULT_MODEL. Existing OCR callers pass
     # neither, so their behavior is 100% unchanged.
     primary = _primary or getattr(settings, "ACCURACY_MODEL", "claude-opus-4-8")
-    fallback = _fallback or getattr(settings, "DEFAULT_MODEL", "claude-sonnet-4-5")
+    fallback = _fallback or getattr(settings, "DEFAULT_MODEL", "claude-sonnet-4-6")
 
     # Never let a stray caller-supplied model override the tier policy.
     kwargs.pop("model", None)

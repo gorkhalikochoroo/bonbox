@@ -35,9 +35,9 @@ _MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 
 # Default model + token budget — keep the same family as inventory so
 # we benefit from one model upgrade across all vision flows.
-# claude-sonnet-4-5 — reverted from claude-opus-4-7 (404 from Anthropic;
+# claude-sonnet-4-6 — reverted from claude-opus-4-7 (404 from Anthropic;
 # that identifier doesn't exist).
-_DEFAULT_MODEL = "claude-sonnet-4-5"
+_DEFAULT_MODEL = "claude-sonnet-4-6"
 _DEFAULT_MAX_TOKENS = 2000
 
 

@@ -16,7 +16,7 @@ Public surface:
   extract_text(text: str) -> list[dict]
   extract_csv(data: bytes) -> list[dict]
   extract_excel(data: bytes) -> list[dict]
-  extract_image(data: bytes, *, model='claude-sonnet-4-5') -> tuple[list[dict], dict]
+  extract_image(data: bytes, *, model='claude-sonnet-4-6') -> tuple[list[dict], dict]
 
 Each extractor returns items shaped like:
   {"name": str, "qty": float|None, "unit": str|None, "category": str|None}
@@ -435,7 +435,7 @@ def _image_tool_schema() -> dict:
 def extract_image(
     data: bytes,
     *,
-    model: str = "claude-sonnet-4-5",
+    model: str = "claude-sonnet-4-6",
     max_tokens: int = 4000,
     timeout: float = 60.0,
     media_type: str = "image/jpeg",
