@@ -10,6 +10,7 @@ from app.schemas.budget import (
     BudgetBulkUpsert, BudgetResponse, BudgetSummaryResponse, BudgetCategorySummary,
 )
 from app.services.auth import get_current_user
+from app.services.expense_status import not_pending
 
 router = APIRouter()
 
@@ -92,6 +93,7 @@ def get_budget_summary(
             Expense.is_deleted.isnot(True),
             extract("year", Expense.date) == int(year),
             extract("month", Expense.date) == int(mo),
+            not_pending(),
         )
         .group_by(ExpenseCategory.name)
         .all()

@@ -31,6 +31,7 @@ from app.models.staffing import StaffingRule
 from app.models.business_profile import BusinessProfile
 from app.services import audit_service
 from app.services.auth import get_current_user
+from app.services.expense_status import not_pending
 from app.services.billing import effective_plan, get_cap
 from app.services.tax_filing_pdf import (
     build_moms_filing_pdf, compute_filing_data, make_bilagsnummer,
@@ -289,7 +290,7 @@ def daily_kasserapport(
     # Expenses for the day
     total_expenses = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date == d, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date == d, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
 
@@ -357,7 +358,7 @@ def monthly_report(
     # Total expenses (exclude personal and deleted)
     total_expenses = (
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
 
@@ -365,7 +366,7 @@ def monthly_report(
     expense_breakdown = (
         db.query(ExpenseCategory.name, ExpenseCategory.color, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
-        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .group_by(ExpenseCategory.name, ExpenseCategory.color)
         .order_by(func.sum(Expense.amount).desc())
         .all()
@@ -565,7 +566,7 @@ def monthly_report_pdf(
     )
     total_expenses = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
     # Previous month for comparison
@@ -584,7 +585,7 @@ def monthly_report_pdf(
     )
     prev_expenses = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date.between(prev_start, prev_end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date.between(prev_start, prev_end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
     rev_change = round(((total_revenue - prev_revenue) / prev_revenue) * 100, 1) if prev_revenue > 0 else 0
@@ -593,7 +594,7 @@ def monthly_report_pdf(
     expense_breakdown = (
         db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
-        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .group_by(ExpenseCategory.name)
         .order_by(func.sum(Expense.amount).desc())
         .all()
@@ -1175,14 +1176,14 @@ def _get_vat_data(db, user, start, end):
     )
     expenses_total = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date >= start, Expense.date < end, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), Expense.is_tax_exempt.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date >= start, Expense.date < end, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), Expense.is_tax_exempt.isnot(True), not_pending())
         .scalar()
     )
     # Expense breakdown by category
     expense_breakdown = (
         db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
-        .filter(Expense.user_id == user.id, Expense.date >= start, Expense.date < end, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), Expense.is_tax_exempt.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date >= start, Expense.date < end, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), Expense.is_tax_exempt.isnot(True), not_pending())
         .group_by(ExpenseCategory.name)
         .order_by(func.sum(Expense.amount).desc())
         .all()
@@ -1545,7 +1546,7 @@ def report_overview(
     # Expenses (exclude personal and deleted)
     total_expenses = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
 
@@ -1673,7 +1674,7 @@ def custom_report_pdf(
     )
     total_expenses = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
     vat_rate = get_vat_rate(user.currency or "DKK")
@@ -1903,7 +1904,7 @@ def custom_report_pdf(
         expense_breakdown = (
             db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
             .join(Expense, Expense.category_id == ExpenseCategory.id)
-            .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+            .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
             .group_by(ExpenseCategory.name)
             .order_by(func.sum(Expense.amount).desc())
             .all()
@@ -2082,7 +2083,7 @@ def custom_report_pdf(
         expense_breakdown_vat = (
             db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
             .join(Expense, Expense.category_id == ExpenseCategory.id)
-            .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), Expense.is_tax_exempt.isnot(True))
+            .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), Expense.is_tax_exempt.isnot(True), not_pending())
             .group_by(ExpenseCategory.name)
             .order_by(func.sum(Expense.amount).desc())
             .all()

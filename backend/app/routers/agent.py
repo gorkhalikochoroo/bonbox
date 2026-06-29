@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.services.auth import get_current_user
+from app.services.expense_status import not_pending
 from app.models import User
 from app.config import settings
 from app.services.agent_tools import (
@@ -770,7 +771,8 @@ async def _claude_chat(req: ChatRequest, db, user):
         db.query(sa_func.coalesce(sa_func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user.id, Expense.is_deleted.isnot(True),
                 Expense.is_personal.isnot(True),
-                Expense.date >= month_start, Expense.date <= today)
+                Expense.date >= month_start, Expense.date <= today,
+                not_pending())
         .scalar()
     )
     month_exp = float(month_exp_agg)

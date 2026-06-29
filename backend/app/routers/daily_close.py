@@ -42,6 +42,7 @@ from app.models.kasserapport import KasserapportExtraction
 from app.schemas.daily_close import DailyCloseCreate, DailyCloseResponse, DailyCloseUnlock
 from app.services.auth import get_current_user
 from app.services.billing import effective_plan, get_cap, has_feature, record_feature_skip
+from app.services.expense_status import not_pending
 from app.services.receipt_ocr import save_receipt_photo, parse_z_report
 from app.services.daily_close_range_export import (
     build_daily_close_range_pdf,
@@ -1586,6 +1587,7 @@ def prefill_daily_close(
             Expense.date == target_date,
             Expense.is_deleted.isnot(True),
             Expense.is_personal.isnot(True),
+            not_pending(),
         )
     )
     if branch_id:

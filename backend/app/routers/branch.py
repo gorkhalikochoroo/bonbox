@@ -25,6 +25,7 @@ from app.database import get_db
 from app.routers.auth import get_current_user
 from app.services.billing import at_cap, get_cap, effective_plan
 from app.services.consolidated_close import aggregate_branches
+from app.services.expense_status import not_pending
 from app.models.user import User
 from app.models.branch import Branch
 from app.models.sale import Sale
@@ -90,6 +91,7 @@ def list_branches(
             exp = db.query(func.coalesce(func.sum(Expense.amount), 0)).filter(
                 Expense.user_id == current_user.id, Expense.branch_id == b.id,
                 Expense.is_deleted.isnot(True), Expense.is_personal.isnot(True),
+                not_pending(),
             ).scalar() or 0
 
             inv_count = db.query(func.count(InventoryItem.id)).filter(
@@ -279,6 +281,7 @@ def branch_summary(
                 Expense.user_id == current_user.id, Expense.branch_id == b.id,
                 Expense.date >= month_start,
                 Expense.is_deleted.isnot(True), Expense.is_personal.isnot(True),
+                not_pending(),
             ).scalar() or 0)
         except Exception as e:
             log.warning("branch_summary: per-branch query failed for %s: %s", b.id, e)
@@ -308,6 +311,7 @@ def branch_summary(
             Expense.user_id == current_user.id, Expense.branch_id.is_(None),
             Expense.date >= month_start,
             Expense.is_deleted.isnot(True), Expense.is_personal.isnot(True),
+            not_pending(),
         ).scalar() or 0)
     except Exception as e:
         log.warning("branch_summary: unassigned query failed: %s", e)

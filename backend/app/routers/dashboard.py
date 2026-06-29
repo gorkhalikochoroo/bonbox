@@ -18,6 +18,7 @@ from app.models.budget import Budget
 from app.models.business_profile import BusinessProfile
 from app.schemas.dashboard import DashboardSummary, BenchmarkResponse, BenchmarkMetric
 from app.services.auth import get_current_user
+from app.services.expense_status import not_pending
 from app.services.prediction import get_staffing_recommendations
 from app.services.daily_brief import get_or_create_brief
 from app.services.daily_brief_email import send_brief_to_user
@@ -229,7 +230,7 @@ def get_dashboard_batch(
     month_exp = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.date <= month_end,
-                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
     month_profit = month_rev - month_exp
@@ -239,7 +240,7 @@ def get_dashboard_batch(
         db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
         .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.date <= month_end,
-                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .group_by(ExpenseCategory.name)
         .order_by(func.sum(Expense.amount).desc())
         .first()
@@ -338,14 +339,14 @@ def get_dashboard_batch(
     monthly_total_expenses = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user.id, Expense.date.between(month_start, month_end),
-                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
     expense_breakdown = (
         db.query(ExpenseCategory.name, ExpenseCategory.color, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
         .filter(Expense.user_id == user.id, Expense.date.between(month_start, month_end),
-                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .group_by(ExpenseCategory.name, ExpenseCategory.color)
         .order_by(func.sum(Expense.amount).desc())
         .all()
@@ -544,7 +545,7 @@ def get_dashboard_batch(
         db.query(ExpenseCategory.name, func.sum(Expense.amount))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
         .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.date <= month_end,
-                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .group_by(ExpenseCategory.name)
         .all()
     )
@@ -784,13 +785,13 @@ def get_dashboard_batch(
     this_week_exp = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user.id, Expense.date >= this_monday, Expense.date <= today,
-                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
     last_week_exp = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user.id, Expense.date >= last_monday, Expense.date <= last_sunday,
-                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
     wk_change_pct = 0.0
@@ -883,6 +884,7 @@ def get_dashboard_batch(
                 Expense.is_deleted.isnot(True),
                 Expense.date >= month_start,
                 Expense.date <= month_end,
+                not_pending(),
             )
             .group_by(ExpenseCategory.name)
             .all()
@@ -1232,7 +1234,7 @@ def get_summary(
     # This month's expenses (exclude personal and deleted)
     month_exp = (
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
 
@@ -1243,7 +1245,7 @@ def get_summary(
     top_cat = (
         db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
-        .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .group_by(ExpenseCategory.name)
         .order_by(func.sum(Expense.amount).desc())
         .first()
@@ -1489,7 +1491,7 @@ def get_action_items(
     month_rev = effective_revenue_total(db, user.id, month_start, today)
     month_exp = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
     if month_rev > 0:
@@ -1545,6 +1547,7 @@ def get_benchmarks(
             Expense.date >= month_start,
             Expense.is_personal.isnot(True),
             Expense.is_deleted.isnot(True),
+            not_pending(),
         )
         .group_by(ExpenseCategory.name)
         .all()
@@ -1664,14 +1667,14 @@ def get_week_comparison(
     # This week expenses
     this_week_exp = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date >= this_monday, Expense.date <= today, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date >= this_monday, Expense.date <= today, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
 
     # Last week expenses
     last_week_exp = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date >= last_monday, Expense.date <= last_sunday, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date >= last_monday, Expense.date <= last_sunday, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
 
