@@ -1133,6 +1133,45 @@ export default function ExpensesPage() {
               <>
                 {detailedOpen && detailedExtras}
 
+                {/* Erhverv / Privat — always on the quick path (default
+                    Erhverv). Keeps personal spend out of the MOMS-fradrag
+                    base at entry. In detailed mode the fuller toggle inside
+                    detailedExtras takes over, so this only shows in quick. */}
+                {!detailedOpen && (
+                  <div
+                    className="flex items-center gap-1.5 mt-3"
+                    role="group"
+                    aria-label={t("expBusinessOrPersonal", "Business or personal")}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setIsPersonal(false)}
+                      aria-pressed={!isPersonal}
+                      className={
+                        "px-3 py-1.5 rounded-lg text-xs font-medium transition " +
+                        (!isPersonal
+                          ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
+                          : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700")
+                      }
+                    >
+                      {t("businessExpense")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsPersonal(true)}
+                      aria-pressed={isPersonal}
+                      className={
+                        "px-3 py-1.5 rounded-lg text-xs font-medium transition " +
+                        (isPersonal
+                          ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
+                          : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700")
+                      }
+                    >
+                      {t("personalExpense")}
+                    </button>
+                  </div>
+                )}
+
                 {/* Toggle for the disclosure. Doctrine: this is a
                     text-style link, not a primary button — primary action
                     on this card is the Add submit. Sticky preference

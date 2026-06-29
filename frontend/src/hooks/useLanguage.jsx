@@ -3069,6 +3069,7 @@ const translations = {
     // Expenses extras
     backdatedEntry: "Backdated entry", personalExpense: "Personal expense",
     businessExpense: "Business expense", excludedFromReports: "Excluded from reports & VAT",
+    expBusinessOrPersonal: "Business or personal",
     typeCustomCategory: "Type custom category...", moveToTrash: "Move to trash",
     actions: "Actions", notes: "Notes",
     // Cash Book
@@ -9729,6 +9730,7 @@ const translations = {
     // Expenses extras
     backdatedEntry: "Tilbagedateret post", personalExpense: "Personlig udgift",
     businessExpense: "Forretningsudgift", excludedFromReports: "Ekskluderet fra rapporter & moms",
+    expBusinessOrPersonal: "Erhverv eller privat",
     typeCustomCategory: "Skriv egen kategori...", moveToTrash: "Flyt til papirkurv",
     actions: "Handlinger", notes: "Noter",
     // Cash Book
