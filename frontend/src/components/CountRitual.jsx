@@ -134,7 +134,9 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
   const progressPct = total ? Math.round(((idx + (phase === "done" ? 1 : 0)) / total) * 100) : 0;
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] bg-white dark:bg-gray-950 flex flex-col"
+    // z above the global AI-assistant launcher (z-9999) so the full-screen
+    // count is the top layer — nothing floats over a focused optælling.
+    <div className="fixed inset-0 z-[10000] bg-white dark:bg-gray-950 flex flex-col"
          style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Top bar */}
       <div className="flex items-center gap-3 px-4 sm:px-6 py-3 border-b border-gray-100 dark:border-gray-800">
