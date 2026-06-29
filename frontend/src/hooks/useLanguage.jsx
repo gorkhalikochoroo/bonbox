@@ -3076,6 +3076,9 @@ const translations = {
     expSnapHeroSub: "We read the amount, date and MOMS — you just confirm",
     expOrTypeManually: "or enter it manually",
     paidWith: "Paid with",
+    expAttachBilag: "Snap a receipt",
+    expBilagAttached: "Receipt attached",
+    expBilagAttachFailed: "Could not attach receipt",
     typeCustomCategory: "Type custom category...", moveToTrash: "Move to trash",
     actions: "Actions", notes: "Notes",
     // Cash Book
@@ -9743,6 +9746,9 @@ const translations = {
     expSnapHeroSub: "Vi læser beløb, dato og moms — du bekræfter bare",
     expOrTypeManually: "eller indtast manuelt",
     paidWith: "Betalt med",
+    expAttachBilag: "Tag et bilag",
+    expBilagAttached: "Bilag vedhæftet",
+    expBilagAttachFailed: "Kunne ikke vedhæfte bilag",
     typeCustomCategory: "Skriv egen kategori...", moveToTrash: "Flyt til papirkurv",
     actions: "Handlinger", notes: "Noter",
     // Cash Book

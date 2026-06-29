@@ -302,6 +302,10 @@ _migrations = [
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS currency VARCHAR(3)",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS fx_rate NUMERIC(10,6)",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS original_amount NUMERIC(14,2)",
+    # receipt_source — distinguishes an OCR scan ('scan'/NULL) from a manual
+    # bilag attach ('attach'). Lets the scan-cap meter exclude free attaches
+    # so stapling evidence onto an existing row never burns an OCR credit.
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS receipt_source VARCHAR(20)",
     # Error log — observability without external dependencies (Sentry alternative)
     """CREATE TABLE IF NOT EXISTS error_logs (
         id VARCHAR(36) PRIMARY KEY,

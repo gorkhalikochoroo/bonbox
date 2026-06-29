@@ -53,6 +53,10 @@ class Expense(Base):
     # in the model so the create + read paths can populate / surface it.
     # VARCHAR(500) at the SQL level matches the migration in main.py.
     receipt_photo: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # 'scan' = receipt came from an OCR scan (counts toward the monthly scan
+    # cap); 'attach' = bilag stapled onto an existing row (no OCR → excluded
+    # from the cap); NULL = legacy/scan-created (counts, conservative).
+    receipt_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # ── Foreign-currency capture (migration 014) ──────────────────────
     # Bogføringsloven §10 / SKAT cross-border guidance requires the
     # original-currency record to be retained alongside the DKK

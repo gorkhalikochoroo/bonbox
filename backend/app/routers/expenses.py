@@ -339,7 +339,13 @@ def _count_receipt_scans_this_month(db: Session, user_id) -> int:
     need a separate usage table — every successful scan creates an
     expense row, so the count is roughly correct (we under-count by the
     number of scans the owner abandoned before saving, which is a
-    user-friendly direction)."""
+    user-friendly direction).
+
+    receipt_source == 'attach' rows are EXCLUDED: those are bilag stapled
+    onto an existing expense via /{id}/attach-receipt, which runs no OCR.
+    Counting them would let the compliant act of attaching evidence silently
+    drain the owner's scan cap (Free=10/mo). NULL still counts (legacy +
+    scan-created rows), so existing behaviour is unchanged."""
     first_of_month = date.today().replace(day=1)
     return (
         db.query(func.count(Expense.id))
@@ -347,6 +353,7 @@ def _count_receipt_scans_this_month(db: Session, user_id) -> int:
             Expense.user_id == user_id,
             Expense.date >= first_of_month,
             Expense.receipt_photo.isnot(None),
+            func.coalesce(Expense.receipt_source, "") != "attach",
             Expense.is_deleted.isnot(True),
         )
         .scalar()
@@ -583,6 +590,88 @@ def update_expense(
             update_cash_entry_for_ref(db, ref_id, user.id, amount=float(expense.amount), date=expense.date)
     db.commit()
     db.refresh(expense)
+    return expense
+
+
+@router.post("/{expense_id}/attach-receipt", response_model=ExpenseResponse)
+# Cheaper than /upload-receipt (no OCR call), so a slightly higher ceiling —
+# still bounded per-IP against image-spam abuse.
+@_limiter.limit("12/minute;120/day")
+async def attach_receipt_to_expense(
+    expense_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """
+    Attach a receipt image to an EXISTING expense — NO OCR, NO scan-cap.
+
+    Backs the one-tap "Mangler bilag" flow on the Expenses list: the owner
+    already typed the amount + category, they just need to staple the legal
+    bilag so the MOMS-fradrag is defensible under Bogføringsloven. So we
+    only STORE the image and set receipt_photo — we deliberately do NOT run
+    OCR (the figures are already entered and owner-confirmed) and do NOT
+    consume an `expense_receipt_scans` credit (attaching evidence to a row
+    you already entered is not a scan; metering it would punish the owner
+    for doing the compliant thing, or lock them out of real scanning).
+
+    Multi-barrier:
+      1. auth        — get_current_user
+      2. tenant      — row must belong to this user (404 otherwise)
+      3. bounds      — content_type image/*, body ≤ 5 MB, PIL.verify()
+                       inside save_receipt_photo rejects non-images
+      4. rate-limit  — per-IP burst + daily ceiling
+      5. audit       — expense.receipt_attached row (best-effort)
+      6. honest      — returns the updated row; the list re-reads source
+    """
+    expense = (
+        db.query(Expense)
+        .filter(Expense.id == expense_id, Expense.user_id == user.id)
+        .first()
+    )
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(400, "Please upload an image file")
+    raw = await file.read()
+    if len(raw) > 5 * 1024 * 1024:
+        raise HTTPException(400, "Image too large (max 5 MB)")
+
+    from app.services.receipt_ocr import save_receipt_photo
+    try:
+        stored_path = save_receipt_photo(raw, file.filename, str(user.id), kind="expense")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    expense.receipt_photo = stored_path
+    # Mark as a manual attach so the scan-cap meter excludes it (no OCR ran).
+    expense.receipt_source = "attach"
+    db.commit()
+    db.refresh(expense)
+
+    # Evidence-attachment audit trail (best-effort — never blocks the
+    # attach; the photo is already stored + linked above).
+    try:
+        from app.services.audit_service import record as audit_record
+        audit_record(
+            db,
+            user,
+            "expense.receipt_attached",
+            "expense",
+            entity_id=expense.id,
+            after={
+                "expense_id": str(expense.id),
+                "receipt_photo": stored_path,
+                "amount": float(expense.amount),
+                "date": expense.date.isoformat() if expense.date else None,
+            },
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001 — audit write must never break attach
+        logger.exception("audit.expense.receipt_attached failed")
+
     return expense
 
 

@@ -52,6 +52,7 @@ import ReceiptViewer from "../components/ReceiptViewer";
 import DismissibleTip from "../components/DismissibleTip";
 import InboxBanner from "../components/InboxBanner";
 import { safeImageUrl } from "../utils/safeUrl";
+import { resizeImageIfLarge } from "../utils/resizeImage";
 import { errText } from "../utils/errText";
 import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
 import { PageHeader, TabPills, Button, Empty } from "../components/ui";
@@ -111,6 +112,12 @@ export default function ExpensesPage() {
   const [expensesTab, setExpensesTab] = useState("one_time");
   const [isPersonal, setIsPersonal] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
+  // Per-row "snap to attach a bilag" (the Mangler-bilag loop). Hidden file
+  // input + which row it targets. No OCR, no scan-credit — just stores the
+  // image + links it via POST /expenses/{id}/attach-receipt.
+  const attachInputRef = useRef(null);
+  const [attachTargetId, setAttachTargetId] = useState(null);
+  const [attaching, setAttaching] = useState(false);
   const [isTaxExempt, setIsTaxExempt] = useState(false);
   // Recent-expenses filter — was a tri-state "all/business/personal"
   // chip row in the legacy table header. We collapse it into the
@@ -918,6 +925,39 @@ export default function ExpensesPage() {
     </div>
   );
 
+  // Snap a bilag onto an EXISTING expense (the "Mangler bilag" loop).
+  // Opens the device camera / file picker; on pick we resize, store + link
+  // the image with no OCR and no scan-credit spent.
+  const triggerAttachReceipt = (rowId) => {
+    setAttachTargetId(rowId);
+    // Reset so re-picking the same file still fires onChange.
+    if (attachInputRef.current) attachInputRef.current.value = "";
+    attachInputRef.current?.click();
+  };
+
+  const onAttachFileChange = async (e) => {
+    const rawFile = e.target.files?.[0];
+    const rowId = attachTargetId;
+    if (!rawFile || !rowId) return;
+    setAttaching(true);
+    try {
+      const file = await resizeImageIfLarge(rawFile);
+      const formData = new FormData();
+      formData.append("file", file);
+      await api.post(`/expenses/${rowId}/attach-receipt`, formData, { timeout: 60000 });
+      await fetchData(filterFrom, filterTo);
+      setSuccess(t("expBilagAttached", "Receipt attached"));
+      setTimeout(() => setSuccess(""), 2000);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setError(typeof detail === "string" ? detail : t("expBilagAttachFailed", "Could not attach receipt"));
+      setTimeout(() => setError(""), 3000);
+    } finally {
+      setAttaching(false);
+      setAttachTargetId(null);
+    }
+  };
+
   // ── DataTable columns + rowActions ──────────────────────────────
   const tableColumns = [
     {
@@ -927,7 +967,7 @@ export default function ExpensesPage() {
         const thumbUrl = r.receipt_photo ? safeImageUrl(r.receipt_photo) : null;
         return (
           <span className="inline-flex items-center gap-2">
-            {r.receipt_photo && (
+            {r.receipt_photo ? (
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setReceiptViewing(r); }}
@@ -949,7 +989,21 @@ export default function ExpensesPage() {
                   <Receipt size={14} strokeWidth={1.75} aria-hidden="true" />
                 )}
               </button>
-            )}
+            ) : (!r.is_personal && !r.is_tax_exempt) ? (
+              // Missing bilag on a business expense → one-tap snap-to-attach
+              // (dashed amber = "evidence missing"). Completes the Mangler-
+              // bilag loop: tap → camera → stored + linked, no OCR/credit.
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); triggerAttachReceipt(r.id); }}
+                disabled={attaching}
+                title={t("expAttachBilag", "Snap a receipt")}
+                aria-label={t("expAttachBilag", "Snap a receipt")}
+                className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-dashed border-amber-300 dark:border-amber-800 text-amber-600 dark:text-amber-400 hover:border-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition disabled:opacity-40"
+              >
+                <Camera size={14} strokeWidth={1.75} aria-hidden="true" />
+              </button>
+            ) : null}
             <span className="truncate">
               {r.description || getCatName(r.category_id)}
             </span>
@@ -1348,6 +1402,16 @@ export default function ExpensesPage() {
           )}
         </>
       )}
+
+      {/* Hidden input backing the per-row "snap to attach a bilag" flow. */}
+      <input
+        ref={attachInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={onAttachFileChange}
+      />
 
       {/* Receipt capture modal for expenses */}
       {receiptOpen && (
