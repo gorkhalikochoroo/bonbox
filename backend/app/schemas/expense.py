@@ -142,5 +142,13 @@ class ExpenseResponse(BaseModel):
     is_deleted: bool = False
     deleted_at: datetime.datetime | None = None
     created_at: datetime.datetime | None = None
+    # Godkend-kø: 'approved' = booked; 'pending' = unapproved draft (excluded
+    # from every money total until the owner approves). NULL/legacy → approved.
+    status: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class ExpenseApproveBatch(BaseModel):
+    """Bulk-approve request — the ids the owner tapped 'Godkend alle klar' on."""
+    ids: list[str]

@@ -25,7 +25,7 @@ from app.models.expense import Expense, ExpenseCategory
 from app.models.category_mapping import CategoryMapping
 from app.schemas.expense import (
     ExpenseCreate, ExpenseUpdate, ExpenseResponse,
-    ExpenseCategoryCreate, ExpenseCategoryResponse,
+    ExpenseCategoryCreate, ExpenseCategoryResponse, ExpenseApproveBatch,
 )
 from app.services.auth import get_current_user
 from app.services.cash_sync import sync_cash_out_for_expense, delete_cash_entry_by_ref, update_cash_entry_for_ref
@@ -682,6 +682,115 @@ async def attach_receipt_to_expense(
         logger.exception("audit.expense.receipt_attached failed")
 
     return expense
+
+
+# ── Godkend-kø (approve queue) ──────────────────────────────────────
+def _promote_to_approved(db: Session, user: User, expense: Expense) -> None:
+    """Flip a pending draft → approved — the moment it becomes a real booked
+    expense. Allocate the bilagsnummer NOW (not at draft, so abandoned drafts
+    never burn the Bogføringsloven §10 voucher sequence), cash-sync, learn the
+    category, and write the L7 audit row. Caller commits. Every side-effect is
+    failure-isolated so a hiccup never blocks the approval itself."""
+    if expense.voucher_number is None:
+        try:
+            from app.services.voucher_service import allocate_voucher
+            expense.voucher_number = allocate_voucher(db, user.id, "expense", expense.date.year)
+        except Exception:  # noqa: BLE001
+            expense.voucher_number = None
+    expense.status = "approved"
+    if expense.payment_method == "cash" and not expense.is_personal:
+        try:
+            sync_cash_out_for_expense(db, expense)
+        except Exception:  # noqa: BLE001
+            logger.warning("approve: cash sync failed for expense=%s", expense.id)
+    if expense.description and expense.category_id:
+        cat = db.query(ExpenseCategory).filter(ExpenseCategory.id == expense.category_id).first()
+        if cat:
+            try:
+                learn_category(expense.description, cat.name, user.id, db)
+            except Exception:  # noqa: BLE001
+                pass
+    try:
+        from app.services.audit_service import record as audit_record
+        audit_record(
+            db, user, "expense.approved", "expense", entity_id=expense.id,
+            after={
+                "expense_id": str(expense.id),
+                "amount": float(expense.amount),
+                "voucher_number": expense.voucher_number,
+                "date": expense.date.isoformat() if expense.date else None,
+            },
+        )
+    except Exception:  # noqa: BLE001
+        logger.warning("approve: audit failed for expense=%s", expense.id)
+
+
+@router.get("/pending", response_model=list[ExpenseResponse])
+def list_pending(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The Godkend-kø: AI-proposed drafts awaiting the owner's approval. Drafts
+    are excluded from every money total (not_pending gate) until approved."""
+    return (
+        db.query(Expense)
+        .filter(Expense.user_id == user.id, Expense.is_deleted.isnot(True), Expense.status == "pending")
+        .order_by(Expense.created_at.desc())
+        .all()
+    )
+
+
+@router.post("/{expense_id}/approve", response_model=ExpenseResponse)
+def approve_expense(
+    expense_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Approve one draft → it becomes a real booked expense (enters MOMS /
+    Foresight / reports). A draft with no confident beløb CANNOT be approved —
+    it stays in the kø (AI proposes, owner approves; never a silent 0-kr row)."""
+    expense = (
+        db.query(Expense)
+        .filter(Expense.id == expense_id, Expense.user_id == user.id, Expense.is_deleted.isnot(True))
+        .first()
+    )
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    if expense.status != "pending":
+        return expense  # idempotent — already approved
+    if not expense.amount or float(expense.amount) <= 0:
+        raise HTTPException(status_code=422, detail="Udkast mangler beløb og kan ikke godkendes")
+    _promote_to_approved(db, user, expense)
+    db.commit()
+    db.refresh(expense)
+    return expense
+
+
+@router.post("/approve-batch")
+def approve_batch(
+    data: ExpenseApproveBatch,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Bulk-approve the 'klar' drafts the owner tapped. Owned + pending only;
+    drafts missing a beløb are skipped (never silently posted as 0 kr)."""
+    rows = (
+        db.query(Expense)
+        .filter(
+            Expense.id.in_(data.ids), Expense.user_id == user.id,
+            Expense.is_deleted.isnot(True), Expense.status == "pending",
+        )
+        .all()
+    )
+    approved, skipped = [], []
+    for e in rows:
+        if not e.amount or float(e.amount) <= 0:
+            skipped.append(str(e.id))
+            continue
+        _promote_to_approved(db, user, e)
+        approved.append(str(e.id))
+    db.commit()
+    return {"approved": approved, "skipped": skipped, "count": len(approved)}
 
 
 @router.delete("/{expense_id}", status_code=204)
