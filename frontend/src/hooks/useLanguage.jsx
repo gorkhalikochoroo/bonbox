@@ -3072,6 +3072,9 @@ const translations = {
     expBusinessOrPersonal: "Business or personal",
     expMissingBilagTitle: "{n} expenses missing a receipt",
     expMissingBilagSub: "{amt} in expenses with no bilag — snap it to keep the fradrag",
+    expSnapHeroTitle: "Snap a receipt",
+    expSnapHeroSub: "We read the amount, date and MOMS — you just confirm",
+    expOrTypeManually: "or enter it manually",
     typeCustomCategory: "Type custom category...", moveToTrash: "Move to trash",
     actions: "Actions", notes: "Notes",
     // Cash Book
@@ -4068,7 +4071,7 @@ const translations = {
     loadingTemplate: "Loading template...", done: "Done", go: "Go",
     // Expenses page extras
     detailed: "Detailed", quickMode: "Quick",
-    quickAmountAndGo: "Amount, payment & go — saved as \"Other\"",
+    quickAmountAndGo: "Amount, payment & go — we'll set the category for you",
     backdated: "Backdated", customCategoryPlaceholder: "Custom category...",
     failedToLoadExpenses: "Failed to load expenses", failedToLoadCategories: "Failed to load categories",
     failedToSetupCategories: "Failed to set up categories", failedToAddExpense: "Failed to add expense",
@@ -9735,6 +9738,9 @@ const translations = {
     expBusinessOrPersonal: "Erhverv eller privat",
     expMissingBilagTitle: "{n} udgifter mangler bilag",
     expMissingBilagSub: "{amt} i udgifter uden bilag — snap det for at beholde fradraget",
+    expSnapHeroTitle: "Tag billede af kvittering",
+    expSnapHeroSub: "Vi læser beløb, dato og moms — du bekræfter bare",
+    expOrTypeManually: "eller indtast manuelt",
     typeCustomCategory: "Skriv egen kategori...", moveToTrash: "Flyt til papirkurv",
     actions: "Handlinger", notes: "Noter",
     // Cash Book
@@ -10710,7 +10716,7 @@ const translations = {
     loadingTemplate: "Indlæser skabelon...", done: "Færdig", go: "Kør",
     // Expenses page extras
     detailed: "Detaljeret", quickMode: "Hurtig",
-    quickAmountAndGo: "Beløb, betaling & gem — gemt som \"Andet\"",
+    quickAmountAndGo: "Beløb, betaling & færdig — vi sætter kategori for dig",
     backdated: "Tilbagedateret", customCategoryPlaceholder: "Brugerdefineret kategori...",
     failedToLoadExpenses: "Kunne ikke indlæse udgifter", failedToLoadCategories: "Kunne ikke indlæse kategorier",
     failedToSetupCategories: "Kunne ikke oprette kategorier", failedToAddExpense: "Kunne ikke tilføje udgift",
@@ -14602,7 +14608,7 @@ const translations = {
     loadingTemplate: "टेम्प्लेट लोड हुँदैछ...", done: "सकियो", go: "जानुहोस्",
     // Expenses page extras
     detailed: "विस्तृत", quickMode: "छिटो",
-    quickAmountAndGo: "रकम, भुक्तानी र गो — \"अन्य\" मा सुरक्षित",
+    quickAmountAndGo: "रकम, भुक्तानी र गो — हामी तपाईंको लागि कोटि छनोट गर्छौं",
     backdated: "पछिल्लो मिति", customCategoryPlaceholder: "आफ्नो कोटि...",
     failedToLoadExpenses: "खर्च लोड गर्न सकिएन", failedToLoadCategories: "कोटिहरू लोड गर्न सकिएन",
     failedToSetupCategories: "कोटिहरू सेटअप गर्न सकिएन", failedToAddExpense: "खर्च थप्न सकिएन",

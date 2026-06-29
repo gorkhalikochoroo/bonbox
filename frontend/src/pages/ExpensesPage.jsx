@@ -61,7 +61,7 @@ import DataTable from "../components/ui/DataTable";
 import FilterBar from "../components/ui/FilterBar";
 import { Mic, Camera, Pencil, Trash2, ChevronDown, ChevronUp, Receipt, ChevronRight } from "lucide-react";
 
-const QUICK_AMOUNTS = [100, 250, 500, 1000, 2500, 5000];
+const QUICK_AMOUNTS = [100, 500, 1000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
 
 // Categories that only belong in Personal mode — hide from Business expense buttons
@@ -73,10 +73,6 @@ const PERSONAL_ONLY_CATS = new Set([
   "Education", "Subscriptions", "Insurance", "Phone & Internet",
   "Clothing", "Personal Care", "Family", "Savings", "Investment",
 ]);
-
-// localStorage key for the "More fields" disclosure preference. Sticky
-// per-user — open it once, the page remembers across reloads.
-const DETAILED_PREF_KEY = "bonbox_expenses_detailed_v1";
 
 export default function ExpensesPage() {
   const { user } = useAuth();
@@ -125,23 +121,13 @@ export default function ExpensesPage() {
   // Category filter for the Recent-Expenses FilterBar.
   const [categoryFilter, setCategoryFilter] = useState("all");
 
-  // Detailed disclosure inside EntryCard. localStorage-backed so the
-  // preference survives reloads — power-user Maria opens once, every
-  // future log-expense flow remembers.
-  const [detailedOpen, setDetailedOpen] = useState(() => {
-    try {
-      return localStorage.getItem(DETAILED_PREF_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
-  useEffect(() => {
-    try {
-      localStorage.setItem(DETAILED_PREF_KEY, String(detailedOpen));
-    } catch {
-      /* private mode — best effort */
-    }
-  }, [detailedOpen]);
+  // Detailed disclosure inside EntryCard. Default CLOSED every session —
+  // the 95% quick path stays one-screen. (Previously localStorage-sticky,
+  // which silently rendered the full ~7-field form forever after one
+  // curious tap; design critique flagged that as the opposite of one-tap.)
+  // Smart-Scan verify still auto-opens it transiently to the fields that
+  // need confirmation.
+  const [detailedOpen, setDetailedOpen] = useState(false);
 
   // ── Foreign-currency capture (Bogføringsloven §10 cross-border) ─────
   // Sudip Sam (Nepali-DK event organizer) pays his Nepali film
@@ -1032,17 +1018,6 @@ export default function ExpensesPage() {
         <PageHeader
           eyebrow="MONEY"
           title={t("expenseTracker")}
-          actions={
-            <Button
-              variant="secondary"
-              size="sm"
-              iconLeft={<Camera size={14} strokeWidth={1.75} aria-hidden="true" />}
-              onClick={() => setReceiptOpen(true)}
-              aria-label={t("snapReceipt", "Snap receipt")}
-            >
-              {t("snapReceipt", "Snap receipt")}
-            </Button>
-          }
         />
       </FadeIn>
 
@@ -1056,15 +1031,6 @@ export default function ExpensesPage() {
           {error}
         </div>
       )}
-
-      <DismissibleTip
-        id="expenses-intro-v1"
-        title={t("expIntroTitle", "Snap, log, claim back")}
-      >
-        <p>
-          {t("expIntroBody", "Tap a quick amount, pick a category, done. Or hit Snap receipt to capture a supplier invoice — the OCR pulls out the total, you confirm, and BonBox calculates the input MOMS you can deduct on your next filing. Each expense gets a sequential bilagsnummer.")}
-        </p>
-      </DismissibleTip>
 
       {/* InboxBanner — hero when there are unread receipts, slim row
           when 0. The hero CTA scrolls to #bonbox-recent-expenses. */}
@@ -1102,8 +1068,35 @@ export default function ExpensesPage() {
 
       {expensesTab === "one_time" && (
         <>
-          {/* EntryCard — full-width now that the right-rail KPIs are
-              gone. The detailed disclosure lives inside `extras`. */}
+          {/* Snap-first capture — the easiest path is a photo, not the
+              keypad. One big tap → existing ReceiptCapture/OCR (Free)
+              reads amount + date + MOMS, owner confirms. The keypad card
+              below is the calm "or type it" manual fallback (cash tip /
+              no-receipt). One primary action — this tile is the headline. */}
+          <button
+            type="button"
+            onClick={() => setReceiptOpen(true)}
+            className="w-full flex items-center gap-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition text-left"
+          >
+            <span className="shrink-0 inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900">
+              <Camera size={22} strokeWidth={1.75} aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-base font-semibold text-gray-900 dark:text-gray-100">
+                {t("expSnapHeroTitle", "Snap a receipt")}
+              </span>
+              <span className="block text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                {t("expSnapHeroSub", "We read the amount, date and MOMS — you just confirm")}
+              </span>
+            </span>
+            <ChevronRight size={20} strokeWidth={2} className="shrink-0 text-gray-300 dark:text-gray-600" aria-hidden="true" />
+          </button>
+          <p className="text-xs text-center text-gray-400 dark:text-gray-500 -mt-1">
+            {t("expOrTypeManually", "or enter it manually")}
+          </p>
+
+          {/* EntryCard — the manual fallback (secondary to the snap tile).
+              The detailed disclosure lives inside `extras`. */}
           <EntryCard
             title={t("addExpense")}
             hint={t("quickAmountAndGo")}
@@ -1132,45 +1125,6 @@ export default function ExpensesPage() {
             extras={
               <>
                 {detailedOpen && detailedExtras}
-
-                {/* Erhverv / Privat — always on the quick path (default
-                    Erhverv). Keeps personal spend out of the MOMS-fradrag
-                    base at entry. In detailed mode the fuller toggle inside
-                    detailedExtras takes over, so this only shows in quick. */}
-                {!detailedOpen && (
-                  <div
-                    className="flex items-center gap-1.5 mt-3"
-                    role="group"
-                    aria-label={t("expBusinessOrPersonal", "Business or personal")}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setIsPersonal(false)}
-                      aria-pressed={!isPersonal}
-                      className={
-                        "px-3 py-1.5 rounded-lg text-xs font-medium transition " +
-                        (!isPersonal
-                          ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
-                          : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700")
-                      }
-                    >
-                      {t("businessExpense")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsPersonal(true)}
-                      aria-pressed={isPersonal}
-                      className={
-                        "px-3 py-1.5 rounded-lg text-xs font-medium transition " +
-                        (isPersonal
-                          ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
-                          : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700")
-                      }
-                    >
-                      {t("personalExpense")}
-                    </button>
-                  </div>
-                )}
 
                 {/* Toggle for the disclosure. Doctrine: this is a
                     text-style link, not a primary button — primary action
@@ -1316,7 +1270,7 @@ export default function ExpensesPage() {
               rowKey="id"
               empty={
                 <Empty
-                  icon="📭"
+                  icon={<Receipt size={28} strokeWidth={1.5} className="text-gray-400 dark:text-gray-500" aria-hidden="true" />}
                   title={t("noExpensesYet", "No expenses yet")}
                   body={t("noExpensesBody", "Add one above or forward a receipt to your inbox.")}
                 />
