@@ -2679,6 +2679,41 @@ async def _global_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content=body)
 
 
+# --- Raised-HTTPException sanitizer (info-disclosure hardening) ----------
+# Several routers do `except Exception as e: raise HTTPException(500,
+# detail=f"...{str(e)}")`, which Starlette serializes verbatim — leaking raw
+# SQLAlchemy/driver text (table/column/constraint names, SQL fragments) to
+# the caller. The global Exception handler above does NOT catch a *raised*
+# HTTPException, so we register a handler on the Starlette base. Sub-500
+# statuses keep their detail untouched (the frontend relies on 400/401/402/
+# 403/404 detail + codes); only >=500 in prod is replaced with a generic
+# message while the real error is logged server-side.
+from starlette.exceptions import HTTPException as _StarletteHTTPException  # noqa: E402
+
+
+@app.exception_handler(_StarletteHTTPException)
+async def _http_exception_sanitizer(request: Request, exc: _StarletteHTTPException):
+    status_code = exc.status_code
+    headers = getattr(exc, "headers", None)
+    if status_code >= 500 and is_prod:
+        _error_logger.error(
+            "HTTPException %s on %s %s: %s",
+            status_code, request.method, request.url.path, exc.detail,
+        )
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "detail": "Something went wrong on our side. Please try again.",
+                "_error": True,
+                "_recoverable": True,
+            },
+            headers=headers,
+        )
+    return JSONResponse(
+        status_code=status_code, content={"detail": exc.detail}, headers=headers
+    )
+
+
 # --- DB init in background thread with readiness gate ---
 def _init_db():
     """Create tables & run migrations, then signal readiness."""
@@ -2989,11 +3024,18 @@ async def csrf_protect(request: Request, call_next):
                     "_recoverable": True,
                 },
             )
-        # Legacy onrender.com path — log and let through (transition only;
-        # tighten or remove this branch once analytics show no traffic
-        # hitting the legacy host)
+        # Legacy non-first-party path — log and let through. This branch is
+        # UNREACHABLE by real prod traffic: the auth cookie is Domain=.bonbox.dk
+        # (see _cookie_scope) so browsers never send it to a non-bonbox.dk host,
+        # meaning only a cookie-authed request on a non-first-party host reaches
+        # here — in practice just the test client (host "testserver"). The
+        # latent "stale build points at onrender → CSRF skipped" gap is closed
+        # at the source by pinning VITE_API_URL to api.bonbox.dk in
+        # frontend/.env.production (Jun-2026 leak sweep), so first-party + the
+        # SameSite=Lax cookie are the real enforcement. Keeping the pass-through
+        # avoids 403-ing the test client for zero prod benefit.
         _logging.getLogger(__name__).info(
-            "csrf_protect: header missing on legacy host %s %s %s — passing through",
+            "csrf_protect: header missing on non-first-party host %s %s %s — passing through",
             host, method, path,
         )
         return await call_next(request)
@@ -3191,6 +3233,111 @@ async def accountant_write_guard(request: Request, call_next):
             },
         )
 
+    return await call_next(request)
+
+
+# --- Member read-scope guard (least-privilege / GDPR) -------------------
+# The manager-seat slice resolves an invited member's session to the OWNER
+# user so reads are tenant-scoped (auth.py::_resolve_member_view), and the
+# write-guard above default-denies their writes. But READS were never
+# role-scoped — so a low-privilege member (cashier intended {sales,cashbook};
+# viewer intended {reports}) could GET owner-only financial surfaces:
+# all-employee lønseddel PII, tax filings, bank feeds, cash position. This
+# guard closes that. It is deliberately surgical:
+#   • only GET/HEAD (writes already default-denied)
+#   • only a small set of crown-jewel prefixes triggers a role lookup, so
+#     the common path stays a single startswith() with no DB hit
+#   • only the LOW-privilege roles are denied — the trusted manager seat and
+#     the accountant grant keep their access (this is NOT the full per-router
+#     scope model; that's the documented follow-up, task #375)
+#   • fails CLOSED (503) if the role lookup raises, like the write-guard
+_MEMBER_READ_DENY_PREFIXES = (
+    "/api/staff/payroll",
+    "/api/tax",
+    "/api/bank-connect",
+    "/api/bank-connections",
+    "/api/bank-import",
+    "/api/cashflow",
+)
+_LOW_PRIV_MEMBER_ROLES = frozenset({"cashier", "viewer"})
+
+
+def _is_sensitive_member_read_path(path: str) -> bool:
+    """True iff this read path exposes owner-only financial/PII data that a
+    low-privilege invited member (cashier/viewer) must not pull. Kept as a
+    standalone helper so the gate is unit-testable (see test_member_seat)."""
+    return any(path.startswith(p) for p in _MEMBER_READ_DENY_PREFIXES)
+
+
+@app.middleware("http")
+async def member_read_guard(request: Request, call_next):
+    if request.method not in ("GET", "HEAD"):
+        return await call_next(request)
+    path = request.url.path or ""
+    if not _is_sensitive_member_read_path(path):
+        return await call_next(request)  # cheap common path — no DB lookup
+
+    # Sensitive path — resolve the RAW role (same approach as the
+    # accountant_write_guard; don't trigger owner-delegation here).
+    bearer = request.headers.get("authorization", "")
+    has_bearer = bearer.lower().startswith("bearer ")
+    has_cookie = bool(request.cookies.get(_AUTH_COOKIE))
+    if not has_bearer and not has_cookie:
+        return await call_next(request)  # anon — let the auth dep decide
+    token = bearer.split(" ", 1)[1].strip() if has_bearer else request.cookies.get(_AUTH_COOKIE)
+    if not token:
+        return await call_next(request)
+    try:
+        payload = _decode_jwt(token)
+        user_id = payload.get("sub")
+        if not user_id:
+            return await call_next(request)
+    except Exception:  # noqa: BLE001
+        return await call_next(request)
+
+    from app.database import SessionLocal as _Session
+    from sqlalchemy import text as _text
+    db = _Session()
+    try:
+        row = db.execute(
+            _text("SELECT role FROM users WHERE id = :uid LIMIT 1"),
+            {"uid": user_id},
+        ).first()
+    except Exception:  # noqa: BLE001
+        _security_logger.warning(
+            "member_read_guard role lookup failed — failing CLOSED (503)"
+        )
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": {
+                    "code": "role_check_unavailable",
+                    "message": "Could not verify your access right now. Please retry.",
+                },
+            },
+        )
+    finally:
+        db.close()
+
+    if not row:
+        return await call_next(request)
+    role = (row[0] or "").lower() if row[0] else ""
+    if role in _LOW_PRIV_MEMBER_ROLES:
+        _security_logger.info(
+            "member_read_guard: role=%s blocked from %s", role, path
+        )
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": {
+                    "code": "read_forbidden",
+                    "message": (
+                        "Your role can't view this. Ask the business owner "
+                        "for access."
+                    ),
+                },
+            },
+        )
     return await call_next(request)
 
 

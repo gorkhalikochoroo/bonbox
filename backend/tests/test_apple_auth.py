@@ -225,4 +225,4 @@ def test_apple_invalid_token_401(db_session, client):
     ):
         r = client.post("/api/auth/apple", json={"identity_token": "x"})
     assert r.status_code == 401
-    assert "Invalid Apple token" in r.json()["detail"]
+    assert "Invalid or expired" in r.json()["detail"]

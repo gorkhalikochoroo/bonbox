@@ -362,7 +362,7 @@ def test_apple_invalid_signature_returns_401(db_session, client):
     with _patch_apple(side_effect=ValueError("Apple token signature invalid")):
         r = client.post("/api/auth/oauth/apple", json={"id_token": "stub"})
     assert r.status_code == 401
-    assert "Invalid Apple token" in r.json()["detail"]
+    assert "Invalid or expired" in r.json()["detail"]
 
 
 def test_apple_expired_token_returns_401(db_session, client):

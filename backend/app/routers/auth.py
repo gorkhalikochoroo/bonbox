@@ -795,7 +795,8 @@ def apple_auth(
     try:
         claims = _verify_apple_identity_token(data.identity_token)
     except ValueError as exc:
-        raise HTTPException(status_code=401, detail=f"Invalid Apple token: {exc}") from exc
+        logger.warning("Apple token verification failed: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid or expired sign-in token.") from exc
 
     apple_sub = claims.get("sub")
     email = claims.get("email")

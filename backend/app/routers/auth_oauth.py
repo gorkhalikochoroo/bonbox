@@ -172,7 +172,10 @@ def oauth_apple(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=401, detail=f"Invalid Apple token: {exc}") from exc
+        # Don't echo the validation internals (expected alg/kid/aud/iss/exp
+        # reason) to the unauthenticated caller — log it, return a generic 401.
+        logger.warning("Apple token verification failed: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid or expired sign-in token.") from exc
 
     sub = claims.get("sub")
     email = (claims.get("email") or "").strip().lower() or None
@@ -342,7 +345,8 @@ def oauth_google(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=401, detail=f"Invalid Google token: {exc}") from exc
+        logger.warning("Google token verification failed: %s", exc)
+        raise HTTPException(status_code=401, detail="Invalid or expired sign-in token.") from exc
 
     sub = claims.get("sub")
     email = (claims.get("email") or "").strip().lower() or None

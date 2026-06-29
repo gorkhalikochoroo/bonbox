@@ -372,18 +372,37 @@ def _fetch_scan_bytes_best_effort(receipt_url: str | None) -> tuple[bytes | None
             with urlopen(req, timeout=8) as resp:  # noqa: S310 — host allow-listed above
                 data = resp.read()
             return data, "z_report.jpg"
-        # Local path branch — read from disk.
-        # NOTE (security audit 2026-06): in prod, storage is Supabase so
-        # receipt_photo is always an https URL and this branch isn't reached.
-        # A confine-to-uploads-root guard here was reverted because the
-        # intended local-storage path can be absolute (see test_close_auto_
-        # email) — hardening the local read needs to be done together with a
-        # test update + uploads-root confinement, so it's deferred rather
-        # than shipped in a way that breaks the close→revisor scan attach.
+        # Local path branch — read from disk, CONFINED to an allowed root.
+        # In prod, storage is Supabase so receipt_photo is always an https URL
+        # and this branch isn't reached; the local path is dev/test only. We
+        # still confine it so a crafted absolute receipt_photo can't turn the
+        # close→revisor email attach into a local-file read (e.g. /etc/passwd,
+        # app source, a .env) — auth+tier-gated self-exfil (Jun-2026 leak sweep).
+        # Allowed roots: the uploads/ dir always; the system temp dir only
+        # outside production (pytest's tmp_path lives there, keeping
+        # test_close_auto_email green without weakening prod).
         from pathlib import Path
+        import tempfile
+        from app.config import settings as _settings
         p = Path(receipt_url)
-        if p.is_file():
+        allowed_roots = [Path("uploads").resolve()]
+        if (_settings.ENVIRONMENT or "").lower() != "production":
+            allowed_roots.append(Path(tempfile.gettempdir()).resolve())
+        try:
+            resolved = p.resolve()
+            within = any(
+                resolved == root or root in resolved.parents
+                for root in allowed_roots
+            )
+        except Exception:  # noqa: BLE001
+            within = False
+        if within and p.is_file():
             return p.read_bytes(), p.name
+        logger.warning(
+            "scan_image local read refused (outside allowed roots): %s",
+            str(receipt_url)[:80],
+        )
+        return None, None
     except Exception as e:  # noqa: BLE001
         logger.warning("scan_image fetch failed: %s", e)
     return None, None

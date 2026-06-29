@@ -173,3 +173,51 @@ def test_member_write_allowlist_is_default_deny():
         assert _is_path_allowlisted_for_member_write(blocked) is False
     # Only session self-service is allowed.
     assert _is_path_allowlisted_for_member_write("/api/auth/logout") is True
+
+
+# ─── Read-scope guard (Jun-2026 leak sweep) ────────────────────────────
+# A low-privilege member (cashier/viewer) must not READ owner-only financial
+# / PII surfaces even though their session resolves to the owner for tenant
+# scoping. member_read_guard blocks the crown-jewel prefixes for those roles.
+def test_member_read_guard_flags_crown_jewel_paths():
+    from app.main import _is_sensitive_member_read_path
+
+    # All-employee lønseddel PII, tax filings, bank feeds, cash position.
+    for sensitive in (
+        "/api/staff/payroll/loenseddel",
+        "/api/staff/payroll/csv",
+        "/api/tax/filing",
+        "/api/bank-connect/init",
+        "/api/bank-connections",
+        "/api/bank-import/transactions",
+        "/api/cashflow",
+    ):
+        assert _is_sensitive_member_read_path(sensitive) is True
+
+
+def test_member_read_guard_leaves_operational_reads_open():
+    from app.main import _is_sensitive_member_read_path
+
+    # A cashier/viewer's legitimate reads (and the home dashboard) stay open —
+    # the guard is surgical, not a blanket member lockout.
+    for ok in (
+        "/api/sales",
+        "/api/cashbook/entries",
+        "/api/reports/summary",
+        "/api/dashboard/summary",
+        "/api/staff/schedule",
+    ):
+        assert _is_sensitive_member_read_path(ok) is False
+
+
+def test_member_read_guard_denies_only_low_priv_roles():
+    from app.main import _LOW_PRIV_MEMBER_ROLES
+
+    # Cashier + viewer are blocked from the crown jewels…
+    assert "cashier" in _LOW_PRIV_MEMBER_ROLES
+    assert "viewer" in _LOW_PRIV_MEMBER_ROLES
+    # …but the trusted manager seat, the accountant grant, and the owner keep
+    # their access (this is NOT a blanket member denial — that's task #375).
+    assert "manager" not in _LOW_PRIV_MEMBER_ROLES
+    assert "accountant" not in _LOW_PRIV_MEMBER_ROLES
+    assert "owner" not in _LOW_PRIV_MEMBER_ROLES

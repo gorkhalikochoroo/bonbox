@@ -131,8 +131,9 @@ export default function usePushNotifications() {
           setPermission("granted");
 
           // Listen for registration token
-          PushNotifications.addListener("registration", (token) => {
-            console.log("Push token:", token.value);
+          PushNotifications.addListener("registration", () => {
+            // Never log token.value — it's a device credential. (sibling
+            // src/utils/push.js follows the same rule.)
             // TODO: Send token to backend for server-side push (v2)
           });
 
