@@ -18,6 +18,7 @@
  * confirms + advances.
  */
 import { useState, useMemo, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   Check, X, Plus, Minus, ClipboardCheck, Sparkles, FileText, ArrowRight,
 } from "lucide-react";
@@ -132,8 +133,8 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
 
   const progressPct = total ? Math.round(((idx + (phase === "done" ? 1 : 0)) / total) * 100) : 0;
 
-  return (
-    <div className="fixed inset-0 z-50 bg-white dark:bg-gray-950 flex flex-col"
+  return createPortal(
+    <div className="fixed inset-0 z-[60] bg-white dark:bg-gray-950 flex flex-col"
          style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
       {/* Top bar */}
       <div className="flex items-center gap-3 px-4 sm:px-6 py-3 border-b border-gray-100 dark:border-gray-800">
@@ -323,6 +324,7 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
           </button>
         </div>
       ) : null}
-    </div>
+    </div>,
+    document.body,
   );
 }
