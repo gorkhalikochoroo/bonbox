@@ -203,6 +203,12 @@ def list_categories(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # Lazily ensure the three §42-limited DK categories exist (Restaurantbesøg
+    # /Hotel/Repræsentation) so the owner can tag meals + gifts at their correct
+    # Momsloven §42 fradrag — without them the reduction can never fire and
+    # købsmoms is over-claimed at 100%. Additive + forward-only; idempotent.
+    from app.services.expense_categories import ensure_fradrag_categories
+    ensure_fradrag_categories(db, user.id)
     return db.query(ExpenseCategory).filter(ExpenseCategory.user_id == user.id).all()
 
 

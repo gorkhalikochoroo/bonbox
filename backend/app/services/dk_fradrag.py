@@ -34,6 +34,20 @@ _QUARTER_FRADRAG = (
     "hotel", "overnatning",
 )
 
+# Canonical DK §42-limited expense categories. These are the ones the accreted
+# (mostly English) category list LACKS — there is no English bucket meaning
+# "business restaurant visit, deduct 25%". Without them an owner literally
+# cannot tag a business meal / gift at its correct fradrag, so §42 never fires
+# and the købsmoms is silently over-claimed at 100%. Seeded (additively, never
+# renaming history) so the reduction CAN fire when the owner/queue tags a real
+# meal or gift here. The names match the rule sets above, so fradrag_factor
+# returns the right factor. (name, color, factor) — factor is for display/tests.
+FRADRAG_CATEGORIES = (
+    ("Restaurantbesøg, erhverv", "#f59e0b", 0.25),
+    ("Hotel & overnatning", "#f59e0b", 0.25),
+    ("Repræsentation & gaver", "#ef4444", 0.0),
+)
+
 
 def fradrag_factor(category_name) -> float:
     """Deductible MOMS-fradrag factor (0.0 / 0.25 / 1.0) for an expense
