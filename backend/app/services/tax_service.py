@@ -19,6 +19,7 @@ from app.models.daily_close import DailyClose, decode_breakdown
 from app.models.gift_card import GiftCard, GiftCardTransaction
 from app.models.invoice import Invoice
 from app.services.dk_fradrag import fradrag_factor
+from app.services.expense_status import not_pending
 
 logger = logging.getLogger(__name__)
 
@@ -387,7 +388,7 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user_id, Expense.date >= start_date, Expense.date < end_date,
                 Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True),
-                Expense.is_tax_exempt.isnot(True))
+                Expense.is_tax_exempt.isnot(True), not_pending())
         .scalar()
     )
 
@@ -405,7 +406,7 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         .outerjoin(ExpenseCategory, ExpenseCategory.id == Expense.category_id)
         .filter(Expense.user_id == user_id, Expense.date >= start_date, Expense.date < end_date,
                 Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True),
-                Expense.is_tax_exempt.isnot(True))
+                Expense.is_tax_exempt.isnot(True), not_pending())
         .group_by(ExpenseCategory.name)
         .all()
     )

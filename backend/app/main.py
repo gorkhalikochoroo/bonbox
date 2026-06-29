@@ -306,6 +306,14 @@ _migrations = [
     # bilag attach ('attach'). Lets the scan-cap meter exclude free attaches
     # so stapling evidence onto an existing row never burns an OCR credit.
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS receipt_source VARCHAR(20)",
+    # status — Godkend-kø gate. 'approved' (default) = real expense in every
+    # money total; 'pending' = unapproved AI draft, excluded until the owner
+    # taps Godkend. DEFAULT 'approved' keeps all existing rows live (numbers
+    # byte-identical). The exclusion is enforced in app/services/expense_status.py.
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS status VARCHAR(12) DEFAULT 'approved'",
+    # Backfill: any inbox-captured '[needs review]' row becomes a pending draft
+    # (idempotent — only flips approved→pending for unreviewed rows).
+    "UPDATE expenses SET status = 'pending' WHERE status = 'approved' AND description LIKE '%[needs review]%'",
     # Error log — observability without external dependencies (Sentry alternative)
     """CREATE TABLE IF NOT EXISTS error_logs (
         id VARCHAR(36) PRIMARY KEY,

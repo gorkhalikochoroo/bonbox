@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.models.sale import Sale
 from app.models.expense import Expense, ExpenseCategory
+from app.services.expense_status import not_pending
 from app.models.cashbook import CashTransaction
 from app.models.khata import KhataCustomer, KhataTransaction
 
@@ -143,6 +144,7 @@ def _get_daily_expense_average(user_id, db: Session) -> float:
             Expense.date >= cutoff,
             Expense.is_deleted.isnot(True),
             Expense.is_personal.isnot(True),
+            not_pending(),
         )
         .group_by(Expense.date)
         .all()

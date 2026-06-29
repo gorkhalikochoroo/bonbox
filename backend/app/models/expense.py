@@ -57,6 +57,14 @@ class Expense(Base):
     # cap); 'attach' = bilag stapled onto an existing row (no OCR → excluded
     # from the cap); NULL = legacy/scan-created (counts, conservative).
     receipt_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Godkend-kø gate: 'approved' = a real, owner-confirmed expense that
+    # enters MOMS/Foresight/reports; 'pending' = an AI-proposed draft (snap,
+    # forwarded email, recurring) the owner has NOT yet approved — it must
+    # stay OUT of every money total until a human taps Godkend. Defaults to
+    # 'approved' so all legacy + manually-entered rows are live (NULL also
+    # coalesces to 'approved' in the shared not_pending() gate). See
+    # app/services/expense_status.py.
+    status: Mapped[str | None] = mapped_column(String(12), nullable=True, default="approved")
     # ── Foreign-currency capture (migration 014) ──────────────────────
     # Bogføringsloven §10 / SKAT cross-border guidance requires the
     # original-currency record to be retained alongside the DKK

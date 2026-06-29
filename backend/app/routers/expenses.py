@@ -29,6 +29,7 @@ from app.schemas.expense import (
 )
 from app.services.auth import get_current_user
 from app.services.cash_sync import sync_cash_out_for_expense, delete_cash_entry_by_ref, update_cash_entry_for_ref
+from app.services.expense_status import not_pending
 from app.services.receipt_ocr import parse_expense_receipt
 from app.services.billing import get_cap, effective_plan
 from app.utils.time import utc_now
@@ -275,7 +276,9 @@ def list_expenses(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    query = db.query(Expense).filter(Expense.user_id == user.id).filter(Expense.is_deleted.isnot(True))
+    # Default list shows only posted (approved) expenses — unapproved Godkend-kø
+    # drafts are fetched separately by the queue, never mixed into the books.
+    query = db.query(Expense).filter(Expense.user_id == user.id).filter(Expense.is_deleted.isnot(True)).filter(not_pending())
     if is_personal is not None:
         query = query.filter(Expense.is_personal == is_personal)
     if from_date:
