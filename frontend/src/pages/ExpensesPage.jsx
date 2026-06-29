@@ -61,7 +61,7 @@ import EntryCard from "../components/ui/EntryCard";
 import PageShell from "../components/ui/PageShell";
 import DataTable from "../components/ui/DataTable";
 import FilterBar from "../components/ui/FilterBar";
-import { Mic, Camera, Pencil, Trash2, ChevronDown, ChevronUp, Receipt, ChevronRight } from "lucide-react";
+import { Mic, Camera, Pencil, Trash2, ChevronDown, ChevronUp, Receipt, ChevronRight, Layers } from "lucide-react";
 
 const QUICK_AMOUNTS = [100, 500, 1000];
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
@@ -119,6 +119,10 @@ export default function ExpensesPage() {
   const attachInputRef = useRef(null);
   const [attachTargetId, setAttachTargetId] = useState(null);
   const [attaching, setAttaching] = useState(false);
+  // "Scan bunke" — burst-capture a pile of receipts into the Godkend-kø as
+  // drafts in one ceremony (the OCR/queue creator).
+  const burstInputRef = useRef(null);
+  const [bursting, setBursting] = useState(false);
   const [isTaxExempt, setIsTaxExempt] = useState(false);
   // Recent-expenses filter — was a tri-state "all/business/personal"
   // chip row in the legacy table header. We collapse it into the
@@ -959,6 +963,39 @@ export default function ExpensesPage() {
     }
   };
 
+  // Burst-capture: shoot a pile of receipts → each lands in the Godkend-kø as
+  // a draft (server OCRs + creates pending rows). setSuccess bumps GodkendKo's
+  // refreshToken so the queue refetches and the drafts appear.
+  const triggerBurst = () => {
+    if (burstInputRef.current) burstInputRef.current.value = "";
+    burstInputRef.current?.click();
+  };
+
+  const onBurstFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setBursting(true);
+    try {
+      const fd = new FormData();
+      for (const f of files) {
+        const img = await resizeImageIfLarge(f);
+        fd.append("files", img);
+      }
+      const res = await api.post("/expenses/burst-scan", fd, { timeout: 120000 });
+      const n = res?.data?.created ?? 0;
+      const capMsg = res?.data?.cap_reached ? ` · ${t("koBurstCapReached", "scan limit reached")}` : "";
+      setSuccess(`${t("koBurstDone", "{n} added to the queue").replace("{n}", String(n))}${capMsg}`);
+      setTimeout(() => setSuccess(""), 3500);
+      fetchData(filterFrom, filterTo);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      setError(typeof detail === "string" ? detail : t("koBurstFailed", "Could not scan the pile"));
+      setTimeout(() => setError(""), 3000);
+    } finally {
+      setBursting(false);
+    }
+  };
+
   // ── DataTable columns + rowActions ──────────────────────────────
   const tableColumns = [
     {
@@ -1156,6 +1193,17 @@ export default function ExpensesPage() {
               </span>
             </span>
             <ChevronRight size={20} strokeWidth={2} className="shrink-0 text-gray-300 dark:text-gray-600" aria-hidden="true" />
+          </button>
+          {/* Scan bunke — empty the whole drawer in one go; each receipt lands
+              as a draft in the Godkend-kø above. */}
+          <button
+            type="button"
+            onClick={triggerBurst}
+            disabled={bursting}
+            className="w-full flex items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 p-3 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition disabled:opacity-50"
+          >
+            <Layers size={16} strokeWidth={1.75} aria-hidden="true" />
+            {bursting ? t("expScanning", "Scanning…") : t("expScanPile", "Scan a pile")}
           </button>
           <p className="text-xs text-center text-gray-400 dark:text-gray-500 -mt-1">
             {t("expOrTypeManually", "or enter it manually")}
@@ -1423,6 +1471,16 @@ export default function ExpensesPage() {
         capture="environment"
         className="hidden"
         onChange={onAttachFileChange}
+      />
+
+      {/* Hidden multi-file input backing "Scan bunke" (the burst creator). */}
+      <input
+        ref={burstInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={onBurstFiles}
       />
 
       {/* Receipt capture modal for expenses */}
