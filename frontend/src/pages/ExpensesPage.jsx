@@ -1210,9 +1210,9 @@ export default function ExpensesPage() {
             </div>
             {/* "or enter it manually" — a real hairline divider, not orphan text. */}
             <div className="flex items-center gap-3">
-              <div className="flex-1 border-t border-gray-100 dark:border-gray-800" aria-hidden="true" />
+              <div className="flex-1 border-t border-gray-200 dark:border-gray-800" aria-hidden="true" />
               <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">{t("expOrTypeManually", "or enter it manually")}</span>
-              <div className="flex-1 border-t border-gray-100 dark:border-gray-800" aria-hidden="true" />
+              <div className="flex-1 border-t border-gray-200 dark:border-gray-800" aria-hidden="true" />
             </div>
 
           {/* EntryCard — the manual fallback (secondary to the snap tile).
