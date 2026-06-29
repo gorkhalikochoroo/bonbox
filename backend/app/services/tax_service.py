@@ -14,10 +14,11 @@ from sqlalchemy.orm import Session
 
 from app.models.user import User
 from app.models.sale import Sale
-from app.models.expense import Expense
+from app.models.expense import Expense, ExpenseCategory
 from app.models.daily_close import DailyClose, decode_breakdown
 from app.models.gift_card import GiftCard, GiftCardTransaction
 from app.models.invoice import Invoice
+from app.services.dk_fradrag import fradrag_factor
 
 logger = logging.getLogger(__name__)
 
@@ -390,6 +391,28 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         .scalar()
     )
 
+    # Fradrag-weighted købsmoms base (Momsloven §42 — see dk_fradrag.py).
+    # `expenses_total` above keeps the full GROSS for display; here we weight
+    # each category's spend by its real DK MOMS-fradrag factor (repræsentation
+    # 0%, restaurantbesøg/hotel 25%, normal 100%) so the deducted input-VAT is
+    # what's legally claimable — not a blanket full deduction that over-claims
+    # on §42-limited categories. Unknown categories stay 100% (never under-
+    # claim a normal expense). Single source: this feeds `input_vat`, which
+    # both the on-screen breakdown and build_moms_filing_pdf consume.
+    _fradrag_cat_rows = (
+        db.query(ExpenseCategory.name, func.coalesce(func.sum(Expense.amount), 0))
+        .select_from(Expense)
+        .outerjoin(ExpenseCategory, ExpenseCategory.id == Expense.category_id)
+        .filter(Expense.user_id == user_id, Expense.date >= start_date, Expense.date < end_date,
+                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True),
+                Expense.is_tax_exempt.isnot(True))
+        .group_by(ExpenseCategory.name)
+        .all()
+    )
+    deductible_expense_base = sum(
+        float(total) * fradrag_factor(name) for name, total in _fradrag_cat_rows
+    )
+
     # Exempt sales — explicitly marked `is_tax_exempt=true` Sales rows
     # PLUS invoices with zero MOMS (export to EU reverse-charge, 0%-rated
     # services, §13 nr. 17 charitable events, gift cards, etc.). These
@@ -453,10 +476,10 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
         input_vat = 0.0
     elif prices_include_moms:
         pos_sale_vat = pos_sale_total * vat_rate / (1 + vat_rate)
-        input_vat = round(expenses_total * vat_rate / (1 + vat_rate), 2)
+        input_vat = round(deductible_expense_base * vat_rate / (1 + vat_rate), 2)
     else:
         pos_sale_vat = pos_sale_total * vat_rate
-        input_vat = round(expenses_total * vat_rate, 2)
+        input_vat = round(deductible_expense_base * vat_rate, 2)
 
     pos_output_vat = round(pos_sale_vat + close_pos_moms, 2)
 
