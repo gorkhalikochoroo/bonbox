@@ -793,6 +793,111 @@ def approve_batch(
     return {"approved": approved, "skipped": skipped, "count": len(approved)}
 
 
+def _get_or_create_uncategorized(db: Session, user_id):
+    """Honest catch-all so a draft always has a category (NOT NULL). Owner/queue
+    re-tags it before approving. Created lazily, idempotent by name."""
+    cat = (
+        db.query(ExpenseCategory)
+        .filter(ExpenseCategory.user_id == user_id, ExpenseCategory.name == "Ukategoriseret")
+        .first()
+    )
+    if not cat:
+        cat = ExpenseCategory(user_id=user_id, name="Ukategoriseret", color="#9ca3af")
+        db.add(cat)
+        db.flush()
+    return cat
+
+
+@router.post("/burst-scan")
+# Burst is heavier (N Opus OCR calls) — bound it harder per-IP than single scan.
+@_limiter.limit("3/minute;40/day")
+async def burst_scan(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Snap-a-pile (Godkend-kø S3): OCR each receipt and drop it into the queue
+    as a DRAFT with its bilag attached — never a posted row until the owner taps
+    Godkend. Empties the drawer in one ceremony. Honest on the monthly scan cap:
+    processes up to the limit, then returns cap_reached so the UI can say
+    'X af Y brugt' instead of silently truncating. OCR failure never blocks the
+    draft — it lands with amount 0 ('Mangler beløb') for the owner to fix."""
+    from app.services.receipt_ocr import save_receipt_photo, parse_expense_receipt
+    import glob as _glob
+    import os as _os
+
+    cap = get_cap(user, "expense_receipt_scans_per_month")
+    used = _count_receipt_scans_this_month(db, user.id) if cap >= 0 else 0
+
+    created, skipped, cap_reached = [], 0, False
+    for f in files:
+        if cap >= 0 and (used + len(created)) >= cap:
+            cap_reached = True
+            break
+        if not f.content_type or not f.content_type.startswith("image/"):
+            skipped += 1
+            continue
+        raw = await f.read()
+        if len(raw) > 5 * 1024 * 1024:
+            skipped += 1
+            continue
+        try:
+            stored = save_receipt_photo(raw, f.filename, str(user.id), kind="expense")
+        except ValueError:
+            skipped += 1
+            continue
+
+        parsed = {"vendor": None, "amount": None, "date": None}
+        local = sorted(_glob.glob(f"uploads/receipts/{user.id}_*"), key=_os.path.getmtime, reverse=True)
+        if local:
+            try:
+                parsed = parse_expense_receipt(local[0])
+            except Exception:  # noqa: BLE001 — OCR must never block the draft
+                pass
+
+        amount = parsed.get("amount") or 0
+        vendor = parsed.get("vendor")
+        try:
+            pdate = date.fromisoformat(parsed["date"]) if parsed.get("date") else None
+        except Exception:  # noqa: BLE001
+            pdate = None
+
+        cat_id = None
+        if vendor:
+            hit = suggest_category_for(vendor, user.id, db)
+            if hit:
+                c = (
+                    db.query(ExpenseCategory)
+                    .filter(ExpenseCategory.user_id == user.id, ExpenseCategory.name == hit["category_name"])
+                    .first()
+                )
+                if c:
+                    cat_id = c.id
+        if cat_id is None:
+            cat_id = _get_or_create_uncategorized(db, user.id).id
+
+        draft = Expense(
+            user_id=user.id, category_id=cat_id, date=pdate or date.today(),
+            amount=amount, description=vendor or "Bilag", payment_method="card",
+            receipt_photo=stored, receipt_source="scan", status="pending",
+        )
+        db.add(draft)
+        created.append(draft)
+
+    db.commit()
+    for d in created:
+        db.refresh(d)
+    return {
+        "created": len(created),
+        "skipped": skipped,
+        "cap_reached": cap_reached,
+        "used_this_month": used + len(created),
+        "monthly_cap": cap,
+        "drafts": [ExpenseResponse.model_validate(d).model_dump(mode="json") for d in created],
+    }
+
+
 @router.delete("/{expense_id}", status_code=204)
 def delete_expense(
     expense_id: str,

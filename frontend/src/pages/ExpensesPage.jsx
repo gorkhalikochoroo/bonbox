@@ -48,6 +48,7 @@ import { formatDate, localIso } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn } from "../components/AnimationKit";
 import ReceiptCapture from "../components/ReceiptCapture";
+import GodkendKo from "../components/GodkendKo";
 import ReceiptViewer from "../components/ReceiptViewer";
 import DismissibleTip from "../components/DismissibleTip";
 import InboxBanner from "../components/InboxBanner";
@@ -1085,6 +1086,17 @@ export default function ExpensesPage() {
           {error}
         </div>
       )}
+
+      {/* Godkend-kø — AI-drafted expenses awaiting approval. Self-hides when
+          empty; drafts are excluded from MOMS/Foresight until the owner taps
+          Godkend. Sits at the top: when there's a pile to clear, it's the job. */}
+      <GodkendKo
+        getCatName={getCatName}
+        currency={currency}
+        onApproved={() => fetchData(filterFrom, filterTo)}
+        onEdit={startEdit}
+        refreshToken={success}
+      />
 
       {/* InboxBanner — hero when there are unread receipts, slim row
           when 0. The hero CTA scrolls to #bonbox-recent-expenses. */}

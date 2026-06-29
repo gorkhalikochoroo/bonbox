@@ -3079,6 +3079,13 @@ const translations = {
     expAttachBilag: "Snap a receipt",
     expBilagAttached: "Receipt attached",
     expBilagAttachFailed: "Could not attach receipt",
+    koTitle: "To approve",
+    koSub: "Not in your MOMS yet — nothing is booked until you approve",
+    koApproveAll: "Approve all ready",
+    koApprove: "Approve",
+    koReady: "Ready",
+    koMissingAmount: "Missing amount",
+    koFix: "Fix",
     typeCustomCategory: "Type custom category...", moveToTrash: "Move to trash",
     actions: "Actions", notes: "Notes",
     // Cash Book
