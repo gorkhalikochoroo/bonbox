@@ -1171,43 +1171,49 @@ export default function ExpensesPage() {
 
       {expensesTab === "one_time" && (
         <>
-          {/* Snap-first capture — the easiest path is a photo, not the
-              keypad. One big tap → existing ReceiptCapture/OCR (Free)
-              reads amount + date + MOMS, owner confirms. The keypad card
-              below is the calm "or type it" manual fallback (cash tip /
-              no-receipt). One primary action — this tile is the headline. */}
-          <button
-            type="button"
-            onClick={() => setReceiptOpen(true)}
-            className="w-full flex items-center gap-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition text-left"
-          >
-            <span className="shrink-0 inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900">
-              <Camera size={22} strokeWidth={1.75} aria-hidden="true" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-base font-semibold text-gray-900 dark:text-gray-100">
-                {t("expSnapHeroTitle", "Snap a receipt")}
-              </span>
-              <span className="block text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                {t("expSnapHeroSub", "We read the amount, date and MOMS — you just confirm")}
-              </span>
-            </span>
-            <ChevronRight size={20} strokeWidth={2} className="shrink-0 text-gray-300 dark:text-gray-600" aria-hidden="true" />
-          </button>
-          {/* Scan bunke — empty the whole drawer in one go; each receipt lands
-              as a draft in the Godkend-kø above. */}
-          <button
-            type="button"
-            onClick={triggerBurst}
-            disabled={bursting}
-            className="w-full flex items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 p-3 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition disabled:opacity-50"
-          >
-            <Layers size={16} strokeWidth={1.75} aria-hidden="true" />
-            {bursting ? t("expScanning", "Scanning…") : t("expScanPile", "Scan a pile")}
-          </button>
-          <p className="text-xs text-center text-gray-400 dark:text-gray-500 -mt-1">
-            {t("expOrTypeManually", "or enter it manually")}
-          </p>
+          {/* GROUP A — "Add an expense": snap (primary, the headline) + scan-
+              a-pile INLINE on desktop, an "or" divider, then the manual keypad.
+              One grouped section so the locked page rhythm (space-y-6) falls
+              between logical groups, not between every capture block — this is
+              what kills the "floating cards" gaps. */}
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row gap-2.5 sm:gap-3 sm:items-stretch">
+              <button
+                type="button"
+                onClick={() => setReceiptOpen(true)}
+                className="flex-1 flex items-center gap-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition text-left"
+              >
+                <span className="shrink-0 inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900">
+                  <Camera size={22} strokeWidth={1.75} aria-hidden="true" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-base font-semibold text-gray-900 dark:text-gray-100">
+                    {t("expSnapHeroTitle", "Snap a receipt")}
+                  </span>
+                  <span className="block text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                    {t("expSnapHeroSub", "We read the amount, date and MOMS — you just confirm")}
+                  </span>
+                </span>
+                <ChevronRight size={20} strokeWidth={2} className="shrink-0 text-gray-300 dark:text-gray-600" aria-hidden="true" />
+              </button>
+              {/* Scan bunke — inline next to snap on desktop, full-width below it
+                  on mobile; each receipt lands as a draft in the Godkend-kø above. */}
+              <button
+                type="button"
+                onClick={triggerBurst}
+                disabled={bursting}
+                className="sm:w-44 shrink-0 min-h-11 flex items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 p-3 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition disabled:opacity-50"
+              >
+                <Layers size={16} strokeWidth={1.75} aria-hidden="true" />
+                {bursting ? t("expScanning", "Scanning…") : t("expScanPile", "Scan a pile")}
+              </button>
+            </div>
+            {/* "or enter it manually" — a real hairline divider, not orphan text. */}
+            <div className="flex items-center gap-3">
+              <div className="flex-1 border-t border-gray-100 dark:border-gray-800" aria-hidden="true" />
+              <span className="text-xs text-gray-400 dark:text-gray-500 shrink-0">{t("expOrTypeManually", "or enter it manually")}</span>
+              <div className="flex-1 border-t border-gray-100 dark:border-gray-800" aria-hidden="true" />
+            </div>
 
           {/* EntryCard — the manual fallback (secondary to the snap tile).
               The detailed disclosure lives inside `extras`. */}
@@ -1258,7 +1264,13 @@ export default function ExpensesPage() {
               </>
             }
           />
+          </div>
 
+          {/* GROUP B — month status pair: the one-line "this month" summary
+              and the missing-bilag nudge read as one block (tight space-y),
+              with the locked page rhythm before the group and before the
+              Recent table below — not orphaned between each line. */}
+          <div className="space-y-2.5">
           {/* One-line "this month" summary — replaces the deleted
               4-tile period KPI right-rail. Full breakdown lives in
               /reports (per Tier-4 doctrine §1: ExpenseBreakdownCard
@@ -1322,6 +1334,7 @@ export default function ExpensesPage() {
               </button>
             );
           })()}
+          </div>
 
           {/* Recent expenses — DataTable + FilterBar (Tier-4 doctrine
               §5). The id anchor matches the InboxBanner hero CTA's
