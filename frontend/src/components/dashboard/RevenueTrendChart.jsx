@@ -133,15 +133,23 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
     );
   }
 
-  // Direction signal — compare a typical trading day in the recent half
-  // of the window to the earlier half (zero-filled gaps excluded so the
-  // arrow tracks earnings-per-open-day, not how many days you opened).
-  // ±5% deadband so a flat period reads as "stabil", not a fake arrow.
-  // null when the earlier half had no revenue to divide by.
-  const half = Math.max(1, Math.floor(data.length / 2));
-  const earlierAvg = meanNonZero(data.slice(0, half));
-  const recentAvg = meanNonZero(data.slice(-half));
-  const pct = earlierAvg > 0 ? Math.round(((recentAvg - earlierAvg) / earlierAvg) * 100) : null;
+  // Period-over-period: TOTAL revenue in this window vs the window immediately
+  // before it (last 30 days vs the prior 30, etc.). This is what an owner reads
+  // "↑/↓ X%" to mean, and it moves predictably with each sale — delete a 500-kr
+  // sale and this period drops 500, so the % tracks it. (The old metric compared
+  // the recent half's average open-day to the earlier half's, which swung in
+  // ways that never matched a single add/delete.) ±5% deadband so a flat period
+  // reads "stabil". null when there isn't a full prior window of history yet —
+  // we show "—" rather than invent a number.
+  const fullSeries = ctx?.dailyRevData || [];
+  const curWindow = fullSeries.slice(-days);
+  const prevWindow = fullSeries.slice(-days * 2, -days);
+  const curTotal = curWindow.reduce((s, d) => s + (d.amount || 0), 0);
+  const prevTotal = prevWindow.reduce((s, d) => s + (d.amount || 0), 0);
+  const pct =
+    prevWindow.length >= days && prevTotal > 0
+      ? Math.round(((curTotal - prevTotal) / prevTotal) * 100)
+      : null;
   const dir = pct == null ? "flat" : pct >= 5 ? "up" : pct <= -5 ? "down" : "flat";
 
   const TrendIcon = dir === "up" ? TrendingUp : dir === "down" ? TrendingDown : Minus;
@@ -152,9 +160,11 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
         ? "text-red-600 dark:text-red-400"
         : "text-gray-500 dark:text-gray-400";
   const trendLabel =
-    dir === "flat"
-      ? t("trendFlat", "Stable")
-      : `${pct > 0 ? "+" : ""}${pct}%`;
+    pct == null
+      ? "—"
+      : dir === "flat"
+        ? t("trendFlat", "Stable")
+        : `${pct > 0 ? "+" : ""}${pct}%`;
 
   return (
     <div onClick={() => navigate("/reports")} className={cardCls} data-zone="2" data-component="RevenueTrendChart">
@@ -170,7 +180,7 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
         <div className="text-right shrink-0">
           <span
             className={`inline-flex items-center gap-1 text-sm font-semibold tabular-nums ${trendColor}`}
-            title={t("revenueTrendVs", "vs. start of period")}
+            title={t("revenueTrendVsPrev", "vs. previous period")}
           >
             <TrendIcon className="w-4 h-4" strokeWidth={2.25} aria-hidden="true" />
             {trendLabel}
