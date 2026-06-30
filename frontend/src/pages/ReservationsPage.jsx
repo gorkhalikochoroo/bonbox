@@ -1357,7 +1357,30 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
   const labels = statusLabels(t);
 
   const todayIso = isoDay(new Date());
-  const nowD = new Date();
+
+  // Live "now" playhead tick. A 30s cadence advances nowX by 0.6px (PX × 0.5min)
+  // — visibly creeps once the CSS glide smooths it — without a 60fps loop that
+  // would drain an always-on host-stand tablet. Today-only (a past/future plan
+  // has no live line, so don't schedule a needless timer); re-syncs the instant
+  // the screen wakes / tab refocuses. Hooks live AFTER todayIso so the
+  // [day, todayIso] dep array never reads a TDZ const (the Layout regression
+  // lesson) and stay before the tables.length early return below.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (day !== todayIso) return undefined;
+    const sync = () => setNowTick(Date.now());
+    const id = setInterval(sync, 30000);
+    const onVis = () => {
+      if (document.visibilityState === "visible") sync();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [day, todayIso]);
+
+  const nowD = new Date(nowTick);
   const nowMin = nowD.getHours() * 60 + nowD.getMinutes();
   const nowX =
     day === todayIso && nowMin >= startMin && nowMin <= endMin ? (nowMin - startMin) * PX : null;
@@ -1383,7 +1406,7 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-x-auto">
-      <div style={{ minWidth: RAIL_W + bodyW }}>
+      <div className="relative" style={{ minWidth: RAIL_W + bodyW }}>
         {/* Time axis */}
         <div className="flex h-8 border-b border-gray-200 dark:border-gray-800 sticky top-0 bg-gray-50 dark:bg-gray-900/80 z-20">
           <div
@@ -1400,14 +1423,9 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
                 {String(Math.floor((m % 1440) / 60)).padStart(2, "0")}:00
               </span>
             ))}
-            {nowX != null && (
-              <span
-                style={{ left: nowX }}
-                className="absolute top-1 -translate-x-1/2 inline-flex items-center rounded-full bg-gray-900 dark:bg-gray-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white dark:text-gray-900 z-30 tabular-nums"
-              >
-                {t("rsvpNow", "Now")}
-              </span>
-            )}
+            {/* The "now" indicator is now ONE continuous .bb-playhead overlay,
+                mounted once at the bottom of the grid (a 7px dot rides here in
+                the axis). No per-row pill/line — see the overlay below. */}
           </div>
         </div>
 
@@ -1439,13 +1457,7 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
                   aria-hidden
                 />
               ))}
-              {nowX != null && (
-                <span
-                  style={{ left: nowX }}
-                  className="absolute top-0 bottom-0 border-l-2 border-gray-900 dark:border-gray-100 z-[2]"
-                  aria-hidden
-                />
-              )}
+              {/* per-row now-line removed → single .bb-playhead overlay below */}
               {unassigned.blocks.map(({ r, s, e, lane }) => {
                 const left = Math.max(0, (s - startMin) * PX);
                 const width = Math.max(30, (Math.min(e, endMin) - Math.max(s, startMin)) * PX - 2);
@@ -1515,13 +1527,7 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
                     aria-hidden
                   />
                 ))}
-                {nowX != null && (
-                  <span
-                    style={{ left: nowX }}
-                    className="absolute top-0 bottom-0 border-l-2 border-gray-900 dark:border-gray-100 z-[2]"
-                    aria-hidden
-                  />
-                )}
+                {/* per-row now-line removed → single .bb-playhead overlay below */}
                 {blocks.map((r) => {
                   let s = minOfDay(r.starts_at);
                   let e = minOfDay(r.ends_at);
@@ -1567,6 +1573,37 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
             </div>
           );
         })}
+
+        {/* Live "now" playhead — ONE continuous element over the whole grid so
+            it's seamless top-to-bottom (no per-row seams). GPU-composited via
+            translateX; glides on the 30s tick (.bb-playhead transition). Sits
+            above blocks (z-5) but below the sticky rail/axis (z-20), which mask
+            it where it scrolls under the 116px name column. pointer-events-none
+            so it never steals a tap from the booking happening right now. Keyed
+            on the time window so a bounds recompute remounts (no streak across
+            the grid) and re-plays the single arrival beat. */}
+        {nowX != null && (
+          <div
+            key={`ph-${startMin}-${endMin}`}
+            aria-hidden="true"
+            className="bb-playhead absolute top-0 bottom-0 z-[5] pointer-events-none"
+            style={{
+              left: 0,
+              transform: `translateX(${RAIL_W + nowX}px)`,
+              width: 0,
+              willChange: "transform",
+            }}
+          >
+            <div
+              className="bb-playhead-line absolute top-8 bottom-0 bg-gray-900 dark:bg-gray-100"
+              style={{ left: -0.75, width: 1.5 }}
+            />
+            <div
+              className="bb-playhead-dot absolute top-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gray-900 dark:bg-gray-100"
+              style={{ width: 7, height: 7 }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
