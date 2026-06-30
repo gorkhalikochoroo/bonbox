@@ -281,6 +281,28 @@ body.modal-open {
 .bb-playhead-dot { animation: bbPlayheadIn 500ms cubic-bezier(0, 0, 0.2, 1) both; }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   Staff-portal glossy kit — premium depth + frost, NOT hue. The portal's
+   "modern glossy" comes from a soft diffuse shadow, a 1px lit top sheen, a
+   frosted-glass header/nav and tighter radii — colour stays a restrained
+   accent (the --brand blue lives almost entirely in the active nav tab).
+   Soft shadow + sheen are composed into ONE box-shadow per class so two
+   box-shadow rules never clobber each other. All static → reduced-motion safe
+   via the global rule above. */
+.shadow-soft    { box-shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 16px -4px rgb(15 23 42 / 0.06); }
+.shadow-soft-lg { box-shadow: 0 2px 4px rgb(15 23 42 / 0.05), 0 12px 32px -8px rgb(15 23 42 / 0.16); }
+.card-glossy    { box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.85), 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 16px -4px rgb(15 23 42 / 0.06); }
+.dark .card-glossy { box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.25), 0 4px 16px -4px rgb(0 0 0 / 0.35); }
+.glass {
+  background: rgb(255 255 255 / 0.72);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+.dark .glass { background: rgb(17 24 39 / 0.72); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass { background: rgb(255 255 255 / 0.95); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    THEME SYSTEM — accent color overrides via [data-theme] on <html>
 
    We keep all "green" success states (✓ checkmarks, success toasts) as

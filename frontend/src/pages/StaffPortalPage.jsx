@@ -261,8 +261,11 @@ function PinGate({ onVerified, token, staffName }) {
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
       <div className="w-full max-w-xs text-center">
-        <div className="w-16 h-16 bg-gray-100 border border-gray-200 rounded-xl flex items-center justify-center mx-auto mb-4">
-          <Lock className="w-7 h-7 text-gray-400" strokeWidth={2} aria-hidden />
+        <div
+          className="w-16 h-16 rounded-2xl border shadow-soft flex items-center justify-center mx-auto mb-4"
+          style={{ background: "rgb(var(--brand-50))", borderColor: "rgb(var(--brand-100))" }}
+        >
+          <Lock className="w-7 h-7" strokeWidth={2} aria-hidden style={{ color: "rgb(var(--brand-600))" }} />
         </div>
         <h1 className="text-xl font-bold text-gray-900 mb-1">{t("portalPinTitle", "Enter PIN")}</h1>
         <p className="text-sm text-gray-500 mb-8">{t("portalPinSubtitle", "Hi {name}, enter your 4-digit PIN", { name: staffName })}</p>
@@ -896,10 +899,22 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
       {/* HERO — dark gray-900 next-shift card with a 4px role-colored left-bar.
           Absorbs the punch-clock (elapsed timer + Stempl ind/ud) and a live
           countdown. Role shows ONLY via the thin left-bar + a tiny label. */}
-      <div className="relative overflow-hidden rounded-xl bg-gray-900 text-white p-4">
-        {/* 4px role-colored left-bar — a thin SIGNAL, never a flood tint. */}
+      <div className="relative overflow-hidden rounded-2xl bg-gray-900 text-white p-5 shadow-soft-lg">
+        {/* Faint --brand corner under-glow — the portal's one ceremonial glossy
+            beat: felt, not seen. Static, low-alpha (0.20), never neon. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -bottom-16 -right-12 h-48 w-48 rounded-full blur-3xl"
+          style={{ background: "rgb(var(--brand-500) / 0.20)" }}
+        />
+        {/* 1px lit top edge — the cheapest premium "glossy" tell. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent"
+        />
+        {/* Role-colored left-bar — a thin SIGNAL, the only role colour. */}
         <span
-          className={`absolute left-0 top-0 bottom-0 w-1 rounded-l-xl ${roleBarColor(nextShift?.role_on_shift)}`}
+          className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl ${roleBarColor(nextShift?.role_on_shift)}`}
           aria-hidden
         />
         <div className="flex items-start justify-between gap-2">
@@ -907,7 +922,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
             {t("portalNextShiftHero")}
           </div>
           {countdownLabel && (
-            <span className="shrink-0 rounded-full bg-white/10 text-gray-200 text-[12px] px-2 py-0.5 tabular-nums">
+            <span className="shrink-0 rounded-full bg-white/10 ring-1 ring-white/15 backdrop-blur-sm text-gray-200 text-[12px] px-2.5 py-0.5 tabular-nums">
               {countdownLabel}
             </span>
           )}
@@ -915,7 +930,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
 
         {nextShift ? (
           <>
-            <div className="mt-1 text-3xl font-bold text-white leading-tight">
+            <div className="mt-2 text-3xl font-bold text-white leading-tight tracking-[-0.02em]">
               {isToday(nextShift.date) ? t("portalToday") : fmtDate(nextShift.date)}
             </div>
             <div className="mt-1 text-[13px] text-emerald-300/80 tabular-nums">
@@ -971,7 +986,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
                   type="button"
                   disabled={clock.busy}
                   onClick={() => clock.act("out")}
-                  className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-white text-gray-900 text-sm font-semibold hover:bg-gray-100 transition disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
+                  className="w-full inline-flex items-center justify-center min-h-[44px] px-4 rounded-xl bg-white text-gray-900 text-sm font-semibold shadow-[0_2px_8px_-2px_rgb(0_0_0/0.4)] hover:bg-gray-100 active:scale-[0.98] transition disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
                 >
                   {t("portalClockOutCta")}
                 </button>
@@ -982,7 +997,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
                       type="button"
                       disabled={clock.busy}
                       onClick={() => clock.act("in")}
-                      className="flex-1 inline-flex items-center justify-center min-h-[44px] px-4 rounded-lg bg-white text-gray-900 text-sm font-semibold hover:bg-gray-100 transition disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
+                      className="flex-1 inline-flex items-center justify-center min-h-[44px] px-4 rounded-xl bg-white text-gray-900 text-sm font-semibold shadow-[0_2px_8px_-2px_rgb(0_0_0/0.4)] hover:bg-gray-100 active:scale-[0.98] transition disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
                     >
                       {t("portalClockInCta")}
                     </button>
@@ -990,7 +1005,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
                   <button
                     type="button"
                     onClick={addToCalendar}
-                    className="shrink-0 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-lg bg-white/10 text-gray-200 text-sm font-medium hover:bg-white/20 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
+                    className="shrink-0 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-xl bg-white/10 ring-1 ring-white/15 text-gray-200 text-sm font-medium hover:bg-white/20 active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
                   >
                     <CalendarPlus className="w-4 h-4 shrink-0" strokeWidth={2} aria-hidden />
                     <span>{t("portalAddToCalendar")}</span>
@@ -1040,7 +1055,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
           strip at a time (this/next week). Working day = thin role-colored bar;
           OFF = silent hollow dot; TODAY = filled + gray-900 ring. Tap a working
           day → expand ONE inline ShiftRow below. */}
-      <div className="bg-white border border-gray-200 rounded-xl p-3">
+      <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3">
         <div className="flex items-center justify-between mb-2">
           <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
             {weekView === "this" ? t("portalSecThisWeek", "This week") : t("portalSecNextWeek", "Next week")} — {fmtShort(weekLabelStart)} – {fmtShort(addDays(weekLabelStart, 6))}
@@ -1207,7 +1222,7 @@ function HoursTab({ data, maxHours }) {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-white border border-gray-200 rounded-xl p-3">
+        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3">
           <div className="text-[11px] text-gray-500 mb-1">{hoursLabel}</div>
           <div className="text-2xl font-bold text-gray-900">
             {data.total_hours} {maxHours ? <span className="text-sm text-gray-500">/ {maxHours}</span> : null}
@@ -1229,7 +1244,7 @@ function HoursTab({ data, maxHours }) {
             </>
           )}
         </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-3">
+        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3">
           <div className="text-[11px] text-gray-500 mb-1">{t("portalHoursShiftsCount", "Shifts")}</div>
           <div className="text-2xl font-bold text-gray-900">{data.entries.length}</div>
           <div className="text-[11px] text-gray-500">{t("portalHoursThisPeriod", "this period")}</div>
@@ -1279,15 +1294,15 @@ function TipsTab({ data }) {
     <div className="space-y-4">
       {/* KPIs */}
       <div className="grid grid-cols-3 gap-2">
-        <div className="bg-white border border-gray-200 rounded-xl p-3">
+        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3">
           <div className="text-[10px] text-gray-500 mb-1">{tr("portalTipsLast30", "Last 30 days")}</div>
           <div className="text-lg font-bold text-gray-700">{Math.round(data.total_tips_30d).toLocaleString()}</div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-3">
+        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3">
           <div className="text-[10px] text-gray-500 mb-1">{tr("portalTipsLastShift", "Last shift")}</div>
           <div className="text-lg font-bold text-gray-900">{lastTip ? Math.round(lastTip.amount) : "—"}</div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-xl p-3">
+        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3">
           <div className="text-[10px] text-gray-500 mb-1">{tr("portalTipsAvgPerShift", "Avg / shift")}</div>
           <div className="text-lg font-bold text-gray-900">{Math.round(avgPerShift)}</div>
         </div>
@@ -1457,7 +1472,7 @@ function SwapRow({ swap, token, onChanged }) {
           : swap.status;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-2">
+    <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3 space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[10px] uppercase tracking-wide font-medium text-gray-500">
           {swap.direction === "outgoing" ? t("portalSwapOutgoing", "Outgoing") : t("portalSwapIncoming", "Incoming")}
@@ -2616,7 +2631,7 @@ export default function StaffPortalPage() {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 pb-24">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-white/90 backdrop-blur-xl border-b border-gray-200 pt-[env(safe-area-inset-top)]">
+      <div className="sticky top-0 z-10 glass border-b border-gray-200/70 pt-[env(safe-area-inset-top)]">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-gray-900">
@@ -2644,7 +2659,7 @@ export default function StaffPortalPage() {
             )}
             <button
               onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setEmailMsg(""); setEmailStatus(null); }}
-              className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-sm font-bold text-gray-700"
+              className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 shadow-soft flex items-center justify-center text-sm font-bold text-gray-700"
               title={t("portalEditContact", "Edit email")}
             >
               {info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
@@ -2654,7 +2669,7 @@ export default function StaffPortalPage() {
         {/* Email edit panel */}
         {showEmailEdit && (
           <div className="max-w-lg mx-auto px-4 pb-3">
-            <div className="bg-white border border-gray-200 rounded-xl p-3 space-y-3">
+            <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3 space-y-3">
               <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">{t("portalNotifications", "Notifications")}</div>
               <div>
                 <label className="text-[10px] text-gray-500 mb-1 block">{t("portalContactEmailLabel", "Email")}</label>
@@ -2733,21 +2748,40 @@ export default function StaffPortalPage() {
       </div>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-gray-200 z-20">
+      <nav className="fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20">
         <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          {TABS.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setTab(item.key)}
-              aria-current={tab === item.key ? "page" : undefined}
-              className={`flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${
-                tab === item.key ? "text-gray-900" : "text-gray-400"
-              }`}
-            >
-              <item.Icon className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
-              <span className="text-[10px] font-semibold">{t(item.labelKey, item.labelFallback)}</span>
-            </button>
-          ))}
+          {TABS.map((item) => {
+            const active = tab === item.key;
+            return (
+              <button
+                key={item.key}
+                onClick={() => setTab(item.key)}
+                aria-current={active ? "page" : undefined}
+                className={`relative flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${
+                  active ? "" : "text-gray-400"
+                }`}
+                style={active ? { color: "rgb(var(--brand-600))" } : undefined}
+              >
+                {/* Soft --brand lozenge behind the active tab — the portal's one
+                    recurring, deliberate touch of colour. */}
+                {active && (
+                  <span
+                    aria-hidden
+                    className="absolute inset-x-2 top-0.5 h-7 rounded-lg"
+                    style={{ background: "rgb(var(--brand-50))" }}
+                  />
+                )}
+                <item.Icon
+                  className="relative w-[18px] h-[18px]"
+                  strokeWidth={active ? 2.25 : 2}
+                  aria-hidden
+                />
+                <span className="relative text-[10px] font-semibold">
+                  {t(item.labelKey, item.labelFallback)}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </nav>
 
