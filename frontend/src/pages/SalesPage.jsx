@@ -79,7 +79,6 @@ export default function SalesPage() {
   const [editId, setEditId] = useState(null);
   const [receiptViewing, setReceiptViewing] = useState(null);
   const [editData, setEditData] = useState({});
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(new Set());
   const [listening, setListening] = useState(false);
@@ -443,7 +442,6 @@ export default function SalesPage() {
   const deleteSale = async (id) => {
     try {
       await api.delete(`/sales/${id}`);
-      setDeleteConfirm(null);
       fetchSales(filterFrom, filterTo);
       window.dispatchEvent(new Event("bonbox-data-changed"));
       setSuccess(t("movedToDeleted"));
@@ -638,9 +636,13 @@ export default function SalesPage() {
     actions.push({
       label: t("moveToTrash"),
       icon: <Trash size={14} />,
-      onClick: () => {
-        if (deleteConfirm === row.id) deleteSale(row.id);
-        else setDeleteConfirm(row.id);
+      onClick: async () => {
+        const ok = await confirm({
+          message: `${t("moveToTrash")} — ${Number(row.amount || 0).toLocaleString()} ${currency}`,
+          destructive: true,
+          confirmLabel: t("moveToTrash"),
+        });
+        if (ok) deleteSale(row.id);
       },
       variant: "danger",
     });
@@ -1125,22 +1127,6 @@ export default function SalesPage() {
           onToggleSelect={toggleSelect}
           onToggleAll={toggleAll}
         />
-
-        {/* Delete confirmation hint — when a row's "Move to trash" was
-            tapped once, the action button stays primed; tapping again
-            commits.  We render a small nudge so the dual-tap UX is
-            visible. */}
-        {deleteConfirm && (
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-4 py-2">
-            <p className="text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
-              <AlertCircle size={14} className="text-red-600 dark:text-red-400" aria-hidden="true" />
-              {t("confirmTrashHint", "Tap Move to trash again on the row to confirm")}
-            </p>
-            <Button variant="ghost" size="sm" onClick={() => setDeleteConfirm(null)}>
-              {t("cancel")}
-            </Button>
-          </div>
-        )}
       </section>
 
       {/* Sticky bulk-action toolbar */}
