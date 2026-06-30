@@ -531,11 +531,12 @@ export default function InventoryPage() {
         />
       </FadeIn>
 
-      {/* Reorder hero (S1 of the inventory redesign) — the autopilot draft is
-          now the FIRST thing the owner sees, always-on, instead of a buried
-          "Order autopilot" button. It auto-loads "this week's order, ready to
-          approve" for Pro; Free/Starter see the upsell card. AI proposes the
-          quantities; nothing is sent until the owner taps Godkend og send. */}
+      {/* Genbestilling heads-up (S3 of the inventory redesign) — the no-send
+          reorder heads-up is the FIRST thing the owner sees, always-on. It
+          auto-loads "what's running low this week" for Pro; Free/Starter see
+          the upsell card. BonBox TELLS what to genbestil + how much + by when;
+          the owner places the order themselves (Kopiér bestilling). BonBox
+          sends nothing — no supplier emails. */}
       <InventoryAutopilotPanel hero onAddSupplier={() => setShowSmartImport(true)} />
 
       {/* Weekly count entry (S4) — now that the recipe auto-deduct keeps stock

@@ -31,7 +31,7 @@ import {
   Wallet, BookOpen, LineChart, Target, Landmark, CreditCard,
   BookText, FileText, Users, Car,
   // Stock
-  Boxes, Package, Martini, Wine, AlarmClock, Trash2,
+  Boxes, Package, PackageSearch, Martini, Wine, AlarmClock, Trash2,
   // Reports
   BarChart3, Utensils, ClipboardList, Moon, Store, Calculator, Send,
   // Staff
@@ -108,7 +108,7 @@ const ICONS = {
   Wallet, BookOpen, LineChart, Target, Landmark, CreditCard,
   BookText, FileText, Users, Car,
   // Stock group
-  Boxes, Package, Martini, Wine, AlarmClock, Trash2,
+  Boxes, Package, PackageSearch, Martini, Wine, AlarmClock, Trash2,
   // Reports group
   BarChart3, Utensils, ClipboardList, Moon, Store, Calculator, Send,
   // Staff group

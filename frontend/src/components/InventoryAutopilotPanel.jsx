@@ -1,39 +1,37 @@
 /**
- * InventoryAutopilotPanel — Pro-tier inventory reorder autopilot UI.
+ * InventoryAutopilotPanel — "Genbestilling": a NO-SEND reorder heads-up.
  *
- * Reads /inventory/autopilot/suggest, renders per-leverandør cards with
- * editable per-row qty, urgency badges (today/this_week/monitor), and a
- * "Send bestilling" button per leverandør. The "Send all" footer ships
- * every pending leverandør in one click.
+ * BonBox reads /inventory/autopilot/suggest (read-only) and TELLS the owner what
+ * is running low, how much to genbestil, and roughly by when — grouped by
+ * leverandør. The owner places the order themselves: the only assist is
+ * "Kopiér bestilling", a 100% client-side clipboard copy of the per-leverandør
+ * line list that the owner pastes into their OWN channel (supplier app / SMS /
+ * call). BonBox emails NO ONE. The old supplier-emailing path (/autopilot/apply,
+ * "Send bestilling", "Send all orders", "Sent N supplier orders") is GONE — per
+ * the locked product decision: "we're not ordering anything, we're helping them
+ * track inventory."
  *
- * Calm state machine (a never-configured account is NOT a five-alarm fire):
+ * Calm state machine:
  *   loading      → one quiet "Læser dit lager…" beat.
- *   locked       → Free/Starter UpgradeNudge (unchanged).
- *   not-set-up   → an activation hero, not a warning wall. Fires when the
- *                  autopilot can't do anything useful yet — no leverandør
- *                  email AND no cost on any vare. One calm Truck tile + one
- *                  primary tap (add your varer + priser) + a collapsed,
- *                  de-amber'd "what's running low" peek. No confidence chip,
- *                  no disabled Send, no 23-card grid, no amber wall.
- *   ready        → leverandør-grouped cards + Send / Send-all (unchanged).
- *   all-healthy  → calm "intet at bestille".
+ *   locked       → Free/Starter UpgradeNudge (heads-up value, never "emails").
+ *   not-set-up   → an activation hero, fires ONLY when there are zero lager varer
+ *                  to read (PackageSearch — watching, not delivering).
+ *   ready        → leverandør-grouped heads-up cards + per-card Kopiér bestilling.
+ *   all-healthy  → calm "intet er ved at løbe tør".
  *
- * The old uncapped amber compliance_warnings <ul> is gone: real risk is
- * summarised from the structured items[].notes[] tags into one quiet,
- * collapsible row BELOW the cards (status colour is a 6px dot, never a
- * canvas). Confidence is shown ONLY when there is real history.
+ * Honesty (computed != measured): suggested_qty is a "Foreslået antal" the owner
+ * edits before copying; days_until_stockout reads as an estimate ("Tom om ca." /
+ * "Est. out in"); confidence shows ONLY with real history; Anslået total/værdi
+ * only when cost > 0. A persistent contract line ("BonBox foreslår — du bestiller
+ * selv") + footer ("BonBox sender ikke noget…") keep the no-send promise visible.
+ * The only post-action confirmation is "Kopieret" — a true claim about the
+ * clipboard, never "sent/ordered".
  *
- * Honesty: suggest is read-only (auto-runs in hero); apply is the only
- * write/send and always needs an explicit tap. The not-set-up CTA only
- * routes the owner to where leverandør/pris is set — it never emails anyone.
+ * Tier-gated client-side (UpgradeNudge for non-Pro); the backend is the source of
+ * truth — /autopilot/suggest enforces the Pro gate via _enforce_inventory_autopilot_tier().
  *
- * Tier-gated client-side (UpgradeNudge for non-Pro), but the backend is
- * the source of truth — every /autopilot/* endpoint also enforces the
- * Pro tier gate via _enforce_inventory_autopilot_tier().
- *
- * Lucide outline icons only (no emoji chrome). UI strings translatable via
- * t() with English/Danish fallbacks; DK trade terms (leverandør, bestilling,
- * lager, vareforbrug, letfordærvelig) stay Danish in every language.
+ * Lucide outline icons only (no emoji). DK trade terms (leverandør, bestilling,
+ * genbestil, lager, vareforbrug, letfordærvelig) stay Danish in every language.
  */
 import { useState, useMemo, useEffect } from "react";
 import api from "../services/api";
@@ -46,11 +44,9 @@ import { Button, Card, UpgradeNudge, Icon } from "./ui";
 
 // ─── Urgency styling — three tiers ────────────────────────────────────
 //
-// Today  = "you should have ordered yesterday" (red).
+// Today  = "you should reorder today" (red).
 // Week   = "before the weekend" (amber).
 // Monitor = "still healthy, keep an eye on it" (stone-grey).
-//
-// Single mapping → any new urgency tier added later only needs one edit.
 const URGENCY = {
   today: {
     color: "bg-red-50 dark:bg-red-900/30 text-red-800 dark:text-red-200 border-red-200 dark:border-red-800",
@@ -109,13 +105,9 @@ function ConfidenceBadge({ confidence, t }) {
 }
 
 
-// ─── Warning summary (replaces the old uncapped amber <ul>) ───────────
-//
-// Tallies the structured items[].notes[] tags into at most three quiet
-// rows. Status colour is a 6px DOT only — never a card/banner fill.
-// Collapsed by default; expanding reveals the affected vare names (capped,
-// with "+n flere"). 'no_supplier_email' is deliberately excluded — in
-// not-set-up it IS the headline, and on a real card it's the per-card note.
+// ─── Warning summary (structured notes → at most three quiet rows) ────
+// Status colour is a 6px DOT only — never a card/banner fill. Collapsed
+// by default; expanding reveals the affected vare names (capped).
 const WARN_TAGS = [
   { key: "late_for_lead_time", labelKey: "inventoryAutopilotWarnLate", labelFallback: "Ordered late for lead time", dot: "bg-red-500" },
   { key: "perishable_waste_risk", labelKey: "inventoryAutopilotWarnPerishable", labelFallback: "Letfordærvelig — verify before bestilling", dot: "bg-amber-500" },
@@ -189,83 +181,49 @@ function WarningSummaryRow({ warn, t }) {
 
 
 // ─── Not-set-up hero — the calm activation state ──────────────────────
-function NotSetUpHero({ suggestion, onAddSupplier, t }) {
-  const [showRisk, setShowRisk] = useState(false);
-  const items = suggestion?.items || [];
-  const total = suggestion?.basis?.items_total ?? items.length;
-  const withSupplier = items.filter((i) => i.supplier_email).length;
-  const atRisk = [...items].sort(
-    (a, b) =>
-      (URGENCY[a.urgency]?.sortRank ?? 9) - (URGENCY[b.urgency]?.sortRank ?? 9) ||
-      String(a.name || "").localeCompare(String(b.name || "")),
-  );
-
+// Fires ONLY when there are zero lager varer to read. Supplier email is
+// irrelevant now (BonBox emails no one) — all the owner needs to start is
+// one vare with its current stock.
+function NotSetUpHero({ onAddSupplier, t }) {
   return (
     <div className="px-2 sm:px-4 py-8 text-center">
       <span className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 mb-4">
-        <Icon name="Truck" size={26} />
+        <Icon name="PackageSearch" size={26} />
       </span>
       <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 max-w-sm mx-auto leading-snug">
-        {t("inventoryAutopilotNotSetupHeadline", "Add a leverandør and autopilot drafts the order")}
+        {t("inventoryAutopilotNotSetupHeadline", "Add your varer and BonBox flags what's running low")}
       </h3>
       <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 max-w-sm mx-auto leading-relaxed">
         {t(
           "inventoryAutopilotNotSetupBody",
-          "BonBox can already see what's running low. To draft a bestilling you approve in one tap, it just needs who you buy from and roughly what it costs — add a leverandør and price to your varer and the order writes itself. Nothing is sent until you tap.",
+          "BonBox watches stock against usage and tells you what to reorder before you run out — you place the order, BonBox sends nothing. Add a vare with its current lager to start. A leverandør and price are optional; they just let BonBox group the list and estimate its value.",
         )}
       </p>
       <div className="mt-5">
         <Button variant="primary" onClick={onAddSupplier}>
-          {t("inventoryAutopilotNotSetupCta", "Add leverandør to your varer")}
+          {t("inventoryAutopilotNotSetupCta", "Add a vare to your lager")}
         </Button>
       </div>
-      <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
-        {t("inventoryAutopilotNotSetupMeta", "{total} varer in lager · {with} with a leverandør")
-          .replace("{total}", String(total))
-          .replace("{with}", String(withSupplier))}
-      </p>
-
-      {atRisk.length > 0 && (
-        <div className="mt-3">
-          <button
-            type="button"
-            onClick={() => setShowRisk((v) => !v)}
-            className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition"
-          >
-            <Icon name={showRisk ? "ChevronDown" : "ChevronRight"} size={13} className="text-gray-400" />
-            {t("inventoryAutopilotSeeAtRisk", "See what's running low ({n} varer)").replace(
-              "{n}",
-              String(atRisk.length),
-            )}
-          </button>
-          {showRisk && (
-            <ul className="mt-2 max-w-sm mx-auto text-left divide-y divide-gray-100 dark:divide-gray-800 rounded-lg border border-gray-100 dark:border-gray-800">
-              {atRisk.map((it) => (
-                <li key={it.item_id} className="flex items-center justify-between gap-3 px-3 py-2">
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span className={"w-1.5 h-1.5 rounded-full shrink-0 " + (URGENCY[it.urgency]?.dot || "bg-gray-400")} />
-                    <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{it.name}</span>
-                  </span>
-                  {it.days_until_stockout != null && (
-                    <span className="text-[11px] text-gray-400 dark:text-gray-500 shrink-0 tabular-nums">
-                      {t("inventoryAutopilotStockoutIn", "Out in")} {it.days_until_stockout}{" "}
-                      {t("inventoryAutopilotDays", "days")}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
     </div>
   );
 }
 
 
-function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency }) {
-  const hasEmail = !!group.supplier_email;
-  const groupItems = group.items;
+function SupplierCard({ group, edits, setEdits, buildText, t, currency }) {
+  const groupItems = group.items || [];
+  const hasSupplier = !!group.supplier_name;
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(buildText(group));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard blocked (rare) — the list stays on screen; the owner can
+      // still read and type it. We never claim a copy that didn't happen.
+    }
+  };
 
   return (
     <Card>
@@ -273,33 +231,26 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
-              {group.supplier_name ||
-                group.supplier_email ||
-                t("inventoryAutopilotNoSupplier", "No leverandør set")}
+              {group.supplier_name || t("inventoryAutopilotNoSupplier", "No leverandør set")}
             </h3>
             <UrgencyBadge urgency={group.urgency} t={t} />
           </div>
-          {hasEmail ? (
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 break-all">
-              {group.supplier_email}
-            </p>
-          ) : (
-            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
-              {t(
-                "inventoryAutopilotAddSupplier",
-                "Add a leverandør email on these varer to send a bestilling",
-              )}
+          {!hasSupplier && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              {t("inventoryAutopilotGroupHint", "Add a leverandør to group these varer (optional)")}
             </p>
           )}
         </div>
-        <div className="text-right shrink-0">
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {t("inventoryAutopilotEstTotal", "Est. total")}
-          </p>
-          <p className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            {Number(group.total_cost || 0).toFixed(2)} {currency}
-          </p>
-        </div>
+        {Number(group.total_cost || 0) > 0 && (
+          <div className="text-right shrink-0">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {t("inventoryAutopilotEstTotal", "Est. total")}
+            </p>
+            <p className="text-base font-semibold text-gray-900 dark:text-gray-100">
+              {Number(group.total_cost || 0).toFixed(2)} {currency}
+            </p>
+          </div>
+        )}
       </div>
 
       <ul className="divide-y divide-gray-100 dark:divide-gray-800 -mx-1">
@@ -332,7 +283,7 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
                     {it.days_until_stockout != null && (
                       <>
                         {" "}·{" "}
-                        {t("inventoryAutopilotStockoutIn", "Out in")}{" "}
+                        {t("inventoryAutopilotStockoutIn", "Est. out in")}{" "}
                         {it.days_until_stockout}
                         {" "}
                         {t("inventoryAutopilotDays", "days")}
@@ -350,31 +301,32 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
                       setEdits((prev) => ({ ...prev, [editKey]: e.target.value }))
                     }
                     className="w-full sm:w-24 h-10 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 text-right focus:outline-none focus:ring-2 focus:ring-gray-900"
-                    aria-label={t("inventoryAutopilotQtyLabel", "Quantity to order")}
+                    aria-label={t("inventoryAutopilotQtyLabel", "Suggested antal")}
                   />
                   <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0 min-w-[2rem]">
                     {it.unit}
                   </span>
                 </div>
               </div>
-              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 text-right">
-                {lineCost} {currency}
-              </p>
+              {Number(it.cost_per_unit || 0) > 0 && (
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 text-right">
+                  {lineCost} {currency}
+                </p>
+              )}
             </li>
           );
         })}
       </ul>
 
-      {/* Send bestilling — disabled when no leverandør email or when sending */}
+      {/* Kopiér bestilling — 100% client-side clipboard copy. BonBox sends nothing. */}
       <div className="mt-4 flex items-center justify-end gap-2 flex-wrap">
-        <Button
-          variant="primary"
-          onClick={() => onSendOne(group)}
-          disabled={!hasEmail || sending}
-        >
-          {sending
-            ? t("inventoryAutopilotSending", "Sending…")
-            : t("inventoryAutopilotSendOrder", "Send bestilling")}
+        <Button variant="secondary" onClick={copy}>
+          <span className="inline-flex items-center gap-1.5">
+            <Icon name="Copy" size={15} aria-hidden="true" />
+            {copied
+              ? t("inventoryAutopilotCopied", "Kopieret")
+              : t("inventoryAutopilotCopyOrder", "Kopiér bestilling")}
+          </span>
         </Button>
       </div>
     </Card>
@@ -383,7 +335,7 @@ function SupplierCard({ group, edits, setEdits, onSendOne, sending, t, currency 
 
 
 export default function InventoryAutopilotPanel({ branchId = null, onClose, hero = false, onAddSupplier = null }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const { user } = useAuth();
   const { hasFeature, loading: entLoading } = useEntitlements();
   const isUnlocked = hasFeature("inventory_autopilot");
@@ -391,27 +343,21 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [suggestion, setSuggestion] = useState(null);
   const [edits, setEdits] = useState({}); // {item_id: qty_string}
-  const [daysAhead, setDaysAhead] = useState(7);
-  const [sending, setSending] = useState(false);
-
-  const showSuccess = (msg) => {
-    setSuccess(msg);
-    setTimeout(() => setSuccess(""), 3500);
-  };
 
   const fetchSuggestion = async () => {
     setLoading(true);
     setError("");
     try {
-      const body = { days_ahead: daysAhead };
+      // Fixed horizon: nothing is sent, so an order-tuning control is dead
+      // cognitive cost. The engine's default look-ahead is one week.
+      const body = { days_ahead: 7 };
       if (branchId) body.branch_id = branchId;
       const res = await api.post("/inventory/autopilot/suggest", body);
       setSuggestion(res.data);
-      // Seed the edits map with the autopilot's suggested_qty so the
-      // user can tweak before sending.
+      // Seed the edits map with the suggested_qty so the owner can tweak it
+      // before copying the list.
       const seeded = {};
       for (const it of res.data?.items || []) {
         seeded[it.item_id] = String(it.suggested_qty || 0);
@@ -422,7 +368,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
       if (status === 402) {
         setError(
           err?.response?.data?.detail?.message ||
-            t("inventoryAutopilotProRequired", "Order Autopilot is on Pro."),
+            t("inventoryAutopilotProRequired", "Genbestilling is on Pro."),
         );
       } else {
         setError(
@@ -436,10 +382,10 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
     }
   };
 
-  // Hero mode (always-on at the top of /inventory): auto-load the draft so
-  // the owner lands on "this week's order, ready to approve" — no extra tap.
-  // Only fires for unlocked (Pro) accounts; Free/Starter render the locked
-  // upsell card and never hit the Pro-gated suggest endpoint.
+  // Hero mode (always-on at the top of /inventory): auto-load the heads-up so
+  // the owner lands on "what to reorder this week" — no extra tap. Only fires
+  // for unlocked (Pro) accounts; Free/Starter render the locked upsell and
+  // never hit the Pro-gated suggest endpoint.
   useEffect(() => {
     if (hero && !entLoading && isUnlocked && !suggestion && !loading) {
       fetchSuggestion();
@@ -447,127 +393,62 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hero, entLoading, isUnlocked]);
 
-  const sendItems = async (lines) => {
-    if (!lines.length) return;
-    setSending(true);
-    setError("");
+  // Plain-text reorder list for the clipboard. A DRAFT the owner pastes into
+  // their own channel — never phrased as a sent order. Value line only when
+  // every line has a real cost (no "0,00 kr" from missing prices).
+  const buildOrderText = (group) => {
+    const header = t("inventoryAutopilotCopyHeader", "Reorder list from BonBox");
+    const sup = group.supplier_name ? ` — ${group.supplier_name}` : "";
+    let dateStr = "";
     try {
-      const items = lines.map((l) => ({
-        item_id: l.item_id,
-        qty: parseFloat(edits[l.item_id] ?? l.suggested_qty) || 0,
-        supplier_name: l.supplier_name,
-        supplier_email: l.supplier_email,
-        unit: l.unit,
-        name: l.name,
-        cost_per_unit: l.cost_per_unit,
-      })).filter((l) => l.qty > 0 && l.supplier_email);
-
-      if (!items.length) {
-        setError(
-          t(
-            "inventoryAutopilotNothingToSend",
-            "Nothing to send — qty must be > 0 and supplier email set.",
-          ),
-        );
-        setSending(false);
-        return;
-      }
-
-      const res = await api.post("/inventory/autopilot/apply", { items });
-      const sentCount = res.data?.sent || 0;
-      const skipped = res.data?.skipped_no_supplier || 0;
-      const failureCount = res.data?.failures?.length || 0;
-      if (sentCount > 0) {
-        showSuccess(
-          t(
-            "inventoryAutopilotSentMsg",
-            "Sent {count} supplier orders",
-          ).replace("{count}", String(sentCount)),
-        );
-      }
-      if (failureCount > 0) {
-        setError(
-          t(
-            "inventoryAutopilotPartialFail",
-            "Some orders failed: {n}",
-          ).replace("{n}", String(failureCount)),
-        );
-      } else if (sentCount === 0 && skipped > 0) {
-        setError(
-          t(
-            "inventoryAutopilotAllSkipped",
-            "No supplier emails configured — add one to send.",
-          ),
-        );
-      }
-      // Refetch so the items list reflects the just-sent state (the next
-      // suggestion will reflect any inventory updates the owner makes).
-      await fetchSuggestion();
-    } catch (err) {
-      setError(
-        err?.response?.data?.detail?.message ||
-          err?.response?.data?.detail ||
-          t("somethingWentWrong", "Something went wrong"),
+      dateStr = new Date().toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+    } catch {
+      dateStr = "";
+    }
+    const items = group.items || [];
+    const lines = [`${header}${sup}${dateStr ? " — " + dateStr : ""}`];
+    for (const it of items) {
+      const qty = parseFloat(edits[it.item_id] ?? it.suggested_qty) || 0;
+      lines.push(`• ${it.name} — ${qty} ${it.unit || ""}`.trim());
+    }
+    const allHaveCost = items.length > 0 && items.every((it) => (it.cost_per_unit || 0) > 0);
+    if (allHaveCost) {
+      const total = items.reduce(
+        (s, it) =>
+          s + (parseFloat(edits[it.item_id] ?? it.suggested_qty) || 0) * (it.cost_per_unit || 0),
+        0,
       );
-    } finally {
-      setSending(false);
+      lines.push(`${t("inventoryAutopilotEstValue", "Est. value")}: ${total.toFixed(2)} ${currency}`);
     }
+    return lines.join("\n");
   };
 
-  const sendOneSupplier = (group) => sendItems(group.items);
-
-  const sendAll = () => {
-    if (!suggestion) return;
-    // Flatten all items across suppliers with valid emails
-    const lines = [];
-    for (const g of suggestion.suppliers || []) {
-      if (!g.supplier_email) continue;
-      for (const it of g.items || []) {
-        lines.push(it);
-      }
-    }
-    sendItems(lines);
-  };
-
-  // Suppliers from the suggestion, with "no supplier" bucket pushed to end.
+  // Suppliers from the suggestion, urgency-first; un-named groups last.
   const visibleSuppliers = useMemo(() => {
     if (!suggestion?.suppliers) return [];
     return [...suggestion.suppliers].sort((a, b) => {
       const ar = URGENCY[a.urgency]?.sortRank ?? 99;
       const br = URGENCY[b.urgency]?.sortRank ?? 99;
       if (ar !== br) return ar - br;
-      // Suppliers without email last
-      if (!!a.supplier_email !== !!b.supplier_email) {
-        return a.supplier_email ? -1 : 1;
+      if (!!a.supplier_name !== !!b.supplier_name) {
+        return a.supplier_name ? -1 : 1;
       }
       return (b.total_cost || 0) - (a.total_cost || 0);
     });
   }, [suggestion]);
 
-  const totalPending = useMemo(() => {
-    let n = 0;
-    for (const g of visibleSuppliers) {
-      if (g.supplier_email) n += g.items?.length || 0;
-    }
-    return n;
-  }, [visibleSuppliers]);
-
-  // ─── Derived state for the calm state machine ───────────────────────
-  const sendableSupplierCount = useMemo(
-    () => visibleSuppliers.filter((g) => g.supplier_email).length,
-    [visibleSuppliers],
-  );
+  // ─── Derived state ──────────────────────────────────────────────────
   // Honest confidence: only when there is real history behind the number.
   const hasHistory = (suggestion?.basis?.items_with_history || 0) > 0;
-  // Any cost data at all → the autopilot can at least estimate/group, so we
-  // leave the not-set-up hero and show the (de-walled) grouped suggestions.
-  const hasAnyCost = useMemo(
-    () => (suggestion?.items || []).some((i) => (i.cost_per_unit || 0) > 0),
-    [suggestion],
-  );
-  // Truly nothing actionable yet: can't send (no leverandør email) AND can't
-  // even estimate (no cost). This is the calm activation hero, not an alarm.
-  const isNotSetUp = !!suggestion && sendableSupplierCount === 0 && !hasAnyCost;
+  const basisTotal = suggestion?.basis?.items_total ?? (suggestion?.items?.length || 0);
+  const basisHistory = suggestion?.basis?.items_with_history || 0;
+  // Truly nothing to read yet: zero lager varer. The instant there is ≥1 vare,
+  // the heads-up list IS the value — even with no leverandør and no cost.
+  const isNotSetUp = !!suggestion && basisTotal === 0;
 
   // Tally structured note tags → at most three quiet summary rows.
   const warn = useMemo(() => {
@@ -592,12 +473,12 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
       <Card>
         <div className="mb-3">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            {t("inventoryAutopilotHeading", "Order autopilot")}
+            {t("inventoryAutopilotHeading", "Genbestilling")}
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             {t(
               "inventoryAutopilotIntro",
-              "BonBox reads 8 weeks of vareforbrug + the weather forecast and proposes one bestilling per leverandør.",
+              "BonBox reads your vareforbrug and flags what's running low — how much to genbestil and roughly by when. You place the order.",
             )}
           </p>
         </div>
@@ -606,7 +487,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
           tier="pro"
           benefit={t(
             "inventoryAutopilotUpgradeBenefit",
-            "One tap: BonBox emails every leverandør the right bestilling at the right time",
+            "BonBox flags what's running low and how much to genbestil, grouped by leverandør — you place the order.",
           )}
           ctaLabel={t("seePlans", "See plans")}
           icon={<Icon name="Package" size={28} />}
@@ -615,8 +496,7 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
     );
   }
 
-  // Header controls (horizon + refresh) only make sense for an active /
-  // ready suggestion — hidden during loading and in the not-set-up hero.
+  // Refresh / Close controls only make sense for a ready heads-up.
   const showControls = !loading && !isNotSetUp;
 
   // ─── Pro render ────────────────────────────────────────────────────
@@ -625,41 +505,20 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
       <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
         <div className="min-w-0 flex-1">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            {t("inventoryAutopilotHeading", "Order autopilot")}
+            {t("inventoryAutopilotHeading", "Genbestilling")}
           </h2>
           {!isNotSetUp && (
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {t(
-                "inventoryAutopilotSubtitle",
-                "Suggestions grouped by leverandør. Edit qty before sending — nothing is sent until you tap.",
-              )}
+              {t("inventoryAutopilotNoSendNote", "BonBox suggests — you place the order")}
             </p>
           )}
         </div>
         {showControls && (
           <div className="flex items-center gap-2 shrink-0">
-            <label className="text-xs text-gray-500 dark:text-gray-400">
-              {t("inventoryAutopilotHorizon", "Horizon")}
-            </label>
-            <select
-              value={daysAhead}
-              onChange={(e) => setDaysAhead(parseInt(e.target.value, 10) || 7)}
-              className="h-9 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
-            >
-              <option value={7}>7 {t("inventoryAutopilotDays", "days")}</option>
-              <option value={14}>14 {t("inventoryAutopilotDays", "days")}</option>
-              <option value={30}>30 {t("inventoryAutopilotDays", "days")}</option>
-            </select>
-            <Button
-              variant={suggestion ? "secondary" : "primary"}
-              onClick={fetchSuggestion}
-              disabled={loading}
-            >
+            <Button variant="secondary" onClick={fetchSuggestion} disabled={loading}>
               {loading
                 ? t("inventoryAutopilotLoading", "Calculating…")
-                : suggestion
-                  ? t("inventoryAutopilotRefresh", "Refresh")
-                  : t("inventoryAutopilotRun", "Run autopilot")}
+                : t("inventoryAutopilotRefresh", "Refresh")}
             </Button>
             {onClose && (
               <Button variant="ghost" onClick={onClose}>
@@ -675,11 +534,6 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
           {error}
         </div>
       )}
-      {success && (
-        <div className="mb-3 px-4 py-3 rounded-lg bg-gray-50 dark:bg-gray-800 text-sm text-gray-700 dark:text-gray-300">
-          {success}
-        </div>
-      )}
 
       {loading ? (
         <div className="px-4 py-12 text-center">
@@ -688,10 +542,10 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
           </p>
         </div>
       ) : isNotSetUp ? (
-        <NotSetUpHero suggestion={suggestion} onAddSupplier={handleAddSupplier} t={t} />
+        <NotSetUpHero onAddSupplier={handleAddSupplier} t={t} />
       ) : suggestion ? (
         <>
-          {/* Basis chip — confidence (only with real history) + weather + counts */}
+          {/* Basis chip — confidence (only with real history) + counts + weather */}
           <div className="mb-4 flex items-center gap-3 flex-wrap text-xs text-gray-500 dark:text-gray-400">
             {hasHistory && <ConfidenceBadge confidence={suggestion.confidence} t={t} />}
             {hasHistory && <span>•</span>}
@@ -701,7 +555,9 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
             </span>
             <span>•</span>
             <span>
-              {t("inventoryAutopilotSuppliers", "Leverandører")}: {sendableSupplierCount}
+              {t("inventoryAutopilotBasisCounts", "{n} varer fulgt · {m} med forbrugshistorik")
+                .replace("{n}", String(basisTotal))
+                .replace("{m}", String(basisHistory))}
             </span>
             {suggestion.basis?.weather_used ? (
               <>
@@ -715,19 +571,18 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
             <div className="px-4 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
               {t(
                 "inventoryAutopilotEmpty",
-                "Your lager looks healthy — autopilot is watching and will flag varer before they run out.",
+                "Your lager looks healthy — BonBox flags varer before they run out.",
               )}
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
               {visibleSuppliers.map((g, idx) => (
                 <SupplierCard
-                  key={g.supplier_email || `no-supplier-${idx}`}
+                  key={g.supplier_email || g.supplier_name || `no-supplier-${idx}`}
                   group={g}
                   edits={edits}
                   setEdits={setEdits}
-                  onSendOne={sendOneSupplier}
-                  sending={sending}
+                  buildText={buildOrderText}
                   t={t}
                   currency={currency}
                 />
@@ -735,38 +590,25 @@ export default function InventoryAutopilotPanel({ branchId = null, onClose, hero
             </div>
           )}
 
-          {/* Send all footer — only visible when at least one leverandør has email */}
-          {totalPending > 0 && (
-            <div className="mt-5 flex items-center justify-between gap-3 flex-wrap pt-4 border-t border-gray-200 dark:border-gray-800">
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                {t(
-                  "inventoryAutopilotSendAllHint",
-                  "Sends one consolidated email per leverandør.",
-                )}
-              </p>
-              <Button
-                variant="primary"
-                onClick={sendAll}
-                disabled={sending}
-              >
-                {sending
-                  ? t("inventoryAutopilotSending", "Sending…")
-                  : t("inventoryAutopilotSendAll", "Send all orders")}
-              </Button>
-            </div>
-          )}
-
           {/* Quiet, collapsible risk summary — never an amber wall */}
           <WarningSummaryRow warn={warn} t={t} />
+
+          {/* Standing no-send contract — the promise stays visible. */}
+          <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <Icon name="Package" size={15} className="text-gray-400 shrink-0" aria-hidden="true" />
+            <span>
+              {t(
+                "inventoryAutopilotNoSendFooter",
+                "BonBox sends nothing — you place the orders yourself.",
+              )}
+            </span>
+          </div>
         </>
       ) : (
         <div className="px-4 py-8 text-center">
           <Icon name="Package" size={36} className="mx-auto text-gray-400 mb-3" />
           <p className="text-sm text-gray-600 dark:text-gray-300">
-            {t(
-              "inventoryAutopilotEmptyState",
-              "Tap Run autopilot to see what to reorder this week.",
-            )}
+            {t("inventoryAutopilotEmptyState", "Refresh to see what to reorder.")}
           </p>
         </div>
       )}
