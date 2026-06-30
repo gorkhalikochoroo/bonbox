@@ -7,6 +7,7 @@ from app.models.sale import Sale
 from app.models.expense import Expense, ExpenseCategory
 from app.models.inventory import InventoryItem
 from app.models.user import User
+from app.services.expense_status import not_pending
 
 
 def get_display_currency(currency: str) -> str:
@@ -39,7 +40,7 @@ def build_digest_data(user: User, db: Session) -> dict:
     # Yesterday's expenses
     yesterday_exp = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
-        .filter(Expense.user_id == user.id, Expense.date == yesterday, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date == yesterday, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
 
@@ -61,7 +62,7 @@ def build_digest_data(user: User, db: Session) -> dict:
     top_expenses = (
         db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
-        .filter(Expense.user_id == user.id, Expense.date == yesterday, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date == yesterday, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .group_by(ExpenseCategory.name)
         .order_by(func.sum(Expense.amount).desc())
         .limit(3)

@@ -16,6 +16,7 @@ from app.models.user import User
 from app.models.sale import Sale
 from app.models.expense import Expense
 from app.models.inventory import InventoryItem
+from app.services.expense_status import not_pending
 
 
 def get_outlet_intelligence(user_id: str, db: Session) -> dict:
@@ -69,6 +70,7 @@ def get_outlet_intelligence(user_id: str, db: Session) -> dict:
         ).filter(
             Expense.user_id == oid, Expense.date >= d30,
             Expense.is_deleted.isnot(True), Expense.is_personal.isnot(True),
+            not_pending(),
         ).scalar() or 0
         expenses = float(expenses_result)
 

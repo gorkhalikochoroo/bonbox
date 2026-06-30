@@ -104,7 +104,9 @@ def _item(db, owner, *, name, qty, cost=10.0, unit="kg", pour_size=None) -> Inve
 
 def _draft(db, owner, names: list[str]) -> InventoryImport:
     """A committable draft whose extracted names == the names we commit, so
-    user_corrected stays False (skips the learning loop)."""
+    user_corrected stays False (skips the learning loop). Supplier/totals are
+    NOT persisted on the row (no model column) — they ride in the commit body,
+    just like the real frontend re-sends what it saw in the capture banner."""
     imp = InventoryImport(
         id=uuid.uuid4(), user_id=owner.id, source_kind="image",
         status="created", extracted_json=[{"name": n} for n in names],
@@ -113,8 +115,13 @@ def _draft(db, owner, names: list[str]) -> InventoryImport:
     return imp
 
 
-def _commit(client, import_id, items):
-    return client.post(f"/api/inventory/smart-import/{import_id}/commit", json={"items": items})
+def _commit(client, import_id, items, *, invoice_totals=None, supplier=None):
+    body = {"items": items}
+    if invoice_totals is not None:
+        body["invoice_totals"] = invoice_totals
+    if supplier is not None:
+        body["supplier"] = supplier
+    return client.post(f"/api/inventory/smart-import/{import_id}/commit", json=body)
 
 
 def test_received_into_existing_bumps_qty_and_logs(client, db):
@@ -198,6 +205,49 @@ def test_match_is_tenant_scoped(client, db):
         InventoryItem.name == "Mel", InventoryItem.user_id == owner.id
     ).all()
     assert len(mine) == 1 and float(mine[0].quantity) == 7.0
+
+
+def test_purchase_receipt_books_a_pending_expense(client, db):
+    """P1b — one capture, two truths: a receipt with a real total also books a
+    PENDING expense (Godkend-kø, out of MOMS until approved) on the goods
+    category (Vareforbrug → full §42 fradrag)."""
+    from app.models.expense import Expense, ExpenseCategory
+    owner = _owner(db)
+    imp = _draft(db, owner, ["Smør"])
+    _auth(owner)
+
+    r = _commit(
+        client, imp.id, [{"name": "Smør", "qty": 5, "unit": "kg", "cost_per_unit": 60}],
+        invoice_totals={"grand_total": 8400, "currency": "DKK"},
+        supplier={"name": "Hørkram", "invoice_number": "12345", "invoice_date": "2026-06-28"},
+    )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["expense_booked"] is True
+    assert body["expense_status"] == "pending"
+    assert float(body["expense_amount"]) == 8400.0
+
+    exp = db.query(Expense).filter(Expense.user_id == owner.id).one()
+    assert exp.status == "pending"                       # out of MOMS until Godkend
+    assert float(exp.amount) == 8400.0                   # gross; fradrag is the category's job
+    assert exp.reference_id == f"import:{imp.id}"        # links + dedups, no schema change
+    assert exp.receipt_source == "scan"
+    assert "Hørkram" in exp.description
+    cat = db.query(ExpenseCategory).filter(ExpenseCategory.id == exp.category_id).one()
+    assert cat.name == "Vareforbrug"
+
+
+def test_stock_list_without_total_books_no_expense(client, db):
+    """A CSV/text stock-list import (no invoice total) must NOT create a spend."""
+    from app.models.expense import Expense
+    owner = _owner(db)
+    imp = _draft(db, owner, ["Ris"])   # no invoice_totals
+    _auth(owner)
+
+    r = _commit(client, imp.id, [{"name": "Ris", "qty": 10, "unit": "kg"}])
+    assert r.status_code == 201, r.text
+    assert r.json()["expense_booked"] is False
+    assert db.query(Expense).filter(Expense.user_id == owner.id).count() == 0
 
 
 def test_pour_tracked_bottles_are_excluded_from_match(client, db):

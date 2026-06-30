@@ -67,6 +67,7 @@ from app.models import (
     Sale,
     User,
 )
+from app.services.expense_status import not_pending
 # Faktura intel — Day 9 of the compliance sprint. The Brief surfaces
 # overdue + payments-to-review counts so they're the first thing the
 # owner sees each morning, driving traffic to /faktura/review without
@@ -246,6 +247,7 @@ def compute_precompute(user: User, db: Session) -> Precompute:
             Expense.user_id == user.id,
             Expense.is_deleted.isnot(True),
             Expense.is_personal.isnot(True),
+            not_pending(),  # unapproved drafts stay out of the brief's margin
             Expense.date >= month_start,
             Expense.date <= today,
         )

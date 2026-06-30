@@ -38,6 +38,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from app.models.expense import Expense
+from app.services.expense_status import not_pending
 from app.services.foresight_service import CashEvent
 
 logger = logging.getLogger(__name__)
@@ -260,6 +261,10 @@ def detect_recurring_series(
             Expense.user_id == user.id,
             Expense.is_deleted.isnot(True),
             Expense.is_personal.isnot(True),
+            # Godkend-kø: an unapproved AI draft (e.g. a snapped supplier
+            # receipt) must never seed a "recurring outflow" that the
+            # Foresight "er du dækket?" burn projects against.
+            not_pending(),
             Expense.date >= cutoff,
             Expense.date <= as_of,
         )

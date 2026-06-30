@@ -59,6 +59,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.inventory import InventoryItem, InventoryLog
+from app.models.expense import Expense, ExpenseCategory
 from app.models.inventory_import import InventoryImport
 from app.models.user import User
 from app.services import audit_service
@@ -183,6 +184,16 @@ class CommitRequest(BaseModel):
     extraction surfaced fewer items: a malicious client could try to
     POST 10,000 items at commit time."""
     items: list["CommitItem"] = Field(default_factory=list, max_length=MAX_ITEMS_RETURNED)
+    # Inventory spend loop P1b — "one capture, two truths". The owner saw
+    # the receipt's supplier + grand_total in the capture-confirm banner;
+    # echoing them back here lets the same Save ALSO book a PENDING expense
+    # (Godkend-kø). Neither field is persisted on the InventoryImport row
+    # (no model column — symmetric with the draft-response gap), so the
+    # frontend re-sends what it received in the draft. Bounded by the same
+    # schemas the smart-scan handoff uses. Absent on a CSV/text stock-list
+    # import → no spend is booked.
+    supplier: SmartScanSupplier | None = None
+    invoice_totals: SmartScanInvoiceTotals | None = None
 
 
 class CommitItem(BaseModel):
@@ -309,6 +320,104 @@ def _find_existing_item(candidates: list[InventoryItem], name: str) -> Inventory
         if score > best_score:
             best, best_score = r, score
     return best if best_score >= _RECEIVE_MATCH_THRESHOLD else None
+
+
+# ─── Receipt → "bogfør som udgift" (the spend half) ─────────────────────
+#
+# Inventory spend loop P1b: one capture, two truths. A snapped supplier
+# receipt is BOTH the received stock (above) AND the SPEND. We auto-create
+# the expense as **status='pending'** (the Godkend-kø draft) — it stays OUT of
+# every MOMS / Foresight / report total until the owner taps Godkend, so this
+# never silently touches the filing (AI proposes, owner approves). MOMS/§42
+# fradrag is applied DOWNSTREAM from the category (dk_fradrag.fradrag_factor),
+# never hand-rolled here — a goods category ("Vareforbrug") is full (1.0)
+# fradrag, correct for restaurant råvarer. reference_id="import:<id>" links +
+# dedups (no schema change, no double-book of the same import).
+_GOODS_CATEGORY_NAMES = ("vareforbrug", "varekøb", "råvarer", "indkøb")
+
+
+def _resolve_goods_category(db: Session, user_id) -> ExpenseCategory:
+    cats = db.query(ExpenseCategory).filter(ExpenseCategory.user_id == user_id).all()
+    for c in cats:
+        if (c.name or "").strip().lower() in _GOODS_CATEGORY_NAMES:
+            return c
+    cat = ExpenseCategory(id=uuid.uuid4(), user_id=user_id, name="Vareforbrug", color="#3B82F6")
+    db.add(cat)
+    db.flush()
+    return cat
+
+
+def _maybe_book_expense(
+    db: Session,
+    user: User,
+    imp: InventoryImport,
+    totals: dict | None,
+    supplier: dict | None,
+) -> "Expense | None":
+    """Book the supplier receipt as a PENDING expense, or None when there's no
+    real purchase total (e.g. a CSV/text stock-list import). `totals`/`supplier`
+    come from the commit body — the exact grand_total + leverandør the owner saw
+    in the capture-confirm banner (receipts = REAL spend, never a derived sum).
+    Idempotent per import via reference_id. Gross `amount` only — fradrag is the
+    category's job.
+    """
+    totals = totals or {}
+    try:
+        grand = float(totals.get("grand_total") or 0)
+    except (TypeError, ValueError):
+        grand = 0.0
+    if grand <= 0:
+        return None  # not a purchase receipt — nothing to book
+
+    ref = f"import:{imp.id}"
+    existing = (
+        db.query(Expense)
+        .filter(
+            Expense.user_id == user.id,
+            Expense.reference_id == ref,
+            Expense.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if existing:
+        return existing
+
+    sup = supplier or {}
+    name = (sup.get("name") or "").strip()
+    invno = (sup.get("invoice_number") or "").strip()
+    desc = (f"{name} faktura {invno}" if (name and invno) else (name or "Indkøb til lager")).strip()
+    desc = desc[:255]
+
+    exp_date = utc_now().date()
+    inv_date = sup.get("invoice_date")
+    if inv_date:
+        try:
+            exp_date = date.fromisoformat(str(inv_date)[:10])
+        except (ValueError, TypeError):
+            pass
+
+    cat = _resolve_goods_category(db, user.id)
+    exp = Expense(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        category_id=cat.id,
+        date=exp_date,
+        amount=round(grand, 2),
+        description=desc,
+        payment_method="card",
+        status="pending",       # Godkend-kø — out of MOMS until the owner approves
+        receipt_source="scan",
+        reference_id=ref,
+    )
+    try:
+        from app.services.voucher_service import allocate_voucher
+        exp.voucher_number = allocate_voucher(db, user.id, "expense", exp.date.year)
+    except Exception:  # noqa: BLE001
+        exp.voucher_number = None
+    db.add(exp)
+    db.commit()
+    db.refresh(exp)
+    return exp
 
 
 def _check_idempotency(
@@ -1207,6 +1316,40 @@ def commit_draft(
         except Exception:  # noqa: BLE001
             logger.exception("promote_corrections failed (non-fatal)")
 
+    # Inventory spend loop P1b — one capture, two truths: also book the supplier
+    # receipt as a PENDING expense (Godkend-kø → stays OUT of MOMS/reports until
+    # the owner taps Godkend, so this never silently touches the filing).
+    # Failure-isolated: a booking hiccup must NEVER break the already-committed
+    # inventory receive. Only fires when the receipt carried a real total.
+    booked = None
+    try:
+        _totals = body.invoice_totals.model_dump() if body.invoice_totals else None
+        _supplier = body.supplier.model_dump() if body.supplier else None
+        booked = _maybe_book_expense(db, user, imp, _totals, _supplier)
+        if booked is not None:
+            try:
+                from app.services.audit_service import record as audit_record
+                audit_record(
+                    db, user, "inventory.receipt_booked_expense", "expense",
+                    entity_id=booked.id,
+                    after={
+                        "expense_id": str(booked.id),
+                        "amount": float(booked.amount),
+                        "status": booked.status,
+                        "import_id": str(imp.id),
+                    },
+                )
+                db.commit()
+            except Exception:  # noqa: BLE001 — audit must never break the path
+                # The expense + receive are already durably committed; the audit
+                # row is best-effort. Roll back so a failed audit commit doesn't
+                # leave the session in PendingRollback and 500 the response read.
+                db.rollback()
+                logger.exception("audit inventory.receipt_booked_expense failed")
+    except Exception:  # noqa: BLE001 — booking is non-fatal to the receive
+        db.rollback()
+        logger.exception("auto-book expense from import failed (non-fatal)")
+
     return {
         "import_id": str(imp.id),
         "items_created": len(created),
@@ -1217,6 +1360,10 @@ def commit_draft(
         "perishable_auto_flagged": perishable_count,
         "user_corrected": imp.user_corrected,
         "examples_learned": examples_promoted,
+        # P1b — the pending expense, when the receipt carried a purchase total.
+        "expense_booked": booked is not None,
+        "expense_amount": float(booked.amount) if booked is not None else None,
+        "expense_status": booked.status if booked is not None else None,
         "status": imp.status,
     }
 

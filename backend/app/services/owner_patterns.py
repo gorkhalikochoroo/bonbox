@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 from app.models.event_log import EventLog
 from app.models.expense import Expense
 from app.models.owner_pattern import OwnerPattern
+from app.services.expense_status import not_pending
 from app.models.sale import Sale
 from app.models.user import User
 from app.services.tz_utils import today_local, week_start_local
@@ -293,6 +294,7 @@ def detect_expense_spike(user: User, db: Session) -> list[DetectedPattern]:
             Expense.user_id == user.id,
             Expense.date >= history_start,
             Expense.is_deleted.isnot(True),
+            not_pending(),
             Expense.is_personal == False,  # noqa: E712
         )
         .group_by(func.date(Expense.date))
@@ -446,6 +448,7 @@ def detect_wage_pct_anomaly(user: User, db: Session) -> list[DetectedPattern]:
                 Expense.date >= start,
                 Expense.date <= end,
                 Expense.is_deleted.isnot(True),
+                not_pending(),
                 Expense.is_personal == False,  # noqa: E712
                 Expense.category_id.in_(wage_cat_ids),
             )

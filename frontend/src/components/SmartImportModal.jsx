@@ -224,9 +224,20 @@ export default function SmartImportModal({
         return;
       }
 
+      // Inventory spend loop P1b — "one capture, two truths". A supplier
+      // receipt with a real total ALSO books a PENDING expense (Godkend-kø).
+      // We echo back the exact supplier + grand_total the owner saw in the
+      // capture-confirm banner so the spend is the receipt's real number, not
+      // a derived sum. Absent on a CSV/text stock-list → no spend is booked.
+      const body = { items };
+      if (draft.invoice_totals?.grand_total != null) {
+        body.invoice_totals = draft.invoice_totals;
+        if (draft.supplier) body.supplier = draft.supplier;
+      }
+
       const resp = await api.post(
         `/inventory/smart-import/${draft.id}/commit`,
-        { items },
+        body,
       );
       onCommitted?.(resp.data);
       onClose?.();
@@ -889,7 +900,9 @@ function ReviewStep({
             {draft.supplier?.name ? ` · ${draft.supplier.name}` : ""}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">
-            {t("siReadGoesToLager", "Goes on your lager when you save")}
+            {draft.invoice_totals?.grand_total
+              ? t("siReadGoesToLagerAndExpense", "Goes on your lager — and books as an expense for you to approve")
+              : t("siReadGoesToLager", "Goes on your lager when you save")}
           </div>
         </div>
       </div>

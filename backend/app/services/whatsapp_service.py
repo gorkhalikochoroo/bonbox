@@ -9,6 +9,7 @@ from app.models.expense import Expense, ExpenseCategory
 from app.models.inventory import InventoryItem
 from app.models.user import User
 from app.services import audit_service
+from app.services.expense_status import not_pending
 
 
 def get_display_currency(currency: str) -> str:
@@ -115,7 +116,7 @@ def handle_message(parsed: dict, user: User, db: Session) -> str:
         )
         today_exp = float(
             db.query(func.coalesce(func.sum(Expense.amount), 0))
-            .filter(Expense.user_id == user.id, Expense.date == date.today(), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+            .filter(Expense.user_id == user.id, Expense.date == date.today(), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
             .scalar()
         )
         profit = today_total - today_exp
@@ -156,7 +157,7 @@ def handle_message(parsed: dict, user: User, db: Session) -> str:
 
         today_exp = float(
             db.query(func.coalesce(func.sum(Expense.amount), 0))
-            .filter(Expense.user_id == user.id, Expense.date == date.today(), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+            .filter(Expense.user_id == user.id, Expense.date == date.today(), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
             .scalar()
         )
 
@@ -174,7 +175,7 @@ def handle_message(parsed: dict, user: User, db: Session) -> str:
         )
         exp = float(
             db.query(func.coalesce(func.sum(Expense.amount), 0))
-            .filter(Expense.user_id == user.id, Expense.date == today, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+            .filter(Expense.user_id == user.id, Expense.date == today, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
             .scalar()
         )
         profit = rev - exp
@@ -206,7 +207,7 @@ def handle_message(parsed: dict, user: User, db: Session) -> str:
         )
         exp = float(
             db.query(func.coalesce(func.sum(Expense.amount), 0))
-            .filter(Expense.user_id == user.id, Expense.date >= week_start, Expense.date <= today, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+            .filter(Expense.user_id == user.id, Expense.date >= week_start, Expense.date <= today, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
             .scalar()
         )
         profit = rev - exp
@@ -230,7 +231,7 @@ def handle_message(parsed: dict, user: User, db: Session) -> str:
         )
         exp = float(
             db.query(func.coalesce(func.sum(Expense.amount), 0))
-            .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+            .filter(Expense.user_id == user.id, Expense.date >= month_start, Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
             .scalar()
         )
         profit = rev - exp
