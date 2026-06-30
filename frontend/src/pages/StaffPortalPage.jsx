@@ -2440,6 +2440,16 @@ export default function StaffPortalPage() {
     if (pinVerified && info) loadData();
   }, [pinVerified, info, loadData]);
 
+  // Tips is OPTIONAL — a business that doesn't share tips (e.g. no salary/tip
+  // distribution) simply never sees the tab, so it's never an empty promise.
+  // If a deep-link (?tab=tips) lands on a staffer with no tip data, fall back
+  // to the schedule rather than show an empty "My tips".
+  useEffect(() => {
+    if (tab === "tips" && tipsData && !(tipsData.entries?.length > 0)) {
+      setTab("schedule");
+    }
+  }, [tab, tipsData]);
+
   // 2b. Refetch triggers — keep the schedule fresh without any realtime deps.
   // All gated on pinVerified && info, all cleaned up on unmount.
   //   • visibilitychange → refetch when the tab/app becomes visible again
@@ -2743,14 +2753,16 @@ export default function StaffPortalPage() {
           <SwapTab token={token} ownShifts={shifts} onChanged={loadData} />
         )}
         {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} />}
-        {tab === "tips" && <TipsTab data={tipsData} />}
+        {tab === "tips" && (tipsData?.entries?.length || 0) > 0 && <TipsTab data={tipsData} />}
         {tab === "alerts" && <AlertsTab token={token} staffName={info?.staff_name} />}
       </div>
 
       {/* Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20">
         <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
-          {TABS.map((item) => {
+          {TABS.filter(
+            (item) => item.key !== "tips" || (tipsData?.entries?.length || 0) > 0,
+          ).map((item) => {
             const active = tab === item.key;
             return (
               <button
