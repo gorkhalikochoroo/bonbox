@@ -133,38 +133,50 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
     );
   }
 
-  // Period-over-period: TOTAL revenue in this window vs the window immediately
-  // before it (last 30 days vs the prior 30, etc.). This is what an owner reads
-  // "↑/↓ X%" to mean, and it moves predictably with each sale — delete a 500-kr
-  // sale and this period drops 500, so the % tracks it. (The old metric compared
-  // the recent half's average open-day to the earlier half's, which swung in
-  // ways that never matched a single add/delete.) ±5% deadband so a flat period
-  // reads "stabil". null when there isn't a full prior window of history yet —
-  // we show "—" rather than invent a number.
+  // HONEST momentum chip. The anchor is the MEASURED period total — the sum of
+  // effective revenue over the window — so it moves krone-for-krone when the
+  // owner adds/edits/deletes a sale (delete a 500-kr sale → the total drops 500)
+  // and tracks the confirmed DailyClose on close-wins dates. We NEVER show a raw
+  // period-over-period % here: on a young or sparse account the prior window is
+  // near-empty, so a ratio reads as a precise-looking but meaningless "+258%"
+  // that barely budges on a delete — the exact bug owners hit. Instead a plain
+  // direction WORD (Op / Ned / Stabil) appears ONLY when the prior window is a
+  // FAIR baseline; otherwise we withhold it entirely (honest absence) and let
+  // the measured total stand alone.
   const fullSeries = ctx?.dailyRevData || [];
   const curWindow = fullSeries.slice(-days);
   const prevWindow = fullSeries.slice(-days * 2, -days);
   const curTotal = curWindow.reduce((s, d) => s + (d.amount || 0), 0);
   const prevTotal = prevWindow.reduce((s, d) => s + (d.amount || 0), 0);
-  const pct =
-    prevWindow.length >= days && prevTotal > 0
-      ? Math.round(((curTotal - prevTotal) / prevTotal) * 100)
-      : null;
-  const dir = pct == null ? "flat" : pct >= 5 ? "up" : pct <= -5 ? "down" : "flat";
+  const prevSold = prevWindow.filter((d) => (d.amount || 0) > 0).length;
 
-  const TrendIcon = dir === "up" ? TrendingUp : dir === "down" ? TrendingDown : Minus;
+  // Fair-baseline gate: a full prior window, enough trading days that one lucky
+  // sale can't define it, and a real kr floor so a near-zero denominator can't
+  // manufacture a swing. Deliberately NO relative-magnitude floor (e.g. "prev ≥
+  // half of current") — that is algebraically "growth ≤ +100%" and would
+  // silently suppress the direction word on genuine strong growth, the one
+  // signal an owner most wants to see. Density + the absolute floor already stop
+  // the near-zero-denominator and single-sale-leverage problems.
+  const baselineFair =
+    prevWindow.length >= days &&
+    prevSold >= Math.max(5, Math.ceil(days / 3)) &&
+    prevTotal >= 5000;
+  const ratio = baselineFair ? (curTotal - prevTotal) / prevTotal : null;
+  const dir = ratio == null ? null : ratio >= 0.05 ? "up" : ratio <= -0.05 ? "down" : "flat";
+
+  const TrendIcon = dir === "down" ? TrendingDown : dir === "up" ? TrendingUp : Minus;
   const trendColor =
     dir === "up"
       ? "text-emerald-600 dark:text-emerald-400"
       : dir === "down"
         ? "text-red-600 dark:text-red-400"
         : "text-gray-500 dark:text-gray-400";
-  const trendLabel =
-    pct == null
-      ? "—"
-      : dir === "flat"
-        ? t("trendFlat", "Stable")
-        : `${pct > 0 ? "+" : ""}${pct}%`;
+  const trendWord =
+    dir === "up"
+      ? t("trendUp", "Up")
+      : dir === "down"
+        ? t("trendDown", "Down")
+        : t("trendFlat", "Stable");
 
   return (
     <div onClick={() => navigate("/reports")} className={cardCls} data-zone="2" data-component="RevenueTrendChart">
@@ -178,13 +190,18 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
           </p>
         </div>
         <div className="text-right shrink-0">
-          <span
-            className={`inline-flex items-center gap-1 text-sm font-semibold tabular-nums ${trendColor}`}
-            title={t("revenueTrendVsPrev", "vs. previous period")}
-          >
-            <TrendIcon className="w-4 h-4" strokeWidth={2.25} aria-hidden="true" />
-            {trendLabel}
-          </span>
+          <p className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums leading-tight">
+            {formatKr(curTotal, { decimals: 0 })}
+          </p>
+          {dir && (
+            <span
+              className={`inline-flex items-center gap-1 text-sm font-medium tabular-nums ${trendColor}`}
+              title={t("revenueTrendVsPrev", "vs. previous period")}
+            >
+              <TrendIcon className="w-4 h-4" strokeWidth={2.25} aria-hidden="true" />
+              {trendWord}
+            </span>
+          )}
           <p className="text-xs text-gray-500 dark:text-gray-400 tabular-nums mt-0.5">
             {t("avgShort", "Avg")}: {formatKr(avg, { decimals: 0 })}
           </p>
