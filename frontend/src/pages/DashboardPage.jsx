@@ -57,6 +57,7 @@ import GrowthLeverCard from "../components/dashboard/GrowthLeverCard";
 import FirstRunCollapsedDashboard from "../components/dashboard/FirstRunCollapsedDashboard";
 import BusinessHealthCard from "../components/dashboard/BusinessHealthCard";
 import RevenueTrendChart from "../components/dashboard/RevenueTrendChart";
+import ProfitAnswerCard from "../components/dashboard/ProfitAnswerCard";
 import ProfitLossCard from "../components/dashboard/ProfitLossCard";
 import GoalTracker from "../components/dashboard/GoalTracker";
 import PaymentBreakdownCard from "../components/dashboard/PaymentBreakdownCard";
@@ -116,6 +117,7 @@ const REGISTRY = {
   TodayOnShiftCard,
 
   // ── Zone 2 ──
+  ProfitAnswerCard,
   RevenueTrendChart,
   ProfitLossCard,
   GoalTracker,

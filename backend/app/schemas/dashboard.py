@@ -14,6 +14,13 @@ class DashboardSummary(BaseModel):
     month_revenue: float
     month_expenses: float
     month_profit: float
+    # Prior calendar month's profit + this month's MOMS owed to SKAT — back
+    # the dashboard ProfitAnswerCard's "vs. forrige måned" chip and the honest
+    # "~X kr skal til SKAT" line.  Defaults so older clients/tests still
+    # validate and so the fallback /dashboard/summary stays in sync with
+    # /dashboard/batch (which emits both).  month_moms is fail-soft 0.
+    prev_month_profit: float = 0
+    month_moms: float = 0
     profit_margin: float  # %
     top_expense_category: str | None
     top_expense_amount: float

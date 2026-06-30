@@ -236,6 +236,31 @@ def get_dashboard_batch(
     month_profit = month_rev - month_exp
     profit_margin = round((month_profit / month_rev) * 100, 1) if month_rev > 0 else 0.0
 
+    # Prior calendar month — powers the "vs. forrige måned" chip on the
+    # profit-answer card. Same effective-revenue + not_pending() expense basis,
+    # so it's apples-to-apples with month_profit.
+    _pm_end = month_start - timedelta(days=1)
+    _pm_start = _pm_end.replace(day=1)
+    _pm_rev = effective_revenue_total(db, user.id, _pm_start, _pm_end)
+    _pm_exp = float(
+        db.query(func.coalesce(func.sum(Expense.amount), 0))
+        .filter(Expense.user_id == user.id, Expense.date >= _pm_start, Expense.date <= _pm_end,
+                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
+        .scalar()
+    )
+    prev_month_profit = _pm_rev - _pm_exp
+
+    # Honest MOMS heads-up: how much of THIS month's revenue is moms the owner
+    # collected and owes SKAT (output − input vat via the filing engine, so it
+    # agrees with the angivelse — never hand-rolled). Lets the card say
+    # "~X kr skal videre til SKAT" instead of implying gross revenue is all the
+    # owner's. Fail-soft: a filing hiccup just hides the line, never breaks /batch.
+    try:
+        from app.services.tax_filing_pdf import compute_filing_data
+        month_moms = float(compute_filing_data(db, user, month_start, month_end).get("moms_til_skat") or 0)
+    except Exception:  # noqa: BLE001
+        month_moms = 0.0
+
     top_cat = (
         db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
         .join(Expense, Expense.category_id == ExpenseCategory.id)
@@ -315,6 +340,8 @@ def get_dashboard_batch(
         "month_revenue": month_rev,
         "month_expenses": month_exp,
         "month_profit": month_profit,
+        "prev_month_profit": prev_month_profit,
+        "month_moms": month_moms,
         "profit_margin": profit_margin,
         "top_expense_category": top_cat[0] if top_cat else None,
         "top_expense_amount": float(top_cat[1]) if top_cat else 0,
@@ -1241,6 +1268,25 @@ def get_summary(
     month_profit = float(month_rev) - float(month_exp)
     profit_margin = round((month_profit / float(month_rev)) * 100, 1) if float(month_rev) > 0 else 0.0
 
+    # Prior calendar month profit + this month's MOMS — kept in sync with
+    # /dashboard/batch so the ProfitAnswerCard's "vs. forrige måned" chip and
+    # honest "~X kr skal til SKAT" line still render on this fallback path.
+    _pm_end = month_start - timedelta(days=1)
+    _pm_start = _pm_end.replace(day=1)
+    _pm_rev = effective_revenue_total(db, user.id, _pm_start, _pm_end)
+    _pm_exp = float(
+        db.query(func.coalesce(func.sum(Expense.amount), 0))
+        .filter(Expense.user_id == user.id, Expense.date >= _pm_start, Expense.date <= _pm_end,
+                Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
+        .scalar()
+    )
+    prev_month_profit = float(_pm_rev) - _pm_exp
+    try:
+        from app.services.tax_filing_pdf import compute_filing_data
+        month_moms = float(compute_filing_data(db, user, month_start, today).get("moms_til_skat") or 0)
+    except Exception:  # noqa: BLE001
+        month_moms = 0.0
+
     # Top expense category this month
     top_cat = (
         db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
@@ -1326,6 +1372,8 @@ def get_summary(
         month_revenue=float(month_rev),
         month_expenses=float(month_exp),
         month_profit=month_profit,
+        prev_month_profit=prev_month_profit,
+        month_moms=month_moms,
         profit_margin=profit_margin,
         top_expense_category=top_cat[0] if top_cat else None,
         top_expense_amount=float(top_cat[1]) if top_cat else 0,

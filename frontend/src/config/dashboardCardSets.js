@@ -306,6 +306,15 @@ export const DASHBOARD_CARD_SET = {
 
   // ── Zone 2 — Growth Levers. Actionable this week. ──
   zone2: [
+    // Profit answer — the dashboard hero. The one question an owner opens
+    // the app for: "am I making money this month, and how much is really
+    // mine after MOMS?" Sits ABOVE the trend on purpose — answer first, the
+    // "is it growing?" chart second. Supersedes the old compact ProfitLossCard.
+    {
+      id: "profitAnswer",
+      component: "ProfitAnswerCard",
+    },
+
     // Revenue trend — 7 / 30 / 90 days driven by tier features.
     {
       id: "trend",
@@ -319,19 +328,12 @@ export const DASHBOARD_CARD_SET = {
       }),
     },
 
-    // P&L compact + GoalTracker — Row, side-by-side on lg+.
+    // Goal tracker — opt-in (Pro), only once the owner has actually set a goal.
     {
-      id: "pl+goal",
-      component: "Row",
-      children: [
-        { id: "pl", component: "ProfitLossCard" },
-        {
-          id: "goal",
-          component: "GoalTracker",
-          renderIf: (ctx) =>
-            ctx?.has?.("dashboard_goal_tracker") && !!ctx?.goalsSet,
-        },
-      ],
+      id: "goal",
+      component: "GoalTracker",
+      renderIf: (ctx) =>
+        ctx?.has?.("dashboard_goal_tracker") && !!ctx?.goalsSet,
     },
 
     // BusinessHealth — REFACTORED into single composite verdict line.
