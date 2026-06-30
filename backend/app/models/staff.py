@@ -22,6 +22,14 @@ class StaffMember(Base):
     name: Mapped[str] = mapped_column(String(255))
     phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Staff self-edit (portal/chat). `display_name` overrides `name` ONLY in chat
+    # + portal chrome — NEVER in lønseddel/revisor artifacts: the owner-set legal
+    # `name` stays authoritative for payroll. `profile_photo_key` is a storage
+    # compose_key (NOT a URL); served only via the tenant-re-checked proxy
+    # endpoint, never a public/signed URL. `profile_photo_at` = cache-bust stamp.
+    display_name: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    profile_photo_key: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    profile_photo_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     role: Mapped[str] = mapped_column(String(50), default="server")
     contract_type: Mapped[str] = mapped_column(String(20), default="full")
     base_rate: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
@@ -151,6 +159,11 @@ class StaffLink(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
     staff_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("staff_members.id"))
     token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    # Short, human-typable join code (e.g. "K7P2QM") for the "enter a code to
+    # connect" flow — an alternative to tapping the magic link. Unambiguous
+    # alphabet (no 0/O/1/I). Resolves to the same token; brute-force is bounded
+    # by the public endpoint's hard per-IP rate limit.
+    join_code: Mapped[Optional[str]] = mapped_column(String(12), nullable=True, unique=True, index=True)
     pin_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
@@ -206,4 +219,76 @@ class OpenShift(Base):
     )
     claimed_schedule_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), nullable=True)
     claimed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+# ─── Owner ↔ staff 1:1 chat ("Beskeder") ──────────────────────────────────
+# One private thread per staffer. The OWNER (user_id) sees every thread; each
+# STAFFER sees only their own — the staff endpoints take NO id params, so the
+# capability token IS the only scope (nothing to tamper). `user_id` is
+# denormalized onto every row so every query filters by tenant, belt-and-braces
+# (same pattern as NotificationLog).
+
+
+class StaffChatThread(Base):
+    """One 1:1 conversation between the owner (user_id) and a staffer (staff_id).
+
+    Lazily materialized on first message OR first GET. UNIQUE(user_id, staff_id)
+    makes a duplicate/cross-tenant thread structurally impossible — on the race,
+    the loser catches IntegrityError and re-SELECTs the winner.
+    """
+
+    __tablename__ = "staff_chat_threads"
+    __table_args__ = (
+        UniqueConstraint("user_id", "staff_id", name="uq_staff_chat_thread"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    staff_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("staff_members.id"))
+    last_message_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    owner_last_read_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    staff_last_read_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, onupdate=utc_now
+    )
+
+
+class StaffChatMessage(Base):
+    """A single message. `sender_type` ('owner'|'staff') is SERVER-authoritative
+    — set from the auth path, NEVER trusted from the request body. `user_id` is
+    the denormalized tenant key every query filters on."""
+
+    __tablename__ = "staff_chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    thread_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("staff_chat_threads.id", ondelete="CASCADE")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    sender_type: Mapped[str] = mapped_column(String(8))  # 'owner' | 'staff'
+    body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    photo_count: Mapped[int] = mapped_column(Integer, default=0)  # 0..3
+    client_msg_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class StaffChatPhoto(Base):
+    """One photo attached to a message (≤3 per message). `storage_key` is a
+    compose_key (NOT a URL); served only via the tenant-re-checked proxy. Its own
+    `user_id` lets the serve path authorize without a join."""
+
+    __tablename__ = "staff_chat_photos"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("staff_chat_messages.id", ondelete="CASCADE")
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    storage_key: Mapped[str] = mapped_column(String(200))
+    content_type: Mapped[str] = mapped_column(String(40))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    ord: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

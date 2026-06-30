@@ -236,6 +236,7 @@ const StaffSchedulePage = lazyRetry(() => import("./pages/StaffSchedulePage"));
 const StaffBackOfficePage = lazyRetry(() => import("./pages/StaffBackOfficePage"));
 const MorePage = lazyRetry(() => import("./pages/MorePage"));
 const StaffPortalPage = lazyRetry(() => import("./pages/StaffPortalPage"));
+const JoinPage = lazyRetry(() => import("./pages/JoinPage"));
 const VerifyEmailPage = lazyRetry(() => import("./pages/VerifyEmailPage"));
 // Task #55 — First-run welcome wizard. Full-screen, no Layout chrome.
 const OnboardingPage = lazyRetry(() => import("./pages/OnboardingPage"));
@@ -373,6 +374,9 @@ function AppRoutes() {
         <Route path="/privacy" element={<PrivacyPolicyPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/cookies" element={<CookiePolicyPage />} />
+        {/* Public "enter your code to connect" page — the typed-code half of
+            the staff invite (the tap-link half goes straight to /s/<token>). */}
+        <Route path="/join" element={<JoinPage />} />
         <Route path="/s/:token" element={<StaffPortalPage />} />
         {/* Branded staff link — /s/<restaurant-slug>/<token> and the newer
             /s/<restaurant-slug>/<staff-slug>/<token>. The slug(s) are cosmetic;

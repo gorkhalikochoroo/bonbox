@@ -143,6 +143,41 @@ def _get_staff_from_token(token: str, db: Session):
     return link, member
 
 
+class JoinCodeRequest(BaseModel):
+    code: str
+
+
+_JOIN_ALPHABET = set("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+
+
+@router.post("/join")
+@limiter.limit("8/minute")
+def portal_join(payload: JoinCodeRequest, request: Request, db: Session = Depends(get_db)):
+    """Resolve a short join code → the staffer's portal path. Public + hard
+    rate-limited (the code space + per-IP cap make brute force infeasible).
+    A 404 is returned for every failure mode so codes can't be enumerated."""
+    code = (payload.code or "").strip().upper().replace(" ", "").replace("-", "")
+    if not (6 <= len(code) <= 12) or any(c not in _JOIN_ALPHABET for c in code):
+        raise HTTPException(status_code=404, detail="Ukendt kode")
+    link = (
+        db.query(StaffLink)
+        .filter(StaffLink.join_code == code, StaffLink.active.is_(True))
+        .first()
+    )
+    if not link:
+        raise HTTPException(status_code=404, detail="Ukendt kode")
+    member = (
+        db.query(StaffMember)
+        .filter(StaffMember.id == link.staff_id, StaffMember.is_deleted.isnot(True))
+        .first()
+    )
+    if not member:
+        raise HTTPException(status_code=404, detail="Ukendt kode")
+    owner = db.query(User).filter(User.id == link.user_id).first()
+    biz = getattr(owner, "business_name", None) if owner else None
+    return {"path": portal_path(link.token, biz, member.name)}
+
+
 def _get_week_start(d: date) -> date:
     """Monday of the week containing d."""
     return d - timedelta(days=d.weekday())

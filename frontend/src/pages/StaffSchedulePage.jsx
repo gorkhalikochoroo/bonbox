@@ -12,6 +12,7 @@ import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
 import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check } from "lucide-react";
+import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
 // Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
 // EMPTY cell (different staff and/or day) to REASSIGN it. dnd-kit gives us an
 // accessible (keyboard + pointer) drag with a 6px activation distance, so a
@@ -571,6 +572,30 @@ export default function StaffSchedulePage() {
 
   // Staff management panel
   const [showManageStaff, setShowManageStaff] = useState(false);
+  // Owner ↔ staff chat ("Beskeder") — drawer + launcher-badge unread count.
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatUnread, setChatUnread] = useState(0);
+  // Poll the cheap aggregate-unread endpoint so the launcher badge lights up
+  // when staff write. Pauses while the drawer is open (the drawer owns reads).
+  useEffect(() => {
+    if (chatOpen) return;
+    let cancelled = false;
+    const poll = () => {
+      if (document.visibilityState !== "visible") return;
+      api
+        .get("/staff/chat/unread")
+        .then((res) => {
+          if (!cancelled) setChatUnread(res.data?.unread || 0);
+        })
+        .catch(() => {});
+    };
+    poll();
+    const id = setInterval(poll, 25000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [chatOpen]);
 
   // Shift modal
   const [shiftModal, setShiftModal] = useState(null); // { staffId, date, shift? }
@@ -941,6 +966,7 @@ export default function StaffSchedulePage() {
   const [shareSheet, setShareSheet] = useState(false);
   const [shareSel, setShareSel] = useState(() => new Set());
   const [shareLinks, setShareLinks] = useState({}); // staffId -> portal URL
+  const [shareCodes, setShareCodes] = useState({}); // staffId -> short join code
   const [shareBusy, setShareBusy] = useState(false);
   const [shareCopiedN, setShareCopiedN] = useState(0);
   const [shareRowCopied, setShareRowCopied] = useState(null); // staffId just copied
@@ -1275,12 +1301,15 @@ export default function StaffSchedulePage() {
     api.get("/staff/schedules/share-links")
       .then((r) => {
         const map = {};
+        const codes = {};
         for (const row of r.data || []) {
           if (row.staff_id && row.portal_url) {
             map[row.staff_id] = `${window.location.origin}${row.portal_url}`;
           }
+          if (row.staff_id && row.join_code) codes[row.staff_id] = row.join_code;
         }
         setShareLinks((prev) => ({ ...map, ...prev }));
+        setShareCodes((prev) => ({ ...codes, ...prev }));
       })
       .catch(() => { /* fall back to per-staff mint on copy */ });
   };
@@ -1307,6 +1336,9 @@ export default function StaffSchedulePage() {
     const res = await api.post(`/staff/members/${member.id}/link`);
     const fullUrl = `${window.location.origin}${res.data.portal_url}`;
     setShareLinks((prev) => ({ ...prev, [member.id]: fullUrl }));
+    if (res.data.join_code) {
+      setShareCodes((prev) => ({ ...prev, [member.id]: res.data.join_code }));
+    }
     return fullUrl;
   };
 
@@ -1495,6 +1527,21 @@ export default function StaffSchedulePage() {
               >
                 {exporting ? "…" : "PDF"}
               </Button>
+              {/* Beskeder — owner ↔ staff 1:1 chat launcher. Unread badge polls
+                  the cheap aggregate endpoint; opening the drawer marks read. */}
+              <button
+                onClick={() => setChatOpen(true)}
+                title={t("ownerChatTitle", "Messages")}
+                className="relative inline-flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+              >
+                <Icon name="MessageSquare" size={14} />
+                <span className="hidden sm:inline">{t("navMessages", "Messages")}</span>
+                {chatUnread > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold leading-[16px] text-center">
+                    {chatUnread > 9 ? "9+" : chatUnread}
+                  </span>
+                )}
+              </button>
               {/* Share with staff (Staff v2, Starter+) — mints/refreshes
                   StaffLink magic-links and emails each staff their personal
                   portal URL. The portal becomes the live coordination loop
@@ -1935,6 +1982,14 @@ export default function StaffSchedulePage() {
         />
       )}
 
+      {/* Owner ↔ staff chat ("Beskeder") slide-over. Self-contained — owns its
+          own fetches; onUnreadChange keeps the launcher badge honest. */}
+      <OwnerChatDrawer
+        open={chatOpen}
+        onClose={() => setChatOpen(false)}
+        onUnreadChange={setChatUnread}
+      />
+
       {/* Publish-confirm sheet — the deliberate gate before draft shifts go
           live to staff. Shows what's about to change in one calm glance. */}
       {publishConfirm && (
@@ -1983,6 +2038,9 @@ export default function StaffSchedulePage() {
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 {t("shareScheduleSub", "Pick who to share with. The link needs no account — staff just open it.")}
               </p>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
+                {t("shareJoinCodeHint", "No link? Staff can type their code at bonbox.dk/join.")}
+              </p>
               <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -2017,8 +2075,15 @@ export default function StaffSchedulePage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{s.name}</div>
-                      <div className="text-[11px] text-gray-400 dark:text-gray-500 truncate">
-                        {hasEmail ? `📧 ${s.email}` : t("shareNoEmail", "link only — no email")}
+                      <div className="text-[11px] text-gray-400 dark:text-gray-500 truncate flex items-center gap-1.5">
+                        <span className="truncate">
+                          {hasEmail ? `📧 ${s.email}` : t("shareNoEmail", "link only — no email")}
+                        </span>
+                        {shareCodes[s.id] && (
+                          <span className="shrink-0 font-mono font-semibold tracking-wider text-gray-600 dark:text-gray-300">
+                            · {t("shareJoinCodeShort", "code")} {shareCodes[s.id]}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <button

@@ -472,6 +472,34 @@ def deactivate_staff_member(
 
 _pin_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# Unambiguous alphabet for the short join code — no 0/O/1/I to avoid
+# mistypes when a staffer reads it off the owner's screen.
+_JOIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def _gen_join_code(n: int = 6) -> str:
+    return "".join(secrets.choice(_JOIN_ALPHABET) for _ in range(n))
+
+
+def _ensure_join_code(db: Session, link: StaffLink) -> str:
+    """Lazily assign a unique short join code to a link. Idempotent."""
+    if link.join_code:
+        return link.join_code
+    for _ in range(8):
+        code = _gen_join_code()
+        clash = db.query(StaffLink.id).filter(StaffLink.join_code == code).first()
+        if not clash:
+            link.join_code = code
+            try:
+                db.commit()
+                return code
+            except Exception:  # noqa: BLE001 — lost the unique race; retry
+                db.rollback()
+    # Astronomically unlikely fallback — widen the code space.
+    link.join_code = _gen_join_code(8)
+    db.commit()
+    return link.join_code
+
 
 @router.post("/members/{member_id}/link")
 def generate_staff_link(
@@ -513,6 +541,7 @@ def generate_staff_link(
             "token": existing.token,
             "active": existing.active,
             "has_pin": bool(existing.pin_hash),
+            "join_code": _ensure_join_code(db, existing),
             "portal_url": portal_path(existing.token, user.business_name, member.name),
             "created_at": existing.created_at,
         }
@@ -544,6 +573,7 @@ def generate_staff_link(
         "token": link.token,
         "active": link.active,
         "has_pin": False,
+        "join_code": _ensure_join_code(db, link),
         "portal_url": portal_path(link.token, user.business_name, member.name),
         "created_at": link.created_at,
     }
@@ -644,7 +674,8 @@ def list_share_links(
         .all()
     )
     out = []
-    minted = False
+    dirty = False
+    used: set = set()  # codes assigned in THIS batch (not yet committed → invisible to DB query)
     for m in members:
         link = (
             db.query(StaffLink)
@@ -664,14 +695,26 @@ def list_share_links(
                 active=True,
             )
             db.add(link)
-            minted = True
+            dirty = True
+        if not link.join_code:
+            for _ in range(8):
+                code = _gen_join_code()
+                if code in used:
+                    continue
+                clash = db.query(StaffLink.id).filter(StaffLink.join_code == code).first()
+                if not clash:
+                    link.join_code = code
+                    used.add(code)
+                    dirty = True
+                    break
         out.append({
             "staff_id": str(m.id),
             "staff_name": m.name,
             "email": m.email,
+            "join_code": link.join_code,
             "portal_url": portal_path(link.token, user.business_name, m.name),
         })
-    if minted:
+    if dirty:
         db.commit()
     return out
 

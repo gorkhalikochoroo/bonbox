@@ -5,10 +5,11 @@
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, Inbox, Thermometer, StickyNote, MapPin, CalendarPlus, ChevronDown } from "lucide-react";
+import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, CalendarPlus, ChevronDown } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
+import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
 
 
 // ─── Push subscription helpers (Staff v2, 2026-05-28) ───────────────────
@@ -1789,6 +1790,229 @@ function formatTimeAgo(dateStr) {
 }
 
 
+// ─── Messages (Beskeder) — owner ↔ this staffer, 1:1 ───────────────────────
+
+function MessagesTab({ token, restaurantName, onRead }) {
+  const { t } = useLanguage();
+  const [messages, setMessages] = useState(null);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const picker = usePhotoPicker();
+  const scrollRef = useRef(null);
+
+  const load = useCallback(
+    (markRead = true) => {
+      portalApi
+        .get(`/portal/${token}/chat`)
+        .then((res) => {
+          setMessages(res.data.messages || []);
+          if (markRead) onRead?.();
+        })
+        .catch(() => setMessages((prev) => prev || []));
+    },
+    [token, onRead],
+  );
+
+  // Initial load + gentle poll (only while the tab is visible).
+  useEffect(() => {
+    load(true);
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") load(true);
+    }, 6000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  // Keep pinned to the newest message.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages]);
+
+  const send = async () => {
+    const body = text.trim();
+    const photoFiles = picker.files.map((f) => f.file);
+    if ((!body && photoFiles.length === 0) || sending) return;
+    setSending(true);
+    const cmid =
+      (typeof crypto !== "undefined" && crypto.randomUUID && crypto.randomUUID()) ||
+      `c-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const localPreviews = picker.files.map((f) => f.preview);
+    const optimistic = {
+      id: `tmp-${cmid}`,
+      sender_type: "staff",
+      mine: true,
+      body: body || null,
+      photo_count: photoFiles.length,
+      _localPreviews: localPreviews,
+      created_at: new Date().toISOString(),
+      _pending: true,
+    };
+    setMessages((prev) => [...(prev || []), optimistic]);
+    setText("");
+    picker.clear();
+    try {
+      let res;
+      if (photoFiles.length > 0) {
+        const fd = new FormData();
+        if (body) fd.append("body", body);
+        fd.append("client_msg_id", cmid);
+        photoFiles.forEach((file) => fd.append("photos", file));
+        res = await portalApi.post(`/portal/${token}/chat/photos`, fd);
+      } else {
+        res = await portalApi.post(`/portal/${token}/chat`, {
+          body,
+          client_msg_id: cmid,
+        });
+      }
+      setMessages((prev) =>
+        (prev || []).map((m) => (m.id === optimistic.id ? res.data : m)),
+      );
+    } catch {
+      setMessages((prev) =>
+        (prev || []).map((m) =>
+          m.id === optimistic.id ? { ...m, _pending: false, _failed: true } : m,
+        ),
+      );
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const onKeyDown = (e) => {
+    // Enter sends; Shift+Enter is a newline (desktop). On-screen keyboards
+    // send via the button, so this only helps physical keyboards.
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
+  };
+
+  return (
+    <div className="flex flex-col">
+      {/* Message stream */}
+      <div
+        ref={scrollRef}
+        className="space-y-2 overflow-y-auto"
+        style={{ maxHeight: "calc(100vh - 16rem)" }}
+      >
+        {messages === null ? (
+          <div className="space-y-2 animate-pulse">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className={`h-9 rounded-2xl bg-gray-100 ${i % 2 ? "w-2/3" : "w-1/2 ml-auto"}`}
+              />
+            ))}
+          </div>
+        ) : messages.length === 0 ? (
+          <div className="text-center py-12">
+            <MessageSquare
+              className="w-8 h-8 text-gray-300 mb-3 mx-auto"
+              strokeWidth={2}
+              aria-hidden
+            />
+            <h3 className="text-base font-semibold text-gray-900 mb-1">
+              {t("staffChatEmptyTitle", "No messages yet")}
+            </h3>
+            <p className="text-sm text-gray-500">
+              {t(
+                "staffChatEmptyBody",
+                "Send your manager a message — questions, running late, anything.",
+              )}
+            </p>
+          </div>
+        ) : (
+          messages.map((m) => (
+            <div
+              key={m.id}
+              className={`flex ${m.mine ? "justify-end" : "justify-start"}`}
+            >
+              <div className={`max-w-[78%] ${m.mine ? "items-end" : "items-start"} flex flex-col`}>
+                {!m.mine && (
+                  <span className="text-[10px] text-gray-400 mb-0.5 px-1">
+                    {restaurantName || t("staffChatOwnerLabel", "Manager")}
+                  </span>
+                )}
+                {(m.photo_count > 0 || m._localPreviews) && (
+                  <div className={m._pending ? "opacity-60" : ""}>
+                    <PhotoGrid
+                      client={portalApi}
+                      photos={m.photos}
+                      localPreviews={m._localPreviews}
+                    />
+                  </div>
+                )}
+                {m.body && (
+                  <div
+                    onClick={
+                      m._failed
+                        ? () => {
+                            // Refill the composer so they can resend, drop the
+                            // failed bubble — no silent retry, the staffer decides.
+                            setText(m.body);
+                            setMessages((prev) =>
+                              (prev || []).filter((x) => x.id !== m.id),
+                            );
+                          }
+                        : undefined
+                    }
+                    className={`px-3.5 py-2 rounded-2xl text-sm whitespace-pre-wrap break-words ${
+                      m.mine
+                        ? "text-white rounded-br-md"
+                        : "bg-white border border-gray-200/70 text-gray-900 rounded-bl-md"
+                    } ${m._pending ? "opacity-60" : ""} ${m._failed ? "cursor-pointer ring-1 ring-red-300" : ""}`}
+                    style={m.mine ? { background: "rgb(var(--brand-600))" } : undefined}
+                  >
+                    {m.body}
+                  </div>
+                )}
+                <span className="text-[10px] text-gray-400 mt-0.5 px-1">
+                  {m._failed
+                    ? t("staffChatFailed", "Not sent — tap to retry")
+                    : m.created_at
+                      ? formatTimeAgo(m.created_at)
+                      : ""}
+                </span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Composer — fixed above the bottom nav, notch-aware. */}
+      <div
+        className="fixed inset-x-0 z-20 glass border-t border-gray-200/70"
+        style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
+      >
+        <div className="max-w-lg mx-auto px-3 pt-2">
+          <PendingPhotos picker={picker} />
+          <div className="pb-2 flex items-end gap-1.5">
+            <AttachButton picker={picker} label={t("staffChatAddPhoto", "Add photo")} />
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={onKeyDown}
+              rows={1}
+              placeholder={t("staffChatPlaceholder", "Write a message…")}
+              className="flex-1 resize-none max-h-28 px-3 py-2 rounded-2xl bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+            />
+            <button
+              onClick={send}
+              disabled={(!text.trim() && picker.files.length === 0) || sending}
+              aria-label={t("staffChatSend", "Send")}
+              className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white disabled:opacity-40 transition"
+              style={{ background: "rgb(var(--brand-600))" }}
+            >
+              <Send className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ─── Loading skeleton ──────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
@@ -1826,6 +2050,7 @@ function PortalError({ message }) {
 
 const TABS = [
   { key: "schedule", Icon: Calendar, labelKey: "navSchedule", labelFallback: "Schedule" },
+  { key: "messages", Icon: MessageSquare, labelKey: "navMessages", labelFallback: "Messages" },
   { key: "swaps", Icon: ArrowLeftRight, labelKey: "navSwaps", labelFallback: "Swaps" },
   { key: "hours", Icon: Clock, labelKey: "navHours", labelFallback: "Hours" },
   { key: "tips", Icon: Banknote, labelKey: "navTips", labelFallback: "Tips" },
@@ -2337,7 +2562,7 @@ export default function StaffPortalPage() {
     // any deep link open the right tab.
     try {
       const q = new URLSearchParams(window.location.search).get("tab");
-      return ["schedule", "swaps", "hours", "tips", "alerts"].includes(q) ? q : "schedule";
+      return ["schedule", "messages", "swaps", "hours", "tips", "alerts"].includes(q) ? q : "schedule";
     } catch {
       return "schedule";
     }
@@ -2351,6 +2576,8 @@ export default function StaffPortalPage() {
   const [shifts, setShifts] = useState([]);
   const [hoursData, setHoursData] = useState(null);
   const [tipsData, setTipsData] = useState(null);
+  // Unread owner→staff chat messages — drives the "Beskeder" nav badge.
+  const [chatUnread, setChatUnread] = useState(0);
 
   // ─── Live-sync (Phase 1: dependency-free freshness) ──────────────────────
   // lastSynced — stamped when the SCHEDULE GET resolves. Drives the header
@@ -2449,6 +2676,33 @@ export default function StaffPortalPage() {
       setTab("schedule");
     }
   }, [tab, tipsData]);
+
+  // 2c. Chat unread badge — poll the cheap count endpoint so the "Beskeder"
+  // nav dot lights up when the owner writes. While the Messages tab is open
+  // the server marks read on each fetch, so we just hold the badge at 0.
+  useEffect(() => {
+    if (!(pinVerified && info)) return;
+    if (tab === "messages") {
+      setChatUnread(0);
+      return;
+    }
+    let cancelled = false;
+    const poll = () => {
+      if (document.visibilityState !== "visible") return;
+      portalApi
+        .get(`/portal/${token}/chat/unread`)
+        .then((res) => {
+          if (!cancelled) setChatUnread(res.data?.unread || 0);
+        })
+        .catch(() => {});
+    };
+    poll();
+    const id = setInterval(poll, 25000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [pinVerified, info, tab, token]);
 
   // 2b. Refetch triggers — keep the schedule fresh without any realtime deps.
   // All gated on pinVerified && info, all cleaned up on unmount.
@@ -2646,6 +2900,7 @@ export default function StaffPortalPage() {
           <div>
             <h1 className="text-lg font-bold text-gray-900">
               {tab === "schedule" ? t("portalTitleSchedule", "My schedule")
+                : tab === "messages" ? t("portalTitleMessages", "Messages")
                 : tab === "swaps" ? t("portalTitleSwaps", "Swaps")
                 : tab === "hours" ? t("portalTitleHours", "My hours")
                 : tab === "tips" ? t("portalTitleTips", "My tips")
@@ -2749,6 +3004,13 @@ export default function StaffPortalPage() {
         {/* Install/push nudge — BELOW the shift so the schedule leads; a calm
             collapsed line, not a promo card above the fold. */}
         {tab === "schedule" && <InstallNotifyCard token={token} />}
+        {tab === "messages" && (
+          <MessagesTab
+            token={token}
+            restaurantName={info?.restaurant_name}
+            onRead={() => setChatUnread(0)}
+          />
+        )}
         {tab === "swaps" && (
           <SwapTab token={token} ownShifts={shifts} onChanged={loadData} />
         )}
@@ -2783,11 +3045,21 @@ export default function StaffPortalPage() {
                     style={{ background: "rgb(var(--brand-50))" }}
                   />
                 )}
-                <item.Icon
-                  className="relative w-[18px] h-[18px]"
-                  strokeWidth={active ? 2.25 : 2}
-                  aria-hidden
-                />
+                <span className="relative">
+                  <item.Icon
+                    className="w-[18px] h-[18px]"
+                    strokeWidth={active ? 2.25 : 2}
+                    aria-hidden
+                  />
+                  {item.key === "messages" && chatUnread > 0 && (
+                    <span
+                      className="absolute -top-1 -right-1.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold leading-[14px] text-center"
+                      aria-label={t("staffChatUnreadBadge", "Unread messages")}
+                    >
+                      {chatUnread > 9 ? "9+" : chatUnread}
+                    </span>
+                  )}
+                </span>
                 <span className="relative text-[10px] font-semibold">
                   {t(item.labelKey, item.labelFallback)}
                 </span>

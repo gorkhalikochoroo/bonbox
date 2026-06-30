@@ -51,7 +51,10 @@ logger = logging.getLogger(__name__)
 
 # Allowed kinds — keeps the path namespace tidy and constrains an
 # attacker who somehow forges a kind to a closed enum.
-ALLOWED_KINDS = {"kasserapport", "inventory_import", "expense", "sale", "business_logo"}
+ALLOWED_KINDS = {
+    "kasserapport", "inventory_import", "expense", "sale", "business_logo",
+    "staff_chat", "staff_avatar",
+}
 
 
 def compose_key(user_id, kind: str, sha: str, ext: str = "jpg") -> str:

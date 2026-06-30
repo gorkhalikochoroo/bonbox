@@ -42,7 +42,7 @@ import {
   Wrench,
   // Manage
   Settings, Building2, Monitor, Bike, LayoutGrid, Mail, Network,
-  Building, UserCog, Trash, MessageCircle, Link2,
+  Building, UserCog, Trash, MessageCircle, MessageSquare, Link2,
   // Account
   Sparkles,
   // Personal mode
@@ -119,7 +119,7 @@ const ICONS = {
   Wrench,
   // Manage group
   Settings, Building2, Monitor, Bike, LayoutGrid, Mail, Network,
-  Building, UserCog, Trash, MessageCircle,
+  Building, UserCog, Trash, MessageCircle, MessageSquare,
   // Account group
   Sparkles,
   // Personal mode

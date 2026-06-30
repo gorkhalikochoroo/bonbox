@@ -42,6 +42,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.routers import auth, sales, expenses, inventory, reports, dashboard, staffing, waste, feedback, cashbook, events, event_log as event_log_router, khata, budget, loan, email_settings, whatsapp, weather, agent, bank_import, team, business_profile, payment_import, cashflow, tax, pricing, retention, expiry, outlet, competitor, branch, daily_close, workshop, wine, staff, staff_portal, admin, patterns, exports, waitlist, billing, property_report, kasserapport, terminal, output_channel, order_channel_config, inventory_smart_import, smart_drift, support, search as search_router, modules as modules_router, ai as ai_router, smart_pricing as smart_pricing_router, pillars as pillars_router, diagnostics as diagnostics_router
 # Invoicing — Customer/Invoice/Mileage. Gated to Starter+ at the route level.
+from app.routers import staff_chat as staff_chat_router
 from app.routers import activation as activation_router
 from app.routers import customers as customers_router, invoices as invoices_router, mileage as mileage_router
 from app.routers import payment_suggestions as payment_suggestions_router
@@ -1972,6 +1973,51 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_gift_card_orders_user_id ON gift_card_orders (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_gift_card_orders_user_status ON gift_card_orders (user_id, status)",
+    # ── Migration 030 (2026-06-30): Owner↔staff 1:1 chat + staff profile self-edit ──
+    # Staff self-edit columns (display_name overrides `name` only in chat/portal,
+    # never payroll; profile_photo_key is a storage compose_key, served via proxy).
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS display_name VARCHAR(80)",
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS profile_photo_key VARCHAR(200)",
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS profile_photo_at TIMESTAMP",
+    """CREATE TABLE IF NOT EXISTS staff_chat_threads (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        staff_id UUID NOT NULL REFERENCES staff_members(id),
+        last_message_at TIMESTAMP,
+        owner_last_read_at TIMESTAMP,
+        staff_last_read_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_staff_chat_thread UNIQUE (user_id, staff_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_staff_chat_thread_user_last ON staff_chat_threads (user_id, last_message_at)",
+    """CREATE TABLE IF NOT EXISTS staff_chat_messages (
+        id UUID PRIMARY KEY,
+        thread_id UUID NOT NULL REFERENCES staff_chat_threads(id) ON DELETE CASCADE,
+        user_id UUID NOT NULL REFERENCES users(id),
+        sender_type VARCHAR(8) NOT NULL,
+        body TEXT,
+        photo_count INTEGER NOT NULL DEFAULT 0 CHECK (photo_count BETWEEN 0 AND 3),
+        client_msg_id VARCHAR(64),
+        is_deleted BOOLEAN NOT NULL DEFAULT false,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_staff_chat_msg_thread_created ON staff_chat_messages (thread_id, created_at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_chat_msg_client ON staff_chat_messages (thread_id, client_msg_id) WHERE client_msg_id IS NOT NULL",
+    """CREATE TABLE IF NOT EXISTS staff_chat_photos (
+        id UUID PRIMARY KEY,
+        message_id UUID NOT NULL REFERENCES staff_chat_messages(id) ON DELETE CASCADE,
+        user_id UUID NOT NULL REFERENCES users(id),
+        storage_key VARCHAR(200) NOT NULL,
+        content_type VARCHAR(40) NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        ord INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_staff_chat_photo_msg ON staff_chat_photos (message_id)",
+    # ── Migration 031 (2026-06-30): short join code for staff invite/connect ──
+    "ALTER TABLE staff_links ADD COLUMN IF NOT EXISTS join_code VARCHAR(12)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_links_join_code ON staff_links (join_code) WHERE join_code IS NOT NULL",
 ]
 
 
@@ -3907,6 +3953,9 @@ app.include_router(workshop.router, prefix="/api/workshop", tags=["Automobile Wo
 app.include_router(wine.router, prefix="/api/wines", tags=["Wine List"])
 app.include_router(staff.router, prefix="/api/staff", tags=["Staff Management"])
 app.include_router(staff_portal.router, prefix="/api/portal", tags=["Staff Portal (Public)"])
+# Owner ↔ staff 1:1 chat ("Beskeder") — two routers, two auth gates.
+app.include_router(staff_chat_router.owner_router, prefix="/api/staff", tags=["Staff Chat (Owner)"])
+app.include_router(staff_chat_router.staff_router, prefix="/api/portal", tags=["Staff Chat (Portal)"])
 # Per-user pattern recognition (AI insights, dismiss/feedback)
 app.include_router(patterns.router, prefix="/api/patterns", tags=["Owner Patterns"])
 # Bookkeeping export (Dinero / Billy / e-conomic / generic CSV)
