@@ -6,7 +6,7 @@ from typing import Optional
 
 from sqlalchemy import (
     String, Boolean, Date, DateTime, Numeric, ForeignKey, Text, Integer,
-    UniqueConstraint,
+    UniqueConstraint, CheckConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -261,6 +261,14 @@ class StaffChatMessage(Base):
     the denormalized tenant key every query filters on."""
 
     __tablename__ = "staff_chat_messages"
+    # photo_count is also app-capped at MAX_PHOTOS; this CHECK is the DB-layer
+    # backstop. Named so the idempotent migration's IF-NOT-EXISTS guard matches.
+    __table_args__ = (
+        CheckConstraint(
+            "photo_count BETWEEN 0 AND 3",
+            name="staff_chat_messages_photo_count_check",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     thread_id: Mapped[uuid.UUID] = mapped_column(

@@ -2015,6 +2015,23 @@ _migrations = [
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )""",
     "CREATE INDEX IF NOT EXISTS ix_staff_chat_photo_msg ON staff_chat_photos (message_id)",
+    # photo_count DB-layer cap. Kept as an idempotent ALTER (not just inline in
+    # the CREATE TABLE above) because SQLAlchemy create_all may have created the
+    # table first — without the inline CHECK — so the CREATE TABLE IF NOT EXISTS
+    # is a no-op and the constraint would otherwise never land. Postgres has no
+    # ADD CONSTRAINT IF NOT EXISTS, so guard with a DO block.
+    """DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'staff_chat_messages_photo_count_check'
+          AND conrelid = 'staff_chat_messages'::regclass
+      ) THEN
+        ALTER TABLE staff_chat_messages
+          ADD CONSTRAINT staff_chat_messages_photo_count_check
+          CHECK (photo_count BETWEEN 0 AND 3);
+      END IF;
+    END $$;""",
     # ── Migration 031 (2026-06-30): short join code for staff invite/connect ──
     "ALTER TABLE staff_links ADD COLUMN IF NOT EXISTS join_code VARCHAR(12)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_links_join_code ON staff_links (join_code) WHERE join_code IS NOT NULL",
