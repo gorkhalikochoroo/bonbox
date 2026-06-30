@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, CalendarPlus, ChevronDown } from "lucide-react";
+import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
@@ -556,21 +556,39 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange }) {
 // Tilføj til kalender from the same state. act()/getPos()/the geolocation-
 // only-when-geofence_on guard / the too_far 403 → portalClockTooFar mapping /
 // the 30s poll are MOVED VERBATIM — ownership changed, behaviour did not.
+// Approximate distance for the "too far" hint — GPS jitters, so always "~" and
+// rounded: metres under 1 km, da-DK comma km above (matches the formatKr style).
+function fmtDist(m) {
+  if (m == null) return "";
+  return m < 1000
+    ? `~${Math.round(m)} m`
+    : `~${(m / 1000).toLocaleString("da-DK", { maximumFractionDigits: 1 })} km`;
+}
+
 function useClock(token) {
   const { t } = useLanguage();
   const [st, setSt] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [result, setResult] = useState(""); // honest clock-out outcome
+  const [liveSec, setLiveSec] = useState(null); // live elapsed seconds (ticks 1/s)
+
+  // Snap server state AND the live-second baseline together, so the counter
+  // re-anchors to the server's authoritative elapsed_sec on every poll/punch
+  // and can never drift away — the +1/sec ticker only smooths the gaps.
+  const applySt = useCallback((data) => {
+    setSt(data || null);
+    setLiveSec(data?.elapsed_sec ?? null);
+  }, []);
 
   const load = useCallback(async () => {
     try {
       const res = await portalApi.get(`/portal/${token}/clock`);
-      setSt(res.data || null);
+      applySt(res.data);
     } catch {
       /* soft — leave last-known state */
     }
-  }, [token]);
+  }, [token, applySt]);
 
   useEffect(() => {
     load();
@@ -578,13 +596,25 @@ function useClock(token) {
     return () => clearInterval(id);
   }, [load]);
 
+  // 1-second live tick — ONLY while clocked in (keyed on the boolean so the
+  // interval is created once on clock-in and cleared on clock-out / unmount,
+  // not rebuilt every 30s poll). Display-only; the server stays source of truth.
+  const clockedInNow = !!st?.clocked_in;
+  useEffect(() => {
+    if (!clockedInNow) return;
+    const id = setInterval(() => setLiveSec((s) => (s == null ? s : s + 1)), 1000);
+    return () => clearInterval(id);
+  }, [clockedInNow]);
+
   // Resolve device location (only when the venue lock is on). Denied / no-fix
   // → resolves null; the server then allows the punch but flags it unverified.
   const getPos = () =>
     new Promise((resolve) => {
       if (!navigator.geolocation) return resolve(null);
       navigator.geolocation.getCurrentPosition(
-        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        // Forward accuracy too — the server uses it as a grace radius so a real
+        // worker at the door with an imprecise fix isn't wrongly locked out.
+        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
         () => resolve(null),
         { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
       );
@@ -600,7 +630,7 @@ function useClock(token) {
         if (pos) payload = pos;
       }
       const res = await portalApi.post(`/portal/${token}/clock-${dir}`, payload);
-      setSt(res.data || null);
+      applySt(res.data);
       if (dir === "out") {
         // Honest outcome: confirm the hours we logged, or — when the punch was
         // too short and discarded server-side — say so plainly. No silent flip.
@@ -617,14 +647,18 @@ function useClock(token) {
         setResult("");
       }
     } catch (e) {
-      const code = e?.response?.data?.detail?.error;
-      setErr(
-        code === "too_far"
-          ? t("portalClockTooFar", "You're too far from the venue to clock in.")
-          : code === "not_clocked_in"
+      const det = e?.response?.data?.detail;
+      if (det?.error === "too_far") {
+        // Keep the real numbers — the hero renders a calm "you're ~X away" block
+        // instead of a flat red line (being off-site isn't an error you caused).
+        setErr({ kind: "too_far", distance_m: det.distance_m, radius_m: det.radius_m });
+      } else {
+        setErr(
+          det?.error === "not_clocked_in"
             ? t("portalClockErrOut", "You're not clocked in.")
             : t("portalClockErr", "Couldn't update the clock. Try again."),
-      );
+        );
+      }
       load();
     } finally {
       setBusy(false);
@@ -638,7 +672,20 @@ function useClock(token) {
     return h > 0 ? `${h}t ${m}m` : `${m}m`;
   };
 
-  return { st, busy, err, result, act, fmtDur };
+  // Live elapsed: starts at "0s" on clock-in (server returns elapsed_sec≈0),
+  // ticks seconds for the first hour (proof it's alive), then calm "Xt Ym".
+  const fmtElapsed = (sec) => {
+    if (sec == null) return "—";
+    const s = Math.max(0, Math.floor(sec));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const ss = s % 60;
+    if (h > 0) return `${h}t ${m}m`;
+    if (m > 0) return `${m}m ${String(ss).padStart(2, "0")}s`;
+    return `${ss}s`;
+  };
+
+  return { st, busy, err, result, act, fmtDur, liveLabel: fmtElapsed(liveSec) };
 }
 
 // ── Live countdown to the next shift's start. No timer of its own; the parent
@@ -986,7 +1033,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
                   <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
                 </span>
-                <span className="text-lg font-bold tabular-nums">{clock.fmtDur(clock.st?.elapsed_min)}</span>
+                <span className="text-2xl font-bold tabular-nums tracking-[-0.01em]">{clock.liveLabel}</span>
                 <span className="text-[12px] text-gray-300 tabular-nums">
                   {t("portalClockedInSince", "Clocked in · since {t}", { t: clock.st?.since || "—" })}
                 </span>
@@ -1030,7 +1077,30 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
                 </div>
               )}
             </div>
-            {clock.err && <div className="mt-2 text-[12px] text-red-300">{clock.err}</div>}
+            {clock.err?.kind === "too_far" ? (
+              /* Calm "almost there" — amber, not red. Being off-site isn't an
+                 error the worker caused; show how far + what to do. Numbers are
+                 server-stamped (the 403 carries distance_m/radius_m). Honest: a
+                 distance estimate, never a claim about where the person is. */
+              <div className="mt-3 rounded-lg bg-amber-500/10 ring-1 ring-amber-400/20 px-3 py-2.5">
+                <div className="flex items-center gap-1.5 text-[13px] font-semibold text-amber-200">
+                  <MapPinOff className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                  <span>
+                    {restaurantName
+                      ? t("portalClockTooFarDist", "About {dist} from {venue}", { dist: fmtDist(clock.err.distance_m), venue: restaurantName })
+                      : t("portalClockTooFarDistNoVenue", "About {dist} from the venue", { dist: fmtDist(clock.err.distance_m) })}
+                  </span>
+                </div>
+                <div className="mt-1 text-[12px] text-gray-400">
+                  {t("portalClockTooFarRadius", "Clock-in opens within {radius} m of the venue.", { radius: clock.err.radius_m })}
+                </div>
+                <div className="mt-0.5 text-[12px] text-gray-300">
+                  {t("portalClockTooFarDo", "Head over and try again when you're there.")}
+                </div>
+              </div>
+            ) : clock.err ? (
+              <div className="mt-2 text-[12px] text-red-300">{clock.err}</div>
+            ) : null}
             {clock.result && !clock.err && (
               <div className="mt-2 text-[12px] text-gray-200">{clock.result}</div>
             )}

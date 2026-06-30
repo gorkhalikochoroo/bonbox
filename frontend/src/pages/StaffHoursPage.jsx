@@ -972,6 +972,12 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                         <span>{t("shpMinBreak", "{count}min break").replace("{count}", entry.break_minutes)}</span>
                       </>
                     )}
+                    {entry.entry_method === "clock" && entry.notes === "Location unverified" && (
+                      <>
+                        <span className="text-gray-300 dark:text-gray-600">|</span>
+                        <span className="text-amber-600 dark:text-amber-400">{t("shpUnverifiedLoc", "Location not verified")}</span>
+                      </>
+                    )}
                   </div>
                 </div>
 

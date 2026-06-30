@@ -2499,6 +2499,11 @@ def get_clocked_in_staff(
             "name": (m.name if m else None) or "—",
             "since": r.start_time,
             "elapsed_min": elapsed,
+            # Surface the geofence "couldn't confirm location" flag so the owner
+            # can actually SEE it on the live strip — otherwise the location
+            # lock is invisible theatre. (Written by portal clock-in when GPS is
+            # off/denied or the fix was too imprecise to trust.)
+            "unverified": bool(getattr(r, "notes", None) == "Location unverified"),
         })
     out.sort(key=lambda x: x["since"] or "")
     return {"clocked_in": out, "count": len(out)}

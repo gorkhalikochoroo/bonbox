@@ -571,6 +571,7 @@ def get_portal_time_registration(token: str, request: Request, db: Session = Dep
 class ClockInBody(BaseModel):
     lat: float | None = None
     lng: float | None = None
+    accuracy: float | None = None  # device GPS accuracy (metres); used as a grace radius
 
 
 def _haversine_m(lat1, lng1, lat2, lng2):
@@ -635,6 +636,19 @@ def _elapsed_min(start_hhmm, now_dt):
     return max(0, int((now_dt - start_dt).total_seconds() // 60))
 
 
+def _elapsed_sec(created_at):
+    """Whole seconds from the punch's created_at (naive UTC — the exact clock-in
+    instant) to now. Second-precision + reload-safe (the row's created_at IS the
+    baseline, so the client never invents it); never negative; None on bad input.
+    This is what lets the staff hero tick a live counter starting at 0s."""
+    if not created_at:
+        return None
+    try:
+        return max(0, int((utc_now() - created_at).total_seconds()))
+    except (TypeError, ValueError):
+        return None
+
+
 def _clock_status_dict(db: Session, member, owner) -> dict:
     now_dt = now_local(owner)
     bday = business_today_local(owner)
@@ -648,11 +662,13 @@ def _clock_status_dict(db: Session, member, owner) -> dict:
     punch = _open_punch(db, member)
     if not punch:
         return {"clocked_in": False, "since": None, "elapsed_min": None,
-                "today_hours": today_hours, "geofence_on": geofence_on}
+                "elapsed_sec": None, "today_hours": today_hours,
+                "geofence_on": geofence_on}
     return {
         "clocked_in": True,
         "since": punch.start_time,
-        "elapsed_min": _elapsed_min(punch.start_time, now_dt),
+        "elapsed_min": _elapsed_min(punch.start_time, now_dt),  # back-compat (whole min)
+        "elapsed_sec": _elapsed_sec(punch.created_at),          # live-counter seed (seconds)
         "today_hours": today_hours,
         "geofence_on": geofence_on,
     }
@@ -685,19 +701,46 @@ def portal_clock_in(
     geo_note = None
     cfg = _clock_geofence(db, owner)
     if cfg["enabled"]:
+        import math
         lat = body.lat if body else None
         lng = body.lng if body else None
+        acc = body.accuracy if body else None
+        # The staffer fully controls this body (token auth) and is the exact
+        # adversary the fence exists to stop. NaN/Inf parse through the default
+        # JSON loader and would make every distance comparison False — sailing
+        # past the fence UNFLAGGED. Neutralise non-finite spoof values: bad
+        # coords → "no fix" (allow + flag, like GPS-denied); bad accuracy →
+        # unknown (strict distance, no grace). No clean unflagged remote punch.
+        if lat is not None and not math.isfinite(lat):
+            lat = None
+        if lng is not None and not math.isfinite(lng):
+            lng = None
+        if acc is not None and not math.isfinite(acc):
+            acc = None
         if lat is not None and lng is not None:
-            dist = _haversine_m(lat, lng, cfg["lat"], cfg["lng"])
-            if dist > cfg["radius_m"]:
-                raise HTTPException(status_code=403, detail={
-                    "error": "too_far",
-                    "distance_m": int(round(dist)),
-                    "radius_m": cfg["radius_m"],
-                })
+            # A phone fix is routinely 50–200 m off (indoors / urban canyon /
+            # cold start). Treat a too-imprecise fix as "no usable fix" — allow
+            # but flag — so a present worker is never hard-locked-out, and a
+            # spoofed accuracy=99999 can't blanket-satisfy the fence either.
+            if acc is not None and acc > 200:
+                geo_note = "Location unverified"
+            else:
+                dist = _haversine_m(lat, lng, cfg["lat"], cfg["lng"])
+                # Give the worker the benefit of their fix's own stated
+                # uncertainty (clamped to 0–200 m): if they could plausibly be
+                # inside the fence given GPS error, let them in. Clamp floors a
+                # negative/spoofed accuracy at 0 (→ strict distance check).
+                grace = max(0, min(acc or 0, 200))
+                if dist - grace > cfg["radius_m"]:
+                    raise HTTPException(status_code=403, detail={
+                        "error": "too_far",
+                        "distance_m": int(round(dist)),
+                        "radius_m": cfg["radius_m"],
+                    })
         else:
-            # GPS off/denied → allow but flag (never lock a real worker out
-            # over flaky indoor GPS; the owner sees the "unverified" marker).
+            # GPS off/denied (or non-finite/missing coords) → allow but flag
+            # (never lock a real worker out over flaky indoor GPS; the owner
+            # sees the "unverified" marker).
             geo_note = "Location unverified"
     now_dt = now_local(owner)
     db.add(HoursLogged(

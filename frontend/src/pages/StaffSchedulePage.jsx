@@ -11,7 +11,7 @@ import { displayCurrency, formatKr } from "../utils/currency";
 import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
-import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check } from "lucide-react";
+import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPinOff } from "lucide-react";
 import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
 // Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
 // EMPTY cell (different staff and/or day) to REASSIGN it. dnd-kit gives us an
@@ -433,6 +433,15 @@ function ClockedInStrip() {
                 {fmtDur(r.elapsed_min)}
               </span>
             )}
+            {r.unverified && (
+              <span
+                className="inline-flex items-center gap-1 text-[11px] text-amber-300 dark:text-amber-400"
+                title={t("schedGeoUnverifiedChip", "Location not verified")}
+              >
+                <MapPinOff className="w-3 h-3 shrink-0" strokeWidth={2} aria-hidden />
+                {t("schedGeoUnverifiedChip", "Location not verified")}
+              </span>
+            )}
           </span>
         ))}
       </div>
@@ -449,6 +458,7 @@ function ClockGeofenceSettings() {
   const [cfg, setCfg] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  const [savedMsg, setSavedMsg] = useState(""); // honest success confirmation
   useEffect(() => {
     let alive = true;
     api.get("/staff/clock-geofence")
@@ -461,9 +471,16 @@ function ClockGeofenceSettings() {
   const save = async (patch) => {
     setBusy(true);
     setMsg("");
+    setSavedMsg("");
     try {
       const res = await api.post("/staff/clock-geofence", { enabled: cfg.enabled, ...patch });
       setCfg(res.data);
+      // Only confirm "location-bound" when a venue was actually anchored AND
+      // the lock is on — never overclaim. (Honesty: a distance check at the
+      // punch instant, not proof of presence.)
+      if (patch.lat != null && patch.lng != null && res.data?.has_location && res.data?.enabled) {
+        setSavedMsg(t("schedGeoSaved", "Venue anchored here. Staff clock-in is now location-bound."));
+      }
     } catch {
       setMsg(t("schedGeoErr", "Couldn't save. Try again."));
     } finally {
@@ -490,6 +507,9 @@ function ClockGeofenceSettings() {
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <p className="w-full text-[12px] text-gray-500 dark:text-gray-400 leading-snug">
+        {t("schedGeoHelp", "Staff can only clock in near the venue. Stand at the venue and set it as the anchor — their phone's location is checked at that moment only, never saved or tracked.")}
+      </p>
       <label className="flex items-center gap-2 cursor-pointer">
         <input
           type="checkbox"
@@ -516,6 +536,9 @@ function ClockGeofenceSettings() {
         {cfg.has_location ? t("schedGeoReset", "Update location") : t("schedGeoUseHere", "Use my current location")}
       </button>
       {msg && <span className="w-full text-[12px] text-red-500 dark:text-red-400">{msg}</span>}
+      {savedMsg && !msg && (
+        <span className="w-full text-[12px] text-emerald-600 dark:text-emerald-400">{savedMsg}</span>
+      )}
     </div>
   );
 }
