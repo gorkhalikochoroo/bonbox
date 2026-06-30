@@ -734,6 +734,19 @@ def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)
         0.0 if end_str == (punch.start_time or "")
         else _calc_shift_hours(punch.start_time, end_str, punch.break_minutes or 0)
     )
+    # TRUST GUARD: an in→out within the same minute (or anything that rounds to
+    # 0.0h at the stored 1-decimal precision, i.e. < ~3 min) is a misclick or a
+    # test, not real work. Persisting it would drop a junk "0.0h" row into the
+    # owner's hours — which reads as the clock inventing random entries and
+    # quietly erodes trust. So we DISCARD the open punch instead of saving it.
+    if round(total, 1) == 0.0:
+        db.delete(punch)
+        db.commit()
+        out = _clock_status_dict(db, member, owner)
+        out["clocked_out"] = True
+        out["worked_hours"] = 0.0
+        out["discarded"] = True  # too short to log — nothing written
+        return out
     punch.end_time = end_str
     punch.total_hours = total
     try:

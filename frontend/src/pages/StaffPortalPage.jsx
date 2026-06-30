@@ -561,6 +561,7 @@ function useClock(token) {
   const [st, setSt] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [result, setResult] = useState(""); // honest clock-out outcome
 
   const load = useCallback(async () => {
     try {
@@ -600,6 +601,21 @@ function useClock(token) {
       }
       const res = await portalApi.post(`/portal/${token}/clock-${dir}`, payload);
       setSt(res.data || null);
+      if (dir === "out") {
+        // Honest outcome: confirm the hours we logged, or — when the punch was
+        // too short and discarded server-side — say so plainly. No silent flip.
+        const d = res.data || {};
+        const mins = Math.round((d.worked_hours || 0) * 60);
+        const dur = mins >= 60 ? `${Math.floor(mins / 60)}t ${mins % 60}m` : `${mins}m`;
+        setResult(
+          d.discarded
+            ? t("portalClockTooShort", "Too short — nothing logged.")
+            : t("portalClockLogged", "Logged · {h}", { h: dur }),
+        );
+        setTimeout(() => setResult(""), 6000);
+      } else {
+        setResult("");
+      }
     } catch (e) {
       const code = e?.response?.data?.detail?.error;
       setErr(
@@ -622,7 +638,7 @@ function useClock(token) {
     return h > 0 ? `${h}t ${m}m` : `${m}m`;
   };
 
-  return { st, busy, err, act, fmtDur };
+  return { st, busy, err, result, act, fmtDur };
 }
 
 // ── Live countdown to the next shift's start. No timer of its own; the parent
@@ -1015,6 +1031,9 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
               )}
             </div>
             {clock.err && <div className="mt-2 text-[12px] text-red-300">{clock.err}</div>}
+            {clock.result && !clock.err && (
+              <div className="mt-2 text-[12px] text-gray-200">{clock.result}</div>
+            )}
           </>
         ) : (
           <div className="mt-1 text-2xl font-bold text-gray-500">{t("portalNoUpcomingShift")}</div>
