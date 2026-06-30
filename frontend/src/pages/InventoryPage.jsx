@@ -10,7 +10,7 @@
 // with neutral clickable StatCards.  Click-to-expand affordance
 // preserved via onClick + ChevronDown indicator.  Selected state
 // uses gray-900 ring (no tech-glow per sidebar rule).
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Fragment } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -94,7 +94,7 @@ export default function InventoryPage() {
   const [form, setForm] = useState({
     name: "", quantity: "", unit: "pieces", cost_per_unit: "",
     min_threshold: "", category: "General", sell_price: "", is_perishable: false,
-    sell_unit: "", pieces_per_unit: "",
+    sell_unit: "", pieces_per_unit: "", supplier_name: "", supplier_email: "",
   });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -202,8 +202,12 @@ export default function InventoryPage() {
         sell_unit: form.sell_unit || null,
         pieces_per_unit: form.pieces_per_unit ? parseFloat(form.pieces_per_unit) : null,
         category: form.category || "General",
+        // Optional leverandør — empty email must be null (backend EmailStr
+        // rejects ""), so the autopilot can later send a bestilling.
+        supplier_name: form.supplier_name?.trim() || null,
+        supplier_email: form.supplier_email?.trim() || null,
       });
-      setForm({ name: "", quantity: "", unit: "pieces", cost_per_unit: "", min_threshold: "", category: "General", sell_price: "", is_perishable: false, sell_unit: "", pieces_per_unit: "" });
+      setForm({ name: "", quantity: "", unit: "pieces", cost_per_unit: "", min_threshold: "", category: "General", sell_price: "", is_perishable: false, sell_unit: "", pieces_per_unit: "", supplier_name: "", supplier_email: "" });
       fetchData();
       setSuccess(t("itemAdded"));
       setTimeout(() => setSuccess(""), 2500);
@@ -224,6 +228,8 @@ export default function InventoryPage() {
       sell_price: item.sell_price != null ? parseFloat(item.sell_price) : "",
       is_perishable: item.is_perishable || false,
       sell_price_per_pour: item.sell_price_per_pour != null ? parseFloat(item.sell_price_per_pour) : "",
+      supplier_name: item.supplier_name || "",
+      supplier_email: item.supplier_email || "",
     });
   };
 
@@ -238,6 +244,11 @@ export default function InventoryPage() {
       if (payload.sell_price_per_pour === "" || payload.sell_price_per_pour === null) {
         payload.sell_price_per_pour = null;
       }
+      // Optional leverandør — empty email must be null (backend EmailStr
+      // rejects ""). A blank email clears it; a real one makes the item
+      // sendable by the autopilot.
+      payload.supplier_name = payload.supplier_name?.trim() || null;
+      payload.supplier_email = payload.supplier_email?.trim() || null;
       await api.patch(`/inventory/${editId}`, payload);
       setEditId(null);
       fetchData();
@@ -1085,6 +1096,14 @@ export default function InventoryPage() {
               className="rounded" />
             {t("freshItem")}
           </label>
+          {/* Optional leverandør — lets the Order autopilot draft + send a
+              bestilling for this vare. Email is validated server-side. */}
+          <input type="text" placeholder={t("invSupplierName", "Leverandør (valgfri)")} value={form.supplier_name}
+            onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
+            className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" />
+          <input type="email" placeholder={t("invSupplierEmail", "Leverandør-email")} value={form.supplier_email}
+            onChange={(e) => setForm({ ...form, supplier_email: e.target.value })}
+            className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" />
           <div className="col-span-2 md:col-span-4">
             <Button type="submit" variant="primary" size="lg" className="w-full">
               {t("addItem")}
@@ -1153,7 +1172,8 @@ export default function InventoryPage() {
                 const profit = sell != null ? (sell - buy) * qty : null;
 
                 return (
-                  <tr key={item.id} className={alertIds.has(item.id) ? "bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors" : "hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"}>
+                  <Fragment key={item.id}>
+                  <tr className={alertIds.has(item.id) ? "bg-red-50 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors" : "hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors"}>
                     <td className="px-3 py-2.5">
                       <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelect(item.id)}
                         className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-gray-900" />
@@ -1326,6 +1346,26 @@ export default function InventoryPage() {
                       </>
                     )}
                   </tr>
+                  {editId === item.id && (
+                    <tr className="bg-gray-50 dark:bg-gray-800/40 border-b border-gray-100 dark:border-gray-700">
+                      <td className="px-3"></td>
+                      <td colSpan={9} className="px-3 pb-3 pt-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("invSupplierSection", "Leverandør")}</span>
+                          <input type="text" value={editData.supplier_name || ""}
+                            onChange={(e) => setEditData({ ...editData, supplier_name: e.target.value })}
+                            placeholder={t("invSupplierName", "Leverandør (valgfri)")}
+                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] dark:bg-gray-700 dark:text-white w-40" />
+                          <input type="email" value={editData.supplier_email || ""}
+                            onChange={(e) => setEditData({ ...editData, supplier_email: e.target.value })}
+                            placeholder={t("invSupplierEmail", "Leverandør-email")}
+                            className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] dark:bg-gray-700 dark:text-white w-56" />
+                          <span className="text-[11px] text-gray-400 dark:text-gray-500">{t("invSupplierHint", "Lets the autopilot send a bestilling")}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
               {filtered.length === 0 && (
@@ -1420,6 +1460,23 @@ export default function InventoryPage() {
                         onChange={(e) => setEditData({ ...editData, sell_price: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
                         placeholder={t("sell")}
                         className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
+                      />
+                    </div>
+                    {/* Optional leverandør — makes the vare sendable by the autopilot */}
+                    <div className="grid grid-cols-1 gap-2">
+                      <input
+                        type="text"
+                        value={editData.supplier_name || ""}
+                        onChange={(e) => setEditData({ ...editData, supplier_name: e.target.value })}
+                        placeholder={t("invSupplierName", "Leverandør (valgfri)")}
+                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
+                      />
+                      <input
+                        type="email"
+                        value={editData.supplier_email || ""}
+                        onChange={(e) => setEditData({ ...editData, supplier_email: e.target.value })}
+                        placeholder={t("invSupplierEmail", "Leverandør-email")}
+                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
                       />
                     </div>
                     <div className="flex gap-2 pt-1">
