@@ -643,6 +643,10 @@ export default function ExpensesPage() {
       setEditId(null);
       setEditData({});
       fetchData(filterFrom, filterTo);
+      // Keep the Dashboard's expense total / profit / margin in sync — the
+      // add path fires this; edit + delete must too, or a mounted Dashboard
+      // goes stale until manual reload.
+      window.dispatchEvent(new Event("bonbox-data-changed"));
       setSuccess(t("expenseUpdated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -655,6 +659,7 @@ export default function ExpensesPage() {
       await api.delete(`/expenses/${id}`);
       setDeleteConfirm(null);
       fetchData(filterFrom, filterTo);
+      window.dispatchEvent(new Event("bonbox-data-changed"));
       setSuccess(t("movedToRecentlyDeleted"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {

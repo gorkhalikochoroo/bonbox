@@ -547,6 +547,7 @@ function getBusinessDate(cutoffHour = 0) {
 }
 
 function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed }) {
+  const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
   const { user, refreshUser } = useAuth();
   const { hasFeature, isReady: entReady } = useEntitlements();
   const defaultRevCats = useMemo(() => getRevenueCats(branchType), [branchType]);
@@ -1463,6 +1464,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       // up to the parent so the locked-state card on History can
       // render the email status + bank-drop reminder + push status.
       onDone(resp?.data || null);
+      // A confirmed close is the canonical per-date revenue (resolver prefers
+      // it over raw sales), so tell any mounted Dashboard/Reports to refetch —
+      // otherwise an already-open tab shows pre-close numbers until reload.
+      if (payload.status === "confirmed") {
+        window.dispatchEvent(new Event("bonbox-data-changed"));
+      }
     } catch (err) {
       if (!err.response) {
         // Network failed mid-request — queue for later

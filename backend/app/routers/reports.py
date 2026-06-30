@@ -32,6 +32,7 @@ from app.models.business_profile import BusinessProfile
 from app.services import audit_service
 from app.services.auth import get_current_user
 from app.services.expense_status import not_pending
+from app.services.revenue_resolver import effective_revenue_total
 from app.services.billing import effective_plan, get_cap
 from app.services.tax_filing_pdf import (
     build_moms_filing_pdf, compute_filing_data, make_bilagsnummer,
@@ -1536,12 +1537,13 @@ def report_overview(
 
     cur = get_display_currency(user.currency or "DKK")
 
-    # Revenue
-    total_revenue = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    # Revenue — the SAME effective basis the Dashboard uses: a confirmed
+    # DailyClose.revenue_total wins per date, with raw Sale rows as the
+    # fallback (revenue_resolver). A raw SUM(Sale.amount) would read 0/under
+    # for kasserapport-closing DK owners (revenue lands in the close, never in
+    # `sales`) and disagree with the dashboard — the #225 fix, now propagated
+    # here so Reports and Dashboard always agree.
+    total_revenue = float(effective_revenue_total(db, user.id, start, end))
 
     # Expenses (exclude personal and deleted)
     total_expenses = float(
@@ -1600,7 +1602,7 @@ def report_overview(
     )
     total_expense_count = (
         db.query(func.count(Expense.id))
-        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True))
+        .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
         .scalar()
     )
 
@@ -1622,6 +1624,10 @@ def report_overview(
         "revenue": round(total_revenue, 2),
         "expenses": round(total_expenses, 2),
         "net_profit": round(net_profit, 2),
+        # Honesty guard for the on-screen margin: with zero logged costs,
+        # net_profit == gross revenue and "margin" would read ~100% (a lie on
+        # moms-incl revenue). The frontend shows "—" until real costs exist.
+        "has_expenses": total_expenses > 0,
         "vat_payable": vat_payable,
         "vat_name": vat_terms_data["name"],
         "inventory_value": round(inventory_value, 2),

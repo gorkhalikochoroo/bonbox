@@ -274,6 +274,17 @@ export default function ReportsPage() {
 
   useEffect(() => { fetchOverview(); }, [resolved?.start, resolved?.end]);
 
+  // Stay connected: when a Sale/Expense/close is added, edited or deleted
+  // anywhere, refetch so Reports never shows stale numbers until the owner
+  // changes the period or navigates away. Re-bound per period so the handler
+  // always closes over the current window. Clearing batchData re-hydrates the
+  // demoted-card data on the next render too.
+  useEffect(() => {
+    const onChanged = () => { fetchOverview(); setBatchData(null); };
+    window.addEventListener("bonbox-data-changed", onChanged);
+    return () => window.removeEventListener("bonbox-data-changed", onChanged);
+  }, [resolved?.start, resolved?.end]);
+
   // Lazy hydrate batch data the first time a non-Pulse tab is opened.
   // The Phase B Dashboard refactor will keep /dashboard/batch as the
   // canonical aggregator; if it's later split per-card we'll wire
@@ -590,7 +601,7 @@ export default function ReportsPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <StatCard label={t("revenue")} value={money(overview.revenue)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
                   <StatCard label={t("expenses")} value={money(overview.expenses)} helper={`${fmt(overview.total_expense_count)} ${t("entries")}`} />
-                  <StatCard label={t("netProfit")} value={money(overview.net_profit)} helper={overview.revenue > 0 ? `${Math.round((overview.net_profit/overview.revenue)*100)}% ${t("margin")}` : "—"} accent={overview.net_profit < 0 ? "critical" : "neutral"} />
+                  <StatCard label={t("netProfit")} value={money(overview.net_profit)} helper={overview.has_expenses && overview.revenue > 0 ? `${Math.round((overview.net_profit/overview.revenue)*100)}% ${t("margin")}` : "—"} accent={overview.net_profit < 0 ? "critical" : "neutral"} />
                   <StatCard label={`${vat.vatName} ${t("payable")}`} value={money(overview.vat_payable)} helper={`${t("to")} ${vat.taxAuthority}`} />
                   <StatCard label={t("stockValue")} value={money(overview.inventory_value)} helper={`${overview.low_stock_count} ${t("lowStock")}`} accent={overview.low_stock_count > 0 ? "warn" : "neutral"} />
                   <StatCard label={t("khataOutstanding")} value={money(overview.khata_outstanding)} helper={t("creditOwed")} />
