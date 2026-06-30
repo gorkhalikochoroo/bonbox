@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Camera } from "lucide-react";
+import { Camera, PackageCheck } from "lucide-react";
 import api from "../services/api";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
@@ -202,11 +202,20 @@ export default function SmartImportModal({
     setCommitting(true);
     try {
       // Coerce qty to numbers; backend enforces ge=0/le=1M via Pydantic.
+      // Inventory spend loop: cost_per_unit + expiry_date are now carried
+      // through (previously dropped) so a received vare keeps its price +
+      // best-before. Every reviewed line is "modtaget på lager" — the owner
+      // removes a non-stock line (a delivery fee) with the ✕ instead.
       const items = draft.items.map((it) => ({
         name: (it.name || "").trim(),
         qty: it.qty == null || it.qty === "" ? null : Number(it.qty),
         unit: it.unit || null,
         category: it.category || null,
+        cost_per_unit:
+          it.cost_per_unit == null || it.cost_per_unit === ""
+            ? null
+            : Number(it.cost_per_unit),
+        expiry_date: it.expiry_date || null,
       })).filter((it) => it.name);
 
       if (items.length === 0) {
@@ -863,6 +872,28 @@ function ReviewStep({
         )}
       </div>
 
+      {/* Capture-confirm beat — one calm fade+rise ("I read it; it lands on
+          your lager when you save"), then stillness. animate-fadeIn is the
+          shared design-system beat (opacity + 8px rise, prefers-reduced-motion
+          safe). */}
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 animate-fadeIn">
+        <span className="shrink-0 inline-flex items-center justify-center w-8 h-8 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900">
+          <PackageCheck className="w-4 h-4" />
+        </span>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+            {t("siReadTitle", "Read")} · {items.length} {t("siItemsShort", "items")}
+            {draft.invoice_totals?.grand_total
+              ? ` · ${Math.round(draft.invoice_totals.grand_total).toLocaleString("da-DK")} kr`
+              : ""}
+            {draft.supplier?.name ? ` · ${draft.supplier.name}` : ""}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            {t("siReadGoesToLager", "Goes on your lager when you save")}
+          </div>
+        </div>
+      </div>
+
       {/* Review table */}
       <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
         <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-900 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-medium">
@@ -872,7 +903,7 @@ function ReviewStep({
           <div className="col-span-2">{t("siColCategory", "Category")}</div>
           <div className="col-span-1"></div>
         </div>
-        <div className="max-h-[380px] overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
+        <div className="max-h-[380px] overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700 stagger-cards">
           {items.map((it, idx) => (
             <div key={idx} className="grid grid-cols-12 gap-2 px-3 py-2 items-center">
               <input

@@ -58,7 +58,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models.inventory import InventoryItem
+from app.models.inventory import InventoryItem, InventoryLog
 from app.models.inventory_import import InventoryImport
 from app.models.user import User
 from app.services import audit_service
@@ -198,6 +198,11 @@ class CommitItem(BaseModel):
     # downstream helpers. Capped at 12 chars (YYYY-MM-DDxx) — anything
     # longer falls through to "unparseable, default to inference".
     expiry_date: Annotated[str, StringConstraints(max_length=12)] | None = None
+    # Inventory spend loop — "modtaget på lager". Default TRUE: a snapped
+    # delivery/kvittering RECEIVES into stock (bumps an existing vare or
+    # creates a new one + logs a `modtaget` movement). Owner unticks a line
+    # that isn't stock (a delivery fee / pant line) so it's skipped.
+    record_as_received: bool = True
 
 
 CommitRequest.model_rebuild()  # because CommitItem is referenced before defined
@@ -253,6 +258,57 @@ def _check_daily_quota(db: Session, user: User) -> None:
                 "Upgrade your plan or wait until tomorrow."
             ),
         )
+
+
+# ─── Receipt → "modtaget på lager" matching ────────────────────────────
+#
+# When the owner snaps a delivery, a line should RECEIVE into the vare they
+# already track (bump its quantity), not spawn a duplicate row. The match is
+# deliberately CONSERVATIVE: exact (normalised) name wins; otherwise only a
+# high-confidence fuzzy match (≥0.86). On any ambiguity we return None — it
+# is safer to create a fresh row the owner can merge later than to silently
+# fold "Salat" into "Salatdressing". Pour-tracked bar bottles are excluded
+# (they're received on the dedicated Bar page).
+try:  # rapidfuzz is preferred but optional (mirrors booking_match.py)
+    from rapidfuzz import fuzz as _rf_fuzz
+
+    def _name_ratio(a: str, b: str) -> float:
+        if not a or not b:
+            return 0.0
+        return _rf_fuzz.ratio(a, b) / 100.0
+except Exception:  # pragma: no cover - fallback when rapidfuzz absent
+    from difflib import SequenceMatcher
+
+    def _name_ratio(a: str, b: str) -> float:
+        if not a or not b:
+            return 0.0
+        return SequenceMatcher(None, a, b).ratio()
+
+
+_RECEIVE_MATCH_THRESHOLD = 0.86
+
+
+def _normalize_name(s: str | None) -> str:
+    return " ".join((s or "").strip().lower().split())
+
+
+def _find_existing_item(candidates: list[InventoryItem], name: str) -> InventoryItem | None:
+    """Best conservative match of an OCR line name to an existing vare, or
+    None. `candidates` is the owner's non-pour items (queried once + extended
+    with rows created earlier in the same commit so repeated lines merge)."""
+    norm = _normalize_name(name)
+    if not norm:
+        return None
+    # Exact normalised name always wins.
+    for r in candidates:
+        if _normalize_name(r.name) == norm:
+            return r
+    best, best_score = None, 0.0
+    for r in candidates:
+        score = _name_ratio(norm, _normalize_name(r.name))
+        if score > best_score:
+            best, best_score = r, score
+    return best if best_score >= _RECEIVE_MATCH_THRESHOLD else None
 
 
 def _check_idempotency(
@@ -1009,15 +1065,31 @@ def commit_draft(
 
     try:
         created: list[InventoryItem] = []
+        received_into_existing = 0
+        skipped = 0
         today = utc_now().date()
         perishable_count = 0
+        batch = f"import:{imp.id.hex[:8]}"
+        # The owner's existing non-pour vare, fetched once. Rows created
+        # during this commit are appended so two receipt lines of the same
+        # NEW vare merge instead of double-creating.
+        match_pool: list[InventoryItem] = [
+            r
+            for r in db.query(InventoryItem)
+            .filter(InventoryItem.user_id == user.id)
+            .all()
+            if not (r.pour_size and float(r.pour_size) > 0)
+        ]
         for entry in body.items:
-            # Expiry chain Phase 1 (May 2026) — multi-layer fallback:
-            #   1. Explicit expiry_date from the review body wins (OCR
-            #      extracted it OR the owner typed it during review).
-            #   2. Otherwise mark_perishable_if_needed infers from
-            #      category + received_at.
-            #   3. Otherwise NULL — the item silently skips alerts (L9).
+            qty_in = float(entry.qty or 0)
+            # Owner unticked "modtaget på lager" → this line isn't stock
+            # (a delivery fee / pant line). Skip it from the lager entirely.
+            if not entry.record_as_received:
+                skipped += 1
+                continue
+            # Expiry chain Phase 1 (May 2026) — explicit expiry_date from the
+            # review body wins (OCR extracted it OR the owner typed it);
+            # otherwise mark_perishable_if_needed infers from category.
             explicit_expiry: date | None = None
             if entry.expiry_date:
                 try:
@@ -1026,32 +1098,67 @@ def commit_draft(
                     )
                 except (ValueError, TypeError):
                     explicit_expiry = None
-            is_per, expiry = mark_perishable_if_needed(
-                category=entry.category,
-                is_perishable=True if explicit_expiry else None,
-                expiry_date=explicit_expiry,
-                received_at=today,
-            )
-            if is_per:
-                perishable_count += 1
-            item = InventoryItem(
-                id=uuid.uuid4(),
-                user_id=user.id,
-                name=entry.name,
-                quantity=float(entry.qty or 0),
-                unit=entry.unit or "pieces",
-                cost_per_unit=float(entry.cost_per_unit or 0),
-                category=entry.category or "General",
-                is_perishable=is_per,
-                expiry_date=expiry,
-                # Receipt provenance — the alert chain uses received_date
-                # as the inference base when the invoice didn't carry an
-                # explicit best-before. Stamp it on every commit so the
-                # ExpiryForecastingPage's days_left math stays honest.
-                received_date=today,
-            )
-            db.add(item)
-            created.append(item)
+
+            existing = _find_existing_item(match_pool, entry.name)
+            if existing is not None:
+                # RECEIVE into the vare the owner already tracks — bump stock
+                # (don't duplicate the row), refresh the latest cost, and log a
+                # `modtaget` movement so the usage math (received − counted)
+                # and the audit trail are real.
+                existing.quantity = float(existing.quantity or 0) + qty_in
+                if entry.cost_per_unit:
+                    existing.cost_per_unit = float(entry.cost_per_unit)
+                existing.received_date = today
+                if explicit_expiry and not existing.expiry_date:
+                    existing.is_perishable = True
+                    existing.expiry_date = explicit_expiry
+                if existing.is_perishable:
+                    perishable_count += 1
+                if qty_in > 0:
+                    db.add(InventoryLog(
+                        item_id=existing.id,
+                        change_qty=qty_in,
+                        reason="modtaget",
+                        date=today,
+                        batch_id=batch,
+                    ))
+                received_into_existing += 1
+            else:
+                is_per, expiry = mark_perishable_if_needed(
+                    category=entry.category,
+                    is_perishable=True if explicit_expiry else None,
+                    expiry_date=explicit_expiry,
+                    received_at=today,
+                )
+                if is_per:
+                    perishable_count += 1
+                item = InventoryItem(
+                    id=uuid.uuid4(),
+                    user_id=user.id,
+                    name=entry.name,
+                    quantity=qty_in,
+                    unit=entry.unit or "pieces",
+                    cost_per_unit=float(entry.cost_per_unit or 0),
+                    category=entry.category or "General",
+                    is_perishable=is_per,
+                    expiry_date=expiry,
+                    # Receipt provenance — the alert chain uses received_date
+                    # as the inference base when the invoice didn't carry an
+                    # explicit best-before. Stamp it so the days_left math
+                    # stays honest.
+                    received_date=today,
+                )
+                db.add(item)
+                if qty_in > 0:
+                    db.add(InventoryLog(
+                        item_id=item.id,
+                        change_qty=qty_in,
+                        reason="modtaget",
+                        date=today,
+                        batch_id=batch,
+                    ))
+                created.append(item)
+                match_pool.append(item)
 
         imp.status = "committed"
         imp.committed_at = utc_now()
@@ -1103,6 +1210,10 @@ def commit_draft(
     return {
         "import_id": str(imp.id),
         "items_created": len(created),
+        # Inventory spend loop — split so the UI can say "X modtaget · Y nye".
+        "items_received_existing": received_into_existing,
+        "items_received_total": len(created) + received_into_existing,
+        "items_skipped": skipped,
         "perishable_auto_flagged": perishable_count,
         "user_corrected": imp.user_corrected,
         "examples_learned": examples_promoted,
