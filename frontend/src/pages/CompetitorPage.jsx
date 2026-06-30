@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { displayCurrency } from "../utils/currency";
 import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
@@ -22,6 +23,7 @@ const PRICE_LABELS = ["", "$", "$$", "$$$", "$$$$"];
 export default function CompetitorPage({ embedded = false }) {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const currency = displayCurrency(user?.currency);
   const wrapCls = embedded ? "space-y-6" : "p-4 md:p-8 space-y-6 max-w-5xl mx-auto";
 
@@ -157,7 +159,7 @@ export default function CompetitorPage({ embedded = false }) {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm("Stop tracking this competitor?")) return;
+    if (!(await confirm({ message: "Stop tracking this competitor?", destructive: true }))) return;
     try {
       await api.delete(`/competitors/${id}`);
       fetchData();

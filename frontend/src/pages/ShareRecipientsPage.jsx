@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { FadeIn } from "../components/AnimationKit";
 import { errText } from "../utils/errText";
 
@@ -47,6 +48,7 @@ const _DEFAULT_FORM = {
 
 export default function ShareRecipientsPage() {
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -119,9 +121,10 @@ export default function ShareRecipientsPage() {
   }
 
   async function remove(c) {
-    if (!window.confirm(
-      (t("recipientConfirmDelete") || "Delete recipient {label}?").replace("{label}", c.label),
-    )) return;
+    if (!(await confirm({
+      message: (t("recipientConfirmDelete") || "Delete recipient {label}?").replace("{label}", c.label),
+      destructive: true,
+    }))) return;
     try {
       await api.delete(`/output-channels/${c.id}`);
       await fetchChannels();

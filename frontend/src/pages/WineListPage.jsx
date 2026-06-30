@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import { localIso } from "../utils/dateFormat";
@@ -26,6 +27,7 @@ const WINE_TYPES = [
 export default function WineListPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const currency = displayCurrency(user?.currency);
 
   const [wines, setWines] = useState([]);
@@ -96,7 +98,7 @@ export default function WineListPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm("Remove this wine?")) return;
+    if (!(await confirm({ message: "Remove this wine?", destructive: true }))) return;
     try {
       await api.delete(`/wines/${id}`);
       fetchWines();

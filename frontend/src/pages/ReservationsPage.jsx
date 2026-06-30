@@ -62,6 +62,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from "react-router-do
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
 import Button from "../components/ui/Button";
 import TabPills from "../components/ui/TabPills";
@@ -1611,6 +1612,7 @@ function TimelineSkeleton() {
 
 function BookSection({ t, businessType, tableFloor = false }) {
   const { lang } = useLanguage();
+  const confirm = useConfirm();
   // TABLE venues (dining/bar) get the Floor ("plan") lens; provider (salon) /
   // no-floor (bakery/retail) venues never do — gated on the venue TYPE, with a
   // grandfather for venues that already have a real table plan. `tableFloor`
@@ -1789,9 +1791,13 @@ function BookSection({ t, businessType, tableFloor = false }) {
   const setStatus = async (r, status) => {
     if (status === "cancelled") {
       if (
-        !confirm(
-          t("rsvpConfirmCancel", "Cancel this reservation? The guest is notified if possible."),
-        )
+        !(await confirm({
+          message: t(
+            "rsvpConfirmCancel",
+            "Cancel this reservation? The guest is notified if possible.",
+          ),
+          destructive: true,
+        }))
       ) {
         return;
       }
@@ -2589,6 +2595,7 @@ function ZonePresetChips({ profile, t, value, onPick }) {
 }
 
 function FloorSection({ t, businessType }) {
+  const confirm = useConfirm();
   // Account venue archetype — drives the section's vocabulary (heading,
   // intro, empty state, icon) and the suggested zone-preset chips.
   const profile = venueProfile(businessType);
@@ -2741,9 +2748,14 @@ function FloorSection({ t, businessType }) {
     const n = leftoverTables.length;
     if (n === 0) return;
     if (
-      !confirm(
-        t("rsvpClearTablesConfirm", "Remove the {n} leftover tables? This can't be undone.", { n }),
-      )
+      !(await confirm({
+        message: t(
+          "rsvpClearTablesConfirm",
+          "Remove the {n} leftover tables? This can't be undone.",
+          { n },
+        ),
+        destructive: true,
+      }))
     )
       return;
     setClearingTables(true);
@@ -2911,7 +2923,7 @@ function FloorSection({ t, businessType }) {
   };
 
   const removeResource = async (r) => {
-    if (!confirm(t("rsvpTableDeleteConfirm", "Remove this table?"))) return;
+    if (!(await confirm({ message: t("rsvpTableDeleteConfirm", "Remove this table?"), destructive: true }))) return;
     setResources((prev) => prev.filter((x) => x.id !== r.id));
     try {
       await api.delete(`/reservations/resources/${r.id}`);
@@ -3408,6 +3420,7 @@ function FloorSection({ t, businessType }) {
 // the price is DISPLAY-ONLY and durations are informational for now — the
 // intro copy says so; this does NOT take bookings or charge (that's S3).
 function BehandlingerSection({ t }) {
+  const confirm = useConfirm();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -3497,7 +3510,7 @@ function BehandlingerSection({ t }) {
   };
 
   const removeItem = async (b) => {
-    if (!confirm(t("rsvpBehandlingDeleteConfirm", "Remove this behandling?"))) return;
+    if (!(await confirm({ message: t("rsvpBehandlingDeleteConfirm", "Remove this behandling?"), destructive: true }))) return;
     setItems((prev) => prev.filter((x) => x.id !== b.id));
     try {
       await api.delete(`/reservations/behandlinger/${b.id}`);

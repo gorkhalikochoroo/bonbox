@@ -16,6 +16,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import {
@@ -38,6 +39,7 @@ export default function ExpiryPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const { hasFeature, isReady: entReady } = useEntitlements();
+  const confirm = useConfirm();
   const currency = displayCurrency(user?.currency);
 
   const [data, setData] = useState(null);
@@ -80,7 +82,7 @@ export default function ExpiryPage() {
       extended: t("expiryConfirmExtended", "Extend expiry by 3 days?"),
       sold_discount: t("expiryConfirmDiscount", "Mark as sold at discount?"),
     };
-    if (!window.confirm(promptMap[action] || t("expConfirmGeneric", "Confirm?"))) return;
+    if (!(await confirm({ message: promptMap[action] || t("expConfirmGeneric", "Confirm?"), destructive: true }))) return;
     setActingId(`${itemId}:${action}`);
     try {
       await api.post(`/expiry/item/${itemId}/mark`, { action });

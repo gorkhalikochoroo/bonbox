@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
 import { localIso } from "../utils/dateFormat";
@@ -21,6 +22,7 @@ import { errText } from "../utils/errText";
 export default function MileagePage() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const confirm = useConfirm();
 
   const [entries, setEntries] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -244,7 +246,7 @@ export default function MileagePage() {
                         </button>
                         <button
                           onClick={async () => {
-                            if (!confirm(t("deleteTripConfirm") || "Delete this trip?")) return;
+                            if (!(await confirm({ message: t("deleteTripConfirm") || "Delete this trip?", destructive: true }))) return;
                             try {
                               await api.delete(`/mileage/${e.id}`);
                               fetchAll();

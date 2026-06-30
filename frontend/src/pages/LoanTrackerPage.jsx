@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { displayCurrency } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import { errText } from "../utils/errText";
@@ -11,6 +12,7 @@ export default function LoanTrackerPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
+  const confirm = useConfirm();
 
   const [persons, setPersons] = useState([]);
   const [summary, setSummary] = useState({ total_borrowed: 0, total_lent: 0, net_balance: 0, persons: [] });
@@ -61,7 +63,7 @@ export default function LoanTrackerPage() {
   };
 
   const handleDeletePerson = async (id) => {
-    if (!confirm(t("deletePersonConfirm"))) return;
+    if (!(await confirm({ message: t("deletePersonConfirm"), destructive: true }))) return;
     await api.delete(`/loans/persons/${id}`);
     if (selected?.id === id) { setSelected(null); setTransactions([]); }
     fetchPersons();
@@ -94,7 +96,7 @@ export default function LoanTrackerPage() {
   };
 
   const handleDeleteTxn = async (id) => {
-    if (!confirm(t("deleteConfirm"))) return;
+    if (!(await confirm({ message: t("deleteConfirm"), destructive: true }))) return;
     await api.delete(`/loans/transactions/${id}`);
     fetchTxns(selected.id);
     fetchPersons();

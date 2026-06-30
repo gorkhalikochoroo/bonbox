@@ -61,6 +61,7 @@ import {
 import api from "../services/api";
 import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { safeExternalUrl } from "../utils/safeUrl";
 import PageShell from "../components/ui/PageShell";
 import PageHeader from "../components/ui/PageHeader";
@@ -824,6 +825,7 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
 /* ─── Main Page ────────────────────────────────────────────────────── */
 export default function PaymentImportsPage() {
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const [providers, setProviders] = useState([]);
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -853,7 +855,7 @@ export default function PaymentImportsPage() {
   };
 
   const handleDisconnect = async (connId) => {
-    if (!confirm(t("confirmDisconnect") || "Remove this connection?")) return;
+    if (!(await confirm({ message: t("confirmDisconnect") || "Remove this connection?", destructive: true }))) return;
     try {
       await api.delete(`/payment-import/connections/${connId}`);
       setConnections((prev) => prev.filter((c) => c.id !== connId));

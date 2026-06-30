@@ -758,6 +758,11 @@ const translations = {
     siItemsShort: "items",
     siReadGoesToLager: "Goes on your lager when you save",
     siReadGoesToLagerAndExpense: "Goes on your lager — and books as an expense for you to approve",
+    // Generic confirm-dialog labels (useConfirm — replaces native window.confirm)
+    dlgConfirmTitle: "Are you sure?",
+    dlgCancel: "Cancel",
+    dlgConfirm: "Confirm",
+    dlgDelete: "Delete",
     siStatRuleMatched: "Rule-matched",
     siStatAiClassified: "AI-classified",
     siStatNeedsReview: "Needs review",

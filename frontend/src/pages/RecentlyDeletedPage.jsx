@@ -3,6 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { displayCurrency } from "../utils/currency";
 import { formatDate, formatDateShort } from "../utils/dateFormat";
 
@@ -11,6 +12,7 @@ export default function RecentlyDeletedPage() {
   const currency = displayCurrency(user?.currency);
   const [dark] = useDarkMode();
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const [tab, setTab] = useState("sales");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -47,7 +49,7 @@ export default function RecentlyDeletedPage() {
   };
 
   const permanentDelete = async (id) => {
-    if (!confirm(t("permanentDeleteConfirm"))) return;
+    if (!(await confirm({ message: t("permanentDeleteConfirm"), destructive: true }))) return;
     try {
       const endpoint = tab === "cashbook" ? `/cashbook/${id}/permanent` : `/${tab}/${id}/permanent`;
       await api.delete(endpoint);

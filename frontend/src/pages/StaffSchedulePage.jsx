@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { useBranch } from "../components/BranchSelector";
 import { displayCurrency, formatKr } from "../utils/currency";
 import { errText } from "../utils/errText";
@@ -521,6 +522,7 @@ function ClockGeofenceSettings() {
 export default function StaffSchedulePage() {
   const { user } = useAuth();
   const { t, lang } = useLanguage();
+  const confirm = useConfirm();
   const { branchId } = useBranch();
   const currency = displayCurrency(user?.currency);
 
@@ -1046,10 +1048,10 @@ export default function StaffSchedulePage() {
       );
       return;
     }
-    const ok = window.confirm(
+    const ok = await confirm({ message:
       (t("scheduleEmailConfirm", "Email this week's schedule to {n} staff?").replace("{n}", eligible.length))
       + "\n\n" + eligible.map(s => `• ${s.name} <${s.email}>`).join("\n")
-    );
+    , destructive: false });
     if (!ok) return;
 
     setEmailing(true);
@@ -1115,14 +1117,14 @@ export default function StaffSchedulePage() {
       );
       return;
     }
-    const ok = window.confirm(
+    const ok = await confirm({ message:
       (t(
         "scheduleShareConfirm",
         "Share this week's schedule with {n} staff via a personal magic link?"
       ).replace("{n}", eligible.length)) +
         "\n\n" +
         eligible.map((s) => `• ${s.name} <${s.email}>`).join("\n")
-    );
+    , destructive: false });
     if (!ok) return;
 
     setSharing(true);
@@ -2729,6 +2731,7 @@ function StaffDetailModal({
    ═══════════════════════════════════════════════════════════ */
 function StaffPanel({ staff, currency, onRefresh, branchId }) {
   const { t } = useLanguage();
+  const confirm = useConfirm();
   // `user` is referenced below for the admin-only WhatsApp setup block
   // (`user?.is_admin`). The parent had it via useAuth() but sub-components
   // each need their own destructure — this exact pattern crashed the
@@ -2867,7 +2870,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
   };
 
   const handleDeactivate = async (id) => {
-    if (!window.confirm("Deactivate this staff member? They won't appear in future schedules.")) return;
+    if (!(await confirm({ message: "Deactivate this staff member? They won't appear in future schedules.", destructive: true }))) return;
     setPanelError("");
     try {
       await api.delete(`/staff/members/${id}`);

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { FadeIn } from "../components/AnimationKit";
 
 /**
@@ -35,6 +36,7 @@ const _DEFAULT_FORM = {
 
 export default function TerminalsPage() {
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const [terminals, setTerminals] = useState([]);
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -140,10 +142,11 @@ export default function TerminalsPage() {
   }
 
   async function remove(term) {
-    if (!window.confirm(
-      (t("terminalConfirmDelete") || "Delete terminal {name}? Past closes are preserved.")
+    if (!(await confirm({
+      message: (t("terminalConfirmDelete") || "Delete terminal {name}? Past closes are preserved.")
         .replace("{name}", term.name),
-    )) {
+      destructive: true,
+    }))) {
       return;
     }
     try {

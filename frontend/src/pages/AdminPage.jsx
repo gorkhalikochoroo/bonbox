@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { useConfirm } from "../hooks/useConfirm";
 import api from "../services/api";
 import { errText } from "../utils/errText";
 import {
@@ -495,6 +496,7 @@ function UserIdResolver({ userId, userById }) {
  */
 function LockToggle({ user, onChange }) {
   const { user: me } = useAuth();
+  const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -510,7 +512,7 @@ function LockToggle({ user, onChange }) {
   async function toggle() {
     setErr(null);
     if (user.is_locked) {
-      if (!window.confirm(`Unlock ${user.email}?\nThis re-enables login for this account.`)) return;
+      if (!(await confirm({ message: `Unlock ${user.email}?\nThis re-enables login for this account.`, destructive: false }))) return;
       setBusy(true);
       try {
         await api.post(`/admin/users/${user.id}/unlock`);

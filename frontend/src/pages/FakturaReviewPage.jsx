@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { errText } from "../utils/errText";
 
 /**
@@ -24,6 +25,7 @@ import { errText } from "../utils/errText";
  */
 export default function FakturaReviewPage() {
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const [suggestions, setSuggestions] = useState([]);
   const [filter, setFilter] = useState("pending");
   const [loading, setLoading] = useState(true);
@@ -57,8 +59,8 @@ export default function FakturaReviewPage() {
   }, [filter]);
 
   const accept = async (s) => {
-    if (!confirm(t("confirmAcceptSuggestion") ||
-      `Confirm this match: ${s.fakturanummer_formatted} ← ${fmtMoney(s.sale_amount, s.invoice_currency)}?`)) return;
+    if (!(await confirm({ message: t("confirmAcceptSuggestion") ||
+      `Confirm this match: ${s.fakturanummer_formatted} ← ${fmtMoney(s.sale_amount, s.invoice_currency)}?`, destructive: false }))) return;
     setBusy(b => ({ ...b, [s.id]: true }));
     try {
       await api.post(`/payment-suggestions/${s.id}/accept`);
@@ -71,8 +73,8 @@ export default function FakturaReviewPage() {
   };
 
   const reject = async (s) => {
-    if (!confirm(t("confirmRejectSuggestion") ||
-      `Reject match: ${s.fakturanummer_formatted}? The faktura stays open.`)) return;
+    if (!(await confirm({ message: t("confirmRejectSuggestion") ||
+      `Reject match: ${s.fakturanummer_formatted}? The faktura stays open.`, destructive: false }))) return;
     setBusy(b => ({ ...b, [s.id]: true }));
     try {
       await api.post(`/payment-suggestions/${s.id}/reject`);

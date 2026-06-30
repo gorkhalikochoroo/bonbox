@@ -23,6 +23,7 @@ import { Mic, Undo2, Pencil, Trash, AlertCircle } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { useStickyMethod } from "../hooks/useStickyMethod";
 import ReceiptCapture from "../components/ReceiptCapture";
 import ReceiptViewer from "../components/ReceiptViewer";
@@ -59,6 +60,7 @@ export default function SalesPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t, lang } = useLanguage();
+  const confirm = useConfirm();
   const [sales, setSales] = useState([]);
   const [salesLoading, setSalesLoading] = useState(true);
   const [amount, setAmount] = useState("");
@@ -332,7 +334,7 @@ export default function SalesPage() {
     const value = amt || parseFloat(amount);
     if (!value) return;
     const duplicate = sales.find(s => s.date === saleDate && parseFloat(s.amount) === value);
-    if (duplicate && !confirm(`${t("aSaleOf")} ${value.toLocaleString()} ${currency} ${t("on")} ${formatDate(saleDate)} ${t("duplicateSaleConfirm")}`)) {
+    if (duplicate && !(await confirm({ message: `${t("aSaleOf")} ${value.toLocaleString()} ${currency} ${t("on")} ${formatDate(saleDate)} ${t("duplicateSaleConfirm")}`, destructive: false }))) {
       return;
     }
     setError("");
@@ -425,7 +427,7 @@ export default function SalesPage() {
   };
 
   const bulkDelete = async () => {
-    if (!confirm(`${t("moveToTrash")} ${selected.size}?`)) return;
+    if (!(await confirm({ message: `${t("moveToTrash")} ${selected.size}?`, destructive: true }))) return;
     try {
       await Promise.all([...selected].map(id => api.delete(`/sales/${id}`)));
       setSelected(new Set());

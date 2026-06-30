@@ -40,6 +40,7 @@ import api from "../services/api";
 import { errText } from "../utils/errText";
 import { useTheme, THEMES } from "../hooks/useTheme";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { FadeIn } from "../components/AnimationKit";
 import usePushNotifications from "../hooks/usePushNotifications";
 import BusinessLookup, { countryFromCurrency } from "../components/BusinessLookup";
@@ -84,6 +85,7 @@ const SECTIONS = [
 export default function ProfilePage() {
   const [theme, setTheme] = useTheme();
   const { t } = useLanguage();
+  const confirm = useConfirm();
   // Task #55 — "Run onboarding again" link. Resets the user's
   // onboarding_completed_at to null then navigates to /onboarding.
   // Quiet error fallback — failures just leave the button enabled.
@@ -444,7 +446,7 @@ export default function ProfilePage() {
   };
 
   const deleteLogo = async () => {
-    if (!confirm(t("confirmDeleteLogo") || "Remove logo from your fakturaer?")) return;
+    if (!(await confirm({ message: t("confirmDeleteLogo") || "Remove logo from your fakturaer?", destructive: true }))) return;
     try {
       const res = await api.delete("/business/logo");
       setBrand(res.data);
@@ -610,7 +612,7 @@ export default function ProfilePage() {
   // This device stays in via the fresh token the endpoint returns.
   const [signingOutAll, setSigningOutAll] = useState(false);
   const signOutAll = async () => {
-    if (!window.confirm(t("signOutAllConfirm", "Sign out on every other device? This one stays signed in."))) return;
+    if (!(await confirm({ message: t("signOutAllConfirm", "Sign out on every other device? This one stays signed in."), destructive: true }))) return;
     setSigningOutAll(true);
     setPwError("");
     setPwSuccess("");

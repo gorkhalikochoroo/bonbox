@@ -8,6 +8,7 @@ import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { errText } from "../utils/errText";
@@ -27,6 +28,7 @@ export default function WastePage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const [logs, setLogs] = useState([]);
   const [summary, setSummary] = useState(null);
   const [item, setItem] = useState("");
@@ -113,7 +115,7 @@ export default function WastePage() {
   };
 
   const bulkDelete = async () => {
-    if (!confirm(`${selected.size} ${t("moveToTrash")}?`)) return;
+    if (!(await confirm({ message: `${selected.size} ${t("moveToTrash")}?`, destructive: true }))) return;
     try {
       await Promise.all([...selected].map(id => api.delete(`/waste/${id}`)));
       setSelected(new Set());

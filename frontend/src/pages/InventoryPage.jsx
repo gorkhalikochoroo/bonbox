@@ -15,6 +15,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
@@ -76,6 +77,7 @@ const COLOR_MAP = {
 };
 
 export default function InventoryPage() {
+  const confirm = useConfirm();
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
@@ -986,7 +988,7 @@ export default function InventoryPage() {
                   <p className="text-sm font-semibold text-red-600 dark:text-red-400">{ds.stock_value.toLocaleString()} {currency}</p>
                   <button
                     onClick={async () => {
-                      if (!confirm(`${t("removeFromInventory")} "${ds.name}"?`)) return;
+                      if (!(await confirm({ message: `${t("removeFromInventory")} "${ds.name}"?`, destructive: true, confirmLabel: t("removeItem") }))) return;
                       try {
                         await api.delete(`/inventory/${ds.id}`);
                         setDeadStock((prev) => prev.filter((d) => d.id !== ds.id));

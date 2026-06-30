@@ -29,6 +29,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { useFeatures } from "../hooks/useFeatures";
 import { isNativeApp } from "../utils/platform";
 import { errText } from "../utils/errText";
@@ -150,6 +151,7 @@ function ConnectionCard({
 export default function ConnectionsPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const confirm = useConfirm();
   // Task #106 — hide bank / MobilePay tiles in prod when no real
   // provider is configured. Backend /init endpoints also 503 so a
   // direct API hit still surfaces a "coming soon" message.
@@ -381,7 +383,7 @@ export default function ConnectionsPage() {
   };
 
   const disconnectBankConnection = async (connId) => {
-    if (!window.confirm("Disconnect this bank? Daily sync will stop.")) return;
+    if (!(await confirm({ message: "Disconnect this bank? Daily sync will stop.", destructive: true }))) return;
     setBusyConn(connId);
     try {
       await api.delete(`/bank-connections/${connId}`);
@@ -534,10 +536,11 @@ export default function ConnectionsPage() {
   };
 
   const unlinkTerminalProvider = async (terminalId) => {
-    if (!window.confirm(
-      t("connTerminalsUnlinkConfirm") ||
+    if (!(await confirm({
+      message: t("connTerminalsUnlinkConfirm") ||
       "Unlink this terminal? You'll be able to relink it later.",
-    )) return;
+      destructive: true,
+    }))) return;
     setBusyTerminalId(terminalId);
     try {
       await api.post(`/terminals/${terminalId}/unlink-provider`, {});
@@ -553,10 +556,11 @@ export default function ConnectionsPage() {
   };
 
   const disconnectMobilePay = async () => {
-    if (!window.confirm(
-      t("mpDisconnectConfirm") ||
+    if (!(await confirm({
+      message: t("mpDisconnectConfirm") ||
       "Disconnect MobilePay? Daily sync will stop.",
-    )) return;
+      destructive: true,
+    }))) return;
     setMpBusy(true);
     try {
       await api.delete("/mobilepay/connection");

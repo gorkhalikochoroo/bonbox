@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
 import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { FadeIn } from "../components/AnimationKit";
 
 /**
@@ -73,6 +74,7 @@ const _DEFAULT_FORM = {
 
 export default function ChannelSettingsPage() {
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -163,10 +165,11 @@ export default function ChannelSettingsPage() {
 
   async function archive(ch) {
     if (!ch?.id) return; // system rows can't be archived directly
-    const ok = window.confirm(
-      (t("channelConfirmArchive") || "Archive channel “{label}”? Historical sales keep this label, but it disappears from new-sale dropdowns.")
+    const ok = await confirm({
+      message: (t("channelConfirmArchive") || "Archive channel “{label}”? Historical sales keep this label, but it disappears from new-sale dropdowns.")
         .replace("{label}", ch.label),
-    );
+      destructive: true,
+    });
     if (!ok) return;
     try {
       await api.delete(`/order-channels/${ch.id}`);

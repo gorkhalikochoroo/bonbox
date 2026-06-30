@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import api from "../services/api";
 import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { Button, Card, Icon } from "./ui";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
@@ -56,6 +57,7 @@ function Message({ tone, children }) {
 
 export default function RevisorSection() {
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const [revisorEmail, setRevisorEmail] = useState("");
   const [revisorName, setRevisorName] = useState("");
   const [grants, setGrants] = useState([]);
@@ -128,7 +130,7 @@ export default function RevisorSection() {
   };
 
   const revokeRevisor = async (grantId) => {
-    if (!window.confirm(t("revisorRevokeConfirm", "Revoke this revisor's access?"))) return;
+    if (!(await confirm({ message: t("revisorRevokeConfirm", "Revoke this revisor's access?"), destructive: true }))) return;
     try {
       await api.delete(`/accountants/grants/${grantId}`);
       refreshGrants();

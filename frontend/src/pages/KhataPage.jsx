@@ -7,6 +7,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { displayCurrency } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import CustomerOutreachModal from "../components/CustomerOutreachModal";
@@ -17,6 +18,7 @@ export default function KhataPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
+  const confirm = useConfirm();
 
   const [customers, setCustomers] = useState([]);
   const [summary, setSummary] = useState({ total_receivable: 0, customer_count: 0, top_debtors: [] });
@@ -77,7 +79,7 @@ export default function KhataPage() {
   };
 
   const handleDeleteCustomer = async (id) => {
-    if (!confirm(t("deleteCustomerConfirm"))) return;
+    if (!(await confirm({ message: t("deleteCustomerConfirm"), destructive: true }))) return;
     await api.delete(`/khata/customers/${id}`);
     if (selectedCustomer?.id === id) { setSelectedCustomer(null); setTransactions([]); }
     fetchCustomers();
@@ -116,7 +118,7 @@ export default function KhataPage() {
   };
 
   const handleDeleteTxn = async (id) => {
-    if (!confirm(t("deleteTransactionConfirm"))) return;
+    if (!(await confirm({ message: t("deleteTransactionConfirm"), destructive: true }))) return;
     await api.delete(`/khata/transactions/${id}`);
     fetchTransactions(selectedCustomer.id);
     fetchCustomers();

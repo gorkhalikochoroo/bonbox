@@ -8,6 +8,7 @@ import { ActivationProvider } from "./hooks/useActivation";
 import { LiveAlertsProvider } from "./hooks/useLiveAlerts";
 import { BranchProvider } from "./components/BranchSelector";
 import { LanguageProvider } from "./hooks/useLanguage";
+import { ConfirmProvider } from "./hooks/useConfirm";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 
 // ── Keep-alive: prevent Render cold starts ──
@@ -550,6 +551,11 @@ function AppInner() {
     <ErrorBoundary>
       <BrowserRouter>
         <LanguageProvider>
+          {/* ConfirmProvider — the one premium replacement for native
+              window.confirm(). Sits inside LanguageProvider (the dialog reads
+              t() for default labels) and wraps everything so any page can call
+              useConfirm(). */}
+          <ConfirmProvider>
           <AuthProvider>
             {/* EntitlementsProvider sits INSIDE AuthProvider because the
                 /billing/entitlements call needs the auth cookie/header.
@@ -595,6 +601,7 @@ function AppInner() {
               </FeaturesProvider>
             </EntitlementsProvider>
           </AuthProvider>
+          </ConfirmProvider>
         </LanguageProvider>
       </BrowserRouter>
     </ErrorBoundary>

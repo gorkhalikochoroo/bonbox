@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { trackEvent } from "../hooks/useEventLog";
 import useFounderRateStatus from "../hooks/useFounderRateStatus";
 import api from "../services/api";
@@ -1058,6 +1059,7 @@ function DevToolsPanel() {
   const [force, setForce] = useState(false);
   const [busy, setBusy] = useState(false);
   const [lastResult, setLastResult] = useState(null);
+  const confirm = useConfirm();
 
   useEffect(() => {
     let alive = true;
@@ -1083,7 +1085,7 @@ function DevToolsPanel() {
     const note = force
       ? " (force=true — will override active-subscription guard)"
       : "";
-    if (!window.confirm(`This will ${verb}${note}. Continue?`)) return;
+    if (!(await confirm({ message: `This will ${verb}${note}. Continue?`, destructive: true }))) return;
     setBusy(true);
     setLastResult(null);
     try {

@@ -24,6 +24,7 @@
 import { useEffect, useState } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { Button, Card, Empty, UpgradeNudge, Icon } from "./ui";
 import { formatDateClearFull } from "../utils/dateFormat";
@@ -303,6 +304,7 @@ function RuleRow({ rule, currency, onRunNow, onPauseResume, onEdit, onDelete, t 
 
 export default function RecurringExpensesPanel({ categories, currency }) {
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const { hasFeature, loading: entLoading } = useEntitlements();
   const isUnlocked = hasFeature("recurring_expenses");
 
@@ -383,7 +385,7 @@ export default function RecurringExpensesPanel({ categories, currency }) {
   };
 
   const handleDelete = async (rule) => {
-    if (!confirm(`${t("archive", "Archive")} ${rule.name}?`)) return;
+    if (!(await confirm({ message: `${t("archive", "Archive")} ${rule.name}?`, destructive: false }))) return;
     try {
       await api.delete(`/recurring-expenses/${rule.id}`);
       showSuccess(t("recurringDeleted", "Recurring expense archived"));

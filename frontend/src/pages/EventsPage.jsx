@@ -41,6 +41,7 @@ import {
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import { formatMoney } from "../utils/currency";
 import EventCashupModal from "../components/EventCashupModal";
 import { errText } from "../utils/errText";
@@ -95,6 +96,7 @@ const BOOKING_STATUS_DOT = {
 export default function EventsPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const currency = user?.currency || "DKK";
 
   const [events, setEvents] = useState([]);
@@ -560,7 +562,7 @@ export default function EventsPage() {
   };
 
   const deleteEvent = async (id) => {
-    if (!confirm(t("eventsConfirmDelete", "Soft-delete this event? Past sales stay tagged."))) return;
+    if (!(await confirm({ message: t("eventsConfirmDelete", "Soft-delete this event? Past sales stay tagged."), destructive: true }))) return;
     try {
       await api.delete(`/events/${id}`);
       setEvents((prev) => prev.filter((e) => e.id !== id));
@@ -715,12 +717,13 @@ export default function EventsPage() {
 
   const refundBooking = async (booking) => {
     if (
-      !confirm(
-        t(
+      !(await confirm({
+        message: t(
           "bookingRefundConfirm",
           "Mark booking as refunded? BonBox writes the kreditnota — you handle the actual refund via MobilePay/Dankort.",
         ),
-      )
+        destructive: true,
+      }))
     ) {
       return;
     }
@@ -746,13 +749,14 @@ export default function EventsPage() {
   const bulkMarkAllPaid = async (pendingIds) => {
     if (pendingIds.length === 0) return;
     if (
-      !confirm(
-        t(
+      !(await confirm({
+        message: t(
           "bookingMarkAllPaidConfirm",
           "Mark all {n} pending bookings as paid?",
           { n: pendingIds.length },
         ),
-      )
+        destructive: false,
+      }))
     ) {
       return;
     }

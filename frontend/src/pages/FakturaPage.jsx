@@ -7,6 +7,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
+import { useConfirm } from "../hooks/useConfirm";
 import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, TabPills } from "../components/ui";
@@ -473,6 +474,7 @@ export default function FakturaPage() {
 // into one hook keeps a single source of truth for the network surface
 // and avoids drift between the two presentations.
 function useInvoiceActions(invoice, customer, onChanged, t) {
+  const confirm = useConfirm();
   // Kreditnota dialog state — Bogføringsloven §7: a sent invoice can't
   // be deleted, only credited. The dialog explains this gravity so the
   // owner understands the action before they confirm.
@@ -576,7 +578,7 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
   };
 
   const handleMarkPaid = async () => {
-    if (!confirm(`Mark ${invoice.fakturanummer_formatted} as paid?`)) return;
+    if (!(await confirm({ message: `Mark ${invoice.fakturanummer_formatted} as paid?`, destructive: false }))) return;
     try {
       await api.post(`/invoices/${invoice.id}/mark-paid`, {
         amount: invoice.total_gross,
@@ -592,7 +594,7 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
   // auto-matches only within 7 days, manual marks always reversible.
   // Backend returns 409 if outside window — we surface the message.
   const handleUnmarkPaid = async () => {
-    if (!confirm(t("confirmUnmarkPaid"))) return;
+    if (!(await confirm({ message: t("confirmUnmarkPaid"), destructive: false }))) return;
     try {
       await api.post(`/invoices/${invoice.id}/unmark-paid`);
       onChanged();
