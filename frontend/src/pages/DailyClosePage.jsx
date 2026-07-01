@@ -25,6 +25,7 @@ import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
 import { UpgradeNudge, PageHeader, TabPills, Button, Icon } from "../components/ui";
+import PageShell from "../components/ui/PageShell";
 import SmartScanModal from "../components/SmartScanModal";
 // LiveKpisToday — extracted from the legacy /daily-report page so
 // the merged daily page (#150) shows the live operational snapshot
@@ -397,7 +398,7 @@ export default function DailyClosePage() {
   const todaySubtitleKey = TODAY_SUBTITLE_KEY[archetypeForUser(user).id] || "navTodaySubtitle";
 
   return (
-    <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
+    <PageShell width="default">
       <PageHeader
         eyebrow={t("dcReportsEyebrow", "REPORTS")}
         title={t("navToday") || "Today"}
@@ -528,7 +529,7 @@ export default function DailyClosePage() {
         {tab === "insights" && <InsightsView data={insights} currency={currency} t={t} />}
         {tab === "branches" && <BranchSummaryView currency={currency} />}
       </div>
-    </div>
+    </PageShell>
   );
 }
 

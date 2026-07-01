@@ -24,6 +24,7 @@ import { displayCurrency } from "../utils/currency";
 import { formatDate, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, Button, StatCard, SectionBanner, TabPills, Icon, Amount } from "../components/ui";
+import PageShell from "../components/ui/PageShell";
 import Card from "../components/ui/Card";
 
 const currentDate = new Date();
@@ -460,7 +461,7 @@ export default function ReportsPage() {
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-4xl mx-auto">
+    <PageShell width="default">
       {/* Outer tabs — Pulse keeps the legacy Reports UX; the rest host
           the cards demoted from Dashboard per Tier 4 Phase E. */}
       <TabPills
@@ -825,7 +826,7 @@ export default function ReportsPage() {
           </Card>
         </FadeIn>
       )}
-    </div>
+    </PageShell>
   );
 }
 
