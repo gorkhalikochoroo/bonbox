@@ -24,7 +24,7 @@ import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
-import { UpgradeNudge, PageHeader, TabPills, Button, Icon } from "../components/ui";
+import { UpgradeNudge, PageHeader, TabPills, Button, Icon, SectionBanner } from "../components/ui";
 import PageShell from "../components/ui/PageShell";
 import SmartScanModal from "../components/SmartScanModal";
 // LiveKpisToday — extracted from the legacy /daily-report page so
@@ -2743,7 +2743,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
             )}
 
-            {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}
+            {error && <SectionBanner severity="critical" icon="AlertCircle">{error}</SectionBanner>}
           </div>
         )}
 

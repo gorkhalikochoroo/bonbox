@@ -56,7 +56,7 @@ import { safeImageUrl } from "../utils/safeUrl";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { errText } from "../utils/errText";
 import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
-import { PageHeader, TabPills, Button, Empty, Amount } from "../components/ui";
+import { PageHeader, TabPills, Button, Empty, Amount, SectionBanner } from "../components/ui";
 import EntryCard from "../components/ui/EntryCard";
 import PageShell from "../components/ui/PageShell";
 import DataTable from "../components/ui/DataTable";
@@ -1118,14 +1118,10 @@ export default function ExpensesPage() {
       </FadeIn>
 
       {success && (
-        <div className="bg-gray-50 dark:bg-gray-800/50 text-gray-800 dark:text-gray-200 border border-gray-100 dark:border-gray-700 px-4 py-3 rounded-xl text-sm font-medium">
-          {success}
-        </div>
+        <SectionBanner severity="info" icon="CheckCircle2">{success}</SectionBanner>
       )}
       {error && (
-        <div className="bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800/40 px-4 py-3 rounded-xl text-sm">
-          {error}
-        </div>
+        <SectionBanner severity="critical" icon="AlertCircle">{error}</SectionBanner>
       )}
 
       {/* Godkend-kø — AI-drafted expenses awaiting approval. Self-hides when
