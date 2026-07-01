@@ -631,6 +631,11 @@ function useClock(token) {
       }
       const res = await portalApi.post(`/portal/${token}/clock-${dir}`, payload);
       applySt(res.data);
+      if (dir === "out" && !res.data?.discarded) {
+        // A completed punch just landed — nudge the portal to refetch hours so
+        // the worker sees it in "My hours" without a manual reload.
+        try { window.dispatchEvent(new Event("bonbox-data-changed")); } catch { /* noop */ }
+      }
       if (dir === "out") {
         // Honest outcome: confirm the hours we logged, or — when the punch was
         // too short and discarded server-side — say so plainly. No silent flip.
@@ -1366,6 +1371,47 @@ function HoursTab({ data, maxHours }) {
           ))}
         </div>
       </div>
+
+      {/* Recently clocked — period-INDEPENDENT proof-of-punch. A shift clocked
+          just after midnight is dated to the previous business day and can land
+          in the previous pay period, so it won't appear in the period summary
+          above. This always shows the worker's last real punches so a just-
+          finished shift is never invisible. Separate + honestly labelled. */}
+      {(() => {
+        const recent = data.recent_clocked || [];
+        if (recent.length === 0) return null; // back-compat: old payloads omit it
+        const winDays = data.recent_clocked_window_days || 14;
+        // Dedup: drop punches already shown in the in-period list above so the
+        // same shift never renders twice. In-period key = date + start_time.
+        const inPeriodKeys = new Set(
+          (data.entries || [])
+            .filter((e) => data.period_start && data.period_end
+              && e.date >= data.period_start && e.date <= data.period_end)
+            .map((e) => `${e.date}|${e.start_time || ""}`),
+        );
+        const extra = recent.filter((r) => !inPeriodKeys.has(`${r.date}|${r.start_time || ""}`));
+        if (extra.length === 0) return null; // nothing new to surface
+        return (
+          <div>
+            <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+              {t("portalHoursRecentlyClocked", "Recently clocked")}
+              <span className="ml-1 font-normal text-gray-400 normal-case tracking-normal">
+                · {t("portalHoursRecentlyClockedWindow", "last {n} days", { n: winDays })}
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {extra.map((h, i) => (
+                <div key={`rc-${i}`} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white border border-gray-200">
+                  <span className="text-sm text-gray-500">
+                    {fmtDate(h.date)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
+                  </span>
+                  <span className="text-sm font-semibold text-gray-900">{h.total_hours} {t("portalHrsShort")}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -2754,6 +2800,15 @@ export default function StaffPortalPage() {
 
   useEffect(() => {
     if (pinVerified && info) loadData();
+  }, [pinVerified, info, loadData]);
+
+  // Refetch on the app-wide freshness signal — e.g. after a clock-out, so the
+  // just-logged shift shows in "My hours" (recent_clocked) without a reload.
+  useEffect(() => {
+    if (!(pinVerified && info)) return;
+    const onChanged = () => loadData();
+    window.addEventListener("bonbox-data-changed", onChanged);
+    return () => window.removeEventListener("bonbox-data-changed", onChanged);
   }, [pinVerified, info, loadData]);
 
   // Tips is OPTIONAL — a business that doesn't share tips (e.g. no salary/tip

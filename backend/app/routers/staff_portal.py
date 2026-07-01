@@ -497,6 +497,45 @@ def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)
             for s in scheduled_shifts
         ]
 
+    # ── Recently clocked (period-INDEPENDENT proof-of-punch) ─────────────
+    # The pay period is dated by BUSINESS DAY (06:00 cutoff), so a shift
+    # clocked at 00:29 is dated to the previous calendar day and can fall in
+    # the PREVIOUS pay period — invisible in the period summary above. A
+    # worker who just clocked out would then see "0 worked hours this period".
+    # This list is their proof the punch landed: the last COMPLETED clock
+    # punches (end_time NOT NULL — the open/live punch is the clock hero's job,
+    # never a finished 0h shift), newest-first, over a 14-day business-day
+    # window, regardless of period. Tenant-scoped; never summed into any total.
+    RECENT_WINDOW_DAYS = 14
+    owner_user = db.query(User).filter(User.id == link.user_id).first()
+    try:
+        recent_cutoff = business_today_local(owner_user) - timedelta(days=RECENT_WINDOW_DAYS - 1)
+    except Exception:
+        recent_cutoff = date.today() - timedelta(days=RECENT_WINDOW_DAYS - 1)
+    recent_rows = (
+        db.query(HoursLogged)
+        .filter(
+            HoursLogged.staff_id == member.id,
+            HoursLogged.user_id == link.user_id,
+            HoursLogged.entry_method == "clock",
+            HoursLogged.end_time.isnot(None),
+            HoursLogged.date >= recent_cutoff,
+        )
+        .order_by(HoursLogged.date.desc(), HoursLogged.created_at.desc())
+        .limit(8)
+        .all()
+    )
+    recent_clocked = [
+        PortalHoursEntry(
+            date=r.date,
+            start_time=r.start_time,
+            end_time=r.end_time,
+            total_hours=float(r.total_hours or 0),
+            earned=float(r.earned) if r.earned else None,
+        )
+        for r in recent_rows
+    ]
+
     return {
         "staff_name": member.name,
         "period_start": period_start.isoformat(),
@@ -512,6 +551,10 @@ def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)
         # "schedule" => headline is the rostered plan; "logged" => actuals.
         "hours_source": "logged" if use_logged else "schedule",
         "entries": entries,
+        # Period-independent recent clock punches (proof-of-punch across the
+        # pay-period boundary). Display-only; the frontend dedups vs `entries`.
+        "recent_clocked": recent_clocked,
+        "recent_clocked_window_days": RECENT_WINDOW_DAYS,
     }
 
 
