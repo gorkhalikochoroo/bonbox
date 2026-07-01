@@ -114,10 +114,13 @@ def _parse_hhmm(t: str) -> float:
 
 def _calc_hours(start: str, end: str, brk: int) -> float:
     s, e = _parse_hhmm(start), _parse_hhmm(end)
-    if e <= s:
+    # STRICT `<` so end == start is a ZERO-length shift, NOT a 24h one — MUST
+    # match _calc_shift_hours in staff.py (owner grid + payroll). A `<=` here
+    # made a fat-fingered 08:00–08:00 read 0h on the owner grid but 24h in the
+    # staffer's portal + labor-cost ledger (owner↔staff disagreed on the same
+    # shift). 2 decimals to match _calc_shift_hours (1-decimal under-counted pay).
+    if e < s:
         e += 24.0
-    # 2 decimals to match _calc_shift_hours in staff.py — 1-decimal rounding
-    # under-counted hours (and therefore pay) vs the exact owner-side preview.
     return round(max(e - s - brk / 60.0, 0), 2)
 
 def _get_staff_from_token(token: str, db: Session):

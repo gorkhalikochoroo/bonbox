@@ -283,7 +283,10 @@ def _hhmm_to_minutes(t: str) -> int:
 def _shift_hours(start: str, end: str, break_minutes: int) -> float:
     s = _hhmm_to_minutes(start)
     e = _hhmm_to_minutes(end)
-    if e <= s:
+    # STRICT `<` (end == start → 0h, never 24h) so the owner week-cost/labor-%
+    # ledger agrees with the grid Timer + payroll (_calc_shift_hours). A `<=`
+    # here inflated the labor cost of a fat-fingered equal-time shift by a day.
+    if e < s:
         e += 24 * 60
     gross = (e - s) / 60.0
     return max(0.0, gross - (break_minutes / 60.0))

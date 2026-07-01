@@ -159,6 +159,18 @@ function _icsStampUtc(d) {
   );
 }
 
+// RFC 5545 §3.3.11 — escape backslash, semicolon, comma and newline in TEXT
+// values so a venue like "Café Nør, Vesterbro" (comma) doesn't truncate or
+// corrupt the event on strict importers (Outlook, some Android). Mirrors the
+// escaper already used in TicketPage.jsx.
+function _icsEsc(v) {
+  return String(v || "")
+    .replace(/\\/g, "\\\\")
+    .replace(/;/g, "\\;")
+    .replace(/,/g, "\\,")
+    .replace(/\r?\n/g, "\\n");
+}
+
 function buildShiftIcs(shift, venueName, summary) {
   // Overnight edge: if the shift ends at/before it starts, the end is the next
   // calendar day so DTEND > DTSTART.
@@ -200,12 +212,12 @@ function buildShiftIcs(shift, venueName, summary) {
     `DTSTAMP:${_icsStampUtc(new Date())}`,
     `DTSTART;TZID=Europe/Copenhagen:${dtStart}`,
     `DTEND;TZID=Europe/Copenhagen:${dtEnd}`,
-    `SUMMARY:${safeSummary}`,
-    `LOCATION:${safeLocation}`,
+    `SUMMARY:${_icsEsc(safeSummary)}`,
+    `LOCATION:${_icsEsc(safeLocation)}`,
     "BEGIN:VALARM",
     "ACTION:DISPLAY",
     "TRIGGER:-PT60M",
-    `DESCRIPTION:${safeSummary}`,
+    `DESCRIPTION:${_icsEsc(safeSummary)}`,
     "END:VALARM",
     "END:VEVENT",
     "END:VCALENDAR",
@@ -932,7 +944,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
   const countdownLabel = nextShiftCountdown(nextShift, t);
 
   // Add-to-calendar (.ics) for the next shift — naive wall-clock + TZID, no UTC.
-  const addToCalendar = () => {
+  const addToCalendar = async () => {
     if (!nextShift) return;
     const summary = restaurantName
       ? t("portalIcsSummary", { venue: restaurantName })
@@ -942,11 +954,36 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
     const filename = `vagt-${nextShift.date}.ics`;
     const file =
       typeof File !== "undefined" ? new File([blob], filename, { type: "text/calendar" }) : null;
+
+    // 1) Web Share (best on mobile). try/catch so a REAL share failure falls
+    //    through to a download path instead of the button silently doing
+    //    nothing; a user-cancel (AbortError) just returns.
     if (file && navigator.canShare?.({ files: [file] }) && navigator.share) {
-      navigator.share({ files: [file], title: summary }).catch(() => {});
+      try {
+        await navigator.share({ files: [file], title: summary });
+        return;
+      } catch (err) {
+        if (err?.name === "AbortError") return;
+        /* real share failure → fall through to the download paths below */
+      }
+    }
+
+    // 2) iOS Safari + in-app webviews (Instagram/Messenger magic-link opens)
+    //    IGNORE anchor `download` on a blob: URL — the tap was a SILENT no-op,
+    //    which is the "add to calendar not working" report. Navigating a data:
+    //    URL hands the .ics to the OS "Add event" sheet on those clients.
+    const ua = navigator.userAgent || "";
+    const isIOS =
+      /iP(hone|ad|od)/.test(navigator.platform || ua) ||
+      (/Mac/.test(ua) && "ontouchend" in document);
+    const inAppWebview =
+      /(FBAN|FBAV|Instagram|Line|Messenger|LinkedInApp|Twitter|MicroMessenger)/i.test(ua);
+    if (isIOS || inAppWebview) {
+      window.location.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(ics);
       return;
     }
-    // Fallback: anchor download (some in-app browsers block share).
+
+    // 3) Desktop + most Android: anchor download.
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -954,7 +991,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
   };
 
   const weekDays = weekView === "this" ? thisWeek : nextWeek;

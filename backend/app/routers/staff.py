@@ -1243,6 +1243,13 @@ def create_schedule(
     if not staff:
         raise HTTPException(status_code=404, detail="Staff member not found")
 
+    # A zero-length shift (start == end) is always a typo, never intended, and
+    # it used to render inconsistently across surfaces (0h vs 24h). Reject it at
+    # the source so the bad row never reaches the grid/payroll.
+    if data.start_time == data.end_time:
+        raise HTTPException(status_code=400, detail={
+            "code": "equal_times", "message": "Start og slut kan ikke være ens."})
+
     # Bounds layer — one person can't work two overlapping shifts the same day.
     # The grid disables occupied cells client-side; this is the server-side
     # barrier against a stale grid / race / direct API call that would double-
@@ -1319,6 +1326,11 @@ def update_schedule(
     if not new_staff:
         raise HTTPException(status_code=404, detail="Staff member not found")
 
+    # Zero-length shift (start == end) is always a typo — reject at the source.
+    if data.start_time == data.end_time:
+        raise HTTPException(status_code=400, detail={
+            "code": "equal_times", "message": "Start og slut kan ikke være ens."})
+
     # Bounds layer — reject a move/edit that lands this shift on top of another
     # shift the same staffer already has that day (excluding this row itself, so
     # an unchanged re-save never self-conflicts). Covers the drag-to-move PUT:
@@ -1356,24 +1368,37 @@ def update_schedule(
     db.commit()
     db.refresh(shift)
 
-    # Notify staff if a published shift was modified
-    if was_published and (old_start != data.start_time or old_end != data.end_time):
-        user_id = user.id
-        staff_id = old_staff_id
-        change = ShiftChange(
-            change_type="modified",
-            date=old_date,
-            old_start=old_start,
-            old_end=old_end,
-            new_start=data.start_time,
-            new_end=data.end_time,
-            role=data.role_on_shift,
-        )
+    # Notify staff of a PUBLISHED-shift change — to the RIGHT person.
+    #   • Reassigned (staffer changed): tell the OLD staffer it was REMOVED and
+    #     the NEW staffer it was ADDED. (The old code emailed the OLD staffer the
+    #     NEW times for a shift no longer theirs, and never told the new one.)
+    #   • Same staffer, times changed: 'modified' to that staffer.
+    user_id = user.id
+    staffer_changed = str(old_staff_id) != str(data.staff_id)
+    times_changed = old_start != data.start_time or old_end != data.end_time
+    notifs = []  # list[(recipient_staff_id, ShiftChange)]
+    if was_published:
+        if staffer_changed:
+            notifs.append((old_staff_id, ShiftChange(
+                change_type="removed", date=old_date,
+                old_start=old_start, old_end=old_end,
+                new_start=old_start, new_end=old_end, role=data.role_on_shift)))
+            notifs.append((data.staff_id, ShiftChange(
+                change_type="added", date=str(data.date),
+                old_start=data.start_time, old_end=data.end_time,
+                new_start=data.start_time, new_end=data.end_time, role=data.role_on_shift)))
+        elif times_changed:
+            notifs.append((old_staff_id, ShiftChange(
+                change_type="modified", date=old_date,
+                old_start=old_start, old_end=old_end,
+                new_start=data.start_time, new_end=data.end_time, role=data.role_on_shift)))
 
+    if notifs:
         def _send_bg():
             bg_db = SessionLocal()
             try:
-                send_single_shift_notification(bg_db, user_id, staff_id, change, "shift_changed")
+                for _sid, _ch in notifs:
+                    send_single_shift_notification(bg_db, user_id, _sid, _ch, "shift_changed")
             finally:
                 bg_db.close()
 
@@ -1608,13 +1633,37 @@ def copy_week(
         raise HTTPException(status_code=404, detail="No shifts found in source week")
 
     day_offset = (body.target_week - body.source_week).days
+    # IDEMPOTENCY: skip source shifts that already exist in the target week on
+    # the same (staff, date, start, end). Without this, a second click — or a
+    # manager on another session — silently DOUBLED every staffer's week (and
+    # doubled the labor cost the owner trusts + pushed duplicates to staff on
+    # publish). Exact-match dedup, not overlap, so it never drops a legit copy.
+    target_start = body.target_week
+    target_end = body.target_week + timedelta(days=6)
+    existing = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == user.id,
+            Schedule.date >= target_start,
+            Schedule.date <= target_end,
+        )
+        .all()
+    )
+    seen = {(str(e.staff_id), e.date, e.start_time, e.end_time) for e in existing}
     created = []
+    skipped = 0
     for s in source_shifts:
+        target_date = s.date + timedelta(days=day_offset)
+        key = (str(s.staff_id), target_date, s.start_time, s.end_time)
+        if key in seen:
+            skipped += 1
+            continue
+        seen.add(key)  # also dedupes identical rows within the source week
         new_shift = Schedule(
             id=uuid.uuid4(),
             user_id=user.id,
             staff_id=s.staff_id,
-            date=s.date + timedelta(days=day_offset),
+            date=target_date,
             start_time=s.start_time,
             end_time=s.end_time,
             break_minutes=s.break_minutes,
@@ -1626,7 +1675,11 @@ def copy_week(
         created.append(new_shift)
 
     db.commit()
-    return {"copied": len(created), "target_week": body.target_week.isoformat()}
+    return {
+        "copied": len(created),
+        "skipped": skipped,
+        "target_week": body.target_week.isoformat(),
+    }
 
 
 @router.post("/schedules/publish")
