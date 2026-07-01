@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 
 export default function ContactPage() {
@@ -45,7 +45,7 @@ export default function ContactPage() {
             <div>
               <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("contactInAppFeedback", "In-App Feedback")}</p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {t("contactUseThe", "Use the")} <a href="#" onClick={(e) => { e.preventDefault(); window.location.hash = ""; }} className="text-blue-600 dark:text-blue-400 hover:underline">{t("feedback", "Feedback")}</a> {t("contactFeedbackPageHint", "page to rate features and share suggestions directly.")}
+                {t("contactUseThe", "Use the")} <Link to="/feedback" className="text-blue-600 dark:text-blue-400 hover:underline">{t("feedback", "Feedback")}</Link> {t("contactFeedbackPageHint", "page to rate features and share suggestions directly.")}
               </p>
             </div>
           </div>

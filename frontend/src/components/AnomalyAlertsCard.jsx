@@ -17,17 +17,6 @@ import { useLanguage } from "../hooks/useLanguage";
  *   low    → slate dot
  */
 
-const KIND_ICONS = {
-  sale_outlier: "💰",
-  unusual_hour: "🕒",
-  velocity_burst: "⚡",
-  expense_outlier: "💸",
-  failed_logins: "🔒",
-  many_deletions: "🗑",
-  khata_large: "📒",
-  margin_drop: "📉",
-};
-
 function dotColor(severity) {
   if (severity === "high") return "#dc2626";    // red-600
   if (severity === "medium") return "#f59e0b";  // amber-500
@@ -125,7 +114,7 @@ export default function AnomalyAlertsCard() {
             />
             <div className="flex-1 min-w-0">
               <p className="text-[13.5px] font-medium text-gray-900 dark:text-gray-100 leading-snug">
-                {KIND_ICONS[a.kind] ? `${KIND_ICONS[a.kind]} ` : ""}{a.title}
+                {a.title}
               </p>
               {a.detail && (
                 <p className="text-[12.5px] text-gray-600 dark:text-gray-400 mt-0.5 leading-relaxed">

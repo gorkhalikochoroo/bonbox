@@ -66,8 +66,8 @@ export default function TerminalsPage() {
 
   async function fetchBranches() {
     try {
-      const res = await api.get("/branches");
-      setBranches(Array.isArray(res.data) ? res.data : []);
+      const res = await api.get("/branches/list");
+      setBranches(Array.isArray(res.data?.branches) ? res.data.branches : []);
     } catch {
       // Single-branch users may not have the branches endpoint populated
       setBranches([]);

@@ -133,7 +133,11 @@ export default function SmartStaffingCard({ onEditClick }) {
           })),
         }),
       ]);
-      track(editing ? "smart_proposal_edited" : "smart_proposal_accepted", "smart_staffing", {
+      // NOTE: this card has no edit mode — the outcome is always "accepted".
+      // A prior `editing ? …` ternary referenced an undeclared variable, which
+      // threw ReferenceError AFTER the two PUTs above had already committed —
+      // so the owner saw "Couldn't save." on a save that actually succeeded.
+      track("smart_proposal_accepted", "smart_staffing", {
         confidence: proposal?.confidence,
         proposal_count: (proposal?.role_targets?.length || 0),
       });

@@ -83,6 +83,13 @@ import MonthEndBundleBanner from "../components/MonthEndBundleBanner";
 import CloserPromptCard from "../components/CloserPromptCard";
 import SmartStaffingCard from "../components/SmartStaffingCard";
 import ExpiryAlertsCard from "../components/ExpiryAlertsCard";
+// Previously-orphaned owner surfaces (trust sweep 2026-07-01) — each was
+// fully built + endpoint-backed but never mounted anywhere, so no owner
+// could reach it. All three self-hide when there's nothing to show, so
+// they add zero clutter to a healthy account and only surface real signal.
+import AnomalyAlertsCard from "../components/AnomalyAlertsCard";
+import BranchSummaryCard from "../components/BranchSummaryCard";
+import ConnectionsProgressCard from "../components/ConnectionsProgressCard";
 
 // ExpiryWarningsCard is the spec name; the existing component is
 // ExpiryAlertsCard. Aliased so the registry id matches the config.
@@ -106,8 +113,15 @@ const REGISTRY = {
   // window enters its last 14 days.  Self-hides when no bank is at
   // risk; renders nothing for Free users (no connection rows).
   BankConsentExpiryBanner,
+  // Trust sweep 2026-07-01 — self-fetch + self-hide interrupt cards that
+  // were built but never had a mount point. Anomaly watchdog ("things to
+  // review") + a "finish your setup" nudge that only appears while setup
+  // is incomplete.
+  AnomalyAlertsCard,
+  ConnectionsProgressCard,
 
   // ── Zone 1 ──
+  BranchSummaryCard,
   OutstandingFakturaCard,
   MonthEndBundleBanner,
   DailyBriefCard,

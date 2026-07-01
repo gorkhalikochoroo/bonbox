@@ -32,6 +32,8 @@ import {
 // made), replacing the standalone /weather + /staffing Intelligence pages.
 import ScheduleForecastPanel from "../components/ScheduleForecastPanel";
 import SickCallNotificationCard from "../components/SickCallNotificationCard";
+import SwapRequestNotificationCard from "../components/SwapRequestNotificationCard";
+import ScheduleConfirmationCard from "../components/ScheduleConfirmationCard";
 
 /* ═══════════════════════════════════════════════════════════
    CONSTANTS & HELPERS
@@ -1532,6 +1534,17 @@ export default function StaffSchedulePage() {
           anywhere in the app before; the Vagtplan is its natural home since
           the owner manages staff here. */}
       <SickCallNotificationCard />
+
+      {/* Peer-confirmed shift swaps awaiting the owner's final approve/deny.
+          Interrupt-only — hides when none pending. Built + endpoint-backed
+          (/staff/swap-requests) but had no mount point before the 2026-07-01
+          trust sweep, so the owner could never act on accepted swaps. */}
+      <SwapRequestNotificationCard />
+
+      {/* "3 of 4 staff confirmed this week's schedule" — the owner half of the
+          bidirectional confirmation loop. Self-hides when nothing is published
+          or once everyone has confirmed. */}
+      <ScheduleConfirmationCard />
 
       {/* Week navigation + actions */}
       <FadeIn delay={0.05}>

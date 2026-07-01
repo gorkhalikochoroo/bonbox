@@ -478,8 +478,8 @@ export default function ConnectionsPage() {
     api.get("/terminals")
       .then((r) => { if (alive) setTerminals(Array.isArray(r.data) ? r.data : []); })
       .catch(() => { if (alive) setTerminals([]); });
-    api.get("/branches")
-      .then((r) => { if (alive) setBranches(Array.isArray(r.data) ? r.data : []); })
+    api.get("/branches/list")
+      .then((r) => { if (alive) setBranches(Array.isArray(r.data?.branches) ? r.data.branches : []); })
       .catch(() => { if (alive) setBranches([]); });
     return () => { alive = false; };
   }, []);

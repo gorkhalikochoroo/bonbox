@@ -512,7 +512,7 @@ export default function SalesPage() {
           </p>
         </div>
         <Link
-          to="/today"
+          to="/daily-close"
           className={
             "inline-flex items-center justify-center gap-1 rounded-lg " +
             "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-100 " +
@@ -531,7 +531,7 @@ export default function SalesPage() {
       {sessionAgg.sessionCount} {sessionAgg.sessionCount === 1 ? t("saleCount") : t("salesCount")}
       {" "}{t("thisSessionInline", "this session")} · {sessionAgg.sessionTotal.toLocaleString()} {currency}
       <Link
-        to="/today"
+        to="/daily-close"
         className="ml-2 text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white underline"
       >
         {t("openDailyClose", "Open Daily Close")} →

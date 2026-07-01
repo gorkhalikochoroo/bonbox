@@ -20,6 +20,7 @@
  *     atomically flips Schedule.staff_id values on approve
  */
 import { useEffect, useState } from "react";
+import { ArrowLeftRight } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 
@@ -47,7 +48,7 @@ export default function SwapRequestNotificationCard() {
   return (
     <div className="bg-blue-50/70 dark:bg-blue-900/15 border border-blue-200 dark:border-blue-800/50 rounded-xl p-4 sm:p-5">
       <div className="flex items-start gap-2 mb-3">
-        <span className="text-xl shrink-0" aria-hidden="true">🔄</span>
+        <ArrowLeftRight className="w-5 h-5 shrink-0 text-blue-600 dark:text-blue-300 mt-0.5" strokeWidth={2} aria-hidden="true" />
         <div className="flex-1">
           <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200">
             {t("swapCardTitle") || "Shift swaps need your approval"}

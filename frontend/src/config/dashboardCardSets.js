@@ -207,6 +207,15 @@ export const DASHBOARD_CARD_SET = {
       component: "DemoActiveBanner",
       renderIf: (ctx) => !!ctx?.isDemoData,
     },
+    // Anomaly watchdog — "things to review" (sale/expense outliers, unusual
+    // hours, failed logins, mass deletions…). Self-fetches /dashboard/anomalies
+    // and returns null when the list is empty, so renderIf is always-on and it
+    // costs zero space on a clean account.
+    {
+      id: "anomalies",
+      component: "AnomalyAlertsCard",
+      renderIf: () => true,
+    },
     {
       id: "trial",
       component: "TrialBanner",
@@ -223,6 +232,14 @@ export const DASHBOARD_CARD_SET = {
       component: "BankConsentExpiryBanner",
       renderIf: (ctx) => !!ctx?.has?.("bank_auto_reconcile"),
     },
+    // Setup-progress nudge — "finish your setup" (bank, MobilePay, revisor,
+    // brief email…). Self-hides once every tracked connection is done or after
+    // a 30-day dismiss, so only early / incomplete accounts ever see it.
+    {
+      id: "connectionsProgress",
+      component: "ConnectionsProgressCard",
+      renderIf: () => true,
+    },
     {
       id: "push",
       component: "PushOptInPrompt",
@@ -233,6 +250,14 @@ export const DASHBOARD_CARD_SET = {
 
   // ── Zone 1 — Today's Pulse. 5-second scan, always visible. ──
   zone1: [
+    // Multi-location overview — "your locations this month", per-branch
+    // revenue bars + tap-to-scope. Self-hides for single-branch owners
+    // (<2 branches), so only genuine multi-location accounts see it.
+    {
+      id: "branchSummary",
+      component: "BranchSummaryCard",
+      renderIf: () => true,
+    },
     // Sudip's #1 pain — its own surface, not buried in Daily Brief.
     {
       id: "outstandingFaktura",
