@@ -3732,6 +3732,7 @@ const translations = {
     schedBloomHint: "Click to add a shift",
     schedKanIkkeCell: "Can't work",
     schedKanIkkeAria: "{name} can't work this day",
+    schedFravaerAria: "{name} is off this day",
     schedShiftAdded: "Shift added as draft",
     schedMoved: "Shift moved",
     schedSlotTaken: "That overlaps a shift they already have that day.",

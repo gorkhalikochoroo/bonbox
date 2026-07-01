@@ -198,6 +198,16 @@ function suggestedBreak(startTime, endTime) {
   return calcHours(startTime, endTime, 0) >= 6 ? 45 : 0;
 }
 
+/** Absence type → short owner-facing label for the grid chip. */
+function absKindLabel(kind, t) {
+  return {
+    ferie: t("absenceKindFerie", "Holiday"),
+    sick: t("absenceKindSick", "Sick"),
+    barns_syg: t("absenceKindBarns", "Child's sick day"),
+    andet: t("absenceKindAndet", "Other"),
+  }[kind] || kind;
+}
+
 /** Sum a staffer's net hours across the visible week (uses the same per-cell
     getShiftForCell the grid renders, so the Timer column can never disagree
     with the blocks above it). */
@@ -566,6 +576,7 @@ export default function StaffSchedulePage() {
   const [staff, setStaff] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [availability, setAvailability] = useState([]);
+  const [absences, setAbsences] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -718,6 +729,17 @@ export default function StaffSchedulePage() {
     } catch {
       setAvailability([]);
     }
+    // Approved/pending fravær (ferie, syg) — painted on the grid so the owner
+    // sees who's off. include_resolved=true to also show 'covered' (still off);
+    // 'cancelled' (declined) is filtered out client-side. Fail-soft.
+    try {
+      const absRes = await api.get("/staff/absences", {
+        params: { days_back: 31, include_resolved: true },
+      });
+      setAbsences(absRes.data || []);
+    } catch {
+      setAbsences([]);
+    }
   }, [weekStart, branchId]);
 
   // Map staff_id → their standing "unavailable" blocks; a soft signal the owner
@@ -742,6 +764,23 @@ export default function StaffSchedulePage() {
     }
     return null;
   }, [availByStaff]);
+
+  // Approved/pending fravær keyed by staff_id → { ISO date → row }. Excludes
+  // declined ('cancelled'); a concrete absence outranks a standing "kan ikke".
+  const absByStaff = useMemo(() => {
+    const m = {};
+    for (const a of absences) {
+      if (a.status === "cancelled") continue;
+      const sid = String(a.staff_id);
+      (m[sid] = m[sid] || {})[a.date] = a;
+    }
+    return m;
+  }, [absences]);
+
+  const absenceFor = useCallback((staffId, date) => {
+    const byDate = absByStaff[String(staffId)];
+    return byDate ? byDate[toISO(date)] || null : null;
+  }, [absByStaff]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -1832,6 +1871,7 @@ export default function StaffSchedulePage() {
                 weekDates={weekDates}
                 getShiftForCell={getShiftForCell}
                 unavailFor={unavailFor}
+                absenceFor={absenceFor}
                 costForShift={costForShift}
                 showCost={showCost}
                 currency={currency}
@@ -4262,6 +4302,7 @@ function ScheduleGrid({
   weekDates,
   getShiftForCell,
   unavailFor,
+  absenceFor,
   onCellClick,
   onMoveShift,
   costForShift,
@@ -4393,12 +4434,13 @@ function ScheduleGrid({
                     const isToday = toISO(date) === toISO(new Date());
 
                     if (!shift) {
-                      // Standing "kan ikke": a calm red-tinted cell so the owner
-                      // sees the conflict — but still a legal drop target (soft
-                      // signal, they can hand-place over it).
-                      const blk = unavailFor(member.id, date);
-                      // EMPTY cell = a legal drop target (occupied={false}) AND a
-                      // one-tap bloom on click. The drop-ring appears on hover-over.
+                      // A concrete fravær (approved ferie/syg) outranks a standing
+                      // "kan ikke" — both tint the empty cell so the owner sees
+                      // who's off, but both stay legal drop targets (soft signals;
+                      // the owner can still hand-place over them).
+                      const abs = absenceFor?.(member.id, date) || null;
+                      const blk = abs ? null : unavailFor(member.id, date);
+                      const absLabel = abs ? absKindLabel(abs.kind, t) : "";
                       return (
                         <DroppableCell
                           key={dayIdx}
@@ -4406,26 +4448,37 @@ function ScheduleGrid({
                           dateIso={toISO(date)}
                           occupied={false}
                           className={`group px-1 py-2 text-center cursor-pointer transition-colors ${
-                            blk
-                              ? "bg-red-50/60 dark:bg-red-950/20"
-                              : isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
+                            abs
+                              ? "bg-indigo-50/50 dark:bg-indigo-950/20"
+                              : blk
+                                ? "bg-red-50/60 dark:bg-red-950/20"
+                                : isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
                           } hover:bg-gray-50 dark:hover:bg-gray-800/40`}
                           onClick={() => onCellClick(member.id, date, null)}
-                          title={blk
-                            ? (blk.note
-                                ? `${t("schedKanIkkeCell", "Can't work")} · ${blk.note}`
-                                : t("schedKanIkkeCell", "Can't work"))
-                            : t("schedBloomHint", "Click to add a shift")}
-                          aria-label={blk
-                            ? t("schedKanIkkeAria", "{name} can't work this day").replace("{name}", member.name)
-                            : t("schedAddShiftAria", "Add shift for {name}").replace("{name}", member.name)}
+                          title={abs
+                            ? (abs.reason ? `${absLabel} · ${abs.reason}` : absLabel)
+                            : blk
+                              ? (blk.note
+                                  ? `${t("schedKanIkkeCell", "Can't work")} · ${blk.note}`
+                                  : t("schedKanIkkeCell", "Can't work"))
+                              : t("schedBloomHint", "Click to add a shift")}
+                          aria-label={abs
+                            ? t("schedFravaerAria", "{name} is off this day").replace("{name}", member.name)
+                            : blk
+                              ? t("schedKanIkkeAria", "{name} can't work this day").replace("{name}", member.name)
+                              : t("schedAddShiftAria", "Add shift for {name}").replace("{name}", member.name)}
                         >
-                          {/* Available cells render SILENCE (no "OFF" word) — a
-                              single hover-Plus advertises one-tap add so the grid
-                              stays calm at 16×7. "Kan ikke" cells show a quiet red
-                              chip that fades to the Plus on hover (override). h-14
-                              matches the occupied block. */}
+                          {/* Available cells render SILENCE — a single hover-Plus
+                              advertises one-tap add so the grid stays calm at 16×7.
+                              Fravær cells show a calm indigo kind-chip; "Kan ikke"
+                              a quiet red chip. Both fade to the Plus on hover
+                              (override). h-14 matches the occupied block. */}
                           <div className="h-14 relative flex items-center justify-center">
+                            {abs && (
+                              <span className="inline-flex items-center rounded-md px-1.5 py-0.5 bg-indigo-100/70 dark:bg-indigo-900/30 transition-opacity group-hover:opacity-0" aria-hidden>
+                                <span className="text-[9px] font-semibold text-indigo-500 dark:text-indigo-300 uppercase tracking-wide">{absLabel}</span>
+                              </span>
+                            )}
                             {blk && (
                               <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 bg-red-100/70 dark:bg-red-900/30 transition-opacity group-hover:opacity-0" aria-hidden>
                                 <CalendarOff className="w-[11px] h-[11px] text-red-400 dark:text-red-400" strokeWidth={2} />
