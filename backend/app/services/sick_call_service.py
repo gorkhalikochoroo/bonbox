@@ -364,3 +364,77 @@ def suggest_replacements(
         # different role" than empty.
 
     return candidates[:limit]
+
+
+# ─── Fravær (absence) registration — a DATE RANGE, any kind ──────────────
+
+# Planday-style absence types. TRACKING only — no sygeløn/feriepenge/pay math
+# is computed anywhere (that is payroll, out of BonBox's lane). We record who's
+# off, when, and what type, so the roster + the owner's overview reflect it.
+VALID_ABSENCE_KINDS = ("sick", "ferie", "barns_syg", "andet")
+MAX_ABSENCE_RANGE_DAYS = 60
+
+
+def register_absence(
+    db: Session,
+    *,
+    owner_id: uuid.UUID,
+    staff_id: uuid.UUID,
+    kind: str,
+    date_from: date,
+    date_to: date,
+    reason: Optional[str] = None,
+) -> tuple[int, int]:
+    """Register a Fravær over a date RANGE — materializes one StaffAbsence per
+    day (status='pending'), so ferie next week or a sick period is one action.
+
+    Idempotent per (staff, date, kind): a day that already has an active row
+    for this kind is SKIPPED, so re-submitting an overlapping range never
+    duplicates. Returns (created, skipped). Raises SickCallError on validation
+    failure (routers map to 422).
+    """
+    if kind not in VALID_ABSENCE_KINDS:
+        raise SickCallError("Ukendt fraværstype.")
+    if date_to < date_from:
+        raise SickCallError("Slutdato er før startdato.")
+    span = (date_to - date_from).days + 1
+    if span > MAX_ABSENCE_RANGE_DAYS:
+        raise SickCallError(f"Perioden må højst være {MAX_ABSENCE_RANGE_DAYS} dage.")
+    today = date.today()
+    # Window: recent past (late sick registration) up to a year out (planned
+    # ferie). Wide enough for real use, bounded against garbage input.
+    if date_from < today - timedelta(days=31) or date_to > today + timedelta(days=365):
+        raise SickCallError("Datoen er uden for det tilladte vindue.")
+
+    # Tenant / ownership — defense in depth (router already token-checked).
+    staff = db.query(StaffMember).filter(
+        StaffMember.id == staff_id,
+        StaffMember.user_id == owner_id,
+        StaffMember.is_deleted.isnot(True),
+    ).first()
+    if not staff:
+        raise SickCallError("Staff member not found.")
+
+    norm_reason = _normalize_reason(reason)
+    created = 0
+    skipped = 0
+    d = date_from
+    while d <= date_to:
+        existing = db.query(StaffAbsence).filter(
+            StaffAbsence.user_id == owner_id,
+            StaffAbsence.staff_id == staff_id,
+            StaffAbsence.date == d,
+            StaffAbsence.kind == kind,
+            StaffAbsence.status.in_(("pending", "acknowledged", "covered")),
+        ).first()
+        if existing:
+            skipped += 1
+        else:
+            db.add(StaffAbsence(
+                user_id=owner_id, staff_id=staff_id, kind=kind,
+                date=d, reason=norm_reason, status="pending",
+            ))
+            created += 1
+        d += timedelta(days=1)
+    db.commit()
+    return created, skipped

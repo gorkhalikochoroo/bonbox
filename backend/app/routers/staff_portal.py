@@ -1221,6 +1221,83 @@ def portal_call_sick(
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  Fravær (absence) — staff registers ferie / sygdom for a date RANGE.
+#  Distinct from the single-shift sick-call above: this is the Planday-style
+#  "I'm off these days" that the owner sees + documents. Tracking only — no
+#  pay/sygeløn/feriepenge is computed anywhere.
+# ═══════════════════════════════════════════════════════════════════════════
+class AbsenceRegisterBody(BaseModel):
+    kind: str = "sick"           # sick | ferie | barns_syg | andet
+    date_from: date
+    date_to: date | None = None  # null → single day (== date_from)
+    reason: str | None = None
+
+
+@router.post("/{token}/absence")
+@limiter.limit("6/minute")
+def portal_register_absence(
+    token: str, body: AbsenceRegisterBody, request: Request, db: Session = Depends(get_db)
+):
+    """Staffer registers a fravær over a date range. Owner + staff are
+    re-derived from the token — never the body. Materializes one row per day
+    (idempotent per day+kind); returns how many were created vs already there."""
+    _link, member = _get_staff_from_token(token, db)
+    from app.services.sick_call_service import register_absence, SickCallError
+    date_to = body.date_to or body.date_from
+    try:
+        created, skipped = register_absence(
+            db,
+            owner_id=member.user_id,
+            staff_id=member.id,
+            kind=body.kind,
+            date_from=body.date_from,
+            date_to=date_to,
+            reason=body.reason,
+        )
+    except SickCallError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {
+        "created": created,
+        "skipped": skipped,
+        "kind": body.kind,
+        "date_from": body.date_from.isoformat(),
+        "date_to": date_to.isoformat(),
+    }
+
+
+@router.get("/{token}/absence")
+@limiter.limit("30/minute")
+def portal_list_absence(token: str, request: Request, db: Session = Depends(get_db)):
+    """This staffer's own fravær (recent + upcoming), so they see their own
+    ferie/syg. reason is theirs to see; peers never get this list."""
+    from app.models.absence import StaffAbsence
+    _link, member = _get_staff_from_token(token, db)
+    since = date.today() - timedelta(days=31)
+    rows = (
+        db.query(StaffAbsence)
+        .filter(
+            StaffAbsence.staff_id == member.id,
+            StaffAbsence.user_id == member.user_id,
+            StaffAbsence.date >= since,
+        )
+        .order_by(StaffAbsence.date.desc())
+        .all()
+    )
+    return {
+        "absence": [
+            {
+                "id": str(a.id),
+                "kind": a.kind,
+                "date": a.date.isoformat(),
+                "status": a.status,
+                "reason": a.reason,
+            }
+            for a in rows
+        ]
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  Shift swap requests — staff peer-to-peer trading
 # ═══════════════════════════════════════════════════════════════════════════
 #

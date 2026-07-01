@@ -4052,6 +4052,32 @@ def assign_absence_cover(
     return _serialize_absence(absence, db)
 
 
+@router.post("/absences/{absence_id}/decline", response_model=_AbsenceResponse)
+def decline_absence(
+    absence_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner declines a fravær request (e.g. can't grant this ferie week) →
+    status 'cancelled'. Tenant-scoped; the record is kept (documented), just
+    marked declined. Acknowledge is the 'godkend' side; this is 'afvis'."""
+    import uuid as _uuid
+    try:
+        absence_uuid = _uuid.UUID(absence_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid absence_id")
+    absence = db.query(_StaffAbsence).filter(
+        _StaffAbsence.id == absence_uuid,
+        _StaffAbsence.user_id == user.id,
+    ).first()
+    if not absence:
+        raise HTTPException(status_code=404, detail="Absence not found")
+    absence.status = "cancelled"
+    db.commit()
+    db.refresh(absence)
+    return _serialize_absence(absence, db)
+
+
 @router.get("/absences/{absence_id}/replacement-suggestions")
 def suggest_absence_replacements(
     absence_id: str,
