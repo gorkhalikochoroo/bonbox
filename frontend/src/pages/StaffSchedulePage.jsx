@@ -1916,6 +1916,8 @@ export default function StaffSchedulePage() {
                 staff={activeStaff}
                 weekDates={weekDates}
                 getShiftForCell={getShiftForCell}
+                unavailFor={unavailFor}
+                absenceFor={absenceFor}
                 currency={currency}
                 costForShift={costForShift}
                 showCost={showCost}
@@ -3599,7 +3601,7 @@ function CostControls({ showCost, onToggleShowCost, costBasis, onCostBasis, t })
   );
 }
 
-function MobileSchedule({ staff, weekDates, getShiftForCell, costForShift, showCost, weekCost, costBasis, targetPct, t, onCellClick }) {
+function MobileSchedule({ staff, weekDates, getShiftForCell, costForShift, showCost, weekCost, costBasis, targetPct, t, onCellClick, unavailFor, absenceFor }) {
   // Default to today within the current week range. If the user navigated
   // to a different week (Previous/Next), today falls outside — pick the
   // middle of the week (Thursday) as a sensible default.
@@ -3770,6 +3772,10 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, costForShift, showC
             const hrs = shift ? calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0) : 0;
             const isDraft = shift?.status === "draft";
             const shiftCost = shift ? costForShift?.(shift.id) : null;
+            // Same precedence as the desktop grid: a concrete fravær (indigo)
+            // outranks a standing "kan ikke" (red); both only on empty rows.
+            const mAbs = !shift ? (absenceFor?.(member.id, selectedDate) || null) : null;
+            const mBlk = !shift && !mAbs ? (unavailFor?.(member.id, selectedDate) || null) : null;
 
             return (
               <button
@@ -3816,6 +3822,15 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, costForShift, showC
                       </div>
                     )}
                   </div>
+                ) : mAbs ? (
+                  <span className="inline-flex items-center rounded-md px-2 py-1 bg-indigo-100/70 dark:bg-indigo-900/30">
+                    <span className="text-[10px] font-semibold text-indigo-500 dark:text-indigo-300 uppercase tracking-wide">{absKindLabel(mAbs.kind, t)}</span>
+                  </span>
+                ) : mBlk ? (
+                  <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 bg-red-100/70 dark:bg-red-900/30">
+                    <CalendarOff className="w-3 h-3 text-red-400 dark:text-red-400" strokeWidth={2} aria-hidden />
+                    <span className="text-[10px] font-medium text-red-400 dark:text-red-400 tabular-nums">{mBlk.timeLabel || t("schedKanIkkeCell", "Can't work")}</span>
+                  </span>
                 ) : (
                   <div className="text-[11px] text-gray-400 dark:text-gray-500 flex items-center gap-1">
                     <span>{t("schedOff", "OFF")}</span>

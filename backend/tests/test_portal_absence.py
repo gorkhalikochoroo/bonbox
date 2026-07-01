@@ -152,3 +152,40 @@ def test_peer_isolation(client, db):
     client.post("/api/portal/tokA/absence",
                 json={"kind": "ferie", "date_from": _iso(TODAY + timedelta(days=3))})
     assert client.get("/api/portal/tokB/absence").json()["absence"] == []
+
+
+def test_portal_withdraw_own_pending(client, db):
+    """Staffer withdraws their own pending fravær → cancelled; peer's token can't."""
+    _seed(db)
+    f1, f2 = TODAY + timedelta(days=30), TODAY + timedelta(days=32)
+    client.post("/api/portal/tokA/absence",
+                json={"kind": "ferie", "date_from": _iso(f1), "date_to": _iso(f2)})
+    ids = [a["id"] for a in client.get("/api/portal/tokA/absence").json()["absence"]]
+    assert len(ids) == 3
+
+    # Peer token (Bo) sends Agnes's ids → matches nothing.
+    peer = client.post("/api/portal/tokB/absence/withdraw", json={"ids": ids})
+    assert peer.status_code == 200 and peer.json()["withdrawn"] == 0
+
+    # Own withdraw → all 3 cancelled.
+    w = client.post("/api/portal/tokA/absence/withdraw", json={"ids": ids})
+    assert w.status_code == 200 and w.json()["withdrawn"] == 3
+    rows = client.get("/api/portal/tokA/absence").json()["absence"]
+    assert all(a["status"] == "cancelled" for a in rows)
+
+    # Second withdraw is a no-op (no longer pending).
+    again = client.post("/api/portal/tokA/absence/withdraw", json={"ids": ids})
+    assert again.status_code == 200 and again.json()["withdrawn"] == 0
+
+
+def test_portal_withdraw_validation(client, db):
+    """Garbage/foreign uuids and empty lists fail clean, never 500."""
+    _seed(db)
+    ok = client.post("/api/portal/tokA/absence/withdraw", json={"ids": [str(uuid.uuid4())]})
+    assert ok.status_code == 200 and ok.json()["withdrawn"] == 0
+    bad = client.post("/api/portal/tokA/absence/withdraw", json={"ids": ["not-a-uuid"]})
+    assert bad.status_code == 422
+    empty = client.post("/api/portal/tokA/absence/withdraw", json={"ids": []})
+    assert empty.status_code == 422
+    nope = client.post("/api/portal/__nope__/absence/withdraw", json={"ids": [str(uuid.uuid4())]})
+    assert nope.status_code == 404

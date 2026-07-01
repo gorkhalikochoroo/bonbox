@@ -1297,6 +1297,44 @@ def portal_list_absence(token: str, request: Request, db: Session = Depends(get_
     }
 
 
+class AbsenceWithdrawBody(BaseModel):
+    ids: list[str]
+
+
+@router.post("/{token}/absence/withdraw")
+@limiter.limit("6/minute")
+def portal_withdraw_absence(
+    token: str, body: AbsenceWithdrawBody, request: Request, db: Session = Depends(get_db)
+):
+    """Staffer withdraws their OWN still-pending fravær rows (the UI sends the
+    whole grouped range's ids). Identity re-derived from the token — a peer's
+    or foreign id silently matches nothing (filtered by staff_id+user_id), and
+    already-decided rows (godkendt/afvist) are never touched. Status becomes
+    'cancelled' so every existing consumer (owner grid tint, approval card)
+    treats it exactly like a declined row: gone from the roster view."""
+    import uuid as _uuid
+    from app.models.absence import StaffAbsence
+    _link, member = _get_staff_from_token(token, db)
+    if not body.ids or len(body.ids) > 62:
+        raise HTTPException(status_code=422, detail="1-62 ids")
+    try:
+        uuids = [_uuid.UUID(i) for i in body.ids]
+    except (ValueError, AttributeError, TypeError):
+        raise HTTPException(status_code=422, detail="Invalid id")
+    n = (
+        db.query(StaffAbsence)
+        .filter(
+            StaffAbsence.id.in_(uuids),
+            StaffAbsence.staff_id == member.id,
+            StaffAbsence.user_id == member.user_id,
+            StaffAbsence.status == "pending",
+        )
+        .update({"status": "cancelled"}, synchronize_session=False)
+    )
+    db.commit()
+    return {"withdrawn": int(n)}
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  Shift swap requests — staff peer-to-peer trading
 # ═══════════════════════════════════════════════════════════════════════════

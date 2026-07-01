@@ -2270,7 +2270,7 @@ function AbsenceSection({ token }) {
     pending: { label: t("fravaerStatusPending", "Pending"), cls: "bg-amber-100 text-amber-700" },
     acknowledged: { label: t("fravaerStatusApproved", "Approved"), cls: "bg-emerald-100 text-emerald-700" },
     covered: { label: t("fravaerStatusApproved", "Approved"), cls: "bg-emerald-100 text-emerald-700" },
-    cancelled: { label: t("fravaerStatusDeclined", "Declined"), cls: "bg-gray-100 text-gray-500" },
+    cancelled: { label: t("fravaerStatusCancelled", "Cancelled"), cls: "bg-gray-100 text-gray-500" },
   };
 
   const fmtRange = (s, e) => {
@@ -2299,6 +2299,15 @@ function AbsenceSection({ token }) {
     } finally { setSaving(false); }
   };
 
+  const withdraw = async (g) => {
+    try {
+      await portalApi.post(`/portal/${token}/absence/withdraw`, { ids: g.ids });
+      await load();
+    } catch {
+      setErr(t("fravaerWithdrawFailed", "Couldn't withdraw — try again"));
+    }
+  };
+
   const groups = groupAbsence(rows);
 
   return (
@@ -2325,6 +2334,15 @@ function AbsenceSection({ token }) {
                   {g.reason && <div className="text-[12px] text-gray-500 truncate">{g.reason}</div>}
                 </div>
                 <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${st.cls}`}>{st.label}</span>
+                {g.status === "pending" && (
+                  <button
+                    type="button"
+                    onClick={() => withdraw(g)}
+                    className="shrink-0 text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                  >
+                    {t("fravaerWithdraw", "Withdraw")}
+                  </button>
+                )}
               </div>
             );
           })}
