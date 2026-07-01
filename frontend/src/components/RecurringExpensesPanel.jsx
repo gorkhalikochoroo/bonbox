@@ -26,7 +26,7 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
-import { Button, Card, Empty, UpgradeNudge, Icon } from "./ui";
+import { Button, Card, Empty, UpgradeNudge, Icon, Amount } from "./ui";
 import { Repeat } from "lucide-react";
 import { formatDateClearFull } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
@@ -245,7 +245,7 @@ function RuleRow({ rule, currency, onRunNow, onPauseResume, onEdit, onDelete, t 
             )}
           </div>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">
-            {Number(rule.amount).toLocaleString()} {currency} · {t("monthly", "Monthly")} · {t("dayOfMonth", "Day of month")} {rule.day_of_month}
+            <Amount value={Number(rule.amount)} currency={currency} /> · {t("monthly", "Monthly")} · {t("dayOfMonth", "Day of month")} {rule.day_of_month}
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {isPaused

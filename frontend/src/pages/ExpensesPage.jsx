@@ -43,7 +43,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useStickyMethod } from "../hooks/useStickyMethod";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
-import { displayCurrency, getTaxConfig } from "../utils/currency";
+import { displayCurrency, getTaxConfig, formatOwnerMoney } from "../utils/currency";
 import { formatDate, localIso } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn } from "../components/AnimationKit";
@@ -56,7 +56,7 @@ import { safeImageUrl } from "../utils/safeUrl";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { errText } from "../utils/errText";
 import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
-import { PageHeader, TabPills, Button, Empty } from "../components/ui";
+import { PageHeader, TabPills, Button, Empty, Amount } from "../components/ui";
 import EntryCard from "../components/ui/EntryCard";
 import PageShell from "../components/ui/PageShell";
 import DataTable from "../components/ui/DataTable";
@@ -314,7 +314,7 @@ export default function ExpensesPage() {
           if (catMatch) { setCatId(catMatch.id); setCustomCat(""); }
           const remaining = text.replace(numMatch[0], "").replace(/cash|kontant|card|kort|mobilepay|mobil|mixed|dankort/g, "").trim();
           if (remaining.length > 2) setDesc(remaining);
-          setSuccess(`${t("voiceParsed")}: "${text}" → ${val.toLocaleString()} ${currency}`);
+          setSuccess(`${t("voiceParsed")}: "${text}" → ${formatOwnerMoney(val, currency)}`);
           setTimeout(() => setSuccess(""), 3000);
         }
       } else {
@@ -613,7 +613,7 @@ export default function ExpensesPage() {
           ? `${parseFloat(fxOriginalAmount)} ${fxCurrency} → ${value} ${currency}`
           : `${value} ${currency}`,
       );
-      setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${formatDate(submittedSnapshot.expDate)})` : ""}!`);
+      setSuccess(`${formatOwnerMoney(value, currency)}${isBackdated ? ` (${formatDate(submittedSnapshot.expDate)})` : ""}!`);
       window.dispatchEvent(new Event("bonbox-data-changed"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -872,8 +872,7 @@ export default function ExpensesPage() {
             )}
             {fxConvertedAccount != null && (
               <p className="text-sm font-semibold text-gray-900 dark:text-white">
-                ≈ {fxConvertedAccount.toLocaleString(undefined, { maximumFractionDigits: 2 })}{" "}
-                {currency}
+                ≈ <Amount value={fxConvertedAccount} currency={currency} decimals={2} />
                 <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
                   ({parseFloat(fxOriginalAmount || 0)} {fxCurrency} ×{" "}
                   {typeof fxEffectiveRate === "number"
@@ -1068,7 +1067,7 @@ export default function ExpensesPage() {
       id: "amount",
       label: t("amount", "Amount"),
       align: "right",
-      render: (r) => `${parseFloat(r.amount).toLocaleString()} ${currency}`,
+      render: (r) => <Amount value={parseFloat(r.amount)} currency={currency} />,
     },
     {
       id: "payment",
@@ -1283,7 +1282,7 @@ export default function ExpensesPage() {
               demoted to /reports). */}
           <p className="text-xs text-gray-500 dark:text-gray-400 px-1">
             {t("thisMonthSummary", "This month: {total} across {count} expenses · ", {
-              total: `${monthSummary.total.toLocaleString()} ${currency}`,
+              total: formatOwnerMoney(monthSummary.total, currency),
               count: monthSummary.count,
             })}
             <Link
@@ -1329,7 +1328,7 @@ export default function ExpensesPage() {
                     {t("expMissingBilagTitle", "{n} expenses missing a receipt").replace("{n}", String(missing.length))}
                   </span>
                   <span className="block text-xs text-gray-600 dark:text-gray-400 mt-0.5 tabular-nums">
-                    {t("expMissingBilagSub", "{amt} in expenses with no bilag — snap it to keep the fradrag").replace("{amt}", `${missTotal.toLocaleString()} ${currency}`)}
+                    {t("expMissingBilagSub", "{amt} in expenses with no bilag — snap it to keep the fradrag").replace("{amt}", formatOwnerMoney(missTotal, currency))}
                   </span>
                 </span>
                 <ChevronRight
