@@ -34,12 +34,17 @@ check() {
   local description="$1"
   local pattern="$2"
   local exclude_files="${3:-$EXCLUDE_PATTERN}"
+  # 4th arg overrides the allow-list. Color rules keep the full
+  # ALLOW_PATTERN (primitives own color); structural rules (stone /
+  # emoji) apply to components/ui/ too — the primitive layer must
+  # obey its own doctrine.
+  local allow_pattern="${4:-$ALLOW_PATTERN}"
 
   local matches
   matches=$(grep -rEn "$pattern" src/ \
     --include='*.jsx' --include='*.tsx' --include='*.js' --include='*.ts' \
     2>/dev/null \
-    | grep -vE "$ALLOW_PATTERN" \
+    | grep -vE "$allow_pattern" \
     | grep -vE "$exclude_files" \
     | grep -vE ':\s*\*\s|\s\*\s|^[^:]+:\s*//' \
     || true)
@@ -77,9 +82,11 @@ check "Raw green text (use <Icon name='Check' color='success'>)" \
 check "Raw green border (use Card primitive)" \
       'border-(green|emerald)-[1-9][0-9]{2}'
 
-# Rule 5: No stone-* legacy palette anywhere
+# Rule 5: No stone-* legacy palette anywhere — INCLUDING components/ui/
 check "Legacy stone-* palette (codemod to gray-*)" \
-      '(bg-stone-|text-stone-|border-stone-|ring-stone-)'
+      '(bg-stone-|text-stone-|border-stone-|ring-stone-)' \
+      "$EXCLUDE_PATTERN" \
+      'index\.css'
 
 # Rule 6: No rounded-2xl outside Modal primitive
 check "rounded-2xl drift (use rounded-xl)" \
@@ -94,12 +101,34 @@ check "Heavy shadow utility (use shadow-sm or remove)" \
 check "Colored shadow (banned anywhere)" \
       'shadow-(green|emerald|blue|red|amber|yellow|purple|pink)-'
 
-# Rule 9: Emoji in JSX chrome (camera, receipt, warning, check)
-# Exclude useLanguage.jsx (i18n translation strings — out of chrome scope)
-# Exclude DailyClosePage inline status emoji (intentional inline status indicators)
-check "Emoji in chrome (use <Icon name='Camera|Receipt|AlertTriangle|Check' />)" \
-      '(📷|🧾|⚠️|✅|❌|💬|🩸|🌈)' \
-      "$EXCLUDE_PATTERN|src/hooks/useLanguage\.jsx|src/i18n/|src/utils/shareClose\.js|src/__tests__/"
+# Rule 9: ANY emoji in JSX chrome — full Unicode pictograph ranges via
+# perl (grep -E can't match \x{...}), not a hand-maintained glyph list.
+# Ranges: U+1F000–1FAFF (all emoji blocks), U+2B00–2BFF (stars/arrows),
+# U+2705/274C/2728 (legacy ✅❌✨ without FE0F), plus anything carrying
+# the emoji variation selector U+FE0F (⚠️ ⏰ ☀️ …). Plain text glyphs
+# like ✓ · → stay legal. Applies to components/ui/ too. Excludes: i18n
+# translation strings, share/clipboard text builders, tests.
+EMOJI_EXCLUDE="$EXCLUDE_PATTERN|src/hooks/useLanguage\.jsx|src/i18n/|src/utils/shareClose\.js|src/__tests__/"
+# Ratchet: the count may only go DOWN. Lower the baseline whenever a
+# de-emoji pass lands (Onboarding + TrialBanner + Layout admin are the
+# bulk of the remaining grandfathered hits).
+EMOJI_BASELINE=365  # true count 2026-07-01; top offenders: CompetitorPage 42, WineListPage 39, InventoryPage 24, MultiTerminalClose 21, WeatherPage 20
+EMOJI_MATCHES=$(find src -name '*.jsx' -o -name '*.tsx' -o -name '*.js' -o -name '*.ts' 2>/dev/null \
+  | grep -vE "$EMOJI_EXCLUDE" \
+  | xargs perl -CSD -ne 'print "$ARGV:$.: $_" if /[\x{1F000}-\x{1FAFF}\x{2B00}-\x{2BFF}\x{2705}\x{274C}\x{2728}\x{FE0F}]/; close ARGV if eof' 2>/dev/null \
+  | grep -vE ':\s*\*\s|\s\*\s|^[^:]+:[0-9]+:\s*(//|\{?/\*)' \
+  || true)
+EMOJI_COUNT=0
+[ -n "$EMOJI_MATCHES" ] && EMOJI_COUNT=$(echo "$EMOJI_MATCHES" | wc -l | tr -d ' ')
+if [ "$EMOJI_COUNT" -gt "$EMOJI_BASELINE" ]; then
+  echo ""
+  echo "❌ DOCTRINE VIOLATION: NEW emoji in chrome ($EMOJI_COUNT found, ratchet baseline $EMOJI_BASELINE)"
+  echo "   Use <Icon name='…' /> — Lucide outline only. Recent additions:"
+  echo "$EMOJI_MATCHES" | tail -20
+  EXIT=1
+elif [ "$EMOJI_COUNT" -lt "$EMOJI_BASELINE" ]; then
+  echo "ℹ️  Emoji count $EMOJI_COUNT < baseline $EMOJI_BASELINE — lower EMOJI_BASELINE to lock in the progress."
+fi
 
 if [ $EXIT -eq 0 ]; then
   echo "✅ Design doctrine clean. 0 violations."
