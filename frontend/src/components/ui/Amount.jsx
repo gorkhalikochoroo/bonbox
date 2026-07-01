@@ -1,22 +1,27 @@
 /**
  * Amount — the app-wide money-render primitive (Copenhagen / Lunar-grade).
  *
- * Renders a kr. figure so the NUMBER leads and the "kr." token whispers:
- * the amount in tabular-nums, then a de-emphasized, baseline-aligned "kr."
- * at ~0.62em in gray-400. This is the single highest-leverage number-
- * typography move — it makes a figure read like a bank statement, not a
- * spreadsheet cell.
+ * Renders a money figure so the NUMBER leads and the currency token
+ * whispers: the amount in tabular-nums, then a de-emphasized, baseline-
+ * aligned token at ~0.62em in gray-400. This is the single highest-
+ * leverage number-typography move — it makes a figure read like a bank
+ * statement, not a spreadsheet cell.
  *
- * Always routes through formatKr (da-DK grouping, literal "kr."), so a
- * missing / NaN value renders an honest "—" (never a confident 0 kr.), and
- * a surface never mixes "kr." with "DKK".
+ * DKK (the default) routes through formatKr (da-DK grouping, literal
+ * "kr." — a Danish owner reads a bank statement, never "DKK"). Pass a
+ * `currency` prop for user-currency surfaces: non-DKK routes through
+ * formatMoney (locale-correct grouping + the "EUR"/"GBP" code token),
+ * and the code gets the same whisper treatment as "kr.". Either way a
+ * missing / NaN value renders an honest "—" (never a confident 0 kr.),
+ * and one surface never mixes "kr." with "DKK".
  *
- *   <Amount value={135000} size="hero" />   → 135.000  kr.  (kr. small+light)
- *   <Amount value={n} />                     → inherits parent size/weight
- *   <Amount value={null} />                  → —
+ *   <Amount value={135000} size="hero" />          → 135.000  kr.  (kr. small+light)
+ *   <Amount value={n} currency={user?.currency} /> → 15.000  kr.  (DKK) / 15.000  EUR
+ *   <Amount value={n} />                            → inherits parent size/weight
+ *   <Amount value={null} />                         → —
  */
 import React from "react";
-import { formatKr } from "../../utils/currency";
+import { formatOwnerMoney } from "../../utils/currency";
 
 // Only the money HERO earns bold + negative tracking; kpi is the dashboard
 // stat number; body is a slight emphasis; unset inherits the parent entirely.
@@ -26,8 +31,11 @@ const SIZE = {
   body: "font-medium",
 };
 
-export default function Amount({ value, decimals = 0, sign = false, size, className = "" }) {
-  const str = formatKr(value, { decimals, sign });
+export default function Amount({ value, decimals = 0, sign = false, size, currency, className = "" }) {
+  // Same branch as the string helper (formatOwnerMoney): no currency prop
+  // or DKK → the Danish "kr." presentation; anything else → formatMoney's
+  // locale + trailing code. One source of truth for the owner-money rules.
+  const str = formatOwnerMoney(value, currency || "DKK", { decimals, sign });
   const sizeCls = SIZE[size] || "";
 
   // Missing / NaN → honest em-dash, never a currency token on no data.
@@ -35,16 +43,18 @@ export default function Amount({ value, decimals = 0, sign = false, size, classN
     return <span className={`tabular-nums ${sizeCls} ${className}`.trim()}>—</span>;
   }
 
-  // Split the trailing " kr." so the amount leads and the token de-emphasizes.
-  const hasToken = /\skr\.$/.test(str);
-  const num = hasToken ? str.replace(/\skr\.$/, "") : str;
+  // Split the trailing token (" kr." or " EUR") so the amount leads and
+  // the token de-emphasizes.
+  const m = str.match(/\s(kr\.|[A-Z]{2,4})$/);
+  const token = m ? m[1] : null;
+  const num = m ? str.slice(0, m.index) : str;
 
   return (
     <span className={`inline-flex items-baseline tabular-nums ${sizeCls} ${className}`.trim()}>
       <span>{num}</span>
-      {hasToken && (
+      {token && (
         <span className="text-[0.62em] font-medium text-gray-400 dark:text-gray-500 ml-0.5">
-          kr.
+          {token}
         </span>
       )}
     </span>

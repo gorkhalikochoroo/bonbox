@@ -63,6 +63,7 @@ import Button from "../components/ui/Button";
 import Input from "../components/ui/Input";
 import Chip from "../components/ui/Chip";
 import StatCard from "../components/ui/StatCard";
+import Amount from "../components/ui/Amount";
 import TabPills from "../components/ui/TabPills";
 import FilterBar from "../components/ui/FilterBar";
 import Card from "../components/ui/Card";
@@ -289,7 +290,7 @@ export default function GavekortPage() {
         <UpgradeNudge
           intent="card"
           tier="starter"
-          icon="🎁"
+          iconName="Gift"
           feature="gavekort"
           benefit={t(
             "gkUpsell",
@@ -947,16 +948,16 @@ function LedgerSection({ t }) {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <StatCard
           label={t("gkSummaryIssued", "Udstedt")}
-          value={krFromMinor(summary.issued_minor ?? 0, { decimals: 0 })}
+          value={<Amount value={(summary.issued_minor ?? 0) / 100} />}
           helper={t("gkSummaryActiveCount", "{n} aktive", { n: summary.active_count ?? 0 })}
         />
         <StatCard
           label={t("gkSummaryRedeemed", "Indløst")}
-          value={krFromMinor(summary.redeemed_minor ?? 0, { decimals: 0 })}
+          value={<Amount value={(summary.redeemed_minor ?? 0) / 100} />}
         />
         <StatCard
           label={t("gkSummaryOutstanding", "Udestående")}
-          value={krFromMinor(summary.outstanding_minor ?? 0, { decimals: 0 })}
+          value={<Amount value={(summary.outstanding_minor ?? 0) / 100} />}
           accent={(summary.outstanding_minor ?? 0) > 0 ? "warn" : "neutral"}
           helper={t("gkSummaryOutstandingHelp", "Skyldigt til gæster")}
         />

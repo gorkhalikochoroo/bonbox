@@ -8,10 +8,10 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
-import { PageHeader, StatCard } from "../components/ui";
+import { PageHeader, StatCard, Amount } from "../components/ui";
 import { errText } from "../utils/errText";
 
 const IN_CATEGORIES = ["Sales", "Tips", "Loan", "Other"];
@@ -66,7 +66,7 @@ export default function CashBookPage() {
       setCategory("");
       setTxnDate(localIso());
       trackEvent("cash_transaction", "cashbook", `${tab} ${value} ${currency}`);
-      setSuccess(`${tab === "cash_in" ? "+" : "-"}${value.toLocaleString()} ${currency}`);
+      setSuccess(`${tab === "cash_in" ? "+" : "-"}${formatOwnerMoney(value, user?.currency, { decimals: 2 })}`);
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -137,17 +137,17 @@ export default function CashBookPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard
           label={t("cashBalance")}
-          value={`${balance.balance.toLocaleString()} ${currency}`}
+          value={<Amount value={balance.balance} currency={currency} decimals={2} />}
           accent={balance.balance >= 0 ? "success" : "critical"}
         />
         <StatCard
           label={t("totalCashIn")}
-          value={`+${balance.total_in.toLocaleString()} ${currency}`}
+          value={<Amount value={balance.total_in} currency={currency} decimals={2} sign />}
           accent="success"
         />
         <StatCard
           label={t("totalCashOut")}
-          value={`-${balance.total_out.toLocaleString()} ${currency}`}
+          value={<Amount value={balance.total_out ? -balance.total_out : 0} currency={currency} decimals={2} />}
           accent="critical"
         />
       </div>
@@ -216,7 +216,7 @@ export default function CashBookPage() {
                   : "border-red-200 dark:border-red-700 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30"
               }`}
             >
-              {amt.toLocaleString()} {currency}
+              <Amount value={amt} currency={currency} />
             </button>
           ))}
         </div>
@@ -361,13 +361,13 @@ export default function CashBookPage() {
                       </td>
                       <td className={`px-4 py-3 text-sm ${txn.reference_id ? "text-gray-400 dark:text-gray-500" : "text-gray-500 dark:text-gray-400"}`}>{txn.category || "-"}</td>
                       <td className={`px-4 py-3 text-sm text-right font-semibold ${txn.reference_id ? "text-gray-300 dark:text-emerald-600" : "text-emerald-600 dark:text-gray-300"}`}>
-                        {txn.type === "cash_in" ? `+${parseFloat(txn.amount).toLocaleString()}` : ""}
+                        {txn.type === "cash_in" ? <Amount value={parseFloat(txn.amount)} currency={currency} decimals={2} sign /> : ""}
                       </td>
                       <td className={`px-4 py-3 text-sm text-right font-semibold ${txn.reference_id ? "text-red-400 dark:text-red-600" : "text-red-600 dark:text-red-400"}`}>
-                        {txn.type === "cash_out" ? `-${parseFloat(txn.amount).toLocaleString()}` : ""}
+                        {txn.type === "cash_out" ? <Amount value={-parseFloat(txn.amount)} currency={currency} decimals={2} /> : ""}
                       </td>
                       <td className={`px-4 py-3 text-sm text-right font-bold ${txn.runningBalance >= 0 ? "text-gray-800 dark:text-white" : "text-red-600 dark:text-red-400"}`}>
-                        {txn.runningBalance.toLocaleString()} {currency}
+                        <Amount value={txn.runningBalance} currency={currency} decimals={2} />
                       </td>
                       <td className="px-4 py-3 text-right space-x-2">
                         {txn.reference_id ? (

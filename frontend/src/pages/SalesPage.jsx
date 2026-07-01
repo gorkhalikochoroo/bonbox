@@ -30,12 +30,12 @@ import ReceiptViewer from "../components/ReceiptViewer";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { errText } from "../utils/errText";
-import { displayCurrency, getTaxConfig } from "../utils/currency";
+import { displayCurrency, getTaxConfig, formatOwnerMoney } from "../utils/currency";
 import { formatDate, formatDateClear, localIso } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
-import { PageHeader, Button, SectionBanner, StatCard, TabPills, Empty, Card } from "../components/ui";
+import { PageHeader, Button, SectionBanner, StatCard, TabPills, Empty, Card, Amount } from "../components/ui";
 import EntryCard from "../components/ui/EntryCard";
 import PageShell from "../components/ui/PageShell";
 import DataTable from "../components/ui/DataTable";
@@ -187,7 +187,7 @@ export default function SalesPage() {
           else if (text.includes("mobile")) setMethod("mobilepay");
           const remaining = text.replace(numMatch[0], "").replace(/cash|kontant|card|kort|mobilepay|mobil|mixed|dankort/g, "").trim();
           if (remaining.length > 2) setNotes(remaining);
-          setSuccess(`${t("voiceParsed")}: "${text}" → ${val.toLocaleString()} ${currency}`);
+          setSuccess(`${t("voiceParsed")}: "${text}" → ${formatOwnerMoney(val, user?.currency)}`);
           setTimeout(() => setSuccess(""), 3000);
         }
       } else {
@@ -333,7 +333,7 @@ export default function SalesPage() {
     const value = amt || parseFloat(amount);
     if (!value) return;
     const duplicate = sales.find(s => s.date === saleDate && parseFloat(s.amount) === value);
-    if (duplicate && !(await confirm({ message: `${t("aSaleOf")} ${value.toLocaleString()} ${currency} ${t("on")} ${formatDate(saleDate)} ${t("duplicateSaleConfirm")}`, destructive: false }))) {
+    if (duplicate && !(await confirm({ message: `${t("aSaleOf")} ${formatOwnerMoney(value, user?.currency)} ${t("on")} ${formatDate(saleDate)} ${t("duplicateSaleConfirm")}`, destructive: false }))) {
       return;
     }
     setError("");
@@ -381,7 +381,7 @@ export default function SalesPage() {
       }
       const isBackdated = submittedSnapshot.saleDate !== localIso();
       trackEvent("sale_logged", "sales", `${value} ${currency} via ${method}`);
-      setSuccess(`${value.toLocaleString()} ${currency}${isBackdated ? ` (${formatDate(submittedSnapshot.saleDate)})` : ""}!`);
+      setSuccess(`${formatOwnerMoney(value, user?.currency)}${isBackdated ? ` (${formatDate(submittedSnapshot.saleDate)})` : ""}!`);
       // Refresh inventory / aggregates / cross-page subscribers — but
       // don't block the UI on it.
       window.dispatchEvent(new Event("bonbox-data-changed"));
@@ -477,21 +477,23 @@ export default function SalesPage() {
   // ─── Right-rail panel (rendered inline in the JSX below) ──────────────
   const rightRailFourTile = (
     <div className="lg:col-span-2 grid grid-cols-2 gap-3 content-start">
+      {/* Currency token now lives IN the value via <Amount> (whispered at
+          0.62em), so the helper no longer repeats "· DKK" after the count. */}
       <StatCard
         label={t("thisSession", "THIS SESSION")}
-        value={salesLoading ? "—" : sessionAgg.sessionTotal.toLocaleString()}
-        helper={salesLoading ? " " : `${sessionAgg.sessionCount} ${sessionAgg.sessionCount === 1 ? t("saleCount") : t("salesCount")} · ${currency}`}
+        value={salesLoading ? "—" : <Amount value={sessionAgg.sessionTotal} currency={user?.currency} />}
+        helper={salesLoading ? " " : `${sessionAgg.sessionCount} ${sessionAgg.sessionCount === 1 ? t("saleCount") : t("salesCount")}`}
       />
       <StatCard
         label={t("today", "TODAY")}
-        value={salesLoading ? "—" : sessionAgg.todayTotal.toLocaleString()}
-        helper={salesLoading ? " " : `${sessionAgg.todayCount} ${sessionAgg.todayCount === 1 ? t("saleCount") : t("salesCount")} · ${currency}`}
+        value={salesLoading ? "—" : <Amount value={sessionAgg.todayTotal} currency={user?.currency} />}
+        helper={salesLoading ? " " : `${sessionAgg.todayCount} ${sessionAgg.todayCount === 1 ? t("saleCount") : t("salesCount")}`}
       />
       {eventFilter && eventFilter !== "" && (
         <StatCard
           label={t("event", "EVENT")}
-          value={salesLoading ? "—" : sessionAgg.eventTotal.toLocaleString()}
-          helper={salesLoading ? " " : `${sessionAgg.eventCount} ${sessionAgg.eventCount === 1 ? t("saleCount") : t("salesCount")} · ${currency}`}
+          value={salesLoading ? "—" : <Amount value={sessionAgg.eventTotal} currency={user?.currency} />}
+          helper={salesLoading ? " " : `${sessionAgg.eventCount} ${sessionAgg.eventCount === 1 ? t("saleCount") : t("salesCount")}`}
         />
       )}
       <Card
@@ -529,7 +531,7 @@ export default function SalesPage() {
   const sessionInlineLine = (
     <p className="text-sm text-gray-500 dark:text-gray-400">
       {sessionAgg.sessionCount} {sessionAgg.sessionCount === 1 ? t("saleCount") : t("salesCount")}
-      {" "}{t("thisSessionInline", "this session")} · {sessionAgg.sessionTotal.toLocaleString()} {currency}
+      {" "}{t("thisSessionInline", "this session")} · <Amount value={sessionAgg.sessionTotal} currency={user?.currency} />
       <Link
         to="/daily-close"
         className="ml-2 text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white underline"
@@ -568,7 +570,7 @@ export default function SalesPage() {
         return (
           <div className="inline-flex items-center justify-end gap-2 flex-wrap">
             <span className={st === "returned" ? "line-through text-gray-500" : "font-semibold tabular-nums"}>
-              {parseFloat(r.amount).toLocaleString()} {currency}
+              <Amount value={parseFloat(r.amount)} currency={user?.currency} />
             </span>
             {statusBadge(r)}
             {r.receipt_photo && (
@@ -638,7 +640,7 @@ export default function SalesPage() {
       icon: <Trash size={14} />,
       onClick: async () => {
         const ok = await confirm({
-          message: `${t("moveToTrash")} — ${Number(row.amount || 0).toLocaleString()} ${currency}`,
+          message: `${t("moveToTrash")} — ${formatOwnerMoney(Number(row.amount || 0), user?.currency)}`,
           destructive: true,
           confirmLabel: t("moveToTrash"),
         });
@@ -657,7 +659,7 @@ export default function SalesPage() {
       <Card variant="emphasis">
         <Card.Header
           title={t("editSale", "Edit sale")}
-          subtitle={`${parseFloat(sale.amount).toLocaleString()} ${currency} · ${formatDateClear(sale.date)}`}
+          subtitle={`${formatOwnerMoney(parseFloat(sale.amount), user?.currency)} · ${formatDateClear(sale.date)}`}
           action={
             <Button variant="ghost" size="sm" onClick={() => { setEditId(null); setEditData({}); }}>
               {t("cancel")}
@@ -724,7 +726,7 @@ export default function SalesPage() {
     if (!sale) return null;
     const reasons = ["Wrong order", "Cold/bad quality", "Changed mind", "Defective", "Size issue", "Other"];
     const actions = [
-      { id: "refund",   label: t("refund", "Refund"),     sub: `${parseFloat(sale.amount).toLocaleString()} ${currency}` },
+      { id: "refund",   label: t("refund", "Refund"),     sub: formatOwnerMoney(parseFloat(sale.amount), user?.currency) },
       { id: "replace",  label: t("replace", "Replace"),   sub: t("sendNewItem", "Send new item") },
       { id: "exchange", label: t("exchange", "Exchange"), sub: t("swapForAnother", "Swap for another") },
       { id: "restock",  label: t("restock", "Restock"),   sub: t("backToInventory", "Back to inventory") },
@@ -733,7 +735,7 @@ export default function SalesPage() {
       <Card variant="emphasis">
         <Card.Header
           title={t("processReturn", "Process return")}
-          subtitle={`${parseFloat(sale.amount).toLocaleString()} ${currency} · ${formatDateClear(sale.date)}`}
+          subtitle={`${formatOwnerMoney(parseFloat(sale.amount), user?.currency)} · ${formatDateClear(sale.date)}`}
           action={
             <Button variant="ghost" size="sm" onClick={() => { setReturnMode(null); setReturnData({ reason: "", action: "" }); }}>
               {t("cancel")}
@@ -826,10 +828,10 @@ export default function SalesPage() {
               ×
             </Button>
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex-1">
-              {selected.size} {t("selected")} · {total.toLocaleString()} {currency}
+              {selected.size} {t("selected")} · <Amount value={total} currency={user?.currency} />
             </p>
             <span className="text-xs text-gray-500 dark:text-gray-400">
-              {t("avg")}: {Math.round(avg).toLocaleString()}
+              {t("avg")}: <Amount value={avg} currency={user?.currency} />
             </span>
           </div>
           <div className="flex gap-2">
@@ -837,7 +839,7 @@ export default function SalesPage() {
               variant="secondary"
               size="sm"
               onClick={() => {
-                const text = `${selected.size} sales | Total: ${total.toLocaleString()} ${currency} | Avg: ${Math.round(avg).toLocaleString()} ${currency}`;
+                const text = `${selected.size} sales | Total: ${formatOwnerMoney(total, user?.currency)} | Avg: ${formatOwnerMoney(avg, user?.currency)}`;
                 navigator.clipboard?.writeText(text);
                 setSuccess(t("copiedToClipboard"));
                 setTimeout(() => setSuccess(""), 2000);
@@ -956,7 +958,7 @@ export default function SalesPage() {
               setShowItemSale(false);
               fetchSales(filterFrom, filterTo);
               fetchInventory();
-              setSuccess(`${t("itemSale")}: ${saleData.item_name || t("item")} × ${saleData.quantity_sold} = ${(saleData.quantity_sold * saleData.unit_price).toLocaleString()} ${currency}`);
+              setSuccess(`${t("itemSale")}: ${saleData.item_name || t("item")} × ${saleData.quantity_sold} = ${formatOwnerMoney(saleData.quantity_sold * saleData.unit_price, user?.currency)}`);
               setTimeout(() => setSuccess(""), 3000);
             } catch (err) {
               setError(errText(err, t("failedToCreateItemSale")));
@@ -995,7 +997,7 @@ export default function SalesPage() {
           />
           <StatCard
             label={t("refunded", "Refunded")}
-            value={`${Math.round(returnSummary.total_refunded).toLocaleString()} ${currency}`}
+            value={<Amount value={returnSummary.total_refunded} currency={user?.currency} />}
             accent="critical"
           />
           <StatCard
@@ -1093,7 +1095,7 @@ export default function SalesPage() {
         {filtered.length > 0 && (
           <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/40 px-4 py-2.5 text-sm">
             <span className="font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-              {t("total")}: {Math.round(periodTotal).toLocaleString()} {currency}
+              {t("total")}: <Amount value={periodTotal} currency={user?.currency} />
             </span>
             <span className="text-gray-300 dark:text-gray-700" aria-hidden="true">·</span>
             <span className="text-gray-600 dark:text-gray-300 tabular-nums">
@@ -1101,11 +1103,11 @@ export default function SalesPage() {
             </span>
             <span className="text-gray-300 dark:text-gray-700" aria-hidden="true">·</span>
             <span className="text-gray-600 dark:text-gray-300 tabular-nums">
-              {t("avgDailySales")}: {Math.round(periodAvgDay).toLocaleString()} {currency}
+              {t("avgDailySales")}: <Amount value={periodAvgDay} currency={user?.currency} />
             </span>
             <span className="text-gray-300 dark:text-gray-700" aria-hidden="true">·</span>
             <span className="text-gray-600 dark:text-gray-300 tabular-nums">
-              {t("avgPerSale")}: {Math.round(periodAvgSale).toLocaleString()} {currency}
+              {t("avgPerSale")}: <Amount value={periodAvgSale} currency={user?.currency} />
             </span>
           </div>
         )}
@@ -1237,7 +1239,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                   >
                     <div>
                       <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.name}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{item.category} · {t("cost")}: {parseFloat(item.cost_per_unit)} {currency}/{item.unit}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{item.category} · {t("cost")}: <Amount value={parseFloat(item.cost_per_unit)} currency={currency} decimals={2} />/{item.unit}</p>
                     </div>
                     <div className="text-right">
                       {isEmpty ? (
@@ -1265,7 +1267,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                 <div>
                   <p className="font-semibold text-gray-900 dark:text-gray-100">{selectedItem.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {t("cost")}: {cost.toFixed(2)} {currency}/{sellUnit} · {t("stock")}: {Math.floor(available)} {sellUnit}
+                    {t("cost")}: <Amount value={cost} currency={currency} decimals={2} />/{sellUnit} · {t("stock")}: {Math.floor(available)} {sellUnit}
                     {hasConversion && <span className="ml-1 text-gray-400">({parseFloat(selectedItem.quantity)} {selectedItem.unit})</span>}
                   </p>
                 </div>
@@ -1321,16 +1323,16 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
               <div className="bg-gray-50 dark:bg-gray-800/60 p-3 rounded-lg mb-4 space-y-1 border border-gray-200 dark:border-gray-700">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500 dark:text-gray-400">{t("total")}</span>
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">{total.toLocaleString()} {currency}</span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100"><Amount value={total} currency={currency} /></span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500 dark:text-gray-400">{t("cost")}</span>
-                  <span className="text-gray-700 dark:text-gray-300">{(qtyNum * cost).toLocaleString()} {currency}</span>
+                  <span className="text-gray-700 dark:text-gray-300"><Amount value={qtyNum * cost} currency={currency} /></span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500 dark:text-gray-400">{t("profit")}</span>
                   <span className={`font-semibold ${profit >= 0 ? "text-gray-900 dark:text-gray-100" : "text-red-600 dark:text-red-400"}`}>
-                    {profit >= 0 ? "+" : ""}{profit.toLocaleString()} {currency}
+                    <Amount value={profit} currency={currency} sign />
                   </span>
                 </div>
                 {cost > 0 && (
@@ -1352,7 +1354,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                 disabled={!qtyNum || !priceNum || qtyNum > available}
                 className="flex-1"
               >
-                {t("sell")} {total > 0 ? `(${total.toLocaleString()} ${currency})` : ""}
+                {t("sell")} {total > 0 ? `(${formatOwnerMoney(total, currency)})` : ""}
               </Button>
             </div>
           </>

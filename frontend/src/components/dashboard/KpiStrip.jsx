@@ -28,9 +28,8 @@
  */
 import React from "react";
 import { TrendingUp, TrendingDown, Calendar } from "lucide-react";
-import { StatCard } from "../ui";
+import { StatCard, Amount } from "../ui";
 import { useLanguage } from "../../hooks/useLanguage";
-import { formatKr } from "../../utils/currency";
 
 function fmtPct(n) {
   if (n == null || Number.isNaN(Number(n))) return null;
@@ -61,7 +60,7 @@ function DeltaIndicator({ pct, label }) {
       : null;
   const pretty = fmtPct(pct);
   return (
-    <span className="inline-flex items-center gap-1 text-[11.5px]">
+    <span className="inline-flex items-center gap-1 text-xs">
       <span className={`inline-flex items-center gap-0.5 font-medium ${colorClass}`}>
         {Arrow && <Arrow size={12} strokeWidth={2} aria-hidden="true" />}
         <span>{pretty}</span>
@@ -93,7 +92,7 @@ export default function KpiStrip({
   const tileSpecs = {
     today: {
       label: t("liveRevenueToday", "Revenue today"),
-      value: formatKr(ctx?.summary?.todayRevenue ?? 0, { decimals: 0 }),
+      value: <Amount value={ctx?.summary?.todayRevenue ?? 0} currency={ctx?.currency} />,
       helper: showDelta ? (
         <DeltaIndicator
           pct={todayDelta}
@@ -104,7 +103,7 @@ export default function KpiStrip({
     },
     week: {
       label: t("liveRevenueWeek", "Revenue this week"),
-      value: formatKr(ctx?.summary?.weekRevenue ?? 0, { decimals: 0 }),
+      value: <Amount value={ctx?.summary?.weekRevenue ?? 0} currency={ctx?.currency} />,
       helper: showDelta ? (
         <DeltaIndicator
           pct={weekDelta}
@@ -118,7 +117,7 @@ export default function KpiStrip({
     // often, and the natural today → week → month progression.
     month: {
       label: t("liveRevenueMonth", "This month"),
-      value: formatKr(ctx?.summary?.month_revenue ?? 0, { decimals: 0 }),
+      value: <Amount value={ctx?.summary?.month_revenue ?? 0} currency={ctx?.currency} />,
       helper: null,
       accent: "neutral",
     },

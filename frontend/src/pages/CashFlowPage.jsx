@@ -23,7 +23,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { formatKr } from "../utils/currency";
 import { formatDateClear } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
-import { PageHeader, StatCard, Button } from "../components/ui";
+import { PageHeader, StatCard, Button, Amount } from "../components/ui";
 
 // da-DK weekday short names, indexed by Mon=0 (backend WEEKDAY_NAMES order).
 const WEEKDAY_SHORT = {
@@ -268,12 +268,12 @@ export default function CashFlowPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard
           label={t("cfpCurrentBalance")}
-          value={formatKr(current_balance, { decimals: 0 })}
+          value={<Amount value={current_balance} />}
           accent={current_balance >= 0 ? "success" : "critical"}
         />
         <StatCard
           label={t("cfpLowestPoint")}
-          value={formatKr(lowest_point.balance, { decimals: 0 })}
+          value={<Amount value={lowest_point.balance} />}
           accent={
             lowest_point.balance >= safety_threshold
               ? "success"
@@ -291,7 +291,7 @@ export default function CashFlowPage() {
         />
         <StatCard
           label={t("cfpReceivables")}
-          value={formatKr(total_receivable, { decimals: 0 })}
+          value={<Amount value={total_receivable} />}
           helper={t("cfpCustomersCount").replace("{n}", String(receivables.length))}
         />
       </div>

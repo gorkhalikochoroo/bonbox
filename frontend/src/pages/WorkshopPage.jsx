@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { Car, Wallet, BarChart3, Timer } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -61,11 +62,11 @@ export default function WorkshopPage() {
       {/* KPI Cards */}
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <KpiCard icon="🚗" label={t("wsInWorkshop", "In Workshop")} value={summary.vehicles_in_workshop}
+          <KpiCard icon={Car} label={t("wsInWorkshop", "In Workshop")} value={summary.vehicles_in_workshop}
             sub={Object.entries(summary.status_breakdown || {}).map(([k, v]) => `${v} ${k.replace("_", " ")}`).join(", ")} />
-          <KpiCard icon="💰" label={t("wsWeekRevenue", "Week Revenue")} value={`${summary.week_revenue?.toLocaleString()} ${currency}`} />
-          <KpiCard icon="📊" label={t("wsAvgJobValue", "Avg Job Value")} value={`${summary.avg_job_value?.toLocaleString()} ${currency}`} />
-          <KpiCard icon="⏱️" label={t("wsAvgTurnaround", "Avg Turnaround")} value={summary.avg_turnaround_days ? `${summary.avg_turnaround_days}d` : "—"} />
+          <KpiCard icon={Wallet} label={t("wsWeekRevenue", "Week Revenue")} value={`${summary.week_revenue?.toLocaleString()} ${currency}`} />
+          <KpiCard icon={BarChart3} label={t("wsAvgJobValue", "Avg Job Value")} value={`${summary.avg_job_value?.toLocaleString()} ${currency}`} />
+          <KpiCard icon={Timer} label={t("wsAvgTurnaround", "Avg Turnaround")} value={summary.avg_turnaround_days ? `${summary.avg_turnaround_days}d` : "—"} />
         </div>
       )}
 
@@ -104,11 +105,15 @@ export default function WorkshopPage() {
   );
 }
 
-function KpiCard({ icon, label, value, sub }) {
+// `icon` is a Lucide component (outline, matches the sidebar) — not an emoji.
+function KpiCard({ icon: IconCmp, label, value, sub }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{icon} {label}</p>
-      <p className="text-xl font-bold mt-1 dark:text-white">{value}</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1.5">
+        {IconCmp && <IconCmp className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
+        {label}
+      </p>
+      <p className="text-xl font-bold mt-1 dark:text-white tabular-nums">{value}</p>
       {sub && <p className="text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
     </div>
   );

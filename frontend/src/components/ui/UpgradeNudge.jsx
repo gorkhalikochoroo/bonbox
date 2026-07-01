@@ -36,6 +36,9 @@ import React, { useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useEntitlements } from "../../hooks/useEntitlements";
 import { isNativeApp } from "../../utils/platform";
+// Direct import (not the ./index barrel) — the barrel imports UpgradeNudge,
+// so going through it would create a cycle.
+import Icon from "./Icon";
 
 // ─── Tier prices (founding rates leading) ─────────────────────────
 // Single source of truth — sync with backend/app/services/billing.py
@@ -92,12 +95,27 @@ export default function UpgradeNudge({
   ctaLabel = "See plans",
   cta = "/subscription",
   onTry = null,    // optional callback if you want to handle the click
+  // Prefer `iconName` — a Lucide icon from the ui <Icon> registry (matches
+  // the sidebar). The legacy `icon` string (emoji) is still honored for
+  // back-compat, but new callers should pass `iconName`.
   icon = null,
+  iconName = null,
   className = "",
   feature = null,  // optional — when set, self-gate on entitlements (see above)
 }) {
   const navigate = useNavigate();
   const tierMeta = TIER_LABELS[tier] || TIER_LABELS.starter;
+
+  // One glyph resolver: Lucide `iconName` wins, then the legacy emoji
+  // string, else nothing — keeps all three intents consistent.
+  const glyphFor = (size) => {
+    if (iconName)
+      return (
+        <Icon name={iconName} size={size} className="text-gray-400 dark:text-gray-500" />
+      );
+    if (icon) return <span aria-hidden="true">{icon}</span>;
+    return null;
+  };
 
   // Self-gating path — only fires when caller passed `feature`. Hooks
   // must run unconditionally, so we always call useEntitlements and
@@ -143,7 +161,7 @@ export default function UpgradeNudge({
           "text-xs font-medium transition-colors " + className
         }
       >
-        {icon && <span aria-hidden="true">{icon}</span>}
+        {glyphFor(14)}
         <span>
           {benefit} · <strong>{tierMeta.name}</strong> {tierMeta.founding}
         </span>
@@ -173,9 +191,9 @@ export default function UpgradeNudge({
         }
       >
         <div className="flex items-start gap-3 mb-3">
-          {icon && (
-            <div className="text-2xl shrink-0" aria-hidden="true">
-              {icon}
+          {(iconName || icon) && (
+            <div className="shrink-0 mt-0.5 text-2xl" aria-hidden="true">
+              {glyphFor(22)}
             </div>
           )}
           <div className="flex-1 min-w-0">
@@ -206,7 +224,7 @@ export default function UpgradeNudge({
 
   // intent === "dialog"
   return <UpgradeNudgeDialog
-    icon={icon}
+    glyph={glyphFor(28)}
     benefit={benefit}
     ctaLabel={ctaLabel}
     cta={cta}
@@ -224,7 +242,7 @@ export default function UpgradeNudge({
  *  WEB ONLY. The parent <UpgradeNudge> returns null on native (Apple 3.1.1),
  *  so this dialog — which shows the tier name, price (PriceTag) and a
  *  /subscription CTA — is never rendered inside the iOS app. */
-function UpgradeNudgeDialog({ icon, benefit, ctaLabel, cta, handleClick, tier, tierMeta, className, navigate }) {
+function UpgradeNudgeDialog({ glyph, benefit, ctaLabel, cta, handleClick, tier, tierMeta, className, navigate }) {
   const dialogRef = useRef(null);
   const previousActiveElementRef = useRef(null);
 
@@ -263,7 +281,11 @@ function UpgradeNudgeDialog({ icon, benefit, ctaLabel, cta, handleClick, tier, t
         tabIndex={-1}
         className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl max-w-sm w-full p-6 text-center focus:outline-none"
       >
-        {icon && <div className="text-4xl mb-3" aria-hidden="true">{icon}</div>}
+        {glyph && (
+          <div className="mb-3 flex justify-center text-4xl" aria-hidden="true">
+            {glyph}
+          </div>
+        )}
         <p className="text-[10px] font-semibold tracking-wider uppercase text-gray-500 dark:text-gray-400">
           {tierMeta.name} · {tierMeta.badge}
         </p>

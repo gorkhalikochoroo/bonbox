@@ -134,6 +134,22 @@ export function formatKr(amount, options = {}) {
   return `${sign}${formatted} kr.`;
 }
 
+/* ─────────────────────────── formatOwnerMoney ──────────────────────────
+ * The canonical STRING money formatter for owner-facing surfaces — the
+ * plain-string sibling of the <Amount> ui primitive (same branch logic):
+ * DKK routes through formatKr ("15.000 kr.", da-DK), everything else
+ * through formatMoney (locale-correct grouping + the currency code).
+ * Use this in template literals, tooltips, toasts, button labels and
+ * clipboard text where JSX can't go; use <Amount> in rendered value slots.
+ * Defaults to whole kroner (decimals: 0) — pass decimals: 2 on ledger-
+ * exact surfaces (kassekladde). null/NaN → "—".
+ * ──────────────────────────────────────────────────────────────────────── */
+export function formatOwnerMoney(amount, currency = "DKK", options = {}) {
+  const opts = { decimals: 0, ...options };
+  const code = displayCurrency(currency);
+  return code === "DKK" ? formatKr(amount, opts) : formatMoney(amount, code, opts);
+}
+
 /** Convenience: parse a money string back to number. Tolerant of locale separators. */
 export function parseMoney(str) {
   if (str == null) return null;

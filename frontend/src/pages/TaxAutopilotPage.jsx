@@ -6,13 +6,12 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
-import { UpgradeNudge, PageHeader, Button, StatCard, SectionBanner, Icon } from "../components/ui";
+import { UpgradeNudge, PageHeader, Button, StatCard, SectionBanner, Icon, Amount } from "../components/ui";
 
-function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "—"; }
 
 export default function TaxAutopilotPage() {
   const { user } = useAuth();
@@ -183,10 +182,10 @@ export default function TaxAutopilotPage() {
             <div className="text-right">
               <p className="text-sm opacity-80">{t("estimatedAmount")}</p>
               <p className="text-3xl font-bold mt-1">
-                {fmt(nextDeadline.estimated_amount)} <span className="text-lg opacity-80">{currency}</span>
+                <Amount value={nextDeadline.estimated_amount} currency={currency} />
               </p>
               <p className="text-xs opacity-70 mt-1">
-                {t("taxOutputLabel")}: {fmt(nextDeadline.output_vat)} • {t("taxInputLabel")}: {fmt(nextDeadline.input_vat)}
+                {t("taxOutputLabel")}: <Amount value={nextDeadline.output_vat} currency={currency} /> • {t("taxInputLabel")}: <Amount value={nextDeadline.input_vat} currency={currency} />
               </p>
             </div>
           </div>
@@ -243,23 +242,23 @@ export default function TaxAutopilotPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard
           label={t("taxThisMonthLabel", { taxName: tax_name })}
-          value={`${fmt(current_month.vat_payable)} ${currency}`}
+          value={<Amount value={current_month.vat_payable} currency={currency} />}
           helper={current_month.month}
           accent={current_month.vat_payable > 0 ? "warn" : "success"}
         />
         <StatCard
           label={t("taxMonthSales")}
-          value={`${fmt(current_month.sales_total)} ${currency}`}
-          helper={`${t("taxOutputLabel")}: ${fmt(current_month.output_vat)}`}
+          value={<Amount value={current_month.sales_total} currency={currency} />}
+          helper={`${t("taxOutputLabel")}: ${formatOwnerMoney(current_month.output_vat, user?.currency)}`}
         />
         <StatCard
           label={t("taxMonthExpenses")}
-          value={`${fmt(current_month.expenses_total)} ${currency}`}
-          helper={`${t("taxInputLabel")}: ${fmt(current_month.input_vat)}`}
+          value={<Amount value={current_month.expenses_total} currency={currency} />}
+          helper={`${t("taxInputLabel")}: ${formatOwnerMoney(current_month.input_vat, user?.currency)}`}
         />
         <StatCard
           label={t("taxYtdLabel", { taxName: tax_name })}
-          value={`${fmt(ytd.vat_payable)} ${currency}`}
+          value={<Amount value={ytd.vat_payable} currency={currency} />}
           helper={`${ytd.year}`}
           accent={ytd.vat_payable > 0 ? "warn" : "success"}
         />
@@ -302,11 +301,11 @@ export default function TaxAutopilotPage() {
                   }`}>
                     <td className="py-3 px-2 font-medium text-gray-700 dark:text-gray-300">{dl.period_label}</td>
                     <td className="py-3 px-2 text-gray-500">{dl.deadline}</td>
-                    <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400">{fmt(dl.sales_total)}</td>
-                    <td className="py-3 px-2 text-right text-orange-500">{fmt(dl.output_vat)}</td>
-                    <td className="py-3 px-2 text-right text-emerald-600">{fmt(dl.input_vat)}</td>
+                    <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400"><Amount value={dl.sales_total} currency={currency} /></td>
+                    <td className="py-3 px-2 text-right text-orange-500"><Amount value={dl.output_vat} currency={currency} /></td>
+                    <td className="py-3 px-2 text-right text-emerald-600"><Amount value={dl.input_vat} currency={currency} /></td>
                     <td className={`py-3 px-2 text-right font-bold ${dl.estimated_amount >= 0 ? "text-orange-600" : "text-emerald-600"}`}>
-                      {fmt(dl.estimated_amount)} {currency}
+                      <Amount value={dl.estimated_amount} currency={currency} />
                     </td>
                     <td className="py-3 px-2 text-center">
                       <span className={`text-xs px-2 py-1 rounded-full font-medium ${
@@ -342,11 +341,11 @@ export default function TaxAutopilotPage() {
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600 dark:text-gray-400">{t("totalSales")}</span>
-                <span className="text-sm font-medium text-gray-800 dark:text-white">{fmt(ytd.sales_total)} {currency}</span>
+                <span className="text-sm font-medium text-gray-800 dark:text-white"><Amount value={ytd.sales_total} currency={currency} /></span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600 dark:text-gray-400">{t("taxOutputLabel")} {tax_name}</span>
-                <span className="text-sm font-bold text-orange-600">{fmt(ytd.output_vat)} {currency}</span>
+                <span className="text-sm font-bold text-orange-600"><Amount value={ytd.output_vat} currency={currency} /></span>
               </div>
             </div>
           </div>
@@ -355,11 +354,11 @@ export default function TaxAutopilotPage() {
             <div className="space-y-2">
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600 dark:text-gray-400">{t("totalExpenses")}</span>
-                <span className="text-sm font-medium text-gray-800 dark:text-white">{fmt(ytd.expenses_total)} {currency}</span>
+                <span className="text-sm font-medium text-gray-800 dark:text-white"><Amount value={ytd.expenses_total} currency={currency} /></span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600 dark:text-gray-400">{t("taxInputLabel")} {tax_name}</span>
-                <span className="text-sm font-bold text-emerald-600">{fmt(ytd.input_vat)} {currency}</span>
+                <span className="text-sm font-bold text-emerald-600"><Amount value={ytd.input_vat} currency={currency} /></span>
               </div>
             </div>
           </div>
@@ -367,7 +366,7 @@ export default function TaxAutopilotPage() {
         <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 flex justify-between items-center">
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("taxYtdNetPayable", { taxName: tax_name })}</span>
           <span className={`text-xl font-bold ${ytd.vat_payable >= 0 ? "text-orange-600" : "text-emerald-600"}`}>
-            {ytd.vat_payable >= 0 ? "" : t("taxYtdRefundPrefix")}{fmt(Math.abs(ytd.vat_payable))} {currency}
+            {ytd.vat_payable >= 0 ? "" : t("taxYtdRefundPrefix")}<Amount value={Math.abs(ytd.vat_payable)} currency={currency} />
           </span>
         </div>
       </div>
@@ -485,7 +484,6 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
     }
   };
 
-  const fmtNum = (n) => (n != null ? Math.round(n).toLocaleString() : "—");
   const output = deadline?.output_vat || 0;
   const input = deadline?.input_vat || 0;
   const net = deadline?.estimated_amount || 0;
@@ -522,7 +520,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
               {t("taxOutputLabel")} {taxName}
             </p>
             <p className="text-sm sm:text-base font-bold text-orange-600 mt-0.5">
-              {fmtNum(output)} <span className="text-[10px] font-normal text-gray-400">{currency}</span>
+              <Amount value={output} currency={currency} />
             </p>
           </div>
           <div className="rounded-lg bg-white/70 dark:bg-gray-800/50 px-3 py-2.5 border border-gray-100 dark:border-gray-700/50">
@@ -530,7 +528,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
               {t("taxInputLabel")} {taxName}
             </p>
             <p className="text-sm sm:text-base font-bold text-blue-600 mt-0.5">
-              {fmtNum(input)} <span className="text-[10px] font-normal text-gray-400">{currency}</span>
+              <Amount value={input} currency={currency} />
             </p>
           </div>
           <div className="rounded-lg bg-white/70 dark:bg-gray-800/50 px-3 py-2.5 border border-gray-100 dark:border-gray-700/50">
@@ -538,7 +536,7 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
               {t("taxPdfNetToSkat")}
             </p>
             <p className={`text-sm sm:text-base font-bold mt-0.5 ${net >= 0 ? "text-gray-700 dark:text-emerald-400" : "text-gray-600 dark:text-gray-300"}`}>
-              {fmtNum(net)} <span className="text-[10px] font-normal text-gray-400">{currency}</span>
+              <Amount value={net} currency={currency} />
             </p>
           </div>
         </div>
@@ -743,7 +741,7 @@ function ReconCard({ recon, taxName, currency }) {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">{t("fromDailyCloses")}</p>
-              <p className="text-xl font-bold text-gray-800 dark:text-white">{fmt(cm.moms_from_closes)} <span className="text-sm font-normal text-gray-400">{currency}</span></p>
+              <p className="text-xl font-bold text-gray-800 dark:text-white"><Amount value={cm.moms_from_closes} currency={currency} /></p>
               <p className="text-xs text-gray-400 mt-0.5">
                 {t("taxReconClosesCount", { n: cm.closes_count, s: cm.closes_count !== 1 ? "s" : "" })}
                 {cm.manual_count > 0 && <> &middot; {t("taxReconFromReceipt", { n: cm.manual_count })}</>}
@@ -751,7 +749,7 @@ function ReconCard({ recon, taxName, currency }) {
             </div>
             <div>
               <p className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">{t("fromSalesRecords")}</p>
-              <p className="text-xl font-bold text-gray-800 dark:text-white">{fmt(cm.moms_from_sales)} <span className="text-sm font-normal text-gray-400">{currency}</span></p>
+              <p className="text-xl font-bold text-gray-800 dark:text-white"><Amount value={cm.moms_from_sales} currency={currency} /></p>
               <p className="text-xs text-gray-400 mt-0.5">{t("calculatedFromTxns")}</p>
             </div>
           </div>
@@ -774,10 +772,10 @@ function ReconCard({ recon, taxName, currency }) {
                 {(cm.variance_warnings || []).slice(0, 5).map((w, i) => (
                   <div key={i} className="flex flex-wrap items-center gap-x-3 text-[11px]">
                     <span className="text-gray-700 dark:text-gray-300 font-mono">{w.date}</span>
-                    <span className="text-gray-500 dark:text-gray-400">{t("taxVarianceClose")} <b className="text-gray-700 dark:text-gray-200">{fmt(w.close_revenue)}</b></span>
-                    <span className="text-gray-500 dark:text-gray-400">{t("taxVariancePOS")} <b className="text-gray-700 dark:text-gray-200">{fmt(w.sale_sum)}</b></span>
+                    <span className="text-gray-500 dark:text-gray-400">{t("taxVarianceClose")} <b className="text-gray-700 dark:text-gray-200"><Amount value={w.close_revenue} currency={currency} /></b></span>
+                    <span className="text-gray-500 dark:text-gray-400">{t("taxVariancePOS")} <b className="text-gray-700 dark:text-gray-200"><Amount value={w.sale_sum} currency={currency} /></b></span>
                     <span className="text-amber-700 dark:text-amber-300 font-bold ml-auto">
-                      {w.delta > 0 ? "+" : ""}{fmt(w.delta)} {currency} ({w.delta_pct}%)
+                      <Amount value={w.delta} currency={currency} sign /> ({w.delta_pct}%)
                     </span>
                   </div>
                 ))}
@@ -793,8 +791,8 @@ function ReconCard({ recon, taxName, currency }) {
           {/* YTD line */}
           {yt && yt.closes_count > 0 && (
             <div className="mt-2 pt-2 border-t border-gray-200/40 dark:border-gray-700/40 flex items-center justify-between text-xs text-gray-400">
-              <span>{t("taxReconYtdLine", { n: yt.closes_count, amount: fmt(yt.moms_from_closes), taxName })}</span>
-              <span>{t("taxReconYtdSalesLine", { amount: fmt(yt.moms_from_sales), taxName })}</span>
+              <span>{t("taxReconYtdLine", { n: yt.closes_count, amount: formatOwnerMoney(yt.moms_from_closes, currency), taxName })}</span>
+              <span>{t("taxReconYtdSalesLine", { amount: formatOwnerMoney(yt.moms_from_sales, currency), taxName })}</span>
             </div>
           )}
 

@@ -17,14 +17,14 @@ import { useAuth } from "../hooks/useAuth";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import { Package } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import {
-  Button, PageHeader, StatCard, SectionBanner, Empty, Icon, UpgradeNudge,
+  Button, PageHeader, StatCard, SectionBanner, Empty, Icon, UpgradeNudge, Amount,
 } from "../components/ui";
 
 function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "\u2014"; }
@@ -99,7 +99,7 @@ export default function ExpiryPage() {
     return (
       <div className="p-4 md:p-8 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <div className="text-4xl mb-3 animate-pulse">📦</div>
+          <Package className="w-8 h-8 mx-auto mb-3 text-gray-300 dark:text-gray-600 animate-pulse" strokeWidth={1.75} aria-hidden="true" />
           <p className="text-gray-500 dark:text-gray-400">{t("expChecking", "Checking expiry dates...")}</p>
         </div>
       </div>
@@ -153,7 +153,7 @@ export default function ExpiryPage() {
         <UpgradeNudge
           intent="card"
           tier="starter"
-          icon="⏰"
+          iconName="AlarmClock"
           benefit={
             t(
               "expiryUpgradeNudgeBenefit",
@@ -182,7 +182,7 @@ export default function ExpiryPage() {
         >
           {(upcoming.total_at_risk_dkk ?? 0) > 0 && (
             <p className="font-medium">
-              {fmt(upcoming.total_at_risk_dkk)} {currency} {t("expiryAtRisk", "at risk")}
+              <Amount value={upcoming.total_at_risk_dkk} currency={currency} /> {t("expiryAtRisk", "at risk")}
             </p>
           )}
           <div className="mt-3 space-y-2">
@@ -201,7 +201,7 @@ export default function ExpiryPage() {
                       ? t("expiryDueToday", "due today")
                       : t("expiryInDays", "{n}d left").replace("{n}", String(it.days_left))}
                     {it.cost_at_risk_dkk != null && it.cost_at_risk_dkk > 0 && (
-                      <> · {fmt(it.cost_at_risk_dkk)} {currency}</>
+                      <> · <Amount value={it.cost_at_risk_dkk} currency={currency} /></>
                     )}
                   </p>
                 </div>
@@ -276,7 +276,7 @@ export default function ExpiryPage() {
         {expiryAlertsAvailable && (
           <StatCard
             label={t("expStatAtRisk", "At-Risk Value")}
-            value={`${fmt(total_at_risk_value)} ${currency}`}
+            value={<Amount value={total_at_risk_value} currency={currency} />}
             accent={total_at_risk_value > 0 ? "critical" : "neutral"}
           />
         )}
@@ -357,7 +357,7 @@ export default function ExpiryPage() {
                   </div>
                   <div className="flex items-center justify-between text-xs mt-1">
                     <span className="text-gray-400">{t("expExpiresLabel", "Expires:")} {item.expiry_date}</span>
-                    <span className="text-gray-600 dark:text-gray-400 font-medium">{fmt(item.cost_at_risk)} {currency}</span>
+                    <span className="text-gray-600 dark:text-gray-400 font-medium"><Amount value={item.cost_at_risk} currency={currency} /></span>
                   </div>
                 </div>
               );
@@ -396,7 +396,7 @@ export default function ExpiryPage() {
                           ? t("expDaysOverdue", "{n}d overdue").replace("{n}", String(Math.abs(item.days_left)))
                           : t("expDaysShort", "{n}d").replace("{n}", String(item.days_left))}
                       </td>
-                      <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400">{fmt(item.cost_at_risk)} {currency}</td>
+                      <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400"><Amount value={item.cost_at_risk} currency={currency} /></td>
                       <td className="py-3 px-2 text-center">
                         <span className={`text-xs px-2 py-1 rounded-full font-medium ${cfg.color}`}>
                           {t(cfg.labelKey, cfg.label)}
@@ -419,7 +419,7 @@ export default function ExpiryPage() {
             {t("expWasteHistory", "Waste History (90 days)")}
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-            {t("expTotalWaste", "Total waste:")} {fmt(waste_summary.total_cost_90d)} {currency} | {t("expExpiredLabel", "Expired:")} {fmt(waste_summary.expired_cost_90d)} {currency}
+            {t("expTotalWaste", "Total waste:")} <Amount value={waste_summary.total_cost_90d} currency={currency} /> | {t("expExpiredLabel", "Expired:")} <Amount value={waste_summary.expired_cost_90d} currency={currency} />
           </p>
 
           {/* Waste trend chart */}
@@ -431,7 +431,7 @@ export default function ExpiryPage() {
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={(v) => fmt(v)} />
                   <Tooltip
-                    formatter={(val) => [`${fmt(val)} ${currency}`, t("expWasteCost", "Waste Cost")]}
+                    formatter={(val) => [formatOwnerMoney(val, user?.currency), t("expWasteCost", "Waste Cost")]}
                     contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}
                   />
                   <Bar dataKey="cost" fill="#ef4444" radius={[6, 6, 0, 0]} />
@@ -449,7 +449,7 @@ export default function ExpiryPage() {
                   <p className="text-xs text-gray-500">{t("expTimesWasted", "{n} times wasted").replace("{n}", String(item.count))}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-bold text-red-600">{fmt(item.total_cost)} {currency}</p>
+                  <p className="text-sm font-bold text-red-600"><Amount value={item.total_cost} currency={currency} /></p>
                   <p className="text-xs text-gray-400">{t("expTotalLoss", "total loss")}</p>
                 </div>
               </div>

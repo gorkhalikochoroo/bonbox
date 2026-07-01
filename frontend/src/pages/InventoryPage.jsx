@@ -17,7 +17,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import SmartImportModal from "../components/SmartImportModal";
@@ -29,7 +29,7 @@ import SmartPricingModal from "../components/SmartPricingModal";
 import { localIso } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
 import {
-  Button, PageHeader, StatCard, SectionBanner, TabPills, Icon,
+  Button, PageHeader, StatCard, SectionBanner, TabPills, Icon, Amount,
 } from "../components/ui";
 
 const TEMPLATES = [
@@ -346,7 +346,7 @@ export default function InventoryPage() {
         pours: pourCount,
         date: localIso(),
       });
-      const saleMsg = res.data.sale_recorded ? ` · ${t("sale")}: ${res.data.revenue} ${currency}` : "";
+      const saleMsg = res.data.sale_recorded ? ` · ${t("sale")}: ${formatOwnerMoney(res.data.revenue, user?.currency)}` : "";
       setSuccess(`${t("poured")} ${pourCount}x ${pourModal.name} — ${res.data.remaining_pours} ${t("poursLeft")}${saleMsg}`);
       setPourModal(null);
       setPourCount(1);
@@ -687,17 +687,17 @@ export default function InventoryPage() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatCard
             label={t("stockCost")}
-            value={`${stats.totalCost.toLocaleString()} ${currency}`}
+            value={<Amount value={stats.totalCost} currency={currency} />}
             helper={t("invested")}
           />
           <StatCard
             label={t("potentialRevenue")}
-            value={`${stats.totalRevenue.toLocaleString()} ${currency}`}
+            value={<Amount value={stats.totalRevenue} currency={currency} />}
             helper={t("ifAllSold")}
           />
           <StatCard
             label={t("potentialProfit")}
-            value={`${stats.totalProfit >= 0 ? "+" : ""}${stats.totalProfit.toLocaleString()} ${currency}`}
+            value={<Amount value={stats.totalProfit} currency={currency} sign />}
             accent={stats.totalProfit >= 0 ? "success" : "critical"}
             helper={t("margin")}
           />
@@ -798,11 +798,11 @@ export default function InventoryPage() {
                   <div className="grid grid-cols-3 gap-2 mb-3">
                     <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
                       <p className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold">{t("stockValue")}</p>
-                      <p className="text-sm font-extrabold text-gray-800 dark:text-white">{Math.round(stats.totalCost).toLocaleString()} {currency}</p>
+                      <p className="text-sm font-extrabold text-gray-800 dark:text-white"><Amount value={stats.totalCost} currency={currency} /></p>
                     </div>
                     <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
                       <p className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold">{t("saleValue")}</p>
-                      <p className="text-sm font-extrabold text-gray-800 dark:text-white">{Math.round(stats.totalRevenue).toLocaleString()} {currency}</p>
+                      <p className="text-sm font-extrabold text-gray-800 dark:text-white"><Amount value={stats.totalRevenue} currency={currency} /></p>
                     </div>
                     <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
                       <p className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold">{t("avgMargin")}</p>
@@ -890,7 +890,7 @@ export default function InventoryPage() {
                       <span className="font-bold text-purple-700 dark:text-purple-400">{cat}</span>
                       <div className="flex items-center gap-3">
                         <span className="text-purple-500/60">{catItems.length} {t("items")}</span>
-                        <span className="font-bold text-purple-600 dark:text-purple-400">{Math.round(catValue).toLocaleString()} {currency}</span>
+                        <span className="font-bold text-purple-600 dark:text-purple-400"><Amount value={catValue} currency={currency} /></span>
                       </div>
                     </button>
                   );
@@ -915,8 +915,8 @@ export default function InventoryPage() {
                 return (
                   <div key={i.id} className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-800/50 rounded-lg text-xs">
                     <span className="font-medium text-gray-800 dark:text-white truncate max-w-[35%]">{i.name}</span>
-                    <span className="text-gray-500">{t("buyLabel")}: {parseFloat(i.cost_per_unit).toLocaleString()}</span>
-                    <span className="text-blue-600 dark:text-blue-400">{t("sellLabel")}: {parseFloat(i.sell_price).toLocaleString()}</span>
+                    <span className="text-gray-500">{t("buyLabel")}: <Amount value={parseFloat(i.cost_per_unit)} currency={currency} decimals={2} /></span>
+                    <span className="text-blue-600 dark:text-blue-400">{t("sellLabel")}: <Amount value={parseFloat(i.sell_price)} currency={currency} decimals={2} /></span>
                     <span className={`font-bold ${margin >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500"}`}>{margin}%</span>
                   </div>
                 );
@@ -927,7 +927,7 @@ export default function InventoryPage() {
                   {items.filter(i => !i.sell_price || parseFloat(i.sell_price) === 0).slice(0, 8).map((i) => (
                     <div key={i.id} className="flex items-center justify-between px-3 py-1.5 bg-red-50 dark:bg-red-900/20 rounded-lg text-xs">
                       <span className="font-medium text-gray-800 dark:text-white truncate max-w-[50%]">{i.name}</span>
-                      <span className="text-gray-500">{t("cost")}: {parseFloat(i.cost_per_unit).toLocaleString()}</span>
+                      <span className="text-gray-500">{t("cost")}: <Amount value={parseFloat(i.cost_per_unit)} currency={currency} decimals={2} /></span>
                       <span className="text-red-400 font-medium">{t("noSellPrice")}</span>
                     </div>
                   ))}
@@ -986,7 +986,7 @@ export default function InventoryPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold text-red-600 dark:text-red-400">{ds.stock_value.toLocaleString()} {currency}</p>
+                  <p className="text-sm font-semibold text-red-600 dark:text-red-400"><Amount value={ds.stock_value} currency={currency} /></p>
                   <button
                     onClick={async () => {
                       if (!(await confirm({ message: `${t("removeFromInventory")} "${ds.name}"?`, destructive: true, confirmLabel: t("removeItem") }))) return;
@@ -1009,7 +1009,7 @@ export default function InventoryPage() {
           <div className="mt-3 pt-3 border-t border-red-200/60 dark:border-red-800/40 flex justify-between items-center">
             <p className="text-xs text-red-700 dark:text-red-300 font-medium">{t("totalDeadStockValue")}</p>
             <p className="text-base font-bold text-red-700 dark:text-red-400 tabular-nums">
-              {deadStock.reduce((sum, ds) => sum + ds.stock_value, 0).toLocaleString()} {currency}
+              <Amount value={deadStock.reduce((sum, ds) => sum + ds.stock_value, 0)} currency={currency} />
             </p>
           </div>
         </SectionBanner>
@@ -1032,7 +1032,7 @@ export default function InventoryPage() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{pr.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {pr.cost} {currency} → {pr.sell} {currency}
+                    <Amount value={pr.cost} currency={currency} decimals={2} /> → <Amount value={pr.sell} currency={currency} decimals={2} />
                   </p>
                 </div>
                 <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap tabular-nums">+{pr.margin_pct}%</span>
@@ -1267,9 +1267,9 @@ export default function InventoryPage() {
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-[13px] text-gray-600 dark:text-gray-400">{item.unit}</td>
-                        <td className="px-3 py-2.5 text-[13px] text-gray-600 dark:text-gray-400 tabular-nums text-right">{buy} {currency}</td>
+                        <td className="px-3 py-2.5 text-[13px] text-gray-600 dark:text-gray-400 tabular-nums text-right"><Amount value={buy} currency={currency} decimals={2} /></td>
                         <td className="px-3 py-2.5 text-[13px] text-gray-600 dark:text-gray-400 tabular-nums text-right">
-                          {sell != null ? `${sell} ${currency}` : "—"}
+                          {sell != null ? <Amount value={sell} currency={currency} decimals={2} /> : "—"}
                         </td>
                         <td className="px-3 py-2.5 text-[13px] tabular-nums text-right">
                           {item.sell_price_per_pour > 0 ? (
@@ -1285,7 +1285,7 @@ export default function InventoryPage() {
                         <td className="px-3 py-2.5 text-[13px] tabular-nums text-right">
                           {profit != null ? (
                             <span className={profit >= 0 ? "text-emerald-600 dark:text-gray-300 font-medium" : "text-red-500 font-medium"}>
-                              {profit >= 0 ? "+" : ""}{profit.toLocaleString()}
+                              <Amount value={profit} currency={currency} sign />
                             </span>
                           ) : (
                             <span className="text-gray-400">—</span>
@@ -1526,9 +1526,9 @@ export default function InventoryPage() {
                       <div>
                         <div className="text-gray-500 dark:text-gray-400">{t("cost")} / {t("sell")}</div>
                         <div className="font-semibold tabular-nums text-gray-900 dark:text-white mt-0.5">
-                          {buy}
+                          <Amount value={buy} currency={currency} decimals={2} />
                           {" / "}
-                          {sell != null ? sell : "—"} {currency}
+                          {sell != null ? <Amount value={sell} currency={currency} decimals={2} /> : "—"}
                         </div>
                       </div>
                       <div className="text-right">
@@ -1545,7 +1545,7 @@ export default function InventoryPage() {
                           )}
                           {profit != null && (
                             <span className={`ml-1.5 ${profit >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500"}`}>
-                              {profit >= 0 ? "+" : ""}{profit.toLocaleString()}
+                              <Amount value={profit} currency={currency} sign />
                             </span>
                           )}
                         </div>
@@ -1707,7 +1707,7 @@ export default function InventoryPage() {
 
             <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">
               {t("total")}: {pourCount * (pourModal.pour_size || 0)} {pourModal.pour_unit || "ml"}
-              {pourModal.sell_price_per_pour > 0 && ` · ${t("revenue")}: ${(pourCount * pourModal.sell_price_per_pour).toLocaleString()} ${currency}`}
+              {pourModal.sell_price_per_pour > 0 && ` · ${t("revenue")}: ${formatOwnerMoney(pourCount * pourModal.sell_price_per_pour, user?.currency)}`}
             </p>
 
             <div className="flex gap-2">

@@ -5,15 +5,14 @@ import { useState, useEffect, useCallback } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import SmartPricingCard from "../components/SmartPricingCard";
-import { PageHeader, StatCard, SectionBanner, Button } from "../components/ui";
+import { PageHeader, StatCard, SectionBanner, Button, Amount } from "../components/ui";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from "recharts";
 
-function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "\u2014"; }
 function pct(n) { return n != null ? `${n.toFixed(1)}%` : "\u2014"; }
 
 const MARGIN_COLORS = { high: "#10b981", mid: "#f59e0b", low: "#ef4444" };
@@ -164,13 +163,13 @@ export default function PricingPage({ embedded = false }) {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard
           label={t("ppAvgTicket", "Avg Ticket")}
-          value={`${fmt(avg_ticket)} ${currency}`}
-          helper={`${trendIcon} ${ticket_change > 0 ? "+" : ""}${fmt(ticket_change)}`}
+          value={<Amount value={avg_ticket} currency={currency} />}
+          helper={`${trendIcon} ${ticket_change > 0 ? "+" : ""}${formatOwnerMoney(ticket_change, user?.currency)}`}
           accent={ticket_trend === "up" ? "success" : ticket_trend === "down" ? "critical" : "neutral"}
         />
         <StatCard
           label={t("ppPreviousPeriod", "Previous Period")}
-          value={`${fmt(prev_avg_ticket)} ${currency}`}
+          value={<Amount value={prev_avg_ticket} currency={currency} />}
           helper={t("ppLast30Days", "Last 30 days")}
         />
         <StatCard
@@ -180,7 +179,7 @@ export default function PricingPage({ embedded = false }) {
         />
         <StatCard
           label={t("ppMonthlyRevenue", "Monthly Revenue")}
-          value={`${fmt(monthly_revenue)} ${currency}`}
+          value={<Amount value={monthly_revenue} currency={currency} />}
           helper={`${total_transactions} ${t("ppTransactions", "transactions")}`}
         />
       </div>
@@ -200,7 +199,7 @@ export default function PricingPage({ embedded = false }) {
             className="flex-1 h-2 bg-white/30 rounded-full appearance-none cursor-pointer accent-white"
           />
           <span className="text-2xl font-bold min-w-[80px] text-right">
-            +{sliderVal} {currency}
+            +<Amount value={sliderVal} currency={currency} />
           </span>
         </div>
 
@@ -208,13 +207,13 @@ export default function PricingPage({ embedded = false }) {
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
               <p className="text-xs opacity-70">{t("ppMonthlyImpact", "Monthly Impact")}</p>
-              <p className="text-xl sm:text-3xl font-bold mt-1">+{fmt(sim.monthly_impact)}</p>
-              <p className="text-xs opacity-70 mt-1">{currency}/{t("ppPerMonth", "month")}</p>
+              <p className="text-xl sm:text-3xl font-bold mt-1">+<Amount value={sim.monthly_impact} currency={currency} /></p>
+              <p className="text-xs opacity-70 mt-1">/{t("ppPerMonth", "month")}</p>
             </div>
             <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
               <p className="text-xs opacity-70">{t("ppAnnualImpact", "Annual Impact")}</p>
-              <p className="text-xl sm:text-3xl font-bold mt-1">+{fmt(sim.annual_impact)}</p>
-              <p className="text-xs opacity-70 mt-1">{currency}/{t("ppPerYear", "year")}</p>
+              <p className="text-xl sm:text-3xl font-bold mt-1">+<Amount value={sim.annual_impact} currency={currency} /></p>
+              <p className="text-xs opacity-70 mt-1">/{t("ppPerYear", "year")}</p>
             </div>
           </div>
         )}
@@ -277,9 +276,9 @@ export default function PricingPage({ embedded = false }) {
                   <tr key={i} className="border-b dark:border-gray-700/50">
                     <td className="py-3 px-2 font-medium text-gray-700 dark:text-gray-300">{item.name}</td>
                     <td className="py-3 px-2 text-right text-gray-500">{item.qty_sold}</td>
-                    <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400">{fmt(item.revenue)} {currency}</td>
-                    <td className="py-3 px-2 text-right text-gray-500">{fmt(item.avg_price)}</td>
-                    <td className="py-3 px-2 text-right text-gray-500">{fmt(item.avg_cost)}</td>
+                    <td className="py-3 px-2 text-right text-gray-600 dark:text-gray-400"><Amount value={item.revenue} currency={currency} /></td>
+                    <td className="py-3 px-2 text-right text-gray-500"><Amount value={item.avg_price} currency={currency} /></td>
+                    <td className="py-3 px-2 text-right text-gray-500"><Amount value={item.avg_cost} currency={currency} /></td>
                     <td className="py-3 px-2 text-right">
                       <span className={`text-xs px-2 py-1 rounded-full font-bold ${
                         item.margin_pct >= 50 ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300" :
@@ -309,11 +308,11 @@ export default function PricingPage({ embedded = false }) {
               <div key={i} className="flex items-center justify-between bg-yellow-50 dark:bg-yellow-900/10 rounded-xl px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{item.name}</p>
-                  <p className="text-xs text-gray-500">{t("ppPriceLabel", "Price")}: {fmt(item.avg_price)} {currency} | {t("ppCostLabel", "Cost")}: {fmt(item.avg_cost)} {currency}</p>
+                  <p className="text-xs text-gray-500">{t("ppPriceLabel", "Price")}: <Amount value={item.avg_price} currency={currency} /> | {t("ppCostLabel", "Cost")}: <Amount value={item.avg_cost} currency={currency} /></p>
                 </div>
                 <div className="text-right">
                   <p className="text-lg font-bold text-red-600">{pct(item.margin_pct)}</p>
-                  <p className="text-xs text-gray-400">{fmt(item.revenue)} {currency} {t("ppRevenueSuffix", "revenue")}</p>
+                  <p className="text-xs text-gray-400"><Amount value={item.revenue} currency={currency} /> {t("ppRevenueSuffix", "revenue")}</p>
                 </div>
               </div>
             ))}
@@ -333,10 +332,10 @@ export default function PricingPage({ embedded = false }) {
               <div key={i} className="flex items-center justify-between bg-blue-50 dark:bg-blue-900/10 rounded-xl px-4 py-3">
                 <div>
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{item.name}</p>
-                  <p className="text-xs text-gray-500">{t("ppStockLabel", "Stock")}: {item.stock} | {t("ppCostLabel", "Cost")}: {fmt(item.cost)} {currency}</p>
+                  <p className="text-xs text-gray-500">{t("ppStockLabel", "Stock")}: {item.stock} | {t("ppCostLabel", "Cost")}: <Amount value={item.cost} currency={currency} /></p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-bold text-blue-600">{fmt(item.sell_price)} {currency}</p>
+                  <p className="text-sm font-bold text-blue-600"><Amount value={item.sell_price} currency={currency} /></p>
                   <p className="text-xs text-gray-400">{t("ppSellPrice", "sell price")}</p>
                 </div>
               </div>

@@ -10,10 +10,10 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend, ComposedChart,
 } from "recharts";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
-import { PageHeader, StatCard, SectionBanner, TabPills } from "../components/ui";
+import { PageHeader, StatCard, SectionBanner, TabPills, Amount } from "../components/ui";
 
 const LEVEL_COLORS = {
   Slow: "bg-gray-100 text-gray-700 border-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700",
@@ -368,7 +368,7 @@ export default function StaffingPage({ embedded = false }) {
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                     <YAxis yAxisId="revenue" tick={{ fontSize: 12 }} />
                     <YAxis yAxisId="staff" orientation="right" tick={{ fontSize: 12 }} domain={[0, 10]} />
-                    <Tooltip formatter={(value, name) => name === "revenue" ? [`${value} ${currency}`, t("predictedRevenue")] : [value, t("staffNeeded")]} />
+                    <Tooltip formatter={(value, name) => name === "revenue" ? [formatOwnerMoney(value, currency), t("predictedRevenue")] : [value, t("staffNeeded")]} />
                     <Legend />
                     <Bar yAxisId="revenue" dataKey="revenue" name={t("predictedRevenue")} radius={[4, 4, 0, 0]}>
                       {chartData.map((entry, i) => (
@@ -384,14 +384,14 @@ export default function StaffingPage({ embedded = false }) {
                 <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
                   <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-2">{t("salesPatterns")}</h2>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                    {patterns.total_days_analyzed} {t("daysRecorded")} — {patterns.overall_avg.toLocaleString()} {currency}
+                    {patterns.total_days_analyzed} {t("daysRecorded")} — <Amount value={patterns.overall_avg} currency={currency} />
                   </p>
                   <ResponsiveContainer width="100%" height={250}>
                     <BarChart data={dowData}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="day" />
                       <YAxis tick={{ fontSize: 12 }} />
-                      <Tooltip formatter={(v) => [`${v} ${currency}`, t("revenue")]} />
+                      <Tooltip formatter={(v) => [formatOwnerMoney(v, currency), t("revenue")]} />
                       <Bar dataKey="avg_revenue" fill="#6366f1" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -416,7 +416,7 @@ export default function StaffingPage({ embedded = false }) {
                         <tr key={r.date}>
                           <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{formatDate(r.date)}</td>
                           <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">{r.day}</td>
-                          <td className="px-6 py-4 text-sm font-medium text-gray-800 dark:text-white">{r.predicted_revenue.toLocaleString()} {currency}</td>
+                          <td className="px-6 py-4 text-sm font-medium text-gray-800 dark:text-white"><Amount value={r.predicted_revenue} currency={currency} /></td>
                           <td className="px-6 py-4">
                             <span className={`text-xs font-medium px-2.5 py-1 rounded-full border ${Object.entries(LEVEL_COLORS).find(([k]) => r.business_level?.toLowerCase().includes(k.toLowerCase()))?.[1] || ""}`}>
                               {r.business_level}
@@ -466,7 +466,7 @@ export default function StaffingPage({ embedded = false }) {
                 {rules.map((rule) => (
                   <div key={rule.id} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 px-4 py-2.5 rounded-lg">
                     <span className="text-sm dark:text-gray-200">
-                      <span className="font-medium">{rule.label}</span> — {rule.revenue_min.toLocaleString()}–{rule.revenue_max.toLocaleString()} {currency}
+                      <span className="font-medium">{rule.label}</span> — <Amount value={rule.revenue_min} currency={currency} />–<Amount value={rule.revenue_max} currency={currency} />
                       → <span className="font-bold">{rule.recommended_staff} {t("staff")}</span>
                     </span>
                     <button onClick={() => deleteRule(rule.id)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-sm">{t("remove")}</button>
@@ -487,7 +487,7 @@ export default function StaffingPage({ embedded = false }) {
               <StatCard label={t("stafDaysAnalyzed", "Days Analyzed")} value={insights.days_logged} />
               <StatCard label={t("stafBestDay", "Best Day")} value={insights.peak_day?.slice(0, 3) || "—"} accent="success" />
               <StatCard label={t("stafWeakestDay", "Weakest Day")} value={insights.weakest_day?.slice(0, 3) || "—"} accent="critical" />
-              <StatCard label={t("stafSavingsPotential", "Savings Potential")} value={fmt(insights.monthly_savings_potential)} helper={t("stafPerMonth", "/month")} />
+              <StatCard label={t("stafSavingsPotential", "Savings Potential")} value={<Amount value={insights.monthly_savings_potential} currency={currency} />} helper={t("stafPerMonth", "/month")} />
             </div>
           )}
 
@@ -504,8 +504,8 @@ export default function StaffingPage({ embedded = false }) {
                   <YAxis yAxisId="staff" orientation="right" domain={[0, 10]} tick={{ fontSize: 12 }} />
                   <Tooltip
                     formatter={(value, name) => {
-                      if (name === "rev_per_staff") return [`${fmt(value)} ${currency}`, t("stafRevPerStaff", "Rev/Staff")];
-                      if (name === "revenue") return [`${fmt(value)} ${currency}`, t("revenue", "Revenue")];
+                      if (name === "rev_per_staff") return [formatOwnerMoney(value, currency), t("stafRevPerStaff", "Rev/Staff")];
+                      if (name === "revenue") return [formatOwnerMoney(value, currency), t("revenue", "Revenue")];
                       return [value, t("stafStaffSeries", "Staff")];
                     }}
                   />
@@ -531,9 +531,9 @@ export default function StaffingPage({ embedded = false }) {
                     <p className="text-sm font-bold text-gray-800 dark:text-white">{w.day_name.slice(0, 3)}</p>
                     {w.avg_revenue > 0 ? (
                       <>
-                        <p className="text-lg font-bold mt-1 text-gray-800 dark:text-white">{fmt(w.rev_per_staff)}</p>
-                        <p className="text-[10px] text-gray-500">{currency}/{t("stafPerStaffUnit", "staff")}</p>
-                        <p className="text-xs text-gray-500 mt-1">{w.avg_staff} {t("stafStaffUnit", "staff")} • {fmt(w.avg_revenue)} {t("stafRevUnit", "rev")}</p>
+                        <p className="text-lg font-bold mt-1 text-gray-800 dark:text-white"><Amount value={w.rev_per_staff} currency={currency} /></p>
+                        <p className="text-[10px] text-gray-500">/{t("stafPerStaffUnit", "staff")}</p>
+                        <p className="text-xs text-gray-500 mt-1">{w.avg_staff} {t("stafStaffUnit", "staff")} • <Amount value={w.avg_revenue} currency={currency} /> {t("stafRevUnit", "rev")}</p>
                         {w.status !== "no_data" && w.status !== "ok" && (
                           <span className={`text-[10px] mt-1 px-1.5 py-0.5 rounded-full inline-block ${STATUS_BADGE[w.status] || ""}`}>
                             {w.status === "overstaffed" ? `📉 ${t("stafBadgeOver", "Over")}` : w.status === "understaffed" ? `🔥 ${t("stafBadgeUnder", "Under")}` : `✅ ${t("stafBadgeOk", "OK")}`}
@@ -636,7 +636,7 @@ export default function StaffingPage({ embedded = false }) {
                           <td className="px-4 py-3 text-gray-500">{dayName}</td>
                           <td className="px-4 py-3 text-center font-bold text-gray-800 dark:text-white">{log.staff_count}</td>
                           <td className="px-4 py-3 text-right text-gray-500">{log.total_hours || "—"}</td>
-                          <td className="px-4 py-3 text-right text-gray-500">{log.labor_cost ? `${fmt(log.labor_cost)} ${currency}` : "—"}</td>
+                          <td className="px-4 py-3 text-right text-gray-500">{log.labor_cost ? <Amount value={log.labor_cost} currency={currency} /> : "—"}</td>
                           <td className="px-4 py-3 text-gray-400 text-xs">{log.notes || ""}</td>
                         </tr>
                       );

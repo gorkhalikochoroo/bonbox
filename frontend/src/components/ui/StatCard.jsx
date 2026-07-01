@@ -139,7 +139,7 @@ export default function StatCard({
         {value}
       </p>
       {helper && (
-        <p className="text-[11.5px] text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
           {helper}
         </p>
       )}

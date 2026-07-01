@@ -246,12 +246,14 @@ export default function LiveKpisToday({ eventId = null } = {}) {
   }, [tenders]);
 
   // Money values go through `formatMoney` so a DK owner sees "15.000 DKK"
-  // regardless of their browser's default locale. The previous
-  // `Number(n).toLocaleString()` rendered "15,000 DKK" on EN-locale
-  // browsers (Vercel preview / TestFlight builds), which drifted from
-  // every other money cell in the app (#148 MEDIUM-12). Counts (orders,
-  // guests) keep `toLocaleString` but pin to da-DK when the currency is
-  // DKK so the grouping separator matches the money values.
+  // regardless of their browser's default locale (#148 MEDIUM-12). This
+  // component renders at the TOP of DailyClosePage, whose entire wizard /
+  // scan / history still says "DKK" — so these tiles stay "DKK" too (one
+  // surface never mixes "kr." with "DKK"). When Daily Close migrates to
+  // the kr. presentation (design roadmap items 5-6), swap this to
+  // <Amount currency={currency}> in the same pass. Counts (orders, guests)
+  // keep `toLocaleString` but pin to da-DK when the currency is DKK so the
+  // grouping separator matches the money values.
   const moneyFmt = (n) => formatMoney(n || 0, currency, { decimals: 0 });
   const countLocale = currency === "DKK" ? "da-DK" : undefined;
   const countFmt = (n) => Number(n || 0).toLocaleString(countLocale);

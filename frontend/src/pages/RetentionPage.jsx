@@ -5,9 +5,9 @@ import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
-import { PageHeader, StatCard, SectionBanner, TabPills, Button } from "../components/ui";
+import { PageHeader, StatCard, SectionBanner, TabPills, Button, Amount } from "../components/ui";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
   PieChart, Pie, Cell,
@@ -141,8 +141,8 @@ export default function RetentionPage({ embedded = false }) {
         />
         <StatCard
           label={t("retAvgClv", "Avg CLV")}
-          value={`${fmt(avg_clv)} ${currency}`}
-          helper={`${t("retTotalHelper", "Total")}: ${fmt(total_clv)}`}
+          value={<Amount value={avg_clv} currency={currency} />}
+          helper={`${t("retTotalHelper", "Total")}: ${formatOwnerMoney(total_clv, user?.currency)}`}
         />
       </div>
 
@@ -326,11 +326,11 @@ function CustomerCard({ customer: c, rank, currency, showUrgency }) {
       </div>
       <div className="flex items-center gap-4 mt-2 pl-0 sm:pl-8">
         <div>
-          <p className="text-sm font-bold text-purple-600">{fmt(c.clv)} {currency}</p>
+          <p className="text-sm font-bold text-purple-600"><Amount value={c.clv} currency={currency} /></p>
           <p className="text-[10px] text-gray-400">CLV</p>
         </div>
         <div>
-          <p className="text-sm font-bold text-gray-700 dark:text-gray-300">{fmt(c.monthly_avg)} {currency}</p>
+          <p className="text-sm font-bold text-gray-700 dark:text-gray-300"><Amount value={c.monthly_avg} currency={currency} /></p>
           <p className="text-[10px] text-gray-400">{t("retPerMonth", "/month")}</p>
         </div>
       </div>

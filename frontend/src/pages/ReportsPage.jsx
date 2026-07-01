@@ -20,10 +20,10 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { getVatTerms } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency, formatKr } from "../utils/currency";
+import { displayCurrency } from "../utils/currency";
 import { formatDate, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
-import { PageHeader, Button, StatCard, SectionBanner, TabPills, Icon } from "../components/ui";
+import { PageHeader, Button, StatCard, SectionBanner, TabPills, Icon, Amount } from "../components/ui";
 import Card from "../components/ui/Card";
 
 const currentDate = new Date();
@@ -357,8 +357,6 @@ export default function ReportsPage() {
   };
 
   // ── Period control handlers ────────────────────────────────────────────────
-  const isDk = (user?.currency || "DKK") === "DKK";
-
   const changePeriodType = (nextType) => {
     setPeriodTouched(true);
     setPeriodError(null);
@@ -415,13 +413,13 @@ export default function ReportsPage() {
     { id: "custom", label: t("periodCustom") },
   ];
 
-  // Money on this surface renders via formatKr (da-DK "kr.") for DK owners;
-  // non-DK currencies keep the plain grouped number + currency code so a
-  // non-DK owner never sees a mismatched "kr." suffix.
+  // Money on this surface renders via <Amount> — da-DK "kr." for DK owners
+  // (the token whispers at 0.62em), locale-correct grouping + currency code
+  // for non-DK, and an honest "—" on null. Same primitive as the dashboard
+  // hero, so all KPI money reads identically app-wide.
   const cur = user?.currency?.startsWith("EUR_") ? "EUR" : (user?.currency || "DKK");
   const fmt = (v) => v != null ? Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }) : "—";
-  const money = (v) =>
-    isDk ? formatKr(v, { decimals: 0 }) : `${fmt(v)} ${cur}`;
+  const money = (v) => <Amount value={v} currency={user?.currency} />;
 
   const sections = SECTION_DEFS.map(s => ({
     ...s,
@@ -848,8 +846,10 @@ function DailyKasserapport() {
       .finally(() => setLoading(false));
   }, [reportDate]);
 
-  const fmt = (v) => v != null ? Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }) : "0";
   const METHODS = ["cash", "card", "mobilepay", "online", "dankort", "mixed"];
+  // Receipt money renders via <Amount decimals={2}> — kasserapport is a cash
+  // reconciliation doc, so ører stay visible (matches the old 2-decimal fmt).
+  const kr = (v) => <Amount value={v} currency={currency} decimals={2} />;
 
   return (
     <div className="space-y-4">
@@ -895,10 +895,10 @@ function DailyKasserapport() {
             <div className="font-mono text-sm">
               {/* Revenue Section */}
               <div className="px-6 py-4 space-y-2">
-                <Row label={t("subtotal")} value={`${fmt(data.subtotal)} ${currency}`} />
-                <Row label={`${data.vat_name} ${data.vat_rate}%`} value={`${fmt(data.vat_amount)} ${currency}`} />
+                <Row label={t("subtotal")} value={kr(data.subtotal)} />
+                <Row label={`${data.vat_name} ${data.vat_rate}%`} value={kr(data.vat_amount)} />
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
-                  <Row label={t("totalInclVat")} value={`${fmt(data.total)} ${currency}`} bold />
+                  <Row label={t("totalInclVat")} value={kr(data.total)} bold />
                 </div>
               </div>
 
@@ -908,10 +908,10 @@ function DailyKasserapport() {
                 {METHODS.map(m => {
                   const amt = data.payment_breakdown[m];
                   if (!amt) return null;
-                  return <Row key={m} label={t(m)} value={`${fmt(amt)} ${currency}`} />;
+                  return <Row key={m} label={t(m)} value={kr(amt)} />;
                 })}
                 {Object.entries(data.payment_breakdown).filter(([k]) => !METHODS.includes(k)).map(([k, v]) => (
-                  <Row key={k} label={k} value={`${fmt(v)} ${currency}`} />
+                  <Row key={k} label={k} value={kr(v)} />
                 ))}
               </div>
 
@@ -922,9 +922,9 @@ function DailyKasserapport() {
 
               {/* Expenses & Net */}
               <div className="px-6 py-4 border-t border-dashed border-gray-200 dark:border-gray-700 space-y-2">
-                <Row label={t("expensesTotal")} value={`${fmt(data.expenses_total)} ${currency}`} />
+                <Row label={t("expensesTotal")} value={kr(data.expenses_total)} />
                 <div className="border-t border-gray-200 dark:border-gray-700 pt-2">
-                  <Row label={t("netCash")} value={`${fmt(data.net_cash)} ${currency}`} bold
+                  <Row label={t("netCash")} value={kr(data.net_cash)} bold
                     color={data.net_cash >= 0 ? "text-gray-900 dark:text-gray-100" : "text-red-600 dark:text-red-400"} />
                 </div>
               </div>
@@ -1032,7 +1032,7 @@ function RevenueForecastCard({ forecast, weather, staffing, currency }) {
             </p>
           </div>
           <div className="text-right flex-shrink-0">
-            <p className="text-lg font-bold tabular-nums text-gray-900 dark:text-gray-100">{total.toLocaleString()} {currency}</p>
+            <p className="text-lg font-bold tabular-nums text-gray-900 dark:text-gray-100"><Amount value={total} currency={currency} /></p>
           </div>
         </div>
 
@@ -1140,7 +1140,7 @@ function RevenueForecastCard({ forecast, weather, staffing, currency }) {
           <div className="grid grid-cols-3 gap-3">
             <div>
               <p className="text-[10px] text-gray-500 dark:text-gray-400">{t("revenue")}</p>
-              <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">{selected.predicted_revenue.toLocaleString()}</p>
+              <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100"><Amount value={selected.predicted_revenue} currency={currency} /></p>
             </div>
             {selStaff && (
               <div>
@@ -1226,7 +1226,7 @@ function PaymentBreakdownCard({ paymentBreakdown, currency }) {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
-                  {Math.round(p.amount).toLocaleString()} {currency}
+                  <Amount value={p.amount} currency={currency} />
                 </span>
                 <span className="text-xs text-gray-500 dark:text-gray-400 w-10 text-right tabular-nums">{pct}%</span>
               </div>
@@ -1270,7 +1270,7 @@ function ExpenseBreakdownCard({ breakdown, currency }) {
               <div className="flex justify-between items-baseline mb-1">
                 <span className="text-sm text-gray-700 dark:text-gray-200">{e.category}</span>
                 <span className="text-sm text-gray-500 dark:text-gray-400 tabular-nums">
-                  {Math.round(e.amount).toLocaleString()} {currency} &middot; {pct}%
+                  <Amount value={e.amount} currency={currency} /> &middot; {pct}%
                 </span>
               </div>
               <div className="h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
@@ -1288,7 +1288,7 @@ function ExpenseBreakdownCard({ breakdown, currency }) {
         <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-800 flex justify-between">
           <span className="text-sm text-gray-600 dark:text-gray-400">{t("total")}</span>
           <span className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">
-            {Math.round(total).toLocaleString()} {currency}
+            <Amount value={total} currency={currency} />
           </span>
         </div>
       )}
@@ -1350,13 +1350,13 @@ function WeekComparisonCard({ weekComparison, currency }) {
                 <div className="text-right">
                   <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("thisWeek")}</p>
                   <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">
-                    {Math.round(row.thisWeek).toLocaleString()} {currency}
+                    <Amount value={row.thisWeek} currency={currency} />
                   </p>
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{t("lastWeek")}</p>
                   <p className="text-sm tabular-nums text-gray-500 dark:text-gray-400">
-                    {Math.round(row.lastWeek).toLocaleString()}
+                    <Amount value={row.lastWeek} currency={currency} />
                   </p>
                 </div>
                 {clampedDiff !== 0 && (

@@ -13,11 +13,11 @@ import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { errText } from "../utils/errText";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import {
-  Button, PageHeader, StatCard, SectionBanner, Icon,
+  Button, PageHeader, StatCard, SectionBanner, Icon, Amount,
 } from "../components/ui";
 
 const REASONS = ["expired", "overcooked", "damaged", "other"];
@@ -78,7 +78,7 @@ export default function WastePage() {
       });
       setItem(""); setQty(""); setCost("");
       setWasteDate(localIso());
-      trackEvent("waste_logged", "waste", `${item} - ${c || 0} ${currency}`);
+      trackEvent("waste_logged", "waste", `${item} - ${formatOwnerMoney(c || 0, user?.currency)}`);
       setSuccess(t("wasteLogged"));
       fetchData(filterFrom, filterTo);
       setTimeout(() => setSuccess(""), 2500);
@@ -168,7 +168,7 @@ export default function WastePage() {
               it into the standard card chrome. */}
           <StatCard
             label={t("monthlyWasteCost")}
-            value={`${summary.total_cost.toLocaleString()} ${currency}`}
+            value={<Amount value={summary.total_cost} currency={currency} />}
             accent="critical"
           />
           <StatCard
@@ -236,7 +236,7 @@ export default function WastePage() {
           {QUICK_COSTS.map((c) => (
             <button key={c} onClick={() => submit(c)} disabled={!item || !qty}
               className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-700 hover:text-red-700 dark:hover:text-red-400 transition disabled:opacity-30">
-              {c} {currency}
+              <Amount value={c} currency={currency} />
             </button>
           ))}
         </div>
@@ -410,7 +410,7 @@ export default function WastePage() {
                           "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
                         }`}>{t(log.reason)}</span>
                       </td>
-                      <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400">{parseFloat(log.estimated_cost).toLocaleString()} {currency}</td>
+                      <td className="px-4 py-3 text-sm font-semibold text-red-600 dark:text-red-400"><Amount value={parseFloat(log.estimated_cost)} currency={currency} /></td>
                       <td className="px-4 py-3 text-right space-x-2">
                         <button onClick={() => startEdit(log)} className="text-blue-500 dark:text-blue-400 text-sm hover:underline">{t("edit")}</button>
                         {deleteConfirm === log.id ? (

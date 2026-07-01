@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ThumbsUp, ThumbsDown } from "lucide-react";
 import api from "../services/api";
 import { trackEvent } from "../hooks/useEventLog";
 import { useLanguage } from "../hooks/useLanguage";
@@ -320,14 +321,14 @@ function InsightCard({ pattern, onFeedback, onDismiss, onActed }) {
             <FeedbackButton
               active={pattern.feedback === "useful"}
               onClick={() => onFeedback("useful")}
-              icon="👍"
+              icon={ThumbsUp}
               label={t("insUseful", "Useful")}
               activeBg="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
             />
             <FeedbackButton
               active={pattern.feedback === "not_useful"}
               onClick={() => onFeedback("not_useful")}
-              icon="👎"
+              icon={ThumbsDown}
               label={t("insNotUseful", "Not useful")}
               activeBg="bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300"
             />
@@ -360,16 +361,18 @@ function InsightCard({ pattern, onFeedback, onDismiss, onActed }) {
   );
 }
 
-function FeedbackButton({ active, onClick, icon, label, activeBg }) {
+// `icon` is a Lucide component (ThumbsUp / ThumbsDown) — not an emoji.
+function FeedbackButton({ active, onClick, icon: IconCmp, label, activeBg }) {
   return (
     <button
       onClick={onClick}
       disabled={active}
-      className={`text-xs px-2.5 py-1 rounded-md transition font-medium ${
+      className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-md transition font-medium ${
         active ? activeBg : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
       }`}
     >
-      {icon} {label}
+      {IconCmp && <IconCmp className="w-3 h-3 shrink-0" strokeWidth={1.75} aria-hidden="true" />}
+      {label}
     </button>
   );
 }

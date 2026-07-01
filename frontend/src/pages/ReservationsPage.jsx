@@ -283,7 +283,7 @@ export default function ReservationsPage() {
         <UpgradeNudge
           intent="card"
           tier="starter"
-          icon="📅"
+          iconName="CalendarCheck"
           feature="reservations"
           benefit={t(
             "rsvpUpsell",

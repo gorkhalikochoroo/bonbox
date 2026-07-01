@@ -5,13 +5,13 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import CustomerOutreachModal from "../components/CustomerOutreachModal";
-import { Icon, PageHeader, StatCard } from "../components/ui";
+import { Icon, PageHeader, StatCard, Amount } from "../components/ui";
 import { errText } from "../utils/errText";
 
 export default function KhataPage() {
@@ -160,8 +160,6 @@ export default function KhataPage() {
 
   const filtered = customers.filter((c) => !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.phone?.includes(search));
 
-  const fmt = (n) => Number(n).toLocaleString("en", { minimumFractionDigits: 0 });
-
   // Calculate running balance for transaction list (oldest first, accumulate)
   const sortedTxnsAsc = [...transactions].sort((a, b) => a.date.localeCompare(b.date) || (a.created_at || "").localeCompare(b.created_at || ""));
   let runBal = 0;
@@ -224,7 +222,7 @@ export default function KhataPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           label={t("totalReceivable")}
-          value={`${fmt(summary.total_receivable)} ${currency}`}
+          value={<Amount value={summary.total_receivable} currency={currency} />}
           accent={summary.total_receivable > 0 ? "critical" : "neutral"}
         />
         <StatCard
@@ -239,7 +237,7 @@ export default function KhataPage() {
             {summary.top_debtors?.slice(0, 3).map((d, i) => (
               <div key={i} className="flex justify-between text-sm">
                 <span className="text-gray-700 dark:text-gray-300 truncate">{d.name}</span>
-                <span className="text-red-600 dark:text-red-400 font-medium tabular-nums">{fmt(d.balance)}</span>
+                <span className="text-red-600 dark:text-red-400 font-medium tabular-nums"><Amount value={d.balance} currency={currency} /></span>
               </div>
             ))}
             {(!summary.top_debtors || summary.top_debtors.length === 0) && (
@@ -297,7 +295,7 @@ export default function KhataPage() {
                   </div>
                   <div className="text-right">
                     <p className={`font-bold text-sm ${c.balance > 0 ? "text-red-600" : "text-emerald-600"}`}>
-                      {c.balance > 0 ? `${fmt(c.balance)} ${t("owed")}` : c.balance < 0 ? `${fmt(Math.abs(c.balance))} ${t("overpaid")}` : t("settled")}
+                      {c.balance > 0 ? `${formatOwnerMoney(c.balance, user?.currency)} ${t("owed")}` : c.balance < 0 ? `${formatOwnerMoney(Math.abs(c.balance), user?.currency)} ${t("overpaid")}` : t("settled")}
                     </p>
                   </div>
                 </div>
@@ -337,16 +335,16 @@ export default function KhataPage() {
                 <div className="grid grid-cols-3 gap-3">
                   <div className="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 text-center">
                     <p className="text-xs text-gray-500 dark:text-gray-400">{t("totalPurchased")}</p>
-                    <p className="text-lg font-bold text-red-600">{fmt(customerTotals.purchased)}</p>
+                    <p className="text-lg font-bold text-red-600"><Amount value={customerTotals.purchased} currency={currency} /></p>
                   </div>
                   <div className="bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 text-center">
                     <p className="text-xs text-gray-500 dark:text-gray-400">{t("totalPaid")}</p>
-                    <p className="text-lg font-bold text-emerald-600">{fmt(customerTotals.paid)}</p>
+                    <p className="text-lg font-bold text-emerald-600"><Amount value={customerTotals.paid} currency={currency} /></p>
                   </div>
                   <div className={`rounded-lg p-3 text-center ${customerRemaining > 0 ? "bg-orange-50 dark:bg-orange-900/20" : "bg-gray-50 dark:bg-gray-800/50"}`}>
                     <p className="text-xs text-gray-500 dark:text-gray-400">{t("remaining")}</p>
                     <p className={`text-lg font-bold ${customerRemaining > 0 ? "text-orange-600" : "text-emerald-600"}`}>
-                      {customerRemaining > 0 ? fmt(customerRemaining) : `${t("settled")} ✓`}
+                      {customerRemaining > 0 ? <Amount value={customerRemaining} currency={currency} /> : `${t("settled")} ✓`}
                     </p>
                   </div>
                 </div>
@@ -356,7 +354,7 @@ export default function KhataPage() {
                   <form onSubmit={handleQuickPay} className="mt-3 flex gap-2">
                     <input
                       type="number"
-                      placeholder={`${t("amount")} (${t("remaining")}: ${fmt(customerRemaining)})`}
+                      placeholder={`${t("amount")} (${t("remaining")}: ${formatOwnerMoney(customerRemaining, user?.currency)})`}
                       value={payAmount}
                       onChange={(e) => setPayAmount(e.target.value)}
                       className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-white"
@@ -484,13 +482,13 @@ export default function KhataPage() {
                       <tr key={txn.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                         <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{formatDate(txn.date)}</td>
                         <td className="px-4 py-3 text-right text-red-600 font-medium">
-                          {parseFloat(txn.purchase_amount) > 0 ? `+${fmt(txn.purchase_amount)}` : "-"}
+                          {parseFloat(txn.purchase_amount) > 0 ? <Amount value={txn.purchase_amount} currency={currency} sign /> : "-"}
                         </td>
                         <td className="px-4 py-3 text-right text-emerald-600 font-medium">
-                          {parseFloat(txn.paid_amount) > 0 ? `-${fmt(txn.paid_amount)}` : "-"}
+                          {parseFloat(txn.paid_amount) > 0 ? <Amount value={-parseFloat(txn.paid_amount)} currency={currency} /> : "-"}
                         </td>
                         <td className={`px-4 py-3 text-right font-bold ${txn.runningBalance > 0 ? "text-red-600" : "text-emerald-600"}`}>
-                          {fmt(txn.runningBalance)} {currency}
+                          <Amount value={txn.runningBalance} currency={currency} />
                         </td>
                         <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{txn.notes || "-"}</td>
                         <td className="px-4 py-3 text-right space-x-2">
