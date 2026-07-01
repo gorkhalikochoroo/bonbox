@@ -2035,6 +2035,25 @@ _migrations = [
     # ── Migration 031 (2026-06-30): short join code for staff invite/connect ──
     "ALTER TABLE staff_links ADD COLUMN IF NOT EXISTS join_code VARCHAR(12)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_links_join_code ON staff_links (join_code) WHERE join_code IS NOT NULL",
+    # ── Migration 032 (2026-07-01): staff_availability (standing "kan ikke") ──
+    # Net-new table backing app/models/staff.py:StaffAvailability. Proactive,
+    # staff-side unavailability the owner sees while building the roster and the
+    # autopilot respects — distinct from staff_absences (an EVENT). Idempotent.
+    """CREATE TABLE IF NOT EXISTS staff_availability (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        staff_id UUID NOT NULL REFERENCES staff_members(id),
+        kind VARCHAR(20) NOT NULL DEFAULT 'unavailable',
+        weekday INTEGER,
+        specific_date DATE,
+        start_time VARCHAR(5),
+        end_time VARCHAR(5),
+        note VARCHAR(200),
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_staff_availability_user ON staff_availability (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_staff_availability_staff ON staff_availability (staff_id)",
 ]
 
 

@@ -31,6 +31,7 @@ from app.database import get_db, SessionLocal
 from app.models.staff import (
     StaffMember, StaffLink, Schedule, HoursLogged,
     Tip, TipDistribution, PayPeriodConfig, NotificationLog, OpenShift,
+    StaffAvailability,
 )
 from app.models.business_profile import BusinessProfile
 from app.services import portal_events
@@ -863,6 +864,133 @@ def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)
     out["clocked_out"] = True
     out["worked_hours"] = round(total, 2)
     return out
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Availability — staff-side "kan ikke arbejde" (standing unavailability)
+#  A STANDING preference (recurring weekday or one-off date), distinct from a
+#  sick-call/absence EVENT. The owner sees it while building the roster and the
+#  autopilot respects it — a soft signal, never a hidden hard block.
+# ═══════════════════════════════════════════════════════════════════════════
+class AvailabilityBody(BaseModel):
+    """Exactly one of weekday / date is set. Times optional (null = all day)."""
+    weekday: int | None = None       # 0=Mon..6=Sun (recurring)
+    date: str | None = None          # ISO "YYYY-MM-DD" (one-off)
+    kind: str = "unavailable"        # "unavailable" | "preferred"
+    start_time: str | None = None    # "HH:MM"; null = whole day
+    end_time: str | None = None
+    note: str | None = None
+
+
+def _avail_dict(a: StaffAvailability) -> dict:
+    return {
+        "id": str(a.id),
+        "kind": a.kind,
+        "weekday": a.weekday,
+        "date": a.specific_date.isoformat() if a.specific_date else None,
+        "start_time": a.start_time,
+        "end_time": a.end_time,
+        "note": a.note,
+    }
+
+
+def _valid_hhmm(v: str) -> bool:
+    return bool(re.match(r"^([01]\d|2[0-3]):[0-5]\d$", v or ""))
+
+
+@router.get("/{token}/availability")
+@limiter.limit("60/minute")
+def portal_list_availability(token: str, request: Request, db: Session = Depends(get_db)):
+    """This staffer's own standing availability blocks ('kan ikke')."""
+    link, member = _get_staff_from_token(token, db)
+    rows = (
+        db.query(StaffAvailability)
+        .filter(
+            StaffAvailability.staff_id == member.id,
+            StaffAvailability.user_id == member.user_id,
+        )
+        .order_by(StaffAvailability.weekday.asc(), StaffAvailability.specific_date.asc())
+        .all()
+    )
+    return {"availability": [_avail_dict(a) for a in rows]}
+
+
+@router.post("/{token}/availability")
+@limiter.limit("30/minute")
+def portal_add_availability(
+    token: str, body: AvailabilityBody, request: Request, db: Session = Depends(get_db)
+):
+    """Add a 'kan ikke' block. Owner + staff identity are re-derived from the
+    token — NEVER trusted from the body — so a peer can't write for someone else."""
+    link, member = _get_staff_from_token(token, db)
+
+    kind = body.kind if body.kind in ("unavailable", "preferred") else "unavailable"
+
+    has_weekday = body.weekday is not None
+    has_date = bool(body.date)
+    if has_weekday == has_date:  # exactly one of the two is required
+        raise HTTPException(status_code=422, detail={"error": "need_weekday_or_date"})
+
+    weekday = None
+    specific_date = None
+    if has_weekday:
+        if not isinstance(body.weekday, int) or not (0 <= body.weekday <= 6):
+            raise HTTPException(status_code=422, detail={"error": "bad_weekday"})
+        weekday = body.weekday
+    else:
+        try:
+            specific_date = date.fromisoformat(body.date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail={"error": "bad_date"})
+
+    st, et = body.start_time, body.end_time
+    if (st is None) != (et is None):  # both or neither
+        raise HTTPException(status_code=422, detail={"error": "need_both_times"})
+    if st is not None:
+        if not _valid_hhmm(st) or not _valid_hhmm(et):
+            raise HTTPException(status_code=422, detail={"error": "bad_time"})
+        if et <= st:  # same-day window; end==start is zero-length → reject
+            raise HTTPException(status_code=422, detail={"error": "end_not_after_start"})
+
+    note = (body.note or "").strip()[:200] or None
+
+    row = StaffAvailability(
+        user_id=member.user_id, staff_id=member.id, kind=kind,
+        weekday=weekday, specific_date=specific_date,
+        start_time=st, end_time=et, note=note,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return _avail_dict(row)
+
+
+@router.delete("/{token}/availability/{avail_id}")
+@limiter.limit("30/minute")
+def portal_delete_availability(
+    token: str, avail_id: str, request: Request, db: Session = Depends(get_db)
+):
+    """Remove one of THIS staffer's own availability blocks."""
+    link, member = _get_staff_from_token(token, db)
+    import uuid as _uuid
+    try:
+        aid = _uuid.UUID(str(avail_id))
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    row = (
+        db.query(StaffAvailability)
+        .filter(
+            StaffAvailability.id == aid,
+            StaffAvailability.staff_id == member.id,
+            StaffAvailability.user_id == member.user_id,
+        )
+        .first()
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    db.delete(row)
+    db.commit()
+    return {"deleted": True}
 
 
 @router.get("/{token}/tips")

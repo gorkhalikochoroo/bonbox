@@ -6,7 +6,7 @@ from typing import Optional
 
 from sqlalchemy import (
     String, Boolean, Date, DateTime, Numeric, ForeignKey, Text, Integer,
-    UniqueConstraint, CheckConstraint,
+    UniqueConstraint, CheckConstraint, Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -96,6 +96,45 @@ class Schedule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     staff_member: Mapped["StaffMember"] = relationship(back_populates="schedules")
+
+
+class StaffAvailability(Base):
+    """A staff member's standing "kan ikke arbejde" (or preferred) window.
+
+    UNLIKE StaffAbsence (an EVENT — syg today, ferie next week), availability is
+    a STANDING PREFERENCE the owner sees WHILE building the roster: recurring (a
+    weekday, e.g. "aldrig mandage") or a one-off date. It never changes the
+    schedule by itself — it's a soft signal the owner sees and the autopilot
+    respects (Planday calls this "unavailability").
+
+    Exactly one of (weekday, specific_date) is set — enforced at the schema
+    layer. NULL start_time/end_time means the WHOLE day. `kind` discriminates
+    "unavailable" (the default, "kan ikke") from "preferred" (a soft "helst").
+
+    Tenant boundary: user_id is the OWNER (employer); staff_id is the member.
+    The portal write path re-derives BOTH from the magic-link token — a value
+    from the request body is never trusted (a peer can't set availability for
+    someone else).
+    """
+    __tablename__ = "staff_availability"
+    __table_args__ = (
+        Index("ix_staff_availability_user", "user_id"),
+        Index("ix_staff_availability_staff", "staff_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    staff_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("staff_members.id"))
+    kind: Mapped[str] = mapped_column(String(20), default="unavailable")
+    weekday: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 0=Mon..6=Sun (recurring)
+    specific_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)  # one-off
+    start_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)  # "HH:MM", NULL=all day
+    end_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=utc_now, onupdate=utc_now
+    )
 
 
 class HoursLogged(Base):

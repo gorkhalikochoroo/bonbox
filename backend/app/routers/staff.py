@@ -1037,6 +1037,40 @@ class CopyWeekBody(BaseModel):
     target_week: date
 
 
+@router.get("/availability")
+def owner_list_availability(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """All staff availability for this owner — the grid paints 'kan ikke' cells
+    so at 15-30 rows the owner spots conflicts at a glance. Recurring weekday
+    rows apply every week; one-off date rows carry their date. Tenant-scoped.
+    A soft signal only — the owner can still place a shift there, they just see
+    the clash. The staffer's `note` is operational (e.g. 'undervisning til 16'),
+    shown to the owner who needs it to schedule around it."""
+    from app.models.staff import StaffAvailability
+    rows = (
+        db.query(StaffAvailability)
+        .filter(StaffAvailability.user_id == user.id)
+        .all()
+    )
+    return {
+        "availability": [
+            {
+                "id": str(a.id),
+                "staff_id": str(a.staff_id),
+                "kind": a.kind,
+                "weekday": a.weekday,
+                "date": a.specific_date.isoformat() if a.specific_date else None,
+                "start_time": a.start_time,
+                "end_time": a.end_time,
+                "note": a.note,
+            }
+            for a in rows
+        ]
+    }
+
+
 @router.get("/schedules", response_model=list[ScheduleResponse])
 def list_schedules(
     week_start: date = Query(..., description="Monday of the target week (YYYY-MM-DD)"),
