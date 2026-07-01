@@ -531,7 +531,7 @@ export default function ReportsPage() {
                       type="button"
                       onClick={() => stepPeriod(-1)}
                       aria-label={t("periodPrev")}
-                      className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400"
                     >
                       <Icon name="ChevronLeft" size={18} />
                     </button>
@@ -544,7 +544,7 @@ export default function ReportsPage() {
                       type="button"
                       onClick={() => stepPeriod(1)}
                       aria-label={t("periodNext")}
-                      className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                      className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400"
                     >
                       <Icon name="ChevronRight" size={18} />
                     </button>
@@ -558,7 +558,7 @@ export default function ReportsPage() {
                         value={customStart}
                         max={customEnd || undefined}
                         onChange={(e) => setCustomStart(e.target.value)}
-                        className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
                       />
                     </label>
                     <label className="flex flex-col gap-1 text-xs text-gray-500 dark:text-gray-400">
@@ -568,7 +568,7 @@ export default function ReportsPage() {
                         value={customEnd}
                         min={customStart || undefined}
                         onChange={(e) => setCustomEnd(e.target.value)}
-                        className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                        className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
                       />
                     </label>
                     <Button variant="secondary" size="md" onClick={applyCustom}>

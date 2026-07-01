@@ -1516,7 +1516,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         const msgKey = anomalyCheck.reason === "high" ? "closeAnomalyHighMsg" : "closeAnomalyLowMsg";
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-5 sm:p-6 animate-fadeIn">
               <div className="flex items-start gap-3">
                 <div className="shrink-0 w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center"><Icon name="AlertTriangle" size={20} className="text-amber-600 dark:text-amber-400" /></div>
                 <div className="min-w-0">
@@ -1526,14 +1526,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 </div>
               </div>
               <div className="mt-5 flex gap-3 justify-end">
-                <button onClick={() => setAnomalyCheck(null)} disabled={saving}
-                  className="px-4 py-2 rounded-xl text-sm font-semibold text-gray-700 dark:text-gray-200 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition disabled:opacity-60">
+                <Button variant="secondary" onClick={() => setAnomalyCheck(null)} disabled={saving}>
                   {t("closeAnomalyCancel")}
-                </button>
-                <button onClick={() => handleSubmit({ acknowledgeAnomaly: true })} disabled={saving}
-                  className="px-4 py-2 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition disabled:opacity-60">
+                </Button>
+                <Button variant="accent" onClick={() => handleSubmit({ acknowledgeAnomaly: true })} disabled={saving}>
                   {saving ? "…" : t("closeAnomalyConfirm")}
-                </button>
+                </Button>
               </div>
             </div>
           </div>
@@ -1794,16 +1792,17 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                         </div>
                       )}
                       <div className="flex flex-wrap items-center gap-2">
-                        <button
+                        <Button
                           type="button"
+                          variant="primary"
+                          size="sm"
                           onClick={handleConfirmDetectedProvider}
                           disabled={chipConfirming}
-                          className="text-[12px] px-2.5 py-1 rounded-md bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-200 disabled:opacity-50 transition"
                         >
                           {chipConfirming
                             ? t("detectedTerminalConfirming", "Saving…")
                             : t("detectedTerminalConfirm", "Confirm")}
-                        </button>
+                        </Button>
                         <button
                           type="button"
                           onClick={handleDismissChip}
@@ -1845,11 +1844,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                             )}
                           </div>
                           <div className="flex flex-wrap gap-2">
-                            <button
+                            <Button
                               type="button"
+                              variant="danger"
+                              size="sm"
                               onClick={handleConfirmUnlink}
                               disabled={unlinking}
-                              className="px-2.5 py-1 rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
                             >
                               {unlinking
                                 ? t(
@@ -1857,7 +1857,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                                     "Unlinking…",
                                   )
                                 : t("detectedTerminalUnlink", "Unlink")}
-                            </button>
+                            </Button>
                             <button
                               type="button"
                               onClick={() =>
@@ -2139,14 +2139,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
             {/* Action buttons */}
             <div className="flex flex-col sm:flex-row gap-3">
-              <button onClick={() => applyScanValues(true)}
-                className="flex-1 px-6 py-3 bg-gray-900 text-white rounded-xl font-semibold hover:bg-gray-700 transition text-sm inline-flex items-center justify-center gap-1.5">
-                <Icon name="CheckCircle2" size={16} /> {t("useTheseValuesJumpReview", "Use these values — jump to review")}
-              </button>
-              <button onClick={() => applyScanValues(false)}
-                className="flex-1 px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl font-semibold hover:bg-gray-200 dark:hover:bg-gray-600 transition text-sm inline-flex items-center justify-center gap-1.5">
-                <Icon name="Pencil" size={16} /> {t("continueStepByStep", "Continue step-by-step")}
-              </button>
+              <Button variant="primary" size="lg" className="flex-1" onClick={() => applyScanValues(true)}
+                iconLeft={<Icon name="CheckCircle2" size={16} />}>
+                {t("useTheseValuesJumpReview", "Use these values — jump to review")}
+              </Button>
+              <Button variant="secondary" size="lg" className="flex-1" onClick={() => applyScanValues(false)}
+                iconLeft={<Icon name="Pencil" size={16} />}>
+                {t("continueStepByStep", "Continue step-by-step")}
+              </Button>
             </div>
             <div className="flex justify-center gap-4">
               <button onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
@@ -2310,8 +2310,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     )}
                   </div>
                   {defaultRevCats.length > 1 && (
-                    <button
+                    <Button
                       type="button"
+                      variant="primary"
+                      size="sm"
+                      className="shrink-0"
                       onClick={() => {
                         // Auto-distribute by item name into existing categories
                         // (best-effort match) or dump into first category if no
@@ -2342,10 +2345,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                         }
                         setRevAmounts(next);
                       }}
-                      className="shrink-0 px-3 py-1.5 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-xs font-medium rounded-lg transition-colors"
                     >
                       {t("useTheseNumbers", "Use these numbers")}
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>
@@ -2376,7 +2378,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <input type="text" placeholder={t("addCategory") || "Add category..."} className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm"
                 value={customRevName} onChange={e => setCustomRevName(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && addCustomRevCat()} />
-              <button onClick={addCustomRevCat} className="px-4 py-2.5 bg-gray-100 dark:bg-gray-700 rounded-xl text-sm font-medium hover:bg-gray-200 dark:hover:bg-gray-600 dark:text-white">+ {t("addBtn", "Add")}</button>
+              <Button variant="secondary" size="lg" onClick={addCustomRevCat}>+ {t("addBtn", "Add")}</Button>
             </div>
             <div className="pt-3 border-t dark:border-gray-700 text-right">
               <span className="text-sm text-gray-500">{t("total") || "Total"}: </span>
@@ -2748,22 +2750,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* Navigation buttons */}
         <div className="flex justify-between mt-6 pt-4 border-t dark:border-gray-700">
           {step > 1 ? (
-            <button onClick={() => setStep(step - 1)}
-              className="px-5 py-2.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium">
+            <Button variant="ghost" size="lg" onClick={() => setStep(step - 1)}>
               ← {t("back", "Back")}
-            </button>
+            </Button>
           ) : (
-            <button onClick={() => { setScanMode("idle"); setScanResult(null); setScanPhotos([]); }}
-              className="px-5 py-2.5 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl font-medium text-sm">
+            <Button variant="ghost" size="lg" onClick={() => { setScanMode("idle"); setScanResult(null); setScanPhotos([]); }}>
               ← {t("scanZReportBack", "Scan Z-report")}
-            </button>
+            </Button>
           )}
 
           {step < totalSteps ? (
-            <button onClick={() => setStep(step + 1)}
-              className="px-6 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition">
+            <Button variant="primary" size="lg" onClick={() => setStep(step + 1)}>
               {t("next", "Next")} →
-            </button>
+            </Button>
           ) : (() => {
               // Save-preview — show the user the actual amount that will
               // be persisted, especially when the backend's max() will
@@ -2776,8 +2775,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               const usingOverride = ocrTotal > 0 && ocrTotal > revenueTotal;
               return (
                 <div className="flex flex-col items-end gap-1">
-                  <button onClick={() => handleSubmit()} disabled={saving || willSave === 0}
-                    className="px-6 py-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition disabled:opacity-50">
+                  <Button variant="primary" size="lg" onClick={() => handleSubmit()} disabled={saving || willSave === 0}>
                     {saving ? (
                       t("savingEllipsis", "Saving…")
                     ) : !isOnline ? (
@@ -2785,7 +2783,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     ) : (
                       <span className="inline-flex items-center gap-2"><Icon name="Lock" size={16} /> {t("confirmAndLock", "Confirm & Lock")}</span>
                     )}
-                  </button>
+                  </Button>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {t("willSaveTotal", "Will save total:")} <strong className="text-gray-700 dark:text-gray-200">{willSave.toLocaleString()} {currency}</strong>
                     {usingOverride && (
