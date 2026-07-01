@@ -66,7 +66,7 @@ from sqlalchemy.orm import Session
 
 from app.models.business_profile import BusinessProfile
 from app.models.sale import Sale
-from app.models.staff import Schedule, StaffMember
+from app.models.staff import Schedule, StaffMember, StaffAvailability
 from app.models.user import User
 from app.models.weather import DailyWeather
 
@@ -486,6 +486,58 @@ def _predict_revenue(
 # ─── Staff assignment ────────────────────────────────────────────────
 
 
+def _load_unavailability(db: Session, user: User) -> dict[str, list[dict]]:
+    """Map staff_id(str) → list of standing UNAVAILABLE blocks ("kan ikke").
+
+    Only kind=='unavailable' blocks the autopilot; 'preferred' is a soft nicety,
+    not a bar, so it's excluded. Each block is {weekday, specific_date, s_min,
+    e_min}; an all-day block has s_min=None.
+    """
+    rows = (
+        db.query(StaffAvailability)
+        .filter(
+            StaffAvailability.user_id == user.id,
+            StaffAvailability.kind == "unavailable",
+        )
+        .all()
+    )
+    out: dict[str, list[dict]] = {}
+    for r in rows:
+        out.setdefault(str(r.staff_id), []).append({
+            "weekday": r.weekday,
+            "specific_date": r.specific_date,
+            "s_min": _hhmm_to_minutes(r.start_time) if r.start_time else None,
+            "e_min": _hhmm_to_minutes(r.end_time) if r.end_time else None,
+        })
+    return out
+
+
+def _staff_unavailable(blocks: list[dict], target_date: date, start: str, end: str) -> bool:
+    """True if any of this staffer's blocks covers target_date and overlaps the
+    shift's first-day window. A SOFT signal — only the autopilot defers here; the
+    owner can still hand-place. An all-day block (no time) blocks the whole day.
+    """
+    if not blocks:
+        return False
+    sh_s = _hhmm_to_minutes(start)
+    sh_e = _hhmm_to_minutes(end)
+    if sh_e <= sh_s:  # overnight → clamp to end-of-day for the first-day overlap
+        sh_e = 24 * 60
+    for b in blocks:
+        matches_day = (
+            (b["specific_date"] is not None and b["specific_date"] == target_date)
+            or (b["specific_date"] is None and b["weekday"] is not None
+                and b["weekday"] == target_date.weekday())
+        )
+        if not matches_day:
+            continue
+        if b["s_min"] is None:  # all-day block
+            return True
+        if sh_s < b["e_min"] and b["s_min"] < sh_e:  # same-day window overlap
+            return True
+    return False
+
+
 def _avg_hourly_rate(staff_list: list[StaffMember]) -> float:
     """Mean of staff hourly rates — used to convert revenue × labor_pct
     into a person-hour budget. Falls back to DEFAULT_HOURLY_RATE when
@@ -506,6 +558,7 @@ def _assign_shifts_for_day(
     weekly_hours_running: dict[uuid.UUID, float],
     last_shift_end_by_staff: dict[uuid.UUID, datetime],
     warnings: list[str],
+    unavailable_by_staff: dict[str, list[dict]] | None = None,
 ) -> list[AutopilotShift]:
     """Greedy assignment: cheapest available staff first, filling shift
     templates until demand_hours is satisfied OR we exhaust staff.
@@ -538,8 +591,14 @@ def _assign_shifts_for_day(
 
         # Pick the cheapest staff member who has capacity for this shift.
         picked: Optional[StaffMember] = None
+        unavail = unavailable_by_staff or {}
         for s in staff_sorted:
             sid = s.id
+            # Standing availability ("kan ikke"): skip anyone who marked this
+            # date/time unavailable. Soft — only the autopilot defers; the owner
+            # can still hand-place, and 'preferred' blocks never land here.
+            if _staff_unavailable(unavail.get(str(sid), []), target_date, start, end):
+                continue
             # DK weekly cap (rolling 7-day, here approximated as the
             # target week since the autopilot only writes inside it).
             current_week_hours = weekly_hours_running.get(sid, 0.0)
@@ -667,6 +726,9 @@ def suggest_week_schedule(
 
     avg_rate = _avg_hourly_rate(staff_list)
     shift_templates = _shift_templates_for(user)
+    # Standing "kan ikke" blocks so the autopilot never proposes a staffer onto
+    # a day/time they said they can't work — makes "respects availability" true.
+    unavailable_by_staff = _load_unavailability(db, user)
 
     # History (no writes)
     history = _gather_history(db, user, monday, branch_id)
@@ -718,6 +780,7 @@ def suggest_week_schedule(
             weekly_hours_running=weekly_hours_running,
             last_shift_end_by_staff=last_shift_end_by_staff,
             warnings=compliance_warnings,
+            unavailable_by_staff=unavailable_by_staff,
         )
 
         total_cost = sum(s.cost for s in day_shifts)
