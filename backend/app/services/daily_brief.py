@@ -695,6 +695,13 @@ class Candidate:
 
 
 def _fmt_money(amount: float, currency: str) -> str:
+    """Owner-facing money for brief copy — the backend twin of the
+    frontend's formatOwnerMoney: DKK reads like a Danish bank statement
+    ("9.000 kr.", da-DK grouping), other currencies keep the code
+    ("9,000 EUR"). Safe for the approved-numbers guard: _normalize_token
+    strips both comma and dot grouping."""
+    if (currency or "DKK").upper() == "DKK":
+        return f"{int(round(amount)):,}".replace(",", ".") + " kr."
     return f"{int(round(amount)):,} {currency}"
 
 

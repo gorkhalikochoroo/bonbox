@@ -673,7 +673,7 @@ export default function SalesPage() {
               type="number"
               value={editData.amount}
               onChange={(e) => setEditData({ ...editData, amount: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
-              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-gray-400"
+              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
           </label>
           <label className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
@@ -682,7 +682,7 @@ export default function SalesPage() {
               type="date"
               value={editData.date}
               onChange={(e) => setEditData({ ...editData, date: e.target.value })}
-              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
           </label>
           <label className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
@@ -690,7 +690,7 @@ export default function SalesPage() {
             <select
               value={editData.payment_method}
               onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
-              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
             >
               {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
                 <option key={m} value={m}>{t(m)}</option>
@@ -704,7 +704,7 @@ export default function SalesPage() {
               value={editData.notes || ""}
               onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
               placeholder={t("notes")}
-              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400"
+              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
           </label>
         </div>
@@ -1211,7 +1211,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("searchInventory")}
-              className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-gray-100 mb-3 focus:outline-none focus:ring-1 focus:ring-gray-400"
+              className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-gray-100 mb-3 focus:outline-none focus:ring-2 focus:ring-gray-400"
               autoFocus
             />
             <div className="max-h-64 overflow-y-auto space-y-1">
@@ -1284,7 +1284,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                   onChange={(e) => setQty(e.target.value)}
                   placeholder="0"
                   max={available}
-                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400"
                   autoFocus
                 />
                 {qtyNum > available && (
@@ -1298,7 +1298,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
                   placeholder="0"
-                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400"
                 />
               </div>
             </div>
