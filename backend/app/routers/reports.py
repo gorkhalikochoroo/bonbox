@@ -32,7 +32,8 @@ from app.models.business_profile import BusinessProfile
 from app.services import audit_service
 from app.services.auth import get_current_user
 from app.services.expense_status import not_pending
-from app.services.revenue_resolver import effective_revenue_total
+from collections import namedtuple
+from app.services.revenue_resolver import effective_revenue_total, effective_revenue_by_date
 from app.services.billing import effective_plan, get_cap
 from app.services.tax_filing_pdf import (
     build_moms_filing_pdf, compute_filing_data, make_bilagsnummer,
@@ -259,6 +260,17 @@ def get_display_currency(currency: str) -> str:
     return currency
 
 
+# Per-date effective revenue (DailyClose-wins), shaped like the old
+# (Sale.date, SUM) rows so best/worst/avg/weekday code stays unchanged.
+# Only days that have revenue are returned, matching the old GROUP BY.
+_DayRev = namedtuple("_DayRev", ["date", "total"])
+
+
+def _effective_daily(db, user_id, start, end):
+    by_date = effective_revenue_by_date(db, user_id, start, end)
+    return [_DayRev(d, float(v)) for d, v in sorted(by_date.items()) if v]
+
+
 @router.get("/daily-kasserapport")
 def daily_kasserapport(
     report_date: str = Query(None),
@@ -349,12 +361,8 @@ def monthly_report(
     start = date(year, month, 1)
     end = date(year, month, last_day)
 
-    # Total revenue
-    total_revenue = (
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    # Total revenue — effective basis (DailyClose-wins), matches the Dashboard
+    total_revenue = float(effective_revenue_total(db, user.id, start, end))
 
     # Total expenses (exclude personal and deleted)
     total_expenses = (
@@ -374,13 +382,7 @@ def monthly_report(
     )
 
     # Daily revenue for the month
-    daily_revenue = (
-        db.query(Sale.date, func.sum(Sale.amount).label("total"))
-        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
-        .group_by(Sale.date)
-        .order_by(Sale.date)
-        .all()
-    )
+    daily_revenue = _effective_daily(db, user.id, start, end)
 
     # Best and worst revenue days
     best_day = max(daily_revenue, key=lambda r: r.total, default=None)
@@ -560,11 +562,10 @@ def monthly_report_pdf(
     vat_terms = get_vat_terms(user.currency or "DKK")
 
     # ---- Gather all data ----
-    total_revenue = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    # Revenue on the SAME effective basis as the Dashboard: a confirmed
+    # DailyClose.revenue_total wins per date, raw Sale rows as fallback. A raw
+    # SUM(Sale.amount) reads ~0 for kasserapport-closing DK owners (#225).
+    total_revenue = float(effective_revenue_total(db, user.id, start, end))
     total_expenses = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
@@ -579,11 +580,7 @@ def monthly_report_pdf(
         prev_start = date(year, month - 1, 1)
         prev_end = date(year, month - 1, prev_last)
 
-    prev_revenue = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date.between(prev_start, prev_end), Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    prev_revenue = float(effective_revenue_total(db, user.id, prev_start, prev_end))
     prev_expenses = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user.id, Expense.date.between(prev_start, prev_end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
@@ -601,13 +598,7 @@ def monthly_report_pdf(
         .all()
     )
 
-    daily_revenue = (
-        db.query(Sale.date, func.sum(Sale.amount).label("total"))
-        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
-        .group_by(Sale.date)
-        .order_by(Sale.date)
-        .all()
-    )
+    daily_revenue = _effective_daily(db, user.id, start, end)
 
     # Payment method breakdown
     payment_breakdown = (
@@ -1673,11 +1664,10 @@ def custom_report_pdf(
     # code is printed in this DK-only Ledelsesrapport.
 
     # ---- Common data ----
-    total_revenue = float(
-        db.query(func.coalesce(func.sum(Sale.amount), 0))
-        .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
-        .scalar()
-    )
+    # Revenue on the SAME effective basis as the Dashboard: a confirmed
+    # DailyClose.revenue_total wins per date, raw Sale rows as fallback. A raw
+    # SUM(Sale.amount) reads ~0 for kasserapport-closing DK owners (#225).
+    total_revenue = float(effective_revenue_total(db, user.id, start, end))
     total_expenses = float(
         db.query(func.coalesce(func.sum(Expense.amount), 0))
         .filter(Expense.user_id == user.id, Expense.date.between(start, end), Expense.is_personal.isnot(True), Expense.is_deleted.isnot(True), not_pending())
@@ -1844,14 +1834,8 @@ def custom_report_pdf(
             t_pay.setStyle(_neutral_header())
             elements.append(t_pay)
 
-        # Daily revenue
-        daily_revenue = (
-            db.query(Sale.date, func.sum(Sale.amount).label("total"))
-            .filter(Sale.user_id == user.id, Sale.date.between(start, end), Sale.is_deleted.isnot(True))
-            .group_by(Sale.date)
-            .order_by(Sale.date)
-            .all()
-        )
+        # Daily revenue — effective basis (DailyClose-wins)
+        daily_revenue = _effective_daily(db, user.id, start, end)
         days_with_sales = len(daily_revenue)
         avg_daily = round(total_revenue / days_with_sales, 2) if days_with_sales > 0 else 0
 
