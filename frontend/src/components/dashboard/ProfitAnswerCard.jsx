@@ -19,7 +19,7 @@ import React from "react";
 import { useNavigate } from "react-router-dom";
 import { TrendingUp, TrendingDown, Minus, Info, ArrowDownRight } from "lucide-react";
 import { useLanguage } from "../../hooks/useLanguage";
-import { formatKr } from "../../utils/currency";
+import Amount from "../ui/Amount";
 
 export default function ProfitAnswerCard({ ctx = {} }) {
   const { t, lang } = useLanguage();
@@ -82,12 +82,13 @@ export default function ProfitAnswerCard({ ctx = {} }) {
     }
   })();
   const TrendIcon = pct == null ? null : pct > 0 ? TrendingUp : pct < 0 ? TrendingDown : Minus;
+  // Calm hero: the arrow + colored text ARE the signal — no pill fill.
   const chipCls =
     pct > 0
-      ? "text-emerald-700 bg-emerald-50 dark:text-emerald-300 dark:bg-emerald-500/10"
+      ? "text-emerald-700 dark:text-emerald-300"
       : pct < 0
-        ? "text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-500/10"
-        : "text-gray-600 bg-gray-100 dark:text-gray-300 dark:bg-gray-800";
+        ? "text-red-600 dark:text-red-400"
+        : "text-gray-500 dark:text-gray-400";
 
   // Bar — of every krone of revenue, how much is cost vs. yours.
   const expensePct = revenue > 0 ? Math.min(100, Math.round((expenses / revenue) * 100)) : 100;
@@ -102,17 +103,15 @@ export default function ProfitAnswerCard({ ctx = {} }) {
           <div className="text-sm text-gray-500 dark:text-gray-400">
             {isLoss ? t("profitLossLabel", "Loss this month") : t("profitLabel", "Profit this month")}
           </div>
-          <div
-            className={`text-3xl font-semibold leading-tight tabular-nums ${
-              isLoss ? "text-red-600 dark:text-red-400" : "text-gray-900 dark:text-gray-100"
-            }`}
-          >
-            {formatKr(profit, { decimals: 0 })}
-          </div>
+          <Amount
+            value={profit}
+            size="hero"
+            className={isLoss ? "text-red-600 dark:text-red-400" : "text-gray-900 dark:text-gray-100"}
+          />
         </div>
         {pct != null && TrendIcon && (
-          <span className={`inline-flex items-center gap-1 text-sm font-semibold rounded-md px-2 py-0.5 mb-1 tabular-nums ${chipCls}`}>
-            <TrendIcon className="w-4 h-4" aria-hidden="true" /> {pct > 0 ? "+" : ""}{pct}% {t("profitVs", "vs.")} {prevMonthName}
+          <span className={`inline-flex items-center gap-1 text-sm font-semibold mb-1 tabular-nums ${chipCls}`}>
+            <TrendIcon className="w-3.5 h-3.5" strokeWidth={1.75} aria-hidden="true" /> {pct > 0 ? "+" : ""}{pct}% {t("profitVs", "vs.")} {prevMonthName}
           </span>
         )}
       </div>
@@ -120,7 +119,7 @@ export default function ProfitAnswerCard({ ctx = {} }) {
       <div className="mt-4">
         <div className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
           {t("profitOfRevenue", "Of your revenue")}{" "}
-          <span className="font-medium text-gray-900 dark:text-gray-100 tabular-nums">{formatKr(revenue, { decimals: 0 })}</span>
+          <Amount value={revenue} size="body" className="text-gray-900 dark:text-gray-100" />
         </div>
         <div className="flex h-7 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
           <div className="bg-red-500 dark:bg-red-600" style={{ width: `${expensePct}%` }} />
@@ -128,11 +127,11 @@ export default function ProfitAnswerCard({ ctx = {} }) {
         </div>
         <div className="flex justify-between text-xs mt-1.5 tabular-nums gap-3">
           <span className="text-red-600 dark:text-red-400">
-            {formatKr(expenses, { decimals: 0 })} {t("profitToExpenses", "to expenses")}
+            <Amount value={expenses} /> {t("profitToExpenses", "to expenses")}
           </span>
           {!isLoss && (
             <span className="text-emerald-700 dark:text-emerald-400 text-right">
-              {formatKr(profit, { decimals: 0 })} {t("profitIsYours", "is yours")}
+              <Amount value={profit} /> {t("profitIsYours", "is yours")}
             </span>
           )}
         </div>
@@ -145,7 +144,7 @@ export default function ProfitAnswerCard({ ctx = {} }) {
               <Info className="w-4 h-4 text-gray-400 shrink-0 mt-px" aria-hidden="true" />
               <span>
                 {t("profitMomsNote", "Revenue is incl. MOMS — about")}{" "}
-                <span className="font-medium text-amber-600 dark:text-amber-400 tabular-nums">{formatKr(moms, { decimals: 0 })}</span>{" "}
+                <Amount value={moms} className="font-medium text-amber-600 dark:text-amber-400" />{" "}
                 {t("profitMomsNote2", "goes to SKAT.")}
               </span>
             </div>
@@ -156,7 +155,7 @@ export default function ProfitAnswerCard({ ctx = {} }) {
               <span>
                 {t("profitTopExpense", "Biggest expense")}:{" "}
                 <span className="font-medium text-gray-900 dark:text-gray-100">{topCat}</span> ·{" "}
-                <span className="tabular-nums">{formatKr(topAmt, { decimals: 0 })}</span>
+                <Amount value={topAmt} />
               </span>
             </div>
           )}
