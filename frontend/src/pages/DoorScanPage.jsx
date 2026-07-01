@@ -34,7 +34,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Camera as CameraIcon, X, ArrowLeft, AlertTriangle, Check, Gift } from "lucide-react";
+import { Camera as CameraIcon, X, ArrowLeft, AlertTriangle, Check, Gift, Calendar } from "lucide-react";
 import jsQR from "jsqr";
 
 import api from "../services/api";
@@ -198,7 +198,7 @@ function UpcomingEventsList({ events, loading, onPick, t }) {
     return (
       <Card variant="subtle">
         <Empty
-          icon="📅"
+          icon={Calendar}
           title={t("scanNoUpcomingTitle", "Ingen arrangementer i dag eller i morgen")}
           body={t(
             "scanNoUpcomingBody",
@@ -824,7 +824,7 @@ export default function DoorScanPage() {
         <>
           <Card>
             <Empty
-              icon={<CameraIcon size={32} strokeWidth={1.5} className="text-gray-500 dark:text-gray-400 inline-block" />}
+              icon={CameraIcon}
               title={t("scanPickEventTitle", "Vælg det arrangement du står ved døren til")}
               body={t(
                 "scanPickEventBody",

@@ -116,8 +116,7 @@ export default function CustomersPage() {
 
       <HowItWorksCard
         storageKey="customers"
-        icon="👥"
-        tone="blue"
+        iconName="Users"
         title={t("customersHowTitle") || "How Customers works"}
         steps={[
           {

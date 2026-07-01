@@ -226,8 +226,7 @@ export default function FakturaPage() {
 
       <HowItWorksCard
         storageKey="faktura"
-        icon="🧾"
-        tone="blue"
+        iconName="Receipt"
         title={t("fakturaHowTitle") || "How Faktura works"}
         steps={[
           {

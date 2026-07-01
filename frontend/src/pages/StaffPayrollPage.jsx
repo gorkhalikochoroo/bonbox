@@ -434,7 +434,7 @@ export default function StaffPayrollPage() {
 
       <DismissibleTip
         id="payroll-intro-v1"
-        icon="💼"
+        iconName="Briefcase"
         title={t("payrollTipTitle", "DK payroll, the easy way")}
       >
         <p className="mb-1.5">

@@ -598,7 +598,7 @@ export default function InventoryPage() {
 
       <DismissibleTip
         id="inventory-intro-v1"
-        icon="📦"
+        iconName="Package"
         title={t("invHowItWorksTitle", "How inventory works")}
       >
         <p>

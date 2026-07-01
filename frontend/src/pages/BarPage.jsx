@@ -12,6 +12,7 @@ import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
 import { localIso } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
+import { Wine } from "lucide-react";
 import {
   Button, PageHeader, SectionBanner, Empty, Icon,
 } from "../components/ui";
@@ -200,7 +201,7 @@ export default function BarPage() {
         <FadeIn delay={0.05}>
           <div className="mt-6 rounded-xl border border-dashed border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900/40 p-2">
             <Empty
-              icon="🍸"
+              icon={Wine}
               title={t("barEmptyTitle") || "No bar items yet"}
               body={
                 t("barEmptyHelp") ||

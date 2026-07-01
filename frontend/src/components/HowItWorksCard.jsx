@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLanguage } from "../hooks/useLanguage";
+import { Icon } from "./ui";
 
 /**
  * HowItWorksCard — multi-step onboarding panel for a feature page.
@@ -31,7 +32,11 @@ import { useLanguage } from "../hooks/useLanguage";
 // so this default change is non-breaking.
 export default function HowItWorksCard({
   storageKey,
-  icon = "\u{1F4A1}",
+  // Prefer `iconName` — a Lucide icon (outline, matches the sidebar). The
+  // legacy `icon` string (emoji) is still honored for back-compat, but new
+  // callers should pass `iconName`. Default is a Lucide "Lightbulb".
+  icon = null,
+  iconName = null,
   title,
   steps = [],
   footer = null,
@@ -39,6 +44,14 @@ export default function HowItWorksCard({
   className = "",
 }) {
   const { t } = useLanguage();
+
+  // One glyph resolver: Lucide `iconName` wins, then a legacy emoji string,
+  // else the Lucide lightbulb — so the card never falls back to an emoji.
+  const glyphFor = (size) => {
+    if (iconName) return <Icon name={iconName} size={size} />;
+    if (typeof icon === "string" && icon) return <span aria-hidden="true">{icon}</span>;
+    return <Icon name="Lightbulb" size={size} />;
+  };
   const fullKey = `bonbox_howitworks_${storageKey || "default"}`;
 
   // Start expanded for first-time visitors, collapsed thereafter.
@@ -115,7 +128,7 @@ export default function HowItWorksCard({
         onClick={toggle}
         className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border ${palette.wrap} text-xs font-medium hover:opacity-100 opacity-80 transition ${className}`}
       >
-        <span aria-hidden="true">{icon}</span>
+        {glyphFor(14)}
         <span>{t("showTips") || "How it works"}</span>
         <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
           <path d="M3 4.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -135,7 +148,7 @@ export default function HowItWorksCard({
     >
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
-          <span className="text-xl" aria-hidden="true">{icon}</span>
+          {glyphFor(20)}
           <h3 className="font-bold text-base">{title}</h3>
         </div>
         <button

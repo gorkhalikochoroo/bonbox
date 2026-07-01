@@ -19,6 +19,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
 import { displayCurrency } from "../utils/currency";
 import { FadeIn } from "../components/AnimationKit";
+import { Package } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
@@ -109,7 +110,7 @@ export default function ExpiryPage() {
     return (
       <div className="p-4 md:p-8 max-w-lg mx-auto">
         <Empty
-          icon="📦"
+          icon={Package}
           title={error || t("expLoadError", "Could not load expiry data")}
           cta={<Button variant="primary" onClick={fetchData}>{t("tryAgain", "Try again")}</Button>}
         />
@@ -484,7 +485,7 @@ export default function ExpiryPage() {
         <div className="bg-white dark:bg-gray-900 rounded-xl p-2 border border-gray-200 dark:border-gray-800">
           <Empty
             size="hero"
-            icon="📦"
+            icon={Package}
             title={t("expEmptyTitle", "No expiry data yet")}
             body={t("expEmptyBody", "Add expiry dates to your inventory items to unlock expiry forecasting, waste prediction, and order recommendations.")}
             cta={

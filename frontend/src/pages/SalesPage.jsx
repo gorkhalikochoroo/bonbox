@@ -19,7 +19,7 @@
 // rendering layer changed.
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Mic, Undo2, Pencil, Trash, AlertCircle } from "lucide-react";
+import { Mic, Undo2, Pencil, Trash, AlertCircle, Receipt } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -1116,6 +1116,7 @@ export default function SalesPage() {
           rowKey="id"
           empty={
             <Empty
+              icon={Receipt}
               title={t("noSalesYet", "No sales yet")}
               body={t("noSalesBody", "Tap a quick amount above to log your first.")}
             />

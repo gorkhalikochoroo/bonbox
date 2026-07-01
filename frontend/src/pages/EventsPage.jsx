@@ -32,6 +32,7 @@ import {
   Plus,
   Trash2,
   Check,
+  Calendar,
   Eye,
   RotateCcw,
   Link2,
@@ -1627,7 +1628,7 @@ export default function EventsPage() {
                     empty={
                       <div className="text-center py-2">
                         <Empty
-                          icon="📅"
+                          icon={Calendar}
                           title={t(
                             "bookingsEmptyTitle",
                             "No reservations yet",

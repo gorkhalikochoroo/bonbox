@@ -35,7 +35,7 @@ import {
   // Reports
   BarChart3, Utensils, ClipboardList, Moon, Store, Calculator, Send,
   // Staff
-  UsersRound, Calendar, Timer, Coins, FileSpreadsheet,
+  UsersRound, Calendar, Timer, Coins, FileSpreadsheet, Briefcase,
   // Intelligence
   Brain, CloudSun, CalendarClock, BadgePercent, Heart, Telescope,
   // Workshop
@@ -112,7 +112,7 @@ const ICONS = {
   // Reports group
   BarChart3, Utensils, ClipboardList, Moon, Store, Calculator, Send,
   // Staff group
-  UsersRound, Calendar, Timer, Coins, FileSpreadsheet,
+  UsersRound, Calendar, Timer, Coins, FileSpreadsheet, Briefcase,
   // Intelligence group
   Brain, CloudSun, CalendarClock, BadgePercent, Heart, Telescope,
   // Workshop group

@@ -2482,7 +2482,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
             mobileBreakpoint="md"
             empty={
               <Empty
-                icon={<CalendarCheck className="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600" />}
+                icon={CalendarCheck}
                 title={t("rsvpBookEmpty", "No reservations for {date} yet.", { date: fmtDkDate(day) })}
                 body={
                   filtersOn

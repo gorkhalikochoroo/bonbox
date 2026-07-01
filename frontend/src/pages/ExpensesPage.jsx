@@ -1403,7 +1403,7 @@ export default function ExpensesPage() {
               rowKey="id"
               empty={
                 <Empty
-                  icon={<Receipt size={28} strokeWidth={1.5} className="text-gray-400 dark:text-gray-500" aria-hidden="true" />}
+                  icon={Receipt}
                   title={t("noExpensesYet", "No expenses yet")}
                   body={t("noExpensesBody", "Add one above or forward a receipt to your inbox.")}
                 />

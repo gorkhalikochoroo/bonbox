@@ -27,6 +27,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { Button, Card, Empty, UpgradeNudge, Icon } from "./ui";
+import { Repeat } from "lucide-react";
 import { formatDateClearFull } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
 
@@ -465,7 +466,7 @@ export default function RecurringExpensesPanel({ categories, currency }) {
         </p>
       ) : rules.length === 0 ? (
         <Empty
-          icon="🔁"
+          icon={Repeat}
           title={t("noRecurringYet", "No recurring expenses yet")}
           body={t(
             "recurringEmptyHint",

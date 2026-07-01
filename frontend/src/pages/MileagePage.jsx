@@ -112,8 +112,7 @@ export default function MileagePage() {
 
       <HowItWorksCard
         storageKey="mileage"
-        icon="🚗"
-        tone="green"
+        iconName="Car"
         title={t("mileageHowTitle") || "How Mileage works"}
         steps={[
           {

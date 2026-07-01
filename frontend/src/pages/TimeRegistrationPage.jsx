@@ -8,6 +8,7 @@ import api from "../services/api";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { PageHeader, Button, StatCard, Card, Empty, Icon } from "../components/ui";
+import { Clock } from "lucide-react";
 
 function monthBounds(d) {
   const start = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -155,7 +156,7 @@ export default function TimeRegistrationPage() {
         <Card><p className="text-sm text-gray-400">{t("loading", "Loading…")}</p></Card>
       ) : !staff.length ? (
         <Empty
-          icon="Clock"
+          icon={Clock}
           title={t("tregEmptyTitle", "No registered time yet")}
           body={t("tregEmptyBody", "Time registration builds from clocked hours (Stempelur) or hours you log. Ask staff to clock in, or log their hours, and their register appears here.")}
         />
