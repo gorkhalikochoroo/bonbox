@@ -92,13 +92,13 @@ PROMPT_VERSION = "kasserapport-2026-05-28-v1"
 # this output ships into the accountant-grade SKAT MOMS-angivelse PDF
 # (Bogføringsloven §10 liability). Wrong revenue extraction = real
 # money lost to wrong filing.
-_DEFAULT_MODEL_CLASSIFIER = "claude-sonnet-4-6"
-_DEFAULT_MODEL_FORMAT     = "claude-sonnet-4-6"
-# claude-sonnet-4-6 — reverted from claude-opus-4-7 (404 from Anthropic
-# API; the suggesting agent hallucinated the identifier). Sonnet 4.5
-# remains the accountant-grade extractor — Bogføringsloven §10
+_DEFAULT_MODEL_CLASSIFIER = "claude-sonnet-5"
+_DEFAULT_MODEL_FORMAT     = "claude-sonnet-5"
+# claude-sonnet-5 (bumped from claude-sonnet-4-6 on 2026-07-01).
+# WARNING: never use claude-opus-4-7 — it 404s (hallucinated ID, task #239).
+# Sonnet 5 is the accountant-grade extractor here — Bogføringsloven §10
 # liability still well served.
-_DEFAULT_MODEL_EXTRACTOR  = "claude-sonnet-4-6"
+_DEFAULT_MODEL_EXTRACTOR  = "claude-sonnet-5"
 
 # Soft caps — cheap defense against runaway costs. Caller may override.
 MAX_INPUT_IMAGE_SIDE_PX = 2200   # resize huge phone photos before upload

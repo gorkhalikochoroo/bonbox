@@ -94,20 +94,24 @@ class Settings(BaseSettings):
     #      parser, wine, inventory extract/categorize) AND the fallback
     #      target for the two tiers above.
     #
-    # VERIFIED IDs (probed live against this account's /v1/models AND the
-    # /v1/messages endpoint — all return HTTP 200; do NOT guess or
-    # substitute, a wrong model ID has 404-broken AI before, task #239):
-    #   • claude-opus-4-8   — accuracy model
-    #   • claude-sonnet-4-6 — premium + default + fallback model (both the
-    #     PREMIUM and DEFAULT tiers run Sonnet 4.6; the bare alias resolves
-    #     fine against /v1/messages). Bumped from the older claude-sonnet-4-5
-    #     on 2026-06-29 so the workhorse/default tier is current — Opus 4.8
-    #     stays on the money-critical OCR (accuracy > a saved model tier).
-    # The BONBOX_*_MODEL env vars let the operator hot-swap any tier without
-    # a redeploy (e.g. pin a dated snapshot, or roll back to claude-sonnet-4-5).
+    # A wrong model ID has 404-broken AI before (task #239) — treat these as
+    # load-bearing; never GUESS or substitute a variant/date suffix.
+    #   • claude-opus-4-8 — accuracy tier. Probed live vs /v1/models AND
+    #     /v1/messages (HTTP 200). STAYS on the money-critical OCR: Opus 4.8
+    #     out-reasons Sonnet on hard kasserapport/receipt vision, and that
+    #     feeds MOMS — accuracy > a cheaper tier.
+    #   • claude-sonnet-5 — premium + default + fallback tier (Sonnet 5, the
+    #     current published Sonnet; bare alias, resolves against /v1/messages).
+    #     Bumped from claude-sonnet-4-6 on 2026-07-01. NOTE: taken from the
+    #     published model list, NOT re-probed against this account like the
+    #     entries above — confirm one live call after deploy.
+    # SAFETY NET: the BONBOX_*_MODEL env vars hot-swap any tier WITHOUT a
+    # redeploy. If claude-sonnet-5 ever 404s on this account, set
+    # BONBOX_DEFAULT_MODEL / BONBOX_PREMIUM_MODEL = claude-sonnet-4-6 in Render
+    # to roll back instantly (no code change / no deploy).
     ACCURACY_MODEL: str = os.environ.get("BONBOX_ACCURACY_MODEL", "claude-opus-4-8")
-    PREMIUM_MODEL: str = os.environ.get("BONBOX_PREMIUM_MODEL", "claude-sonnet-4-6")
-    DEFAULT_MODEL: str = os.environ.get("BONBOX_DEFAULT_MODEL", "claude-sonnet-4-6")
+    PREMIUM_MODEL: str = os.environ.get("BONBOX_PREMIUM_MODEL", "claude-sonnet-5")
+    DEFAULT_MODEL: str = os.environ.get("BONBOX_DEFAULT_MODEL", "claude-sonnet-5")
     # ── Stripe subscription billing ──
     # Live keys go in Render env vars (sync: false). Test keys can go in .env
     # for local dev. The webhook secret is per-endpoint (Stripe gives a unique

@@ -266,7 +266,7 @@ def _try_llm_parse(
         return None, 0, 0, "fallback"
 
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-    model = getattr(settings, "AI_MODEL_SALE_PARSER", "claude-sonnet-4-6")
+    model = getattr(settings, "AI_MODEL_SALE_PARSER", "claude-sonnet-5")
 
     # Trim inventory to a compact form to save tokens
     inv_compact = [

@@ -588,7 +588,7 @@ def extract_inventory_data(
         Legacy per-call model override (env: ``AI_MODEL_INVENTORY_OCR``).
         Retained for back-compat but SUPERSEDED by the central accuracy
         tier: this call now runs ``ACCURACY_MODEL`` (claude-opus-4-8)
-        first and auto-falls-back to ``DEFAULT_MODEL`` (claude-sonnet-4-6)
+        first and auto-falls-back to ``DEFAULT_MODEL`` (claude-sonnet-5)
         on any Anthropic exception. See ``services/model_fallback``.
     timeout
         SDK call timeout in seconds.
@@ -659,7 +659,7 @@ def extract_inventory_data(
     _ = (
         (model or "").strip()
         or os.environ.get("AI_MODEL_INVENTORY_OCR", "").strip()
-        or "claude-sonnet-4-6"
+        or "claude-sonnet-5"
     )  # legacy override — superseded by ACCURACY_MODEL tier below
 
     # ── Call Claude — tool-use forces structured output ──
