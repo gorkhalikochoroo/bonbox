@@ -1229,7 +1229,7 @@ export default function ExpensesPage() {
                 ? `${t("customAmount")} ${getTaxConfig(user?.currency).rate > 0 ? `(${getTaxConfig(user?.currency).label})` : ""}`
                 : t("customAmount")
             }
-            amountSuffix={currency}
+            amountSuffix={currency === "DKK" ? "kr." : currency}
             paymentMethods={["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => ({ id: m, label: t(m) }))}
             paymentMethod={method}
             onPaymentChange={commitMethod}

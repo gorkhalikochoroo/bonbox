@@ -917,7 +917,7 @@ export default function SalesPage() {
             amount={amount}
             onAmountChange={setAmount}
             amountPlaceholder={`${t("customAmount")} ${getTaxConfig(user?.currency).rate > 0 ? `(${getTaxConfig(user?.currency).label})` : ""}`}
-            amountSuffix={currency}
+            amountSuffix={currency === "DKK" ? "kr." : currency}
             paymentMethods={["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => ({ id: m, label: t(m) }))}
             paymentMethod={method}
             onPaymentChange={commitMethod}
