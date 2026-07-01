@@ -92,6 +92,7 @@ export default function StaffHoursPage() {
   const [staffList, setStaffList] = useState([]);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [entriesLoading, setEntriesLoading] = useState(false);
+  const [recentBeforeCount, setRecentBeforeCount] = useState(0);
 
   // Fetch pay period config
   useEffect(() => {
@@ -148,6 +149,30 @@ export default function StaffHoursPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Does THIS period have any real clock punch? (Used to gate the boundary
+  // nudge below so it only fires in the confusing "0 clocked this period" case.)
+  const currentHasClock = useMemo(
+    () => (entries || []).some((e) => e.entry_method === "clock" && e.end_time),
+    [entries],
+  );
+
+  // Boundary nudge: a shift clocked just after midnight is business-day-dated to
+  // the previous day, so it lands in the PRIOR pay period. When this period
+  // shows no clocked hours, look at the last few days before it — if a clock
+  // punch is there, surface a one-tap jump so the owner isn't left thinking the
+  // hours vanished. Reuses /staff/hours; changes no period total.
+  useEffect(() => {
+    if (!periodFrom) return; // count stays 0 (initial) until a period is set
+    let alive = true;
+    api.get("/staff/hours", { params: { from: addDays(periodFrom, -4), to: addDays(periodFrom, -1) } })
+      .then((r) => {
+        if (!alive) return;
+        setRecentBeforeCount((r.data || []).filter((e) => e.entry_method === "clock" && e.end_time).length);
+      })
+      .catch(() => { if (alive) setRecentBeforeCount(0); });
+    return () => { alive = false; };
+  }, [periodFrom]);
+
   // Period navigation
   const periodLength = useMemo(() => {
     if (!periodFrom || !periodTo) return 30;
@@ -199,6 +224,25 @@ export default function StaffHoursPage() {
           onNext={goNext}
         />
       </FadeIn>
+
+      {/* Boundary nudge: this period shows no clocked hours, but a shift was
+          clocked in the days just before it (an after-midnight punch is dated
+          to the previous business day → lands in the prior period). One tap
+          jumps there so the hours never look "missing". */}
+      {recentBeforeCount > 0 && !currentHasClock && (
+        <button
+          type="button"
+          onClick={goPrev}
+          className="w-full flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-900/15 px-4 py-2.5 text-left transition-colors hover:bg-amber-100/70 dark:hover:bg-amber-900/25"
+        >
+          <span className="text-[13px] text-amber-800 dark:text-amber-300">
+            {t("staffHoursRecentOutOfPeriod", "Clocked hours landed just before this period")}
+          </span>
+          <span className="text-[13px] font-semibold text-amber-900 dark:text-amber-200 shrink-0">
+            {t("staffHoursViewPrevPeriod", "Show previous period")} {"→"}
+          </span>
+        </button>
+      )}
 
       {/* Mobile-only tab strip. Hidden sm+ where the vertical layout
           works fine on a wide screen. */}
