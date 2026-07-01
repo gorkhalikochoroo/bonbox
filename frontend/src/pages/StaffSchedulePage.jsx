@@ -11,7 +11,7 @@ import { displayCurrency, formatKr } from "../utils/currency";
 import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
-import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPinOff } from "lucide-react";
+import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPinOff, CalendarOff } from "lucide-react";
 import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
 // Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
 // EMPTY cell (different staff and/or day) to REASSIGN it. dnd-kit gives us an
@@ -565,6 +565,7 @@ export default function StaffSchedulePage() {
   // Data
   const [staff, setStaff] = useState([]);
   const [shifts, setShifts] = useState([]);
+  const [availability, setAvailability] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -708,7 +709,39 @@ export default function StaffSchedulePage() {
     } catch {
       setWeekCost(null);
     }
+    // Standing "kan ikke" availability — painted as calm red cells on the grid
+    // so the owner spots conflicts at a glance (at 15-30 rows especially). Not
+    // week/branch scoped; fail-soft (never blocks the grid).
+    try {
+      const avRes = await api.get("/staff/availability");
+      setAvailability(avRes.data?.availability || []);
+    } catch {
+      setAvailability([]);
+    }
   }, [weekStart, branchId]);
+
+  // Map staff_id → their standing "unavailable" blocks; a soft signal the owner
+  // sees but can still override (they can hand-place onto a red cell).
+  const availByStaff = useMemo(() => {
+    const m = {};
+    for (const a of availability) {
+      if (a.kind && a.kind !== "unavailable") continue; // 'preferred' never blocks
+      (m[String(a.staff_id)] = m[String(a.staff_id)] || []).push(a);
+    }
+    return m;
+  }, [availability]);
+
+  const unavailFor = useCallback((staffId, date) => {
+    const list = availByStaff[String(staffId)];
+    if (!list || !list.length) return null;
+    const iso = toISO(date);
+    const pyWd = (date.getDay() + 6) % 7; // JS Sun=0 → DK/Python Mon=0
+    for (const a of list) {
+      const match = a.date ? a.date === iso : a.weekday === pyWd;
+      if (match) return { ...a, timeLabel: a.start_time ? `${a.start_time}–${a.end_time}` : null };
+    }
+    return null;
+  }, [availByStaff]);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -1798,6 +1831,7 @@ export default function StaffSchedulePage() {
                 staff={activeStaff}
                 weekDates={weekDates}
                 getShiftForCell={getShiftForCell}
+                unavailFor={unavailFor}
                 costForShift={costForShift}
                 showCost={showCost}
                 currency={currency}
@@ -4227,6 +4261,7 @@ function ScheduleGrid({
   staff,
   weekDates,
   getShiftForCell,
+  unavailFor,
   onCellClick,
   onMoveShift,
   costForShift,
@@ -4358,6 +4393,10 @@ function ScheduleGrid({
                     const isToday = toISO(date) === toISO(new Date());
 
                     if (!shift) {
+                      // Standing "kan ikke": a calm red-tinted cell so the owner
+                      // sees the conflict — but still a legal drop target (soft
+                      // signal, they can hand-place over it).
+                      const blk = unavailFor(member.id, date);
                       // EMPTY cell = a legal drop target (occupied={false}) AND a
                       // one-tap bloom on click. The drop-ring appears on hover-over.
                       return (
@@ -4367,21 +4406,37 @@ function ScheduleGrid({
                           dateIso={toISO(date)}
                           occupied={false}
                           className={`group px-1 py-2 text-center cursor-pointer transition-colors ${
-                            isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
+                            blk
+                              ? "bg-red-50/60 dark:bg-red-950/20"
+                              : isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
                           } hover:bg-gray-50 dark:hover:bg-gray-800/40`}
                           onClick={() => onCellClick(member.id, date, null)}
-                          title={t("schedBloomHint", "Click to add a shift")}
-                          aria-label={t("schedAddShiftAria", "Add shift for {name}").replace("{name}", member.name)}
+                          title={blk
+                            ? (blk.note
+                                ? `${t("schedKanIkkeCell", "Can't work")} · ${blk.note}`
+                                : t("schedKanIkkeCell", "Can't work"))
+                            : t("schedBloomHint", "Click to add a shift")}
+                          aria-label={blk
+                            ? t("schedKanIkkeAria", "{name} can't work this day").replace("{name}", member.name)
+                            : t("schedAddShiftAria", "Add shift for {name}").replace("{name}", member.name)}
                         >
-                          {/* Empty cells render SILENCE (no "OFF" word) — a single
-                              hover-Plus advertises one-tap add so the grid stays
-                              calm at 16×7. h-14 matches the occupied block. */}
-                          <div className="h-14 flex items-center justify-center">
-                            <Icon
-                              name="Plus"
-                              size={14}
-                              className="text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                            />
+                          {/* Available cells render SILENCE (no "OFF" word) — a
+                              single hover-Plus advertises one-tap add so the grid
+                              stays calm at 16×7. "Kan ikke" cells show a quiet red
+                              chip that fades to the Plus on hover (override). h-14
+                              matches the occupied block. */}
+                          <div className="h-14 relative flex items-center justify-center">
+                            {blk && (
+                              <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 bg-red-100/70 dark:bg-red-900/30 transition-opacity group-hover:opacity-0" aria-hidden>
+                                <CalendarOff className="w-[11px] h-[11px] text-red-400 dark:text-red-400" strokeWidth={2} />
+                                {blk.timeLabel && (
+                                  <span className="text-[9px] font-medium text-red-400 dark:text-red-400 tabular-nums">{blk.timeLabel}</span>
+                                )}
+                              </span>
+                            )}
+                            <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                              <Icon name="Plus" size={14} className="text-gray-300 dark:text-gray-600" />
+                            </span>
                           </div>
                         </DroppableCell>
                       );
