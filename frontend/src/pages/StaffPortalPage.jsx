@@ -3,9 +3,9 @@
  * Mobile-first, dark theme, no login required.
  * Route: /s/:token
  */
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown } from "lucide-react";
+import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, CalendarOff, Plus } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
@@ -2220,8 +2220,246 @@ function PortalError({ message }) {
 
 // ─── Main Portal Page ─────────────────────────────────────────────────────
 
+/**
+ * AvailabilityTab — staff-side "Kan ikke arbejde" (Planday-style unavailability).
+ * A STANDING preference (recurring weekday or one-off date, all-day or a time
+ * window) the owner sees while building the roster and the autopilot respects.
+ * Honest: a soft signal, never a hidden hard block — the copy says so.
+ */
+function AvailabilityTab({ token }) {
+  const { t } = useLanguage();
+  const [rows, setRows] = useState(null); // null = loading
+  const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  // Add-form state
+  const [mode, setMode] = useState("weekday"); // "weekday" | "date"
+  const [weekday, setWeekday] = useState(0);
+  const [dateVal, setDateVal] = useState("");
+  const [allDay, setAllDay] = useState(true);
+  const [startT, setStartT] = useState("08:00");
+  const [endT, setEndT] = useState("12:00");
+  const [note, setNote] = useState("");
+
+  // Monday-first short weekday names in the user's own locale — no i18n keys.
+  const WD = useMemo(() => {
+    const base = new Date(Date.UTC(2026, 6, 6)); // 2026-07-06 is a Monday
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(base);
+      d.setUTCDate(base.getUTCDate() + i);
+      return d.toLocaleDateString(undefined, { weekday: "short" });
+    });
+  }, []);
+
+  const load = async () => {
+    try {
+      const res = await portalApi.get(`/portal/${token}/availability`);
+      setRows(res.data?.availability || []);
+    } catch {
+      setRows([]);
+    }
+  };
+  useEffect(() => { load(); }, [token]);
+
+  const resetForm = () => {
+    setMode("weekday"); setWeekday(0); setDateVal("");
+    setAllDay(true); setStartT("08:00"); setEndT("12:00"); setNote(""); setErr("");
+  };
+
+  const submit = async () => {
+    setErr("");
+    const body = { kind: "unavailable" };
+    if (mode === "weekday") {
+      body.weekday = weekday;
+    } else {
+      if (!dateVal) { setErr(t("kanIkkePickDate", "Pick a date")); return; }
+      body.date = dateVal;
+    }
+    if (!allDay) {
+      if (endT <= startT) { setErr(t("kanIkkeEndAfterStart", "End must be after start")); return; }
+      body.start_time = startT;
+      body.end_time = endT;
+    }
+    if (note.trim()) body.note = note.trim();
+    setSaving(true);
+    try {
+      await portalApi.post(`/portal/${token}/availability`, body);
+      resetForm(); setAdding(false); await load();
+    } catch {
+      setErr(t("kanIkkeSaveFailed", "Couldn't save — try again"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (id) => {
+    setRows((r) => (r || []).filter((x) => x.id !== id)); // optimistic
+    try {
+      await portalApi.delete(`/portal/${token}/availability/${id}`);
+    } catch {
+      load(); // put it back if the delete really failed
+    }
+  };
+
+  const describe = (row) => {
+    const when = row.date
+      ? new Date(row.date + "T00:00:00").toLocaleDateString(undefined, {
+          weekday: "short", day: "numeric", month: "short",
+        })
+      : t("kanIkkeEveryWeekday", "Every {day}", { day: WD[row.weekday ?? 0] });
+    const time = row.start_time
+      ? `${row.start_time}–${row.end_time}`
+      : t("kanIkkeAllDay", "All day");
+    return { when, time };
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Honest soft-signal framing */}
+      <p className="text-[13px] leading-relaxed text-gray-600">
+        {t("kanIkkeIntro", "Mark the days or times you can't work. Your manager sees it while building the schedule.")}
+      </p>
+
+      {/* Existing blocks */}
+      {rows === null ? (
+        <div className="text-xs text-gray-500">{t("portalLoading", "Loading…")}</div>
+      ) : rows.length === 0 && !adding ? (
+        <div className="rounded-2xl border border-dashed border-gray-200 bg-white/60 p-6 text-center">
+          <CalendarOff className="w-6 h-6 text-gray-300 mx-auto mb-2" strokeWidth={1.75} aria-hidden />
+          <div className="text-sm text-gray-500">{t("kanIkkeEmpty", "Nothing marked yet.")}</div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {(rows || []).map((row) => {
+            const { when, time } = describe(row);
+            return (
+              <div key={row.id} className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                  <CalendarOff className="w-[18px] h-[18px] text-gray-500" strokeWidth={2} aria-hidden />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-gray-900 truncate">{when}</div>
+                  <div className="text-[12px] text-gray-500 truncate">
+                    {time}{row.note ? ` · ${row.note}` : ""}
+                  </div>
+                </div>
+                <button
+                  onClick={() => remove(row.id)}
+                  className="w-8 h-8 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition shrink-0"
+                  aria-label={t("kanIkkeRemove", "Remove")}
+                >
+                  <X className="w-4 h-4" strokeWidth={2} aria-hidden />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add */}
+      {!adding ? (
+        <button
+          onClick={() => { resetForm(); setAdding(true); }}
+          className="w-full px-4 py-3 rounded-xl bg-gray-900 text-white hover:bg-gray-700 text-sm font-semibold transition flex items-center justify-center gap-2"
+        >
+          <Plus className="w-4 h-4" strokeWidth={2.25} aria-hidden />
+          {t("kanIkkeAdd", "Mark “can't work”")}
+        </button>
+      ) : (
+        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-4 space-y-4">
+          {/* recurring vs one-off */}
+          <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-xl">
+            {[["weekday", t("kanIkkeRecurring", "Weekly")], ["date", t("kanIkkeOneOff", "One date")]].map(([k, lbl]) => (
+              <button
+                key={k}
+                onClick={() => setMode(k)}
+                className={`py-2 rounded-lg text-[13px] font-semibold transition ${mode === k ? "bg-white text-gray-900 shadow-soft" : "text-gray-500"}`}
+              >
+                {lbl}
+              </button>
+            ))}
+          </div>
+
+          {mode === "weekday" ? (
+            <div className="flex gap-1.5">
+              {WD.map((w, i) => (
+                <button
+                  key={i}
+                  onClick={() => setWeekday(i)}
+                  className={`flex-1 py-2 rounded-lg text-[12px] font-semibold capitalize transition ${weekday === i ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                >
+                  {w}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <input
+              type="date"
+              value={dateVal}
+              onChange={(e) => setDateVal(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-gray-900/30"
+            />
+          )}
+
+          {/* all-day vs window */}
+          <label className="flex items-center justify-between cursor-pointer">
+            <span className="text-[13px] font-medium text-gray-700">{t("kanIkkeAllDayToggle", "All day")}</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={allDay}
+              onClick={() => setAllDay(!allDay)}
+              className={`relative w-11 h-6 rounded-full transition ${allDay ? "bg-gray-900" : "bg-gray-300"}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${allDay ? "translate-x-5" : ""}`} />
+            </button>
+          </label>
+          {!allDay && (
+            <div className="flex items-center gap-2">
+              <input type="time" value={startT} onChange={(e) => setStartT(e.target.value)}
+                className="flex-1 px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm outline-none focus:border-gray-900/30" />
+              <span className="text-gray-400" aria-hidden>–</span>
+              <input type="time" value={endT} onChange={(e) => setEndT(e.target.value)}
+                className="flex-1 px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm outline-none focus:border-gray-900/30" />
+            </div>
+          )}
+
+          <input
+            type="text"
+            value={note}
+            maxLength={80}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder={t("kanIkkeNotePlaceholder", "Note (optional) — e.g. exam")}
+            className="w-full px-3 py-2.5 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+          />
+
+          {err && <div className="text-xs text-red-600">{err}</div>}
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setAdding(false); resetForm(); }}
+              className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition"
+            >
+              {t("portalCancel", "Cancel")}
+            </button>
+            <button
+              onClick={submit}
+              disabled={saving}
+              className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-50"
+            >
+              {saving ? t("portalSaving", "Saving…") : t("kanIkkeSave", "Save")}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const TABS = [
   { key: "schedule", Icon: Calendar, labelKey: "navSchedule", labelFallback: "Schedule" },
+  { key: "availability", Icon: CalendarOff, labelKey: "navKanIkke", labelFallback: "Kan ikke" },
   { key: "messages", Icon: MessageSquare, labelKey: "navMessages", labelFallback: "Messages" },
   { key: "swaps", Icon: ArrowLeftRight, labelKey: "navSwaps", labelFallback: "Swaps" },
   { key: "hours", Icon: Clock, labelKey: "navHours", labelFallback: "Hours" },
@@ -2734,7 +2972,7 @@ export default function StaffPortalPage() {
     // any deep link open the right tab.
     try {
       const q = new URLSearchParams(window.location.search).get("tab");
-      return ["schedule", "messages", "swaps", "hours", "tips", "alerts"].includes(q) ? q : "schedule";
+      return ["schedule", "availability", "messages", "swaps", "hours", "tips", "alerts"].includes(q) ? q : "schedule";
     } catch {
       return "schedule";
     }
@@ -3081,6 +3319,7 @@ export default function StaffPortalPage() {
           <div>
             <h1 className="text-lg font-bold text-gray-900">
               {tab === "schedule" ? t("portalTitleSchedule", "My schedule")
+                : tab === "availability" ? t("portalTitleKanIkke", "Availability")
                 : tab === "messages" ? t("portalTitleMessages", "Messages")
                 : tab === "swaps" ? t("portalTitleSwaps", "Swaps")
                 : tab === "hours" ? t("portalTitleHours", "My hours")
@@ -3185,6 +3424,7 @@ export default function StaffPortalPage() {
         {/* Install/push nudge — BELOW the shift so the schedule leads; a calm
             collapsed line, not a promo card above the fold. */}
         {tab === "schedule" && <InstallNotifyCard token={token} />}
+        {tab === "availability" && <AvailabilityTab token={token} />}
         {tab === "messages" && (
           <MessagesTab
             token={token}
