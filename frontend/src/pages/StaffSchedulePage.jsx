@@ -31,6 +31,7 @@ import {
 // collapsed panel right here on the Schedule page (where shift decisions are
 // made), replacing the standalone /weather + /staffing Intelligence pages.
 import ScheduleForecastPanel from "../components/ScheduleForecastPanel";
+import SickCallNotificationCard from "../components/SickCallNotificationCard";
 
 /* ═══════════════════════════════════════════════════════════
    CONSTANTS & HELPERS
@@ -1525,6 +1526,12 @@ export default function StaffSchedulePage() {
 
       {/* Clock-in location lock (opt-in geofence). */}
       <ClockGeofenceSettings />
+
+      {/* Fravær (ferie/sygdom) that need godkend/afvis. Interrupt-only —
+          hides itself when nothing is pending. This card had no mount point
+          anywhere in the app before; the Vagtplan is its natural home since
+          the owner manages staff here. */}
+      <SickCallNotificationCard />
 
       {/* Week navigation + actions */}
       <FadeIn delay={0.05}>
