@@ -111,3 +111,5 @@ echo ""
 echo "=========================================="
 echo "  ✅ Pre-xcodebuild complete"
 echo "=========================================="
+
+# CI trigger: 2026-07-02 — design system (Amount/kr., Lucide, PageShell) + Vagtplan availability batch.
