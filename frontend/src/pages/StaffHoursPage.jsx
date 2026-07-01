@@ -660,7 +660,8 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
   const [date, setDate] = useState(today());
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
-  const [breakMin, setBreakMin] = useState("30");
+  const [breakMin, setBreakMin] = useState("0");
+  const [breakTouched, setBreakTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
@@ -669,6 +670,16 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
     () => calcHoursFromTimes(startTime, endTime, parseInt(breakMin) || 0),
     [startTime, endTime, breakMin]
   );
+
+  // DK convention: a shift past 6h carries a 45-min pause. Prefill it from the
+  // entered times (owner can still override) so this form reads the SAME break
+  // as the punch clock + roster — not the old hardcoded 30. Event-driven, so no
+  // set-state-in-effect. Once the owner edits the field we never re-touch it.
+  const syncBreak = (s, en) => {
+    if (breakTouched) return;
+    const gross = calcHoursFromTimes(s, en, 0);
+    setBreakMin(String(gross >= 6 ? 45 : 0));
+  };
 
   // Look up staff rate for preview
   const selectedStaff = staffList.find(s => s.id === staffId);
@@ -706,7 +717,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        {t("shpClockDesc", "Enter clock-in and clock-out times. Break is auto-deducted.")}
+        {t("shpClockDesc", "Enter clock-in and clock-out times. A 45-min break is suggested for 6h+ shifts — adjust if needed.")}
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -744,7 +755,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
           <input
             type="time"
             value={startTime}
-            onChange={e => setStartTime(e.target.value)}
+            onChange={e => { setStartTime(e.target.value); syncBreak(e.target.value, endTime); }}
             required
             className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
@@ -756,7 +767,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
           <input
             type="time"
             value={endTime}
-            onChange={e => setEndTime(e.target.value)}
+            onChange={e => { setEndTime(e.target.value); syncBreak(startTime, e.target.value); }}
             required
             className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
@@ -771,7 +782,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
             min="0"
             max="120"
             value={breakMin}
-            onChange={e => setBreakMin(e.target.value)}
+            onChange={e => { setBreakMin(e.target.value); setBreakTouched(true); }}
             className="w-full border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-3 py-2.5 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
         </div>

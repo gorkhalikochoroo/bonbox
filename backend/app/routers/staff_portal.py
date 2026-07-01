@@ -819,16 +819,18 @@ def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)
     # was previously referenced here but never imported, which 500'd every
     # staff clock-out. (Audit 2026-06-10)
     from app.routers.staff import _calc_shift_hours
-    total = (
+    # Gross elapsed first (no break yet) — drives both the trust guard and the
+    # size of the DK break below.
+    gross = (
         0.0 if end_str == (punch.start_time or "")
-        else _calc_shift_hours(punch.start_time, end_str, punch.break_minutes or 0)
+        else _calc_shift_hours(punch.start_time, end_str, 0)
     )
     # TRUST GUARD: an in→out within the same minute (or anything that rounds to
     # 0.0h at the stored 1-decimal precision, i.e. < ~3 min) is a misclick or a
     # test, not real work. Persisting it would drop a junk "0.0h" row into the
     # owner's hours — which reads as the clock inventing random entries and
     # quietly erodes trust. So we DISCARD the open punch instead of saving it.
-    if round(total, 1) == 0.0:
+    if round(gross, 1) == 0.0:
         db.delete(punch)
         db.commit()
         out = _clock_status_dict(db, member, owner)
@@ -836,6 +838,16 @@ def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)
         out["worked_hours"] = 0.0
         out["discarded"] = True  # too short to log — nothing written
         return out
+    # DK BREAK AUTO-DEDUCTION: a punch carries no break entry (the staffer just
+    # taps in/out), so a 6h+ shift used to pay a full day with ZERO break — while
+    # the SAME shift on the roster deducted 45 min. Apply the shared DK suggestion
+    # so a punched shift reads the SAME hours a scheduled one does. It lands on
+    # break_minutes, which the owner can still adjust on the hours page (visible,
+    # editable — never a hidden deduction).
+    from app.services.schedule_autopilot import suggested_break_minutes
+    if not punch.break_minutes:
+        punch.break_minutes = suggested_break_minutes(gross)
+    total = _calc_shift_hours(punch.start_time, end_str, punch.break_minutes or 0)
     punch.end_time = end_str
     punch.total_hours = total
     try:

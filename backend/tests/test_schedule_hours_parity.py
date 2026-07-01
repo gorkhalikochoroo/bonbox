@@ -46,3 +46,32 @@ def test_equal_times_is_never_a_24h_shift():
     # The specific trust-bug: an equal-time shift must be 0h on EVERY surface.
     for helper in (_calc_hours, _shift_hours, _calc_shift_hours):
         assert helper("12:00", "12:00", 0) == 0.0
+
+
+# ── DK break suggestion — the SINGLE default every paid-hours path applies ──
+from app.services.schedule_autopilot import suggested_break_minutes, _compute_break_minutes
+
+
+@pytest.mark.parametrize("hours,expected", [
+    (0.0, 0),      # no shift → no break
+    (5.9, 0),      # under 6h → no break
+    (6.0, 45),     # exactly 6h → 45 (matches _compute_break_minutes >= threshold)
+    (6.1, 45),
+    (8.0, 45),
+])
+def test_suggested_break_threshold(hours, expected):
+    assert suggested_break_minutes(hours) == expected
+
+
+@pytest.mark.parametrize("garbage", [float("nan"), float("inf"), float("-inf"), None, "x"])
+def test_suggested_break_never_fabricates_from_noise(garbage):
+    # A break is a real deduction from someone's pay — never invent one from
+    # non-finite/garbage input.
+    assert suggested_break_minutes(garbage) == 0
+
+
+def test_compute_break_delegates_to_suggestion():
+    # The autopilot's start/end helper must agree with the shared suggestion so
+    # a punched shift and a rostered shift deduct the SAME break.
+    assert _compute_break_minutes("08:00", "16:30") == suggested_break_minutes(8.5) == 45
+    assert _compute_break_minutes("09:00", "14:00") == suggested_break_minutes(5.0) == 0

@@ -190,6 +190,14 @@ function calcHours(startTime, endTime, breakMinutes = 0) {
   return Math.max(0, totalMinutes / 60);
 }
 
+/** DK convention: a shift past ~6h carries a 45-min pause. Mirrors the backend
+    `suggested_break_minutes` so a shift seeded here defaults to the SAME break
+    the punch clock and roster apply — never a hidden 0 that inflates the hours.
+    A suggestion only (overenskomst varies) — always owner-overridable. */
+function suggestedBreak(startTime, endTime) {
+  return calcHours(startTime, endTime, 0) >= 6 ? 45 : 0;
+}
+
 /** Sum a staffer's net hours across the visible week (uses the same per-cell
     getShiftForCell the grid renders, so the Timer column can never disagree
     with the blocks above it). */
@@ -729,12 +737,17 @@ export default function StaffSchedulePage() {
       // An armed preset wins; else the staffer's most-recent shift; else the
       // session's last-used template. So tapping a preset then a day places it.
       const seed = armedTemplate || mostRecentShiftFor(shifts, staffId) || lastShiftTemplate || null;
+      const startT = seed?.start_time || seed?.start || "16:00";
+      const endT = seed?.end_time || seed?.end || "23:00";
       const payload = {
         staff_id: staffId,
         date: toISO(dateObj),
-        start_time: seed?.start_time || seed?.start || "16:00",
-        end_time: seed?.end_time || seed?.end || "23:00",
-        break_minutes: seed?.break_minutes || 0,
+        start_time: startT,
+        end_time: endT,
+        // Respect a break the seed carries; otherwise default to the DK
+        // suggestion for these times so a quick-placed 6h+ shift reads the
+        // same hours as the punched/rostered one instead of a silent 0.
+        break_minutes: seed?.break_minutes ?? suggestedBreak(startT, endT),
         role_on_shift: roleToShiftOption(seed?.role_on_shift || seed?.role || memberRole),
         branch_id: branchId || undefined,
         // status intentionally OMITTED → backend defaults 'draft' → no notify.
@@ -3870,7 +3883,9 @@ function TemplateCreateModal({ t, onClose, onSave }) {
       start,
       end,
       role,
-      break_minutes: 0,
+      // Default the template's break to the DK suggestion for its length, so
+      // shifts placed from it inherit a correct pause instead of a hidden 0.
+      break_minutes: suggestedBreak(start, end),
     });
   };
 
@@ -4745,7 +4760,9 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
   const [startMin, setStartMin] = useState(() => (seed?.start ? seed.start.slice(3, 5) : "00"));
   const [endHour, setEndHour] = useState(() => (seed?.end ? seed.end.slice(0, 2) : "23"));
   const [endMin, setEndMin] = useState(() => (seed?.end ? seed.end.slice(3, 5) : "00"));
-  const [breakMinutes, setBreakMinutes] = useState(() => seed?.break_minutes ?? 0);
+  const [breakMinutes, setBreakMinutes] = useState(
+    () => seed?.break_minutes ?? suggestedBreak(seed?.start || "16:00", seed?.end || "23:00")
+  );
   const [roleOnShift, setRoleOnShift] = useState(() => {
     if (seed?.role) return roleToShiftOption(seed.role);
     const member = staff.find((s) => s.id === (modal.staffId || existingShift?.staff_member_id || existingShift?.staff_id));

@@ -52,6 +52,7 @@ Open-Meteo `weather_code` (WMO) plus a temperature threshold (cold
 from __future__ import annotations
 
 import logging
+import math
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -292,12 +293,32 @@ def _shift_hours(start: str, end: str, break_minutes: int) -> float:
     return max(0.0, gross - (break_minutes / 60.0))
 
 
+def suggested_break_minutes(worked_hours: float) -> int:
+    """DK convention: a shift past ~6 hours typically carries a 45-min pause.
+
+    This is the SINGLE source of truth for the default break every paid-hours
+    path applies (autopilot, punch clock, manual entry, hand-built shift) so
+    the number can never disagree with itself across surfaces — the exact
+    inconsistency (punch=0 / manual=30 / autopilot=45) that made owners
+    distrust every hour total.
+
+    It is a SUGGESTION only — statutory pause rules vary by overenskomst — so
+    it is always owner-overridable and surfaced, never presented as measured
+    or legally certified. Non-finite/garbage input → 0 (never fabricate a
+    deduction from noise).
+    """
+    try:
+        h = float(worked_hours)
+    except (TypeError, ValueError):
+        return 0
+    if not math.isfinite(h):
+        return 0
+    return DK_BREAK_MINIMUM_MINUTES if h >= DK_BREAK_THRESHOLD_HOURS else 0
+
+
 def _compute_break_minutes(start: str, end: str) -> int:
     """Apply DK labor law: 6+ hour shift requires 45 minutes break."""
-    gross = _shift_hours(start, end, 0)
-    if gross >= DK_BREAK_THRESHOLD_HOURS:
-        return DK_BREAK_MINIMUM_MINUTES
-    return 0
+    return suggested_break_minutes(_shift_hours(start, end, 0))
 
 
 # ─── Weather forecast fetch ──────────────────────────────────────────
