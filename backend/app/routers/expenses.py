@@ -259,14 +259,22 @@ def delete_category(
             {"category_id": other.id}
         )
     else:
-        # No other category — clean up cash entries for cash expenses, then delete them
-        cash_expenses = db.query(Expense).filter(
-            Expense.category_id == cat.id,
-            Expense.payment_method == "cash",
-        ).all()
-        for exp in cash_expenses:
-            delete_cash_entry_by_ref(db, f"expense_{exp.id}", user.id)
-        db.query(Expense).filter(Expense.category_id == cat.id).delete()
+        # NEVER hard-delete filed bilag (Bogføringsloven §10) — that silently
+        # loses receipts that feed §42 fradrag + the P&L. Move any orphaned
+        # expenses to an "Andet" fallback category (get-or-create) so they stay
+        # recoverable, exactly like the same-name-sibling branch above.
+        fallback = db.query(ExpenseCategory).filter(
+            ExpenseCategory.user_id == user.id,
+            ExpenseCategory.name == "Andet",
+            ExpenseCategory.id != cat.id,
+        ).first()
+        if not fallback:
+            fallback = ExpenseCategory(user_id=user.id, name="Andet")
+            db.add(fallback)
+            db.flush()
+        db.query(Expense).filter(Expense.category_id == cat.id).update(
+            {"category_id": fallback.id}
+        )
 
     db.delete(cat)
     db.commit()

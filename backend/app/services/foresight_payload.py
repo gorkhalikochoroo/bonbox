@@ -133,15 +133,26 @@ def build_foresight_payload(user, db, *, as_of, bank_balance=None, reserved=Deci
 
     _log_calibration(cone, recurring, deadline, as_of, bank_balance, deadline_info["frequency"])
 
+    # Fail-closed honesty (#352): a STALE seed balance must NEVER read as
+    # "you're covered". Downgrade any coverage-asserting verdict to the
+    # no-balance state so the card shows "update your balance" instead of a
+    # confident (possibly wrong) coverage claim over weeks-old data.
+    balance_stale = _is_stale(balance_at, as_of)
+    verdict = cone.headline_state
+    covers_moms = cone.mid.covers_moms
+    if balance_stale and verdict in (fs.STATE_ON_TRACK, fs.STATE_TIGHT):
+        verdict = fs.STATE_INSUFFICIENT_DATA
+        covers_moms = None
+
     return {
         "available": True,
         "as_of": as_of.isoformat(),
-        "verdict": cone.headline_state,
-        "covers_moms": cone.mid.covers_moms,
+        "verdict": verdict,
+        "covers_moms": covers_moms,
         "balance_connected": bank_balance is not None,
         "balance_source": balance_source,             # bank | manual | none
         "balance_entered_at": balance_at.isoformat() if balance_at else None,
-        "balance_stale": _is_stale(balance_at, as_of),
+        "balance_stale": balance_stale,
         "worst_case_short": cone.worst_case_short,
         "deadline": {
             "date": deadline.isoformat(),

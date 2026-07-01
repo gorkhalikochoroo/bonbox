@@ -193,6 +193,9 @@ def test_manual_balance_goes_stale_after_14_days(patched):
     out = fp.build_foresight_payload(u, db=None, as_of=AS_OF)
     assert out["balance_stale"] is True
     assert out["balance_entered_at"].startswith("2026-05-01")
+    # Fail-closed (#352): a weeks-old balance must NOT read as "you're covered".
+    assert out["verdict"] == "INSUFFICIENT_DATA"
+    assert out["covers_moms"] is None
 
 
 def test_explicit_bank_balance_wins_over_manual(patched):

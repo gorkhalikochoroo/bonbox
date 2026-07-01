@@ -33,7 +33,7 @@ from app.services import audit_service
 from app.services.auth import get_current_user
 from app.services.expense_status import not_pending
 from collections import namedtuple
-from app.services.revenue_resolver import effective_revenue_total, effective_revenue_by_date
+from app.services.revenue_resolver import effective_revenue_total, effective_revenue_by_date, effective_revenue_for_date
 from app.services.billing import effective_plan, get_cap
 from app.services.tax_filing_pdf import (
     build_moms_filing_pdf, compute_filing_data, make_bilagsnummer,
@@ -296,9 +296,13 @@ def daily_kasserapport(
         m = (s.payment_method or "mixed").lower()
         payment_totals[m] = payment_totals.get(m, 0) + float(s.amount)
 
-    total_revenue = sum(float(s.amount) for s in sales)
-    subtotal = round(total_revenue / (1 + vat_rate), 2) if vat_rate > 0 else total_revenue
-    vat_amount = round(total_revenue - subtotal, 2)
+    # Revenue on the effective basis (a confirmed DailyClose wins for the day),
+    # and MOMS via the filing engine — excludes exempt sales, never a naive
+    # gross/rate — so the printed Kasserapport agrees with the official filing.
+    total_revenue = float(effective_revenue_for_date(db, user.id, d))
+    _fd_day = compute_filing_data(db, user, d, d)
+    vat_amount = float(_fd_day["moms_af_salg"])
+    subtotal = round(total_revenue - vat_amount, 2)
 
     # Expenses for the day
     total_expenses = float(
