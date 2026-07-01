@@ -5226,6 +5226,14 @@ const translations = {
     // Sick-call flow (staff portal + owner dashboard card)
     // ───────────────────────────────────────────────────────────
     sickCallCardTitle: "Sick calls need your attention",
+    absenceCardTitle: "Absence needs your attention",
+    absenceCardSubtitle: "{n} pending — approve or decline.",
+    absenceApprove: "Approve",
+    absenceDecline: "Decline",
+    absenceKindFerie: "Holiday",
+    absenceKindSick: "Sick",
+    absenceKindBarns: "Child's sick day",
+    absenceKindAndet: "Other",
     sickCallCardSubtitle: "{n} pending. Tap to acknowledge or find cover.",
     sickCallAcknowledge: "Acknowledge",
     sickCallFindCover: "Find cover",
@@ -11944,6 +11952,14 @@ const translations = {
 
     // Sick-call flow (staff portal + owner dashboard card)
     sickCallCardTitle: "Sygemeldinger kræver din opmærksomhed",
+    absenceCardTitle: "Fravær kræver din opmærksomhed",
+    absenceCardSubtitle: "{n} afventer — godkend eller afvis.",
+    absenceApprove: "Godkend",
+    absenceDecline: "Afvis",
+    absenceKindFerie: "Ferie",
+    absenceKindSick: "Syg",
+    absenceKindBarns: "Barns sygedag",
+    absenceKindAndet: "Andet",
     sickCallCardSubtitle: "{n} afventer. Tryk for at bekræfte eller finde afløser.",
     sickCallAcknowledge: "Bekræft",
     sickCallFindCover: "Find afløser",

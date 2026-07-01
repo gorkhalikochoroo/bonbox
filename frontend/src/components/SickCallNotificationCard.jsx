@@ -22,8 +22,20 @@
  *     this owner who aren't already scheduled that day
  */
 import { useEffect, useState } from "react";
+import { CalendarOff, Check } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+
+
+/** Absence type → owner-facing label (ferie/sick/barns_syg/andet). */
+function kindLabel(kind, t) {
+  return {
+    ferie: t("absenceKindFerie", "Holiday"),
+    sick: t("absenceKindSick", "Sick"),
+    barns_syg: t("absenceKindBarns", "Child's sick day"),
+    andet: t("absenceKindAndet", "Other"),
+  }[kind] || kind;
+}
 
 
 export default function SickCallNotificationCard() {
@@ -55,13 +67,13 @@ export default function SickCallNotificationCard() {
   return (
     <div className="bg-amber-50/70 dark:bg-amber-900/15 border border-amber-200 dark:border-amber-800/50 rounded-xl p-4 sm:p-5">
       <div className="flex items-start gap-2 mb-3">
-        <span className="text-xl shrink-0" aria-hidden="true">🤒</span>
+        <CalendarOff className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-300 mt-0.5" strokeWidth={2} aria-hidden />
         <div className="flex-1">
           <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
-            {t("sickCallCardTitle") || "Sick calls need your attention"}
+            {t("absenceCardTitle", "Absence needs your attention")}
           </h3>
           <p className="text-[12px] text-amber-700 dark:text-amber-300/80 mt-0.5">
-            {(t("sickCallCardSubtitle") || "{n} pending. Tap to acknowledge or find cover.")
+            {t("absenceCardSubtitle", "{n} pending — approve or decline.")
               .replace("{n}", absences.length)}
           </p>
         </div>
@@ -98,6 +110,16 @@ function AbsenceRow({ absence, onChanged, t }) {
     }
   };
 
+  const decline = async () => {
+    setBusy(true);
+    try {
+      await api.post(`/staff/absences/${absence.id}/decline`);
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const openCover = async () => {
     setShowCover(true);
     try {
@@ -126,6 +148,9 @@ function AbsenceRow({ absence, onChanged, t }) {
         <span className="font-semibold text-sm text-gray-900 dark:text-gray-100">
           {absence.staff_name || t("staff") || "Staff"}
         </span>
+        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+          {kindLabel(absence.kind, t)}
+        </span>
         <span className="text-xs text-gray-500 dark:text-gray-400">
           {absence.date}
         </span>
@@ -139,21 +164,31 @@ function AbsenceRow({ absence, onChanged, t }) {
         </div>
       )}
       {absence.replacement_staff_name && (
-        <div className="text-[11px] text-gray-700 dark:text-emerald-400 mt-1">
-          ✓ {(t("sickCallCovered") || "Covered by {name}").replace("{name}", absence.replacement_staff_name)}
+        <div className="text-[11px] text-gray-700 dark:text-emerald-400 mt-1 flex items-center gap-1">
+          <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" strokeWidth={2.5} aria-hidden />
+          {(t("sickCallCovered") || "Covered by {name}").replace("{name}", absence.replacement_staff_name)}
         </div>
       )}
 
       {!absence.replacement_staff_name && (
         <div className="flex items-center gap-2 mt-2 flex-wrap">
           {absence.status === "pending" && (
-            <button
-              onClick={acknowledge}
-              disabled={busy}
-              className="text-xs font-medium px-2.5 py-1 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-800/40 disabled:opacity-50 transition"
-            >
-              {t("sickCallAcknowledge") || "Acknowledge"}
-            </button>
+            <>
+              <button
+                onClick={acknowledge}
+                disabled={busy}
+                className="text-xs font-semibold px-2.5 py-1 rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800/40 disabled:opacity-50 transition"
+              >
+                {t("absenceApprove", "Approve")}
+              </button>
+              <button
+                onClick={decline}
+                disabled={busy}
+                className="text-xs font-medium px-2.5 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition"
+              >
+                {t("absenceDecline", "Decline")}
+              </button>
+            </>
           )}
           {!showCover && (
             <button
