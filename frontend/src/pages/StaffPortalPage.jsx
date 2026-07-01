@@ -2220,6 +2220,172 @@ function PortalError({ message }) {
 
 // ─── Main Portal Page ─────────────────────────────────────────────────────
 
+/** Group per-day absence rows into contiguous same-kind+status ranges, so a
+    5-day ferie reads as one line, not five. */
+function groupAbsence(rows) {
+  const sorted = [...(rows || [])].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const out = [];
+  for (const r of sorted) {
+    const last = out[out.length - 1];
+    const consecutive =
+      last && last.kind === r.kind && last.status === r.status &&
+      new Date(r.date) - new Date(last.endDate) === 86400000;
+    if (consecutive) { last.endDate = r.date; last.ids.push(r.id); }
+    else out.push({ kind: r.kind, status: r.status, reason: r.reason, startDate: r.date, endDate: r.date, ids: [r.id] });
+  }
+  return out;
+}
+
+/**
+ * AbsenceSection — staff registers Fravær (ferie / a sick period) over a date
+ * range; the owner sees + approves. Tracking only, no pay. Lives inside the
+ * "Kan ikke" tab (the staffer's "when I'm off" home) so it's not an 8th nav tab.
+ */
+function AbsenceSection({ token }) {
+  const { t } = useLanguage();
+  const [rows, setRows] = useState(null);
+  const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  const [kind, setKind] = useState("ferie");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [reason, setReason] = useState("");
+
+  const load = async () => {
+    try {
+      const res = await portalApi.get(`/portal/${token}/absence`);
+      setRows(res.data?.absence || []);
+    } catch { setRows([]); }
+  };
+  useEffect(() => { load(); }, [token]);
+
+  const KIND_LABEL = {
+    ferie: t("fravaerFerie", "Holiday"),
+    sick: t("fravaerSyg", "Sick"),
+    barns_syg: t("fravaerBarns", "Child's sick day"),
+    andet: t("fravaerAndet", "Other"),
+  };
+  const STATUS = {
+    pending: { label: t("fravaerStatusPending", "Pending"), cls: "bg-amber-100 text-amber-700" },
+    acknowledged: { label: t("fravaerStatusApproved", "Approved"), cls: "bg-emerald-100 text-emerald-700" },
+    covered: { label: t("fravaerStatusApproved", "Approved"), cls: "bg-emerald-100 text-emerald-700" },
+    cancelled: { label: t("fravaerStatusDeclined", "Declined"), cls: "bg-gray-100 text-gray-500" },
+  };
+
+  const fmtRange = (s, e) => {
+    const opt = { day: "numeric", month: "short" };
+    const a = new Date(s + "T00:00:00").toLocaleDateString(undefined, opt);
+    if (s === e) return a;
+    const b = new Date(e + "T00:00:00").toLocaleDateString(undefined, opt);
+    return `${a} – ${b}`;
+  };
+
+  const reset = () => { setKind("ferie"); setFrom(""); setTo(""); setReason(""); setErr(""); };
+
+  const submit = async () => {
+    setErr("");
+    if (!from) { setErr(t("fravaerPickDate", "Pick a start date")); return; }
+    if (to && to < from) { setErr(t("kanIkkeEndAfterStart", "End must be after start")); return; }
+    setSaving(true);
+    try {
+      const body = { kind, date_from: from };
+      if (to) body.date_to = to;
+      if (reason.trim()) body.reason = reason.trim();
+      await portalApi.post(`/portal/${token}/absence`, body);
+      reset(); setAdding(false); await load();
+    } catch {
+      setErr(t("fravaerSaveFailed", "Couldn't send — try again"));
+    } finally { setSaving(false); }
+  };
+
+  const groups = groupAbsence(rows);
+
+  return (
+    <div className="space-y-3">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+        {t("fravaerTitle", "Holiday & sick leave")}
+      </div>
+
+      {rows === null ? (
+        <div className="text-xs text-gray-500">{t("portalLoading", "Loading…")}</div>
+      ) : groups.length > 0 ? (
+        <div className="space-y-2">
+          {groups.map((g) => {
+            const st = STATUS[g.status] || STATUS.pending;
+            return (
+              <div key={g.ids[0]} className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
+                  <CalendarPlus className="w-[18px] h-[18px] text-gray-500" strokeWidth={2} aria-hidden />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-gray-900 truncate">
+                    {KIND_LABEL[g.kind] || g.kind} · {fmtRange(g.startDate, g.endDate)}
+                  </div>
+                  {g.reason && <div className="text-[12px] text-gray-500 truncate">{g.reason}</div>}
+                </div>
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${st.cls}`}>{st.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {!adding ? (
+        <button
+          onClick={() => { reset(); setAdding(true); }}
+          className="w-full px-4 py-2.5 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm font-semibold transition flex items-center justify-center gap-2"
+        >
+          <CalendarPlus className="w-4 h-4" strokeWidth={2.25} aria-hidden />
+          {t("fravaerAdd", "Request holiday / sick leave")}
+        </button>
+      ) : (
+        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-4 space-y-4">
+          <div className="grid grid-cols-2 gap-1.5">
+            {["ferie", "sick", "barns_syg", "andet"].map((k) => (
+              <button
+                key={k}
+                onClick={() => setKind(k)}
+                className={`py-2 rounded-lg text-[12px] font-semibold transition ${kind === k ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+              >
+                {KIND_LABEL[k]}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] text-gray-500 mb-1 block">{t("fravaerFrom", "From")}</label>
+              <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-gray-900/30" />
+            </div>
+            <div>
+              <label className="text-[10px] text-gray-500 mb-1 block">{t("fravaerTo", "To (optional)")}</label>
+              <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-gray-900/30" />
+            </div>
+          </div>
+          <input
+            type="text" value={reason} maxLength={80} onChange={(e) => setReason(e.target.value)}
+            placeholder={t("fravaerNotePlaceholder", "Note (optional)")}
+            className="w-full px-3 py-2.5 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+          />
+          {err && <div className="text-xs text-red-600">{err}</div>}
+          <div className="flex gap-2">
+            <button onClick={() => { setAdding(false); reset(); }}
+              className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition">
+              {t("portalCancel", "Cancel")}
+            </button>
+            <button onClick={submit} disabled={saving}
+              className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-50">
+              {saving ? t("portalSaving", "Saving…") : t("fravaerSubmit", "Send request")}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * AvailabilityTab — staff-side "Kan ikke arbejde" (Planday-style unavailability).
  * A STANDING preference (recurring weekday or one-off date, all-day or a time
@@ -2316,6 +2482,15 @@ function AvailabilityTab({ token }) {
 
   return (
     <div className="space-y-4">
+      {/* Ferie & sygdom — a request the owner approves. Grouped here (the
+          staffer's "when I'm off" home) rather than an 8th nav tab. */}
+      <AbsenceSection token={token} />
+
+      <div className="h-px bg-gray-100" />
+
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+        {t("kanIkkeSectionLabel", "Can't work")}
+      </div>
       {/* Honest soft-signal framing */}
       <p className="text-[13px] leading-relaxed text-gray-600">
         {t("kanIkkeIntro", "Mark the days or times you can't work. Your manager sees it while building the schedule.")}
