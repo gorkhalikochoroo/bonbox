@@ -120,10 +120,12 @@ export default function BookingSuccessPage() {
   // We render an <img> when we have both id + token. If anything is
   // missing the QR slot is omitted and the MobilePay button still
   // works on its own.
-  const qrSrc =
-    booking?.id && booking?.token
-      ? `${api.defaults.baseURL || ""}/public/bookings/${booking.id}/mobilepay-qr.png?token=${encodeURIComponent(booking.token)}`
-      : null;
+  // The backend GET /api/public/bookings/{id}/mobilepay-qr.png route does
+  // not exist, so this <img> 404'd and rendered a broken QR to visitors on
+  // the customer-facing success page. Force-omit the QR slot until the
+  // endpoint is built — the "Åbn MobilePay" deep-link button above still
+  // works on its own (exactly the graceful-degradation path noted below).
+  const qrSrc = null;
 
   // First ticket — the "Vis mine billetter →" link. The visitor's
   // primary ticket page is /t/{id}?sig=... per the spec. Sig comes from
