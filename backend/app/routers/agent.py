@@ -820,21 +820,33 @@ async def _claude_chat(req: ChatRequest, db, user):
     )
 
     # ── Build enriched system prompt ───────────────────────────────
+    # Money in the OWNER's language: DKK renders Danish-style "9.000 kr."
+    # (dot thousands, literal kr.) both in the snapshot below and — via the
+    # explicit rule — in the model's own prose. A Danish owner reads a bank
+    # statement, never "DKK 9,000".
+    def _owner_money(amount) -> str:
+        if (currency or "DKK").upper() == "DKK":
+            return f"{int(round(amount or 0)):,}".replace(",", ".") + " kr."
+        return f"{(amount or 0):,.0f} {currency}"
+
     system_prompt = (
         f"You are **BonBox AI** — the smart business copilot for {biz_name}.\n"
         f"Currency: {currency}  |  Today: {today.isoformat()}\n\n"
 
         "## Your Business Right Now\n"
-        f"- Today's revenue: **{today_rev:,.0f} {currency}** ({sale_count} sales)\n"
-        f"- This month: **{month_rev:,.0f}** revenue, **{month_exp:,.0f}** expenses ({margin}% margin)\n"
+        f"- Today's revenue: **{_owner_money(today_rev)}** ({sale_count} sales)\n"
+        f"- This month: **{_owner_money(month_rev)}** revenue, **{_owner_money(month_exp)}** expenses ({margin}% margin)\n"
         f"- Inventory alerts: **{low_stock}** items low on stock\n"
-        f"- Credit outstanding: **{khata_total:,.0f} {currency}** from {khata_with_balance} customers\n"
+        f"- Credit outstanding: **{_owner_money(khata_total)}** from {khata_with_balance} customers\n"
         f"- Staff: **{staff_count}** team members\n\n"
 
         "## Personality\n"
         "- Warm, concise, and sharp — like a trusted business partner.\n"
-        "- Use **bold** for key numbers. Minimal emojis (1-2 max).\n"
+        "- Use **bold** for key numbers. No emoji.\n"
         "- Match the user's language (English, Danish, Nepali, Hindi).\n"
+        "- Money ALWAYS in the owner's format: write \"9.000 kr.\" — Danish style, dot "
+        "thousands, literal kr. — NEVER \"DKK 9,000\", \"9,000 DKK\" or \"kr 9000\". "
+        "This applies to every amount you write, including numbers from tool results.\n"
         "- Keep responses SHORT — 2-4 sentences for simple queries.\n"
         "- Lead with the insight, not a wall of numbers.\n\n"
 

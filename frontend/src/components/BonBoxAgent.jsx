@@ -96,7 +96,7 @@ function getFollowUps(toolName) {
 /*  WELCOME MESSAGE                                                    */
 /* ------------------------------------------------------------------ */
 const WELCOME_CONTENT =
-  "Hey! I'm your BonBox copilot. Ask me anything about your business \u2014 I can check revenue, expenses, inventory, credit, waste, and staff. Try one of the suggestions below \ud83d\udc47";
+  "Hey! I'm your BonBox copilot. Ask me anything about your business \u2014 I can check revenue, expenses, inventory, credit, waste, and staff. Try one of the suggestions below.";
 
 /* ================================================================== */
 /*  MAIN COMPONENT                                                     */
