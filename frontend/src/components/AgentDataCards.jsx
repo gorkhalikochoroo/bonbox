@@ -1,54 +1,44 @@
-import { useState, useEffect, useRef } from "react";
-import { displayCurrency } from "../utils/currency";
+/**
+ * AgentDataCards — the rich data cards the BonBox AI chat renders under a
+ * reply (revenue, expenses, inventory, khata, staff, health…).
+ *
+ * Design-system locked (see docs/design-system-doctrine.md): white card +
+ * gray-900 text in both the light app and the dark chat panel (the card is
+ * a light island — its text must be DARK), status colors only (red/amber/
+ * emerald where they carry data, never per-card identity colors), money via
+ * the <Amount> primitive ("9.000 kr.", token whispered — never "DKK 9,000"),
+ * Lucide outline icons, tabular-nums, no count-up on any number (money must
+ * never animate), one 350ms entrance beat and then stillness.
+ */
+import Amount from "./ui/Amount";
+import { formatOwnerMoney } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
+import {
+  TrendingUp,
+  TrendingDown,
+  Package,
+  Trash2,
+  UsersRound,
+  Activity,
+  AlertTriangle,
+  Check,
+  Info,
+  Target,
+  BarChart3,
+} from "lucide-react";
 
 /* ------------------------------------------------------------------ */
-/*  Shared: Animated number that counts up on mount / value change     */
+/*  Shared: CSS-only mini sparkline (bar chart) — neutral data viz      */
 /* ------------------------------------------------------------------ */
-function CountUp({ value, decimals = 0, duration = 700, className = "" }) {
-  const [display, setDisplay] = useState(0);
-  const prev = useRef(0);
-  const raf = useRef(null);
-
-  useEffect(() => {
-    const start = prev.current;
-    const t0 = performance.now();
-    function tick(now) {
-      const p = Math.min((now - t0) / duration, 1);
-      const ease = 1 - Math.pow(1 - p, 3);
-      setDisplay(start + (value - start) * ease);
-      if (p < 1) raf.current = requestAnimationFrame(tick);
-      else prev.current = value;
-    }
-    raf.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf.current);
-  }, [value, duration]);
-
-  return (
-    <span className={className}>
-      {display.toLocaleString(undefined, {
-        minimumFractionDigits: decimals,
-        maximumFractionDigits: decimals,
-      })}
-    </span>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Shared: CSS-only mini sparkline (bar chart)                        */
-/* ------------------------------------------------------------------ */
-function MiniSparkBars({ values = [], color = "bg-emerald-400", height = 32 }) {
+function MiniSparkBars({ values = [], height = 32 }) {
   const max = Math.max(...values, 1);
   return (
     <div className="flex items-end gap-[2px]" style={{ height }}>
       {values.map((v, i) => (
         <div
           key={i}
-          className={`flex-1 rounded-t-sm ${color} opacity-70 hover:opacity-100 transition-opacity`}
-          style={{
-            height: `${Math.max((v / max) * 100, 4)}%`,
-            animationDelay: `${i * 40}ms`,
-          }}
+          className="flex-1 rounded-t-sm bg-gray-300 dark:bg-gray-600"
+          style={{ height: `${Math.max((v / max) * 100, 4)}%` }}
           title={v.toLocaleString()}
         />
       ))}
@@ -57,46 +47,40 @@ function MiniSparkBars({ values = [], color = "bg-emerald-400", height = 32 }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Shared: Change badge (up / down / neutral)                         */
+/*  Shared: Change badge (up / down) — status color carries the data    */
 /* ------------------------------------------------------------------ */
 function ChangeBadge({ pct }) {
   if (pct == null) return null;
   const positive = pct >= 0;
+  const Arrow = positive ? TrendingUp : TrendingDown;
   return (
     <span
-      className={`
-        inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[11px] font-semibold
-        ${positive
-          ? "bg-emerald-500/15 text-emerald-400"
-          : "bg-red-500/15 text-red-400"
-        }
-      `}
+      className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-[11px] font-semibold tabular-nums ${
+        positive
+          ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+          : "bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-400"
+      }`}
     >
-      <svg width="10" height="10" viewBox="0 0 10 10" className={positive ? "" : "rotate-180"}>
-        <path d="M5 2L8 6H2L5 2Z" fill="currentColor" />
-      </svg>
+      <Arrow className="w-3 h-3" strokeWidth={2} aria-hidden />
       {Math.abs(pct).toFixed(1)}%
     </span>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  Shared: Card shell                                                 */
+/*  Shared: Card shell — one entrance beat, then stillness              */
 /* ------------------------------------------------------------------ */
 function CardShell({ children, className = "" }) {
   return (
     <div
       className={`
-        relative overflow-hidden rounded-xl border border-gray-100
+        relative overflow-hidden rounded-xl border border-gray-200
         bg-white dark:bg-gray-900 dark:border-gray-800
-        shadow-sm
         p-4 max-h-[200px]
         ${className}
       `}
       style={{ animation: "agentCardIn 0.35s ease-out both" }}
     >
-      {/* subtle top highlight line */}
-      <div className="absolute inset-x-0 top-0 h-px bg-gray-200 dark:bg-gray-700" />
       {children}
       <style>{`
         @keyframes agentCardIn {
@@ -108,16 +92,32 @@ function CardShell({ children, className = "" }) {
   );
 }
 
+/* Shared header: eyebrow label + neutral icon chip. Identity is TYPE,
+   not a color — every card gets the same calm gray chrome. */
+function CardEyebrow({ children }) {
+  return (
+    <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold mb-1">
+      {children}
+    </p>
+  );
+}
+
+function IconChip({ icon }) {
+  const Glyph = icon;
+  return (
+    <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center shrink-0">
+      <Glyph className="w-4 h-4 text-gray-500 dark:text-gray-400" strokeWidth={1.75} aria-hidden />
+    </div>
+  );
+}
+
+/* The big card number: dark on the white card, light in dark mode. */
+const VALUE_CLS = "text-2xl font-bold text-gray-900 dark:text-gray-100";
+
 /* ------------------------------------------------------------------ */
-/*  Shared: Payment method pills                                       */
+/*  Shared: Payment method pills — neutral, method name is the info     */
 /* ------------------------------------------------------------------ */
 function PaymentPills({ methods = {} }) {
-  const colors = {
-    cash: "bg-amber-500/20 text-amber-300 border-amber-500/20",
-    card: "bg-sky-500/20 text-sky-300 border-sky-500/20",
-    mobile: "bg-violet-500/20 text-violet-300 border-violet-500/20",
-    online: "bg-indigo-500/20 text-indigo-300 border-indigo-500/20",
-  };
   const entries = Object.entries(methods).filter(([, v]) => v > 0);
   if (!entries.length) return null;
   return (
@@ -125,10 +125,7 @@ function PaymentPills({ methods = {} }) {
       {entries.map(([method, amount]) => (
         <span
           key={method}
-          className={`
-            text-[10px] font-medium px-2 py-0.5 rounded-full border
-            ${colors[method] || "bg-gray-500/20 text-gray-300 border-gray-500/20"}
-          `}
+          className="text-[10px] font-medium px-2 py-0.5 rounded-full border bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700 tabular-nums"
         >
           {method}: {amount.toLocaleString()}
         </span>
@@ -143,7 +140,6 @@ function PaymentPills({ methods = {} }) {
 export function RevenueCard({ data, currency }) {
   const { t } = useLanguage();
   if (!data) return null;
-  const cur = displayCurrency(currency);
   const {
     total_revenue = 0, sale_count, avg_per_day, change_pct,
     daily_breakdown = [], payment_split = {},
@@ -159,31 +155,23 @@ export function RevenueCard({ data, currency }) {
     <CardShell>
       <div className="flex items-start justify-between mb-2">
         <div>
-          <p className="text-[11px] uppercase tracking-wider text-emerald-400/70 font-semibold mb-1">{t("revenue")}</p>
+          <CardEyebrow>{t("revenue")}</CardEyebrow>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-white">
-              {cur} <CountUp value={total_revenue} decimals={0} />
-            </span>
+            <Amount value={total_revenue} currency={currency} className={VALUE_CLS} />
             {change_pct != null && <ChangeBadge pct={change_pct} />}
           </div>
           {sale_count != null && (
-            <p className="text-[11px] text-gray-400 mt-0.5">
-              {sale_count} {t("transactions")}{avg_per_day ? ` / ${t("avgPerDayShort", { amount: `${cur} ${avg_per_day.toLocaleString()}` })}` : ""}
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+              {sale_count} {t("transactions")}{avg_per_day ? ` / ${t("avgPerDayShort", { amount: formatOwnerMoney(avg_per_day, currency) })}` : ""}
             </p>
           )}
         </div>
-        {/* icon */}
-        <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center shrink-0">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-400">
-            <polyline points="22,7 13.5,15.5 8.5,10.5 2,17" />
-            <polyline points="16,7 22,7 22,13" />
-          </svg>
-        </div>
+        <IconChip icon={TrendingUp} />
       </div>
 
       {/* mini sparkline */}
       {daily_breakdown.length > 1 && (
-        <MiniSparkBars values={daily_breakdown.map((d) => d.total)} color="bg-emerald-400" height={28} />
+        <MiniSparkBars values={daily_breakdown.map((d) => d.total)} height={28} />
       )}
 
       {/* payment methods */}
@@ -198,34 +186,29 @@ export function RevenueCard({ data, currency }) {
 export function ExpenseCard({ data, currency }) {
   const { t } = useLanguage();
   if (!data) return null;
-  const cur = displayCurrency(currency);
   const { total_expenses = 0, expense_count = 0, change_pct, by_category = [] } = data;
 
-  // color palette for category bars
+  // Category split reads through SHADE, not hue — color is never identity.
   const palette = [
-    "bg-rose-500", "bg-amber-500", "bg-sky-500", "bg-violet-500",
-    "bg-teal-500", "bg-pink-500", "bg-indigo-500", "bg-orange-500",
+    "bg-gray-900 dark:bg-gray-200",
+    "bg-gray-600 dark:bg-gray-400",
+    "bg-gray-400 dark:bg-gray-500",
+    "bg-gray-300 dark:bg-gray-600",
+    "bg-gray-200 dark:bg-gray-700",
   ];
 
   return (
     <CardShell>
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-[11px] uppercase tracking-wider text-rose-400/70 font-semibold mb-1">{t("expenses")}</p>
+          <CardEyebrow>{t("expenses")}</CardEyebrow>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-white">
-              {cur} <CountUp value={total_expenses} decimals={0} />
-            </span>
+            <Amount value={total_expenses} currency={currency} className={VALUE_CLS} />
             {change_pct != null && <ChangeBadge pct={change_pct} />}
           </div>
-          <p className="text-[11px] text-gray-400 mt-0.5">{expense_count} entries</p>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{expense_count} {t("entries")}</p>
         </div>
-        <div className="w-8 h-8 rounded-lg bg-rose-500/15 flex items-center justify-center shrink-0">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-rose-400">
-            <polyline points="22,17 13.5,8.5 8.5,13.5 2,7" />
-            <polyline points="16,17 22,17 22,11" />
-          </svg>
-        </div>
+        <IconChip icon={TrendingDown} />
       </div>
 
       {/* stacked horizontal bar */}
@@ -235,18 +218,18 @@ export function ExpenseCard({ data, currency }) {
             {by_category.map((cat, i) => (
               <div
                 key={cat.category}
-                className={`${palette[i % palette.length]} transition-all`}
+                className={palette[i % palette.length]}
                 style={{ width: `${(cat.total / total_expenses) * 100}%` }}
-                title={`${cat.category}: ${cur} ${cat.total.toLocaleString()}`}
+                title={`${cat.category}: ${formatOwnerMoney(cat.total, currency)}`}
               />
             ))}
           </div>
           <div className="flex flex-wrap gap-x-3 gap-y-1">
             {by_category.slice(0, 5).map((cat, i) => (
-              <div key={cat.category} className="flex items-center gap-1.5 text-[10px] text-gray-300">
+              <div key={cat.category} className="flex items-center gap-1.5 text-[10px] text-gray-600 dark:text-gray-300">
                 <span className={`w-2 h-2 rounded-full ${palette[i % palette.length]}`} />
                 <span className="truncate max-w-[80px]">{cat.category}</span>
-                <span className="text-gray-500">
+                <span className="text-gray-400 dark:text-gray-500 tabular-nums">
                   {total_expenses > 0 ? `${Math.round((cat.total / total_expenses) * 100)}%` : ""}
                 </span>
               </div>
@@ -270,6 +253,7 @@ export function InventoryCard({ data }) {
   const lowStockItems = items.filter((i) => i.is_low_stock);
   const displayItems = lowStockItems.length > 0 ? lowStockItems : items;
 
+  // Status colors — this dot IS data.
   function stockColor(qty, min) {
     if (qty <= 0) return "bg-red-500";
     if (qty <= min) return "bg-amber-400";
@@ -280,28 +264,22 @@ export function InventoryCard({ data }) {
     <CardShell>
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-[11px] uppercase tracking-wider text-sky-400/70 font-semibold mb-1">{t("inventory")}</p>
+          <CardEyebrow>{t("inventory")}</CardEyebrow>
           <div className="flex items-baseline gap-3">
-            <span className="text-2xl font-bold text-white">
-              <CountUp value={total_items} /> {t("items")}
+            <span className={`${VALUE_CLS} tabular-nums`}>
+              {total_items} {t("items")}
             </span>
             {total_stock_value != null && (
-              <span className="text-xs text-gray-400">
-                {t("valueColon")} <CountUp value={total_stock_value} decimals={0} />
+              <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+                {t("valueColon")} {total_stock_value.toLocaleString()}
               </span>
             )}
           </div>
           {low_stock_count > 0 && (
-            <p className="text-[11px] text-amber-400 mt-0.5">{low_stock_count} {t("lowStockShort")}</p>
+            <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">{low_stock_count} {t("lowStockShort")}</p>
           )}
         </div>
-        <div className="w-8 h-8 rounded-lg bg-sky-500/15 flex items-center justify-center shrink-0">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-sky-400">
-            <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z" />
-            <polyline points="3.27,6.96 12,12.01 20.73,6.96" />
-            <line x1="12" y1="22.08" x2="12" y2="12" />
-          </svg>
-        </div>
+        <IconChip icon={Package} />
       </div>
 
       {/* item list */}
@@ -311,15 +289,15 @@ export function InventoryCard({ data }) {
             <div key={item.id || item.name} className="flex items-center justify-between text-[11px]">
               <div className="flex items-center gap-2">
                 <span className={`w-1.5 h-1.5 rounded-full ${stockColor(item.quantity, item.min_threshold)}`} />
-                <span className="text-gray-200 truncate max-w-[140px]">{item.name}</span>
+                <span className="text-gray-700 dark:text-gray-200 truncate max-w-[140px]">{item.name}</span>
               </div>
-              <span className="text-gray-400 font-mono tabular-nums">
+              <span className="text-gray-500 dark:text-gray-400 tabular-nums">
                 {item.quantity} / {item.min_threshold}
               </span>
             </div>
           ))}
           {displayItems.length > 5 && (
-            <p className="text-[10px] text-gray-500 pl-3">+{displayItems.length - 5} {t("moreLabel")}</p>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 pl-3">+{displayItems.length - 5} {t("moreLabel")}</p>
           )}
         </div>
       )}
@@ -333,7 +311,6 @@ export function InventoryCard({ data }) {
 export function WasteCard({ data, currency }) {
   const { t } = useLanguage();
   if (!data) return null;
-  const cur = displayCurrency(currency);
   const { total_cost = 0, waste_count = 0, change_pct, by_reason = [] } = data;
   const maxCost = Math.max(...by_reason.map((r) => r.total_cost), 1);
 
@@ -341,21 +318,14 @@ export function WasteCard({ data, currency }) {
     <CardShell>
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-[11px] uppercase tracking-wider text-amber-400/70 font-semibold mb-1">{t("waste")}</p>
+          <CardEyebrow>{t("waste")}</CardEyebrow>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl font-bold text-white">
-              {cur} <CountUp value={total_cost} decimals={0} />
-            </span>
+            <Amount value={total_cost} currency={currency} className={VALUE_CLS} />
             {change_pct != null && <ChangeBadge pct={change_pct} />}
           </div>
-          <p className="text-[11px] text-gray-400 mt-0.5">{waste_count} {t("entries")}</p>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{waste_count} {t("entries")}</p>
         </div>
-        <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center shrink-0">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-400">
-            <polyline points="3,6 5,6 21,6" />
-            <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
-          </svg>
-        </div>
+        <IconChip icon={Trash2} />
       </div>
 
       {/* reason bars */}
@@ -364,14 +334,14 @@ export function WasteCard({ data, currency }) {
           {by_reason.slice(0, 4).map((r) => (
             <div key={r.reason}>
               <div className="flex items-center justify-between text-[10px] mb-0.5">
-                <span className="text-gray-300 capitalize truncate max-w-[120px]">{r.reason}</span>
-                <span className="text-gray-400 font-mono tabular-nums">
-                  {cur} {r.total_cost.toLocaleString()} ({r.count})
+                <span className="text-gray-600 dark:text-gray-300 capitalize truncate max-w-[120px]">{r.reason}</span>
+                <span className="text-gray-500 dark:text-gray-400 tabular-nums">
+                  {formatOwnerMoney(r.total_cost, currency)} ({r.count})
                 </span>
               </div>
-              <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+              <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-gray-50 dark:bg-gray-800/50 transition-all"
+                  className="h-full rounded-full bg-gray-900 dark:bg-gray-300"
                   style={{ width: `${(r.total_cost / maxCost) * 100}%` }}
                 />
               </div>
@@ -389,42 +359,22 @@ export function WasteCard({ data, currency }) {
 export function KhataCard({ data, currency }) {
   const { t } = useLanguage();
   if (!data) return null;
-  const cur = displayCurrency(currency);
   const { total_outstanding = 0, overdue_count = 0, customers = [] } = data;
 
   // Only show customers with outstanding balance
   const withBalance = customers.filter((c) => c.outstanding > 0);
 
-  function statusStyle(c) {
-    if (c.is_overdue) return "bg-red-500 shadow-sm";
-    return "bg-emerald-400 shadow-sm";
-  }
-
-  function statusLabel(c) {
-    if (c.is_overdue) return t("overdueStatus");
-    return t("currentStatus");
-  }
-
   return (
     <CardShell>
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-[11px] uppercase tracking-wider text-violet-400/70 font-semibold mb-1">{t("khataCredit")}</p>
-          <span className="text-2xl font-bold text-white">
-            {cur} <CountUp value={total_outstanding} decimals={0} />
-          </span>
-          <p className="text-[11px] text-gray-400 mt-0.5">
+          <CardEyebrow>{t("khataCredit")}</CardEyebrow>
+          <Amount value={total_outstanding} currency={currency} className={VALUE_CLS} />
+          <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
             {t("outstanding")}{overdue_count > 0 ? ` ${t("nOverdue", { n: overdue_count })}` : ""}
           </p>
         </div>
-        <div className="w-8 h-8 rounded-lg bg-violet-500/15 flex items-center justify-center shrink-0">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-violet-400">
-            <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M23 21v-2a4 4 0 00-3-3.87" />
-            <path d="M16 3.13a4 4 0 010 7.75" />
-          </svg>
-        </div>
+        <IconChip icon={UsersRound} />
       </div>
 
       {/* customer list */}
@@ -433,17 +383,19 @@ export function KhataCard({ data, currency }) {
           {withBalance.slice(0, 5).map((c) => (
             <div key={c.id || c.name} className="flex items-center justify-between text-[11px]">
               <div className="flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${statusStyle(c)}`} />
-                <span className="text-gray-200 truncate max-w-[120px]">{c.name}</span>
-                <span className="text-[9px] text-gray-500">{statusLabel(c)}</span>
+                <span className={`w-2 h-2 rounded-full ${c.is_overdue ? "bg-red-500" : "bg-gray-300 dark:bg-gray-600"}`} />
+                <span className="text-gray-700 dark:text-gray-200 truncate max-w-[120px]">{c.name}</span>
+                <span className={`text-[9px] ${c.is_overdue ? "text-red-600 dark:text-red-400" : "text-gray-400 dark:text-gray-500"}`}>
+                  {c.is_overdue ? t("overdueStatus") : t("currentStatus")}
+                </span>
               </div>
-              <span className="text-gray-300 font-mono tabular-nums">
-                {cur} {c.outstanding.toLocaleString()}
+              <span className="text-gray-600 dark:text-gray-300 tabular-nums">
+                {formatOwnerMoney(c.outstanding, currency)}
               </span>
             </div>
           ))}
           {withBalance.length > 5 && (
-            <p className="text-[10px] text-gray-500 pl-3">+{withBalance.length - 5} {t("moreLabel")}</p>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 pl-3">+{withBalance.length - 5} {t("moreLabel")}</p>
           )}
         </div>
       )}
@@ -459,36 +411,16 @@ export function StaffCard({ data }) {
   if (!data) return null;
   const { total_staff = 0, staff = [] } = data;
 
-  const roleColors = {
-    manager: "bg-violet-500/20 text-violet-300 border-violet-500/20",
-    cashier: "bg-sky-500/20 text-sky-300 border-sky-500/20",
-    chef: "bg-amber-500/20 text-amber-300 border-amber-500/20",
-    waiter: "bg-emerald-500/15 text-gray-300 border-gray-300/20",
-    delivery: "bg-indigo-500/20 text-indigo-300 border-indigo-500/20",
-  };
-
-  function getRoleStyle(role) {
-    const key = (role || "").toLowerCase();
-    return roleColors[key] || "bg-gray-500/20 text-gray-300 border-gray-500/20";
-  }
-
   return (
     <CardShell>
       <div className="flex items-start justify-between mb-3">
         <div>
-          <p className="text-[11px] uppercase tracking-wider text-indigo-400/70 font-semibold mb-1">{t("navStaff")}</p>
-          <span className="text-2xl font-bold text-white">
-            <CountUp value={total_staff} /> {t("members")}
+          <CardEyebrow>{t("navStaff")}</CardEyebrow>
+          <span className={`${VALUE_CLS} tabular-nums`}>
+            {total_staff} {t("members")}
           </span>
         </div>
-        <div className="w-8 h-8 rounded-lg bg-indigo-500/15 flex items-center justify-center shrink-0">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-400">
-            <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M23 21v-2a4 4 0 00-3-3.87" />
-            <path d="M16 3.13a4 4 0 010 7.75" />
-          </svg>
-        </div>
+        <IconChip icon={UsersRound} />
       </div>
 
       {/* staff list */}
@@ -497,20 +429,18 @@ export function StaffCard({ data }) {
           {staff.slice(0, 6).map((s) => (
             <div key={s.id || s.name} className="flex items-center justify-between text-[11px]">
               <div className="flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-indigo-500/20 flex items-center justify-center text-[9px] font-bold text-indigo-300 shrink-0">
+                <span className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-[9px] font-bold text-gray-600 dark:text-gray-300 shrink-0">
                   {(s.name || "?").charAt(0).toUpperCase()}
                 </span>
-                <span className="text-gray-200 truncate max-w-[120px]">{s.name}</span>
+                <span className="text-gray-700 dark:text-gray-200 truncate max-w-[120px]">{s.name}</span>
               </div>
-              <span
-                className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${getRoleStyle(s.role)}`}
-              >
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full border bg-gray-50 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
                 {s.role || t("navStaff")}
               </span>
             </div>
           ))}
           {staff.length > 6 && (
-            <p className="text-[10px] text-gray-500 pl-3">+{staff.length - 6} {t("moreLabel")}</p>
+            <p className="text-[10px] text-gray-400 dark:text-gray-500 pl-3">+{staff.length - 6} {t("moreLabel")}</p>
           )}
         </div>
       )}
@@ -527,31 +457,53 @@ export function SuggestionsCard({ data }) {
   const suggestions = data.suggestions || [];
   if (suggestions.length === 0) return null;
 
+  // Only warning/success carry semantic color; the rest stay neutral.
   const typeStyles = {
-    warning: { bg: "bg-amber-500/10", border: "border-amber-500/30", icon: "⚠️", text: "text-amber-400" },
-    action: { bg: "bg-blue-500/10", border: "border-blue-500/30", icon: "🎯", text: "text-blue-400" },
-    success: { bg: "bg-emerald-500/15", border: "border-gray-300/30", icon: "✅", text: "text-gray-300" },
-    info: { bg: "bg-sky-500/10", border: "border-sky-500/30", icon: "💡", text: "text-sky-400" },
-    insight: { bg: "bg-purple-500/10", border: "border-purple-500/30", icon: "📊", text: "text-purple-400" },
+    warning: {
+      box: "bg-amber-50 border-amber-200 dark:bg-amber-500/10 dark:border-amber-500/30",
+      text: "text-amber-700 dark:text-amber-400",
+      icon: AlertTriangle,
+    },
+    success: {
+      box: "bg-emerald-50 border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/30",
+      text: "text-emerald-700 dark:text-emerald-400",
+      icon: Check,
+    },
+    action: {
+      box: "bg-gray-50 border-gray-200 dark:bg-gray-800/60 dark:border-gray-700",
+      text: "text-gray-700 dark:text-gray-200",
+      icon: Target,
+    },
+    info: {
+      box: "bg-gray-50 border-gray-200 dark:bg-gray-800/60 dark:border-gray-700",
+      text: "text-gray-700 dark:text-gray-200",
+      icon: Info,
+    },
+    insight: {
+      box: "bg-gray-50 border-gray-200 dark:bg-gray-800/60 dark:border-gray-700",
+      text: "text-gray-700 dark:text-gray-200",
+      icon: BarChart3,
+    },
   };
 
   return (
-    <div className="rounded-xl border border-amber-500/20 bg-gray-50 dark:bg-gray-800/50 p-3.5 space-y-2.5">
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3.5 space-y-2.5">
       <div className="flex items-center gap-2">
-        <span className="text-amber-400 font-bold text-[10px] uppercase tracking-widest">
+        <span className="text-gray-500 dark:text-gray-400 font-semibold text-[10px] uppercase tracking-widest">
           {t("suggestionsLabel")}
         </span>
-        <span className="text-[10px] text-gray-500">({suggestions.length})</span>
+        <span className="text-[10px] text-gray-400 dark:text-gray-500">({suggestions.length})</span>
       </div>
       {suggestions.map((s, i) => {
         const style = typeStyles[s.type] || typeStyles.info;
+        const RowIcon = style.icon;
         return (
-          <div key={i} className={`${style.bg} ${style.border} border rounded-lg p-2.5`}>
+          <div key={i} className={`${style.box} border rounded-lg p-2.5`}>
             <div className="flex items-center gap-1.5 mb-1">
-              <span className="text-sm">{style.icon}</span>
+              <RowIcon className={`w-3.5 h-3.5 ${style.text}`} strokeWidth={1.75} aria-hidden />
               <span className={`${style.text} font-semibold text-xs`}>{s.title}</span>
             </div>
-            <p className="text-[11px] text-gray-400 leading-relaxed">{s.text}</p>
+            <p className="text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed">{s.text}</p>
           </div>
         );
       })}
@@ -565,7 +517,6 @@ export function SuggestionsCard({ data }) {
 export function HealthCard({ data, currency }) {
   const { t } = useLanguage();
   if (!data) return null;
-  const cur = displayCurrency(currency);
   const {
     today_revenue = 0,
     month_revenue = 0,
@@ -575,101 +526,43 @@ export function HealthCard({ data, currency }) {
     khata_outstanding: khata_receivable = 0,
   } = data;
 
+  // Neutral values by default; only margin + stock alerts are status-colored.
+  const marginColor =
+    profit_margin >= 20
+      ? "text-emerald-700 dark:text-emerald-400"
+      : profit_margin >= 0
+        ? "text-amber-600 dark:text-amber-400"
+        : "text-red-600 dark:text-red-400";
+
   const metrics = [
-    {
-      label: t("today"),
-      value: today_revenue,
-      prefix: cur,
-      color: "text-emerald-400",
-      iconBg: "bg-emerald-500/15",
-      icon: (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-400">
-          <circle cx="12" cy="12" r="10" />
-          <polyline points="12,6 12,12 16,14" />
-        </svg>
-      ),
-    },
-    {
-      label: t("monthRev"),
-      value: month_revenue,
-      prefix: cur,
-      color: "text-sky-400",
-      iconBg: "bg-sky-500/15",
-      icon: (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-sky-400">
-          <polyline points="22,7 13.5,15.5 8.5,10.5 2,17" />
-        </svg>
-      ),
-    },
-    {
-      label: t("expenses"),
-      value: month_expenses,
-      prefix: cur,
-      color: "text-rose-400",
-      iconBg: "bg-rose-500/15",
-      icon: (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-rose-400">
-          <polyline points="22,17 13.5,8.5 8.5,13.5 2,7" />
-        </svg>
-      ),
-    },
+    { label: t("today"), display: formatOwnerMoney(today_revenue, currency) },
+    { label: t("monthRev"), display: formatOwnerMoney(month_revenue, currency) },
+    { label: t("expenses"), display: formatOwnerMoney(month_expenses, currency) },
     {
       label: t("margin"),
-      value: profit_margin ?? 0,
-      suffix: "%",
-      color: profit_margin >= 20 ? "text-emerald-400" : profit_margin >= 0 ? "text-amber-400" : "text-red-400",
-      iconBg: profit_margin >= 20 ? "bg-emerald-500/15" : profit_margin >= 0 ? "bg-amber-500/15" : "bg-red-500/15",
-      icon: (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={profit_margin >= 20 ? "text-emerald-400" : profit_margin >= 0 ? "text-amber-400" : "text-red-400"}>
-          <rect x="2" y="2" width="20" height="20" rx="5" />
-          <path d="M16 8l-8 8M8 8h8v8" />
-        </svg>
-      ),
+      display: `${(profit_margin ?? 0).toFixed(1)}%`,
+      color: marginColor,
     },
     {
       label: t("stockAlerts"),
-      value: inventory_alerts,
-      color: inventory_alerts > 0 ? "text-amber-400" : "text-gray-400",
-      iconBg: inventory_alerts > 0 ? "bg-amber-500/15" : "bg-gray-500/15",
-      icon: (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={inventory_alerts > 0 ? "text-amber-400" : "text-gray-400"}>
-          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-          <line x1="12" y1="9" x2="12" y2="13" />
-          <line x1="12" y1="17" x2="12.01" y2="17" />
-        </svg>
-      ),
+      display: String(inventory_alerts),
+      color: inventory_alerts > 0 ? "text-amber-600 dark:text-amber-400" : undefined,
     },
-    {
-      label: t("receivable"),
-      value: khata_receivable,
-      prefix: cur,
-      color: "text-violet-400",
-      iconBg: "bg-violet-500/15",
-      icon: (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-violet-400">
-          <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-          <circle cx="9" cy="7" r="4" />
-        </svg>
-      ),
-    },
+    { label: t("receivable"), display: formatOwnerMoney(khata_receivable, currency) },
   ];
 
   return (
     <CardShell className="max-h-[220px]">
-      <p className="text-[11px] uppercase tracking-wider text-white/50 font-semibold mb-3">{t("businessHealth")}</p>
+      <div className="flex items-center justify-between mb-3">
+        <CardEyebrow>{t("businessHealth")}</CardEyebrow>
+        <Activity className="w-4 h-4 text-gray-400 dark:text-gray-500" strokeWidth={1.75} aria-hidden />
+      </div>
       <div className="grid grid-cols-3 gap-x-3 gap-y-2.5">
         {metrics.map((m) => (
           <div key={m.label} className="min-w-0">
-            <div className="flex items-center gap-1.5 mb-1">
-              <span className={`w-5 h-5 rounded-md ${m.iconBg} flex items-center justify-center shrink-0`}>
-                {m.icon}
-              </span>
-              <span className="text-[10px] text-gray-500 truncate">{m.label}</span>
-            </div>
-            <p className={`text-sm font-bold ${m.color} leading-tight font-mono tabular-nums`}>
-              {m.prefix ? `${m.prefix} ` : ""}
-              <CountUp value={m.value} decimals={m.suffix === "%" ? 1 : 0} />
-              {m.suffix || ""}
+            <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate mb-0.5">{m.label}</p>
+            <p className={`text-sm font-semibold leading-tight tabular-nums ${m.color || "text-gray-900 dark:text-gray-100"}`}>
+              {m.display}
             </p>
           </div>
         ))}
