@@ -400,10 +400,10 @@ export default function Layout() {
         {
           id: "platform",
           labelKey: "navPlatform",
-          icon: "🛡",
+          icon: "Shield",
           visibleFor: null,
           items: [
-            { to: "/admin", icon: "🛡", labelKey: "platformAdmin" },
+            { to: "/admin", icon: "Shield", labelKey: "platformAdmin" },
           ],
         },
       ]

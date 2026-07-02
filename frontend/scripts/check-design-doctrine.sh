@@ -112,7 +112,7 @@ EMOJI_EXCLUDE="$EXCLUDE_PATTERN|src/hooks/useLanguage\.jsx|src/i18n/|src/utils/s
 # Ratchet: the count may only go DOWN. Lower the baseline whenever a
 # de-emoji pass lands (Onboarding + TrialBanner + Layout admin are the
 # bulk of the remaining grandfathered hits).
-EMOJI_BASELINE=365  # true count 2026-07-01; top offenders: CompetitorPage 42, WineListPage 39, InventoryPage 24, MultiTerminalClose 21, WeatherPage 20
+EMOJI_BASELINE=363  # true count 2026-07-02 (Layout admin 🛡×2 → Shield); top offenders: CompetitorPage 42, WineListPage 39, InventoryPage 24, MultiTerminalClose 21, WeatherPage 20
 EMOJI_MATCHES=$(find src -name '*.jsx' -o -name '*.tsx' -o -name '*.js' -o -name '*.ts' 2>/dev/null \
   | grep -vE "$EMOJI_EXCLUDE" \
   | xargs perl -CSD -ne 'print "$ARGV:$.: $_" if /[\x{1F000}-\x{1FAFF}\x{2B00}-\x{2BFF}\x{2705}\x{274C}\x{2728}\x{FE0F}]/; close ARGV if eof' 2>/dev/null \

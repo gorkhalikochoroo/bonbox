@@ -858,8 +858,11 @@ export const PILLAR_DISPLAY_BY_ID = PILLAR_DISPLAY.reduce((acc, p) => {
 export const NAV_GROUPS = [
   { id: "core",     labelKey: null,             icon: null,        visibleFor: null },
   { id: "money",    labelKey: "navMoney",       icon: "Wallet",    visibleFor: null },
-  { id: "stock",    labelKey: "navStock",       icon: "Boxes",     visibleFor: null },
+  // Staff ABOVE Stock: Vagtplan is a headline pillar (the Planday
+  // replacement — weekly ritual + fravær interrupts), Stock is a
+  // monthly-ritual tracker. Matches archetypes.js leadFeatures ranking.
   { id: "staff",    labelKey: "navStaff",       icon: "UsersRound", visibleFor: null },
+  { id: "stock",    labelKey: "navStock",       icon: "Boxes",     visibleFor: null },
   { id: "reports",  labelKey: "navReportsMoms", icon: "BarChart3", visibleFor: null },
   // C7 Intelligence collapse: the standalone `intel` group is GONE. Its lone
   // survivor — the Insights hub — moved into the `reports` group above (it's
