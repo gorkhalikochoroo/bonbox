@@ -1498,7 +1498,9 @@ export default function StaffSchedulePage() {
         setPinHas((p) => ({ ...p, [member.id]: false }));
         setPinReveal((p) => { const n = { ...p }; delete n[member.id]; return n; });
       } else {
-        const res = await api.post(`/staff/members/${member.id}/link/pin`);
+        // {} not omitted: the endpoint takes an OPTIONAL body; axios with no
+        // data sends no JSON body at all, which FastAPI 422s on older deploys.
+        const res = await api.post(`/staff/members/${member.id}/link/pin`, {});
         setPinHas((p) => ({ ...p, [member.id]: true }));
         if (res.data?.pin) setPinReveal((p) => ({ ...p, [member.id]: res.data.pin }));
       }

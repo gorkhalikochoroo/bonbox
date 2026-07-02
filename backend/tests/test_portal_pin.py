@@ -186,6 +186,33 @@ def test_lockout_after_repeated_failures(client, db):
     assert link.pin_failed_count == 0 and link.pin_locked_until is None
 
 
+def test_owner_sets_pin_with_bare_post(client, db):
+    """REGRESSION: the Share-sheet toggle POSTs with NO body ("generate one
+    for me"). A required Pydantic body param 422s that call even though every
+    field inside is optional — this shipped and broke the toggle in prod."""
+    from app.services.auth import get_current_user
+
+    u, a, link = _seed(db, pin=None)
+    app.dependency_overrides[get_current_user] = lambda: u
+    try:
+        r = client.post(f"/api/staff/members/{a.id}/link/pin")  # ← no json=
+        assert r.status_code == 200, r.text
+        pin = r.json()["pin"]
+        assert len(pin) == 4 and pin.isdigit()
+
+        # The generated PIN really gates the link now.
+        db.refresh(link)
+        assert link.pin_hash and pwd_context.verify(pin, link.pin_hash)
+
+        # And the owner can turn it off again.
+        r = client.delete(f"/api/staff/members/{a.id}/link/pin")
+        assert r.status_code == 200
+        db.refresh(link)
+        assert link.pin_hash is None
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
 def test_gen_pin_avoids_weak_codes():
     """Owner-generated PINs never hand out the shoulder-surf-obvious ones."""
     from app.routers.staff import _gen_pin

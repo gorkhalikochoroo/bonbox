@@ -645,7 +645,10 @@ def _gen_pin() -> str:
 @router.post("/members/{member_id}/link/pin")
 def set_staff_link_pin(
     member_id: str,
-    body: PinSetRequest,
+    # None default: FastAPI treats a Pydantic body param as REQUIRED even
+    # when every field inside is optional — a bare no-body POST (the normal
+    # "generate one for me" call) 422'd with "Field required".
+    body: PinSetRequest | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -664,7 +667,7 @@ def set_staff_link_pin(
     if not link:
         raise HTTPException(status_code=404, detail="No active link found")
 
-    if body.pin is not None:
+    if body is not None and body.pin is not None:
         if len(body.pin) != 4 or not body.pin.isdigit():
             raise HTTPException(status_code=400, detail="PIN must be exactly 4 digits")
         pin = body.pin
