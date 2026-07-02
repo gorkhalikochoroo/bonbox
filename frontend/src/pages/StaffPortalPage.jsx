@@ -9,6 +9,7 @@ import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, A
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
+import { isNativeApp } from "../utils/platform";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
 
 
@@ -1601,12 +1602,18 @@ function SwapTab({ token, ownShifts, onChanged }) {
 
 /** A row in the Swap inbox. Renders different actions based on
  * direction (incoming = respond, outgoing = withdraw) and status. */
+/* Dates follow the CHOSEN app language, not the phone locale — otherwise
+   the DA/EN toggle flips the words but leaves "Thu 2 Jul" English. */
+function localeFor(lang) {
+  return lang === "da" ? "da-DK" : lang || undefined;
+}
+
 /* Swap shifts arrive as ISO dates ("2026-06-05") — render them the way the
-   rest of the portal speaks ("Fri 5 Jun"), locale-aware. */
-function fmtSwapDay(iso) {
+   rest of the portal speaks ("Fri 5 Jun" / "fre. 5. jun."), locale-aware. */
+function fmtSwapDay(iso, lang) {
   if (!iso) return iso;
   try {
-    return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
+    return new Date(`${iso}T00:00:00`).toLocaleDateString(localeFor(lang), {
       weekday: "short", day: "numeric", month: "short",
     });
   } catch {
@@ -1615,7 +1622,7 @@ function fmtSwapDay(iso) {
 }
 
 function SwapRow({ swap, token, onChanged }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [busy, setBusy] = useState(false);
 
   const respond = async (accept) => {
@@ -1682,12 +1689,12 @@ function SwapRow({ swap, token, onChanged }) {
       <div className="grid grid-cols-2 gap-2 text-[11px]">
         <div className="bg-gray-50 rounded p-1.5">
           <div className="text-[10px] text-gray-500">{t("portalSwapGives", "Gives")}</div>
-          <div className="text-gray-900">{fmtSwapDay(swap.from_shift_date)}</div>
+          <div className="text-gray-900">{fmtSwapDay(swap.from_shift_date, lang)}</div>
           <div className="text-gray-500">{swap.from_shift_time}</div>
         </div>
         <div className="bg-gray-50 rounded p-1.5">
           <div className="text-[10px] text-gray-500">{t("portalSwapGets", "Gets")}</div>
-          <div className="text-gray-900">{fmtSwapDay(swap.to_shift_date)}</div>
+          <div className="text-gray-900">{fmtSwapDay(swap.to_shift_date, lang)}</div>
           <div className="text-gray-500">{swap.to_shift_time}</div>
         </div>
       </div>
@@ -2266,7 +2273,7 @@ function groupAbsence(rows) {
  * "Kan ikke" tab (the staffer's "when I'm off" home) so it's not an 8th nav tab.
  */
 function AbsenceSection({ token }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [rows, setRows] = useState(null);
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2299,9 +2306,9 @@ function AbsenceSection({ token }) {
 
   const fmtRange = (s, e) => {
     const opt = { day: "numeric", month: "short" };
-    const a = new Date(s + "T00:00:00").toLocaleDateString(undefined, opt);
+    const a = new Date(s + "T00:00:00").toLocaleDateString(localeFor(lang), opt);
     if (s === e) return a;
-    const b = new Date(e + "T00:00:00").toLocaleDateString(undefined, opt);
+    const b = new Date(e + "T00:00:00").toLocaleDateString(localeFor(lang), opt);
     return `${a} – ${b}`;
   };
 
@@ -2435,7 +2442,7 @@ function AbsenceSection({ token }) {
  * Honest: a soft signal, never a hidden hard block — the copy says so.
  */
 function AvailabilityTab({ token }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [rows, setRows] = useState(null); // null = loading
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2450,15 +2457,15 @@ function AvailabilityTab({ token }) {
   const [endT, setEndT] = useState("12:00");
   const [note, setNote] = useState("");
 
-  // Monday-first short weekday names in the user's own locale — no i18n keys.
+  // Monday-first short weekday names in the CHOSEN app language — no i18n keys.
   const WD = useMemo(() => {
     const base = new Date(Date.UTC(2026, 6, 6)); // 2026-07-06 is a Monday
     return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(base);
       d.setUTCDate(base.getUTCDate() + i);
-      return d.toLocaleDateString(undefined, { weekday: "short" });
+      return d.toLocaleDateString(localeFor(lang), { weekday: "short" });
     });
-  }, []);
+  }, [lang]);
 
   const load = async () => {
     try {
@@ -2512,7 +2519,7 @@ function AvailabilityTab({ token }) {
 
   const describe = (row) => {
     const when = row.date
-      ? new Date(row.date + "T00:00:00").toLocaleDateString(undefined, {
+      ? new Date(row.date + "T00:00:00").toLocaleDateString(localeFor(lang), {
           weekday: "short", day: "numeric", month: "short",
         })
       : t("kanIkkeEveryWeekday", "Every {day}", { day: WD[row.weekday ?? 0] });
@@ -3650,6 +3657,26 @@ export default function StaffPortalPage() {
               {/* Native Web Push opt-in moved to the prominent
                   InstallNotifyCard on the Schedule tab — far better
                   discovery than buried behind the avatar. */}
+              {/* Disconnect: forget this schedule on THIS phone (saved token
+                  + PIN proof) and land on the join screen. Recoverable —
+                  re-enter the join code or tap the link again. Matters for
+                  the Scheduler app: a phone that changes workplace needs a
+                  way out, and App Review likes an explicit disconnect. */}
+              <div className="pt-1 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      localStorage.removeItem("bonbox_portal_token");
+                      localStorage.removeItem("bonbox_pin_proof");
+                    } catch { /* private mode */ }
+                    window.location.href = "/join";
+                  }}
+                  className="text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                >
+                  {t("portalDisconnect", "Disconnect this phone from the schedule")}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -3669,7 +3696,10 @@ export default function StaffPortalPage() {
         )}
         {/* Install/push nudge — BELOW the shift so the schedule leads; a calm
             collapsed line, not a promo card above the fold. */}
-        {tab === "schedule" && <InstallNotifyCard token={token} />}
+        {/* Inside the native Scheduler shell "add to home screen" is
+            nonsense — the user IS in the app. Native push arrives with the
+            APNs slice; until then the card simply doesn't render there. */}
+        {tab === "schedule" && !isNativeApp() && <InstallNotifyCard token={token} />}
         {tab === "availability" && <AvailabilityTab token={token} />}
         {tab === "messages" && (
           <MessagesTab

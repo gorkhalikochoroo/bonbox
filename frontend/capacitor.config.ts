@@ -14,6 +14,11 @@ import type { CapacitorConfig } from "@capacitor/cli";
  */
 const isScheduler = process.env.BONBOX_TARGET === "scheduler";
 
+/* Native chrome follows each app's canvas: the owner app is dark (#0d1117),
+   the staff portal lives on bg-gray-50 — a dark status bar / webview behind
+   it flashes black on load and leaves unreadable light-on-light glyphs. */
+const shellBg = isScheduler ? "#f9fafb" : "#0d1117";
+
 const config: CapacitorConfig = {
   appId: isScheduler ? "dk.bonbox.scheduler" : "dk.bonbox.app",
   appName: isScheduler ? "BonBox Scheduler" : "BonBox",
@@ -23,25 +28,27 @@ const config: CapacitorConfig = {
     path: isScheduler ? "ios-scheduler" : "ios",
     contentInset: "automatic",
     allowsLinkPreview: false,
-    backgroundColor: "#0d1117",
+    backgroundColor: shellBg,
     // Do NOT set preferredContentMode: 'mobile' — breaks iPad responsive layout
     scrollEnabled: true,
   },
 
   android: {
-    backgroundColor: "#0d1117",
+    backgroundColor: shellBg,
   },
 
   plugins: {
     SplashScreen: {
       launchShowDuration: 2000,
       launchAutoHide: true,
+      // Splash art was drawn for the dark background — both targets keep it.
       backgroundColor: "#0d1117",
       showSpinner: false,
     },
     StatusBar: {
-      style: "DARK",
-      backgroundColor: "#0d1117",
+      // Capacitor naming: DARK = light text on dark bg, LIGHT = dark text.
+      style: isScheduler ? "LIGHT" : "DARK",
+      backgroundColor: shellBg,
     },
     Keyboard: {
       resize: "body",
