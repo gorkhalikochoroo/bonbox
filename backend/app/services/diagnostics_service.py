@@ -76,7 +76,7 @@ def _finding(code, severity, deep_link, meta=None):
     return {"code": code, "severity": severity, "deep_link": deep_link, "meta": meta or {}}
 
 
-def _detect_unconfirmed_reservations(db: Session, user, now):
+def _detect_unconfirmed_reservations(db: Session, user, now, skip=frozenset()):
     """Upcoming bookings still 'requested' (awaiting the owner's approval)."""
     cnt = (
         db.query(func.count(Reservation.id))
@@ -98,7 +98,7 @@ def _detect_unconfirmed_reservations(db: Session, user, now):
     )
 
 
-def _detect_stale_bank_feed(db: Session, user, now):
+def _detect_stale_bank_feed(db: Session, user, now, skip=frozenset()):
     """An active auto-sync connection that hasn't pulled in a while → the
     revenue/MOMS picture may be behind. Read-only: we point at Connections,
     never silently 'fix' it."""
@@ -130,12 +130,14 @@ def _detect_stale_bank_feed(db: Session, user, now):
     )
 
 
-def _detect_close_missing(db: Session, user, now):
+def _detect_close_missing(db: Session, user, now, skip=frozenset()):
     """If the owner closes regularly but yesterday has no confirmed close,
     gently nudge. Gated on 'closes regularly' so it never nags a business that
     doesn't run a daily close."""
     today = today_local(user)
     yesterday = today - timedelta(days=1)
+    if ("close_missing", yesterday.isoformat()) in skip:
+        return None
     window_start = today - timedelta(days=_REGULAR_WINDOW_DAYS)
 
     regular = (
@@ -171,7 +173,7 @@ def _detect_close_missing(db: Session, user, now):
     )
 
 
-def _detect_stale_draft_close(db: Session, user, now):
+def _detect_stale_draft_close(db: Session, user, now, skip=frozenset()):
     """A daily close left in DRAFT for >2 business days — the day is over but
     the report was never locked, so its numbers haven't tied out and it can't
     reach the revisor. We surface the OLDEST offender (the one most at risk),
@@ -192,8 +194,11 @@ def _detect_stale_draft_close(db: Session, user, now):
     stale = []
     for c in drafts:
         d = _close_date(c)
-        if d is not None and d < cutoff_day:
-            stale.append((d, c))
+        if d is None or d >= cutoff_day:
+            continue
+        if ("stale_draft_close", d.isoformat()) in skip:
+            continue
+        stale.append((d, c))
     if not stale:
         return None
 
@@ -215,7 +220,7 @@ def _detect_stale_draft_close(db: Session, user, now):
     )
 
 
-def _detect_close_unreconciled(db: Session, user, now):
+def _detect_close_unreconciled(db: Session, user, now, skip=frozenset()):
     """A CONFIRMED (locked) close whose payments clearly don't match its
     revenue — the kind of mismatch that must NOT silently flow to the revisor.
     Conservative by design (>5% AND >100 kr): tips, rounding and gift cards
@@ -240,6 +245,9 @@ def _detect_close_unreconciled(db: Session, user, now):
     for c in closes:
         revenue_total = float(c.revenue_total or 0)
         if revenue_total <= 0:
+            continue
+        c_date = _close_date(c)
+        if c_date is not None and ("close_unreconciled", c_date.isoformat()) in skip:
             continue
         payment_total = float(c.payment_total or 0)
         diff = abs(payment_total - revenue_total)
@@ -279,14 +287,20 @@ _DETECTORS = [
 _SEVERITY_RANK = {"urgent": 0, "warn": 1, "info": 2}
 
 
-def run_diagnostics(db: Session, user, *, now=None) -> list[dict]:
+def run_diagnostics(db: Session, user, *, now=None, skip=None) -> list[dict]:
     """Run all detectors, fail-soft per detector, return findings sorted by
-    severity (urgent first). Read-only — mutates nothing."""
+    severity (urgent first). Read-only — mutates nothing.
+
+    `skip` is a set of (code, iso_date) the owner dismissed client-side.
+    It is threaded INTO the worst-only/oldest-only detectors (not just
+    post-filtered) so dismissing the worst finding surfaces the next-worst
+    instead of silently masking every other broken close behind it."""
     now = now or utc_now()
+    skip = frozenset(skip or ())
     findings: list[dict] = []
     for detect in _DETECTORS:
         try:
-            f = detect(db, user, now)
+            f = detect(db, user, now, skip)
             if f:
                 findings.append(f)
         except Exception:  # noqa: BLE001 — one bad detector must not break the queue

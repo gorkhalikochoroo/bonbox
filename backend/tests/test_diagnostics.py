@@ -55,19 +55,19 @@ def _owner(db):
 def test_runner_sorts_by_severity_and_is_fail_soft(db, monkeypatch):
     user = _owner(db)
 
-    def info_d(db, user, now):
+    def info_d(db, user, now, skip=frozenset()):
         return ds._finding("c_info", "info", "/a")
 
-    def urgent_d(db, user, now):
+    def urgent_d(db, user, now, skip=frozenset()):
         return ds._finding("c_urgent", "urgent", "/b")
 
-    def warn_d(db, user, now):
+    def warn_d(db, user, now, skip=frozenset()):
         return ds._finding("c_warn", "warn", "/c")
 
-    def boom_d(db, user, now):
+    def boom_d(db, user, now, skip=frozenset()):
         raise RuntimeError("detector blew up")
 
-    def none_d(db, user, now):
+    def none_d(db, user, now, skip=frozenset()):
         return None
 
     monkeypatch.setattr(ds, "_DETECTORS", [info_d, boom_d, urgent_d, none_d, warn_d])
@@ -214,3 +214,75 @@ def test_draft_dated_today_is_not_flagged_as_stale(db):
 
     findings = ds.run_diagnostics(db, user)
     assert _only(findings, "stale_draft_close") == []
+
+
+def test_skip_worst_unreconciled_surfaces_next_worst(db):
+    """Dismissing the worst unreconciled close must surface the NEXT-worst —
+    the skip goes into the worst-scan, it is not a post-filter that would
+    silently mask every other broken close."""
+    user = _owner(db)
+    biz_today = business_today_local(user)
+    worst_d = biz_today - timedelta(days=10)
+    next_d = biz_today - timedelta(days=5)
+    _add_close(db, user, d=worst_d, status="confirmed", revenue=10000, payment=4000)
+    _add_close(db, user, d=next_d, status="confirmed", revenue=10000, payment=8000)
+
+    # No skip → the worst (largest gap) wins.
+    f = _only(ds.run_diagnostics(db, user), "close_unreconciled")[0]
+    assert f["meta"]["date"] == worst_d.isoformat()
+
+    # Skip the worst → the next-worst surfaces instead of nothing.
+    skip = {("close_unreconciled", worst_d.isoformat())}
+    f = _only(ds.run_diagnostics(db, user, skip=skip), "close_unreconciled")[0]
+    assert f["meta"]["date"] == next_d.isoformat()
+
+    # Skip both → the row disappears.
+    skip.add(("close_unreconciled", next_d.isoformat()))
+    assert _only(ds.run_diagnostics(db, user, skip=skip), "close_unreconciled") == []
+
+
+def test_skip_stale_draft_recomputes_oldest_and_count(db):
+    """Dismissing the oldest stale draft re-anchors the finding on the next
+    one, and the count only covers non-dismissed drafts."""
+    user = _owner(db)
+    biz_today = business_today_local(user)
+    oldest_d = biz_today - timedelta(days=20)
+    newer_d = biz_today - timedelta(days=10)
+    _add_close(db, user, d=oldest_d, status="draft", revenue=10000, payment=10000)
+    _add_close(db, user, d=newer_d, status="draft", revenue=5000, payment=5000)
+
+    f = _only(ds.run_diagnostics(db, user), "stale_draft_close")[0]
+    assert f["meta"]["date"] == oldest_d.isoformat()
+    assert f["meta"]["count"] == 2
+
+    skip = {("stale_draft_close", oldest_d.isoformat())}
+    f = _only(ds.run_diagnostics(db, user, skip=skip), "stale_draft_close")[0]
+    assert f["meta"]["date"] == newer_d.isoformat()
+    assert f["meta"]["count"] == 1
+
+    skip.add(("stale_draft_close", newer_d.isoformat()))
+    assert _only(ds.run_diagnostics(db, user, skip=skip), "stale_draft_close") == []
+
+
+def test_router_parse_skip_is_fail_soft():
+    """Malformed tokens, unknown codes and bad dates are ignored — never a 500
+    from a corrupted localStorage value."""
+    from app.routers.diagnostics import _parse_skip
+
+    raw = (
+        "close_unreconciled:2026-05-04,"          # valid
+        "stale_draft_close:2026-05-16,"           # valid
+        "close_missing:not-a-date,"               # bad date → dropped
+        "unconfirmed_reservations:2026-05-01,"    # non-skippable code → dropped
+        "garbage,"                                 # no colon → dropped
+        ":2026-01-01,"                             # empty code → dropped
+        "close_missing:"                           # empty date → dropped
+    )
+    assert _parse_skip(raw) == {
+        ("close_unreconciled", "2026-05-04"),
+        ("stale_draft_close", "2026-05-16"),
+    }
+    assert _parse_skip("") == set()
+    # Token cap: only the first 60 tokens are considered.
+    flood = ",".join(f"close_missing:2026-01-{(i % 28) + 1:02d}" for i in range(200))
+    assert len(_parse_skip(flood)) <= 60

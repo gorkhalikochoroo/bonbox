@@ -9,12 +9,63 @@
 // Quiet by design: nothing renders while loading, on error, or when there's
 // nothing to do (no "all clear" clutter). Severity uses status colors only
 // (amber/red), Lucide outline icons, no emoji.
+//
+// Dismiss: each row has a small X. Dismissals live in localStorage (the
+// server stores nothing). Date-anchored findings (a specific close) stay
+// dismissed for good — their dates travel to the backend as a `skip` param
+// so the worst-only detectors surface the NEXT-worst close instead of the
+// whole row silently masking every other broken close behind it. Ongoing
+// conditions (stale bank feed, unconfirmed bookings) only snooze: a
+// persisting problem resurfaces after 7 days, and a changed booking count
+// re-keys immediately.
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, CalendarCheck, Landmark, FileClock, Scale, ChevronRight } from "lucide-react";
+import { AlertTriangle, CalendarCheck, Landmark, FileClock, Scale, ChevronRight, X } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { formatKr } from "../utils/currency";
+
+const STORAGE_KEY = "bonbox_nyq_dismissed"; // { [key]: dismissedAtMs }
+const SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_STORED = 120;
+// Codes whose finding is anchored to a specific date → permanent dismissal,
+// sent to the backend as skip tokens. Must mirror _SKIPPABLE in
+// routers/diagnostics.py.
+const DATED_CODES = new Set(["close_missing", "stale_draft_close", "close_unreconciled"]);
+
+// Stable identity per finding: the date where there is one, else the most
+// distinguishing meta (a changed reservation count re-surfaces the row).
+const keyFor = (f) => `${f.code}|${f.meta?.date ?? f.meta?.provider ?? f.meta?.count ?? ""}`;
+
+function loadDismissed() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const now = Date.now();
+    const kept = Object.entries(raw)
+      .filter(([k, ts]) => {
+        if (typeof ts !== "number") return false;
+        // dated = permanent; ongoing conditions expire (snooze) after 7 days
+        return DATED_CODES.has(k.split("|")[0]) || now - ts < SNOOZE_MS;
+      })
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, MAX_STORED);
+    return Object.fromEntries(kept);
+  } catch {
+    return {};
+  }
+}
+
+// Dated dismissals → "code:YYYY-MM-DD" CSV for the backend skip param.
+const skipParamFor = (dismissed) =>
+  Object.keys(dismissed)
+    .filter((k) => {
+      const [code, anchor] = k.split("|");
+      return DATED_CODES.has(code) && anchor;
+    })
+    .slice(0, 60)
+    .map((k) => k.replace("|", ":"))
+    .join(",");
 
 // code → { icon, title(t, meta), action(t) }. Adding a detector server-side +
 // a row here is all it takes to extend the queue.
@@ -73,11 +124,15 @@ export default function NeedsYouQueue() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const [findings, setFindings] = useState([]);
+  const [dismissed, setDismissed] = useState(loadDismissed);
 
+  // Refetch when the dated skip-set changes: dismissing the worst
+  // unreconciled close immediately surfaces the next-worst one.
+  const skip = skipParamFor(dismissed);
   useEffect(() => {
     let alive = true;
     api
-      .get("/diagnostics/needs-you")
+      .get("/diagnostics/needs-you", { params: skip ? { skip } : {} })
       .then((res) => {
         if (alive) setFindings(Array.isArray(res.data?.findings) ? res.data.findings : []);
       })
@@ -87,9 +142,22 @@ export default function NeedsYouQueue() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [skip]);
 
-  if (!findings.length) return null;
+  const dismiss = (f) => {
+    const next = { ...dismissed, [keyFor(f)]: Date.now() };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      /* storage full/blocked — dismissal still applies for this session */
+    }
+    setDismissed(next);
+  };
+
+  // Client-side filter covers the snoozed (non-dated) codes + fetch latency.
+  const visible = findings.filter((f) => !(keyFor(f) in dismissed));
+
+  if (!visible.length) return null;
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
@@ -99,16 +167,16 @@ export default function NeedsYouQueue() {
         </h3>
       </div>
       <ul className="divide-y divide-gray-100 dark:divide-gray-800">
-        {findings.map((f) => {
+        {visible.map((f) => {
           const r = RENDERERS[f.code];
           if (!r) return null; // unknown code → skip (forward-compatible)
           const RowIcon = r.icon || AlertTriangle;
           return (
-            <li key={f.code}>
+            <li key={keyFor(f)} className="flex items-center">
               <button
                 type="button"
                 onClick={() => navigate(f.deep_link)}
-                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 active:scale-[0.997] transition"
+                className="min-w-0 flex-1 flex items-center gap-3 pl-4 pr-2 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 active:scale-[0.997] transition"
               >
                 <span className={`h-2 w-2 rounded-full shrink-0 ${SEVERITY_DOT[f.severity] || SEVERITY_DOT.info}`} aria-hidden />
                 <RowIcon className="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" strokeWidth={1.75} aria-hidden />
@@ -119,6 +187,15 @@ export default function NeedsYouQueue() {
                   {r.action(t)}
                   <ChevronRight className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
                 </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => dismiss(f)}
+                aria-label={t("nyqDismiss", "Dismiss")}
+                title={t("nyqDismiss", "Dismiss")}
+                className="shrink-0 p-2 mr-2 rounded-lg text-gray-300 hover:text-gray-500 hover:bg-gray-50 dark:text-gray-600 dark:hover:text-gray-400 dark:hover:bg-gray-800/50 transition"
+              >
+                <X className="w-4 h-4" strokeWidth={1.75} aria-hidden />
               </button>
             </li>
           );

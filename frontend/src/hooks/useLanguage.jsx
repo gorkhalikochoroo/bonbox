@@ -1296,6 +1296,7 @@ const translations = {
     nyqStaleDraftAction: "Review",
     nyqUnreconciled: "The {date} lukning doesn't tie out: payments {payment} ≠ omsætning {revenue}",
     nyqUnreconciledAction: "Review",
+    nyqDismiss: "Dismiss",
     // Sign out all other devices (token_version revocation).
     signOutAllTitle: "Signed in elsewhere?",
     signOutAllDesc: "Sign out on every other phone, tablet or computer. This one stays signed in.",
@@ -8165,6 +8166,7 @@ const translations = {
     nyqStaleDraftAction: "Gennemgå",
     nyqUnreconciled: "Lukningen {date} stemmer ikke: betalinger {payment} ≠ omsætning {revenue}",
     nyqUnreconciledAction: "Gennemgå",
+    nyqDismiss: "Skjul",
     // Log ud af alle andre enheder (token_version-spærring).
     signOutAllTitle: "Logget ind andre steder?",
     signOutAllDesc: "Log ud på alle andre telefoner, tablets og computere. Denne enhed forbliver logget ind.",
