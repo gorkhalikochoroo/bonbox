@@ -98,8 +98,6 @@ def _send_staff_schedule_push(
         )
         .all()
     )
-    if not subs:
-        return result
 
     # PII-stripped payload. No amounts, no co-worker names — only the
     # one-liner "your schedule changed". The deep-link uses the staff's
@@ -166,6 +164,33 @@ def _send_staff_schedule_push(
                 db.delete(sub)
             except Exception:  # noqa: BLE001
                 pass
+
+    # Native devices (BonBox Scheduler app) — web push is dead in the
+    # shell's WKWebView, so those phones registered an APNs token instead.
+    # Same payload, same tier gate, same honesty on the returned counts.
+    try:
+        from app.services import apns_sender
+
+        apns = apns_sender.send_to_staff_devices(db, user_id, staff_id, payload)
+        result["attempted"] += apns["attempted"]
+        result["sent"] += apns["sent"]
+        result["removed"] += apns["removed"]
+        if apns["attempted"]:
+            db.add(NotificationLog(
+                id=uuid.uuid4(),
+                user_id=user_id,
+                staff_id=staff_id,
+                channel="push",
+                event_type="schedule_published",
+                subject=title,
+                body=body_text,
+                status="sent" if apns["sent"] else "failed",
+                error_message=None if apns["sent"] else "apns_send_failed",
+            ))
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "notification: APNs fan-out threw for staff_id=%s", staff_id,
+        )
 
     return result
 

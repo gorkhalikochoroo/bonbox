@@ -67,6 +67,7 @@ from app.models.mobilepay_connection import MobilePayConnection
 # (user, device endpoint); the morning push cron iterates this to
 # fan out the 8am brief as a native push notification.
 from app.models.push_subscription import PushSubscription
+from app.models.staff_device_token import StaffDeviceToken
 # Cultural events sprint (migration 013) — Sudip-style customers tag
 # Sales/Expenses with a real-world event (movie night, pop-up stall).
 # Distinct from EventLog above which is analytics telemetry; named

@@ -10,6 +10,7 @@ import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
 import { isNativeApp } from "../utils/platform";
+import useNativePush, { unregisterNativePush } from "../hooks/useNativePush";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
 
 
@@ -3212,6 +3213,10 @@ export default function StaffPortalPage() {
   const [loading, setLoading] = useState(true);
   const [pinVerified, setPinVerified] = useState(false);
 
+  // Native shell only: swap dead web-push for a real APNs registration the
+  // moment the portal is usable (validated + past any PIN gate).
+  useNativePush(token, Boolean(info) && pinVerified);
+
   // Data for each tab
   const [shifts, setShifts] = useState([]);
   const [hoursData, setHoursData] = useState(null);
@@ -3671,7 +3676,10 @@ export default function StaffPortalPage() {
               <div className="pt-1 border-t border-gray-100">
                 <button
                   type="button"
-                  onClick={() => {
+                  onClick={async () => {
+                    // Order matters: the unregister call needs the portal
+                    // token + PIN proof that are about to be forgotten.
+                    await unregisterNativePush(token);
                     try {
                       localStorage.removeItem("bonbox_portal_token");
                       localStorage.removeItem("bonbox_pin_proof");

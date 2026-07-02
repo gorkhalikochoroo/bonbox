@@ -2057,6 +2057,22 @@ _migrations = [
     # ── Migration 033 (2026-07-02): staff_links PIN lockout (multi-layer link protection) ──
     "ALTER TABLE staff_links ADD COLUMN IF NOT EXISTS pin_failed_count INTEGER DEFAULT 0",
     "ALTER TABLE staff_links ADD COLUMN IF NOT EXISTS pin_locked_until TIMESTAMP",
+    # ── Migration 034 (2026-07-03): staff_device_tokens (native APNs push, Scheduler app) ──
+    # Net-new table backing app/models/staff_device_token.py. Web push is dead
+    # in the native shell's WKWebView, so the App Store staff app registers an
+    # APNs token bound to its magic link. Idempotent.
+    """CREATE TABLE IF NOT EXISTS staff_device_tokens (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        staff_id UUID NOT NULL,
+        link_id UUID NOT NULL REFERENCES staff_links(id),
+        platform VARCHAR(16) NOT NULL DEFAULT 'ios',
+        token VARCHAR(200) NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_staff_device_token UNIQUE (token)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_staff_device_tokens_user_staff ON staff_device_tokens (user_id, staff_id)",
 ]
 
 

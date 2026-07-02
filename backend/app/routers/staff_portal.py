@@ -16,6 +16,7 @@ Endpoints:
 
 import asyncio
 import hashlib
+import uuid
 import hmac
 import json
 import os
@@ -2216,6 +2217,129 @@ def portal_push_unsubscribe(
             db.rollback()
             db.commit()
             deleted = True
+    return {"ok": True, "deleted": deleted}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  NATIVE DEVICE TOKENS — APNs push for the BonBox Scheduler app
+# ═══════════════════════════════════════════════════════════════════════════
+# Web push above is dead inside the native shell's WKWebView, so the App
+# Store app registers an APNs device token here instead. Same doctrine as
+# /push/subscribe: link-token capability auth (PIN-gated when the link has
+# one), tier gate via _staff_push_feature_check, bounds, tenant scoping,
+# audit rows, and an explicit unregister the Frakobl action calls.
+
+_APNS_TOKEN_RE = re.compile(r"^[A-Fa-f0-9]{16,200}$")
+
+
+class PortalDeviceIn(BaseModel):
+    token: str
+    platform: str = "ios"
+
+
+@router.post("/{token}/device")
+@limiter.limit("10/minute")
+def portal_device_register(
+    token: str,
+    body: PortalDeviceIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Idempotent upsert of the phone's APNs token for THIS staff link.
+
+    Rebinding is deliberate: a phone that connects to a NEW workplace moves
+    its token row to the new link — the old workplace must stop pushing to
+    a phone that left (same reasoning as the disconnect action)."""
+    from app.models.staff_device_token import StaffDeviceToken
+    from app.services import audit_service
+    from app.utils.time import utc_now
+
+    link, member = _get_staff_from_token(token, db)
+    owner = _staff_push_feature_check(link, db)
+
+    device_token = (body.token or "").strip()
+    if not _APNS_TOKEN_RE.fullmatch(device_token):
+        raise HTTPException(status_code=422, detail="invalid_device_token")
+    if body.platform not in ("ios",):
+        raise HTTPException(status_code=422, detail="invalid_platform")
+
+    row = (
+        db.query(StaffDeviceToken)
+        .filter(StaffDeviceToken.token == device_token)
+        .first()
+    )
+    created = False
+    if row is None:
+        row = StaffDeviceToken(
+            id=uuid.uuid4(),
+            user_id=owner.id,
+            staff_id=member.id,
+            link_id=link.id,
+            platform=body.platform,
+            token=device_token,
+        )
+        db.add(row)
+        created = True
+    else:
+        # Same physical device, possibly a new workplace/staffer — rebind.
+        row.user_id = owner.id
+        row.staff_id = member.id
+        row.link_id = link.id
+        row.platform = body.platform
+        row.last_seen_at = utc_now()
+
+    audit_service.record(
+        db, owner, "staff.device.registered", "staff_device_token",
+        entity_id=row.id,
+        after={"staff_id": str(member.id), "platform": body.platform,
+               "token_suffix": device_token[-6:], "created": created},
+    )
+    db.commit()
+    return {"ok": True, "created": created}
+
+
+@router.delete("/{token}/device")
+@limiter.limit("10/minute")
+def portal_device_unregister(
+    token: str,
+    body: PortalDeviceIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Remove this phone's APNs token — called by the Frakobl (disconnect)
+    action so a departed phone goes quiet. Scoped to THIS link's tenant so
+    a token value can never be used to delete another workplace's row."""
+    from app.models.staff_device_token import StaffDeviceToken
+    from app.services import audit_service
+
+    link, member = _get_staff_from_token(token, db)
+
+    device_token = (body.token or "").strip()
+    if not _APNS_TOKEN_RE.fullmatch(device_token):
+        raise HTTPException(status_code=422, detail="invalid_device_token")
+
+    row = (
+        db.query(StaffDeviceToken)
+        .filter(
+            StaffDeviceToken.token == device_token,
+            StaffDeviceToken.user_id == link.user_id,
+        )
+        .first()
+    )
+    deleted = False
+    if row is not None:
+        from app.models.user import User
+        owner = db.query(User).filter(User.id == link.user_id).first()
+        if owner is not None:
+            audit_service.record(
+                db, owner, "staff.device.unregistered", "staff_device_token",
+                entity_id=row.id,
+                before={"staff_id": str(member.id),
+                        "token_suffix": device_token[-6:]},
+            )
+        db.delete(row)
+        db.commit()
+        deleted = True
     return {"ok": True, "deleted": deleted}
 
 

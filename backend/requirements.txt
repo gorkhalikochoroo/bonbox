@@ -24,6 +24,7 @@ resend>=0.7.0
 apscheduler>=3.10.0
 twilio>=8.0.0
 httpx>=0.27.0
+h2>=4.1.0  # httpx HTTP/2 — required by apns_sender (APNs is HTTP/2-only)
 google-auth>=2.0.0
 anthropic>=0.39.0
 # Mindee Receipt API SDK — primary OCR provider (2026-05). Free tier

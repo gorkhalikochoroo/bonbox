@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Native push for the staff Scheduler app. Pairs with the Push
+	     Notifications capability on the dk.bonbox.scheduler App ID in the
+	     Apple Developer portal — without that pairing the app builds but
+	     PushNotifications.register() fails at runtime. Xcode rewrites this
+	     to "development" automatically for debug builds. -->
+	<key>aps-environment</key>
+	<string>production</string>
+</dict>
+</plist>
