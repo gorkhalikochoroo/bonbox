@@ -204,6 +204,11 @@ class StaffLink(Base):
     # by the public endpoint's hard per-IP rate limit.
     join_code: Mapped[Optional[str]] = mapped_column(String(12), nullable=True, unique=True, index=True)
     pin_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # PIN brute-force lockout (multi-layer link protection): a per-LINK
+    # counter — per-IP rate limits alone don't stop a distributed guesser
+    # on a 4-digit space. 8 fails -> locked 15 min (see staff_portal).
+    pin_failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    pin_locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     last_accessed: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

@@ -15,8 +15,13 @@ Endpoints:
 """
 
 import asyncio
+import hashlib
+import hmac
 import json
+import os
 import secrets
+import time
+from contextvars import ContextVar
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -42,7 +47,69 @@ from app.utils.time import utc_now
 from app.models.user import User
 from app.services.tz_utils import now_local, business_today_local
 
-router = APIRouter()
+# ── Multi-layer link protection ──────────────────────────────────────────
+# The magic link is the staff credential, so it gets defense in depth —
+# each layer holds on its own if another breaks:
+#   L1 secrecy     — 192-bit token (secrets.token_urlsafe(24)): unguessable.
+#   L2 PIN gate    — optional PIN is a SERVER-SIDE gate (not UI decoration):
+#                    with PORTAL_PIN_ENFORCE (default on) every data endpoint
+#                    on a PIN-protected link demands proof-of-PIN, so a
+#                    leaked link alone reveals nothing.
+#   L3 lockout     — per-LINK counter: 8 wrong PINs locks the link 15 min +
+#                    audit row. Per-IP limits alone don't stop a distributed
+#                    guesser on a 4-digit space.
+#   L4 rate limits — per-IP slowapi caps on every endpoint.
+#   L5 revocation  — owner `active` flag kills the link; PIN proofs bind to
+#                    pin_hash, so changing the PIN voids every issued proof;
+#                    proofs also expire after 30 days.
+_PIN_PROOF_TTL = 30 * 24 * 3600  # seconds — re-verify at most every 30 days
+_PIN_MAX_FAILS = 8
+_PIN_LOCK_MINUTES = 15
+
+# Stashed by a router-level dependency so the single token→staff chokepoint
+# (_get_staff_from_token) can read the proof header without threading Request
+# through ~30 call sites.
+_portal_request: ContextVar = ContextVar("bonbox_portal_request", default=None)
+
+
+async def _stash_portal_request(request: Request):
+    # MUST be async: a sync dependency runs in its own threadpool context
+    # copy that does NOT propagate to the (sync) endpoint. An async
+    # dependency runs in the request task, whose context IS copied into the
+    # threadpool when the endpoint is dispatched — so the ContextVar is
+    # visible in _get_staff_from_token.
+    _portal_request.set(request)
+
+
+def _pin_proof_sig(link: "StaffLink", ts: int) -> str:
+    from app.config import settings
+
+    msg = f"{link.id}:{link.pin_hash}:{ts}".encode()
+    return hmac.new(str(settings.SECRET_KEY).encode(), msg, hashlib.sha256).hexdigest()
+
+
+def _mint_pin_proof(link: "StaffLink") -> str:
+    ts = int(time.time())
+    return f"v1.{ts}.{_pin_proof_sig(link, ts)}"
+
+
+def _pin_proof_valid(link: "StaffLink", proof: str | None) -> bool:
+    if not proof or not link.pin_hash:
+        return False
+    parts = str(proof).split(".")
+    if len(parts) != 3 or parts[0] != "v1":
+        return False
+    try:
+        ts = int(parts[1])
+    except ValueError:
+        return False
+    now = time.time()
+    if ts > now + 300 or (now - ts) > _PIN_PROOF_TTL:
+        return False
+    return hmac.compare_digest(_pin_proof_sig(link, ts), parts[2])
+
+
+router = APIRouter(dependencies=[Depends(_stash_portal_request)])
 limiter = Limiter(key_func=get_remote_address)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -56,6 +123,7 @@ class PortalInfo(BaseModel):
     role: str
     email: str | None = None
     phone: str | None = None
+    pin_ok: bool = False
     restaurant_name: str | None = None
     has_pin: bool = False
     max_hours_month: float | None = None
@@ -139,6 +207,21 @@ def _get_staff_from_token(token: str, db: Session):
     ).first()
     if not member:
         raise HTTPException(status_code=404, detail="Staff member not found")
+
+    # L2 proof-of-PIN: a PIN-protected link requires the X-BonBox-Pin header
+    # (minted by /verify-pin) on every data endpoint. Exempt: the validate
+    # endpoint itself (the UI needs has_pin to render the gate; it returns
+    # names only), the PWA manifest and the SSE stream (both fetched by the
+    # browser, which cannot attach headers — the stream carries only
+    # "something changed" pings, no business data).
+    if link.pin_hash and os.getenv("PORTAL_PIN_ENFORCE", "1") == "1":
+        req = _portal_request.get()
+        path = (req.url.path if req is not None else "").rstrip("/")
+        exempt = path.endswith(f"/{token}") or path.endswith("/manifest.webmanifest") or path.endswith("/stream")
+        if not exempt:
+            proof = req.headers.get("x-bonbox-pin") if req is not None else None
+            if not _pin_proof_valid(link, proof):
+                raise HTTPException(status_code=401, detail="PIN required")
 
     # Update last accessed
     link.last_accessed = utc_now()
@@ -265,6 +348,7 @@ def get_portal_info(token: str, request: Request, db: Session = Depends(get_db))
         phone=member.phone,
         restaurant_name=restaurant_name,
         has_pin=bool(link.pin_hash),
+        pin_ok=bool(link.pin_hash) and _pin_proof_valid(link, request.headers.get("x-bonbox-pin")),
         max_hours_month=float(member.max_hours_month) if member.max_hours_month else None,
         max_hours_week=float(member.max_hours_week) if member.max_hours_week else None,
     )
@@ -1045,10 +1129,35 @@ def verify_pin(token: str, body: PinVerifyRequest, request: Request, db: Session
         # No PIN set — auto-pass
         return {"verified": True}
 
+    now = utc_now()
+    # L3 per-link lockout — holds even when the guesser rotates IPs.
+    if link.pin_locked_until and link.pin_locked_until > now:
+        raise HTTPException(status_code=429, detail="Too many attempts — try again later")
+
     if not pwd_context.verify(body.pin, link.pin_hash):
+        link.pin_failed_count = (link.pin_failed_count or 0) + 1
+        if link.pin_failed_count >= _PIN_MAX_FAILS:
+            link.pin_locked_until = now + timedelta(minutes=_PIN_LOCK_MINUTES)
+            link.pin_failed_count = 0
+            try:
+                from app.services import audit_service
+
+                audit_service.record(
+                    db, link.user_id, "staff.portal.pin_locked", "staff_link",
+                    entity_id=link.id,
+                    after={"staff_id": str(link.staff_id), "lock_minutes": _PIN_LOCK_MINUTES},
+                    actor_type="staff",
+                )
+            except Exception:  # noqa: BLE001 — audit is best-effort
+                pass
+        db.commit()
         raise HTTPException(status_code=401, detail="Invalid PIN")
 
-    return {"verified": True}
+    link.pin_failed_count = 0
+    link.pin_locked_until = None
+    db.commit()
+    # Proof binds to pin_hash (changing the PIN voids it) and expires in 30d.
+    return {"verified": True, "pin_proof": _mint_pin_proof(link)}
 
 
 @router.put("/{token}/email")

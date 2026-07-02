@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, CalendarOff, Plus } from "lucide-react";
-import portalApi from "../services/portalApi";
+import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
@@ -260,10 +260,17 @@ function PinGate({ onVerified, token, staffName }) {
     setLoading(true);
     setError("");
     try {
-      await portalApi.post(`/portal/${token}/verify-pin`, { pin: code });
+      const res = await portalApi.post(`/portal/${token}/verify-pin`, { pin: code });
+      // Persist the signed proof — every data call for this link carries it
+      // (X-BonBox-Pin), and reloads skip the gate while it's valid.
+      if (res.data?.pin_proof) storePinProof(token, res.data.pin_proof);
       onVerified();
-    } catch {
-      setError(t("portalPinWrong", "Wrong PIN. Try again."));
+    } catch (err) {
+      setError(
+        err?.response?.status === 429
+          ? t("portalPinLocked", "Too many attempts — try again in 15 minutes.")
+          : t("portalPinWrong", "Wrong PIN. Try again."),
+      );
       setPin(["", "", "", ""]);
       document.getElementById("pin-0")?.focus();
     } finally {
@@ -3236,8 +3243,9 @@ export default function StaffPortalPage() {
     portalApi.get(`/portal/${token}`)
       .then((res) => {
         setInfo(res.data);
-        // If no PIN, auto-verify
-        if (!res.data.has_pin) setPinVerified(true);
+        // No PIN — auto-verify. With a PIN, a still-valid stored proof
+        // (validated server-side, returned as pin_ok) also skips the gate.
+        if (!res.data.has_pin || res.data.pin_ok) setPinVerified(true);
         setLoading(false);
         // Remember this as the staff's portal so an INSTALLED app icon
         // (which launches to "/") can redirect straight back here instead

@@ -2054,6 +2054,9 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_staff_availability_user ON staff_availability (user_id)",
     "CREATE INDEX IF NOT EXISTS ix_staff_availability_staff ON staff_availability (staff_id)",
+    # ── Migration 033 (2026-07-02): staff_links PIN lockout (multi-layer link protection) ──
+    "ALTER TABLE staff_links ADD COLUMN IF NOT EXISTS pin_failed_count INTEGER DEFAULT 0",
+    "ALTER TABLE staff_links ADD COLUMN IF NOT EXISTS pin_locked_until TIMESTAMP",
 ]
 
 
@@ -3815,7 +3818,7 @@ app.add_middleware(
     # which the backend reads via Header(alias="Idempotency-Key")) AND the older
     # "X-Idempotency-Key" (reservations public booking) must be whitelisted, or
     # the browser preflight 400s and the real POST is silently blocked.
-    allow_headers=["Content-Type", "Authorization", "X-BonBox-Platform", "Stripe-Signature", "X-CSRF-Token", "X-Idempotency-Key", "Idempotency-Key"],
+    allow_headers=["Content-Type", "Authorization", "X-BonBox-Platform", "Stripe-Signature", "X-CSRF-Token", "X-Idempotency-Key", "Idempotency-Key", "X-BonBox-Pin"],
     expose_headers=["X-New-Token"],
     max_age=600,  # cache preflights for 10min — fewer OPTIONS roundtrips
 )

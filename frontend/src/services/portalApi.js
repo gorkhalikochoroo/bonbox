@@ -21,6 +21,39 @@ const portalApi = axios.create({
   timeout: 30000,
 });
 
+// Proof-of-PIN (multi-layer link protection). /verify-pin mints a signed
+// proof; we persist it per portal token and attach it as X-BonBox-Pin on
+// every request for THAT token. The backend enforces it on all data
+// endpoints of a PIN-protected link — the PIN is a real server-side gate,
+// not UI decoration. Links without a PIN never see this header enforced.
+const PIN_PROOF_KEY = "bonbox_pin_proof";
+
+export function storePinProof(token, proof) {
+  try {
+    localStorage.setItem(PIN_PROOF_KEY, JSON.stringify({ token, proof }));
+  } catch { /* private mode — proof lives for the session via memory below */ }
+  _memProof = { token, proof };
+}
+
+let _memProof = null;
+
+function proofFor(url) {
+  let stored = _memProof;
+  if (!stored) {
+    try {
+      stored = JSON.parse(localStorage.getItem(PIN_PROOF_KEY) || "null");
+    } catch { stored = null; }
+  }
+  if (!stored?.token || !stored?.proof) return null;
+  return url.includes(`/portal/${stored.token}`) ? stored.proof : null;
+}
+
+portalApi.interceptors.request.use((config) => {
+  const proof = proofFor(config.url || "");
+  if (proof) config.headers["X-BonBox-Pin"] = proof;
+  return config;
+});
+
 // Auto-retry on network error (max 2 retries)
 portalApi.interceptors.response.use(null, async (err) => {
   const config = err.config;
