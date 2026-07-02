@@ -3183,7 +3183,7 @@ function SyncPill({ isOnline, live, lastSynced, onRefresh, t }) {
 
 export default function StaffPortalPage() {
   const { token } = useParams();
-  const { t, lang } = useLanguage();
+  const { t, lang, setLang } = useLanguage();
   const [tab, setTab] = useState(() => {
     // Honor ?tab= so the installed-app shortcuts (Schedule / Hours / Tips) and
     // any deep link open the right tab.
@@ -3557,6 +3557,26 @@ export default function StaffPortalPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {/* DA / EN toggle — staff pick their language. Danish phones
+                already default to da via browser detection; this lets an
+                English-phone staffer at a DK workplace switch, and back. */}
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-[11px] font-semibold" role="group" aria-label={t("portalLangLabel", "Language")}>
+              {["da", "en"].map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => setLang(code)}
+                  aria-pressed={lang === code}
+                  className={`px-2 py-1 transition ${
+                    lang === code
+                      ? "bg-gray-900 text-white"
+                      : "bg-white text-gray-500 hover:bg-gray-50"
+                  }`}
+                >
+                  {code.toUpperCase()}
+                </button>
+              ))}
+            </div>
             {/* Honest freshness pill — only shown once verified. Tap (when
                 online + stale) forces a refetch. */}
             {pinVerified && info && (
