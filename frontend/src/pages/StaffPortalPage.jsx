@@ -48,17 +48,29 @@ function _isIos() {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-function fmtDate(d) {
-  const dt = new Date(d + "T00:00:00");
-  return `${DAYS[dt.getDay() === 0 ? 6 : dt.getDay() - 1]} ${dt.getDate()} ${MONTHS[dt.getMonth()]}`;
+/* Dates follow the CHOSEN app language, not the phone locale — otherwise
+   the DA/EN toggle flips the words but leaves "Thu 2 Jul" English.
+   English pins to en-GB so ordering stays day-first ("Thu 2 Jul"). */
+function localeFor(lang) {
+  if (lang === "da") return "da-DK";
+  if (lang === "en") return "en-GB";
+  return lang || undefined;
 }
 
-function fmtShort(d) {
+function fmtDate(d, lang) {
   const dt = new Date(d + "T00:00:00");
-  return `${dt.getDate()} ${MONTHS[dt.getMonth()]}`;
+  return dt.toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric", month: "short" });
+}
+
+function fmtShort(d, lang) {
+  const dt = new Date(d + "T00:00:00");
+  return dt.toLocaleDateString(localeFor(lang), { day: "numeric", month: "short" });
+}
+
+// Monday-first short weekday names in the chosen language (2024-01-01 = a Monday).
+function weekdayNames(lang) {
+  return Array.from({ length: 7 }, (_, i) =>
+    new Date(2024, 0, 1 + i).toLocaleDateString(localeFor(lang), { weekday: "short" }));
 }
 
 function toLocalISO(dt) {
@@ -827,7 +839,7 @@ function WhosOnStrip({ token, nextShift }) {
 // blast). Claim is atomic + overlap-guarded server-side; on success the shift
 // lands in the staffer's own schedule, so we refresh.
 function OpenShiftsClaimCard({ token, onClaimed }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [rows, setRows] = useState([]);
   const [claiming, setClaiming] = useState(null);
   const [msg, setMsg] = useState("");
@@ -880,7 +892,7 @@ function OpenShiftsClaimCard({ token, onClaimed }) {
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-[14px] font-semibold text-gray-900">
                 <span className={`block h-[3px] w-5 rounded-full ${roleBarColor(o.role)}`} aria-hidden />
-                {fmtDate(o.date)}
+                {fmtDate(o.date, lang)}
               </div>
               <div className="text-[13px] text-gray-500 tabular-nums mt-0.5">
                 {o.start_time}–{o.end_time}
@@ -902,7 +914,8 @@ function OpenShiftsClaimCard({ token, onClaimed }) {
 
 
 function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onShiftsChanged, onNeedChange }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
+  const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
   // (get_portal_schedule), but never render a draft even if one ever slips
   // through — the owner's Publish action is the single source of truth for
@@ -1045,7 +1058,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
         {nextShift ? (
           <>
             <div className="mt-2 text-3xl font-bold text-white leading-tight tracking-[-0.02em]">
-              {isToday(nextShift.date) ? t("portalToday") : fmtDate(nextShift.date)}
+              {isToday(nextShift.date) ? t("portalToday") : fmtDate(nextShift.date, lang)}
             </div>
             <div className="mt-1 text-[13px] text-emerald-300/80 tabular-nums">
               {nextShift.start_time}–{nextShift.end_time} · {nextShift.net_hours} {t("portalHrsShort")}
@@ -1198,7 +1211,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
       <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3">
         <div className="flex items-center justify-between mb-2">
           <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-            {weekView === "this" ? t("portalSecThisWeek", "This week") : t("portalSecNextWeek", "Next week")} — {fmtShort(weekLabelStart)} – {fmtShort(addDays(weekLabelStart, 6))}
+            {weekView === "this" ? t("portalSecThisWeek", "This week") : t("portalSecNextWeek", "Next week")} — {fmtShort(weekLabelStart, lang)} – {fmtShort(addDays(weekLabelStart, 6), lang)}
           </div>
           <button
             type="button"
@@ -1222,9 +1235,9 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
                 type="button"
                 onClick={() => setExpandedDate(isExpanded || !shift ? null : d)}
                 className={`flex flex-col items-center gap-1.5 rounded-lg py-2 min-h-[44px] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${isExpanded ? "bg-gray-50" : "hover:bg-gray-50"}`}
-                aria-label={`${DAYS[i]} ${fmtShort(d)}`}
+                aria-label={`${WD[i]} ${fmtShort(d, lang)}`}
               >
-                <span className="text-[10px] text-gray-400">{DAYS[i]}</span>
+                <span className="text-[10px] text-gray-400">{WD[i]}</span>
                 {shift ? (
                   <span
                     className={`block w-[4px] h-5 rounded-full ${roleBarColor(shift.role_on_shift)} ${isTodayCell ? "ring-2 ring-gray-900 ring-offset-1" : ""}`}
@@ -1270,9 +1283,9 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
 }
 
 function ShiftRow({ date: d, shift }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const dt = new Date(d + "T00:00:00");
-  const dayName = DAYS[dt.getDay() === 0 ? 6 : dt.getDay() - 1];
+  const dayName = dt.toLocaleDateString(localeFor(lang), { weekday: "short" });
   const dayNum = dt.getDate();
   const today = isToday(d);
   const past = isPast(d);
@@ -1333,7 +1346,7 @@ function ShiftRow({ date: d, shift }) {
 // ─── Hours Tab ────────────────────────────────────────────────────────────
 
 function HoursTab({ data, maxHours }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   if (!data) return <LoadingSkeleton />;
 
   const pct = maxHours && maxHours > 0 ? Math.min(100, (data.total_hours / maxHours) * 100) : null;
@@ -1357,7 +1370,7 @@ function HoursTab({ data, maxHours }) {
     <div className="space-y-4">
       {/* Period info */}
       <div className="text-[11px] text-gray-500 flex items-center gap-2">
-        <span>{t("portalHoursPeriod", "Period")}: {fmtShort(data.period_start)} – {fmtShort(data.period_end)}</span>
+        <span>{t("portalHoursPeriod", "Period")}: {fmtShort(data.period_start, lang)} – {fmtShort(data.period_end, lang)}</span>
       </div>
 
       {/* KPIs */}
@@ -1409,7 +1422,7 @@ function HoursTab({ data, maxHours }) {
           {data.entries.map((h, i) => (
             <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white border border-gray-200">
               <span className="text-sm text-gray-500">
-                {fmtDate(h.date)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
+                {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
               </span>
               <span className="text-sm font-semibold text-gray-900">{h.total_hours} {t("portalHrsShort")}</span>
             </div>
@@ -1448,7 +1461,7 @@ function HoursTab({ data, maxHours }) {
               {extra.map((h, i) => (
                 <div key={`rc-${i}`} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white border border-gray-200">
                   <span className="text-sm text-gray-500">
-                    {fmtDate(h.date)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
+                    {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
                   </span>
                   <span className="text-sm font-semibold text-gray-900">{h.total_hours} {t("portalHrsShort")}</span>
                 </div>
@@ -1465,7 +1478,7 @@ function HoursTab({ data, maxHours }) {
 // ─── Tips Tab ─────────────────────────────────────────────────────────────
 
 function TipsTab({ data }) {
-  const { t: tr } = useLanguage();
+  const { t: tr, lang } = useLanguage();
   if (!data) return <LoadingSkeleton />;
 
   const avgPerShift = data.entries.length > 0 ? (data.total_tips_30d / data.entries.length) : 0;
@@ -1498,7 +1511,7 @@ function TipsTab({ data }) {
           )}
           {data.entries.map((t, i) => (
             <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white border border-gray-200">
-              <span className="text-sm text-gray-500">{fmtDate(t.date)}</span>
+              <span className="text-sm text-gray-500">{fmtDate(t.date, lang)}</span>
               {t.share_pct && <span className="text-[11px] text-gray-400">{tr("portalTipsShare", "{pct}% share", { pct: t.share_pct.toFixed(1) })}</span>}
               <span className="text-sm font-semibold text-gray-700">{Math.round(t.amount)} DKK</span>
             </div>
@@ -1602,12 +1615,6 @@ function SwapTab({ token, ownShifts, onChanged }) {
 
 /** A row in the Swap inbox. Renders different actions based on
  * direction (incoming = respond, outgoing = withdraw) and status. */
-/* Dates follow the CHOSEN app language, not the phone locale — otherwise
-   the DA/EN toggle flips the words but leaves "Thu 2 Jul" English. */
-function localeFor(lang) {
-  return lang === "da" ? "da-DK" : lang || undefined;
-}
-
 /* Swap shifts arrive as ISO dates ("2026-06-05") — render them the way the
    rest of the portal speaks ("Fri 5 Jun" / "fre. 5. jun."), locale-aware. */
 function fmtSwapDay(iso, lang) {
@@ -1894,7 +1901,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
 // ─── Alerts Tab ──────────────────────────────────────────────────────────
 
 function AlertsTab({ token, staffName }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [notifications, setNotifications] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -1949,7 +1956,7 @@ function AlertsTab({ token, staffName }) {
         {feed.map((n) => {
           const evt = EVENT_ICONS[n.event_type] || { Icon: Bell, label: n.event_type };
           const EvtIcon = evt.Icon;
-          const timeAgo = n.created_at ? formatTimeAgo(n.created_at) : "";
+          const timeAgo = n.created_at ? formatTimeAgo(n.created_at, lang, t) : "";
           return (
             <div key={n.id} className="flex items-start gap-3 px-3 py-3 rounded-xl bg-white border border-gray-200">
               <EvtIcon className="w-4 h-4 text-gray-500 mt-0.5" strokeWidth={2} aria-hidden />
@@ -1965,7 +1972,7 @@ function AlertsTab({ token, staffName }) {
   );
 }
 
-function formatTimeAgo(dateStr) {
+function formatTimeAgo(dateStr, lang, t) {
   try {
     // Backend timestamps are UTC but can arrive tz-less; a naive string is
     // parsed as LOCAL, making everything look offset by the local UTC delta
@@ -1975,12 +1982,11 @@ function formatTimeAgo(dateStr) {
     const d = new Date(iso);
     const now = new Date();
     const diff = Math.floor((now - d) / 1000);
-    if (diff < 0) return "just now";
-    if (diff < 60) return "just now";
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-    return d.toLocaleDateString();
+    if (diff < 60) return t("portalJustNow", "just now");
+    if (diff < 3600) return t("portalMinsAgo", "{n}m ago", { n: Math.floor(diff / 60) });
+    if (diff < 86400) return t("portalHoursAgo", "{n}h ago", { n: Math.floor(diff / 3600) });
+    if (diff < 604800) return t("portalDaysAgo", "{n}d ago", { n: Math.floor(diff / 86400) });
+    return d.toLocaleDateString(localeFor(lang));
   } catch {
     return "";
   }
@@ -1990,7 +1996,7 @@ function formatTimeAgo(dateStr) {
 // ─── Messages (Beskeder) — owner ↔ this staffer, 1:1 ───────────────────────
 
 function MessagesTab({ token, restaurantName, onRead }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [messages, setMessages] = useState(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -2167,7 +2173,7 @@ function MessagesTab({ token, restaurantName, onRead }) {
                   {m._failed
                     ? t("staffChatFailed", "Not sent — tap to retry")
                     : m.created_at
-                      ? formatTimeAgo(m.created_at)
+                      ? formatTimeAgo(m.created_at, lang, t)
                       : ""}
                 </span>
               </div>
