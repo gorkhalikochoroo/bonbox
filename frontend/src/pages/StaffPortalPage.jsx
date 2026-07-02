@@ -1558,7 +1558,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
       {!showPropose && (
         <button
           onClick={() => setShowPropose(true)}
-          className="w-full px-4 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition flex items-center justify-center gap-2"
+          className="w-full px-4 py-3 rounded-xl bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold transition flex items-center justify-center gap-2"
         >
           <ArrowLeftRight className="w-4 h-4" strokeWidth={2} aria-hidden />
           {t("portalOfferSwapLong", "Offer to swap a shift")}
@@ -1594,6 +1594,19 @@ function SwapTab({ token, ownShifts, onChanged }) {
 
 /** A row in the Swap inbox. Renders different actions based on
  * direction (incoming = respond, outgoing = withdraw) and status. */
+/* Swap shifts arrive as ISO dates ("2026-06-05") — render them the way the
+   rest of the portal speaks ("Fri 5 Jun"), locale-aware. */
+function fmtSwapDay(iso) {
+  if (!iso) return iso;
+  try {
+    return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
+      weekday: "short", day: "numeric", month: "short",
+    });
+  } catch {
+    return iso;
+  }
+}
+
 function SwapRow({ swap, token, onChanged }) {
   const { t } = useLanguage();
   const [busy, setBusy] = useState(false);
@@ -1662,12 +1675,12 @@ function SwapRow({ swap, token, onChanged }) {
       <div className="grid grid-cols-2 gap-2 text-[11px]">
         <div className="bg-gray-50 rounded p-1.5">
           <div className="text-[10px] text-gray-500">{t("portalSwapGives", "Gives")}</div>
-          <div className="text-gray-900">{swap.from_shift_date}</div>
+          <div className="text-gray-900">{fmtSwapDay(swap.from_shift_date)}</div>
           <div className="text-gray-500">{swap.from_shift_time}</div>
         </div>
         <div className="bg-gray-50 rounded p-1.5">
           <div className="text-[10px] text-gray-500">{t("portalSwapGets", "Gets")}</div>
-          <div className="text-gray-900">{swap.to_shift_date}</div>
+          <div className="text-gray-900">{fmtSwapDay(swap.to_shift_date)}</div>
           <div className="text-gray-500">{swap.to_shift_time}</div>
         </div>
       </div>
@@ -1852,7 +1865,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
       <button
         onClick={submit}
         disabled={submitting || !fromShiftId || !toShiftId}
-        className="w-full px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition disabled:opacity-50"
+        className="w-full px-4 py-2.5 rounded-lg bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold transition disabled:opacity-50"
       >
         {submitting ? t("portalSending", "Sending...") : t("portalSwapSubmit", "Send swap request")}
       </button>
@@ -1891,13 +1904,15 @@ function AlertsTab({ token, staffName }) {
     shift_deleted: { Icon: X, label: t("portalEvtShiftDeleted", "Shift cancelled") },
   };
 
-  const CHANNEL_ICONS = {
-    email: Mail,
-    push: Bell,
-    whatsapp: MessageCircle,
-  };
+  // The feed is the IN-APP record. Every publish also writes a push/email
+  // delivery row whose subject is just the notification title ("BonBox ·
+  // Vagtplan") — showing those reads as contentless duplicates, so they are
+  // filtered out. Fail-open: if a staffer somehow has ONLY delivery rows,
+  // show them rather than an empty feed.
+  const inAppRows = (notifications || []).filter((n) => n.channel === "in_app");
+  const feed = inAppRows.length ? inAppRows : notifications || [];
 
-  if (!notifications || notifications.length === 0) {
+  if (!feed.length) {
     return (
       <div className="space-y-4">
         <div className="text-center py-12">
@@ -1917,9 +1932,8 @@ function AlertsTab({ token, staffName }) {
         {t("portalAlertsRecent", "Recent notifications")}
       </div>
       <div className="space-y-1.5">
-        {notifications.map((n) => {
+        {feed.map((n) => {
           const evt = EVENT_ICONS[n.event_type] || { Icon: Bell, label: n.event_type };
-          const ChannelIcon = CHANNEL_ICONS[n.channel] || Bell;
           const EvtIcon = evt.Icon;
           const timeAgo = n.created_at ? formatTimeAgo(n.created_at) : "";
           return (
@@ -1927,10 +1941,7 @@ function AlertsTab({ token, staffName }) {
               <EvtIcon className="w-4 h-4 text-gray-500 mt-0.5" strokeWidth={2} aria-hidden />
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium text-gray-900">{n.subject || evt.label}</div>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <span className="text-[11px] text-gray-500 flex items-center gap-1"><ChannelIcon className="w-3 h-3" strokeWidth={2} aria-hidden />{n.channel}</span>
-                  <span className="text-[11px] text-gray-400">{timeAgo}</span>
-                </div>
+                <div className="text-[11px] text-gray-400 mt-1">{timeAgo}</div>
               </div>
             </div>
           );
