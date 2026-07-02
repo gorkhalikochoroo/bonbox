@@ -337,6 +337,16 @@ function VerifyEmailRoute() {
 
 function PublicOrDashboard() {
   const { user, loading } = useAuth();
+  // BonBox Scheduler — the staff App Store app shell. It boots straight into
+  // the staff surface: the saved portal if this phone has connected before,
+  // else the join-code screen. Owner auth/marketing never render in this
+  // shell. (A dead saved token is cleared by StaffPortalPage's validation
+  // catch, so this can't boot-loop into an error screen.)
+  if (import.meta.env.VITE_APP_MODE === "scheduler") {
+    let savedPortal = null;
+    try { savedPortal = localStorage.getItem("bonbox_portal_token"); } catch { /* private mode */ }
+    return <Navigate to={savedPortal ? `/s/${savedPortal}` : "/join"} replace />;
+  }
   if (loading) return <PageLoader />;
   if (user) return <Navigate to="/dashboard" />;
   // On native iOS, skip the marketing landing page (no third-party platform references, native feel)

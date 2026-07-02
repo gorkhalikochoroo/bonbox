@@ -2223,6 +2223,12 @@ function PortalError({ message }) {
         <Inbox className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
         <h1 className="text-xl font-bold text-gray-900 mb-2">{t("portalErrorTitle", "Link not working")}</h1>
         <p className="text-sm text-gray-500">{message || t("portalErrorBody", "This link may have expired or been deactivated. Ask your manager for a new one.")}</p>
+        <a
+          href="/join"
+          className="inline-block mt-4 text-sm font-medium text-gray-700 underline underline-offset-2 hover:text-gray-900"
+        >
+          {t("portalErrorJoin", "Have a join code? Connect here")}
+        </a>
       </div>
     </div>
   );
@@ -3241,6 +3247,14 @@ export default function StaffPortalPage() {
       .catch((err) => {
         setError(errText(err, "Link not found"));
         setLoading(false);
+        // A dead link must not keep booting an installed app (PWA or the
+        // Scheduler shell — both launch to "/") into this error screen:
+        // forget it so "/" falls back to the join-code screen.
+        try {
+          if (localStorage.getItem("bonbox_portal_token") === token) {
+            localStorage.removeItem("bonbox_portal_token");
+          }
+        } catch { /* private mode */ }
       });
   }, [token]);
 

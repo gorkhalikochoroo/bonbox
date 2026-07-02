@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "build:app": "vite build && npx cap sync",
+    "build:scheduler": "VITE_APP_MODE=scheduler vite build --outDir dist-scheduler --emptyOutDir",
+    "build:scheduler-app": "npm run build:scheduler && BONBOX_TARGET=scheduler npx cap sync ios",
     "open:ios": "npx cap open ios",
     "open:android": "npx cap open android",
     "lint": "eslint .",
