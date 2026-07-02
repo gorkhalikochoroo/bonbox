@@ -624,7 +624,22 @@ def deactivate_staff_link(
 
 
 class PinSetRequest(BaseModel):
-    pin: str  # 4-digit PIN
+    # Optional. Owners never need to invent a PIN — omit it and the server
+    # generates a random 4-digit one, returned once so the owner can hand it
+    # to the staffer. A custom pin is still accepted if provided.
+    pin: str | None = None
+
+
+def _gen_pin() -> str:
+    """A random 4-digit PIN, avoiding the easily-shoulder-surfed all-same
+    ('0000') and trivial sequences ('1234'/'4321')."""
+    weak = {"0000", "1111", "2222", "3333", "4444", "5555", "6666",
+            "7777", "8888", "9999", "1234", "4321"}
+    for _ in range(20):
+        p = f"{secrets.randbelow(10000):04d}"
+        if p not in weak:
+            return p
+    return f"{secrets.randbelow(10000):04d}"
 
 
 @router.post("/members/{member_id}/link/pin")
@@ -634,7 +649,13 @@ def set_staff_link_pin(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Set or update PIN for a staff portal link."""
+    """Turn ON the extra PIN lock for a staff link.
+
+    Simple by design: the owner taps "Require PIN"; we GENERATE a random
+    4-digit code and return it ONCE (plaintext) so they can read it to the
+    staffer. Setting a new PIN clears any lockout and — because the L2 proof
+    binds to pin_hash — signs out every device that was already in (staff
+    re-enter the new PIN once). See [staff_portal multi-layer]."""
     link = db.query(StaffLink).filter(
         StaffLink.staff_id == member_id,
         StaffLink.user_id == user.id,
@@ -643,12 +664,49 @@ def set_staff_link_pin(
     if not link:
         raise HTTPException(status_code=404, detail="No active link found")
 
-    if not body.pin or len(body.pin) != 4 or not body.pin.isdigit():
-        raise HTTPException(status_code=400, detail="PIN must be exactly 4 digits")
+    if body.pin is not None:
+        if len(body.pin) != 4 or not body.pin.isdigit():
+            raise HTTPException(status_code=400, detail="PIN must be exactly 4 digits")
+        pin = body.pin
+    else:
+        pin = _gen_pin()
 
-    link.pin_hash = _pin_ctx.hash(body.pin)
+    link.pin_hash = _pin_ctx.hash(pin)
+    link.pin_failed_count = 0
+    link.pin_locked_until = None
+    audit_service.record(
+        db, user, "staff.link.pin_set", "staff_link",
+        entity_id=link.id, after={"staff_id": str(member_id)},
+    )
     db.commit()
-    return {"message": "PIN set successfully"}
+    # Plaintext returned ONCE — never stored, never logged.
+    return {"pin": pin, "has_pin": True}
+
+
+@router.delete("/members/{member_id}/link/pin", status_code=200)
+def clear_staff_link_pin(
+    member_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Turn OFF the PIN lock — the link works with no PIN again."""
+    link = db.query(StaffLink).filter(
+        StaffLink.staff_id == member_id,
+        StaffLink.user_id == user.id,
+        StaffLink.active.is_(True),
+    ).first()
+    if not link:
+        raise HTTPException(status_code=404, detail="No active link found")
+
+    link.pin_hash = None
+    link.pin_failed_count = 0
+    link.pin_locked_until = None
+    audit_service.record(
+        db, user, "staff.link.pin_cleared", "staff_link",
+        entity_id=link.id, after={"staff_id": str(member_id)},
+    )
+    db.commit()
+    return {"has_pin": False}
 
 
 @router.get("/schedules/share-links")
@@ -712,6 +770,7 @@ def list_share_links(
             "staff_name": m.name,
             "email": m.email,
             "join_code": link.join_code,
+            "has_pin": bool(link.pin_hash),
             "portal_url": portal_path(link.token, user.business_name, m.name),
         })
     if dirty:

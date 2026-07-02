@@ -184,3 +184,15 @@ def test_lockout_after_repeated_failures(client, db):
     assert r.status_code == 200 and r.json()["pin_proof"]
     db.refresh(link)
     assert link.pin_failed_count == 0 and link.pin_locked_until is None
+
+
+def test_gen_pin_avoids_weak_codes():
+    """Owner-generated PINs never hand out the shoulder-surf-obvious ones."""
+    from app.routers.staff import _gen_pin
+
+    weak = {"0000", "1111", "2222", "3333", "4444", "5555", "6666",
+            "7777", "8888", "9999", "1234", "4321"}
+    for _ in range(300):
+        p = _gen_pin()
+        assert len(p) == 4 and p.isdigit()
+        assert p not in weak

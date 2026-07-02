@@ -11,7 +11,7 @@ import { displayCurrency, formatKr } from "../utils/currency";
 import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
-import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPinOff, CalendarOff } from "lucide-react";
+import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPinOff, CalendarOff, Lock, LockKeyholeOpen } from "lucide-react";
 import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
 // Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
 // EMPTY cell (different staff and/or day) to REASSIGN it. dnd-kit gives us an
@@ -1081,6 +1081,10 @@ export default function StaffSchedulePage() {
   const [shareBusy, setShareBusy] = useState(false);
   const [shareCopiedN, setShareCopiedN] = useState(0);
   const [shareRowCopied, setShareRowCopied] = useState(null); // staffId just copied
+  // Extra PIN lock per staff link (multi-layer link protection).
+  const [pinHas, setPinHas] = useState({});       // staffId -> bool: link requires a PIN
+  const [pinReveal, setPinReveal] = useState({}); // staffId -> the 4-digit PIN, shown ONCE after generating
+  const [pinBusy, setPinBusy] = useState(null);   // staffId whose PIN toggle is in flight
   // UpgradeNudge state — bulk-staff-email is Pro+. Free/Starter
   // users still get the PDF download for printing/WhatsApp share.
   const [upgradeNudge, setUpgradeNudge] = useState(null);
@@ -1405,6 +1409,7 @@ export default function StaffSchedulePage() {
     setShareSel(new Set(activeStaff.map((s) => s.id)));
     setShareCopiedN(0);
     setShareRowCopied(null);
+    setPinReveal({}); // never carry a shown-once PIN across opens
     setShareSheet(true);
     // Pre-fetch every link in ONE call so "Copy links" is instant and runs
     // inside the click gesture (no per-staff POST storm). mintLinkFor reads
@@ -1413,14 +1418,17 @@ export default function StaffSchedulePage() {
       .then((r) => {
         const map = {};
         const codes = {};
+        const pins = {};
         for (const row of r.data || []) {
           if (row.staff_id && row.portal_url) {
             map[row.staff_id] = `${window.location.origin}${row.portal_url}`;
           }
           if (row.staff_id && row.join_code) codes[row.staff_id] = row.join_code;
+          if (row.staff_id) pins[row.staff_id] = !!row.has_pin;
         }
         setShareLinks((prev) => ({ ...map, ...prev }));
         setShareCodes((prev) => ({ ...codes, ...prev }));
+        setPinHas(pins);
       })
       .catch(() => { /* fall back to per-staff mint on copy */ });
   };
@@ -1475,6 +1483,29 @@ export default function StaffSchedulePage() {
       setTimeout(() => setShareRowCopied(null), 2000);
     } catch (err) {
       setError(errText(err, "Failed to generate link"));
+    }
+  };
+
+  // Turn the extra PIN lock on/off for one staffer's link. ON = we GENERATE
+  // the 4-digit code (owner never invents one) and reveal it once so they
+  // can read it to the staffer. OFF = link works with no PIN again.
+  const toggleLinkPin = async (member) => {
+    if (pinBusy) return;
+    setPinBusy(member.id);
+    try {
+      if (pinHas[member.id]) {
+        await api.delete(`/staff/members/${member.id}/link/pin`);
+        setPinHas((p) => ({ ...p, [member.id]: false }));
+        setPinReveal((p) => { const n = { ...p }; delete n[member.id]; return n; });
+      } else {
+        const res = await api.post(`/staff/members/${member.id}/link/pin`);
+        setPinHas((p) => ({ ...p, [member.id]: true }));
+        if (res.data?.pin) setPinReveal((p) => ({ ...p, [member.id]: res.data.pin }));
+      }
+    } catch (err) {
+      setError(errText(err, t("pinToggleFailed", "Couldn't change the PIN")));
+    } finally {
+      setPinBusy(null);
     }
   };
 
@@ -2173,6 +2204,10 @@ export default function StaffSchedulePage() {
               <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
                 {t("shareJoinCodeHint", "No link? Staff can type their code at bonbox.dk/join.")}
               </p>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 flex items-center gap-1">
+                <Lock className="w-3 h-3 shrink-0" strokeWidth={2} aria-hidden />
+                {t("pinHint", "Tap PIN to add a 4-digit code — then only someone who knows it can open the link.")}
+              </p>
               <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -2191,9 +2226,11 @@ export default function StaffSchedulePage() {
               {shareActiveStaff().map((s) => {
                 const sel = shareSel.has(s.id);
                 const hasEmail = (s.email || "").includes("@");
+                const pinOn = !!pinHas[s.id];
+                const revealed = pinReveal[s.id];
                 return (
+                  <div key={s.id}>
                   <label
-                    key={s.id}
                     className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer ${sel ? "bg-gray-50 dark:bg-gray-700/40" : ""}`}
                   >
                     <input
@@ -2218,6 +2255,27 @@ export default function StaffSchedulePage() {
                         )}
                       </div>
                     </div>
+                    {/* Extra PIN lock (multi-layer link protection). One tap:
+                        on generates + reveals the code, off removes it. */}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); toggleLinkPin(s); }}
+                      disabled={pinBusy === s.id}
+                      title={pinOn ? t("pinRemoveTitle", "Remove PIN") : t("pinRequireTitle", "Require a PIN to open this link")}
+                      aria-pressed={pinOn}
+                      className={`flex items-center gap-1 text-[11px] px-2 py-1 rounded flex-shrink-0 transition ${
+                        pinOn
+                          ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
+                          : "text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      } disabled:opacity-50`}
+                    >
+                      {pinBusy === s.id
+                        ? <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
+                        : pinOn
+                          ? <Lock className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
+                          : <LockKeyholeOpen className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />}
+                      <span>{t("pinLabel", "PIN")}</span>
+                    </button>
                     <button
                       type="button"
                       onClick={(e) => { e.preventDefault(); copyOneLink(s); }}
@@ -2226,6 +2284,17 @@ export default function StaffSchedulePage() {
                       {shareRowCopied === s.id ? "✓" : t("shareCopyOne", "copy")}
                     </button>
                   </label>
+                  {/* Shown ONCE after generating — read it to the staffer. */}
+                  {revealed && (
+                    <div className="mx-3 mb-1 -mt-0.5 px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 flex items-center gap-2">
+                      <Lock className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400 shrink-0" strokeWidth={2} aria-hidden />
+                      <span className="text-[11px] text-emerald-800 dark:text-emerald-300 flex-1 min-w-0">
+                        {t("pinRevealHint", "Give {name} this code:").replace("{name}", s.name)}
+                      </span>
+                      <span className="font-mono text-lg font-bold tracking-[0.3em] text-emerald-900 dark:text-emerald-200">{revealed}</span>
+                    </div>
+                  )}
+                  </div>
                 );
               })}
             </div>
