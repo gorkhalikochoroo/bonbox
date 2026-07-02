@@ -44,6 +44,7 @@ export function ChatPhoto({ client, url, alt = "" }) {
       <img
         src={src}
         alt={alt}
+        decoding="async"
         onClick={() => setOpen(true)}
         className="w-28 h-28 object-cover rounded-lg cursor-pointer border border-black/5"
       />
@@ -71,6 +72,7 @@ export function PhotoGrid({ client, photos, localPreviews }) {
             key={i}
             src={p}
             alt=""
+            decoding="async"
             className="w-28 h-28 object-cover rounded-lg border border-black/5"
           />
         ))}
