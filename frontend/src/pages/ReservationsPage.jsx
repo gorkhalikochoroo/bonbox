@@ -1690,6 +1690,14 @@ function BookSection({ t, businessType, tableFloor = false }) {
   // flow is left byte-identical.
   const isProvider = bookingModeFor(businessType) === "provider";
   const [day, setDay] = useState(() => isoDay(new Date()));
+  // Live minute tick so a confirmed booking that's past its time surfaces as
+  // "forsinket" (late) in the list as service runs — the Floor/Timeline had a
+  // now-line, the list (the screen owners stare at) didn't. Cheap 60s re-render.
+  const [nowTs, setNowTs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTs(Date.now()), 60000);
+    return () => clearInterval(id);
+  }, []);
   const [view, setView] = useState(() => {
     try {
       const saved = localStorage.getItem(RSVP_VIEW_KEY) || "liste";
@@ -2195,16 +2203,34 @@ function BookSection({ t, businessType, tableFloor = false }) {
       id: "time",
       label: t("rsvpColTime", "Time"),
       width: "w-24",
-      render: (r) => (
-        <div className="leading-tight">
-          <div className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
-            {fmtTime(r.starts_at)}
+      render: (r) => {
+        // "Late" = a confirmed guest whose start time has passed and who
+        // hasn't been seated/no-showed. 5-min grace, today only (a past day
+        // is history; a future day is never late). Amber = needs a decision:
+        // hold the table, call them, or give it away.
+        const startMs = r.starts_at ? new Date(r.starts_at).getTime() : 0;
+        const lateMin =
+          isViewingToday && r.status === "confirmed" && startMs
+            ? Math.floor((nowTs - startMs) / 60000)
+            : 0;
+        return (
+          <div className="leading-tight">
+            <div className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+              {fmtTime(r.starts_at)}
+            </div>
+            {lateMin >= 5 ? (
+              <div className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-amber-400 tabular-nums">
+                <Clock className="w-3 h-3 shrink-0" aria-hidden />
+                {t("rsvpLateBy", "{n} min late", { n: lateMin })}
+              </div>
+            ) : (
+              <div className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
+                {fmtTime(r.ends_at)}
+              </div>
+            )}
           </div>
-          <div className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
-            {fmtTime(r.ends_at)}
-          </div>
-        </div>
-      ),
+        );
+      },
     },
     {
       id: "guest",
@@ -2296,18 +2322,47 @@ function BookSection({ t, businessType, tableFloor = false }) {
   ];
 
   // Status-aware inline actions, mirroring ReservationRow's transition logic.
+  // Every action shows a WORD (text:true) — icon-only was ambiguous on the
+  // host-stand tablet (no hover), and Decline vs Cancel were both a bare ✕.
+  // Every DESTRUCTIVE action (decline / no-show / cancel) is gated behind a
+  // confirm dialog so a mid-rush fat-finger can't silently kill a table.
   const rowActions = (r) => {
     const busy = actioningId === r.id;
+    const who = r.guest_name || t("rsvpGuest", "Guest");
+    const guardedSet = (opts, status) => async () => {
+      if (await confirm({ destructive: true, ...opts })) setStatus(r, status);
+    };
     const out = [];
     if (r.status === "requested") {
-      out.push({ id: "confirmed", label: t("rsvpConfirmAction", "Confirm"), icon: <Check className="w-4 h-4" />, onClick: () => setStatus(r, "confirmed"), disabled: busy });
-      out.push({ id: "decline", label: t("rsvpDeclineAction", "Decline"), icon: <X className="w-4 h-4" />, onClick: () => setStatus(r, "cancelled"), variant: "danger", disabled: busy });
+      out.push({ id: "confirmed", label: t("rsvpConfirmAction", "Confirm"), text: true, icon: <Check className="w-4 h-4" />, onClick: () => setStatus(r, "confirmed"), disabled: busy });
+      out.push({
+        id: "decline", label: t("rsvpDeclineAction", "Decline"), text: true, icon: <X className="w-4 h-4" />, variant: "danger", disabled: busy,
+        onClick: guardedSet({
+          title: t("rsvpDeclineConfirmTitle", "Decline this request?"),
+          message: t("rsvpDeclineConfirmBody", "{name} won't get the table. They're notified if possible.", { name: who }),
+          confirmLabel: t("rsvpDeclineAction", "Decline"),
+        }, "cancelled"),
+      });
     } else if (r.status === "confirmed") {
-      out.push({ id: "seated", label: t("rsvpSeatAction", "Seat"), icon: <Armchair className="w-4 h-4" />, onClick: () => setStatus(r, "seated"), disabled: busy });
-      out.push({ id: "no_show", label: t("rsvpNoShowAction", "No-show"), icon: <Ban className="w-4 h-4" />, onClick: () => setStatus(r, "no_show"), variant: "danger", disabled: busy });
-      out.push({ id: "cancel", label: t("rsvpCancelAction", "Cancel"), icon: <X className="w-4 h-4" />, onClick: () => setStatus(r, "cancelled"), variant: "danger", disabled: busy });
+      out.push({ id: "seated", label: t("rsvpSeatAction", "Seat"), text: true, icon: <Armchair className="w-4 h-4" />, onClick: () => setStatus(r, "seated"), disabled: busy });
+      out.push({
+        id: "no_show", label: t("rsvpNoShowAction", "No-show"), text: true, icon: <Ban className="w-4 h-4" />, variant: "danger", disabled: busy,
+        onClick: guardedSet({
+          title: t("rsvpNoShowConfirmTitle", "Mark as no-show?"),
+          message: t("rsvpNoShowConfirmBody", "Records that {name} didn't arrive.", { name: who }),
+          confirmLabel: t("rsvpNoShowAction", "No-show"),
+        }, "no_show"),
+      });
+      out.push({
+        id: "cancel", label: t("rsvpCancelAction", "Cancel"), text: true, icon: <X className="w-4 h-4" />, variant: "danger", disabled: busy,
+        onClick: guardedSet({
+          title: t("rsvpCancelConfirmTitle", "Cancel this booking?"),
+          message: t("rsvpCancelConfirmBody", "The booking for {name} is cancelled. They're notified if possible.", { name: who }),
+          confirmLabel: t("rsvpCancelAction", "Cancel"),
+        }, "cancelled"),
+      });
     } else if (r.status === "seated") {
-      out.push({ id: "completed", label: t("rsvpCompleteAction", "Complete"), icon: <CheckCircle2 className="w-4 h-4" />, onClick: () => setStatus(r, "completed"), disabled: busy });
+      out.push({ id: "completed", label: t("rsvpCompleteAction", "Complete"), text: true, icon: <CheckCircle2 className="w-4 h-4" />, onClick: () => setStatus(r, "completed"), disabled: busy });
     }
     return out;
   };

@@ -163,29 +163,40 @@ export default function DataTable({
     const actions = rowActions(row) || [];
     if (actions.length === 0) return null;
     return (
-      <div className="flex items-center justify-end gap-0.5">
-        {actions.map((a, i) => (
-          <button
-            key={a.id || a.label || i}
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (typeof a.onClick === "function") a.onClick(row);
-            }}
-            title={a.label /* native tooltip on hover */}
-            aria-label={a.ariaLabel || a.label}
-            disabled={a.disabled}
-            className={
-              "inline-flex items-center justify-center h-8 w-8 rounded-lg " +
-              "transition-colors focus-visible:outline-none focus-visible:ring-2 " +
-              "focus-visible:ring-gray-400 disabled:opacity-40 " +
-              "disabled:cursor-not-allowed " +
-              actionIconClasses(a.variant)
-            }
-          >
-            {a.icon}
-          </button>
-        ))}
+      <div className="flex items-center justify-end gap-1 flex-wrap">
+        {actions.map((a, i) => {
+          // Opt-in visible label: `text: true` renders the word beside the
+          // icon (auto-width pill) instead of a bare icon button. Icon-only
+          // is ambiguous on touch surfaces (no hover tooltip) — see the
+          // reservations row actions. Default stays icon-only for callers
+          // that pass no `text`, so existing tables are unchanged.
+          const withText = !!a.text;
+          return (
+            <button
+              key={a.id || a.label || i}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (typeof a.onClick === "function") a.onClick(row);
+              }}
+              title={a.label /* native tooltip on hover */}
+              aria-label={a.ariaLabel || a.label}
+              disabled={a.disabled}
+              className={
+                (withText
+                  ? "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-medium "
+                  : "inline-flex items-center justify-center h-8 w-8 rounded-lg ") +
+                "transition-colors focus-visible:outline-none focus-visible:ring-2 " +
+                "focus-visible:ring-gray-400 disabled:opacity-40 " +
+                "disabled:cursor-not-allowed " +
+                actionIconClasses(a.variant)
+              }
+            >
+              {a.icon}
+              {withText && <span>{a.label}</span>}
+            </button>
+          );
+        })}
       </div>
     );
   };
