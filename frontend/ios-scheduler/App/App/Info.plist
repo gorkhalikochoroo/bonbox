@@ -22,6 +22,18 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- The bundled @capacitor/camera plugin references the camera and photo
+	     library frameworks (staff attach a photo to a Besked). Apple's static
+	     check (error 90683) requires a purpose string for every referenced
+	     sensitive-data API even if a given flow doesn't call it. Mirrors the
+	     owner app's proven set; Face ID is intentionally absent — nothing in
+	     this app references LocalAuthentication. -->
+	<key>NSCameraUsageDescription</key>
+	<string>BonBox Scheduler uses the camera so you can take a photo to send in a message to your workplace.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>BonBox Scheduler needs access to your photos so you can attach one to a message.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>BonBox Scheduler needs permission to save a photo to your library.</string>
 	<!-- BonBox uses only standard HTTPS/TLS (export-exempt); declaring this
 	     skips the export-compliance prompt on every TestFlight upload,
 	     matching the owner app (ios/App/App/Info.plist). -->
