@@ -183,13 +183,19 @@ def send_to_staff_devices(db: Session, user_id, staff_id, payload: dict) -> dict
     if not apns_configured():
         return result
 
+    from app.models.staff import StaffLink
     from app.models.staff_device_token import StaffDeviceToken
 
+    # Join on the ACTIVE link — the revocation doctrine. An owner who
+    # deactivates/rotates a departed staffer's link must silence that
+    # phone immediately; the row itself stays until re-register or 410.
     rows = (
         db.query(StaffDeviceToken)
+        .join(StaffLink, StaffLink.id == StaffDeviceToken.link_id)
         .filter(
             StaffDeviceToken.user_id == user_id,
             StaffDeviceToken.staff_id == staff_id,
+            StaffLink.active.is_(True),
         )
         .all()
     )

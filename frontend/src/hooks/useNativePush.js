@@ -35,6 +35,9 @@ export async function unregisterNativePush(portalToken) {
   try {
     await portalApi.delete(`/portal/${portalToken}/device`, {
       data: { token: deviceToken },
+      // Best-effort: never hold the disconnect hostage to a flaky network
+      // (the 410 sweep prunes the row if this doesn't land).
+      timeout: 4000,
     });
   } catch {
     /* offline / older backend — the 410 cleanup prunes the row later */
@@ -90,26 +93,41 @@ export default function useNativePush(portalToken, ready) {
             }
           },
         );
+        if (cancelled) { reg.remove(); return; }
         handles.push(reg);
 
         const errH = await PushNotifications.addListener(
           "registrationError",
           (e) => console.warn("APNs registration error", e),
         );
+        if (cancelled) { errH.remove(); return; }
         handles.push(errH);
 
         // Tap on a notification → deep-link into the portal. The backend
-        // puts the target path in the payload's `url`; falling back to a
-        // reload keeps us on the schedule.
+        // sends an ABSOLUTE portal URL (https://www.bonbox.dk/s/…) — the
+        // shell's own origin is capacitor://localhost, so we navigate to
+        // the PATH only, staying inside the shell. Anything that isn't a
+        // path or a bonbox.dk host is dropped (a protocol-relative
+        // "//host" would otherwise walk the WebView off-origin).
         const tapH = await PushNotifications.addListener(
           "pushNotificationActionPerformed",
           (action) => {
-            const url = action?.notification?.data?.url;
-            if (url && typeof url === "string" && url.startsWith("/")) {
-              window.location.href = url;
+            const raw = action?.notification?.data?.url;
+            if (!raw || typeof raw !== "string") return;
+            try {
+              const u = new URL(raw, window.location.origin);
+              const sameOrigin = u.origin === window.location.origin;
+              const ourHost = /(^|\.)bonbox\.dk$/.test(u.hostname);
+              if (raw.startsWith("//") && !ourHost) return;
+              if (sameOrigin || ourHost || raw.startsWith("/")) {
+                window.location.href = u.pathname + u.search + u.hash;
+              }
+            } catch {
+              /* unparseable — ignore */
             }
           },
         );
+        if (cancelled) { tapH.remove(); return; }
         handles.push(tapH);
 
         let perm = await PushNotifications.checkPermissions();

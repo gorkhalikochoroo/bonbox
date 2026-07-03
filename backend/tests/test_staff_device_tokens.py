@@ -164,6 +164,28 @@ def test_apns_sender_noop_without_config(db, monkeypatch):
     assert fan == {"attempted": 0, "sent": 0, "removed": 0}
 
 
+def test_deactivated_link_silences_device(client, db, monkeypatch):
+    """Revocation doctrine: the owner deactivating a departed staffer's
+    link must stop pushes to that phone IMMEDIATELY — the fan-out joins
+    on active links, it does not trust the token row alone."""
+    from app.services import apns_sender
+
+    u, a, link = _seed(db)
+    client.post(f"/api/portal/{link.token}/device",
+                json={"token": _TOKEN, "platform": "ios"})
+
+    link.active = False
+    db.commit()
+
+    monkeypatch.setattr(apns_sender, "apns_configured", lambda: True)
+    monkeypatch.setattr(
+        apns_sender, "send_to_device_token",
+        lambda token, payload, client=None: {"ok": True, "removed": False},
+    )
+    fan = apns_sender.send_to_staff_devices(db, u.id, a.id, {"title": "x"})
+    assert fan == {"attempted": 0, "sent": 0, "removed": 0}
+
+
 def test_dead_token_pruned(client, db, monkeypatch):
     """Apple answering Unregistered/BadDeviceToken deletes the row (L8)."""
     from app.services import apns_sender
