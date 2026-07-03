@@ -259,6 +259,18 @@ class Settings(BaseSettings):
     # inbox so we never silently mint claims with the wrong shape.
     VAPID_SUBJECT: str = "mailto:hello@bonbox.dk"
 
+    # ── Native APNs push for the BonBox Scheduler app (app/services/apns_sender.py) ──
+    # MUST be declared here: BaseSettings has extra="ignore", so an env var
+    # that isn't a declared field is silently dropped — an undeclared
+    # APNS_AUTH_KEY would leave apns_configured() False forever even with
+    # the Render vars set. All optional → unset means every send is a
+    # logged no-op (same fail-soft doctrine as VAPID).
+    APNS_AUTH_KEY: str = ""     # contents of the .p8 (literal \n accepted)
+    APNS_KEY_ID: str = ""       # 10-char key id from developer.apple.com
+    APNS_TEAM_ID: str = ""      # Apple Developer Team ID (QZ5VC474N8)
+    APNS_TOPIC: str = ""        # bundle id; code defaults to dk.bonbox.scheduler
+    APNS_USE_SANDBOX: str = ""  # "1" → sandbox host (Xcode dev builds only)
+
     # ── Receipt-forwarding email inbox (Postmark Inbound) — v0.1 ───────
     # The webhook is dark-launched: INBOX_ENABLED=false (default) makes
     # /api/inbox/postmark-webhook return 503 with an honesty body so
