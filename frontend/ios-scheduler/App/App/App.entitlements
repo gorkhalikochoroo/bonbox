@@ -4,10 +4,15 @@
 <dict>
 	<!-- Native push for the staff Scheduler app. Pairs with the Push
 	     Notifications capability on the dk.bonbox.scheduler App ID in the
-	     Apple Developer portal — without that pairing the app builds but
-	     PushNotifications.register() fails at runtime. Xcode rewrites this
-	     to "development" automatically for debug builds. -->
+	     Apple Developer portal.
+
+	     "development" is correct HERE: debug builds sign against a
+	     development provisioning profile whose aps-environment is
+	     development — hardcoding "production" makes every on-device
+	     Run fail codesigning. Distribution (TestFlight / App Store)
+	     re-signing rewrites this to "production" automatically; the
+	     automation only works in that direction. -->
 	<key>aps-environment</key>
-	<string>production</string>
+	<string>development</string>
 </dict>
 </plist>

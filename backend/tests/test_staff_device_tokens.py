@@ -176,7 +176,7 @@ def test_dead_token_pruned(client, db, monkeypatch):
     monkeypatch.setattr(apns_sender, "apns_configured", lambda: True)
     monkeypatch.setattr(
         apns_sender, "send_to_device_token",
-        lambda token, payload: {"ok": False, "removed": True},
+        lambda token, payload, client=None: {"ok": False, "removed": True},
     )
     fan = apns_sender.send_to_staff_devices(db, u.id, a.id, {"title": "x"})
     db.commit()

@@ -22,8 +22,10 @@ logged no-op, mirroring the pywebpush fail-soft doctrine; see
 Multi-barrier:
   L4 fail-soft   any config/network error is caught, logged, returned as
                  {"ok": False}; callers never crash a business action.
-  L8 fallback    Apple's 410/BadDeviceToken answers delete the row, same
-                 as push_sender handles web-push 410 Gone.
+  L8 fallback    Apple's authoritative 410 Unregistered deletes the row
+                 (web-push 410 Gone twin); 400 BadDeviceToken /
+                 DeviceTokenNotForTopic mean PROVIDER misconfig and only
+                 log loudly — never mass-prune on our own bad env.
   L10 honesty    returned counts reflect what APNs actually accepted.
 """
 
@@ -82,12 +84,15 @@ def _host() -> str:
     return _SANDBOX_HOST if _cfg("APNS_USE_SANDBOX") == "1" else _PROD_HOST
 
 
-def send_to_device_token(token: str, payload: dict) -> dict:
+def send_to_device_token(token: str, payload: dict, client=None) -> dict:
     """POST one alert to one APNs device token.
 
     `payload` is the SAME shape the web-push path uses —
     {"title", "body", "tag", "data": {"url": ...}} — so fan-out sites
     build it once and hand it to both channels.
+
+    `client` lets a fan-out reuse ONE HTTP/2 connection for the whole
+    burst — Apple explicitly warns against rapid connection cycling.
 
     Returns {"ok": bool, "removed": bool}; removed=True means Apple told
     us the token is dead and the caller should delete the row.
@@ -125,12 +130,19 @@ def send_to_device_token(token: str, payload: dict) -> dict:
         headers["apns-collapse-id"] = tag[:64]
 
     try:
-        with httpx.Client(http2=True, timeout=10.0) as client:
+        if client is not None:
             resp = client.post(
                 f"{_host()}/3/device/{token}",
                 headers=headers,
                 content=json.dumps(body),
             )
+        else:
+            with httpx.Client(http2=True, timeout=10.0) as one_off:
+                resp = one_off.post(
+                    f"{_host()}/3/device/{token}",
+                    headers=headers,
+                    content=json.dumps(body),
+                )
     except Exception as exc:  # noqa: BLE001
         logger.warning("apns_sender: send failed transport-level: %s", exc)
         return {"ok": False, "removed": False}
@@ -138,17 +150,24 @@ def send_to_device_token(token: str, payload: dict) -> dict:
     if resp.status_code == 200:
         return {"ok": True, "removed": False}
 
-    # Token is dead: 410 Unregistered, or 400 with BadDeviceToken /
-    # DeviceTokenNotForTopic (token from the other bundle id).
     reason = ""
     try:
         reason = resp.json().get("reason", "")
     except Exception:  # noqa: BLE001
         pass
-    dead = resp.status_code == 410 or reason in ("BadDeviceToken", "DeviceTokenNotForTopic")
-    logger.warning(
-        "apns_sender: APNs answered %s reason=%s (token suffix …%s)",
+    # Prune ONLY on the authoritative 410 Unregistered. Every token in the
+    # table came from a real device via the bounds-checked registration, so
+    # a 400 BadDeviceToken / DeviceTokenNotForTopic on it almost always
+    # means WE are misconfigured (wrong APNS_TOPIC, sandbox/prod flip) —
+    # deleting rows then would silently unsubscribe the whole fleet on one
+    # bad env deploy. Those get an error-level log instead.
+    dead = resp.status_code == 410
+    log = logger.error if reason in ("BadDeviceToken", "DeviceTokenNotForTopic") else logger.warning
+    log(
+        "apns_sender: APNs answered %s reason=%s (token suffix …%s)%s",
         resp.status_code, reason or "?", token[-6:],
+        " — check APNS_TOPIC / APNS_USE_SANDBOX, NOT pruning the token"
+        if reason in ("BadDeviceToken", "DeviceTokenNotForTopic") else "",
     )
     return {"ok": False, "removed": dead}
 
@@ -174,19 +193,32 @@ def send_to_staff_devices(db: Session, user_id, staff_id, payload: dict) -> dict
         )
         .all()
     )
-    for row in rows:
-        result["attempted"] += 1
-        try:
-            outcome = send_to_device_token(row.token, payload)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("apns_sender: device send threw: %s", exc)
-            outcome = {"ok": False, "removed": False}
-        if outcome.get("ok"):
-            result["sent"] += 1
-        if outcome.get("removed"):
-            result["removed"] += 1
+    try:
+        import httpx
+        shared = httpx.Client(http2=True, timeout=10.0)
+    except Exception:  # noqa: BLE001
+        shared = None  # send_to_device_token falls back to one-off clients
+
+    try:
+        for row in rows:
+            result["attempted"] += 1
             try:
-                db.delete(row)
+                outcome = send_to_device_token(row.token, payload, client=shared)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("apns_sender: device send threw: %s", exc)
+                outcome = {"ok": False, "removed": False}
+            if outcome.get("ok"):
+                result["sent"] += 1
+            if outcome.get("removed"):
+                result["removed"] += 1
+                try:
+                    db.delete(row)
+                except Exception:  # noqa: BLE001
+                    pass
+    finally:
+        if shared is not None:
+            try:
+                shared.close()
             except Exception:  # noqa: BLE001
                 pass
     return result

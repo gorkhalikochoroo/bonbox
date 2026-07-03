@@ -52,6 +52,12 @@ export default function useNativePush(portalToken, ready) {
     if (!isNativeApp() || !Capacitor.isPluginAvailable("PushNotifications")) {
       return undefined;
     }
+    // Scheduler shell ONLY. The owner app (dk.bonbox.app) can render this
+    // page too, but its APNs tokens belong to the wrong topic — they could
+    // never be delivered, only pollute the table.
+    if (import.meta.env.VITE_APP_MODE !== "scheduler") {
+      return undefined;
+    }
 
     let cancelled = false;
     const handles = [];
