@@ -78,16 +78,47 @@ import { canPurchaseInApp } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor } from "../config/venueProfiles";
 import { formatKr } from "../utils/currency";
 
-// Status → colored-dot token for the status pill. Severe = red, the
-// terminal-good states emerald, requests amber, dead states gray.
-const STATUS_DOT = {
-  requested: "bg-amber-500",
-  confirmed: "bg-emerald-500",
-  // Seated = occupied → gray-900, matching the floor's "dark = in use" doctrine.
-  seated: "bg-gray-900 dark:bg-gray-100",
-  completed: "bg-gray-400",
-  no_show: "bg-red-500",
-  cancelled: "bg-red-500",
+// Status → status-pill styling. Colour is BUDGETED, status-only (design
+// doctrine): it appears where it MEANS something and recedes where it
+// doesn't — the opposite of a list where every row shouts equally.
+//   • requested  amber tint + a live pulsing dot — the one that needs a human
+//   • confirmed  emerald tint — on the books, needs nothing now
+//   • seated     SOLID DARK — occupied = present = the heaviest chip, tying
+//                the Liste to the 2D floor's "dark tile = in use" language
+//   • no_show    muted red — the ONLY status red (the cover that stung)
+//   • completed  quiet gray — done, receding
+//   • cancelled  quiet gray + strikethrough (NOT red — a cancellation is a
+//                non-event; the strike keeps it distinct from completed)
+// Soft tints, never candy fills. Every text/bg pairing clears WCAG AA in
+// light AND dark mode (neutral pills use gray-600, not gray-400/500).
+const STATUS_PILL = {
+  requested: {
+    pill: "font-medium bg-amber-50 text-amber-800 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800/60",
+    dot: "bg-amber-500 dark:bg-amber-400 motion-safe:animate-pulse",
+  },
+  confirmed: {
+    pill: "font-medium bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-emerald-600/20 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800/60",
+    dot: "bg-emerald-500 dark:bg-emerald-400",
+  },
+  seated: {
+    // The only solid fill — inverts in dark mode so it stays the highest-
+    // contrast (heaviest) mark in the column. No ring; font-semibold.
+    pill: "font-semibold bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900",
+    dot: "bg-white/80 dark:bg-gray-900/70",
+  },
+  completed: {
+    pill: "font-medium bg-gray-100 text-gray-600 ring-1 ring-inset ring-gray-500/15 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-700",
+    dot: "bg-gray-400 dark:bg-gray-500",
+  },
+  no_show: {
+    pill: "font-medium bg-red-50 text-red-700 ring-1 ring-inset ring-red-600/20 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-800/60",
+    dot: "bg-red-500 dark:bg-red-400",
+  },
+  cancelled: {
+    pill: "font-medium bg-gray-100 text-gray-600 ring-1 ring-inset ring-gray-500/15 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-700",
+    dot: "bg-gray-300 dark:bg-gray-600",
+    strike: true,
+  },
 };
 
 // Local YYYY-MM-DD for the book's day picker (defaults to today).
@@ -2592,11 +2623,26 @@ function BookSection({ t, businessType, tableFloor = false }) {
 }
 
 function StatusPill({ status, label }) {
-  const dot = STATUS_DOT[status] || "bg-gray-400";
+  // Unknown status falls back to the neutral "completed" treatment (same
+  // fail-soft intent as the old `|| bg-gray-400`).
+  const s = STATUS_PILL[status] || STATUS_PILL.completed;
   return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium">
-      <span className={`w-2 h-2 rounded-full ${dot}`} aria-hidden="true" />
-      {label}
+    <span
+      className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-xs whitespace-nowrap ${s.pill}`}
+    >
+      <span
+        className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.dot}`}
+        aria-hidden="true"
+      />
+      <span
+        className={
+          s.strike
+            ? "line-through decoration-gray-400 decoration-1 dark:decoration-gray-600"
+            : undefined
+        }
+      >
+        {label}
+      </span>
     </span>
   );
 }
