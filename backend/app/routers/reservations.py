@@ -435,7 +435,7 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
     return {
         "reservations_enabled": bool(getattr(profile, "reservations_enabled", False)) if profile else False,
         "reservation_slug": slug,
-        "public_url": f"https://www.bonbox.dk/r/{slug}" if slug else None,
+        "public_url": f"https://bonbox.dk/r/{slug}" if slug else None,
         "settings": settings,
         "allergen_set": allergen_set_for(btype),
         "severity_levels": list(SEVERITY_LEVELS),
@@ -489,7 +489,7 @@ def set_slug(payload: SlugUpdate, db: Session = Depends(get_db), user: User = De
         raise HTTPException(status_code=409, detail={"error": "slug_taken"})
     profile.reservation_slug = desired
     db.commit()
-    return {"reservation_slug": desired, "public_url": f"https://www.bonbox.dk/r/{desired}"}
+    return {"reservation_slug": desired, "public_url": f"https://bonbox.dk/r/{desired}"}
 
 
 # ─── resources ───────────────────────────────────────────────────────
