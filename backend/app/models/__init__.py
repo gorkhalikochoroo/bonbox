@@ -95,6 +95,10 @@ from app.models.reservation import Reservation
 # resource physically impossible. See reservation_occupancy.py + §2 of
 # docs/reservations-architecture.md.
 from app.models.reservation_occupancy import ReservationOccupancy
+# Venteliste — parties the venue couldn't seat; a dedicated table so it can
+# never hold a resource or leak into the availability engine. user_id FK puts
+# it in the metadata-driven GDPR delete_account sweep automatically.
+from app.models.reservation_waitlist import ReservationWaitlistEntry
 # S2 — salon service (Behandlinger) catalog. A per-salon list of services
 # with a duration + optional DISPLAY-ONLY price. Owner CRUD via the
 # reservations router; gated behind the "reservations" feature flag. See

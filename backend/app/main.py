@@ -1771,6 +1771,43 @@ _migrations = [
     "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
     "UPDATE reservations SET updated_at = created_at WHERE updated_at IS NULL",
 
+    # ── Migration 057 (2026-07-04): reservation_waitlist (Venteliste) ────
+    # The reservation waitlist — parties the venue couldn't seat, parked here
+    # instead of a paper pad. A DEDICATED table (not a Reservation with
+    # status='waitlisted'): a waitlist row holds no resource and writes no
+    # reservation_occupancy row, so it is structurally incapable of holding a
+    # table or leaking into the availability engine / book / Insights, and
+    # Migration 055's no-double-booking constraint stays untouched. Mirrors
+    # app/models/reservation_waitlist.py; documented in alembic 023.
+    # GUID columns are VARCHAR(36) (GUID() impl is String(36); native-UUID DDL
+    # breaks the users/reservations FKs on SQLite dev — see Migration 034).
+    # Distinct from the pre-existing `waitlist_entries` (paid-tier interest).
+    """CREATE TABLE IF NOT EXISTS reservation_waitlist (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        guest_name VARCHAR(160),
+        guest_phone VARCHAR(40),
+        guest_email VARCHAR(255),
+        party_size INTEGER NOT NULL DEFAULT 2,
+        waitlist_date DATE NOT NULL,
+        desired_from TIMESTAMP,
+        desired_to TIMESTAMP,
+        status VARCHAR(20) NOT NULL DEFAULT 'waiting',
+        source VARCHAR(20) NOT NULL DEFAULT 'manual',
+        note VARCHAR(500),
+        notified_at TIMESTAMP,
+        notify_count INTEGER NOT NULL DEFAULT 0,
+        converted_reservation_id VARCHAR(36) REFERENCES reservations(id),
+        cancelled_at TIMESTAMP,
+        expired_at TIMESTAMP,
+        purge_after TIMESTAMP,
+        purged_at TIMESTAMP,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_rsvp_waitlist_user_day ON reservation_waitlist (user_id, waitlist_date, status)",
+    "CREATE INDEX IF NOT EXISTS ix_rsvp_waitlist_purge ON reservation_waitlist (purge_after)",
+
     # ── Migration 023 (2026-05-31): persistent 2D floor-plan layout ──────
     # bookable_resources gains position + shape so the owner's drag-arranged
     # room map persists to the venue. Mirrors app/models/bookable_resource.py

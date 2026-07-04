@@ -203,6 +203,10 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # restaurant try the public booking page, then upgrade. 20/mo +
         # max 3 tables/resources is enough to feel it, not run a service on.
         "reservations_per_month": 20,
+        # Venteliste (waitlist) is the wedge — the paper-pad replacement — so
+        # Free CAN use it; the small active-list cap is a spam-abuse floor, not
+        # a wedge-killer (a real turned-away Friday list is well under 10).
+        "reservation_waitlist_active_max": 10,
         "bookable_resources_max": 3,
         "sms_reminders_per_month": 0,   # SMS is a Pro perk (cost-bearing)
         # Salon service catalog (Behandlinger, S2) — how many services a salon
@@ -284,6 +288,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "bookings_per_event_max": -1,
         # Reservations — Starter = unlimited (the anchor tier for this feature).
         "reservations_per_month": -1,
+        "reservation_waitlist_active_max": -1,
         "bookable_resources_max": -1,
         "sms_reminders_per_month": 300,   # Starter SMS allowance (Pro = 1000)
         # Salon service catalog (Behandlinger, S2) — 25 covers a full salon menu
@@ -327,6 +332,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "bookings_per_event_max": -1,
         # Reservations — Trial mirrors Pro: unlimited.
         "reservations_per_month": -1,
+        "reservation_waitlist_active_max": -1,
         "bookable_resources_max": -1,
         "sms_reminders_per_month": 1000,   # Trial mirrors Pro
         "salon_services_max": 100,         # Trial mirrors Pro
@@ -371,6 +377,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         "bookings_per_event_max": -1,
         # Reservations — Pro = unlimited.
         "reservations_per_month": -1,
+        "reservation_waitlist_active_max": -1,
         "bookable_resources_max": -1,
         "sms_reminders_per_month": 1000,   # Pro perk; bounded for SMS cost
         # Salon service catalog (Behandlinger, S2) — top tier ceiling. 100 is
