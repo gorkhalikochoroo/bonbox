@@ -111,6 +111,28 @@ class Reservation(Base):
     occasion: Mapped[str | None] = mapped_column(String(60), nullable=True)
     guest_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # ── AI allergy SUGGESTION (rule-based; see services/allergy_detector.py) ──
+    # UNCONFIRMED signals the detector read out of the free-text fields. Kept in
+    # SEPARATE columns so they can NEVER overwrite a guest's confirmed structured
+    # entry (allergen_tags / allergy_severity) — they only ever ADD a "muligt: X
+    # — bekræft?" prompt the owner confirms or dismisses. `ai_confirmed` flips
+    # True once the owner has actioned it (so the prompt stops re-surfacing).
+    # Same Art. 9 health-data class as the confirmed fields → purged together.
+    allergy_ai_tags: Mapped[list | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True,
+    )
+    allergy_ai_severity: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    allergy_ai_generic: Mapped[bool] = mapped_column(Boolean, default=False)
+    allergy_ai_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The literal matched terms — an audit trail of WHY it fired (never a score).
+    allergy_ai_matched: Mapped[list | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True,
+    )
+    # Rule-based note intent (see services/note_intent.py): one operational
+    # bucket (accessibility / celebration_* / business / large_group) so the
+    # owner can FILTER the book by it. A hint for prep, never a re-sort.
+    note_intent: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
     # ── Notification bookkeeping ───────────────────────────────────────
     confirmation_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

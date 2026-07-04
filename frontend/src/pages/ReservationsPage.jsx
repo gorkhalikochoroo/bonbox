@@ -58,6 +58,7 @@ import {
   BarChart3,
   Scissors,
   ExternalLink,
+  HelpCircle,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
@@ -454,6 +455,21 @@ function TablesCell({ r, labelById, t }) {
 // Flags cell — allergy / occasion / source as compact icon badges (icon-only
 // with title + aria-label; the column is narrow). Allergy is the one signal
 // that earns color: red when severe, amber otherwise.
+// Note-intent i18n keys — a rule-based operational bucket the owner can filter
+// by. NOT a colored alarm: a quiet gray badge (a hint for prep). See
+// backend/app/services/note_intent.py for the classifier.
+const NOTE_INTENT_KEYS = {
+  accessibility: ["rsvpIntentAccess", "Accessibility"],
+  celebration_birthday: ["rsvpIntentBirthday", "Birthday"],
+  celebration_anniversary: ["rsvpIntentAnniversary", "Anniversary"],
+  business: ["rsvpIntentBusiness", "Business"],
+  large_group: ["rsvpIntentLargeGroup", "Large group"],
+};
+function noteIntentLabel(intent, t) {
+  const k = NOTE_INTENT_KEYS[intent];
+  return k ? t(k[0], k[1]) : null;
+}
+
 function FlagsCell({ r, t }) {
   const hasAllergy =
     (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
@@ -466,6 +482,15 @@ function FlagsCell({ r, t }) {
   ]
     .filter(Boolean)
     .join(" · ");
+  // Unconfirmed AI allergy suggestion — shown only when there's no CONFIRMED
+  // allergy already flagged (that icon wins). A dashed-amber "maybe — confirm"
+  // cue distinct from a confirmed allergy; the owner confirms in the drawer.
+  const ai = r.ai_allergy;
+  const aiMaybe = !hasAllergy && ai && ai.has_ai_suggested_allergy;
+  const aiTags = (ai?.ai_tags || []).map((k) => t(`allergen_${k}`, k)).join(", ");
+  const aiTitle =
+    t("rsvpAiAllergyMaybe", "Possible allergy — confirm") + (aiTags ? `: ${aiTags}` : "");
+  const intentLabel = noteIntentLabel(r.note_intent, t);
   return (
     <div className="flex items-center gap-1.5 text-gray-400 dark:text-gray-500">
       {hasAllergy && (
@@ -474,6 +499,21 @@ function FlagsCell({ r, t }) {
           aria-label={severe ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
           title={allergyTitle || (severe ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy"))}
         />
+      )}
+      {aiMaybe && (
+        <HelpCircle
+          className="w-4 h-4 text-amber-500 dark:text-amber-400"
+          aria-label={aiTitle}
+          title={aiTitle}
+        />
+      )}
+      {intentLabel && (
+        <span
+          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400 whitespace-nowrap"
+          title={intentLabel}
+        >
+          {intentLabel}
+        </span>
       )}
       {r.occasion && (
         <PartyPopper className="w-4 h-4" aria-label={r.occasion} title={r.occasion} />
@@ -638,6 +678,8 @@ function ReservationDrawer({
   isProvider = false,
   behandlerName = "",
   highlight = false,
+  onAllergyAction = null,
+  allergyActionBusy = false,
 }) {
   if (!reservation) return null;
   const r = reservation;
@@ -730,6 +772,52 @@ function ReservationDrawer({
                 {severe ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
               </div>
               {allergyText && <div className="mt-0.5">{allergyText}</div>}
+            </div>
+          )}
+
+          {/* Unconfirmed AI allergy SUGGESTION — dashed (not a solid alarm),
+              additive to any confirmed block above. The owner confirms (merges
+              into the real allergy) or dismisses (false positive). Honest copy:
+              "possible", "we read this" — never a claimed fact. */}
+          {r.ai_allergy?.has_ai_suggested_allergy && (
+            <div className="rounded-lg px-3 py-2.5 text-sm border border-dashed border-amber-300 dark:border-amber-700/60 bg-amber-50/60 dark:bg-amber-900/10 text-amber-800 dark:text-amber-300">
+              <div className="font-semibold flex items-center gap-1.5">
+                <HelpCircle className="w-4 h-4" aria-hidden />
+                {t("rsvpAiAllergyTitle", "Possible allergy — please confirm")}
+              </div>
+              <div className="mt-0.5">
+                {(r.ai_allergy.ai_tags || []).length
+                  ? t("rsvpAiAllergyBody", "Read from the note: {tags}", {
+                      tags: r.ai_allergy.ai_tags.map((k) => t(`allergen_${k}`, k)).join(", "),
+                    })
+                  : t("rsvpAiAllergyGeneric", "The note mentions an allergy, but no specific one.")}
+                {r.ai_allergy.ai_severity === "severe" && (
+                  <span className="ml-1 font-semibold">
+                    {t("rsvpAiAllergySevereHint", "(sounds severe)")}
+                  </span>
+                )}
+              </div>
+              {onAllergyAction && (
+                <div className="mt-2 flex items-center gap-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={allergyActionBusy}
+                    iconLeft={<Check className="w-4 h-4" />}
+                    onClick={() => onAllergyAction("confirm")}
+                  >
+                    {t("rsvpAiAllergyConfirm", "Confirm allergy")}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={allergyActionBusy}
+                    onClick={() => onAllergyAction("dismiss")}
+                  >
+                    {t("rsvpAiAllergyDismiss", "Not an allergy")}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1734,6 +1822,11 @@ function BookSection({ t, businessType, tableFloor = false }) {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [zoneFilter, setZoneFilter] = useState("all");
+  // "Note type" filter — organise the book by the rule-based note intent
+  // (accessibility / birthday / …). A FILTER only; the list stays time-ordered.
+  const [noteTypeFilter, setNoteTypeFilter] = useState("all");
+  // Busy flag for the AI-allergy confirm/dismiss action in the drawer.
+  const [allergyBusy, setAllergyBusy] = useState(false);
   // The reservation open in the detail drawer (from a Liste row, a Plan
   // tile, or a timeline block). null = drawer closed.
   const [selected, setSelected] = useState(null);
@@ -2074,6 +2167,27 @@ function BookSection({ t, businessType, tableFloor = false }) {
     }
   };
 
+  // Confirm / dismiss the unconfirmed AI allergy suggestion from the drawer.
+  // confirm merges it into the real allergy (+ escalates severity upward);
+  // dismiss wipes the suggestion. Either way we re-point the drawer at the
+  // fresh row the endpoint returns, then refetch the book.
+  const actionAllergy = async (r, action) => {
+    if (!r) return;
+    setAllergyBusy(true);
+    try {
+      const resp = await api.patch(
+        `/reservations/reservations/${r.id}/allergy-suggestion`,
+        { action },
+      );
+      if (resp?.data) setSelected(resp.data);
+      await fetchBook(day);
+    } catch {
+      await fetchBook(day);
+    } finally {
+      setAllergyBusy(false);
+    }
+  };
+
   // Open the detail drawer with a clean assign-error slate.
   const openDrawer = (r) => {
     setAssignError("");
@@ -2214,6 +2328,10 @@ function BookSection({ t, businessType, tableFloor = false }) {
       );
       out = out.filter((r) => r.resource_id && ids.has(String(r.resource_id)));
     }
+    // Note-type is a FILTER, never a re-sort — the book stays time-ordered.
+    if (noteTypeFilter !== "all") {
+      out = out.filter((r) => (r.note_intent || "") === noteTypeFilter);
+    }
     const needle = q.trim().toLowerCase();
     if (needle) {
       out = out.filter(
@@ -2223,14 +2341,23 @@ function BookSection({ t, businessType, tableFloor = false }) {
       );
     }
     return out;
-  }, [reservations, statusFilter, zoneFilter, q, resources]);
+  }, [reservations, statusFilter, zoneFilter, noteTypeFilter, q, resources]);
 
-  const filtersOn = q.trim() !== "" || statusFilter !== "all" || zoneFilter !== "all";
+  const filtersOn =
+    q.trim() !== "" || statusFilter !== "all" || zoneFilter !== "all" || noteTypeFilter !== "all";
   const resetFilters = () => {
     setQ("");
     setStatusFilter("all");
     setZoneFilter("all");
+    setNoteTypeFilter("all");
   };
+  // Note intents actually present in today's book — the "Note type" filter only
+  // offers buckets that exist, so it never shows an empty option.
+  const noteTypes = useMemo(() => {
+    const s = new Set();
+    for (const r of reservations) if (r.note_intent) s.add(r.note_intent);
+    return Array.from(s);
+  }, [reservations]);
 
   const columns = [
     {
@@ -2655,6 +2782,17 @@ function BookSection({ t, businessType, tableFloor = false }) {
                 ]}
               />
             )}
+            {noteTypes.length > 0 && (
+              <FilterBar.Select
+                label={t("rsvpFilterNoteType", "Note type")}
+                value={noteTypeFilter}
+                onChange={setNoteTypeFilter}
+                options={[
+                  { value: "all", label: t("rsvpFilterAll", "All") },
+                  ...noteTypes.map((n) => ({ value: n, label: noteIntentLabel(n, t) || n })),
+                ]}
+              />
+            )}
             {filtersOn && <FilterBar.Reset onClick={resetFilters} label={t("reset", "Reset")} />}
           </FilterBar>
 
@@ -2738,6 +2876,8 @@ function BookSection({ t, businessType, tableFloor = false }) {
           assignBusy={assigning}
           assignError={assignError}
           highlight={deepLinkPulse}
+          onAllergyAction={(action) => actionAllergy(selected, action)}
+          allergyActionBusy={allergyBusy}
           onStatus={(r, to) => {
             setStatus(r, to);
             setSelected(null);

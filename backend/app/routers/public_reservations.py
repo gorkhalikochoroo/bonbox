@@ -488,6 +488,10 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
         idempotency_key=idempotency_key,
         purge_after=start + timedelta(days=int(settings.get("retention_days", 90))),
     )
+    # Rule-based AI signals — unconfirmed allergy suggestion + note intent.
+    # Fail-soft; NEVER overwrites the confirmed allergen fields set above.
+    from app.services.reservation_ai import apply_ai_signals
+    apply_ai_signals(r, btype)
     try:
         occ_service.create_reservation_with_occupancy(
             db, profile=profile, reservation=r, initial_resource_ids=resource_ids,
@@ -614,6 +618,10 @@ def create_reservation(request: Request, slug: str = Path(...),
         idempotency_key=idempotency_key,
         purge_after=start + timedelta(days=int(settings.get("retention_days", 90))),
     )
+    # Rule-based AI signals — unconfirmed allergy suggestion + note intent.
+    # Fail-soft; NEVER overwrites the confirmed allergen fields set above.
+    from app.services.reservation_ai import apply_ai_signals
+    apply_ai_signals(r, btype)
 
     if is_request:
         # Group request — does NOT hold a table (no occupancy row) until the

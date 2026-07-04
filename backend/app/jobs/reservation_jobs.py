@@ -189,6 +189,14 @@ def purge_expired_reservations() -> int:
                 r.allergy_note = None
                 r.allergy_severity = None
                 r.occasion = None
+                # Rule-based AI signals are guest-derived (Art. 9-adjacent) too —
+                # purge them on the same schedule as the confirmed fields.
+                r.allergy_ai_tags = None
+                r.allergy_ai_severity = None
+                r.allergy_ai_generic = False
+                r.allergy_ai_confirmed = False
+                r.allergy_ai_matched = None
+                r.note_intent = None
                 r.guest_consent_marketing = False
                 r.purged_at = now
                 # A row past purge_after is well after its service date — the

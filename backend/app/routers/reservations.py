@@ -300,6 +300,22 @@ def _reservation_dict(r: Reservation) -> dict:
         "allergen_tags": r.allergen_tags or [], "allergy_note": r.allergy_note,
         "allergy_severity": r.allergy_severity, "occasion": r.occasion,
         "guest_notes": r.guest_notes,
+        # Rule-based AI SUGGESTION (unconfirmed) — a SEPARATE channel from the
+        # confirmed allergen fields above; the owner confirms or dismisses it.
+        # has_ai_suggested_allergy is the single flag the book keys on to show
+        # the dashed "muligt: X — bekræft?" cue (true only while unconfirmed).
+        "ai_allergy": {
+            "ai_tags": r.allergy_ai_tags or [],
+            "ai_severity": r.allergy_ai_severity,
+            "ai_generic": bool(r.allergy_ai_generic),
+            "ai_confirmed": bool(r.allergy_ai_confirmed),
+            "ai_matched": r.allergy_ai_matched or [],
+            "has_ai_suggested_allergy": bool(
+                (r.allergy_ai_tags or r.allergy_ai_generic or r.allergy_ai_severity)
+                and not r.allergy_ai_confirmed
+            ),
+        },
+        "note_intent": r.note_intent,
     }
 
 
@@ -335,6 +351,14 @@ def _reservation_change_dict(r: Reservation, label_by_id: dict, cutoff: datetime
         "table_label": label,
         "has_allergy": bool(r.allergen_tags or r.allergy_note or r.allergy_severity),
         "allergy_severity": r.allergy_severity,
+        # Unconfirmed AI allergy hint (boolean only — no health detail on the
+        # glance surface). Lets the bell show a quiet "check this booking" cue
+        # without escalating to the confirmed-severe beep.
+        "has_ai_allergy": bool(
+            (r.allergy_ai_tags or r.allergy_ai_severity or r.allergy_ai_generic)
+            and not r.allergy_ai_confirmed
+        ),
+        "note_intent": r.note_intent,
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
 
@@ -821,6 +845,9 @@ def _create_provider_booking(db: Session, user: User, profile, payload: "ManualR
     if payload.status == "seated":
         r.seated_at = utc_now()
     r.purge_after = payload.starts_at + timedelta(days=int(settings.get("retention_days", 90)))
+    # Rule-based AI signals — unconfirmed allergy suggestion + note intent.
+    from app.services.reservation_ai import apply_ai_signals
+    apply_ai_signals(r, btype)
 
     if payload.stylist_resource_id is not None:
         # Named stylist → must be that exact provider, free, in a published
@@ -903,6 +930,10 @@ def create_manual(payload: ManualReservation, request: Request,
         r.seated_at = utc_now()
     settings = rsvc.load_settings(profile)
     r.purge_after = payload.starts_at + timedelta(days=int(settings.get("retention_days", 90)))
+    # Rule-based AI signals — unconfirmed allergy suggestion + note intent.
+    # Fail-soft; NEVER overwrites the confirmed allergen fields set above.
+    from app.services.reservation_ai import apply_ai_signals
+    apply_ai_signals(r, btype)
 
     overflow = False
     if payload.resource_id is None:
@@ -1142,6 +1173,74 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         except Exception:  # noqa: BLE001
             out["waitlist_matches"] = []
     return out
+
+
+class AllergySuggestionAction(BaseModel):
+    action: str = Field(pattern="^(confirm|dismiss)$")
+
+
+@router.patch("/reservations/{reservation_id}/allergy-suggestion")
+def action_allergy_suggestion(reservation_id: UUID, payload: AllergySuggestionAction,
+                              request: Request, db: Session = Depends(get_db),
+                              user: User = Depends(get_current_user)):
+    """Owner CONFIRMS or DISMISSES the unconfirmed AI allergy suggestion on a
+    booking. Honesty spine (see allergy_detector.py):
+      • confirm — MERGE the suggested tags into the confirmed allergen_tags,
+        re-sanitised through the vertical vocabulary (never a raw write), and
+        ESCALATE severity only UPWARD (a suggestion can raise 'severe', never
+        lower a guest's own entry).
+      • dismiss — the owner judged it a false positive: clear the suggestion
+        fields. NEVER touches the confirmed allergen_tags / allergy_severity.
+    Either way allergy_ai_confirmed → True so the "muligt: X — bekræft?" prompt
+    stops re-surfacing. Tenant-scoped (re-derived under user.id); audited."""
+    enforce_feature(user, "reservations")
+    r = (
+        db.query(Reservation)
+        .filter(Reservation.id == reservation_id, Reservation.user_id == user.id,
+                Reservation.is_deleted.is_(False))
+        .first()
+    )
+    if r is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+    from app.services.allergens import sanitize_tags, sanitize_severity, SEVERITY_LEVELS
+    btype = getattr(user, "business_type", None) or "restaurant"
+
+    if payload.action == "confirm":
+        # Merge suggested → confirmed tags (sanitised, de-duped, order-preserving).
+        merged = list(r.allergen_tags or [])
+        for k in sanitize_tags(r.allergy_ai_tags or [], btype):
+            if k not in merged:
+                merged.append(k)
+        r.allergen_tags = merged or None
+        # Escalate severity ONLY upward — never downgrade a guest's own entry.
+        ai_sev = sanitize_severity(r.allergy_ai_severity)
+        cur_sev = sanitize_severity(r.allergy_severity)
+        cur_rank = SEVERITY_LEVELS.index(cur_sev) if cur_sev in SEVERITY_LEVELS else -1
+        ai_rank = SEVERITY_LEVELS.index(ai_sev) if ai_sev in SEVERITY_LEVELS else -1
+        if ai_rank > cur_rank:
+            r.allergy_severity = ai_sev
+        # A GENERIC suggestion (allergy language, no specific allergen, not
+        # severe-worded) carries no tag and no severity to escalate. Confirming
+        # it must still leave a CONFIRMED trace — otherwise the owner's "Confirm
+        # allergy" tap records nothing AND hides the cue, silently erasing an
+        # allergy the owner just affirmed (a life-safety honesty regression).
+        # Floor it to a real, unspecified restriction so the row keeps its
+        # allergy flag; the owner can refine the specifics.
+        if not r.allergen_tags and r.allergy_severity is None:
+            r.allergy_severity = "intolerance"
+    else:  # dismiss — false positive; wipe the suggestion, confirmed stays intact.
+        r.allergy_ai_tags = None
+        r.allergy_ai_severity = None
+        r.allergy_ai_generic = False
+        r.allergy_ai_matched = None
+
+    r.allergy_ai_confirmed = True
+    audit_service.record(
+        db, user, f"reservation.allergy_{payload.action}", "reservation", r.id,
+    )
+    db.commit()
+    return _reservation_dict(r)
 
 
 # ─── Venteliste (reservation waitlist) ───────────────────────────────

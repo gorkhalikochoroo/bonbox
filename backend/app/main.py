@@ -2110,6 +2110,19 @@ _migrations = [
         CONSTRAINT uq_staff_device_token UNIQUE (token)
     )""",
     "CREATE INDEX IF NOT EXISTS ix_staff_device_tokens_user_staff ON staff_device_tokens (user_id, staff_id)",
+    # ── Migration 035 (2026-07-04): AI allergy suggestion + note intent ──────
+    # Rule-based (see services/allergy_detector.py + note_intent.py) UNCONFIRMED
+    # signals read out of a booking's free-text notes. Kept SEPARATE from the
+    # confirmed allergen_tags/allergy_severity so they can never overwrite a
+    # guest's own entry — the owner confirms/dismisses. Same Art. 9 class →
+    # purged by the same reservation PII sweep. All nullable / idempotent.
+    "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS allergy_ai_tags JSONB",
+    "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS allergy_ai_severity VARCHAR(20)",
+    "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS allergy_ai_generic BOOLEAN DEFAULT false",
+    "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS allergy_ai_confirmed BOOLEAN DEFAULT false",
+    "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS allergy_ai_matched JSONB",
+    "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS note_intent VARCHAR(40)",
+    "CREATE INDEX IF NOT EXISTS ix_reservations_note_intent ON reservations (user_id, note_intent)",
 ]
 
 
