@@ -73,6 +73,7 @@ import FilterBar from "../components/ui/FilterBar";
 import Empty from "../components/ui/Empty";
 import FloorPlan from "../components/FloorPlan";
 import InsightsSection from "../components/reservations/InsightsSection";
+import WaitlistSection from "../components/reservations/WaitlistSection";
 import { QRCodeSVG } from "qrcode.react";
 import { canPurchaseInApp } from "../utils/platform";
 import { venueProfile, bookingModeFor, usesTableFloor } from "../config/venueProfiles";
@@ -1698,6 +1699,10 @@ function BookSection({ t, businessType, tableFloor = false }) {
     const id = setInterval(() => setNowTs(Date.now()), 60000);
     return () => clearInterval(id);
   }, []);
+  // Venteliste (waitlist) — active count for the cockpit + the parties the
+  // backend surfaces when a booking is cancelled/no-showed (a table just freed).
+  const [waitlistCount, setWaitlistCount] = useState(0);
+  const [spotMatches, setSpotMatches] = useState([]);
   const [view, setView] = useState(() => {
     try {
       const saved = localStorage.getItem(RSVP_VIEW_KEY) || "liste";
@@ -1891,10 +1896,15 @@ function BookSection({ t, businessType, tableFloor = false }) {
         : prev,
     );
     try {
-      await api.patch(`/reservations/reservations/${r.id}/status`, {
+      const resp = await api.patch(`/reservations/reservations/${r.id}/status`, {
         status,
         cancel_reason: status === "cancelled" ? "owner_cancelled" : null,
       });
+      // A cancel/no-show may have freed a table — surface the waiting parties
+      // that fit (the backend already filtered by capacity + local day). This
+      // only SHOWS them; the owner still taps Notify / Book.
+      const m = resp?.data?.waitlist_matches;
+      if (Array.isArray(m) && m.length) setSpotMatches(m);
       await fetchBook(day);
     } catch (e) {
       setError(
@@ -2457,7 +2467,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
           Awaiting are click-to-filter into the list; Next arrival opens that
           booking; Belægning is a calm fill gauge. Awaiting goes amber when
           requests pile up — otherwise the whole row stays calm gray. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatCard
           label={t("rsvpCovers", "Covers")}
           value={summary.covers}
@@ -2495,6 +2505,12 @@ function BookSection({ t, businessType, tableFloor = false }) {
                 ? t("rsvpUtilPeakAt", "peak {time}", { time: peakTime })
                 : t("rsvpUtilHelper", "of {n} seats", { n: totalCapacity })
           }
+        />
+        <StatCard
+          label={t("rsvpWlCockpitToday", "On waitlist")}
+          value={waitlistCount}
+          accent={waitlistCount > 0 ? "warn" : "neutral"}
+          helper={t("rsvpWlWaiting", "Waiting")}
         />
       </div>
 
@@ -2577,6 +2593,15 @@ function BookSection({ t, businessType, tableFloor = false }) {
                 }
               />
             }
+          />
+
+          {/* Venteliste — parties we couldn't seat. A cancel/no-show above
+              hands us the fitting matches (spotMatches) to highlight. */}
+          <WaitlistSection
+            day={day}
+            spotMatches={spotMatches}
+            onCountChange={setWaitlistCount}
+            onConverted={() => fetchBook(day)}
           />
         </>
       )}
