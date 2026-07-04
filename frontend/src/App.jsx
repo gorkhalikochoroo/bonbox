@@ -571,6 +571,15 @@ function AppRoutes() {
             "/", which renders the landing page (logged-out) or the dashboard
             (logged-in). Without this, an unmatched path rendered a blank
             white screen with no redirect. (Audit 2026-06-10) */}
+        {/* Root-level vanity booking link — bonbox.dk/<slug>. Public (no auth),
+            the SAME page as /r/<slug>, which stays a permanent alias so every
+            link already shared keeps working. React Router ranks STATIC app
+            routes (e.g. /tax, /login) ABOVE this dynamic segment, so app pages
+            are never shadowed; a slug that WOULD collide is blocked at claim
+            time (RESERVED_SLUGS, backend). An unknown single-segment path falls
+            to the page's own "venue not found" state. Declared last so it only
+            catches what no static route already did. */}
+        <Route path="/:slug" element={<ReservationPublicPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

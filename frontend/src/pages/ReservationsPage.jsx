@@ -4211,13 +4211,15 @@ function SettingsSection({ t }) {
           : prev,
       );
     } catch (e) {
-      if (e?.response?.status === 409) {
+      const code = e?.response?.data?.detail?.error;
+      if (code === "slug_reserved") {
+        setSlugError(
+          t("rsvpSlugReserved", "That word is reserved — pick a different link."),
+        );
+      } else if (e?.response?.status === 409) {
         setSlugError(t("rsvpSlugTaken", "That link is taken — try another."));
       } else {
-        setSlugError(
-          e?.response?.data?.detail?.error ||
-            t("rsvpSlugError", "Couldn't update the link."),
-        );
+        setSlugError(code || t("rsvpSlugError", "Couldn't update the link."));
       }
     } finally {
       setSlugSaving(false);

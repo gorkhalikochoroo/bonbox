@@ -435,7 +435,7 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
     return {
         "reservations_enabled": bool(getattr(profile, "reservations_enabled", False)) if profile else False,
         "reservation_slug": slug,
-        "public_url": f"https://bonbox.dk/r/{slug}" if slug else None,
+        "public_url": _public_reservation_url(slug),
         "settings": settings,
         "allergen_set": allergen_set_for(btype),
         "severity_levels": list(SEVERITY_LEVELS),
@@ -470,6 +470,46 @@ def update_settings(payload: SettingsUpdate, request: Request,
     return get_settings(db, user)
 
 
+# Slugs an owner may NOT claim as a root vanity link (bonbox.dk/<slug>): they'd
+# collide with an app route (React Router ranks a static /tax above /:slug, so
+# bonbox.dk/tax opens the app, not the venue's booking page) or a reserved public
+# prefix / generic word. Keep in sync with the top-level routes in
+# frontend/src/App.jsx.
+RESERVED_SLUGS = frozenset({
+    # app routes (Layout-wrapped + auth pages)
+    "admin", "bank-import", "bar", "bookkeeping-export", "branches", "budgets",
+    "cashbook", "cashflow", "channel-settings", "competitors", "connections",
+    "consolidated-close", "contact", "cookies", "customers", "daily-close",
+    "daily-report", "dashboard", "events", "expenses", "expiry", "faktura",
+    "feedback", "forgot-password", "gavekort", "imports", "insights", "inventory",
+    "join", "khata", "loans", "login", "mileage", "modules", "more", "onboarding",
+    "outlets", "payment-imports", "personal", "pricing", "privacy", "profile",
+    "recently-deleted", "register", "reports", "reservations", "retention",
+    "sales", "scan", "share-recipients", "staff", "staffing", "subscription",
+    "tax", "team", "terminals", "terms", "vat-report", "verify-email", "waste",
+    "weather", "workshop", "accountant",
+    # existing public prefixes
+    "r", "g", "e", "s", "t", "portal",
+    # generic / infra — reserved for the platform
+    "api", "app", "www", "help", "support", "about", "blog", "status", "book",
+    "booking", "home", "index", "health", "robots", "sitemap", "favicon",
+    "manifest", "assets", "static", "auth", "oauth", "callback", "mail", "root",
+    "null", "undefined", "new",
+})
+
+
+def _public_reservation_url(slug: str | None) -> str | None:
+    """The shareable public booking link. A normal slug lives at the pretty root
+    (bonbox.dk/<slug>); a legacy slug that happens to collide with an app route
+    keeps the /r/ prefix so the SPA route never shadows it. New reserved claims
+    are blocked in set_slug — this branch only protects pre-existing rows."""
+    if not slug:
+        return None
+    if slug in RESERVED_SLUGS:
+        return f"https://bonbox.dk/r/{slug}"
+    return f"https://bonbox.dk/{slug}"
+
+
 @router.post("/slug")
 def set_slug(payload: SlugUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     enforce_feature(user, "reservations")
@@ -479,6 +519,10 @@ def set_slug(payload: SlugUpdate, db: Session = Depends(get_db), user: User = De
     desired = re.sub(r"[^a-z0-9]+", "-", payload.slug.lower()).strip("-")[:60]
     if not desired:
         raise HTTPException(status_code=422, detail={"error": "invalid_slug"})
+    # A root vanity slug can't be an app-route / reserved word (it would be
+    # shadowed by the SPA route). Guests would land on the app, not the booking.
+    if desired in RESERVED_SLUGS:
+        raise HTTPException(status_code=409, detail={"error": "slug_reserved"})
     clash = (
         db.query(BusinessProfile)
         .filter(BusinessProfile.reservation_slug == desired,
@@ -489,7 +533,7 @@ def set_slug(payload: SlugUpdate, db: Session = Depends(get_db), user: User = De
         raise HTTPException(status_code=409, detail={"error": "slug_taken"})
     profile.reservation_slug = desired
     db.commit()
-    return {"reservation_slug": desired, "public_url": f"https://bonbox.dk/r/{desired}"}
+    return {"reservation_slug": desired, "public_url": _public_reservation_url(desired)}
 
 
 # ─── resources ───────────────────────────────────────────────────────
