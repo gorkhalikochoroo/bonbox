@@ -31,7 +31,7 @@ function defaultBookTime() {
   return String(h).padStart(2, "0") + ":00";
 }
 
-export default function WaitlistSection({ day, spotMatches, onCountChange, onConverted }) {
+export default function WaitlistSection({ day, spotMatches, refreshTick, onCountChange, onConverted }) {
   const { t } = useLanguage();
   const confirm = useConfirm();
 
@@ -66,9 +66,14 @@ export default function WaitlistSection({ day, spotMatches, onCountChange, onCon
     }
   }, [day, onCountChange]);
 
+  // Refetch on day change AND whenever the parent's book refetches
+  // (refreshTick bumps after any booking mutation — status flip, table move/
+  // clear, new booking, walk-in). Keeps the Venteliste "spot on" the moment a
+  // booking changes, so a freed / newly-taken seat is reflected without a
+  // manual reload.
   useEffect(() => {
     fetchList();
-  }, [fetchList]);
+  }, [fetchList, refreshTick]);
 
   // Parent surfaced matches from a just-freed table → highlight + a calm banner.
   useEffect(() => {

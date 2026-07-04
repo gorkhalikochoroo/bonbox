@@ -1004,7 +1004,22 @@ def assign_table(reservation_id: UUID, payload: TableAssign, request: Request,
         r.combined_resource_ids = None
         audit_service.record(db, user, "reservation.table_assigned", "reservation", r.id)
         db.commit()
-        return _reservation_dict(r)
+        out = _reservation_dict(r)
+        # Auto-fill SURFACING (Venteliste): clearing a table just released its
+        # hold, so the slot may now fit a waiting party. Same SURFACE-only
+        # contract as update_status — reads + returns the fitting matches, sends
+        # no SMS, holds nothing, mutates no waitlist row; the owner still taps
+        # Notify / Book. Fail-soft: a match-scan hiccup must never break the
+        # table-clear the owner just made.
+        try:
+            out["waitlist_matches"] = _waitlist_matches(
+                db, user,
+                waitlist_date=_local_date_of(r.starts_at, user),
+                capacity=int(r.party_size or 0),
+            )
+        except Exception:  # noqa: BLE001
+            out["waitlist_matches"] = []
+        return out
 
     _assert_owned_resource(db, user, payload.resource_id)
 

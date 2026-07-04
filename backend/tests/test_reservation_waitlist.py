@@ -204,3 +204,31 @@ def test_cancel_surfaces_matches_but_does_not_act(client, db, monkeypatch):
     still = client.get(f"/api/reservations/waitlist?day={_TODAY}").json()
     assert still["active_count"] == 2
     assert all(w["status"] == "waiting" and w["notify_count"] == 0 for w in still["waitlist"])
+
+
+def test_clearing_a_table_surfaces_matches_but_does_not_act(client, db, monkeypatch):
+    # "When someone updates their booking, the waitlist updates spot on":
+    # clearing a booking's table releases its hold, so the freed slot surfaces
+    # the fitting waiting parties — same SHOW-only contract as cancel/no-show.
+    u = _seed(db)
+    _as(u)
+    small = _add(client, party_size=2, guest_phone="+4522220000").json()["id"]
+    _add(client, party_size=8, guest_phone="+4522220001")  # too big for a 4-top
+    bk = client.post("/api/reservations/book", json={
+        "guest_name": "Move", "party_size": 4, "starts_at": _START,
+        "auto_assign": False, "allow_overflow": True,
+    })
+    assert bk.status_code in (200, 201), bk.text
+    rid = bk.json()["id"]
+    # Clear the table (resource_id: null) → the edit path surfaces matches.
+    cleared = client.patch(f"/api/reservations/reservations/{rid}/table",
+                           json={"resource_id": None})
+    assert cleared.status_code == 200, cleared.text
+    matches = cleared.json().get("waitlist_matches")
+    assert matches is not None
+    ids = {m["id"] for m in matches}
+    assert small in ids and len(matches) == 1  # 2-top fits, 8-top excluded
+    # SURFACING ONLY — no waiting row was notified or converted.
+    still = client.get(f"/api/reservations/waitlist?day={_TODAY}").json()
+    assert still["active_count"] == 2
+    assert all(w["status"] == "waiting" and w["notify_count"] == 0 for w in still["waitlist"])

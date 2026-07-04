@@ -417,6 +417,24 @@ function AppRoutes() {
         <Route path="/g/buy/:slug" element={<GavekortBuyPage />} />
         {/* The recipient's live gavekort, opened from a link/QR — no auth. */}
         <Route path="/g/:token" element={<GavekortPublicPage />} />
+        {/* Host-stand pop-out — the reservation book on its OWN full-screen
+            page, deliberately OUTSIDE <Layout /> so there's no app sidebar/
+            chrome: a dedicated tablet/monitor at the door shows only the book.
+            Opened via the "open in new window" button on /reservations. It is
+            the SAME ReservationsPage (standalone detected from the /stand path)
+            so the list, filters, waitlist and drawer behave identically. Still
+            auth-protected (ProtectedRoute) + pillar/tier gated; all the app
+            providers live above <Routes>, so context is intact here. */}
+        <Route
+          path="/reservations/stand"
+          element={
+            <ProtectedRoute>
+              <PillarGate pillar="reservations">
+                <ReservationsPage />
+              </PillarGate>
+            </ProtectedRoute>
+          }
+        />
         <Route
           element={
             <ProtectedRoute>

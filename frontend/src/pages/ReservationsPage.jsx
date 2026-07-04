@@ -57,6 +57,7 @@ import {
   ChevronRight,
   BarChart3,
   Scissors,
+  ExternalLink,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
@@ -218,6 +219,13 @@ export default function ReservationsPage() {
   const { hasFeature, isReady } = useEntitlements();
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Host-stand pop-out: the same page served at /reservations/stand renders
+  // OUTSIDE the app <Layout /> (no sidebar/chrome) as a dedicated door screen.
+  // We detect it from the path — no prop threading needed — and use it to add a
+  // slim standalone top bar + a full-screen container, and to hide the pop-out
+  // button (no point re-popping from inside the pop-out).
+  const standalone = location.pathname.endsWith("/reservations/stand");
 
   // Per-vertical adaptation (Phase A). `bookingMode` gates the Floor tab
   // (TABLE-only) on the venue TYPE; `isProvider` (salon) drives the
@@ -1703,6 +1711,10 @@ function BookSection({ t, businessType, tableFloor = false }) {
   // backend surfaces when a booking is cancelled/no-showed (a table just freed).
   const [waitlistCount, setWaitlistCount] = useState(0);
   const [spotMatches, setSpotMatches] = useState([]);
+  // Bumped on every successful book refetch → tells WaitlistSection to resync
+  // so the Venteliste is "spot on" the instant a booking changes (status flip,
+  // table move/clear, new booking, walk-in), not just on a day change.
+  const [bookTick, setBookTick] = useState(0);
   const [view, setView] = useState(() => {
     try {
       const saved = localStorage.getItem(RSVP_VIEW_KEY) || "liste";
@@ -1772,6 +1784,8 @@ function BookSection({ t, businessType, tableFloor = false }) {
       try {
         const res = await api.get("/reservations/book", { params: { day: forDay } });
         setData(res.data || null);
+        // Signal the Venteliste to resync against the freshly-loaded book.
+        setBookTick((n) => n + 1);
       } catch (e) {
         setError(
           e?.response?.data?.detail?.error ||
@@ -2032,9 +2046,19 @@ function BookSection({ t, businessType, tableFloor = false }) {
     setAssigning(true);
     setAssignError("");
     try {
-      await api.patch(`/reservations/reservations/${r.id}/table`, { resource_id: next });
+      const patchResp = await api.patch(
+        `/reservations/reservations/${r.id}/table`,
+        { resource_id: next },
+      );
+      // Clearing a table releases its hold → the backend surfaces the waiting
+      // parties that now fit. Same SHOW-only contract as cancel/no-show: we
+      // highlight them, the owner still taps Notify / Book.
+      const m = patchResp?.data?.waitlist_matches;
+      if (Array.isArray(m) && m.length) setSpotMatches(m);
       const res = await api.get("/reservations/book", { params: { day } });
       setData(res.data || null);
+      // Resync the Venteliste against the just-changed book.
+      setBookTick((n) => n + 1);
       const fresh = (res.data?.reservations || []).find((x) => x.id === r.id);
       if (fresh) setSelected(fresh);
     } catch (e) {
@@ -2378,7 +2402,51 @@ function BookSection({ t, businessType, tableFloor = false }) {
   };
 
   return (
-    <div className="space-y-4">
+    <div
+      className={
+        standalone
+          ? "min-h-screen bg-gray-50 dark:bg-gray-950 px-4 sm:px-6 lg:px-8 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] space-y-4"
+          : "space-y-4"
+      }
+    >
+      {/* Host-stand top bar — only in the /reservations/stand pop-out, which
+          renders outside the app <Layout />. A slim brand row + a Luk that
+          closes the popped tab (or falls back to the full app). */}
+      {standalone && (
+        <div className="flex items-center justify-between gap-3 pb-3 border-b border-gray-200 dark:border-gray-800">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="inline-flex items-center justify-center h-9 w-9 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-gray-900 shrink-0">
+              <CalendarCheck className="w-5 h-5" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 leading-tight truncate">
+                {isProvider
+                  ? t("rsvpStandTitleProvider", "Aftaler")
+                  : t("rsvpStandTitle", "Reservationer")}
+              </div>
+              <div className="text-[11px] text-gray-500 dark:text-gray-400 leading-tight truncate">
+                {user?.business_name ? `${user.business_name} · ` : ""}
+                {t("rsvpStandMode", "Vært-skærm")}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                window.close();
+              } catch {
+                /* tab wasn't script-opened — the navigate below is the fallback */
+              }
+              navigate("/reservations");
+            }}
+            className="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+          >
+            <X className="w-4 h-4" aria-hidden />
+            <span className="hidden sm:inline">{t("close", "Luk")}</span>
+          </button>
+        </div>
+      )}
       {/* Toolbar: day controls (left) + view toggle (right). Every control is
           a ≥44px tap target for the Windows host-stand / tablet. */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -2438,6 +2506,22 @@ function BookSection({ t, businessType, tableFloor = false }) {
           </button>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Pop the book out to its own full-screen door screen (no sidebar).
+              Opens /reservations/stand in a new tab — a dedicated host-stand
+              display. Hidden while already inside the pop-out. */}
+          {!standalone && (
+            <button
+              type="button"
+              onClick={() =>
+                window.open("/reservations/stand", "_blank", "noopener,noreferrer")
+              }
+              aria-label={t("rsvpOpenStand", "Open host-stand view")}
+              title={t("rsvpOpenStand", "Open host-stand view")}
+              className="inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
+            >
+              <ExternalLink className="w-5 h-5" />
+            </button>
+          )}
           <TabPills
             tabs={[
               { id: "liste", label: t("rsvpViewListe", "List") },
@@ -2600,6 +2684,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
           <WaitlistSection
             day={day}
             spotMatches={spotMatches}
+            refreshTick={bookTick}
             onCountChange={setWaitlistCount}
             onConverted={() => fetchBook(day)}
           />
