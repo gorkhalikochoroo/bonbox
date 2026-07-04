@@ -1641,6 +1641,7 @@ const translations = {
     rsvpGroupLunch: "Lunch", rsvpGroupAfternoon: "Afternoon", rsvpGroupDinner: "Dinner",
     // CTA echoes the picked time on step 1: "Continue · 19:00 →".
     rsvpCtaWithTime: "Continue · {time} →",
+    rsvpPickTimeCta: "Pick a time",
     // Group-request explainer panel (replaces the slot grid on step 1).
     rsvpGroupPanelTitle: "Bigger group",
     rsvpGroupPanelBody: "Parties of {n} go to the place as a request — no time to pick. They'll confirm a time and get back to you.",
@@ -8545,6 +8546,7 @@ const translations = {
     rsvpGroupLunch: "Frokost", rsvpGroupAfternoon: "Eftermiddag", rsvpGroupDinner: "Aften",
     // CTA viser det valgte tidspunkt på trin 1: "Fortsæt · 19:00 →".
     rsvpCtaWithTime: "Fortsæt · {time} →",
+    rsvpPickTimeCta: "Vælg et tidspunkt",
     // Forespørgsels-panel for store selskaber (erstatter tidsgitteret på trin 1).
     rsvpGroupPanelTitle: "Større selskab",
     rsvpGroupPanelBody: "Selskaber på {n} sendes til stedet som en forespørgsel — du behøver ikke vælge tid. De bekræfter et tidspunkt og vender tilbage.",

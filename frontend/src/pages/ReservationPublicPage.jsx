@@ -1013,7 +1013,7 @@ export default function ReservationPublicPage() {
               <p className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
                 {isProvider ? t("rsvpBookATime", "Book en tid") : t("rsvpBookATable", "Book a table")}
               </p>
-              <h1 className="text-[26px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 leading-tight truncate">
+              <h1 className="text-[26px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 leading-[1.1] line-clamp-2">
                 {page.business_name}
               </h1>
             </div>
@@ -1270,7 +1270,7 @@ export default function ReservationPublicPage() {
                               size="md"
                               selected={slot === s}
                               onClick={() => setSlot(s)}
-                              className="h-11 w-full"
+                              className={"h-11 w-full " + (slot === s ? "font-semibold shadow-sm" : "")}
                             >
                               {s}
                             </Chip>
@@ -1662,7 +1662,9 @@ export default function ReservationPublicPage() {
                 : slot
                   ? // CTA echoes the picked time: "Fortsæt · 19:00 →".
                     t("rsvpCtaWithTime", "Continue · {time} →", { time: slot })
-                  : t("rsvpNext", "Næste →")}
+                  : // No slot yet → the button is disabled; make its label the
+                    // instruction so the greyed CTA guides instead of dead-ending.
+                    t("rsvpPickTimeCta", "Vælg et tidspunkt")}
             </Button>
           ) : (
             <Button

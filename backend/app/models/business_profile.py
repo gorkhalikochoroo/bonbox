@@ -172,9 +172,11 @@ class BusinessProfile(Base):
     )
 
     # ── Reservations (Migration 022) ───────────────────────────────────
-    # Public reservation page handle: bonbox.dk/r/<reservation_slug>.
-    # Vanity, durable (won't rotate — printed QR / Insta-bio links keep
-    # working). NULL = reservations not set up yet. UNIQUE via index.
+    # Public reservation page handle: the root vanity link bonbox.dk/<slug>
+    # (bonbox.dk/r/<slug> stays a permanent alias; a slug that collides with an
+    # app route keeps the /r/ form — see reservations._public_reservation_url).
+    # Durable (won't rotate — printed QR / Insta-bio links keep working).
+    # NULL = reservations not set up yet. UNIQUE via index.
     reservation_slug: Mapped[str | None] = mapped_column(String(80), nullable=True)
     # Owner kill-switch for the public page (accept bookings or not).
     reservations_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
