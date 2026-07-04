@@ -30,6 +30,7 @@ from app.models.bookable_resource import BookableResource
 from app.models.business_profile import BusinessProfile
 from app.models.reservation import Reservation
 from app.models.reservation_occupancy import ReservationOccupancy
+from app.models.reservation_waitlist import ReservationWaitlistEntry
 from app.models.user import User
 from app.services import audit_service
 from app.services.allergens import allergen_set_for, SEVERITY_LEVELS
@@ -39,10 +40,12 @@ from app.services.billing import (
     enforce_cap,
     enforce_feature,
     get_cap,
+    has_feature,
 )
 from app.services import reservation_service as rsvc
 from app.services import reservation_occupancy_service as occ_service
 from app.services.tz_utils import now_local
+from app.services.sms_service import send_sms, sms_configured
 from sqlalchemy.exc import IntegrityError
 from app.utils.time import utc_now
 
@@ -1107,7 +1110,295 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
         # constraint). Roll back the whole transition and tell the owner.
         db.rollback()
         raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
-    return _reservation_dict(r)
+
+    out = _reservation_dict(r)
+    # Auto-fill SURFACING (Venteliste): a cancel / no-show just freed a table,
+    # so surface the waiting parties that fit — the owner then taps Notify or
+    # Book. This ONLY reads + returns matches; it sends no SMS, holds nothing,
+    # and changes no waitlist row. Fail-soft: a match-scan hiccup must never
+    # break the status change the owner just made.
+    if payload.status in ("cancelled", "no_show"):
+        try:
+            out["waitlist_matches"] = _waitlist_matches(
+                db, user,
+                waitlist_date=_local_date_of(r.starts_at, user),
+                capacity=int(r.party_size or 0),
+            )
+        except Exception:  # noqa: BLE001
+            out["waitlist_matches"] = []
+    return out
+
+
+# ─── Venteliste (reservation waitlist) ───────────────────────────────
+# Parties the venue couldn't seat, parked here instead of a paper pad. The one
+# honesty spine (see reservation_waitlist.py): BonBox SURFACES matching waiting
+# parties to the owner when a table frees — it never auto-books, never holds a
+# table, never claims a table is reserved. Every endpoint carries the same
+# multi-barrier stack: L1 auth · L2 tenant scope (every query filters user_id,
+# every id is re-derived under the tenant) · L3 Pydantic bounds · L6 fail-closed
+# feature gate · L7 cap + audit rows · L10 honest returned counts.
+class WaitlistCreate(BaseModel):
+    guest_name: str | None = Field(default=None, max_length=160)
+    guest_phone: str = Field(min_length=3, max_length=40)
+    guest_email: str | None = Field(default=None, max_length=255)
+    party_size: int = Field(default=2, ge=1, le=100)
+    waitlist_date: date
+    desired_from: datetime | None = None
+    desired_to: datetime | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+
+class WaitlistUpdate(BaseModel):
+    party_size: int | None = Field(default=None, ge=1, le=100)
+    desired_from: datetime | None = None
+    desired_to: datetime | None = None
+    note: str | None = Field(default=None, max_length=500)
+    # PATCH may cancel; notify/convert have their own endpoints. Only 'cancelled'
+    # is an accepted status here so a client can't smuggle a fake 'converted'.
+    status: str | None = Field(default=None, pattern="^cancelled$")
+
+
+class WaitlistConvert(BaseModel):
+    starts_at: datetime
+    resource_id: UUID | None = None
+    auto_assign: bool = True
+    duration_min: int | None = Field(default=None, ge=15, le=600)
+    allow_overflow: bool = False
+
+
+def _waitlist_dict(w: ReservationWaitlistEntry) -> dict:
+    return {
+        "id": str(w.id),
+        "guest_name": w.guest_name, "guest_phone": w.guest_phone,
+        "guest_email": w.guest_email, "party_size": w.party_size,
+        "waitlist_date": w.waitlist_date.isoformat() if w.waitlist_date else None,
+        "desired_from": w.desired_from.isoformat() if w.desired_from else None,
+        "desired_to": w.desired_to.isoformat() if w.desired_to else None,
+        "status": w.status, "source": w.source, "note": w.note,
+        "notify_count": w.notify_count,
+        "notified_at": w.notified_at.isoformat() if w.notified_at else None,
+        "converted_reservation_id": (
+            str(w.converted_reservation_id) if w.converted_reservation_id else None
+        ),
+        "created_at": w.created_at.isoformat() if w.created_at else None,
+    }
+
+
+def _local_date_of(dt: datetime | None, user: User) -> date:
+    """Business-local calendar date of a stored datetime — the day a freed
+    booking is matched against waitlist_date."""
+    loc = now_local(user)
+    if dt is None:
+        return loc.date()
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    try:
+        return dt.astimezone(loc.tzinfo).date()
+    except Exception:  # noqa: BLE001
+        return dt.date()
+
+
+def _waitlist_matches(db: Session, user: User, *, waitlist_date, capacity, limit=5):
+    """Waiting/notified parties for a day that fit `capacity`, FIFO. Pure read,
+    tenant-scoped. A party larger than the freed capacity is never surfaced (no
+    false hope). capacity<=0 → no matches."""
+    if capacity <= 0:
+        return []
+    rows = (
+        db.query(ReservationWaitlistEntry)
+        .filter(
+            ReservationWaitlistEntry.user_id == user.id,
+            ReservationWaitlistEntry.waitlist_date == waitlist_date,
+            ReservationWaitlistEntry.status.in_(("waiting", "notified")),
+            ReservationWaitlistEntry.party_size <= capacity,
+        )
+        .order_by(ReservationWaitlistEntry.created_at.asc())
+        .limit(limit)
+        .all()
+    )
+    return [_waitlist_dict(w) for w in rows]
+
+
+def _owned_waitlist(db: Session, user: User, entry_id: UUID):
+    return (
+        db.query(ReservationWaitlistEntry)
+        .filter(ReservationWaitlistEntry.id == entry_id,
+                ReservationWaitlistEntry.user_id == user.id)
+        .first()
+    )
+
+
+@router.get("/waitlist")
+def list_waitlist(day: date | None = Query(default=None),
+                  db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """The day's Venteliste — active (waiting|notified) parties, FIFO."""
+    enforce_feature(user, "reservations")
+    d = day or now_local(user).date()
+    rows = (
+        db.query(ReservationWaitlistEntry)
+        .filter(
+            ReservationWaitlistEntry.user_id == user.id,
+            ReservationWaitlistEntry.waitlist_date == d,
+            ReservationWaitlistEntry.status.in_(("waiting", "notified")),
+        )
+        .order_by(ReservationWaitlistEntry.created_at.asc())
+        .limit(200)
+        .all()
+    )
+    return {"waitlist": [_waitlist_dict(w) for w in rows],
+            "day": d.isoformat(), "active_count": len(rows)}
+
+
+@router.post("/waitlist", status_code=201)
+def add_waitlist(payload: WaitlistCreate, request: Request,
+                 db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    enforce_feature(user, "reservations")
+    active = (
+        db.query(func.count(ReservationWaitlistEntry.id))
+        .filter(ReservationWaitlistEntry.user_id == user.id,
+                ReservationWaitlistEntry.status.in_(("waiting", "notified")))
+        .scalar() or 0
+    )
+    enforce_cap(user, "reservation_waitlist_active_max", int(active))
+    retention = int(rsvc.load_settings(_profile(db, user)).get("retention_days", 90))
+    w = ReservationWaitlistEntry(
+        user_id=user.id,
+        guest_name=(payload.guest_name or None),
+        guest_phone=payload.guest_phone.strip(),
+        guest_email=(payload.guest_email or None),
+        party_size=payload.party_size,
+        waitlist_date=payload.waitlist_date,
+        desired_from=payload.desired_from, desired_to=payload.desired_to,
+        note=(payload.note or None), source="manual",
+        purge_after=datetime.combine(payload.waitlist_date, datetime.min.time())
+        + timedelta(days=retention),
+    )
+    db.add(w)
+    db.flush()
+    audit_service.record(db, user, "reservation.waitlist_added",
+                         "reservation_waitlist", w.id)
+    db.commit()
+    return _waitlist_dict(w)
+
+
+@router.patch("/waitlist/{entry_id}")
+def update_waitlist(entry_id: UUID, payload: WaitlistUpdate, request: Request,
+                    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    enforce_feature(user, "reservations")
+    w = _owned_waitlist(db, user, entry_id)
+    if w is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    action = "reservation.waitlist_updated"
+    if payload.party_size is not None:
+        w.party_size = payload.party_size
+    if payload.desired_from is not None:
+        w.desired_from = payload.desired_from
+    if payload.desired_to is not None:
+        w.desired_to = payload.desired_to
+    if payload.note is not None:
+        w.note = payload.note or None
+    if payload.status == "cancelled" and w.status in ("waiting", "notified"):
+        w.status = "cancelled"
+        w.cancelled_at = utc_now()
+        action = "reservation.waitlist_cancelled"
+    audit_service.record(db, user, action, "reservation_waitlist", w.id)
+    db.commit()
+    return _waitlist_dict(w)
+
+
+@router.post("/waitlist/{entry_id}/notify")
+def notify_waitlist(entry_id: UUID, request: Request,
+                    db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Owner-initiated: mark a party notified + (if SMS is available) send ONE
+    honest SMS, else hand back the phone to call. Anti-spam is SERVER-enforced
+    (notify_count < 2) so a double-tap / two host iPads can't double-SMS. L10
+    honesty: sms_sent reflects the REAL send result; the copy never promises a
+    held table."""
+    enforce_feature(user, "reservations")
+    w = _owned_waitlist(db, user, entry_id)
+    if w is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    if w.status not in ("waiting", "notified"):
+        raise HTTPException(status_code=409, detail={"error": "non_notifiable"})
+    if int(w.notify_count or 0) >= 2:
+        raise HTTPException(status_code=429, detail={"error": "notify_cap"})
+
+    channel, sms_sent = "call", False
+    if w.guest_phone and has_feature(user, "sms_reminders") and sms_configured():
+        biz = (getattr(user, "business_name", None) or "").strip() or "restauranten"
+        navn = (w.guest_name or "").strip()
+        hej = f"Hej {navn}" if navn else "Hej"
+        text = (
+            f"{hej}, der er måske blevet en plads ledig hos {biz}. "
+            "Ring for at bekræfte — pladsen er ikke reserveret endnu."
+        )
+        try:
+            res = send_sms(to=w.guest_phone, text=text)
+        except Exception:  # noqa: BLE001
+            res = {"ok": False}
+        if res.get("ok"):
+            channel, sms_sent = "sms", True
+
+    w.status = "notified"
+    w.notify_count = int(w.notify_count or 0) + 1
+    w.notified_at = utc_now()
+    audit_service.record(db, user, "reservation.waitlist_notified",
+                         "reservation_waitlist", w.id)
+    db.commit()
+    return {"entry": _waitlist_dict(w), "channel": channel,
+            "sms_sent": sms_sent, "phone": w.guest_phone}
+
+
+@router.post("/waitlist/{entry_id}/convert")
+def convert_waitlist(entry_id: UUID, payload: WaitlistConvert, request: Request,
+                     db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Turn a waiting party into a REAL booking. Goes through the ordinary
+    create path (create_manual) so the DB no-double-booking constraint still
+    governs — a slot re-filled in the meantime raises 409 slot_unavailable and
+    the entry is left untouched (nothing lost). We NEVER write a Reservation
+    directly here."""
+    enforce_feature(user, "reservations")
+    w = _owned_waitlist(db, user, entry_id)
+    if w is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    if w.status not in ("waiting", "notified"):
+        raise HTTPException(status_code=409, detail={"error": "not_convertible"})
+
+    mr = ManualReservation(
+        guest_name=w.guest_name, guest_phone=w.guest_phone,
+        guest_email=w.guest_email, party_size=w.party_size,
+        starts_at=payload.starts_at, duration_min=payload.duration_min,
+        resource_id=payload.resource_id, source="manual", status="confirmed",
+        guest_notes=w.note, auto_assign=payload.auto_assign,
+        allow_overflow=payload.allow_overflow,
+    )
+    out = create_manual(mr, request, db=db, user=user)
+
+    w.status = "converted"
+    w.converted_reservation_id = UUID(out["id"])
+    audit_service.record(db, user, "reservation.waitlist_converted",
+                         "reservation_waitlist", w.id)
+    db.commit()
+    return {"entry": _waitlist_dict(w), "reservation": out}
+
+
+@router.get("/waitlist/matches")
+def waitlist_matches(freed_reservation_id: UUID = Query(...),
+                     db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Waiting parties that fit a just-freed booking. Pure read; the freed
+    booking is RE-DERIVED under the tenant (never trust a client party_size)."""
+    enforce_feature(user, "reservations")
+    r = (
+        db.query(Reservation)
+        .filter(Reservation.id == freed_reservation_id,
+                Reservation.user_id == user.id)
+        .first()
+    )
+    if r is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+    return {"matches": _waitlist_matches(
+        db, user, waitlist_date=_local_date_of(r.starts_at, user),
+        capacity=int(r.party_size or 0))}
 
 
 # ─── Behandlinger (salon service catalog) — S2 ───────────────────────
