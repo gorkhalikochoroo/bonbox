@@ -626,6 +626,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // Step 1: Revenue
   const [revCats, setRevCats] = useState(defaultRevCats);
   const [revAmounts, setRevAmounts] = useState({});
+  // Computed category-split suggestion for multi-category verticals:
+  //   { source: "history"|"none", confidence, sampleSize, categories }
+  // Drives the honest "beregnet fordeling" header + the graceful first-time
+  // hint. null = single-category vertical (no split UI). See the prefill effect.
+  const [splitMeta, setSplitMeta] = useState(null);
   const [customRevName, setCustomRevName] = useState("");
 
   // Step 2: Payments
@@ -1150,6 +1155,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         const today = businessDate;
         const params = { date: today };
         if (branchId) params.branch_id = branchId;
+        // branch_type lets the backend resolve THIS vertical's revenue category
+        // keys for the computed split (restaurant food/drinks/takeaway, etc.).
+        if (branchType) params.branch_type = branchType;
         const res = await api.get("/daily-close/prefill", { params });
         // Apply night shift cutoff from business profile
         const serverCutoff = res.data.day_cutoff_hour || 0;
@@ -1213,15 +1221,32 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               });
               setPayAmounts(newPay);
             }
-            // Auto-fill revenue total into the first category (or "revenue" for general)
+            // Revenue prefill. Single-category verticals get the whole total in
+            // the one category. Multi-category verticals get an HONEST computed
+            // split ("beregnet fordeling") from the owner's own historical mix
+            // when the backend has enough confirmed closes — the owner confirms
+            // or corrects (confirm-and-correct). When there's no signal we leave
+            // categories BLANK and show a calm one-liner (never invent a split).
             const salesTotal = res.data.suggested_prefill?.revenue_total || 0;
-            if (salesTotal > 0) {
+            const split = res.data.category_split;
+            if (defaultRevCats.length === 1 || branchType === "general") {
               const firstCat = defaultRevCats[0]?.key;
-              if (defaultRevCats.length === 1 || branchType === "general") {
-                setRevAmounts({ [firstCat]: String(salesTotal) });
-              }
-              // For restaurant/workshop with multiple cats, leave revenue blank
-              // so user distributes manually — but show total as hint
+              if (salesTotal > 0 && firstCat) setRevAmounts({ [firstCat]: String(salesTotal) });
+              setSplitMeta(null);
+            } else if (split && split.categories && Object.keys(split.categories).length > 0) {
+              const next = {};
+              Object.entries(split.categories).forEach(([k, v]) => { next[k] = String(v); });
+              setRevAmounts(next);
+              setSplitMeta({
+                source: split.source,
+                confidence: split.confidence,
+                sampleSize: split.sample_size,
+                categories: split.categories,
+              });
+            } else {
+              // Multi-category vertical with not enough history → blank fields +
+              // a calm first-time hint (splitMeta.source === "none").
+              setSplitMeta({ source: "none" });
             }
           }
         }
@@ -1231,7 +1256,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       setPrefillLoading(false);
     };
     fetchPrefill();
-  }, [branchId, businessDate]);
+  }, [branchId, branchType, businessDate]);
 
   const revenueTotal = useMemo(() => Object.values(revAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0), [revAmounts]);
   const paymentTotal = useMemo(() => Object.values(payAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0), [payAmounts]);
@@ -2309,45 +2334,22 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       </div>
                     )}
                   </div>
-                  {defaultRevCats.length > 1 && (
-                    <Button
+                  {/* Reset to the computed split — re-applies the honest
+                      per-category "beregnet" amounts (never dumps the total into
+                      one category, which the old best-effort item-matcher did).
+                      Only shown when a computed split exists. */}
+                  {splitMeta?.source === "history" && splitMeta.categories && (
+                    <button
                       type="button"
-                      variant="primary"
-                      size="sm"
-                      className="shrink-0"
+                      className="shrink-0 text-xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 underline underline-offset-2"
                       onClick={() => {
-                        // Auto-distribute by item name into existing categories
-                        // (best-effort match) or dump into first category if no
-                        // mapping. Owner can still edit each line after.
-                        const items = prefill.sales.by_item || {};
-                        const cats = defaultRevCats;
-                        const next = { ...revAmounts };
-                        const matched = new Set();
-                        for (const [item, amt] of Object.entries(items)) {
-                          const lc = item.toLowerCase();
-                          const hit = cats.find(c => lc.includes(c.key.toLowerCase()) || c.label.toLowerCase().includes(lc));
-                          if (hit) {
-                            next[hit.key] = String(Math.round((Number(next[hit.key] || 0) + amt) * 100) / 100);
-                            matched.add(item);
-                          }
-                        }
-                        // Unmatched amounts go to the first category as a fallback
-                        const unmatchedSum = Object.entries(items)
-                          .filter(([k]) => !matched.has(k))
-                          .reduce((s, [, v]) => s + v, 0);
-                        if (unmatchedSum > 0 && cats.length > 0) {
-                          const k = cats[0].key;
-                          next[k] = String(Math.round((Number(next[k] || 0) + unmatchedSum) * 100) / 100);
-                        }
-                        // If no items breakdown, just dump total in first category
-                        if (Object.keys(items).length === 0 && cats.length > 0) {
-                          next[cats[0].key] = String(prefill.sales.total);
-                        }
+                        const next = {};
+                        Object.entries(splitMeta.categories).forEach(([k, v]) => { next[k] = String(v); });
                         setRevAmounts(next);
                       }}
                     >
-                      {t("useTheseNumbers", "Use these numbers")}
-                    </Button>
+                      {t("dcResetToComputed", "Reset to computed split")}
+                    </button>
                   )}
                 </div>
               </div>
@@ -2366,6 +2368,22 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 </div>
               );
             })()}
+            {/* Honest computed-split cue. "beregnet" (computed), NEVER presented
+                as a measured/scanned fact — it's the owner's own historical mix
+                applied to today's total, to confirm or correct. The graceful
+                first-time line shows when there's no history yet; single-category
+                verticals show neither (splitMeta === null). */}
+            {splitMeta?.source === "history" && (
+              <div className="flex items-start gap-2 text-xs text-gray-500 dark:text-gray-400 -mb-1">
+                <Icon name="Sparkles" size={13} className="mt-0.5 shrink-0 text-gray-400 dark:text-gray-500" />
+                <span>{t("dcSplitComputed", "Computed from your last {n} closes — check and adjust if needed.", { n: splitMeta.sampleSize })}</span>
+              </div>
+            )}
+            {splitMeta?.source === "none" && (
+              <div className="text-xs text-gray-400 dark:text-gray-500 -mb-1">
+                {t("dcSplitFirstTime", "We'll suggest a split once you've closed a few days.")}
+              </div>
+            )}
             {revCats.map(cat => (
               <div key={cat.key}>
                 <label className={labelClass}><Icon name={cat.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {cat.label}</label>

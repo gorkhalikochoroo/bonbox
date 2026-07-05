@@ -1548,10 +1548,137 @@ def branch_summary(
 
 # ─── GET — prefill from real sales/expenses/cash data ───
 
+# Revenue-category key sets per business type — MUST mirror the frontend
+# REVENUE_CATS_BY_TYPE (DailyClosePage.jsx). Used to constrain the computed
+# category split to the vertical's real categories (a legacy close that used an
+# old key is dropped + renormalised, never surfaced). Single-category verticals
+# ("general") get no split — there's nothing to distribute.
+_REVENUE_CAT_KEYS_BY_TYPE = {
+    "restaurant": ["food", "drinks", "takeaway"],
+    "workshop": ["parts", "labor", "diagnostics", "towing"],
+    "retail": ["products", "returns", "services"],
+    "salon": ["treatments", "retail_products"],
+    "bakery": ["bread_pastry", "drinks", "other"],
+    "grocery": ["products", "tobacco_lottery", "fresh", "other"],
+    "ecommerce": ["online_sales", "returns", "shipping"],
+    "general": ["revenue"],
+}
+
+# How many prior confirmed closes to sample for the historical mix, and the
+# minimum needed before we suggest anything (below it → graceful blank, never a
+# false-confidence guess).
+_SPLIT_HISTORY_LIMIT = 20
+_SPLIT_MIN_SAMPLE = 3
+_SPLIT_MEDIUM_SAMPLE = 8
+
+
+def _build_category_split(db, user, branch_id, branch_type, target_date, sales_total):
+    """Compute an HONEST, editable per-category revenue suggestion for the close.
+
+    v1 signal = the owner's own HISTORICAL MIX: the average category proportions
+    across their recent CONFIRMED closes, applied to today's sales_total. It is a
+    weighted rolling average, NOT a learned model and NOT a measurement — the
+    frontend labels it "beregnet" (computed), never "aflæst". The scanned-Z-report
+    ("aflæst") path is handled separately by the scan flow, which already carries
+    a real revenue_breakdown off the register tape.
+
+    Doctrine guarantees:
+      • DEGRADE GRACEFULLY — <3 usable historical closes → returns None; the
+        frontend then leaves categories blank (never invents a split).
+      • TIES OUT — the per-category amounts sum EXACTLY to sales_total (the øre
+        residual rides the largest category), so downstream MOMS is untouched:
+        the split only redistributes an already-correct total.
+      • SELF-IMPROVES HONESTLY — reads back each close's persisted (already
+        owner-corrected) revenue_categories, so a correction improves tomorrow's
+        suggestion with zero ML. Same-weekday closes are preferred (a Saturday's
+        mix differs from a Tuesday's).
+      • TENANT + BRANCH SCOPED — never mixes another owner's or another
+        location's mix.
+
+    Returns {"source","confidence","sample_size","categories":{key: amount}} or
+    None. Never raises — a bad split must never break the prefill.
+    """
+    try:
+        if not sales_total or sales_total <= 0:
+            return None
+        keys = _REVENUE_CAT_KEYS_BY_TYPE.get(branch_type or "", _REVENUE_CAT_KEYS_BY_TYPE["restaurant"])
+        if len(keys) <= 1:
+            return None  # single-category vertical — nothing to split
+        key_set = set(keys)
+
+        q = db.query(DailyClose).filter(
+            DailyClose.user_id == user.id,
+            DailyClose.status == "confirmed",
+            DailyClose.is_deleted.isnot(True),
+            DailyClose.date < target_date,
+        )
+        if branch_id:
+            q = q.filter(DailyClose.branch_id == branch_id)
+        rows = q.order_by(DailyClose.date.desc()).limit(120).all()
+
+        # Prefer same-weekday closes (mix genuinely differs Sat vs Tue); fall
+        # back to all-days when there aren't enough same-weekday samples.
+        same_dow = [r for r in rows if r.date and r.date.weekday() == target_date.weekday()]
+        pool = same_dow if len(same_dow) >= _SPLIT_MIN_SAMPLE else rows
+        pool = pool[:_SPLIT_HISTORY_LIMIT]
+
+        # Average-of-ratios: each close contributes its own category PROPORTIONS
+        # (normalised by that close's own category-sum, not its stored
+        # revenue_total which legacy rows may disagree with), so one huge day
+        # never dominates the mix.
+        prop_sums = {k: 0.0 for k in keys}
+        used = 0
+        for r in pool:
+            cats = decode_breakdown(r.revenue_categories)
+            known = {k: float(v) for k, v in cats.items() if k in key_set and float(v) > 0}
+            tot = sum(known.values())
+            if tot <= 0:
+                continue
+            for k, v in known.items():
+                prop_sums[k] += v / tot
+            used += 1
+
+        if used < _SPLIT_MIN_SAMPLE:
+            return None  # not enough signal → graceful blank
+
+        # Mean proportion per key, renormalised over the keys that actually
+        # appeared so they sum to 1.0.
+        mean_props = {k: (prop_sums[k] / used) for k in keys}
+        total_prop = sum(mean_props.values())
+        if total_prop <= 0:
+            return None
+        mean_props = {k: p / total_prop for k, p in mean_props.items()}
+
+        # Apply to today's total, round to øre, then force EXACT tie-out by
+        # pushing the residual onto the largest-share category.
+        amounts = {k: round(sales_total * p, 2) for k, p in mean_props.items()}
+        residual = round(sales_total - sum(amounts.values()), 2)
+        if residual != 0:
+            biggest = max(amounts, key=lambda k: amounts[k])
+            amounts[biggest] = round(amounts[biggest] + residual, 2)
+
+        # Drop zero categories from the suggestion (owner can still type them).
+        amounts = {k: v for k, v in amounts.items() if v > 0}
+        if not amounts:
+            return None
+
+        confidence = "medium" if used >= _SPLIT_MEDIUM_SAMPLE else "low"
+        return {
+            "source": "history",
+            "confidence": confidence,
+            "sample_size": used,
+            "categories": amounts,
+        }
+    except Exception as e:  # noqa: BLE001 — a bad split must never break prefill
+        print(f"category_split build failed: {e}")
+        return None
+
+
 @router.get("/prefill")
 def prefill_daily_close(
     target_date: date = Query(default=None, alias="date"),
     branch_id: str = Query(None),
+    branch_type: str = Query(None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -1708,6 +1835,14 @@ def prefill_daily_close(
             "payment_breakdown": by_payment,
             "cash_expected": by_payment.get("cash", 0),
         },
+        # Computed per-category revenue suggestion ("beregnet fordeling") so the
+        # nightly restaurant close stops being hand-typed. None when there's not
+        # enough history — the frontend then leaves categories blank. Honest:
+        # this is the owner's own historical mix applied to today's total, never
+        # a measurement. See _build_category_split.
+        "category_split": _build_category_split(
+            db, user, branch_id, branch_type, target_date, sales_total
+        ),
     }
 
 
