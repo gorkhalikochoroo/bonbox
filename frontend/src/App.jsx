@@ -1,5 +1,6 @@
 import { Component, lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { reportClientError } from "./utils/reportClientError";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { EntitlementsProvider } from "./hooks/useEntitlements";
 import { FeaturesProvider } from "./hooks/useFeatures";
@@ -40,27 +41,67 @@ function PageLoader() {
   );
 }
 
+// A chunk-load failure is the ONE render crash a reload can fix (a stale
+// deploy or a dropped network fetch left a lazy chunk un-loadable). Every
+// other crash is a genuine code bug — reloading just re-hits the same crash.
+function isChunkLoadError(err) {
+  if (err && err.name === "ChunkLoadError") return true;
+  const m = (err && err.message) || "";
+  return m.includes("Loading chunk") ||
+         m.includes("Loading CSS chunk") ||
+         m.includes("Failed to fetch dynamically imported") ||
+         m.includes("Importing a module script failed") ||          // Safari
+         m.includes("error loading dynamically imported module") ||
+         // SPA fallback served index.html for a missing /assets/*.js → the
+         // browser refuses to run HTML as a module. The clearest stale-deploy tell.
+         m.includes("is not a valid JavaScript MIME type");
+}
+// Pull the failing chunk filename out of the message so the crash report
+// carries the exact asset that 404'd — the fingerprint of a skewed deploy.
+function chunkFromError(err) {
+  try {
+    const m = (err && err.message) || "";
+    const match = m.match(/([A-Za-z0-9_.-]+\.js)/);
+    return match ? match[1] : "";
+  } catch { return ""; }
+}
+
 // Catch React render crashes — auto-recovers from stale cache
 class ErrorBoundary extends Component {
   constructor(props) { super(props); this.state = { hasError: false, retrying: false }; }
   static getDerivedStateFromError() { return { hasError: true }; }
   componentDidCatch(err, info) {
     console.error("BonBox error:", err, info);
-    // Auto-recover from chunk loading failures (stale deploy / slow network)
-    const isChunkError = err?.message?.includes("Loading chunk") || err?.message?.includes("Failed to fetch dynamically imported");
-    const retryCount = parseInt(sessionStorage.getItem("error_retry_count") || "0", 10);
-    if (retryCount < 2) {
-      sessionStorage.setItem("error_retry_count", String(retryCount + 1));
-      if ("caches" in window) {
-        caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).then(() => {
+    const isChunkError = isChunkLoadError(err);
+    // Phone home on EVERY crash — this is how we hear about a broken prod
+    // deploy (fail-soft: the reporter never throws, so it can't worsen a
+    // page that's already down).
+    try {
+      reportClientError({
+        kind: isChunkError ? "chunk_load" : "render",
+        message: (err && err.message) || String(err),
+        chunk: chunkFromError(err),
+      });
+    } catch { /* best-effort */ }
+    // Only a stale-chunk error is fixable by a reload. A genuine render bug
+    // reloads straight back into the same crash, so we DON'T reload it — we
+    // show the calm fallback immediately (fixes the old "any error reloads
+    // twice" loop) while still having reported it above.
+    if (isChunkError) {
+      const retryCount = parseInt(sessionStorage.getItem("error_retry_count") || "0", 10);
+      if (retryCount < 2) {
+        sessionStorage.setItem("error_retry_count", String(retryCount + 1));
+        if ("caches" in window) {
+          caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k)))).then(() => {
+            window.location.reload();
+          });
+        } else {
           window.location.reload();
-        });
-      } else {
-        window.location.reload();
+        }
       }
+      // Clear retry count after 60s so a future chunk crash can auto-recover again
+      setTimeout(() => { try { sessionStorage.removeItem("error_retry_count"); } catch { /* ignore */ } }, 60000);
     }
-    // Clear retry count after 60s so future crashes can auto-recover again
-    setTimeout(() => sessionStorage.removeItem("error_retry_count"), 60000);
   }
   handleClearAndReload = () => {
     this.setState({ retrying: true });
@@ -128,7 +169,22 @@ function lazyRetry(importFn) {
   return lazy(() => importFn().catch(() =>
     new Promise((resolve) => setTimeout(resolve, 1500)).then(() =>
       importFn().catch(() =>
-        new Promise((resolve) => setTimeout(resolve, 3000)).then(() => importFn())
+        new Promise((resolve) => setTimeout(resolve, 3000)).then(() =>
+          importFn().catch((err) => {
+            // Exhausted all retries — the chunk is genuinely unloadable
+            // (skewed deploy / offline). Report from the precise give-up
+            // point (we have the chunk name here), then re-throw so the
+            // ErrorBoundary's guarded one-shot reload still runs.
+            try {
+              reportClientError({
+                kind: "chunk_load",
+                message: (err && err.message) || "lazy import failed after retries",
+                chunk: chunkFromError(err),
+              });
+            } catch { /* best-effort */ }
+            throw err;
+          })
+        )
       )
     )
   ));

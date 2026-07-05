@@ -14,6 +14,7 @@
 import { Component } from "react";
 import { RefreshCw } from "lucide-react";
 import { useLanguage } from "../hooks/useLanguage";
+import { reportClientError } from "../utils/reportClientError";
 
 function SelfHealFallback({ onRetry }) {
   const { t } = useLanguage();
@@ -55,6 +56,16 @@ export default class SelfHealBoundary extends Component {
         () => this.setState((s) => ({ failed: false, attempts: s.attempts + 1 })),
         800,
       );
+    } else {
+      // Survived one silent re-mount and crashed AGAIN — not transient. Phone
+      // home so we hear about a component that's genuinely broken in prod
+      // (fail-soft; never rethrows, never auto-repairs money — see red-line above).
+      try {
+        reportClientError({
+          kind: "render",
+          message: (error && error.message) || "SelfHealBoundary second failure",
+        });
+      } catch { /* best-effort */ }
     }
   }
 

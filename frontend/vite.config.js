@@ -14,6 +14,17 @@ export default defineConfig({
   esbuild: {
     jsx: 'automatic',
   },
+  // ── Build stamp for the client-error beacon ──────────────────────
+  // Injected as a literal so a crashing browser can report WHICH build
+  // it was running. On Vercel this is the deploy commit SHA; a report
+  // whose build_id != the current server build = a stale/skewed deploy
+  // (exactly the ReservationsPage chunk-mismatch class we're hunting).
+  define: {
+    __BUILD_ID__: JSON.stringify(
+      (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 8) ||
+      ('t' + Date.now().toString(36))
+    ),
+  },
   // ── Single React instance (guards "Invalid hook call") ───────────
   // React's hook dispatcher is module-level state: if any dependency
   // resolves a SECOND copy of react/react-dom, every hook in the app

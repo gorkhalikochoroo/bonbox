@@ -14,6 +14,8 @@
     "lint": "eslint .",
     "lint:doctrine": "bash scripts/check-design-doctrine.sh",
     "lint:i18n": "node scripts/check-i18n-keys.cjs",
+    "healthcheck:prod": "node scripts/prod-healthcheck.mjs --base=https://www.bonbox.dk --api-base=https://api.bonbox.dk",
+    "healthcheck:prod:strict": "node scripts/prod-healthcheck.mjs --base=https://www.bonbox.dk --api-base=https://api.bonbox.dk --expect-index=$(node -e \"const fs=require('fs');const m=fs.readFileSync('dist/index.html','utf8').match(/assets\\/(index-[A-Za-z0-9_$-]{8})\\.js/);process.stdout.write(m?m[1]+'.js':'')\") --strict-stale",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"

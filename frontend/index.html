@@ -212,6 +212,26 @@
       window.addEventListener("error", function(e) {
         // Only trigger on chunk/module load failures
         if (e.message && (e.message.includes("Loading chunk") || e.message.includes("Failed to fetch") || e.message.includes("Importing a module"))) {
+          // Phone home BEFORE the reload — this window-level handler can fire
+          // before React mounts (a broken entry/route chunk), so the in-app
+          // ErrorBoundary may never see it. Fire once, best-effort, minimal-PII.
+          try {
+            if (!sessionStorage.getItem("cc_reported")) {
+              sessionStorage.setItem("cc_reported", "1");
+              var h = (location && location.hostname) || "";
+              var base = (h === "bonbox.dk" || h.endsWith(".bonbox.dk")) ? "https://api.bonbox.dk/api" : "";
+              if (base && navigator && navigator.sendBeacon) {
+                var body = JSON.stringify({
+                  kind: "chunk_load",
+                  route: (location.pathname || "").slice(0, 200),
+                  message: String(e.message || "").slice(0, 500),
+                  chunk: (String(e.filename || "").split("/").pop() || "").slice(0, 160),
+                  build_id: "boot"
+                });
+                navigator.sendBeacon(base + "/diagnostics/client-error", new Blob([body], { type: "application/json" }));
+              }
+            }
+          } catch (x) { /* best-effort */ }
           // Clear all caches and reload once
           if (!sessionStorage.getItem("cache_cleared")) {
             sessionStorage.setItem("cache_cleared", "1");
