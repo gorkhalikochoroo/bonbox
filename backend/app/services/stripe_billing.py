@@ -218,12 +218,25 @@ def create_checkout_session(
         # respect it without further logic.
         price = price_id
     elif plan_normalized == "starter":
-        if is_founding and settings.STRIPE_PRICE_ID_STARTER_FOUNDING:
+        if is_founding:
+            # Founding-eligible: the landing PROMISES the founding price. If the
+            # founding price ID isn't configured, we must NOT silently fall
+            # through to the full price — that's a bait-and-switch / chargeback.
+            # Fail closed: refuse the checkout until the env is set (honest —
+            # "can't take your money at the wrong price" beats overcharging).
+            if not settings.STRIPE_PRICE_ID_STARTER_FOUNDING:
+                log.error("Founding slot open but STRIPE_PRICE_ID_STARTER_FOUNDING unset "
+                          "— refusing checkout rather than charge a founding user full price")
+                return None
             price = settings.STRIPE_PRICE_ID_STARTER_FOUNDING
         else:
             price = settings.STRIPE_PRICE_ID_STARTER
     else:  # "pro" or unknown → Pro
-        if is_founding and settings.STRIPE_PRICE_ID_PRO_FOUNDING:
+        if is_founding:
+            if not settings.STRIPE_PRICE_ID_PRO_FOUNDING:
+                log.error("Founding slot open but STRIPE_PRICE_ID_PRO_FOUNDING unset "
+                          "— refusing checkout rather than charge a founding user full price")
+                return None
             price = settings.STRIPE_PRICE_ID_PRO_FOUNDING
         else:
             price = settings.STRIPE_PRICE_ID_PRO

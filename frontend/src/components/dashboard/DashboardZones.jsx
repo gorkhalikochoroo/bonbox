@@ -166,6 +166,18 @@ export default function DashboardZones({
   zoneIds = DASHBOARD_ZONE_KEYS,
   className = "",
 }) {
+  // 0. HOOKS FIRST — rules-of-hooks. This useMemo must run on EVERY render,
+  //    before the full-page early-return below. When a brand-new owner records
+  //    their first sale, `isFirstRun` flips true→false with no remount; if the
+  //    early return sat above this hook, the hook count would change between
+  //    renders → "Rendered more hooks than during the previous render" crash on
+  //    the Home screen (self-healed by SelfHealBoundary but it flashed + spammed
+  //    the client-error beacon on every first-run user). Cheap to always run.
+  const zone3DynamicCount = useMemo(
+    () => computeZone3DynamicCount(cardSet, ctx),
+    [cardSet, ctx],
+  );
+
   // 1. Full-page replacement state — first match wins, hides everything
   //    below. (Spec lists only firstRun today; others can be added
   //    without touching this orchestrator.)
@@ -185,14 +197,8 @@ export default function DashboardZones({
     // Component missing — fall through and render zones normally.
   }
 
-  // 2. Compute the Zone 3 dynamic count BEFORE rendering. This augmented
-  //    ctx is passed down so AllClearCard's renderIf sees the right
-  //    number. We use useMemo here because the ctx object may be stable
-  //    across renders and re-evaluating predicates is cheap but not free.
-  const zone3DynamicCount = useMemo(
-    () => computeZone3DynamicCount(cardSet, ctx),
-    [cardSet, ctx],
-  );
+  // 2. Augmented ctx passed down so AllClearCard's renderIf sees the right
+  //    Zone-3 count.
   const ctxWithZone3 = { ...ctx, zone3DynamicCount };
 
   // 3. Render notices.

@@ -110,6 +110,31 @@ def test_pro_founding_uses_pro_founding_price():
         assert line_items[0]["price"] == "price_pro_founding"
 
 
+def test_founding_eligible_but_founding_price_unset_refuses_checkout():
+    """Bait-and-switch guard: when a founding slot is OPEN (landing promises the
+    founding price) but the founding price ID is NOT configured, we must FAIL
+    CLOSED — return None and never create a checkout — rather than silently
+    charge the full price. Env-set the founding IDs to fix; never overcharge."""
+    from app.services.stripe_billing import create_checkout_session
+
+    with patch.object(settings, "STRIPE_PRICE_ID_STARTER", "price_starter_regular"), \
+         patch.object(settings, "STRIPE_PRICE_ID_STARTER_FOUNDING", ""), \
+         patch.object(settings, "STRIPE_PRICE_ID_PRO", "price_pro_regular"), \
+         patch.object(settings, "STRIPE_PRICE_ID_PRO_FOUNDING", ""), \
+         patch("app.services.stripe_billing._stripe") as mock_stripe, \
+         patch("app.services.stripe_billing._is_founding_member_slot_open", return_value=True), \
+         patch("app.services.stripe_billing.get_or_create_customer", return_value="cus_test"):
+
+        mock_create = mock_stripe.return_value.checkout.Session.create
+        user = _stub_user()
+
+        for plan in ("pro", "starter"):
+            result = create_checkout_session(user, db=_stub_db(), plan=plan)
+            assert result is None, f"{plan}: must refuse, not charge full price"
+        # Never created a Stripe checkout at the wrong price
+        mock_create.assert_not_called()
+
+
 def test_pro_non_founding_uses_pro_regular_price():
     """When founding slot is closed, Pro routes to the regular price."""
     from app.services.stripe_billing import create_checkout_session
