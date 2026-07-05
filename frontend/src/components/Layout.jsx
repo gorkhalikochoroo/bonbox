@@ -8,7 +8,7 @@ import { usePillars } from "../hooks/usePillars";
 import { useActivation } from "../hooks/useActivation";
 import { getVatTerms } from "../utils/currency";
 import { isNativeApp } from "../utils/platform";
-import { NAV_MANIFEST, NAV_GROUPS, filterDestinations, PILLAR_DISPLAY_BY_ID } from "../config/navManifest";
+import { NAV_MANIFEST, NAV_GROUPS, filterDestinations, PILLAR_DISPLAY_BY_ID, isStaffMemberRole } from "../config/navManifest";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
@@ -94,7 +94,7 @@ const navGroups = buildSidebarGroups();
  *  Accountant-view / logged-out yield an empty Set upstream, so a revisor
  *  always sees the full nav.
  */
-function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasFeature, entReady = true, hiddenPillars = new Set(), archetypeId = null, activation = null) {
+function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasFeature, entReady = true, hiddenPillars = new Set(), archetypeId = null, activation = null, isStaffMember = false) {
   const activeTypes = branchType ? [branchType] : businessTypes;
   const enabled = enabledModules instanceof Set ? enabledModules : new Set();
   const featReady = entReady !== false;
@@ -129,6 +129,9 @@ function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasF
     activatedPillars: act.activatedPillars instanceof Set ? act.activatedPillars : undefined,
     isInScope: act.isInScope === true,
     activationEnabled: act.activationEnabled === true,
+    // OWNER-ONLY axis — hide the owner's financial surfaces (Reports & MOMS,
+    // Tax) from invited staff members. Owner + accountant are not staff.
+    isStaffMember,
   };
 
   return groups
@@ -389,7 +392,7 @@ export default function Layout() {
   // Filter sidebar groups by both business_type (branch) and enabled modules
   const baseVisible = isAccountant
     ? accountantNavGroups
-    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, archetypeIdFor(branchType || user?.business_type), activation);
+    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, archetypeIdFor(branchType || user?.business_type), activation, isStaffMemberRole(user?.role));
   // For super_admin owners, show an extra "Platform" group with the admin
   // dashboard. Frontend gating is cosmetic — real enforcement is server-side
   // (services/admin_security.py). A non-admin clicking this link sees an empty

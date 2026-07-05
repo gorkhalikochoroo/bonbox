@@ -3416,6 +3416,13 @@ _MEMBER_READ_DENY_PREFIXES = (
     "/api/bank-connections",
     "/api/bank-import",
     "/api/cashflow",
+    # The whole Reports & MOMS router is owner financial/compliance reporting —
+    # /reports/monthly, /vat-export(/pdf), /overview, /forecast all return the
+    # owner's SKAT liability (moms_til_skat / vat_payable). Owner-only by
+    # product decision (Manoj, 2026-07-06). A member's operational reads live
+    # under other prefixes (/api/sales, /api/staff, /api/dashboard), so denying
+    # the whole /api/reports prefix costs a member nothing they need.
+    "/api/reports",
 )
 # Owner financials a MANAGER must not read — the full set MINUS the wage-cost
 # estimate (/api/staff/payroll). Subset of _MEMBER_READ_DENY_PREFIXES, so the
@@ -3427,6 +3434,7 @@ _MANAGER_READ_DENY_PREFIXES = (
     "/api/bank-connections",
     "/api/bank-import",
     "/api/cashflow",
+    "/api/reports",
 )
 _LOW_PRIV_MEMBER_ROLES = frozenset({"cashier", "viewer"})
 

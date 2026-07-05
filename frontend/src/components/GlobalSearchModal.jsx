@@ -5,8 +5,9 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "./BranchSelector";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { usePillars } from "../hooks/usePillars";
+import { useAuth } from "../hooks/useAuth";
 import { Icon } from "./ui";
-import { NAV_MANIFEST, filterDestinations } from "../config/navManifest";
+import { NAV_MANIFEST, filterDestinations, isStaffMemberRole } from "../config/navManifest";
 import { isNativeApp } from "../utils/platform";
 import { errText } from "../utils/errText";
 
@@ -41,7 +42,9 @@ import { errText } from "../utils/errText";
 // they're listed here with Lucide icon names + label keys, appended after the
 // manifest pages. Mirrors MorePage's MORE_EXTRAS pattern.
 const SEARCH_EXTRAS = [
-  { to: "/vat-report",    icon: "ClipboardList", labelKey: "vatReport",    aliases: ["vat", "moms report"] },
+  // Owner-only: /vat-report is the SKAT/MOMS export (VatReportPage → the
+  // now-member-denied /api/reports/vat-export). Dropped from ⌘K for staff.
+  { to: "/vat-report",    icon: "ClipboardList", labelKey: "vatReport",    aliases: ["vat", "moms report"], ownerOnly: true },
   { to: "/weekly-report", icon: "Calendar",      labelKey: "weeklyReport", aliases: ["weekly", "week"] },
   { to: "/loans",         icon: "Banknote",      labelKey: "loans",        aliases: ["loan", "lån"] },
   { to: "/profile",       icon: "Settings",      labelKey: "profile",      aliases: ["profile", "settings", "account"] },
@@ -52,6 +55,8 @@ const SEARCH_EXTRAS = [
 export default function GlobalSearchModal({ open, onClose }) {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isStaffMember = isStaffMemberRole(user?.role);
   const { branchType, businessTypes } = useBranch();
   const { hasFeature, isReady: entReady } = useEntitlements();
   // RELEVANCE axis (C9 + C10). ⌘K is the highest-intent discovery surface, so
@@ -136,6 +141,8 @@ export default function GlobalSearchModal({ open, onClose }) {
       hasFeature,
       featReady: entReady !== false,
       hiddenPillars: new Set(),
+      // Staff members don't get owner-only financial pages (Reports/Tax) in ⌘K.
+      isStaffMember,
     });
     // App Store compliance (Apple 3.1.1): the native shell drops locked
     // (purchase-surface) entries; web keeps them locked-but-visible.
@@ -153,18 +160,20 @@ export default function GlobalSearchModal({ open, onClose }) {
       pillarOff: !!d.pillar && hiddenPillars.has(d.pillar),
       aliases: d.aliases || [],
     }));
-    const extraPages = SEARCH_EXTRAS.map((d) => ({
-      key: d.to,
-      label: t(d.labelKey) || d.labelKey,
-      icon: d.icon,
-      to: d.to,
-      locked: false,
-      pillar: null,
-      pillarOff: false,
-      aliases: d.aliases || [],
-    }));
+    const extraPages = SEARCH_EXTRAS
+      .filter((d) => !d.ownerOnly || !isStaffMember)
+      .map((d) => ({
+        key: d.to,
+        label: t(d.labelKey) || d.labelKey,
+        icon: d.icon,
+        to: d.to,
+        locked: false,
+        pillar: null,
+        pillarOff: false,
+        aliases: d.aliases || [],
+      }));
     return [...manifestPages, ...extraPages];
-  }, [t, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars]);
+  }, [t, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, isStaffMember]);
 
   const matchedPages = useMemo(() => {
     const q = query.trim().toLowerCase();

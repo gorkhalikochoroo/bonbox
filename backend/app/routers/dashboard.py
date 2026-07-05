@@ -260,6 +260,13 @@ def get_dashboard_batch(
         month_moms = float(compute_filing_data(db, user, month_start, month_end).get("moms_til_skat") or 0)
     except Exception:  # noqa: BLE001
         month_moms = 0.0
+    # The owner's SKAT liability figure is owner-only (Manoj, 2026-07-06) — an
+    # invited member (manager/cashier/viewer) sees the profit hero but NOT the
+    # MOMS set-aside. Zero (not the real figure) → the card's `moms > 0` gate
+    # hides the line, and the number never crosses the wire. Consistent with the
+    # /api/reports + /api/tax read-deny for members (member_read_guard).
+    if getattr(user, "_is_member_view", False):
+        month_moms = 0.0
 
     top_cat = (
         db.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
@@ -1285,6 +1292,9 @@ def get_summary(
         from app.services.tax_filing_pdf import compute_filing_data
         month_moms = float(compute_filing_data(db, user, month_start, today).get("moms_til_skat") or 0)
     except Exception:  # noqa: BLE001
+        month_moms = 0.0
+    # Owner-only SKAT figure — hidden from invited members (see /batch above).
+    if getattr(user, "_is_member_view", False):
         month_moms = 0.0
 
     # Top expense category this month

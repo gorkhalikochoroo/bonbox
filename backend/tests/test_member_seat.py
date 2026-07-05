@@ -182,7 +182,9 @@ def test_member_write_allowlist_is_default_deny():
 def test_member_read_guard_flags_crown_jewel_paths():
     from app.main import _is_sensitive_member_read_path
 
-    # All-employee lønseddel PII, tax filings, bank feeds, cash position.
+    # All-employee lønseddel PII, tax filings, bank feeds, cash position, and
+    # the whole owner financial/compliance Reports & MOMS router (monthly report,
+    # VAT export, overview — all leak moms_til_skat).
     for sensitive in (
         "/api/staff/payroll/loenseddel",
         "/api/staff/payroll/csv",
@@ -191,6 +193,9 @@ def test_member_read_guard_flags_crown_jewel_paths():
         "/api/bank-connections",
         "/api/bank-import/transactions",
         "/api/cashflow",
+        "/api/reports/monthly",
+        "/api/reports/vat-export",
+        "/api/reports/overview",
     ):
         assert _is_sensitive_member_read_path(sensitive) is True
 
@@ -198,14 +203,15 @@ def test_member_read_guard_flags_crown_jewel_paths():
 def test_member_read_guard_leaves_operational_reads_open():
     from app.main import _is_sensitive_member_read_path
 
-    # A cashier/viewer's legitimate reads (and the home dashboard) stay open —
-    # the guard is surgical, not a blanket member lockout.
+    # A member's legitimate operational reads (and the home dashboard) stay open
+    # — the guard is surgical, not a blanket member lockout. NOTE: /api/reports
+    # is NO LONGER here — the whole Reports & MOMS router is owner-only now.
     for ok in (
         "/api/sales",
         "/api/cashbook/entries",
-        "/api/reports/summary",
         "/api/dashboard/summary",
         "/api/staff/schedule",
+        "/api/staff/hours",
     ):
         assert _is_sensitive_member_read_path(ok) is False
 
@@ -233,13 +239,16 @@ def test_manager_read_scope_denies_owner_financials_keeps_wage_cost():
     def _manager_denied(path):
         return any(path.startswith(p) for p in _MANAGER_READ_DENY_PREFIXES)
 
-    # Owner financials — denied to a manager.
+    # Owner financials — denied to a manager (incl. the whole Reports & MOMS
+    # router, which egresses the SKAT liability via /monthly + /vat-export).
     for denied in (
         "/api/tax/filing",
         "/api/bank-connect/init",
         "/api/bank-connections",
         "/api/bank-import/transactions",
         "/api/cashflow",
+        "/api/reports/monthly",
+        "/api/reports/vat-export",
     ):
         assert _manager_denied(denied) is True, denied
     # Wage/labor-cost estimate — a manager KEEPS it (their shift-planning tool).

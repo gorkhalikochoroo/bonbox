@@ -507,6 +507,20 @@ def compute_precompute(user: User, db: Session) -> Precompute:
     except Exception as e:  # noqa: BLE001
         logger.debug("daily_brief: tax_overview unavailable: %s", e)
 
+    # MOMS/tax is OWNER-ONLY (Manoj, 2026-07-06). An invited STAFF member
+    # (manager/cashier/viewer) resolves to the owner tenant for scoping, but must
+    # NOT see the owner's SKAT liability figure or filing reminders in their
+    # brief — same boundary as the /api/reports + /api/tax member_read_guard deny
+    # and the dashboard month_moms strip. Nulling moms_days_left drops the whole
+    # MOMS candidate (generate_candidates gates on `moms_days_left is not None`),
+    # so neither the owed figure nor the countdown reaches a member. The
+    # read-only accountant grant sets _is_accountant_view (NOT _is_member_view),
+    # so the revisor still gets the full MOMS brief.
+    if getattr(user, "_is_member_view", False):
+        moms_days_left = None
+        moms_estimated_owed = None
+        moms_deadline_date = None
+
     # ── Brief 2.0 signals — recurring expenses due in next 3 days ──
     # Owners need a heads-up before a 18k rent posts. Idempotent and
     # tolerant of the table not existing yet (fresh deploys).

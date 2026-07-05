@@ -337,6 +337,11 @@ export const NAV_MANIFEST = [
     labelKey: "navReportsTax",
     group: "reports",
     pillar: null,
+    // Owner-only: the Reports & MOMS surface exposes the owner's SKAT liability
+    // (moms_til_skat / vat_payable). Hidden from invited STAFF members
+    // (manager/cashier/viewer) — the accountant grant keeps it (revisor read).
+    // Mirrors the backend member_read_guard deny of /api/reports.
+    ownerOnly: true,
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
     aliases: ["reports", "tax", "books"],
@@ -358,6 +363,10 @@ export const NAV_MANIFEST = [
     labelKey: "taxAutopilot",
     group: "reports",
     pillar: null,
+    // Owner-only: Tax Autopilot IS the owner's SKAT filing. Backend
+    // member_read_guard already 403s /api/tax for staff members, so hiding the
+    // nav keeps a manager from clicking into a page that would just fail.
+    ownerOnly: true,
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
     aliases: ["tax", "moms", "vat", "skat"],
@@ -698,6 +707,14 @@ export function relevantPillarsForArchetype(archetypeId) {
  * UpgradeNudge funnel. (Native App-Store compliance hiding is the caller's
  * job, not this function's.)
  */
+/** STAFF members (manager/cashier/viewer) — invited employees who must not see
+ *  the owner's financial/compliance surfaces. The OWNER and the read-only
+ *  ACCOUNTANT grant are deliberately NOT staff (the revisor needs the reports).
+ *  Single source of truth for the frontend ownerOnly gate + route guards. */
+export const STAFF_MEMBER_ROLES = ["manager", "cashier", "viewer"];
+export const isStaffMemberRole = (role) =>
+  STAFF_MEMBER_ROLES.includes(String(role || "owner").toLowerCase());
+
 export function filterDestinations(items, ctx = {}) {
   const {
     businessTypes,
@@ -708,7 +725,16 @@ export function filterDestinations(items, ctx = {}) {
     activatedPillars,
     isInScope = false,
     activationEnabled = false,
+    isStaffMember = false,
   } = ctx;
+
+  // OWNER-ONLY — an invited STAFF member (manager/cashier/viewer) never sees
+  // the owner's financial/compliance surfaces (Reports & MOMS, Tax Autopilot).
+  // The owner and the read-only accountant grant are NOT staff members, so they
+  // keep full access. This is chrome-hiding only; the real boundary is the
+  // backend member_read_guard (a member hitting /api/reports or /api/tax 403s
+  // regardless of what nav renders).
+  const passesOwnerOnly = (ownerOnly) => !ownerOnly || !isStaffMember;
 
   const types = Array.isArray(businessTypes) ? businessTypes : [];
   const hidden = hiddenPillars instanceof Set ? hiddenPillars : new Set();
@@ -784,6 +810,7 @@ export function filterDestinations(items, ctx = {}) {
 
   const out = [];
   for (const item of items) {
+    if (!passesOwnerOnly(item.ownerOnly)) continue;
     if (!passesPillar(item.pillar)) continue;
     if (!passesType(item.visibleFor)) continue;
     if (!passesArchetype(item.hideForArchetypes)) continue;

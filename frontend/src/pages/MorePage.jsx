@@ -10,7 +10,7 @@ import { useActivation } from "../hooks/useActivation";
 import { useTheme, THEMES } from "../hooks/useTheme";
 import Icon from "../components/ui/Icon";
 import PillarDiscovery from "../components/PillarDiscovery";
-import { NAV_MANIFEST, NAV_GROUPS, filterDestinations } from "../config/navManifest";
+import { NAV_MANIFEST, NAV_GROUPS, filterDestinations, isStaffMemberRole } from "../config/navManifest";
 import { archetypeIdFor } from "../config/archetypes";
 import { isNativeApp } from "../utils/platform";
 
@@ -100,6 +100,8 @@ export default function MorePage() {
     activatedPillars: activation.activatedPillars instanceof Set ? activation.activatedPillars : undefined,
     isInScope: activation.isInScope === true,
     activationEnabled: activation.activationEnabled === true,
+    // Owner-only financial tiles (Reports/Tax) drop from the More grid for staff.
+    isStaffMember: isStaffMemberRole(user?.role),
   };
 
   const visible = NAV_GROUPS

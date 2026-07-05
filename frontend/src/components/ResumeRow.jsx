@@ -37,7 +37,7 @@ import { usePillars } from "../hooks/usePillars";
 import { useActivation } from "../hooks/useActivation";
 import { useBranch } from "./BranchSelector";
 import { useRouteHistory } from "../hooks/useRouteHistory";
-import { NAV_MANIFEST, filterDestinations } from "../config/navManifest";
+import { NAV_MANIFEST, filterDestinations, isStaffMemberRole } from "../config/navManifest";
 import { archetypeIdFor } from "../config/archetypes";
 import { useAuth } from "../hooks/useAuth";
 import { Icon } from "./ui";
@@ -88,6 +88,8 @@ export default function ResumeRow({ enabledModules, onNavigate }) {
       activatedPillars: activation.activatedPillars instanceof Set ? activation.activatedPillars : undefined,
       isInScope: activation.isInScope === true,
       activationEnabled: activation.activationEnabled === true,
+      // Never resume a staff member into an owner-only financial page.
+      isStaffMember: isStaffMemberRole(user?.role),
     });
     const map = new Map();
     for (const d of resolved) {

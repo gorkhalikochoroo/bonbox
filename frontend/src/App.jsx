@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { reportClientError } from "./utils/reportClientError";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
+import { isStaffMemberRole } from "./config/navManifest";
 import { EntitlementsProvider } from "./hooks/useEntitlements";
 import { FeaturesProvider } from "./hooks/useFeatures";
 import { PillarsProvider } from "./hooks/usePillars";
@@ -381,6 +382,22 @@ function SuperAdminRoute({ children }) {
   return children;
 }
 
+/**
+ * OwnerOnlyRoute — owner-financial surfaces (Reports & MOMS, Tax Autopilot,
+ * VAT export, Cash-flow). An invited STAFF member (manager/cashier/viewer)
+ * typing the URL directly is redirected to /dashboard instead of landing on a
+ * page whose API just 403s. Frontend redirect is COSMETIC — the real boundary
+ * is the backend member_read_guard (the API denies these paths regardless).
+ * The OWNER and the read-only ACCOUNTANT grant are NOT staff, so they pass.
+ */
+function OwnerOnlyRoute({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <PageLoader />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (isStaffMemberRole(user.role)) return <Navigate to="/dashboard" replace />;
+  return children;
+}
+
 function VerifyEmailRoute() {
   const { user, loading, needsEmailVerification } = useAuth();
   if (loading) return <PageLoader />;
@@ -529,12 +546,12 @@ function AppRoutes() {
           <Route path="/weather" element={<Navigate to="/staff/schedule" replace />} />
           <Route path="/waste" element={<PillarGate pillar="inventory"><WastePage /></PillarGate>} />
           <Route path="/weekly-report" element={<WeeklyReportPage />} />
-          <Route path="/vat-report" element={<VatReportPage />} />
-          <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/vat-report" element={<OwnerOnlyRoute><VatReportPage /></OwnerOnlyRoute>} />
+          <Route path="/reports" element={<OwnerOnlyRoute><ReportsPage /></OwnerOnlyRoute>} />
           <Route path="/feedback" element={<FeedbackPage />} />
           <Route path="/cashbook" element={<CashBookPage />} />
-          <Route path="/cashflow" element={<CashFlowPage />} />
-          <Route path="/tax" element={<TaxAutopilotPage />} />
+          <Route path="/cashflow" element={<OwnerOnlyRoute><CashFlowPage /></OwnerOnlyRoute>} />
+          <Route path="/tax" element={<OwnerOnlyRoute><TaxAutopilotPage /></OwnerOnlyRoute>} />
           {/* C7 Intelligence collapse — pricing + competitors + retention are
               now TABS of the InsightsHub at /insights. Legacy routes stay
               registered as permanent redirects into the matching tab so old
