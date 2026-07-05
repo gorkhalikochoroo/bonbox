@@ -221,13 +221,6 @@ export default function ReservationsPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Host-stand pop-out: the same page served at /reservations/stand renders
-  // OUTSIDE the app <Layout /> (no sidebar/chrome) as a dedicated door screen.
-  // We detect it from the path — no prop threading needed — and use it to add a
-  // slim standalone top bar + a full-screen container, and to hide the pop-out
-  // button (no point re-popping from inside the pop-out).
-  const standalone = location.pathname.endsWith("/reservations/stand");
-
   // Per-vertical adaptation (Phase A). `bookingMode` gates the Floor tab
   // (TABLE-only) on the venue TYPE; `isProvider` (salon) drives the
   // Aftaler/Tidsbestilling vocabulary swap. Pure config read — no refetch.
@@ -1778,6 +1771,15 @@ function TimelineSkeleton() {
 function BookSection({ t, businessType, tableFloor = false }) {
   const { lang } = useLanguage();
   const confirm = useConfirm();
+  // Host-stand pop-out chrome lives in THIS component's return (the top bar +
+  // full-screen wrapper), so it needs its own auth/router bindings — they are
+  // NOT threaded down as props. `standalone` is derived from the path exactly
+  // as the parent does. (Without these three, the Book tab threw
+  // "ReferenceError: standalone is not defined" and crashed the whole page.)
+  const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const standalone = location.pathname.endsWith("/reservations/stand");
   // TABLE venues (dining/bar) get the Floor ("plan") lens; provider (salon) /
   // no-floor (bakery/retail) venues never do — gated on the venue TYPE, with a
   // grandfather for venues that already have a real table plan. `tableFloor`
