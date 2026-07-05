@@ -79,6 +79,55 @@ function addDays(isoStr, n) {
   return isoDay(d);
 }
 
+// ── Date strip ─────────────────────────────────────────────────────
+// One-tap Danish-format day picker (14 days from today). Open days are
+// tappable; closed days are visibly disabled — so a diner never guesses-and-
+// checks a native date input, and never lands on a dead day. `dayMap` null =
+// the open/closed overview hasn't resolved yet → render enabled and let the
+// single-day fetch tell the truth (fail-soft, never a false "closed").
+function DateStrip({ today, dayMap, value, onPick, t }) {
+  const days = Array.from({ length: 14 }, (_, i) => addDays(today, i));
+  const fmt = (iso) =>
+    new Date(`${iso}T00:00:00`).toLocaleDateString("da-DK", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+    });
+  return (
+    <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+      {days.map((iso) => {
+        const known = dayMap && iso in dayMap;
+        const closed = known && dayMap[iso] === false;
+        const active = value === iso;
+        return (
+          <button
+            key={iso}
+            type="button"
+            disabled={closed}
+            onClick={() => !closed && onPick(iso)}
+            aria-pressed={active}
+            aria-label={closed ? `${fmt(iso)} — ${t("rsvpClosed", "lukket")}` : fmt(iso)}
+            className={[
+              "shrink-0 rounded-xl px-3 py-2 text-sm border transition text-center min-w-[76px] leading-tight",
+              active
+                ? "border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900"
+                : "border-gray-200 text-gray-700 hover:border-gray-400 dark:border-gray-700 dark:text-gray-300",
+              closed ? "opacity-40 cursor-not-allowed" : "",
+            ].join(" ")}
+          >
+            <span className="capitalize block">{fmt(iso)}</span>
+            {closed && (
+              <span className="block text-[10px] text-gray-400">
+                {t("rsvpClosed", "lukket")}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // "HH:MM" from a provider-availability slot's ISO start (local time). Used to
 // fold the {start,resource_id,...} provider slots into the same time-chip grid
 // the table flow uses. Returns "" on a bad value (defensive).
@@ -195,6 +244,12 @@ export default function ReservationPublicPage() {
   const [groupRequest, setGroupRequest] = useState(false);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState("");
+
+  // 14-day open/closed map for the date strip + next-open-day auto-advance.
+  // dayMap === null → the summary hasn't resolved yet (show loading, never a
+  // premature "no times"). nextOpenDay drives the "closed today" nudge.
+  const [dayMap, setDayMap] = useState(null);
+  const [nextOpenDay, setNextOpenDay] = useState(null);
 
   // ── Salon (provider) booking state (S3b) ─────────────────────────
   // A provider venue reorders step 1 to behandling → behandler → dato → tid.
@@ -331,6 +386,68 @@ export default function ReservationPublicPage() {
     // own the state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
+
+  // ── 14-day open/closed overview → auto-advance off a closed day ────
+  // TABLE venues only. Fetches the same available_slots() the diner sees, so the
+  // strip can't disagree. If the seeded day (today, or a ?d= link) has NO slots
+  // but the week does, we jump to the next open day — killing the dead-end where
+  // "closed today" showed "No available times" with no way forward. Fail-soft:
+  // on error dayMap stays null and the single-day flow + phone fallback still run.
+  useEffect(() => {
+    if (!page || isProvider) return;
+    let alive = true;
+    api
+      .get(`/public/reservations/${slug}/availability-summary`, {
+        params: { from: today, days: 14, party: party || 2 },
+      })
+      .then((res) => {
+        if (!alive) return;
+        const list = Array.isArray(res.data?.days) ? res.data.days : [];
+        const map = Object.fromEntries(list.map((d) => [d.date, !!d.has_slots]));
+        setDayMap(map);
+        setNextOpenDay(res.data?.next_open_day || null);
+        // Never override a day that actually has slots (a valid ?d= link or a
+        // day the diner tapped); only rescue a closed selection.
+        setDay((cur) => (cur && map[cur] ? cur : res.data?.next_open_day || cur));
+      })
+      .catch(() => {
+        if (alive) {
+          setDayMap(null);
+          setNextOpenDay(null);
+        }
+      });
+    return () => {
+      alive = false;
+    };
+    // re-run when party changes (open days depend on party size)
+  }, [page, slug, isProvider, party, today]);
+
+  // ── Per-venue document title + OG tags ────────────────────────────
+  // A diner's browser tab should read the RESTAURANT, not the app default
+  // ("BonBox — The AI manager …"). NOTE (honest limitation): this is a pure SPA,
+  // so social/SMS link-unfurl crawlers read the STATIC index.html title before
+  // JS runs — the live tab updates, but shared-link previews still show the app
+  // default until we add SSR/prerender. Still worth it for the tab + trust.
+  useEffect(() => {
+    if (!page?.business_name) return;
+    const prev = document.title;
+    const title = t("rsvpDocTitle", "Book bord · {venue}", { venue: page.business_name });
+    document.title = title;
+    const setMeta = (prop, val) => {
+      let m = document.querySelector(`meta[property="${prop}"]`);
+      if (!m) {
+        m = document.createElement("meta");
+        m.setAttribute("property", prop);
+        document.head.appendChild(m);
+      }
+      m.setAttribute("content", val);
+    };
+    setMeta("og:title", title);
+    setMeta("og:description",
+      t("rsvpOgDesc", "Reservér bord hos {venue}.", { venue: page.business_name }));
+    try { setMeta("og:url", window.location.href); } catch { /* noop */ }
+    return () => { document.title = prev; };
+  }, [page, t]);
 
   // ── Provider venue: load the active behandlinger catalog (S3b) ────
   // Drives the behandling picker (the FIRST step for a salon). Soft-fail to []
@@ -1025,7 +1142,7 @@ export default function ReservationPublicPage() {
               {(page.city || page.address) ? (
                 <div className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 min-w-0">
                   <MapPin size={14} strokeWidth={1.75} className="shrink-0" aria-hidden="true" />
-                  <span className="truncate">{page.address || page.city}</span>
+                  <span className="line-clamp-2 break-words">{page.address || page.city}</span>
                 </div>
               ) : (
                 <span />
@@ -1139,16 +1256,22 @@ export default function ReservationPublicPage() {
               >
                 {t("rsvpPickDate", "Vælg dato")}
               </label>
-              <Input
-                id="rsvp-day"
-                type="date"
-                size="lg"
-                value={day}
-                min={today}
-                max={latestDay}
-                onChange={(e) => setDay(e.target.value)}
-                prefix={<Calendar size={16} strokeWidth={1.75} />}
-              />
+              {/* One-tap date strip (closed days disabled) — the primary picker.
+                  The native input below stays as an escape hatch for a specific
+                  far-out date. */}
+              <DateStrip today={today} dayMap={dayMap} value={day} onPick={setDay} t={t} />
+              <div className="mt-2">
+                <Input
+                  id="rsvp-day"
+                  type="date"
+                  size="lg"
+                  value={day}
+                  min={today}
+                  max={latestDay}
+                  onChange={(e) => setDay(e.target.value)}
+                  prefix={<Calendar size={16} strokeWidth={1.75} />}
+                />
+              </div>
             </div>
 
             {/* Party size — TABLE venues only. A salon tidsbestilling is one
@@ -1233,27 +1356,54 @@ export default function ReservationPublicPage() {
                     {slotsError}
                   </p>
                 ) : slotGroups.length === 0 ? (
-                  // Honest dead-end → offer a call when a number exists. The
-                  // CTA is a real <a href="tel:"> styled as a ghost button
-                  // (an anchor, not a <button>, so it dials on tap).
-                  <div className="space-y-3">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                      {t("rsvpNoSlotsDay", "Ingen ledige tider denne dag.")}
-                    </p>
-                    {telHref(page.phone) && (
-                      <a
-                        href={telHref(page.phone)}
-                        className="inline-flex items-center justify-center gap-2 h-11 px-5 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
-                      >
-                        <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
-                        <span>
-                          {t("rsvpNoSlotsCall", "Ring til os: {phone}", {
-                            phone: page.phone,
-                          })}
-                        </span>
-                      </a>
-                    )}
-                  </div>
+                  !isProvider && dayMap === null ? (
+                    // Open/closed overview still resolving → don't flash a
+                    // premature "no times"; show the same slot skeleton.
+                    <div className="grid grid-cols-4 gap-2">
+                      {Array.from({ length: 8 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="animate-pulse h-11 rounded-lg bg-gray-100 dark:bg-gray-800"
+                        />
+                      ))}
+                    </div>
+                  ) : nextOpenDay && nextOpenDay !== day ? (
+                    // Closed this day but open later — NEVER a dead-end. One tap
+                    // to the next open day (fixes the "closed today" bounce).
+                    <div className="space-y-3">
+                      <p className="text-sm text-gray-600 dark:text-gray-300">
+                        {t("rsvpClosedTodayOpenSoon", "Lukket denne dag. Næste ledige: {day}", {
+                          day: fmtDayLabel(nextOpenDay),
+                        })}
+                      </p>
+                      <Button size="lg" onClick={() => setDay(nextOpenDay)}>
+                        {t("rsvpJumpNextOpen", "Vis {day}", { day: fmtDayLabel(nextOpenDay) })}
+                      </Button>
+                    </div>
+                  ) : (
+                    // Genuinely nothing bookable in the window → honest phone
+                    // fallback (a real <a href="tel:">, dials on tap).
+                    <div className="space-y-3">
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {nextOpenDay
+                          ? t("rsvpNoSlotsDay", "Ingen ledige tider denne dag.")
+                          : t("rsvpFullOrClosedWeek", "Ingen ledige tider de næste 14 dage.")}
+                      </p>
+                      {telHref(page.phone) && (
+                        <a
+                          href={telHref(page.phone)}
+                          className="inline-flex items-center justify-center gap-2 h-11 px-5 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
+                        >
+                          <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
+                          <span>
+                            {t("rsvpNoSlotsCall", "Ring til os: {phone}", {
+                              phone: page.phone,
+                            })}
+                          </span>
+                        </a>
+                      )}
+                    </div>
+                  )
                 ) : (
                   // Period groups — render a label only when the group has
                   // slots; slots align in a 4-col grid (44px tap height).

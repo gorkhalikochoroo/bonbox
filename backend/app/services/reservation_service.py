@@ -282,6 +282,38 @@ def available_slots(db: Session, *, profile: BusinessProfile, user_id, day: date
     return sorted(starts)
 
 
+def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
+                   start_date: date, days: int, party_size: int,
+                   now: datetime) -> dict:
+    """Per-day open/closed overview for the public date strip + the public-surface
+    monitor. Calls the SAME available_slots() a diner actually sees, so the strip
+    can never disagree with reality. Days in the past or beyond the advance window
+    are 'out_of_window' (not offerable). Returns:
+        {'next_open_day': iso|None, 'days': [{'date', 'has_slots', 'reason'}]}
+    ONE source of truth for 'is this booking page dead' — shared so the customer
+    UX and the auto-diagnosis can't diverge."""
+    settings = load_settings(profile)
+    today = now.date()
+    max_advance = int(settings.get("max_advance_days", 60))
+    out: list[dict] = []
+    first_open = None
+    for i in range(days):
+        d = start_date + timedelta(days=i)
+        if d < today or d > today + timedelta(days=max_advance):
+            out.append({"date": d.isoformat(), "has_slots": False, "reason": "out_of_window"})
+            continue
+        slots = available_slots(
+            db, profile=profile, user_id=user_id, day=d,
+            party_size=party_size, now=now,
+        )
+        has = len(slots) > 0
+        out.append({"date": d.isoformat(), "has_slots": has,
+                    "reason": None if has else "closed_or_full"})
+        if has and first_open is None:
+            first_open = d.isoformat()
+    return {"next_open_day": first_open, "days": out}
+
+
 def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
                              start: datetime, party_size: int,
                              now: datetime | None = None,

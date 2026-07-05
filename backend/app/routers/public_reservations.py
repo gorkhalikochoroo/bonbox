@@ -203,6 +203,29 @@ def availability(request: Request, slug: str = Path(...),
     }
 
 
+@router.get("/{slug}/availability-summary")
+@_limiter.limit("60/minute")
+def availability_summary(request: Request, slug: str = Path(...),
+                         start: str = Query(..., alias="from"),
+                         days: int = Query(14, ge=1, le=30),
+                         party: int = Query(ge=1, le=100),
+                         db: Session = Depends(get_db)):
+    """Multi-day open/closed overview so the public page can render a date strip
+    and AUTO-ADVANCE to the next open day (never dead-ends on a closed today).
+    Uses the same available_slots() the diner sees (via rsvc.summarize_days), so
+    the strip can't disagree. Shared with the public-surface monitor."""
+    profile, owner = _resolve_owner(db, slug)
+    try:
+        base = datetime.strptime(start, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=422, detail={"error": "bad_date"})
+    summary = rsvc.summarize_days(
+        db, profile=profile, user_id=owner.id, start_date=base,
+        days=days, party_size=party, now=_now_local(),
+    )
+    return {"from": base.isoformat(), "party_size": party, **summary}
+
+
 @router.get("/{slug}/floor")
 @_limiter.limit("30/minute")
 def floor(request: Request, slug: str = Path(...),
