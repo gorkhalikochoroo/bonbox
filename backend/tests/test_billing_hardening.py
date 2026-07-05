@@ -420,7 +420,14 @@ def test_f_second_checkout_within_hour_is_429(db_session, client):
 
     # Stub the actual session creation so we don't hit Stripe — the gate
     # we're testing runs BEFORE this, and the success path logs the counter.
+    # checkout_ready must report the tier as purchasable, else the money-path
+    # hardening (per-tier gate) returns 409 before the rate-limit path — that
+    # gate is exercised in test_checkout_ready.py; here we want it to pass.
     with patch("app.services.stripe_billing.is_configured", return_value=True), \
+         patch(
+             "app.services.stripe_billing.checkout_ready",
+             return_value={"starter": True, "pro": True, "any": True},
+         ), \
          patch(
              "app.services.stripe_billing.create_checkout_session",
              return_value={"url": "https://stripe.test/s", "session_id": "cs_1"},
