@@ -157,6 +157,14 @@ class Precompute:
     last_close_variance_pct: float | None = None  # signed; positive = close > sales
     last_close_date: str | None = None
 
+    # "You didn't close yesterday" nudge. Computed by CALLING the same detector
+    # the "Skal ses nu" queue uses (one gate, no drift): fires only for a
+    # regular closer (≥3 confirmed closes in 14d) whose last business day has no
+    # confirmed close. The morning brief is the right delivery moment (after
+    # service, ~06:00) — NOT an evening/in-service push.
+    close_missing_yesterday: bool = False
+    close_missing_date: str | None = None
+
     # Customer loyalty signals (May 2026 — Brief 2.0 follow-up).
     # Top regular customers (≥3 visits in last 90 days) who haven't
     # transacted in ≥14 days. The brief turns these into "text your
@@ -577,6 +585,24 @@ def compute_precompute(user: User, db: Session) -> Precompute:
     except Exception as e:  # noqa: BLE001
         logger.debug("daily_brief: close-variance signal unavailable: %s", e)
 
+    # ── Brief 2.0: "you didn't close yesterday" nudge ──────────────────
+    # Reuse the SAME detector the "Skal ses nu" queue uses so the brief line and
+    # the Home cue share ONE gate — the ≥3-in-14 regular-closer heuristic + the
+    # business-day "yesterday has no confirmed close" check — with zero drift and
+    # no double-nag of a non-closer. The brief is a DIFFERENT surface (the
+    # ~06:00 morning digest, after service = the right moment), so surfacing it
+    # here as well is intentional, not a duplicate.
+    close_missing_yesterday = False
+    close_missing_date = None
+    try:
+        from app.services.diagnostics_service import _detect_close_missing
+        _cm = _detect_close_missing(db, user, utc_now())
+        if _cm:
+            close_missing_yesterday = True
+            close_missing_date = _cm["meta"]["date"]
+    except Exception as e:  # noqa: BLE001
+        logger.debug("daily_brief: close-missing signal unavailable: %s", e)
+
     # ── Scheduled labor cost, current week (Mon–Sun), PUBLISHED shifts only ──
     # Reuses the SAME rate/hours helpers as /staff/schedules/week-cost + the
     # autopilot, so the brief figure matches the schedule grid exactly. Gross
@@ -657,6 +683,8 @@ def compute_precompute(user: User, db: Session) -> Precompute:
         recurring_due_soon_total=round(recurring_due_soon_total, 2),
         last_close_variance_pct=last_close_variance_pct,
         last_close_date=last_close_date,
+        close_missing_yesterday=close_missing_yesterday,
+        close_missing_date=close_missing_date,
         top_regulars_at_risk=top_regulars_at_risk,
         regular_customer_count=regular_customer_count,
         expiry_items_today=expiry_items_today,
@@ -1010,6 +1038,25 @@ def generate_candidates(
                 f"{abs(p.last_close_variance_pct):.0f}%",
             ],
             cta_label="Open Daily Close",
+            cta_url="/daily-close",
+        ))
+
+    # ── Brief 2.0: you didn't close yesterday ──────────────────────
+    # A regular closer skipped yesterday's close. Names the concrete downstream
+    # stakes (that's WHY it matters), then one tap to close. type="watch" → the
+    # shared amber "attention" dot, never red (risk). Gated + business-day-correct
+    # via the shared _detect_close_missing detector (see compute_precompute).
+    # Deliberately says "yesterday" and carries NO date number: this is a morning
+    # digest so "yesterday" is unambiguous, and a raw ISO date in the text would
+    # let the LLM reformat it (e.g. "5. juli") past the approved-numbers guard and
+    # reject the WHOLE brief to fallback. No number = nothing to trip on.
+    if p.close_missing_yesterday and p.close_missing_date:
+        out.append(Candidate(
+            type="watch",
+            text="You didn't close yesterday yet — a 30-second close keeps your profit, MOMS set-aside and accountant export on real numbers.",
+            weight=0.80,
+            facts=[],
+            cta_label="Close the day",
             cta_url="/daily-close",
         ))
 

@@ -134,7 +134,12 @@ def _detect_close_missing(db: Session, user, now, skip=frozenset()):
     """If the owner closes regularly but yesterday has no confirmed close,
     gently nudge. Gated on 'closes regularly' so it never nags a business that
     doesn't run a daily close."""
-    today = today_local(user)
+    # Business day, NOT wall-clock: a DK restaurant open past midnight is still
+    # on the prior business day until the 06:00 cutoff. today_local() would call
+    # the still-in-progress overnight shift "yesterday" and false-nag "you
+    # didn't close" at 02:00 mid-service — the exact mid-shift false alarm we
+    # avoid. business_today_local() anchors on the Europe/Copenhagen 06:00 cutoff.
+    today = business_today_local(user)
     yesterday = today - timedelta(days=1)
     if ("close_missing", yesterday.isoformat()) in skip:
         return None
