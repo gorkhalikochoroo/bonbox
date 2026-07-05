@@ -100,6 +100,11 @@ def my_billing(
 
     summary = billing_summary(user)
     summary["stripe_configured"] = stripe_billing.is_configured()
+    # Per-tier checkout readiness so the frontend routes a not-purchasable tier
+    # (e.g. founding price ID unset) to the honest waitlist instead of a 500
+    # dead-end. stripe_configured stays as the coarse "Stripe is on at all" flag
+    # for back-compat with older frontends.
+    summary["checkout_ready"] = stripe_billing.checkout_ready(user, db)
     summary["stripe_test_mode"] = stripe_billing.is_test_mode()
     summary["subscription_status"] = user.subscription_status
     summary["subscription_period_end"] = (
@@ -287,6 +292,20 @@ def create_checkout(
     requested_plan = requested_plan.strip().lower()
     if requested_plan not in ("starter", "pro"):
         requested_plan = "pro"
+
+    # Authoritative money-path gate: if this tier can't actually check out (its
+    # price ID for the current founding state is unset), do NOT let it fall
+    # through to a scary 500 — tell the client cleanly so it shows the honest
+    # waitlist instead of a dead-end. Mirrors the frontend checkout_ready gate
+    # and stays authoritative even if that gate is stale after a deploy.
+    if not stripe_billing.checkout_ready(user, db).get(requested_plan):
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "Payment for this plan isn't open yet.",
+                "payment_unavailable": True,
+            },
+        )
 
     result = stripe_billing.create_checkout_session(user, db, plan=requested_plan)
     if not result:

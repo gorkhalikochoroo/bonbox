@@ -67,6 +67,33 @@ def is_configured() -> bool:
     return _stripe() is not None and bool(settings.STRIPE_PRICE_ID_PRO)
 
 
+def checkout_ready(user: "User", db: "Session") -> dict:
+    """Per-tier truth about whether a checkout can ACTUALLY succeed right now.
+
+    `is_configured()` is too loose for the money path: it returns True on
+    STRIPE_PRICE_ID_PRO alone, but at launch every user is founding-eligible, so
+    create_checkout_session takes the *_FOUNDING branch — and if those price IDs
+    are unset it fails CLOSED (returns None → the router 500s). This mirrors that
+    exact branch per tier, so the frontend can route a not-ready tier to the
+    graceful waitlist instead of a dead-end 500 (no-dead-end-CTA doctrine).
+
+    Per-tier on purpose: if Pro-founding is set but Starter-founding isn't, Pro
+    must still check out — only the misconfigured tier falls back.
+
+    Returns {"starter": bool, "pro": bool, "any": bool}.
+    """
+    if _stripe() is None:
+        return {"starter": False, "pro": False, "any": False}
+    founding = _is_founding_member_slot_open(user, db)
+    if founding:
+        starter = bool(settings.STRIPE_PRICE_ID_STARTER_FOUNDING)
+        pro = bool(settings.STRIPE_PRICE_ID_PRO_FOUNDING)
+    else:
+        starter = bool(settings.STRIPE_PRICE_ID_STARTER)
+        pro = bool(settings.STRIPE_PRICE_ID_PRO)
+    return {"starter": starter, "pro": pro, "any": starter or pro}
+
+
 def is_test_mode() -> bool:
     """True iff using a test-mode Stripe key."""
     return settings.STRIPE_SECRET_KEY.startswith("sk_test_")
@@ -332,9 +359,12 @@ def create_checkout_session(
             subscription_data=sub_data,
             success_url=success_url,
             cancel_url=cancel_url,
-            # Tax handling: if Stripe Tax is enabled in the dashboard, this
-            # auto-applies Danish moms (25%). Owner can configure later.
-            automatic_tax={"enabled": False},
+            # Tax handling: when STRIPE_AUTOMATIC_TAX is on AND a DK tax
+            # registration exists in the Stripe dashboard, this auto-applies
+            # Danish MOMS (25%) to our own SaaS invoice. Off by default because
+            # enabling it without the registration makes Stripe ERROR the
+            # checkout — so it's an env flip Manoj does once registered.
+            automatic_tax={"enabled": settings.STRIPE_AUTOMATIC_TAX},
             # Allow promo codes — useful for early-adopter discounts
             allow_promotion_codes=True,
             # Embed user_id in client_reference_id as defense-in-depth fallback

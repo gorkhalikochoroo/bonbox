@@ -343,14 +343,55 @@ export default function SubscriptionPage() {
     // no external-checkout code. Backend ALSO blocks native checkout (defense
     // in depth).
 
-    // Web flow — try real Stripe Checkout. If Stripe isn't configured server-side
-    // yet (early launch), fall back to the waitlist-join flow gracefully.
-    // Both starter AND pro buttons route through Stripe; backend
-    // /stripe/checkout-session accepts {plan} so the price ID routes
-    // correctly to STRIPE_PRICE_ID_STARTER vs _PRO.
-    if ((tierId === "pro" || tierId === "starter") && billing?.stripe_configured) {
+    // Graceful fallback — this tier isn't ready for real checkout yet (early
+    // launch, or its founding price ID is unset). Capture intent on the waitlist
+    // instead of dead-ending. Used both when we know upfront the tier isn't
+    // ready AND when the backend authoritatively says so (409 payment_unavailable).
+    const joinWaitlist = async () => {
+      if (joined.has(tierId)) {
+        setMsg(t("alreadyOnWaitlist") || "You're already on the list — we'll be in touch when payment is ready.");
+        setTimeout(() => setMsg(""), 4000);
+        return;
+      }
       setPending(tierId);
       setMsg("");
+      try {
+        await api.post("/waitlist/join", {
+          email: user.email,
+          tier: tierId,
+          source: isNative ? "subscription_page_native" : "subscription_page",
+        });
+        setJoined((p) => new Set([...p, tierId]));
+        trackEvent("waitlist_joined", "subscription", tierId);
+        setMsg(
+          tierId === "pro"
+            ? (t("waitlistJoinedPro") || "🎉 You're on the founding-member list — when payment opens, you'll lock in 249 kr/mo for as long as you stay subscribed.")
+            : ((t("waitlistJoinedTier") || "🎉 You're on the {tier} list — we'll email you when it opens.").replace("{tier}", tierId))
+        );
+        setTimeout(() => setMsg(""), 8000);
+      } catch (e) {
+        setMsg(
+          e?.response?.status === 429
+            ? (t("tooManyRequests") || "Too many requests — please try again in a minute.")
+            : (t("waitlistJoinFailed") || "Couldn't add you to the list. Email hello@bonbox.dk if this keeps happening.")
+        );
+        setTimeout(() => setMsg(""), 5000);
+      } finally {
+        setPending(null);
+      }
+    };
+
+    // Web flow — try real Stripe Checkout, but only for a tier the backend says
+    // can ACTUALLY check out. checkout_ready is per-tier (founding price ID for
+    // *this* tier present), so a misconfigured Starter never blocks a working
+    // Pro. Fall back to stripe_configured for deploy-skew (old backend without
+    // checkout_ready). Not-ready tiers route to the honest waitlist, never a 500.
+    const tierReady =
+      billing?.checkout_ready?.[tierId] ?? Boolean(billing?.stripe_configured);
+    if ((tierId === "pro" || tierId === "starter") && tierReady) {
+      setPending(tierId);
+      setMsg("");
+      let fallbackToWaitlist = false;
       try {
         const res = await api.post("/billing/stripe/checkout-session", { plan: tierId });
         const safeStripeUrl = safeExternalUrl(res.data?.url);
@@ -368,6 +409,9 @@ export default function SubscriptionPage() {
       } catch (e) {
         if (e?.response?.status === 403 && e.response.data?.redirect_to_web) {
           window.open("https://bonbox.dk/subscription", "_blank");
+        } else if (e?.response?.status === 409 && e.response.data?.payment_unavailable) {
+          // Backend says this tier can't check out yet — degrade to waitlist.
+          fallbackToWaitlist = true;
         } else if (e?.response?.status === 429) {
           setMsg(t("tooManyRequests") || "Too many requests — please try again in a minute.");
         } else {
@@ -376,42 +420,12 @@ export default function SubscriptionPage() {
       } finally {
         setPending(null);
       }
+      if (fallbackToWaitlist) return joinWaitlist();
       return;
     }
 
-    // Fallback — Stripe not configured yet. Use the waitlist flow so we still
-    // capture intent. This is the temporary path until Stripe keys are live.
-    if (joined.has(tierId)) {
-      setMsg(t("alreadyOnWaitlist") || "You're already on the list — we'll be in touch when payment is ready.");
-      setTimeout(() => setMsg(""), 4000);
-      return;
-    }
-    setPending(tierId);
-    setMsg("");
-    try {
-      await api.post("/waitlist/join", {
-        email: user.email,
-        tier: tierId,
-        source: isNative ? "subscription_page_native" : "subscription_page",
-      });
-      setJoined((p) => new Set([...p, tierId]));
-      trackEvent("waitlist_joined", "subscription", tierId);
-      setMsg(
-        tierId === "pro"
-          ? (t("waitlistJoinedPro") || "🎉 You're on the founding-member list — when payment opens, you'll lock in 249 kr/mo for as long as you stay subscribed.")
-          : ((t("waitlistJoinedTier") || "🎉 You're on the {tier} list — we'll email you when it opens.").replace("{tier}", tierId))
-      );
-      setTimeout(() => setMsg(""), 8000);
-    } catch (e) {
-      setMsg(
-        e?.response?.status === 429
-          ? (t("tooManyRequests") || "Too many requests — please try again in a minute.")
-          : (t("waitlistJoinFailed") || "Couldn't add you to the list. Email hello@bonbox.dk if this keeps happening.")
-      );
-      setTimeout(() => setMsg(""), 5000);
-    } finally {
-      setPending(null);
-    }
+    // Stripe not ready for this tier — capture intent on the waitlist.
+    return joinWaitlist();
   };
 
   // Open the Stripe Customer Portal so the user can cancel, update their
@@ -700,7 +714,12 @@ export default function SubscriptionPage() {
           // During trial, swap CTA label on Starter + Pro.
           const showTrialLockCTA =
             currentPlan === "trial" && (tier.id === "starter" || tier.id === "pro");
-          const stripeReady = !!billing?.stripe_configured;
+          // Per-tier readiness: this tier can really check out (its founding
+          // price ID is set). Falls back to the coarse stripe_configured flag
+          // for deploy-skew. Drives both the CTA label + the disabled state so
+          // a not-ready tier honestly reads "Join the list", not "Lock in".
+          const stripeReady =
+            billing?.checkout_ready?.[tier.id] ?? !!billing?.stripe_configured;
           const price = annual ? tier.price_annual : tier.price_monthly;
           const isFounding = !!tier.founding_price;
           const cta = user ? tier.cta : tier.cta_unauth;
@@ -729,6 +748,10 @@ export default function SubscriptionPage() {
             ctaLabel = t("pricingJoining") || "Joining…";
           } else if (!stripeReady && joined.has(tier.id)) {
             ctaLabel = t("pricingOnTheList") || "✓ On the list";
+          } else if (!stripeReady && (tier.id === "starter" || tier.id === "pro")) {
+            // Payment for this tier isn't open yet — the click joins the
+            // waitlist, so the label must say so (not "Lock in").
+            ctaLabel = t("pricingJoinWaitlist") || "Join the founding list";
           } else if (showTrialLockCTA) {
             ctaLabel = t("pricingLockInRate") || "Lock in founding rate";
           } else {

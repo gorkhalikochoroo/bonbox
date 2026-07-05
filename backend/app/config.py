@@ -142,6 +142,12 @@ class Settings(BaseSettings):
     STRIPE_PRICE_ID_PRO: str = ""               # 349 kr/mo regular
     STRIPE_PRICE_ID_PRO_FOUNDING: str = ""      # 249 kr/mo founding
     FOUNDING_MEMBER_LIMIT: int = 100            # First N (active+trialing) lock founding rate
+    # Danish MOMS (25%) on OUR OWN SaaS invoice. Off by default because turning
+    # Stripe Tax on in code without a DK tax registration in the Stripe dashboard
+    # makes checkout ERROR. Once the registration exists (or the Prices are set
+    # tax-inclusive), flip this env to "true" — no code change. A MOMS-certainty
+    # product should show MOMS on its own invoice, but only when it's real.
+    STRIPE_AUTOMATIC_TAX: bool = False
     # Public, human-readable monthly price table in whole DKK (ex MOMS).
     # This is a DISPLAY mirror of the Stripe Price `unit_amount` on the four
     # STRIPE_PRICE_ID_* products above — it is NOT the charge authority. The
