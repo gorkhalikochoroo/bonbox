@@ -144,6 +144,10 @@ _migrations = [
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_attempts INTEGER DEFAULT 0",
     # Server-side session revocation epoch (token_version / "sign out all").
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER DEFAULT 0 NOT NULL",
+    # Shared-device ("Delt enhed") reveal PIN (task #379).
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS device_pin_hash VARCHAR(200)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS device_pin_failed_count INTEGER DEFAULT 0 NOT NULL",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS device_pin_locked_until TIMESTAMP",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS is_personal BOOLEAN DEFAULT false",
     "ALTER TABLE sales ADD COLUMN IF NOT EXISTS reference_id VARCHAR(100)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_digest_enabled BOOLEAN DEFAULT false",
@@ -3530,6 +3534,72 @@ async def member_read_guard(request: Request, call_next):
     return await call_next(request)
 
 
+# --- Shared-device ("Delt enhed") reveal-PIN gate (task #379) ---
+# Sibling to member_read_guard, but keyed on the SERVER-SIGNED `sd` token claim
+# rather than role. When a device is in shared mode, hard-block the owner-
+# financial read prefixes unless the request carries a live reveal proof
+# (X-BonBox-Device-Pin) bound to this device's nonce. On a shared owner tablet
+# the actor IS the owner (role=owner), so member_read_guard never fires — this
+# is the ONLY server gate that protects it. Fails CLOSED (503) on lookup error.
+# Reuses the owner-financial prefix set so it can't drift from the member gate.
+_SHARED_DEVICE_DENY_PREFIXES = _MANAGER_READ_DENY_PREFIXES  # tax / bank* / cashflow / reports
+
+
+@app.middleware("http")
+async def shared_device_pin_gate(request: Request, call_next):
+    if request.method not in ("GET", "HEAD"):
+        return await call_next(request)
+    path = request.url.path or ""
+    if not any(path.startswith(p) for p in _SHARED_DEVICE_DENY_PREFIXES):
+        return await call_next(request)  # cheap common path — no decode/DB
+    bearer = request.headers.get("authorization", "")
+    has_bearer = bearer.lower().startswith("bearer ")
+    token = bearer.split(" ", 1)[1].strip() if has_bearer else request.cookies.get(_AUTH_COOKIE)
+    if not token:
+        return await call_next(request)  # anon — the auth dep will decide
+    try:
+        payload = _decode_jwt(token)
+    except Exception:  # noqa: BLE001
+        return await call_next(request)
+    if not payload.get("sd"):
+        return await call_next(request)  # normal (non-shared) session — untouched
+
+    # Shared device — require a live reveal proof bound to this device nonce.
+    from app.services.auth import device_pin_proof_valid, DEVICE_PIN_HEADER
+    user_id = payload.get("sub")
+    dn = payload.get("dn")
+    proof = request.headers.get(DEVICE_PIN_HEADER)
+
+    from app.database import SessionLocal as _Session
+    from sqlalchemy import text as _text
+    db = _Session()
+    try:
+        row = db.execute(
+            _text("SELECT device_pin_hash FROM users WHERE id = :uid LIMIT 1"),
+            {"uid": user_id},
+        ).first()
+    except Exception:  # noqa: BLE001
+        _security_logger.warning(
+            "shared_device_pin_gate lookup failed — failing CLOSED (503)"
+        )
+        return JSONResponse(
+            status_code=503,
+            content={"detail": {"code": "pin_check_unavailable",
+                                "message": "Could not verify. Please retry."}},
+        )
+    finally:
+        db.close()
+
+    pin_hash = row[0] if row else None
+    if device_pin_proof_valid(str(user_id), pin_hash, dn, proof):
+        return await call_next(request)  # revealed for this window
+    return JSONResponse(
+        status_code=403,
+        content={"detail": {"code": "device_pin_required",
+                            "message": "Enter your PIN to view your finances on this shared device."}},
+    )
+
+
 # --- Security Headers Middleware ---
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
@@ -3801,7 +3871,14 @@ async def sliding_refresh_middleware(request: Request, call_next):
         # refreshed session stays revocable (and a no-`tv` legacy token keeps
         # grace-passing). We preserve the OLD token's `tv` rather than re-read
         # the DB: a refresh continues the same session, it doesn't re-auth.
-        new_token = _mint(str(user_id), payload.get("tv"))
+        # Preserve the shared-device claim + nonce across the re-mint so "Delt
+        # enhed" mode survives the midway refresh (task #379) — else the curtain
+        # silently drops after ~15 days.
+        new_token = _mint(
+            str(user_id), payload.get("tv"),
+            shared_device=bool(payload.get("sd")),
+            device_nonce=payload.get("dn"),
+        )
 
         # ── Wire the new token into the response ──────────────────────
         if mode == "cookie":
@@ -3990,6 +4067,10 @@ except CryptoConfigError as _crypto_err:
 
 # --- Routers ---
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
+# Shared-device ("Delt enhed") reveal PIN — router carries its own
+# /auth/device-pin prefix, so mount at /api → /api/auth/device-pin (task #379).
+from app.routers import device_pin as _device_pin_router
+app.include_router(_device_pin_router.router, prefix="/api")
 app.include_router(sales.router, prefix="/api/sales", tags=["Sales"])
 app.include_router(expenses.router, prefix="/api/expenses", tags=["Expenses"])
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])

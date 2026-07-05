@@ -110,6 +110,16 @@ class User(Base):
     # / offboarding / demotion; tokens carrying an older `tv` claim are
     # rejected. Default 0; existing tokens (no `tv`) are unaffected.
     token_version: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    # ── Shared-device ("Delt enhed") reveal PIN (task #379) ───────────
+    # Account-level 4-digit PIN (bcrypt-hashed) that re-curtains the owner's
+    # crown-jewel FINANCIAL surfaces on a device the owner flagged "shared".
+    # "Shared" itself is NOT stored here — it's a signed `sd` claim baked into
+    # that DEVICE's token (server-authoritative, un-spoofable), so this is only
+    # the one reveal secret + its brute-force lockout. Set once, reused across
+    # any shared device. NULL = no PIN set (feature never enabled).
+    device_pin_hash: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    device_pin_failed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    device_pin_locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     reset_token: Mapped[str | None] = mapped_column(String(100), nullable=True)
     reset_token_expires: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # Per-account failed-attempt counter for the password-reset code. The

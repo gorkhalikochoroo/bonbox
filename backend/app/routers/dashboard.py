@@ -265,7 +265,7 @@ def get_dashboard_batch(
     # MOMS set-aside. Zero (not the real figure) → the card's `moms > 0` gate
     # hides the line, and the number never crosses the wire. Consistent with the
     # /api/reports + /api/tax read-deny for members (member_read_guard).
-    if getattr(user, "_is_member_view", False):
+    if getattr(user, "_is_member_view", False) or getattr(user, "_shared_device_locked", False):
         month_moms = 0.0
 
     top_cat = (
@@ -1294,7 +1294,7 @@ def get_summary(
     except Exception:  # noqa: BLE001
         month_moms = 0.0
     # Owner-only SKAT figure — hidden from invited members (see /batch above).
-    if getattr(user, "_is_member_view", False):
+    if getattr(user, "_is_member_view", False) or getattr(user, "_shared_device_locked", False):
         month_moms = 0.0
 
     # Top expense category this month

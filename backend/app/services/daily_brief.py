@@ -516,7 +516,7 @@ def compute_precompute(user: User, db: Session) -> Precompute:
     # so neither the owed figure nor the countdown reaches a member. The
     # read-only accountant grant sets _is_accountant_view (NOT _is_member_view),
     # so the revisor still gets the full MOMS brief.
-    if getattr(user, "_is_member_view", False):
+    if getattr(user, "_is_member_view", False) or getattr(user, "_shared_device_locked", False):
         moms_days_left = None
         moms_estimated_owed = None
         moms_deadline_date = None

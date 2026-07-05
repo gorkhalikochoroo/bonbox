@@ -1,3 +1,6 @@
+import hashlib
+import hmac
+import time
 from datetime import datetime, timedelta, timezone
 
 from jose import jwt, JWTError
@@ -38,7 +41,13 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_access_token(user_id: str, token_version: int | None = None) -> str:
+def create_access_token(
+    user_id: str,
+    token_version: int | None = None,
+    *,
+    shared_device: bool = False,
+    device_nonce: str | None = None,
+) -> str:
     """Mint a fresh BonBox JWT.
 
     Includes `iat` (issued-at) so the sliding-refresh middleware in
@@ -60,7 +69,59 @@ def create_access_token(user_id: str, token_version: int | None = None) -> str:
     payload = {"sub": user_id, "iat": now, "exp": expire}
     if token_version is not None:
         payload["tv"] = int(token_version)
+    # Shared-device ("Delt enhed") mode — a SERVER-SIGNED claim on THIS device's
+    # token (task #379). It's baked into the signature so a staffer holding the
+    # device can't spoof/remove it (unlike a client header). `dn` is a per-device
+    # nonce that the reveal-PIN proof binds to (anti cross-device replay). Both
+    # are preserved by the sliding-refresh middleware so shared mode survives
+    # the ~15-day re-mint. Omitted entirely for a normal (non-shared) session.
+    if shared_device:
+        payload["sd"] = True
+        if device_nonce:
+            payload["dn"] = str(device_nonce)
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+# ── Shared-device reveal-PIN proof (task #379) ───────────────────────────
+# Mirrors the staff-portal PIN-proof trio (routers/staff_portal.py) but keyed on
+# the OWNER user + the device nonce instead of a StaffLink. A correct PIN mints a
+# short-lived HMAC proof the client echoes in the X-BonBox-Device-Pin header to
+# re-open the curtained financial surfaces; it expires server-side so a leaked
+# proof is useless past the window. Keyed on device_pin_hash so rotating the PIN
+# instantly voids every outstanding proof.
+DEVICE_PIN_PROOF_TTL = 15 * 60  # seconds — hard server cap on a reveal window
+DEVICE_PIN_HEADER = "x-bonbox-device-pin"
+
+
+def _device_pin_proof_sig(user_id: str, pin_hash: str, device_nonce: str, ts: int) -> str:
+    msg = f"{user_id}:{pin_hash}:{device_nonce}:{ts}".encode()
+    return hmac.new(str(settings.SECRET_KEY).encode(), msg, hashlib.sha256).hexdigest()
+
+
+def mint_device_pin_proof(user_id: str, pin_hash: str, device_nonce: str) -> str:
+    ts = int(time.time())
+    return f"v1.{ts}.{_device_pin_proof_sig(user_id, pin_hash, device_nonce, ts)}"
+
+
+def device_pin_proof_valid(
+    user_id: str, pin_hash: str | None, device_nonce: str | None, proof: str | None
+) -> bool:
+    """True iff `proof` is a live reveal proof for this (user, pin, device)."""
+    if not proof or not pin_hash or not device_nonce:
+        return False
+    parts = str(proof).split(".")
+    if len(parts) != 3 or parts[0] != "v1":
+        return False
+    try:
+        ts = int(parts[1])
+    except ValueError:
+        return False
+    now = time.time()
+    if ts > now + 300 or (now - ts) > DEVICE_PIN_PROOF_TTL:
+        return False
+    return hmac.compare_digest(
+        _device_pin_proof_sig(user_id, pin_hash, device_nonce, ts), parts[2]
+    )
 
 
 def _decode_token(token: str) -> dict:
@@ -176,6 +237,32 @@ def get_current_user(
         user, "owner_id", None
     ):
         return _resolve_member_view(user, request, db)
+
+    # ── Shared-device ("Delt enhed") reveal state (task #379) ─────────
+    # When THIS device's token carries the server-signed `sd` claim, the owner
+    # flagged it shared. The crown-jewel FINANCIAL surfaces stay curtained until
+    # a correct reveal-PIN mints a proof echoed in the X-BonBox-Device-Pin
+    # header. `_shared_device_locked` is the endpoint-level signal (mirrors
+    # `_is_member_view`) used to strip the SKAT figure from surfaces that live
+    # OUTSIDE the middleware's prefix set (dashboard month_moms, the daily
+    # brief). The prefix routes themselves are hard-blocked by pin_gate. Only
+    # meaningful on the owner path (a shared device is logged in as the owner);
+    # delegated member/accountant views returned above never see it.
+    try:
+        if payload.get("sd"):
+            proof = request.headers.get(DEVICE_PIN_HEADER)
+            revealed = device_pin_proof_valid(
+                str(user.id), getattr(user, "device_pin_hash", None),
+                payload.get("dn"), proof,
+            )
+            user._shared_device = True
+            user._shared_device_locked = not revealed
+        else:
+            user._shared_device = False
+            user._shared_device_locked = False
+    except Exception:  # noqa: BLE001 — never let the reveal check break auth
+        user._shared_device = False
+        user._shared_device_locked = False
 
     return user
 
