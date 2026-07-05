@@ -213,11 +213,38 @@ def test_member_read_guard_leaves_operational_reads_open():
 def test_member_read_guard_denies_only_low_priv_roles():
     from app.main import _LOW_PRIV_MEMBER_ROLES
 
-    # Cashier + viewer are blocked from the crown jewels…
+    # Cashier + viewer are the FULL-deny roles (lose the whole crown-jewel set,
+    # incl. the wage-cost estimate)…
     assert "cashier" in _LOW_PRIV_MEMBER_ROLES
     assert "viewer" in _LOW_PRIV_MEMBER_ROLES
-    # …but the trusted manager seat, the accountant grant, and the owner keep
-    # their access (this is NOT a blanket member denial — that's task #375).
+    # …manager is NOT here — it has its own narrower deny-set (see
+    # test_manager_read_scope_*); accountant + owner keep full access.
     assert "manager" not in _LOW_PRIV_MEMBER_ROLES
     assert "accountant" not in _LOW_PRIV_MEMBER_ROLES
     assert "owner" not in _LOW_PRIV_MEMBER_ROLES
+
+
+def test_manager_read_scope_denies_owner_financials_keeps_wage_cost():
+    """GDPR least-privilege: a manager loses the OWNER's tax/bank/cashflow but
+    keeps the wage/labor-cost estimate (hours×rate — no payslip/CPR PII, since
+    BonBox does not do payroll). Mirrors the guard's role='manager' branch."""
+    from app.main import _MANAGER_READ_DENY_PREFIXES, _MEMBER_READ_DENY_PREFIXES
+
+    def _manager_denied(path):
+        return any(path.startswith(p) for p in _MANAGER_READ_DENY_PREFIXES)
+
+    # Owner financials — denied to a manager.
+    for denied in (
+        "/api/tax/filing",
+        "/api/bank-connect/init",
+        "/api/bank-connections",
+        "/api/bank-import/transactions",
+        "/api/cashflow",
+    ):
+        assert _manager_denied(denied) is True, denied
+    # Wage/labor-cost estimate — a manager KEEPS it (their shift-planning tool).
+    assert _manager_denied("/api/staff/payroll/estimate") is False
+    assert _manager_denied("/api/staff/payroll/csv") is False
+    # Strict subset of the cashier/viewer set → the fast-path gate (which screens
+    # the union) still catches every manager-denied path before any DB lookup.
+    assert set(_MANAGER_READ_DENY_PREFIXES) < set(_MEMBER_READ_DENY_PREFIXES)

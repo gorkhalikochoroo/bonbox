@@ -3398,12 +3398,30 @@ async def accountant_write_guard(request: Request, call_next):
 #   • only GET/HEAD (writes already default-denied)
 #   • only a small set of crown-jewel prefixes triggers a role lookup, so
 #     the common path stays a single startswith() with no DB hit
-#   • only the LOW-privilege roles are denied — the trusted manager seat and
-#     the accountant grant keep their access (this is NOT the full per-router
-#     scope model; that's the documented follow-up, task #375)
+#   • ROLE-SCOPED denial (GDPR least-privilege):
+#       - cashier / viewer → the FULL owner-financials set below
+#       - manager          → owner financials MINUS the wage/labor-cost estimate.
+#         A manager runs shifts and legitimately manages labor cost; that surface
+#         (/api/staff/payroll) is an hours×rate ESTIMATE, not payslips — BonBox
+#         does not do payroll, so it carries no CPR/bank/payslip PII. But a shift
+#         manager has no business in the OWNER's SKAT filings, bank feed, or
+#         cashflow, so those stay denied. (Still NOT the full per-router scope
+#         model — that's the documented follow-up, task #375.)
+#   • the accountant grant keeps its own (read-only) access — separate guard
 #   • fails CLOSED (503) if the role lookup raises, like the write-guard
 _MEMBER_READ_DENY_PREFIXES = (
     "/api/staff/payroll",
+    "/api/tax",
+    "/api/bank-connect",
+    "/api/bank-connections",
+    "/api/bank-import",
+    "/api/cashflow",
+)
+# Owner financials a MANAGER must not read — the full set MINUS the wage-cost
+# estimate (/api/staff/payroll). Subset of _MEMBER_READ_DENY_PREFIXES, so the
+# fast-path _is_sensitive_member_read_path() still catches every manager-denied
+# path (it screens the union) before any DB lookup.
+_MANAGER_READ_DENY_PREFIXES = (
     "/api/tax",
     "/api/bank-connect",
     "/api/bank-connections",
@@ -3473,7 +3491,19 @@ async def member_read_guard(request: Request, call_next):
     if not row:
         return await call_next(request)
     role = (row[0] or "").lower() if row[0] else ""
+
+    # Role-scoped denial. cashier/viewer lose the full owner-financials set
+    # (incl. the wage-cost estimate); a manager loses only the OWNER financials
+    # (tax/bank/cashflow) and keeps the wage/labor-cost estimate they run shifts
+    # against. Owner + accountant fall through (deny=False).
     if role in _LOW_PRIV_MEMBER_ROLES:
+        deny = _is_sensitive_member_read_path(path)
+    elif role == "manager":
+        deny = any(path.startswith(p) for p in _MANAGER_READ_DENY_PREFIXES)
+    else:
+        deny = False
+
+    if deny:
         _security_logger.info(
             "member_read_guard: role=%s blocked from %s", role, path
         )
