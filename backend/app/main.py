@@ -4372,6 +4372,7 @@ try:
     # the same DailyBrief row and adds no extra LLM cost.
     from app.jobs.daily_brief_push_job import send_daily_brief_pushes
     from app.jobs.expiry_scanner_job import run_expiry_scan
+    from app.jobs.frontend_monitor_job import run_frontend_monitor_tick
     from app.jobs.reservation_jobs import (
         send_reservation_reminders, purge_expired_reservations,
     )
@@ -4511,11 +4512,22 @@ try:
         name="Daily expiry scan + Pro push",
         replace_existing=True,
     )
+    # Prod frontend synthetic monitor — probes the live bonbox.dk bundle every
+    # 5 min and alerts the operator ONCE on a broken/stale Vercel deploy (the
+    # stale-chunk outage that dead-ends users at the ErrorBoundary). Fail-soft,
+    # read-only, flap-tolerant. See jobs/frontend_monitor_job.py.
+    _scheduler.add_job(
+        run_frontend_monitor_tick,
+        trigger=IntervalTrigger(minutes=5),
+        id="frontend_prod_monitor",
+        name="Prod frontend synthetic monitor (Vercel deploy integrity)",
+        replace_existing=True,
+    )
     _scheduler.start()
     print("Schedulers started: payment auto-sync (6h), nightly maintenance (02:30), "
           "kasserapport drift (03:00), demo refresh (03:15), kasserapport patterns (Sun 03:30), "
           "recurring expenses (04:00), daily brief push (06:00), daily brief email (06:30), "
-          "aiia sync (03:30), mobilepay sync (03:45)")
+          "aiia sync (03:30), mobilepay sync (03:45), frontend monitor (5m)")
 
     # Scheduler shutdown migrated to the `lifespan` context manager
     # near the FastAPI() constructor. It checks globals() for the

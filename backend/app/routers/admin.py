@@ -484,6 +484,38 @@ def admin_recent_errors(
     ]
 
 
+@router.get("/prod-health")
+def admin_prod_health(
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Live status of the prod frontend synthetic monitor.
+
+    Written every 5 min by the frontend_monitor_job (jobs/frontend_monitor_job).
+    Lets the super-admin panel render "prod frontend: healthy / BROKEN since
+    HH:MM (entry=…, chunk=…)". Read-only. Returns a never-checked default if the
+    monitor hasn't run yet (fresh deploy).
+    """
+    from app.models.monitor_state import MonitorState
+    st = db.query(MonitorState).filter(MonitorState.service == "frontend_prod").first()
+    if not st:
+        return {"healthy": None, "state": "UNKNOWN", "fail_streak": 0,
+                "broken_since": None, "last_check_at": None, "last_summary": None,
+                "incident_entry": None, "incident_chunk": None}
+    return {
+        "healthy": st.state == "HEALTHY",
+        "state": st.state,
+        "fail_streak": st.fail_streak,
+        "consecutive_ok": st.consecutive_ok,
+        "broken_since": st.broken_since.isoformat() if st.broken_since else None,
+        "last_check_at": st.last_check_at.isoformat() if st.last_check_at else None,
+        "last_alert_at": st.last_alert_at.isoformat() if st.last_alert_at else None,
+        "last_summary": st.last_summary,
+        "incident_entry": st.incident_entry,
+        "incident_chunk": st.incident_chunk,
+    }
+
+
 # ─────────────────────── Spam cleanup ───────────────────────
 
 
