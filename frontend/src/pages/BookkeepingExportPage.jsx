@@ -8,6 +8,7 @@ import { useEntitlements } from "../hooks/useEntitlements";
 import { sendBundleToAccountant } from "../utils/shareDailyCloseRange";
 import { localIso } from "../utils/dateFormat";
 import { PageHeader, Button, SectionBanner, Icon, UpgradeNudge } from "../components/ui";
+import RevisorSection from "../components/RevisorSection";
 import { useLanguage } from "../hooks/useLanguage";
 
 /**
@@ -398,6 +399,23 @@ export default function BookkeepingExportPage() {
         {err && (
           <SectionBanner severity="critical" title={err} />
         )}
+      </div>
+
+      {/* The better path: their own free read-only login. This is the
+          discoverable home for the invite — owners searching "revisor" (Cmd-K +
+          the month-end banner) already land HERE, so the live invite lives right
+          next to the manual CSV/ZIP export instead of buried in /team. */}
+      <div className="mt-8">
+        <div className="flex items-center gap-2 mb-1.5">
+          <Icon name="KeyRound" size={16} className="text-gray-500" />
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            {t("bkeRevisorLoginHeading", "Or give your revisor their own login")}
+          </h2>
+        </div>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+          {t("bkeRevisorLoginSub", "Free and read-only. They see fakturaer, daily closes, expenses and MOMS live — no monthly CSV to send, no shared password. They can't change a thing.")}
+        </p>
+        <RevisorSection />
       </div>
 
       {/* Reassurance */}

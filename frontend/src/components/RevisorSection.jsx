@@ -66,6 +66,11 @@ export default function RevisorSection() {
   const [revisorMsg, setRevisorMsg] = useState("");
   const [revisorError, setRevisorError] = useState("");
   const [revisorLocked, setRevisorLocked] = useState(false);
+  // Copyable fallback link — the invite email can silently fail (spam filter,
+  // RESEND_API_KEY unset), so the owner always gets a link they can share by
+  // hand. Persists until the next invite (not auto-cleared like the message).
+  const [inviteLink, setInviteLink] = useState("");
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const refreshGrants = () => {
     setGrantsLoading(true);
@@ -92,11 +97,13 @@ export default function RevisorSection() {
       return;
     }
     setRevisorSaving(true);
+    setLinkCopied(false);
     try {
-      await api.post("/accountants/invite", {
+      const res = await api.post("/accountants/invite", {
         email,
         name: revisorName.trim() || null,
       });
+      setInviteLink(res.data?.accept_url || "");
       setRevisorMsg(
         t("revisorInviteSent", "Invite sent. They have 7 days to accept."),
       );
@@ -126,6 +133,17 @@ export default function RevisorSection() {
       }
     } finally {
       setRevisorSaving(false);
+    }
+  };
+
+  const copyInviteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      // Clipboard blocked (insecure context / permissions) — the input stays
+      // selectable so the owner can still copy manually. No error surfaced.
     }
   };
 
@@ -178,6 +196,24 @@ export default function RevisorSection() {
           </Field>
         </div>
         {revisorMsg && <Message tone="success">{revisorMsg}</Message>}
+        {inviteLink && (
+          <div className="text-xs px-3 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 space-y-2">
+            <div className="text-gray-600 dark:text-gray-400">
+              {t("revisorCopyLinkHint", "Didn't arrive? Send your revisor this link yourself — it works for 7 days.")}
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={inviteLink}
+                onFocus={(e) => e.target.select()}
+                className={INPUT_CLASS + " flex-1 font-mono text-[11px]"}
+              />
+              <Button type="button" variant="secondary" size="sm" onClick={copyInviteLink}>
+                {linkCopied ? t("copied", "Copied") : t("copyLink", "Copy link")}
+              </Button>
+            </div>
+          </div>
+        )}
         {revisorError && <Message tone="error">{revisorError}</Message>}
         {revisorLocked && (
           <div className="text-xs text-amber-700 dark:text-amber-300 mt-1">

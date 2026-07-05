@@ -63,6 +63,12 @@ class AccountantGrantResponse(BaseModel):
     # Kept separate from invited_at to avoid forcing the front-end to
     # parse two formats.
     created_at: datetime.datetime
+    # The magic accept link — populated ONLY on the immediate invite response
+    # (the owner just created it and legitimately needs to share it if the email
+    # bounces / spam-filters). Deliberately NOT set by the /grants list serializer
+    # (_to_response leaves it None) so a routine grants poll never re-emits the
+    # single-use token. Fail-soft copy-link fallback for the revisor invite.
+    accept_url: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

@@ -345,14 +345,17 @@ def invite_accountant(
     db.commit()
     db.refresh(grant)
 
+    # The magic accept link. Computed OUTSIDE the email try so we can always
+    # hand it back to the owner as a copyable fallback — Danish revisor domains
+    # spam-filter aggressively, and email_service no-ops silently if RESEND_API_KEY
+    # is unset, so "Invite sent" must never be the owner's only recovery path.
+    frontend = (settings.FRONTEND_URL or "https://bonbox.dk").rstrip("/")
+    accept_url = f"{frontend}/accept-invite/{grant.invite_token}"
+
     # Send invite email — best-effort, never block the API response
     try:
         from app.services.email_service import send_email
         owner_name = user.business_name or user.email
-        # Frontend domain — the link the revisor clicks. Match
-        # FRONTEND_URL when set, fall back to bonbox.dk for production.
-        frontend = (settings.FRONTEND_URL or "https://bonbox.dk").rstrip("/")
-        accept_url = f"{frontend}/accept-invite/{grant.invite_token}"
         is_danish = (user.currency or "DKK").upper() == "DKK"
         subject = (
             f"{owner_name} har inviteret dig som revisor på BonBox"
@@ -367,7 +370,9 @@ def invite_accountant(
     except Exception as e:  # noqa: BLE001
         logger.warning("accountant invite email failed: %s", e)
 
-    return _to_response(grant, owner_business_name=user.business_name)
+    resp = _to_response(grant, owner_business_name=user.business_name)
+    resp.accept_url = accept_url  # copy-link fallback (invite response only)
+    return resp
 
 
 @router.get("/grants", response_model=list[AccountantGrantResponse])
