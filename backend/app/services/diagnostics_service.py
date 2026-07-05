@@ -274,6 +274,35 @@ def _detect_close_unreconciled(db: Session, user, now, skip=frozenset()):
     )
 
 
+def _detect_public_booking_dead(db: Session, user, now, skip=frozenset()):
+    """The owner's OWN public booking page has no free slots for 14 days.
+
+    Reads the persisted SurfaceFinding the 15-min public-surface monitor writes
+    — never re-probes here (this runs on every queue load). Surfaces ONLY a
+    confirmed-dead page (state DEGRADED + severity urgent), so a demo's missing
+    name (a `warn`) never nags the owner. A customer who opens the link just
+    bounces, so this is genuinely urgent — deep-link to the reservation setup.
+    """
+    from app.models.surface_finding import SurfaceFinding
+    sf = (
+        db.query(SurfaceFinding)
+        .filter(
+            SurfaceFinding.user_id == user.id,
+            SurfaceFinding.state == "DEGRADED",
+            SurfaceFinding.severity == "urgent",
+        )
+        .first()
+    )
+    if sf is None:
+        return None
+    return _finding(
+        "public_booking_dead",
+        "urgent",
+        "/reservations",
+        {"slug": sf.slug},
+    )
+
+
 # Registry — add a detector here and it joins the queue. Each runs guarded.
 _DETECTORS = [
     _detect_unconfirmed_reservations,
@@ -281,6 +310,7 @@ _DETECTORS = [
     _detect_close_missing,
     _detect_stale_draft_close,
     _detect_close_unreconciled,
+    _detect_public_booking_dead,
 ]
 
 # Severity ordering for a stable, owner-friendly sort (urgent first).

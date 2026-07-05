@@ -20,7 +20,7 @@
 // re-keys immediately.
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, CalendarCheck, Landmark, FileClock, Scale, ChevronRight, X } from "lucide-react";
+import { AlertTriangle, CalendarCheck, Landmark, FileClock, Scale, CalendarX, ChevronRight, X } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { formatKr } from "../utils/currency";
@@ -110,6 +110,16 @@ const RENDERERS = {
         revenue: formatKr(m.revenue_total),
       }),
     action: (t) => t("nyqUnreconciledAction", "Review"),
+  },
+  // Your public booking page has no free slots for the next 14 days — a
+  // customer who opens the link just bounces. Flagged by the public-surface
+  // monitor (dead-on-arrival), surfaced here so you can fix opening hours /
+  // tables. Never fires for a demo's missing name (that stays admin-only).
+  public_booking_dead: {
+    icon: CalendarX,
+    title: (t) =>
+      t("nyqBookingDead", "Your booking page has no free times for the next 14 days — customers can't book"),
+    action: (t) => t("nyqBookingDeadAction", "Fix booking setup"),
   },
 };
 

@@ -516,6 +516,41 @@ def admin_prod_health(
     }
 
 
+@router.get("/public-surface-health")
+def admin_public_surface_health(
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Live status of every public booking page (the public-surface monitor).
+
+    Written every 15 min by public_surface_monitor_job. Degraded slugs also
+    appear in /admin/recent-errors as method=MONITOR rows. Read-only. Ordered
+    degraded-first so a genuinely-dead booking page surfaces at the top.
+    """
+    from app.models.surface_finding import SurfaceFinding
+    rows = db.query(SurfaceFinding).all()
+    findings = [
+        {
+            "slug": r.slug,
+            "state": r.state,
+            "severity": r.severity,
+            "codes": r.codes or [],
+            "detail": r.detail or {},
+            "degraded_since": r.degraded_since.isoformat() if r.degraded_since else None,
+            "last_scanned_at": r.last_scanned_at.isoformat() if r.last_scanned_at else None,
+            "last_summary": r.last_summary,
+        }
+        for r in rows
+    ]
+    # Degraded first, then most-recently-scanned.
+    findings.sort(key=lambda f: (f["state"] != "DEGRADED", f["last_scanned_at"] or ""))
+    return {
+        "total_slugs": len(findings),
+        "degraded_count": sum(1 for f in findings if f["state"] == "DEGRADED"),
+        "findings": findings,
+    }
+
+
 # ─────────────────────── Spam cleanup ───────────────────────
 
 

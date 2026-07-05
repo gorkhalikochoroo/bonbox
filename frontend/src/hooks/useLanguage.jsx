@@ -1299,6 +1299,8 @@ const translations = {
     nyqStaleDraftAction: "Review",
     nyqUnreconciled: "The {date} lukning doesn't tie out: payments {payment} ≠ omsætning {revenue}",
     nyqUnreconciledAction: "Review",
+    nyqBookingDead: "Your booking page has no free times for the next 14 days — customers can't book",
+    nyqBookingDeadAction: "Fix booking setup",
     nyqDismiss: "Dismiss",
     // Sign out all other devices (token_version revocation).
     signOutAllTitle: "Signed in elsewhere?",
@@ -8223,6 +8225,8 @@ const translations = {
     nyqStaleDraftAction: "Gennemgå",
     nyqUnreconciled: "Lukningen {date} stemmer ikke: betalinger {payment} ≠ omsætning {revenue}",
     nyqUnreconciledAction: "Gennemgå",
+    nyqBookingDead: "Din bookingside har ingen ledige tider de næste 14 dage — gæster kan ikke booke",
+    nyqBookingDeadAction: "Ret bookingopsætning",
     nyqDismiss: "Skjul",
     // Log ud af alle andre enheder (token_version-spærring).
     signOutAllTitle: "Logget ind andre steder?",
