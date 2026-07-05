@@ -176,11 +176,27 @@ export default function FirstRunCollapsedDashboard({ className = "" }) {
         </h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
           {t(
-            "dashFirstRunSubtitle",
-            "Start with your daily close — sales, expenses, and MOMS fill your dashboard in as you go.",
+            "dashFirstRunSubtitleTwoWays",
+            "Two ways to begin: explore with sample data to see the whole thing at once, or start your first close and watch your dashboard fill in.",
           )}
         </p>
       </header>
+
+      {/* Explore-first path, surfaced at the TOP as a co-equal choice (it used
+          to be a buried footnote below the steps, self-hiding forever after one
+          dismissal). forceShow keeps it reachable on an empty dashboard.
+          Visually amber/secondary so the gray-900 kasserapport CTA below stays
+          the hero — the wedge still leads. Honest: DemoActiveBanner + ` · demo`
+          tags mean seeded data never masquerades as real. */}
+      <DemoDataCard forceShow />
+
+      <div className="flex items-center gap-3 my-6" aria-hidden="true">
+        <span className="h-px flex-1 bg-gray-100 dark:bg-gray-800" />
+        <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+          {t("dashFirstRunOrStartReal", "or start with your real numbers")}
+        </span>
+        <span className="h-px flex-1 bg-gray-100 dark:bg-gray-800" />
+      </div>
 
       <ol className="space-y-5">
         {steps.map((step, i) => (
@@ -194,14 +210,6 @@ export default function FirstRunCollapsedDashboard({ className = "" }) {
           />
         ))}
       </ol>
-
-      {/* No slip handy? Seed 30 days of realistic sample data in one tap so
-          the owner can explore the dashboard/brief/reports before their
-          first real close. DemoDataCard self-hides once seeded, if the user
-          already has real data, or on dismissal. */}
-      <div className="mt-6">
-        <DemoDataCard />
-      </div>
     </div>
   );
 }

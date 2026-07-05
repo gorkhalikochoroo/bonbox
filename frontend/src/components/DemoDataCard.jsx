@@ -45,12 +45,18 @@ function _dismissFor(days = 30) {
   }
 }
 
-export default function DemoDataCard() {
+export default function DemoDataCard({ forceShow = false }) {
   const { t } = useLanguage();
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [hidden, setHidden] = useState(() => _isDismissed());
+  // forceShow (first-run dashboard) ignores the 30-day localStorage dismissal:
+  // that surface only renders when the account has ZERO data, so re-offering a
+  // preview is always appropriate — the old behaviour hid it FOREVER after one
+  // "No thanks", which is why an empty dashboard could never surface it again.
+  // "No thanks" still collapses it for the session; it returns on next visit.
+  // has_demo / has_real (server truth) are always respected.
+  const [hidden, setHidden] = useState(() => (forceShow ? false : _isDismissed()));
 
   useEffect(() => {
     if (hidden) return;

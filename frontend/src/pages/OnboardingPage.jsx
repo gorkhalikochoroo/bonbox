@@ -780,6 +780,21 @@ export default function OnboardingPage() {
     }
   };
 
+  // "Explore with sample data first" — seed 30 days of clearly-labelled demo
+  // data (amber banner + ` · demo` tags, clearable) so the owner lands on a
+  // FULL dashboard instead of an empty one, then complete onboarding. The seed
+  // is best-effort: if it 409s (already seeded / has real data) we still finish
+  // — never trap the user on a side feature.
+  const seedDemoAndFinish = async () => {
+    setFinishing(true);
+    try {
+      await api.post("/demo/seed");
+    } catch {
+      /* best-effort — already-seeded / has-real just proceeds to the dashboard */
+    }
+    await finishOnboarding("/dashboard");
+  };
+
   // "Skip and explore on my own" — also stamps completion. We never
   // want the wizard to pop again automatically; the user can re-open
   // from Profile.
@@ -1532,6 +1547,18 @@ export default function OnboardingPage() {
                 onPrimary={sendInviteAndFinish}
                 primaryBusy={revisorSending || finishing}
               />
+
+              {/* Tertiary path — land on a FULL dashboard instead of an empty
+                  one. Quiet by design so it never competes with the firstWin
+                  primary; clearly-labelled demo (amber banner + clearable). */}
+              <button
+                type="button"
+                onClick={seedDemoAndFinish}
+                disabled={revisorSending || finishing}
+                className="mt-4 w-full text-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 disabled:opacity-60 transition-colors"
+              >
+                {t("onbExploreWithSampleData", "Not ready to add your own numbers? Explore with sample data first →")}
+              </button>
             </div>
           )}
         </div>

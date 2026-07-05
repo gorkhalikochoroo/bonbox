@@ -6205,6 +6205,9 @@ const translations = {
     dashFirstRunTitle: "Welcome to BonBox",
     dashFirstRunSubtitle:
       "Three steps to start tracking sales, expenses, and MOMS — your dashboard fills in as you go.",
+    dashFirstRunSubtitleTwoWays:
+      "Two ways to begin: explore with sample data to see the whole thing at once, or start your first close and watch your dashboard fill in.",
+    dashFirstRunOrStartReal: "or start with your real numbers",
     dashFirstRunStep1Title: "Connect MobilePay or Aiia",
     dashFirstRunStep1Body:
       "Pull in your bank + payment data so reconciliation is automatic — or skip and log manually for now.",
@@ -12945,6 +12948,9 @@ const translations = {
     dashFirstRunTitle: "Velkommen til BonBox",
     dashFirstRunSubtitle:
       "Tre trin for at komme i gang med salg, udgifter og MOMS — dit overblik fyldes op, efterhånden som du arbejder.",
+    dashFirstRunSubtitleTwoWays:
+      "To måder at starte på: udforsk med eksempeldata og se det hele på én gang, eller lav din første afslutning og se dit overblik fyldes op.",
+    dashFirstRunOrStartReal: "eller start med dine rigtige tal",
     dashFirstRunStep1Title: "Tilslut MobilePay eller Aiia",
     dashFirstRunStep1Body:
       "Træk bank- og betalingsdata ind, så afstemningen sker automatisk — eller spring over og log manuelt indtil videre.",
