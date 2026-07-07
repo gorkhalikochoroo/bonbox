@@ -1221,6 +1221,20 @@ def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
             )
         except Exception:  # noqa: BLE001
             out["waitlist_matches"] = []
+        # Owner PUSH when a real FIFO fit exists — the "re-offer the freed seat"
+        # nudge. Reuses the matches already computed above (no recompute). Push
+        # only: no guest is messaged here. Fail-soft — a notify hiccup must never
+        # break the status change the owner just made.
+        try:
+            matches = out.get("waitlist_matches") or []
+            if matches:
+                from app.services.notification_service import notify_owner_freed_table
+                notify_owner_freed_table(
+                    db, user, r, matches[0],
+                    sms_available=(has_feature(user, "sms_reminders") and sms_configured()),
+                )
+        except Exception:  # noqa: BLE001 — never break the status change
+            pass
     return out
 
 
@@ -1546,6 +1560,11 @@ def convert_waitlist(entry_id: UUID, payload: WaitlistConvert, request: Request,
 
     w.status = "converted"
     w.converted_reservation_id = UUID(out["id"])
+    # Honest period basis for the Genvundet recovered-covers card: WHEN this
+    # waiting party was actually converted to a real booking. Bucketing the
+    # recovered count on created_at/updated_at would misattribute recovery to
+    # the wrong period — converted_at is the only truthful "when".
+    w.converted_at = utc_now()
     audit_service.record(db, user, "reservation.waitlist_converted",
                          "reservation_waitlist", w.id)
     db.commit()

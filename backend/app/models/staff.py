@@ -227,6 +227,10 @@ class NotificationLog(Base):
     body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="sent")  # sent, failed
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Idempotency key for de-duplicating event-driven pushes (e.g. the
+    # freed-table owner ping: dedup_key = "freed:<freed_id>:<match_id>").
+    # NULL for the many rows that don't need de-dup. Indexed for the lookup.
+    dedup_key: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 

@@ -141,13 +141,22 @@ def send_reservation_reminders() -> int:
                 # ── Email fallback (no SMS, or SMS send failed) ────────
                 if (channel is None or not outcome.get("ok")) and r.guest_email:
                     from app.services.email_service import send_email
+                    from app.routers.public_reservations import _guest_cancel_url
+                    cancel_url = _guest_cancel_url(profile, r)
+                    cancel_line = (
+                        f'<p>Kan du ikke komme? '
+                        f'<a href="{cancel_url}">Aflys din reservation her</a>, '
+                        f'så en anden gæst kan få bordet.</p>'
+                        if cancel_url else
+                        "<p>Vi glæder os til at se dig! Skriv eller ring til os, "
+                        "hvis du skal ændre eller aflyse.</p>"
+                    )
                     html = (
                         f"<p>Hej {r.guest_name},</p>"
                         f"<p>Bare en venlig påmindelse om din reservation hos "
                         f"<strong>{biz}</strong>:</p>"
                         f"<p>{r.starts_at.strftime('%d/%m/%Y %H:%M')} · {r.party_size} personer</p>"
-                        f"<p>Vi glæder os til at se dig! Skriv eller ring til os, "
-                        f"hvis du skal ændre eller aflyse.</p>"
+                        f"{cancel_line}"
                     )
                     send_email(
                         to=r.guest_email,
