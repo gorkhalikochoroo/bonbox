@@ -11,6 +11,7 @@ import { useTheme, THEMES } from "../hooks/useTheme";
 import Icon from "../components/ui/Icon";
 import PillarDiscovery from "../components/PillarDiscovery";
 import { NAV_MANIFEST, NAV_GROUPS, filterDestinations, isStaffMemberRole } from "../config/navManifest";
+import { useDeviceShare } from "../hooks/useDeviceShare";
 import { archetypeIdFor } from "../config/archetypes";
 import { isNativeApp } from "../utils/platform";
 
@@ -42,6 +43,7 @@ export default function MorePage() {
   const { branchType, businessTypes } = useBranch();
   const { t } = useLanguage();
   const { user, logout } = useAuth();
+  const { enabled: _devShared, locked: _devLocked } = useDeviceShare(); // #379
   const { hasFeature, isReady: entReady } = useEntitlements();
   const { hiddenPillars } = usePillars();
   // ACTIVATION axis (4th) — dormant relevant in-scope pillars drop from the
@@ -101,7 +103,7 @@ export default function MorePage() {
     isInScope: activation.isInScope === true,
     activationEnabled: activation.activationEnabled === true,
     // Owner-only financial tiles (Reports/Tax) drop from the More grid for staff.
-    isStaffMember: isStaffMemberRole(user?.role),
+    isStaffMember: isStaffMemberRole(user?.role) || (_devShared && _devLocked),
   };
 
   const visible = NAV_GROUPS

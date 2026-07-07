@@ -19,6 +19,7 @@ import { Icon } from "./ui";
 const GlobalSearchModal = lazy(() => import("./GlobalSearchModal"));
 import BranchSelector, { useBranch } from "./BranchSelector";
 import DeviceShareChip from "./DeviceShareChip";
+import { useDeviceShare } from "../hooks/useDeviceShare";
 import { archetypeIdFor } from "../config/archetypes";
 import MobileBottomNav from "./MobileBottomNav";
 import PillarDiscovery from "./PillarDiscovery";
@@ -217,6 +218,11 @@ function findGroupForPath(path) {
 
 export default function Layout() {
   const { user, logout } = useAuth();
+  // #379: a shared device that isn't revealed hides the owner's financial nav
+  // items too (not just curtains the pages) — treat "locked owner" like a staff
+  // member for the ownerOnly nav gate.
+  const { enabled: _devShared, locked: _devLocked } = useDeviceShare();
+  const _ownerFinancialsHidden = isStaffMemberRole(user?.role) || (_devShared && _devLocked);
   const navigate = useNavigate();
   const location = useLocation();
   const { branchType, businessTypes } = useBranch();
@@ -393,7 +399,7 @@ export default function Layout() {
   // Filter sidebar groups by both business_type (branch) and enabled modules
   const baseVisible = isAccountant
     ? accountantNavGroups
-    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, archetypeIdFor(branchType || user?.business_type), activation, isStaffMemberRole(user?.role));
+    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, archetypeIdFor(branchType || user?.business_type), activation, _ownerFinancialsHidden);
   // For super_admin owners, show an extra "Platform" group with the admin
   // dashboard. Frontend gating is cosmetic — real enforcement is server-side
   // (services/admin_security.py). A non-admin clicking this link sees an empty

@@ -59,6 +59,8 @@ import BusinessHealthCard from "../components/dashboard/BusinessHealthCard";
 import RevenueTrendChart from "../components/dashboard/RevenueTrendChart";
 import ProfitAnswerCard from "../components/dashboard/ProfitAnswerCard";
 import ProfitLossCard from "../components/dashboard/ProfitLossCard";
+import FinancialCurtain from "../components/FinancialCurtain";
+import { useDeviceShare } from "../hooks/useDeviceShare";
 import GoalTracker from "../components/dashboard/GoalTracker";
 import PaymentBreakdownCard from "../components/dashboard/PaymentBreakdownCard";
 import TopSellersCard from "../components/dashboard/TopSellersCard";
@@ -103,6 +105,21 @@ const ExpiryWarningsCard = ExpiryAlertsCard;
    up here. Order grouped by zone so it's easy to see what each zone has.
    ═══════════════════════════════════════════════════════════ */
 
+// Shared-device curtain (#379): a money-position card (profit hero / revenue
+// trend / P&L) renders a locked placeholder when this shared device isn't
+// revealed. HOC form keeps hook order stable — the wrapper ALWAYS calls
+// useDeviceShare, and mounts the real card only when revealed (today's-till
+// revenue stays visible elsewhere; this hides the business's position).
+function curtainFinancial(Card) {
+  function Curtained(props) {
+    const { enabled, locked } = useDeviceShare();
+    if (enabled && locked) return <FinancialCurtain />;
+    return <Card {...props} />;
+  }
+  Curtained.displayName = `Curtained(${Card.displayName || Card.name || "Card"})`;
+  return Curtained;
+}
+
 const REGISTRY = {
   // ── Notices ──
   SmartDriftBanner,
@@ -130,10 +147,10 @@ const REGISTRY = {
   ComplianceCountdownCard,
   TodayOnShiftCard,
 
-  // ── Zone 2 ──
-  ProfitAnswerCard,
-  RevenueTrendChart,
-  ProfitLossCard,
+  // ── Zone 2 ── (money-position cards curtain on a locked shared device, #379)
+  ProfitAnswerCard: curtainFinancial(ProfitAnswerCard),
+  RevenueTrendChart: curtainFinancial(RevenueTrendChart),
+  ProfitLossCard: curtainFinancial(ProfitLossCard),
   GoalTracker,
   BusinessHealthCard,
   PaymentBreakdownCard,

@@ -6,6 +6,7 @@ import { useBranch } from "./BranchSelector";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { usePillars } from "../hooks/usePillars";
 import { useAuth } from "../hooks/useAuth";
+import { useDeviceShare } from "../hooks/useDeviceShare";
 import { Icon } from "./ui";
 import { NAV_MANIFEST, filterDestinations, isStaffMemberRole } from "../config/navManifest";
 import { isNativeApp } from "../utils/platform";
@@ -56,7 +57,8 @@ export default function GlobalSearchModal({ open, onClose }) {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const isStaffMember = isStaffMemberRole(user?.role);
+  const { enabled: _devShared, locked: _devLocked } = useDeviceShare(); // #379
+  const isStaffMember = isStaffMemberRole(user?.role) || (_devShared && _devLocked);
   const { branchType, businessTypes } = useBranch();
   const { hasFeature, isReady: entReady } = useEntitlements();
   // RELEVANCE axis (C9 + C10). ⌘K is the highest-intent discovery surface, so

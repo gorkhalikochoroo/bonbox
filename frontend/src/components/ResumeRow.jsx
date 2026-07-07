@@ -38,6 +38,7 @@ import { useActivation } from "../hooks/useActivation";
 import { useBranch } from "./BranchSelector";
 import { useRouteHistory } from "../hooks/useRouteHistory";
 import { NAV_MANIFEST, filterDestinations, isStaffMemberRole } from "../config/navManifest";
+import { useDeviceShare } from "../hooks/useDeviceShare";
 import { archetypeIdFor } from "../config/archetypes";
 import { useAuth } from "../hooks/useAuth";
 import { Icon } from "./ui";
@@ -49,6 +50,7 @@ const SHOW = 2;
 export default function ResumeRow({ enabledModules, onNavigate }) {
   const { t } = useLanguage();
   const { user } = useAuth();
+  const { enabled: _devShared, locked: _devLocked } = useDeviceShare(); // #379
   const { history } = useRouteHistory();
   const { branchType, businessTypes } = useBranch();
   const { hasFeature, isReady: entReady } = useEntitlements();
@@ -89,7 +91,7 @@ export default function ResumeRow({ enabledModules, onNavigate }) {
       isInScope: activation.isInScope === true,
       activationEnabled: activation.activationEnabled === true,
       // Never resume a staff member into an owner-only financial page.
-      isStaffMember: isStaffMemberRole(user?.role),
+      isStaffMember: isStaffMemberRole(user?.role) || (_devShared && _devLocked),
     });
     const map = new Map();
     for (const d of resolved) {
