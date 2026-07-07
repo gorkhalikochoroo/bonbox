@@ -364,6 +364,23 @@ export default function ReservationPublicPage() {
     };
   }, [slug]);
 
+  // ── Deep-link self-cancel from the email ─────────────────────────
+  // ?booking=<id>&token=<jwt> seeds `result` so the existing success
+  // screen + Aflys button render and the token flows into poll/cancel
+  // (bookingToken() prefers result.booking_token). No new route or
+  // component — reuses the whole token-cancel flow.
+  useEffect(() => {
+    if (result?.id) return; // booked in-session — don't clobber
+    const bid = searchParams.get("booking");
+    const tok = searchParams.get("token");
+    if (!bid || !tok) return;
+    setResult({ id: bid, booking_token: tok, status: null });
+    api
+      .get(`/public/reservations/booking/${bid}`, { params: { token: tok } })
+      .then((r) => setLiveStatus(r?.data?.status || null))
+      .catch(() => setLiveStatus(null)); // bad/expired → inert screen; cancel POST 404s via existing cancelError
+  }, [searchParams, result]);
+
   // ── Default the public page to the venue's language ───────────────
   // A DK restaurant should greet any visitor in Danish (da-DK) by default
   // — the backend resolves the venue language (`page.language`) from the

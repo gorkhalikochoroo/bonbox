@@ -1812,6 +1812,23 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_rsvp_waitlist_user_day ON reservation_waitlist (user_id, waitlist_date, status)",
     "CREATE INDEX IF NOT EXISTS ix_rsvp_waitlist_purge ON reservation_waitlist (purge_after)",
 
+    # ── Migration 058 (2026-07-07): notification_log.dedup_key ───────────
+    # Idempotency key for event-driven owner pushes. The freed-table ping
+    # (waitlist recovery) writes dedup_key = "freed:<freed_id>:<match_id>"
+    # so a double-cancel of the same table never double-buzzes the owner.
+    # NULL for the many rows that don't need de-dup. Mirrors
+    # app/models/staff.py NotificationLog; documented in alembic 024.
+    "ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS dedup_key VARCHAR(120)",
+    "CREATE INDEX IF NOT EXISTS ix_notiflog_dedup ON notification_log (dedup_key)",
+
+    # ── Migration 059 (2026-07-07): reservation_waitlist.converted_at ────
+    # Honest period basis for the Genvundet recovered-covers card: the
+    # timestamp a waitlist row was actually converted to a seated booking.
+    # Bucketing the recovered count on created_at/updated_at would be a lie;
+    # this column is the only truthful "when it was recovered". Mirrors
+    # app/models/reservation_waitlist.py; documented in alembic 025.
+    "ALTER TABLE reservation_waitlist ADD COLUMN IF NOT EXISTS converted_at TIMESTAMP",
+
     # ── Migration 023 (2026-05-31): persistent 2D floor-plan layout ──────
     # bookable_resources gains position + shape so the owner's drag-arranged
     # room map persists to the venue. Mirrors app/models/bookable_resource.py
