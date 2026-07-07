@@ -18,6 +18,7 @@ import { Icon } from "./ui";
 // opens it (⌘K or button), keeping main bundle lean.
 const GlobalSearchModal = lazy(() => import("./GlobalSearchModal"));
 import BranchSelector, { useBranch } from "./BranchSelector";
+import DeviceShareChip from "./DeviceShareChip";
 import { archetypeIdFor } from "../config/archetypes";
 import MobileBottomNav from "./MobileBottomNav";
 import PillarDiscovery from "./PillarDiscovery";
@@ -526,6 +527,9 @@ export default function Layout() {
           <h1 className="text-base font-bold text-gray-900 dark:text-gray-100">BonBox</h1>
         </div>
         <div className="flex items-center gap-2">
+          {/* Shared-device ("Delt enhed") reveal/hide chip — only shows when the
+              owner flagged THIS device shared (#379). */}
+          <DeviceShareChip />
           <button
             onClick={() => setSearchOpen(true)}
             aria-label={t("search") || "Search"}

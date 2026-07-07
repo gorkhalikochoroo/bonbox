@@ -3,6 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { reportClientError } from "./utils/reportClientError";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { isStaffMemberRole } from "./config/navManifest";
+import { DeviceShareProvider, useDeviceShare } from "./hooks/useDeviceShare";
+import DevicePinLockScreen from "./components/DevicePinLockScreen";
 import { EntitlementsProvider } from "./hooks/useEntitlements";
 import { FeaturesProvider } from "./hooks/useFeatures";
 import { PillarsProvider } from "./hooks/usePillars";
@@ -392,9 +394,14 @@ function SuperAdminRoute({ children }) {
  */
 function OwnerOnlyRoute({ children }) {
   const { user, loading } = useAuth();
+  const { enabled: deviceShared, locked: deviceLocked } = useDeviceShare();
   if (loading) return <PageLoader />;
   if (!user) return <Navigate to="/login" replace />;
   if (isStaffMemberRole(user.role)) return <Navigate to="/dashboard" replace />;
+  // Shared device, not yet revealed → curtain this financial page behind the
+  // PIN pad instead of the redirect used for staff (#379). The owner unlocks
+  // in place; the backend pin_gate already 403s the underlying reads.
+  if (deviceShared && deviceLocked) return <DevicePinLockScreen />;
   return children;
 }
 
@@ -671,6 +678,11 @@ function AppInner() {
               useConfirm(). */}
           <ConfirmProvider>
           <AuthProvider>
+            {/* DeviceShareProvider — shared-device ("Delt enhed") reveal-PIN
+                state (#379). Inside Auth (reads user.role; only fetches /status
+                for an owner session). Wraps the app so OwnerOnlyRoute + the
+                header chip can read the locked state. */}
+            <DeviceShareProvider>
             {/* EntitlementsProvider sits INSIDE AuthProvider because the
                 /billing/entitlements call needs the auth cookie/header.
                 The hook fails closed (Free shape) if unauthenticated, so
@@ -714,6 +726,7 @@ function AppInner() {
                 </PillarsProvider>
               </FeaturesProvider>
             </EntitlementsProvider>
+            </DeviceShareProvider>
           </AuthProvider>
           </ConfirmProvider>
         </LanguageProvider>

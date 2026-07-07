@@ -1,4 +1,5 @@
 import axios from "axios";
+import { getRevealProof, setRevealProof, triggerDeviceLock } from "./deviceShare";
 
 // Default API URL when no VITE_API_URL env var is set. Production users on
 // any *.bonbox.dk page get pointed at api.bonbox.dk so cookies stay
@@ -215,12 +216,25 @@ api.interceptors.request.use((config) => {
     const csrf = _readCookie("bonbox_csrf");
     if (csrf) config.headers["X-CSRF-Token"] = csrf;
   }
+  // Shared-device ("Delt enhed") reveal proof — echoed so the backend pin_gate
+  // lifts the curtain on the owner's financial reads for the reveal window (#379).
+  // In-memory only; absent (and thus harmless) for any non-shared device.
+  const _revealProof = getRevealProof();
+  if (_revealProof) config.headers["X-BonBox-Device-Pin"] = _revealProof;
   return config;
 });
 
 api.interceptors.response.use(
   (res) => res,
   (err) => {
+    // Shared-device ("Delt enhed"): the backend curtained a financial read on
+    // this shared device — drop the stale proof + raise the LockScreen (#379).
+    if (
+      err.response?.status === 403 &&
+      err.response?.data?.detail?.code === "device_pin_required"
+    ) {
+      try { setRevealProof(null); triggerDeviceLock(); } catch { /* no-op */ }
+    }
     if (err.response?.status === 401) {
       const path = window.location.pathname;
       const isAuthPage = path === "/login" || path === "/register" || path.startsWith("/forgot") || path.startsWith("/reset") || path.startsWith("/s/");

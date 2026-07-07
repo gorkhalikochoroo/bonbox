@@ -46,6 +46,7 @@ import usePushNotifications from "../hooks/usePushNotifications";
 import BusinessLookup, { countryFromCurrency } from "../components/BusinessLookup";
 import OperatingProfileSection from "../components/OperatingProfileSection";
 import SmartStaffingCard from "../components/SmartStaffingCard";
+import DeviceShareSettingsCard from "../components/DeviceShareSettingsCard";
 import { resetAllTips } from "../components/DismissibleTip";
 import { localIso } from "../utils/dateFormat";
 import { Button, Card, Icon, PageHeader } from "../components/ui";
@@ -753,6 +754,10 @@ export default function ProfilePage() {
                 </Button>
               </div>
             </Card>
+            {/* Shared-device ("Delt enhed") reveal PIN — opt-in per device (#379). */}
+            <div className="mt-4">
+              <DeviceShareSettingsCard />
+            </div>
           </SectionAnchor>
 
           {/* ─── Business profile ────────────────────────────────── */}
