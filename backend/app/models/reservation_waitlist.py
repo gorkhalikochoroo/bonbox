@@ -82,6 +82,10 @@ class ReservationWaitlistEntry(Base):
     converted_reservation_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("reservations.id"), nullable=True,
     )
+    # Stamped at convert = the moment this waiting party became a real (seated)
+    # booking. The ONLY honest period basis for the Genvundet recovered-covers
+    # card — the count is bucketed on this, never created_at/updated_at.
+    converted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     expired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

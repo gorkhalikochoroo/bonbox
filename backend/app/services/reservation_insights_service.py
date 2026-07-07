@@ -51,11 +51,14 @@ import logging
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models.bookable_resource import BookableResource
 from app.models.reservation import Reservation
 from app.models.reservation_occupancy import ReservationOccupancy
+from app.models.reservation_waitlist import ReservationWaitlistEntry
+from app.models.sale import Sale
 from app.services import reservation_service as rsvc
 from app.services import revenue_resolver
 from app.services.tz_utils import business_day_window_local, business_today_local
@@ -151,6 +154,19 @@ _PARTY_SIZE_BINS: list[tuple[int, str]] = [
     (5, "5-6"),
     (7, "7+"),
 ]
+
+# ─── Genvundet (recovered covers) honesty gates ───────────────────────────
+# The recovered-covers card prices N recovered covers at the owner's OWN
+# average cover, but ONLY when that average is honestly derivable. Three gates:
+#   • the sample must be big enough (RECOVERED_MIN_COVERS) and spread across
+#     enough days (RECOVERED_MIN_COVER_DAYS) — one freak Saturday isn't a rate.
+#   • the days that HAVE cover data must account for a real share of the
+#     period's revenue (RECOVERED_MIN_COVER_COVERAGE) — else the avg rests on a
+#     sliver of the business and would misprice.
+# If any gate fails we show N (count) only, kr=None — never a fabricated krone.
+RECOVERED_MIN_COVER_COVERAGE: float = 0.6
+RECOVERED_MIN_COVERS: int = 30
+RECOVERED_MIN_COVER_DAYS: int = 3
 
 
 # ─── The ONE confidence gate ───────────────────────────────────────────────
@@ -341,8 +357,144 @@ def _empty_insights(range_days: int, zone: str, *, reason: str = "") -> dict:
         },
         "forecast": None,
         "forecast_locked": False,
+        "recovered": {
+            "confidence": "hidden",
+            "recovered_bookings": 0,
+            "recovered_covers": 0,
+            "kr": None,
+            "kr_basis": None,
+            "avg_cover": None,
+        },
         "meta": {"reason": reason} if reason else {},
     }
+
+
+# ─── Genvundet — waitlist recovered covers (the money-honest one) ────────────
+def _compute_recovered(
+    db: Session,
+    user,
+    *,
+    start_day: date,
+    end_day: date,
+    win_start: datetime,
+    win_end: datetime,
+    weeks: float,
+) -> dict:
+    """Recovered-covers card: "the Venteliste seated N guests this period,
+    ≈ X kr". Fail-soft — any error degrades to the hidden skeleton.
+
+    THE LOAD-BEARING HONESTY GUARDS:
+      C-1  Count a converted waitlist row ONLY when its linked Reservation
+           actually seated. Nothing reverse-syncs status="converted" when the
+           booking is later cancelled/no-showed, so a bare status check would
+           claim credit for covers we never recovered. We JOIN
+           converted_reservation_id -> Reservation and require the reservation
+           to be non-deleted and status NOT IN ('cancelled','no_show').
+      C-2/3 kr is shown ONLY with real cover data: total_covers > 0 AND a
+           sample floor (min covers + min cover-days) AND a revenue-share
+           coverage gate. Otherwise N only, kr=None (saves close-only owners
+           and the demo seeder, which writes zero guest_count).
+      C-4  kr is GROSS (incl. moms) from the revenue resolver — labelled as
+           recovered omsætning, never "sparet"/"tjent"/net.
+      C-5  The count is bucketed on converted_at, never created_at/updated_at.
+      C-9  Voided sales are excluded from the covers denominator.
+    """
+    skeleton = {
+        "confidence": "hidden",
+        "recovered_bookings": 0,
+        "recovered_covers": 0,
+        "kr": None,
+        "kr_basis": None,
+        "avg_cover": None,
+    }
+    try:
+        # ── N + covers (C-1 JOIN + C-5 converted_at bucketing) ────────────
+        rows = (
+            db.query(
+                ReservationWaitlistEntry.id,
+                ReservationWaitlistEntry.party_size,
+            )
+            .join(
+                Reservation,
+                Reservation.id == ReservationWaitlistEntry.converted_reservation_id,
+            )
+            .filter(
+                ReservationWaitlistEntry.user_id == user.id,
+                ReservationWaitlistEntry.status == "converted",
+                ReservationWaitlistEntry.converted_at.isnot(None),
+                ReservationWaitlistEntry.converted_at >= win_start,
+                ReservationWaitlistEntry.converted_at < win_end,
+                # C-1: the linked reservation must be a real, seated booking.
+                Reservation.is_deleted.is_(False),
+                Reservation.status.notin_(("cancelled", "no_show")),
+            )
+            .all()
+        )
+        recovered_bookings = len(rows)
+        recovered_covers = sum(int(r.party_size or 0) for r in rows)
+        confidence = insight_confidence(recovered_bookings, weeks)
+
+        if recovered_bookings <= 0:
+            return {**skeleton, "confidence": confidence}
+
+        result = {
+            "confidence": confidence,
+            "recovered_bookings": recovered_bookings,
+            "recovered_covers": recovered_covers,
+            "kr": None,
+            "kr_basis": None,
+            "avg_cover": None,
+        }
+
+        # ── avg cover from Sale covers (C-9 voids excluded) ───────────────
+        cover_rows = (
+            db.query(Sale.date, func.sum(Sale.guest_count))
+            .filter(
+                Sale.user_id == user.id,
+                Sale.date >= start_day,
+                Sale.date <= end_day,
+                Sale.is_deleted.isnot(True),
+                Sale.is_void.isnot(True),          # C-9
+                Sale.is_manager_void.isnot(True),  # C-9
+                Sale.status == "completed",
+                Sale.guest_count.isnot(None),
+                Sale.guest_count > 0,
+            )
+            .group_by(Sale.date)
+            .all()
+        )
+        covered_dates = [d for (d, c) in cover_rows if (c or 0) > 0]
+        total_covers = sum(int(c or 0) for (_d, c) in cover_rows)
+
+        # C-2: no real cover data → N only, no krone.
+        if total_covers <= 0:
+            return result
+        # C-3: sample floor — one freak day can't set a rate.
+        if total_covers < RECOVERED_MIN_COVERS or len(covered_dates) < RECOVERED_MIN_COVER_DAYS:
+            return result
+
+        # ── basis-match: numerator restricted to the SAME covered_dates ───
+        by_date = revenue_resolver.effective_revenue_by_date(
+            db, user.id, start_day, end_day,
+        )
+        covered_set = set(covered_dates)
+        covered_revenue = sum(
+            float(v or 0) for (d, v) in by_date.items() if d in covered_set
+        )
+        period_revenue = sum(float(v or 0) for v in by_date.values())
+        coverage = (covered_revenue / period_revenue) if period_revenue > 0 else 0.0
+
+        if coverage >= RECOVERED_MIN_COVER_COVERAGE and covered_revenue > 0:
+            avg_cover = covered_revenue / total_covers
+            result["avg_cover"] = round(avg_cover, 2)
+            # C-4: GROSS (incl. moms) recovered omsætning.
+            result["kr"] = round(recovered_covers * avg_cover, 2)
+            result["kr_basis"] = "own_avg_cover"
+        return result
+    except Exception as exc:  # noqa: BLE001 — fail-soft, never sink the page
+        logger.warning("_compute_recovered failed for user=%s: %s",
+                       getattr(user, "id", "?"), exc)
+        return dict(skeleton)
 
 
 # ─── main entry point ───────────────────────────────────────────────────────
@@ -449,6 +601,11 @@ def compute_insights(
         forecast, forecast_locked = _compute_forecast(
             user, bucketed, end_day, weeks,
         )
+        recovered = _compute_recovered(
+            db, user,
+            start_day=start_day, end_day=end_day,
+            win_start=win_start, win_end=win_end, weeks=weeks,
+        )
 
         return {
             "range_days": range_days,
@@ -467,6 +624,9 @@ def compute_insights(
             # True when a forecast WOULD be shown but the user's tier doesn't
             # include it → frontend renders an upgrade nudge in the slot.
             "forecast_locked": forecast_locked,
+            # Venteliste recovered covers — N always; kr only when honestly
+            # derivable from the owner's own cover data (see _compute_recovered).
+            "recovered": recovered,
             "meta": {
                 "start_business_day": start_day.isoformat(),
                 "end_business_day": end_day.isoformat(),

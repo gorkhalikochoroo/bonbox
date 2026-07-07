@@ -1782,6 +1782,16 @@ const translations = {
     rsvpInsLead4to7: "4–7 days ahead",
     rsvpInsLeadOver7: "Over a week ahead",
     rsvpInsNoShowSms: "Turn on SMS reminders",
+    // Genvundet — waitlist recovered covers
+    rsvpInsRecoveredTitle: "Recovered by the waitlist",
+    rsvpInsRecoveredSub: "Guests seated from the Venteliste",
+    rsvpInsRecoveredGuests: "guests recovered",
+    rsvpInsRecoveredGuestOne: "guest recovered",
+    rsvpInsRecoveredFrom: "from {n} seated bookings",
+    rsvpInsRecoveredFromOne: "from {n} seated booking",
+    rsvpInsRecoveredKrBasis: "≈ revenue recovered (incl. VAT)",
+    rsvpInsRecoveredAvg: "your avg {kr}/guest",
+    rsvpInsRecoveredNoKr: "Add guest counts to your sales to see recovered revenue.",
     // Forecast (Pro)
     rsvpInsForecastTitle: "Next 7 days",
     rsvpInsForecastSub: "Expected guests",
@@ -8747,6 +8757,16 @@ const translations = {
     rsvpInsLead4to7: "4–7 dage før",
     rsvpInsLeadOver7: "Over en uge før",
     rsvpInsNoShowSms: "Slå SMS-påmindelser til",
+    // Genvundet — gæster reddet af ventelisten
+    rsvpInsRecoveredTitle: "Reddet af ventelisten",
+    rsvpInsRecoveredSub: "Gæster sat fra ventelisten",
+    rsvpInsRecoveredGuests: "gæster reddet",
+    rsvpInsRecoveredGuestOne: "gæst reddet",
+    rsvpInsRecoveredFrom: "fra {n} bekræftede bookinger",
+    rsvpInsRecoveredFromOne: "fra {n} bekræftet booking",
+    rsvpInsRecoveredKrBasis: "≈ omsætning genvundet (inkl. moms)",
+    rsvpInsRecoveredAvg: "dit snit {kr}/gæst",
+    rsvpInsRecoveredNoKr: "Tilføj antal gæster på dine salg for at se genvundet omsætning.",
     // Prognose (Pro)
     rsvpInsForecastTitle: "Næste 7 dage",
     rsvpInsForecastSub: "Forventede gæster",

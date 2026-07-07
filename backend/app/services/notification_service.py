@@ -735,6 +735,126 @@ def notify_owner_new_reservation(db: Session, owner, reservation, *, cancelled: 
     return result
 
 
+def notify_owner_freed_table(
+    db: Session, owner, freed_reservation, top_match, *, sms_available: bool = False
+) -> dict:
+    """Best-effort OWNER push when a cancel/no-show frees a table AND a real
+    waiting party fits it — the "re-offer the freed seat" nudge for the host
+    stand. Owner devices only (staff_id IS NULL). Deep-links into the
+    Venteliste so the owner can offer it in one tap.
+
+    HARD RED-LINES (waitlist money layer):
+      • OWNER PUSH ONLY — zero send_sms / guest-channel calls. The guest is
+        NEVER messaged here; offering the seat to a waiting guest stays behind
+        the manual, cap-enforced notify_waitlist path.
+      • DEDUP — dedup_key = "freed:<freed_id>:<match_id>". If a recent row with
+        the same key + event already exists (owner cancelled AND the guest
+        self-cancelled the same booking, or a double-tap), we DON'T re-buzz.
+      • FIRE ONLY ON A REAL FIT — caller passes top_match only when a FIFO fit
+        exists; no empty ping.
+      • FAIL-SOFT — never raises; a push failure never turns a cancel into an
+        error (caller also wraps this in try/except).
+
+    top_match is a waitlist-match dict (id, guest_name, party_size) from the
+    reservations router's _waitlist_matches. Returns {"attempted","sent"} (plus
+    {"skipped": "duplicate"} when de-duped). PII-light: first name + party size
+    only on the lock screen.
+    """
+    result = {"attempted": 0, "sent": 0}
+    match_id = str(top_match.get("id") or "")
+    if not match_id:
+        return result
+    dedup_key = f"freed:{freed_reservation.id}:{match_id}"
+
+    # Dedup FIRST — a duplicate freeing event (owner cancel + guest self-cancel,
+    # or a double-tap) must not double-buzz. Look back ~10 min.
+    try:
+        from datetime import timedelta
+        from app.utils.time import utc_now as _utc_now
+        cutoff = _utc_now() - timedelta(minutes=10)
+        dupe = (
+            db.query(NotificationLog.id)
+            .filter(
+                NotificationLog.dedup_key == dedup_key,
+                NotificationLog.event_type == "waitlist_freed_table",
+                NotificationLog.created_at >= cutoff,
+            )
+            .first()
+        )
+        if dupe is not None:
+            return {"attempted": 0, "sent": 0, "skipped": "duplicate"}
+    except Exception:  # noqa: BLE001 — a dedup lookup failure must not block the send-once path
+        pass
+
+    try:
+        from app.services.push_sender import send_to_subscription
+    except Exception:  # noqa: BLE001
+        return result
+
+    subs = (
+        db.query(PushSubscription)
+        .filter(
+            PushSubscription.user_id == owner.id,
+            PushSubscription.staff_id.is_(None),  # owner devices, not staff
+        )
+        .all()
+    )
+
+    navn = (str(top_match.get("guest_name") or "").strip().split(" ") or [""])[0]
+    n = top_match.get("party_size")
+    title = "BonBox · Bord frigivet"
+    if navn:
+        body_text = f"{navn} ({n} pers) passer — tryk for at tilbyde"
+    else:
+        body_text = f"{n} pers på ventelisten passer — tryk for at tilbyde"
+    # Distinct tag from the create/cancel ping (bonbox-reservation-<id>) so the
+    # freed-table nudge doesn't overwrite / isn't overwritten by it.
+    tag = f"bonbox-freed-{freed_reservation.id}"
+    payload = {
+        "title": title,
+        "body": body_text,
+        "tag": tag,
+        "data": {
+            "url": f"/reservations?waitlist={match_id}",
+            "kind": "freed_table",
+            "match_id": match_id,
+            # Truthful capability flag — the landing CTA never promises an SMS
+            # the account can't actually send.
+            "sms": bool(sms_available),
+        },
+    }
+
+    for sub in subs:
+        result["attempted"] += 1
+        try:
+            outcome = send_to_subscription(sub, payload)
+            if outcome.get("ok"):
+                result["sent"] += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("freed-table push send threw: %s", exc)
+            outcome = {"ok": False}
+
+    # ONE NotificationLog row (channel='push'), carrying the dedup_key so the
+    # next duplicate freeing event de-dups against it.
+    try:
+        db.add(NotificationLog(
+            id=uuid.uuid4(),
+            user_id=owner.id,
+            staff_id=None,
+            channel="push",
+            event_type="waitlist_freed_table",
+            subject=title,
+            body=body_text,
+            status="sent" if result["sent"] else "failed",
+            error_message=None if result["sent"] else "no_active_subscription",
+            dedup_key=dedup_key,
+        ))
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+    return result
+
+
 def notify_owner_shift_claimed(
     db: Session, *, owner, staff_name: str, shift_date, start_time: str, end_time: str,
 ) -> dict:
