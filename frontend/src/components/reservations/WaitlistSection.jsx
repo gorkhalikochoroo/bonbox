@@ -99,7 +99,12 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
     e?.preventDefault();
     setAddErr("");
     if (!form.guest_phone.trim()) {
-      setAddErr(t("rsvpWlAddErr", "Couldn't add — check the phone number."));
+      setAddErr(
+        t(
+          "rsvpWaitlistPhoneRequired",
+          "Add a phone — we text them when a table frees.",
+        ),
+      );
       return;
     }
     setSaving(true);
@@ -181,12 +186,13 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
     }
     setBusyId(entry.id);
     try {
-      // Route through the real create path (allow_overflow so it always lands;
-      // the owner assigns a table in the book). Preserves no-double-booking.
+      // Route through the real create path with normal auto-assignment — the
+      // converted booking lands on a table just like a web booking (no
+      // overflow, so it never lands table-less showing "—"). A 409 = the slot
+      // genuinely filled; we surface the honest toast below.
       await api.post(`/reservations/waitlist/${entry.id}/convert`, {
         starts_at: `${day}T${bookTime}:00`,
         auto_assign: true,
-        allow_overflow: true,
       });
       setBookFor(null);
       fetchList();
@@ -252,7 +258,8 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <input className={inputCls} placeholder={t("rsvpWlName", "Name")} value={form.guest_name}
               onChange={(e) => setForm((f) => ({ ...f, guest_name: e.target.value }))} />
-            <input className={inputCls} inputMode="tel" placeholder={t("rsvpWlPhone", "Phone")} value={form.guest_phone}
+            <input className={inputCls} inputMode="tel" placeholder={t("rsvpWlPhoneReq", "Phone (required)")} value={form.guest_phone}
+              required aria-required="true"
               onChange={(e) => setForm((f) => ({ ...f, guest_phone: e.target.value }))} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">

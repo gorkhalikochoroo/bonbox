@@ -1980,12 +1980,17 @@ function BookSection({ t, businessType, tableFloor = false }) {
 
   const setStatus = async (r, status) => {
     if (status === "cancelled") {
+      const who = r.guest_name || t("rsvpGuest", "Guest");
       if (
         !(await confirm({
+          title: t("rsvpCancelConfirmTitle", "Cancel this booking?"),
           message: t(
-            "rsvpConfirmCancel",
-            "Cancel this reservation? The guest is notified if possible.",
+            "rsvpCancelConfirmBody",
+            "The booking for {name} is cancelled. They're notified if possible.",
+            { name: who },
           ),
+          confirmLabel: t("rsvpCancelConfirmYes", "Cancel booking"),
+          cancelLabel: t("rsvpCancelConfirmKeep", "Keep"),
           destructive: true,
         }))
       ) {
@@ -2492,7 +2497,14 @@ function BookSection({ t, businessType, tableFloor = false }) {
   const rowActions = (r) => {
     const busy = actioningId === r.id;
     const who = r.guest_name || t("rsvpGuest", "Guest");
+    // setStatus already owns the single cancel confirm (guest-named, distinct
+    // Keep / Cancel-booking buttons), so don't double-prompt for "cancelled" —
+    // hand it straight through. Other destructive flips (no-show) confirm here.
     const guardedSet = (opts, status) => async () => {
+      if (status === "cancelled") {
+        setStatus(r, status);
+        return;
+      }
       if (await confirm({ destructive: true, ...opts })) setStatus(r, status);
     };
     const out = [];
@@ -2684,7 +2696,11 @@ function BookSection({ t, businessType, tableFloor = false }) {
         <StatCard
           label={t("rsvpCovers", "Covers")}
           value={summary.covers}
-          helper={t("rsvpCoversBookings", "{n} bookings", { n: summary.total })}
+          helper={
+            summary.total === 1
+              ? t("rsvpCoversBookingsOne", "{n} booking", { n: summary.total })
+              : t("rsvpCoversBookings", "{n} bookings", { n: summary.total })
+          }
         />
         <StatCard
           label={t("rsvpSeatedNow", "Seated now")}

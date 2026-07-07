@@ -292,6 +292,9 @@ export default function ReservationPublicPage() {
   const [occasion, setOccasion] = useState("");
   const [guestNotes, setGuestNotes] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
+  // At least one contact channel is required so the guest can actually be
+  // confirmed — a name-only booking would leave us unable to reach them.
+  const [contactTouched, setContactTouched] = useState(false);
 
   // Step 2 — ONE optional disclosure collapses occasion + notes + the
   // allergy block. Default closed: only name (+ secondary email/phone) show
@@ -603,12 +606,17 @@ export default function ReservationPublicPage() {
   );
   const chosenStylistName = stylistId ? providerNameById[String(stylistId)] || "" : "";
   const nameValid = guestName.trim().length >= 1 && guestName.trim().length <= 160;
+  // Require at least one contact channel (email OR phone, never both) so we
+  // can actually confirm the booking — otherwise a name-only booking is a
+  // dead end. Either one is enough.
+  const contactValid = !!(guestEmail.trim() || guestPhone.trim());
   // A group request doesn't need a chosen slot (the visitor sends a
   // request for the day; the restaurant confirms a time). A normal
   // booking requires a slot. A provider (salon) tidsbestilling also needs a
   // chosen behandling.
   const canSubmit =
     nameValid &&
+    contactValid &&
     (groupRequest || !!slot) &&
     (!isProvider || !!behandlingId) &&
     !submitting;
@@ -639,6 +647,7 @@ export default function ReservationPublicPage() {
   const onSubmit = async () => {
     if (!canSubmit) {
       setNameTouched(true);
+      setContactTouched(true);
       return;
     }
     setSubmitting(true);
@@ -1579,6 +1588,7 @@ export default function ReservationPublicPage() {
                     size="md"
                     value={guestEmail}
                     onChange={(e) => setGuestEmail(e.target.value)}
+                    onBlur={() => setContactTouched(true)}
                     placeholder={t("rsvpEmailPh", "anna@eksempel.dk")}
                     hint={t("rsvpEmailWhy", "So we can send your confirmation.")}
                     autoComplete="email"
@@ -1599,12 +1609,21 @@ export default function ReservationPublicPage() {
                     size="md"
                     value={guestPhone}
                     onChange={(e) => setGuestPhone(e.target.value)}
+                    onBlur={() => setContactTouched(true)}
                     placeholder={t("rsvpPhonePh", "+45 12 34 56 78")}
                     autoComplete="tel"
                     inputMode="tel"
                     maxLength={40}
                   />
                 </div>
+                {contactTouched && !contactValid && (
+                  <p className="text-xs text-red-600 dark:text-red-400">
+                    {t(
+                      "rsvpContactRequired",
+                      "Add an email or phone so we can confirm your booking.",
+                    )}
+                  </p>
+                )}
               </div>
             </div>
 
