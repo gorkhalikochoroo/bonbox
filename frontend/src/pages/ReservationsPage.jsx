@@ -59,6 +59,7 @@ import {
   Scissors,
   ExternalLink,
   HelpCircle,
+  Pencil,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
@@ -3958,23 +3959,31 @@ function FloorSection({ t, businessType }) {
             >
               <div className="min-w-0 flex items-center gap-2">
                 <VenueIcon className="w-4 h-4 text-gray-400 shrink-0" aria-hidden />
-                {/* Inline rename — looks like text, reveals a field on hover/focus.
+                {/* Inline rename — a visibly editable field (subtle border + fill +
+                    pencil cue) so any owner can tell the name is renameable at a glance.
                     Saves on blur (Enter commits, Esc reverts), same UX as seats. */}
-                <input
-                  type="text"
-                  defaultValue={r.label}
-                  maxLength={120}
-                  onBlur={(e) => saveLabel(r, e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") e.currentTarget.blur();
-                    else if (e.key === "Escape") {
-                      e.currentTarget.value = r.label;
-                      e.currentTarget.blur();
-                    }
-                  }}
-                  aria-label={t("rsvpTableNameAria", "Name of {label}", { label: r.label })}
-                  className="min-w-0 flex-1 h-11 px-2 rounded-lg border border-transparent bg-transparent text-base sm:text-sm font-medium text-gray-800 dark:text-gray-100 hover:border-gray-200 dark:hover:border-gray-700 focus:border-gray-300 focus:bg-white dark:focus:border-gray-600 dark:focus:bg-gray-800 focus:outline-none transition-colors"
-                />
+                <div className="group relative min-w-0 flex-1">
+                  <input
+                    type="text"
+                    defaultValue={r.label}
+                    maxLength={120}
+                    onBlur={(e) => saveLabel(r, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                      else if (e.key === "Escape") {
+                        e.currentTarget.value = r.label;
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    aria-label={t("rsvpTableNameAria", "Name of {label}", { label: r.label })}
+                    title={t("rsvpTableRenameHint", "Click to rename")}
+                    className="w-full h-11 pl-2.5 pr-8 rounded-lg border border-gray-200 bg-gray-50/70 text-base sm:text-sm font-medium text-gray-800 hover:border-gray-300 focus:border-gray-400 focus:bg-white dark:border-gray-700 dark:bg-gray-800/40 dark:text-gray-100 dark:hover:border-gray-600 dark:focus:border-gray-500 dark:focus:bg-gray-800 focus:outline-none transition-colors"
+                  />
+                  <Pencil
+                    className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-gray-600 dark:text-gray-500 dark:group-focus-within:text-gray-300"
+                    aria-hidden
+                  />
+                </div>
                 {r.zone && (
                   <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">
                     {r.zone}
