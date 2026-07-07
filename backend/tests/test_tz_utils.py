@@ -27,6 +27,7 @@ import pytest
 from app.services import tz_utils
 from app.services.tz_utils import (
     business_day_window,
+    business_day_window_local,
     business_today_local,
 )
 
@@ -319,3 +320,37 @@ def test_explicit_target_date_ignores_now(monkeypatch):
     # CET in January (no DST). 06:00 CET = 05:00 UTC.
     assert start.astimezone(cph) == datetime(2026, 1, 15, 6, 0, tzinfo=cph)
     assert end.astimezone(cph) == datetime(2026, 1, 16, 6, 0, tzinfo=cph)
+
+
+# ─── business_day_window_local (naive-local bounds) ──────────────────────
+#
+# Reservation.starts_at is stored NAIVE in business-local wall-clock, so the
+# owner book / waitlist / insights must filter it with NAIVE-local cutoff
+# bounds — not the aware-UTC ones. This pins the naive frame + the 06:00
+# cutoff so an evening booking never rolls to the next service day again.
+
+
+def test_window_local_returns_naive_cutoff_bounds():
+    lo, hi = business_day_window_local(_user(), date(2026, 7, 8))
+    # Summer (CEST). Bounds are naive local wall-clock at the 06:00 cutoff.
+    assert lo == datetime(2026, 7, 8, 6, 0)
+    assert hi == datetime(2026, 7, 9, 6, 0)
+    assert lo.tzinfo is None and hi.tzinfo is None
+
+
+def test_window_local_honours_custom_cutoff():
+    lo, hi = business_day_window_local(_user(cutoff=0), date(2026, 7, 8))
+    assert lo == datetime(2026, 7, 8, 0, 0)
+    assert hi == datetime(2026, 7, 9, 0, 0)
+
+
+def test_evening_booking_stays_in_its_service_day():
+    """The bug that misfired the Venteliste: a 22:30 booking must belong to
+    THAT evening's window, never the next day."""
+    lo, hi = business_day_window_local(_user(), date(2026, 7, 8))
+    evening = datetime(2026, 7, 8, 22, 30)      # naive local, dinner rush
+    after_midnight = datetime(2026, 7, 9, 0, 30)  # still tonight's service
+    early_morning = datetime(2026, 7, 8, 2, 0)   # belongs to 7 Jul's service
+    assert lo <= evening < hi
+    assert lo <= after_midnight < hi
+    assert not (lo <= early_morning < hi)
