@@ -380,6 +380,29 @@ def provider_availability(request: Request, slug: str = Path(...),
     }
 
 
+def _guest_cancel_url(profile: BusinessProfile, r: Reservation) -> str | None:
+    """Booking-lifetime signed self-cancel deep-link for guest messages.
+
+    TTL = hours-until-start + 48h grace (min 24h) so a confirmation sent
+    days ahead never expires before the guest can use it. Returns None if
+    unbuildable — the link is a nice-to-have, never a hard dependency of a
+    send. The URL carries a server-minted booking-poll token; the visitor
+    SPA seeds it into the existing token-cancel flow (no new route)."""
+    try:
+        slug = getattr(profile, "reservation_slug", None)
+        if not slug:
+            return None
+        from app.services.daily_brief_email import _app_base_url
+        ttl = 24
+        if r.starts_at:
+            delta_h = (r.starts_at - datetime.now()).total_seconds() / 3600.0
+            ttl = max(24, int(delta_h) + 48)
+        token = sign_booking_token(str(r.id), ttl_hours=ttl)
+        return f"{_app_base_url()}/r/{slug}?booking={r.id}&token={token}"
+    except Exception:  # noqa: BLE001 — never block a send
+        return None
+
+
 def _send_confirmation(owner: User, profile: BusinessProfile, r: Reservation) -> None:
     """Best-effort confirmation email — never blocks the booking."""
     if not r.guest_email:
@@ -403,10 +426,22 @@ def _send_confirmation(owner: User, profile: BusinessProfile, r: Reservation) ->
             if r.status == "requested"
             else "Din reservation er bekræftet."
         )
+        # Self-cancel deep-link (server-minted URL, no guest input → no escape
+        # needed). Lets the guest free the table with one tap so it can go to
+        # another guest. Mutates the string inside the EXISTING send below —
+        # no new send is introduced.
+        cancel_url = _guest_cancel_url(profile, r)
+        cancel_line = (
+            f'<p style="margin-top:16px">Kan du ikke komme? '
+            f'<a href="{cancel_url}">Aflys din reservation her</a>, '
+            f'så en anden gæst kan få bordet.</p>'
+            if cancel_url else ""
+        )
         html = (
             f"<p>Hej {g_name},</p><p>{status_line}</p>"
             f"<p><strong>{biz}</strong><br>{when} · {r.party_size} personer</p>"
             f"{allergy_line}"
+            f"{cancel_line}"
             f"<p>Vi glæder os til at se dig.</p>"
         )
         send_email(
@@ -784,14 +819,36 @@ def visitor_cancel(request: Request, reservation_id: UUID = Path(...),
     try:
         owner = db.query(User).filter(User.id == r.user_id).first()
         if owner is not None:
-            # Push only, with cancel-aware copy ("Reservation aflyst · bord
-            # frigivet"). We deliberately SKIP the email: the create-path
-            # email template reads "Ny reservation/forespørgsel", which is
-            # misleading for a cancellation — and a freed-table heads-up is
-            # exactly what a lock-screen push is for. Same tag, so it
-            # replaces the original booking ping.
-            from app.services.notification_service import notify_owner_new_reservation
-            notify_owner_new_reservation(db, owner, r, cancelled=True)
+            # Prefer the freed-table nudge when a waiting party actually FITS
+            # the just-freed table: one owner push ("Bord frigivet — Navn (N)
+            # passer") deep-linking into the Venteliste so the host stand can
+            # re-offer the seat. Push ONLY — no guest is messaged here.
+            #
+            # If no waiting party fits, fall back to the plain cancel ping
+            # (create-path template, cancelled=True) so the owner still learns
+            # the table freed. Both are strictly best-effort: a notification
+            # failure must NEVER turn a successful self-cancel into an error.
+            from app.routers.reservations import _waitlist_matches, _local_date_of
+            from app.services.sms_service import sms_configured
+            from app.services.billing import has_feature
+            matches = []
+            try:
+                matches = _waitlist_matches(
+                    db, owner,
+                    waitlist_date=_local_date_of(r.starts_at, owner),
+                    capacity=int(r.party_size or 0),
+                )
+            except Exception:  # noqa: BLE001
+                matches = []
+            if matches:
+                from app.services.notification_service import notify_owner_freed_table
+                notify_owner_freed_table(
+                    db, owner, r, matches[0],
+                    sms_available=(has_feature(owner, "sms_reminders") and sms_configured()),
+                )
+            else:
+                from app.services.notification_service import notify_owner_new_reservation
+                notify_owner_new_reservation(db, owner, r, cancelled=True)
     except Exception as exc:  # noqa: BLE001 — best-effort, never break cancel
         logger.warning("owner reservation cancel notify failed: %s", exc)
 

@@ -2076,6 +2076,21 @@ function BookSection({ t, businessType, tableFloor = false }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deepBookingId, deepDate, day, loading, data]);
 
+  // Deep-link from the freed-table owner push: ?waitlist=<match_id> lands the
+  // owner on the Venteliste with that waiting party highlighted (reuses the
+  // spotMatches highlight+ring+banner path). Strip the param so a refresh
+  // doesn't re-fire. The row's own Notify/Ring actions live in WaitlistSection.
+  const deepWaitlistId = searchParams.get("waitlist");
+  useEffect(() => {
+    if (!deepWaitlistId) return;
+    pickView("liste");
+    setSpotMatches([{ id: deepWaitlistId, guest_name: null }]);
+    const next = new URLSearchParams(searchParams);
+    next.delete("waitlist");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deepWaitlistId]);
+
   // The ring is a single beat — fade it after the drawer has settled.
   useEffect(() => {
     if (!deepLinkPulse) return;

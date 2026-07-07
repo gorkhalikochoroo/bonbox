@@ -36,8 +36,10 @@ import {
   Phone,
   BarChart3,
   AlertTriangle,
+  HeartHandshake,
 } from "lucide-react";
 import api from "../../services/api";
+import { formatKr } from "../../utils/currency";
 import StatCard from "../ui/StatCard";
 import Chip from "../ui/Chip";
 import Card from "../ui/Card";
@@ -564,6 +566,80 @@ function NoShowCard({ data, t, smsHref }) {
   );
 }
 
+// ─── Genvundet — waitlist recovered covers ───────────────────────────────────
+// "The Venteliste seated N guests this period ≈ X kr." N (covers) always;
+// the kr line renders ONLY when the backend supplies a real value (kr != null)
+// — otherwise an honest nudge to add guest counts. kr is GROSS (incl. moms);
+// the label says so. Emerald is the one positive accent (only when confident).
+function RecoveredCard({ data, t }) {
+  const provisional = data.confidence === "provisional";
+  const covers = data.recovered_covers || 0;
+  const bookings = data.recovered_bookings || 0;
+  const hasKr = data.kr != null;
+
+  const coversLabel =
+    covers === 1
+      ? t("rsvpInsRecoveredGuestOne", "guest recovered")
+      : t("rsvpInsRecoveredGuests", "guests recovered");
+  const fromLabel =
+    bookings === 1
+      ? t("rsvpInsRecoveredFromOne", "from {n} seated booking", { n: fmtInt(bookings) })
+      : t("rsvpInsRecoveredFrom", "from {n} seated bookings", { n: fmtInt(bookings) });
+
+  return (
+    <Card>
+      <Card.Header
+        icon={<HeartHandshake className="w-4 h-4" aria-hidden />}
+        title={t("rsvpInsRecoveredTitle", "Recovered by the waitlist")}
+        subtitle={t("rsvpInsRecoveredSub", "Guests seated from the Venteliste")}
+        action={<ConfidenceChip confidence={data.confidence} t={t} />}
+      />
+
+      {/* Headline: covers recovered. Emerald when confident, gray when early. */}
+      <div className="flex items-baseline gap-2 mb-1">
+        <span
+          className={
+            "text-2xl font-bold tabular-nums " +
+            (provisional
+              ? "text-gray-500 dark:text-gray-400"
+              : "text-emerald-600 dark:text-emerald-400")
+          }
+        >
+          {fmtInt(covers)}
+        </span>
+        <span className="text-xs text-gray-500 dark:text-gray-400">{coversLabel}</span>
+      </div>
+      <p className="text-xs text-gray-400 dark:text-gray-500 tabular-nums mb-3">{fromLabel}</p>
+
+      {hasKr ? (
+        <div className="space-y-0.5">
+          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+            ≈ {formatKr(data.kr, { decimals: 0 })}
+          </p>
+          <p className="text-[11px] text-gray-400 dark:text-gray-500">
+            {t("rsvpInsRecoveredKrBasis", "≈ revenue recovered (incl. VAT)")}
+            {data.avg_cover != null && (
+              <>
+                {" · "}
+                {t("rsvpInsRecoveredAvg", "your avg {kr}/guest", {
+                  kr: formatKr(data.avg_cover, { decimals: 0 }),
+                })}
+              </>
+            )}
+          </p>
+        </div>
+      ) : (
+        <p className="text-[11px] text-gray-400 dark:text-gray-500">
+          {t(
+            "rsvpInsRecoveredNoKr",
+            "Add guest counts to your sales to see recovered revenue.",
+          )}
+        </p>
+      )}
+    </Card>
+  );
+}
+
 // ─── Pro forecast block ─────────────────────────────────────────────────────
 // forecast present → "Next 7 days" mini-list. forecast_locked → UpgradeNudge.
 // forecast === null && !locked → calm "not enough data yet" (Pro, thin data).
@@ -684,6 +760,7 @@ export default function InsightsSection({ t, zones = [] }) {
   const partyFit = data?.party_size_fit || { confidence: "hidden" };
   const forecast = data?.forecast || null;
   const forecastLocked = !!data?.forecast_locked;
+  const recovered = data?.recovered || { confidence: "hidden" };
 
   // Headline "online share" — public covers ÷ total covers across sources
   // (spec). Trivial over ≤3 sources, computed inline. null when there's no
@@ -705,6 +782,7 @@ export default function InsightsSection({ t, zones = [] }) {
     isShown(noShow.confidence) ||
     isShown(sourceMix.confidence) ||
     isShown(partyFit.confidence) ||
+    isShown(recovered.confidence) ||
     !!forecast ||
     forecastLocked;
 
@@ -795,6 +873,7 @@ export default function InsightsSection({ t, zones = [] }) {
 
           {/* Secondary cards — each self-hides on its own confidence. */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {isShown(recovered.confidence) && <RecoveredCard data={recovered} t={t} />}
             {isShown(partyFit.confidence) && <PartySizeCard data={partyFit} t={t} />}
             {isShown(sourceMix.confidence) && <SourceMixCard data={sourceMix} t={t} />}
             {isShown(noShow.confidence) && <NoShowCard data={noShow} t={t} smsHref={smsHref} />}
