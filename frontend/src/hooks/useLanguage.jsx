@@ -1499,8 +1499,17 @@ const translations = {
     rsvpTileSeat: "Seat", rsvpSeatNowTitle: "Seat guests",
     rsvpGuestNameOpt: "Name (optional)", rsvpWalkIn: "Walk-in",
     rsvpSeatNowBtn: "Seat now", rsvpSeatError: "Couldn't seat the guests.",
+    // Header "Seat walk-in" (always reachable) + its table picker.
+    rsvpSeatWalkIn: "Seat walk-in",
+    rsvpSeatWalkInTable: "Table",
+    rsvpSeatWalkInNoTables: "No tables",
+    rsvpSeatWalkInBusy: "occupied",
+    rsvpSeatTableTaken: "That table is now taken — pick another free table.",
     // New booking (owner takes a phone booking) + assign table + occupancy
     rsvpNewBooking: "New booking",
+    rsvpBookingTableOptional: "Table (optional — auto if blank)",
+    rsvpBookingTableAuto: "Auto",
+    rsvpBookTableTaken: "That table is taken for this time — pick another table (or Auto) or another time.",
     // Provider (salon) owner New-booking → a real tidsbestilling: behandling
     // → behandler → date → time. DK terms stay Danish in EN.
     rsvpNewBookingProvider: "Book en tid",
@@ -8462,8 +8471,17 @@ const translations = {
     rsvpTileSeat: "Sæt", rsvpSeatNowTitle: "Sæt gæster",
     rsvpGuestNameOpt: "Navn (valgfrit)", rsvpWalkIn: "Gå-ind",
     rsvpSeatNowBtn: "Sæt nu", rsvpSeatError: "Kunne ikke sætte gæsterne.",
+    // "Sæt gæst ind" i toppen (altid tilgængelig) + dens bordvælger.
+    rsvpSeatWalkIn: "Sæt gæst ind",
+    rsvpSeatWalkInTable: "Bord",
+    rsvpSeatWalkInNoTables: "Ingen borde",
+    rsvpSeatWalkInBusy: "optaget",
+    rsvpSeatTableTaken: "Bordet er nu optaget — vælg et andet ledigt bord.",
     // Ny reservation (ejeren tager en telefonbooking) + tildel bord + belægning
     rsvpNewBooking: "Ny reservation",
+    rsvpBookingTableOptional: "Bord (valgfrit — vælges automatisk)",
+    rsvpBookingTableAuto: "Automatisk",
+    rsvpBookTableTaken: "Bordet er optaget på det tidspunkt — vælg et andet bord (eller Automatisk) eller et andet tidspunkt.",
     // Salon-ejer Ny-booking → rigtig tidsbestilling: behandling → behandler →
     // dato → tid.
     rsvpNewBookingProvider: "Book en tid",

@@ -145,6 +145,17 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         {"id": str(r.id), "name": (staff_name or r.label or "Behandler")}
         for r, staff_name in _provider_rows
     ]
+    # Best-effort venue UI language so a DK restaurant shows Danish to any
+    # visitor by default (the guest can still switch). DK signal wins:
+    # profile.country == "DK" → "da"; otherwise derive from the owner's IANA
+    # timezone — any "Europe/*" (Copenhagen et al.) reads as a DK-style venue
+    # → "da", else "en". Tax / receipt / DK-terminology strings are unaffected
+    # (they stay Danish regardless per the terminology lock); this only sets
+    # the default UI chrome language on the public page.
+    _country = (getattr(profile, "country", None) or "").strip().upper()
+    _tz = getattr(owner, "timezone", None) or ""
+    _is_dk_venue = _country == "DK" or (not _country and _tz.startswith("Europe/"))
+    venue_language = "da" if _is_dk_venue else "en"
     return {
         # Consumer-facing venue name: prefer the owner's editable trading name
         # (Profile → business_name — what they manage and expect guests to see),
@@ -167,6 +178,8 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         "group_request_threshold": settings.get("group_request_threshold"),
         "max_advance_days": settings.get("max_advance_days"),
         "lead_time_min": settings.get("lead_time_min"),
+        # Best-effort default UI language for this venue's public page (see above).
+        "language": venue_language,
     }
 
 

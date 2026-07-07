@@ -223,7 +223,7 @@ function mapsHref(address, city) {
 export default function ReservationPublicPage() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
-  const { t } = useLanguage();
+  const { t, setLang } = useLanguage();
 
   // ── Page data (GET /public/reservations/{slug}) ──────────────────
   const [page, setPage] = useState(null);
@@ -363,6 +363,36 @@ export default function ReservationPublicPage() {
       alive = false;
     };
   }, [slug]);
+
+  // ── Default the public page to the venue's language ───────────────
+  // A DK restaurant should greet any visitor in Danish (da-DK) by default
+  // — the backend resolves the venue language (`page.language`) from the
+  // owner's country / timezone. We only apply it when the visitor has NOT
+  // made an EXPLICIT language choice. "Explicit" = a stored `lang` with the
+  // `bonbox_lang_auto_picked` flag CLEARED (setLang() removes that flag on a
+  // real pick; the first-visit auto-detect sets it). If the flag is present
+  // — or nothing is stored — the current lang is an auto-guess we may refine
+  // to the venue default. Tax / receipt / DK-terminology strings stay Danish
+  // regardless (terminology lock); this only sets the UI chrome language.
+  useEffect(() => {
+    const venueLang = page?.language;
+    if (!venueLang || !setLang) return;
+    let explicitChoice = false;
+    try {
+      const stored = localStorage.getItem("lang");
+      const autoPicked = localStorage.getItem("bonbox_lang_auto_picked");
+      // Explicit only when a lang is stored AND it was NOT auto-picked.
+      explicitChoice = !!stored && !autoPicked;
+    } catch {
+      // Private mode / storage blocked → treat as no explicit choice.
+      explicitChoice = false;
+    }
+    if (!explicitChoice) setLang(venueLang);
+    // Run once per resolved venue language; a later explicit switch by the
+    // visitor persists (setLang clears the auto flag) and is never clobbered
+    // because page.language doesn't change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page?.language]);
 
   // ── Seed step-1 selections once the page + query params resolve ───
   useEffect(() => {
