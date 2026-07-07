@@ -145,6 +145,25 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         {"id": str(r.id), "name": (staff_name or r.label or "Behandler")}
         for r, staff_name in _provider_rows
     ]
+    # Best-effort venue UI language so a DK restaurant shows Danish to any
+    # visitor by default (the guest can still switch). ONLY a genuine DK signal
+    # picks "da": profile.country == "DK", OR (when country is blank) an actual
+    # Danish-realm timezone — Copenhagen, the Faroe Islands, or Greenland.
+    # A broad "any Europe/* → da" would wrongly default a German or French venue
+    # to Danish, so we no longer do that; everything non-DK falls back to "en".
+    # Tax / receipt / DK-terminology strings are unaffected (they stay Danish
+    # regardless per the terminology lock); this only sets the default UI chrome
+    # language on the public page.
+    _DK_TIMEZONES = {
+        "Europe/Copenhagen",   # Denmark
+        "Atlantic/Faroe",      # Faroe Islands (DK realm)
+        "America/Nuuk",        # Greenland (DK realm, current IANA id)
+        "America/Godthab",     # Greenland (legacy IANA alias)
+    }
+    _country = (getattr(profile, "country", None) or "").strip().upper()
+    _tz = (getattr(owner, "timezone", None) or "").strip()
+    _is_dk_venue = _country == "DK" or (not _country and _tz in _DK_TIMEZONES)
+    venue_language = "da" if _is_dk_venue else "en"
     return {
         # Consumer-facing venue name: prefer the owner's editable trading name
         # (Profile → business_name — what they manage and expect guests to see),
@@ -167,6 +186,8 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         "group_request_threshold": settings.get("group_request_threshold"),
         "max_advance_days": settings.get("max_advance_days"),
         "lead_time_min": settings.get("lead_time_min"),
+        # Best-effort default UI language for this venue's public page (see above).
+        "language": venue_language,
     }
 
 
@@ -367,17 +388,23 @@ def _send_confirmation(owner: User, profile: BusinessProfile, r: Reservation) ->
         from app.services.email_service import send_email
         biz = getattr(owner, "business_name", None) or getattr(profile, "company_name", None) or "BonBox"
         when = r.starts_at.strftime("%d/%m/%Y %H:%M") if r.starts_at else ""
+        # Guest-supplied free-text is interpolated into email HTML — escape it
+        # so a name/note like "<img src=x onerror=…>" can't inject markup into
+        # the guest's confirmation OR (worse) the owner's inbox.
+        import html as _html
+        g_name = _html.escape(r.guest_name or "")
+        g_note = _html.escape(r.allergy_note or "")
         allergy_line = ""
         if r.allergen_tags or r.allergy_note:
-            tags = ", ".join(r.allergen_tags or [])
-            allergy_line = f"<p><strong>Allergi noteret:</strong> {tags} {r.allergy_note or ''}</p>"
+            tags = _html.escape(", ".join(r.allergen_tags or []))
+            allergy_line = f"<p><strong>Allergi noteret:</strong> {tags} {g_note}</p>"
         status_line = (
             "Vi har modtaget din forespørgsel og vender tilbage."
             if r.status == "requested"
             else "Din reservation er bekræftet."
         )
         html = (
-            f"<p>Hej {r.guest_name},</p><p>{status_line}</p>"
+            f"<p>Hej {g_name},</p><p>{status_line}</p>"
             f"<p><strong>{biz}</strong><br>{when} · {r.party_size} personer</p>"
             f"{allergy_line}"
             f"<p>Vi glæder os til at se dig.</p>"
@@ -410,22 +437,27 @@ def _notify_owner_email(owner: User, profile: BusinessProfile, r: Reservation) -
         when = r.starts_at.strftime("%d/%m/%Y %H:%M") if r.starts_at else ""
         is_request = r.status == "requested"
         head = "Ny forespørgsel" if is_request else "Ny reservation"
+        # Escape all guest-supplied free-text before it enters the owner's
+        # inbox HTML — a crafted name/note is otherwise stored HTML injection
+        # against the (trusted) owner. Sanitized tag keys are escaped too.
+        import html as _html
         contact_bits = []
         if r.guest_phone:
-            contact_bits.append(f"Tlf: {r.guest_phone}")
+            contact_bits.append(f"Tlf: {_html.escape(r.guest_phone)}")
         if r.guest_email:
-            contact_bits.append(f"E-mail: {r.guest_email}")
+            contact_bits.append(f"E-mail: {_html.escape(r.guest_email)}")
         contact_line = " · ".join(contact_bits) or "Ingen kontaktinfo opgivet"
         notes_line = (
-            f"<p><strong>Besked:</strong> {r.guest_notes}</p>" if r.guest_notes else ""
+            f"<p><strong>Besked:</strong> {_html.escape(r.guest_notes)}</p>"
+            if r.guest_notes else ""
         )
         allergy_line = ""
         if r.allergen_tags or r.allergy_note:
-            tags = ", ".join(r.allergen_tags or [])
-            allergy_line = f"<p><strong>Allergi:</strong> {tags} {r.allergy_note or ''}</p>"
+            tags = _html.escape(", ".join(r.allergen_tags or []))
+            allergy_line = f"<p><strong>Allergi:</strong> {tags} {_html.escape(r.allergy_note or '')}</p>"
         html = (
             f"<p><strong>{head} via din bookingside</strong></p>"
-            f"<p><strong>{r.guest_name or 'Gæst'}</strong> · {r.party_size} personer<br>"
+            f"<p><strong>{_html.escape(r.guest_name or 'Gæst')}</strong> · {r.party_size} personer<br>"
             f"{when}<br>{contact_line}</p>"
             f"{notes_line}{allergy_line}"
             f"<p>Åbn reservationsbogen i BonBox for detaljer"
@@ -547,11 +579,15 @@ def create_reservation(request: Request, slug: str = Path(...),
                        db: Session = Depends(get_db)):
     profile, owner = _resolve_owner(db, slug)
 
-    # Idempotency — same key returns the same reservation.
+    # Idempotency — same key returns the same reservation. MUST be scoped to
+    # this owner: idempotency_key is client-supplied and NOT globally unique, so
+    # a colliding key from another restaurant would otherwise leak that tenant's
+    # reservation + a valid booking_token back to this visitor.
     if idempotency_key:
         prior = (
             db.query(Reservation)
-            .filter(Reservation.idempotency_key == idempotency_key)
+            .filter(Reservation.user_id == owner.id,
+                    Reservation.idempotency_key == idempotency_key)
             .first()
         )
         if prior:
@@ -565,6 +601,15 @@ def create_reservation(request: Request, slug: str = Path(...),
         raise HTTPException(status_code=422, detail={"error": "bad_datetime"})
 
     settings = rsvc.load_settings(profile)
+    # Date-window guard on BOTH paths. The confirmed path is also gated by
+    # recheck_and_assign_combo, but the group-request branch below skips it —
+    # without this, a crafted past/far-future date would insert a row and
+    # pollute the owner's monthly cap counter. Same window the /availability +
+    # /floor endpoints already enforce.
+    today = _now_local().date()
+    max_advance = int(settings.get("max_advance_days", 60))
+    if start.date() < today or start.date() > today + timedelta(days=max_advance):
+        raise HTTPException(status_code=422, detail={"error": "date_out_of_range"})
     max_party = settings.get("max_party_size")
     if max_party and payload.party_size > max_party:
         raise HTTPException(status_code=409, detail={"error": "party_too_large"})

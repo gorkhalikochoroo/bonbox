@@ -404,6 +404,10 @@ function PageTitle({ t, isProvider = false }) {
 // Remembers the owner's last-used book view across sessions/devices.
 const RSVP_VIEW_KEY = "bonbox.rsvp.view";
 
+// Sentinel seatTarget for a header-launched walk-in (no preset tile). It
+// signals SeatNowSheet to render its table picker instead of a fixed table.
+const SEAT_WALK_IN_PICK = "__pick__";
+
 // Status → localized label. Shared by the Liste status column + (later) the
 // floor/timeline. Mirrors the map ReservationRow used.
 function statusLabels(t) {
@@ -944,11 +948,39 @@ function ReservationDrawer({
 }
 
 // ─── Seat-now (mark a free table occupied with a walk-in) ─────────────
-function SeatNowSheet({ table, t, busy, onSeat, onClose }) {
+// Two launch paths, same sheet:
+//   • Tile-launched — `table` is the tapped resource object (preset table,
+//     no picker). Byte-identical to the original behaviour.
+//   • Header-launched — `table === SEAT_WALK_IN_PICK`; the host PICKS a table
+//     from `tables` (the live free/busy list). Defaults to the first free
+//     table; busy tables are annotated + disabled. On submit both paths call
+//     the same `onSeat({ resource_id, party_size, guest_name })`.
+function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
+  const pickMode = table === SEAT_WALK_IN_PICK;
+  // First currently-free table is the sensible default pick.
+  const firstFreeId = useMemo(() => {
+    const free = tables.find((tb) => !tb.busy);
+    return free ? String(free.id) : "";
+  }, [tables]);
+  const [pickedId, setPickedId] = useState(firstFreeId);
+  // Keep the default pick fresh if the free set changes while the sheet is open
+  // (a table clears / fills on the 60s tick) and nothing valid is chosen yet.
+  useEffect(() => {
+    if (pickMode && !pickedId && firstFreeId) setPickedId(firstFreeId);
+  }, [pickMode, pickedId, firstFreeId]);
+  const chosenTable = pickMode
+    ? tables.find((tb) => String(tb.id) === String(pickedId)) || null
+    : table;
   const [party, setParty] = useState(String(table?.capacity_seats || 2));
   const [name, setName] = useState("");
+  // Keep party sensible for the picked table's capacity default.
+  useEffect(() => {
+    if (pickMode && chosenTable) setParty(String(chosenTable.capacity_seats || 2));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickedId]);
   if (!table) return null;
   const sizes = [1, 2, 3, 4, 5, 6, 8];
+  const canSeat = pickMode ? !!chosenTable && !chosenTable.busy : true;
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
@@ -962,7 +994,13 @@ function SeatNowSheet({ table, t, busy, onSeat, onClose }) {
               {t("rsvpSeatNowTitle", "Seat guests")}
             </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {table.label + " · " + table.capacity_seats + " " + t("rsvpCoversHelper", "guests")}
+              {chosenTable
+                ? chosenTable.label +
+                  " · " +
+                  chosenTable.capacity_seats +
+                  " " +
+                  t("rsvpCoversHelper", "guests")
+                : t("rsvpSeatWalkIn", "Seat walk-in")}
             </p>
           </div>
           <button
@@ -974,6 +1012,33 @@ function SeatNowSheet({ table, t, busy, onSeat, onClose }) {
             <X className="w-5 h-5" />
           </button>
         </div>
+        {/* Table picker — header-launched walk-in only. Free tables first;
+            busy ones stay selectable-looking but are labelled + disabled so
+            the host can't seat onto an occupied table. */}
+        {pickMode && (
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              {t("rsvpSeatWalkInTable", "Table")}
+            </label>
+            <select
+              value={pickedId}
+              onChange={(e) => setPickedId(e.target.value)}
+              aria-label={t("rsvpSeatWalkInTable", "Table")}
+              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+            >
+              {tables.length === 0 && (
+                <option value="">{t("rsvpSeatWalkInNoTables", "No tables")}</option>
+              )}
+              {tables.map((tb) => (
+                <option key={tb.id} value={String(tb.id)} disabled={tb.busy}>
+                  {tb.label}
+                  {tb.capacity_seats ? ` · ${tb.capacity_seats}` : ""}
+                  {tb.busy ? ` — ${t("rsvpSeatWalkInBusy", "occupied")}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             {t("rsvpColParty", "Party")}
@@ -1013,14 +1078,16 @@ function SeatNowSheet({ table, t, busy, onSeat, onClose }) {
           variant="primary"
           size="lg"
           busy={busy}
+          disabled={!canSeat}
           className="w-full justify-center"
-          onClick={() =>
+          onClick={() => {
+            if (!canSeat || !chosenTable) return;
             onSeat({
-              resource_id: table.id,
+              resource_id: chosenTable.id,
               party_size: Math.max(1, Math.min(100, parseInt(party, 10) || 2)),
               guest_name: name.trim() || t("rsvpWalkIn", "Walk-in"),
-            })
-          }
+            });
+          }}
         >
           {t("rsvpSeatNowBtn", "Seat now")}
         </Button>
@@ -1042,16 +1109,19 @@ const QUARTER_TIMES = (() => {
   return out;
 })();
 
-// Default time for a new booking: the evening service start (18:00) — or,
-// when the host is taking a booking for later TODAY and the evening is
-// already underway, the next quarter-hour from now (clamped to 23:45).
+// Default time for a new booking. For a future day it's the evening service
+// start (18:00). For TODAY it's the next quarter-hour from NOW (clamped to
+// 23:45) — a walk-up/soon booking is almost always for later today, so the
+// host shouldn't have to scroll back from 18:00 at lunch.
 function defaultBookingTime(forDay) {
   let m = 18 * 60;
   if (forDay === isoDay(new Date())) {
     const now = new Date();
-    const next = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 15) * 15;
-    if (next > m) m = next;
+    m = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 15) * 15;
   }
+  // Clamp into the QUARTER_TIMES range (12:00–23:45) so the default always
+  // maps to a real <option> — before noon we floor to the first slot.
+  if (m < 12 * 60) m = 12 * 60;
   if (m > 23 * 60 + 45) m = 23 * 60 + 45;
   const pad = (n) => String(n).padStart(2, "0");
   return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
@@ -1073,6 +1143,7 @@ function NewBookingSheet({
   isProvider = false,
   behandlinger = [],
   providerStations = [],
+  tables = [],
 }) {
   const [date, setDate] = useState(day);
   const [time, setTime] = useState(() => defaultBookingTime(day));
@@ -1080,6 +1151,10 @@ function NewBookingSheet({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [nameMissing, setNameMissing] = useState(false);
+  // Optional table pin (TABLE venues). "" = auto-assign (backend picks a table
+  // via the availability engine). A chosen id is posted as resource_id; if it's
+  // taken the backend returns a clean 409 and we surface it honestly.
+  const [resourceId, setResourceId] = useState("");
   const sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
   // Provider (salon) selections. behandlingId is required; stylistId "" =
   // Valgfri behandler (no pinned behandler).
@@ -1117,6 +1192,8 @@ function NewBookingSheet({
         party_size: Math.max(1, Math.min(100, parseInt(party, 10) || 2)),
         date,
         time,
+        // "" = auto-assign; a chosen id pins that specific table.
+        resource_id: resourceId || null,
       },
       allowOverflow,
     );
@@ -1278,6 +1355,34 @@ function NewBookingSheet({
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Optional table — TABLE venues only. Blank = auto-assign (the engine
+            picks). Pinning a table posts resource_id; a taken table returns a
+            clean 409 the page surfaces as honest room-full pushback. */}
+        {!isProvider && tables.length > 0 && (
+          <div>
+            <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              {t("rsvpBookingTableOptional", "Table (optional — auto if blank)")}
+            </label>
+            <select
+              value={resourceId}
+              onChange={(e) => {
+                setResourceId(e.target.value);
+                if (warning) onClearWarning();
+              }}
+              aria-label={t("rsvpBookingTableOptional", "Table (optional — auto if blank)")}
+              className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
+            >
+              <option value="">{t("rsvpBookingTableAuto", "Auto")}</option>
+              {tables.map((tb) => (
+                <option key={tb.id} value={String(tb.id)}>
+                  {tb.label}
+                  {tb.capacity_seats ? ` · ${tb.capacity_seats}` : ""}
+                </option>
+              ))}
+            </select>
           </div>
         )}
 
@@ -1980,14 +2085,39 @@ function BookSection({ t, businessType, tableFloor = false }) {
 
   const setStatus = async (r, status) => {
     if (status === "cancelled") {
+      const who = r.guest_name || t("rsvpGuest", "Guest");
+      // A `requested` booking is DECLINED (it was never confirmed), not a
+      // confirmed booking CANCELLED — honest, distinct copy for each while
+      // keeping the ONE useConfirm dialog. This single confirm owns BOTH the
+      // list-row and drawer decline/cancel paths (rowActions hands "cancelled"
+      // straight here), so branching the copy here fixes both at once.
+      const isDecline = r.status === "requested";
       if (
-        !(await confirm({
-          message: t(
-            "rsvpConfirmCancel",
-            "Cancel this reservation? The guest is notified if possible.",
-          ),
-          destructive: true,
-        }))
+        !(await confirm(
+          isDecline
+            ? {
+                title: t("rsvpDeclineConfirmTitle", "Decline this request?"),
+                message: t(
+                  "rsvpDeclineConfirmBody",
+                  "The request from {name} is declined. They're notified if possible.",
+                  { name: who },
+                ),
+                confirmLabel: t("rsvpDeclineAction", "Decline"),
+                cancelLabel: t("rsvpCancelConfirmKeep", "Keep"),
+                destructive: true,
+              }
+            : {
+                title: t("rsvpCancelConfirmTitle", "Cancel this booking?"),
+                message: t(
+                  "rsvpCancelConfirmBody",
+                  "The booking for {name} is cancelled. They're notified if possible.",
+                  { name: who },
+                ),
+                confirmLabel: t("rsvpCancelConfirmYes", "Cancel booking"),
+                cancelLabel: t("rsvpCancelConfirmKeep", "Keep"),
+                destructive: true,
+              },
+        ))
       ) {
         return;
       }
@@ -2049,9 +2179,16 @@ function BookSection({ t, businessType, tableFloor = false }) {
       if (day !== todayIso) setDay(todayIso);
       else await fetchBook(day);
     } catch (e) {
-      setError(
-        e?.response?.data?.detail?.error || t("rsvpSeatError", "Couldn't seat the guests."),
-      );
+      const code = e?.response?.data?.detail?.error;
+      // Chosen table just got taken (race, or the picker's 60s view was stale)
+      // → honest message, never a silent double-seat.
+      if (e?.response?.status === 409 && code === "slot_unavailable") {
+        setError(
+          t("rsvpSeatTableTaken", "That table is now taken — pick another free table."),
+        );
+      } else {
+        setError(code || t("rsvpSeatError", "Couldn't seat the guests."));
+      }
     } finally {
       setSeating(false);
     }
@@ -2088,10 +2225,13 @@ function BookSection({ t, businessType, tableFloor = false }) {
             guest_phone: form.guest_phone,
             party_size: form.party_size,
             starts_at: `${form.date}T${form.time}:00`,
-            resource_id: null,
+            // A pinned table posts its resource_id (no auto-assign); blank keeps
+            // the engine's auto-assign. Both go through the same occupancy path —
+            // a taken table returns a clean 409, never a silent double-book.
+            resource_id: form.resource_id || null,
             source: "manual",
             status: "confirmed",
-            auto_assign: true,
+            auto_assign: !form.resource_id,
             ...(allowOverflow ? { allow_overflow: true } : {}),
           };
       await api.post("/reservations/book", payload);
@@ -2112,6 +2252,16 @@ function BookSection({ t, businessType, tableFloor = false }) {
             "Den valgte behandler er ikke ledig på det tidspunkt — vælg et andet tidspunkt eller 'Valgfri behandler'.",
           ),
         );
+      } else if (e?.response?.status === 409 && d.error === "slot_unavailable") {
+        // The owner pinned a specific table that's taken for this slot. We do
+        // NOT silently re-pick — honest inline message; the sheet stays open so
+        // they can choose another table (or Auto) or another time.
+        setCreateError(
+          t(
+            "rsvpBookTableTaken",
+            "That table is taken for this time — pick another table (or Auto) or another time.",
+          ),
+        );
       } else if (e?.response?.status === 409 && d.error === "room_full") {
         const seats = d.seats ?? d.total_seats ?? d.capacity ?? (totalCapacity || null);
         setRoomFull({ seats });
@@ -2129,6 +2279,15 @@ function BookSection({ t, businessType, tableFloor = false }) {
     setRoomFull(null);
     setCreateError("");
     setNewOpen(true);
+  };
+
+  // Open Seat-walk-in from the header (no preset tile). The sentinel tells
+  // SeatNowSheet to render its table picker; a tile-launched seat-now still
+  // passes the tapped resource object and skips the picker. Seating jumps to
+  // today so the walk-in is visible, matching the tile flow.
+  const openSeatWalkIn = () => {
+    setError("");
+    setSeatTarget(SEAT_WALK_IN_PICK);
   };
 
   // Assign / move / clear the booking's table from the detail drawer.
@@ -2222,6 +2381,40 @@ function BookSection({ t, businessType, tableFloor = false }) {
     () => resources.filter((r) => r.kind !== "provider" && r.is_active !== false),
     [resources],
   );
+  // Walk-in table picker (header-launched Seat-walk-in, no preset tile). Uses
+  // the SAME live floor state the Floor map paints, but "busy" here means
+  // OCCUPIED RIGHT NOW — a guest seated NOW can take a table whose next booking
+  // is hours away, so we must NOT disable a table merely because it's reserved
+  // LATER today. A table counts as busy only if it's currently seated OR its
+  // booked window contains now (started, not yet ended). The occupancy
+  // exclusion constraint on the backend is still the real race backstop; this
+  // is only a helpful default. (deriveFloorState's "upcoming" fires for ANY
+  // future booking today, which is exactly the over-broad signal we avoid.)
+  const walkInTables = useMemo(() => {
+    const cells = deriveFloorState(reservations, resources, nowTs);
+    const occupiedNow = (c) => {
+      if (c.status === "seated") return true; // someone is sitting there now
+      // An upcoming booking only blocks a walk-in if its slot is happening NOW
+      // (start <= now < end). A slot that starts later today leaves the table
+      // free to seat a walk-in right now.
+      const res = c.booking?.reservation;
+      if (!res || !res.starts_at) return false;
+      const startMs = new Date(res.starts_at).getTime();
+      const endMs = res.ends_at
+        ? new Date(res.ends_at).getTime()
+        : startMs + 90 * 60000; // default turn if end missing
+      return startMs <= nowTs && nowTs < endMs;
+    };
+    return cells
+      .filter((c) => c.status !== "inactive")
+      .map((c) => ({
+        id: String(c.res.id),
+        label: c.res.label,
+        capacity_seats: c.res.capacity_seats,
+        zone: c.res.zone || null,
+        busy: occupiedNow(c),
+      }));
+  }, [reservations, resources, nowTs]);
   // Provider (salon) booking — the stylist stations the New-booking sheet
   // pins to (kind:"provider"), and a resource_id → behandler-name resolver
   // for the list/drawer. Each station carries staff_name (or label as a
@@ -2492,7 +2685,16 @@ function BookSection({ t, businessType, tableFloor = false }) {
   const rowActions = (r) => {
     const busy = actioningId === r.id;
     const who = r.guest_name || t("rsvpGuest", "Guest");
+    // setStatus already owns the single "cancelled" confirm — and now picks
+    // DECLINE vs CANCEL copy from r.status (a `requested` booking is declined,
+    // a confirmed one is cancelled). So hand "cancelled" straight through (no
+    // opts needed — they'd be dead) and never double-prompt. Other destructive
+    // flips (no-show) still confirm here with their own copy.
     const guardedSet = (opts, status) => async () => {
+      if (status === "cancelled") {
+        setStatus(r, status);
+        return;
+      }
       if (await confirm({ destructive: true, ...opts })) setStatus(r, status);
     };
     const out = [];
@@ -2500,11 +2702,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
       out.push({ id: "confirmed", label: t("rsvpConfirmAction", "Confirm"), text: true, icon: <Check className="w-4 h-4" />, onClick: () => setStatus(r, "confirmed"), disabled: busy });
       out.push({
         id: "decline", label: t("rsvpDeclineAction", "Decline"), text: true, icon: <X className="w-4 h-4" />, variant: "danger", disabled: busy,
-        onClick: guardedSet({
-          title: t("rsvpDeclineConfirmTitle", "Decline this request?"),
-          message: t("rsvpDeclineConfirmBody", "{name} won't get the table. They're notified if possible.", { name: who }),
-          confirmLabel: t("rsvpDeclineAction", "Decline"),
-        }, "cancelled"),
+        onClick: guardedSet(null, "cancelled"),
       });
     } else if (r.status === "confirmed") {
       out.push({ id: "seated", label: t("rsvpSeatAction", "Seat"), text: true, icon: <Armchair className="w-4 h-4" />, onClick: () => setStatus(r, "seated"), disabled: busy });
@@ -2518,11 +2716,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
       });
       out.push({
         id: "cancel", label: t("rsvpCancelAction", "Cancel"), text: true, icon: <X className="w-4 h-4" />, variant: "danger", disabled: busy,
-        onClick: guardedSet({
-          title: t("rsvpCancelConfirmTitle", "Cancel this booking?"),
-          message: t("rsvpCancelConfirmBody", "The booking for {name} is cancelled. They're notified if possible.", { name: who }),
-          confirmLabel: t("rsvpCancelAction", "Cancel"),
-        }, "cancelled"),
+        onClick: guardedSet(null, "cancelled"),
       });
     } else if (r.status === "seated") {
       out.push({ id: "completed", label: t("rsvpCompleteAction", "Complete"), text: true, icon: <CheckCircle2 className="w-4 h-4" />, onClick: () => setStatus(r, "completed"), disabled: busy });
@@ -2662,6 +2856,19 @@ function BookSection({ t, businessType, tableFloor = false }) {
             onChange={pickView}
             ariaLabel={t("rsvpViewAria", "Reservation views")}
           />
+          {/* Seat walk-in — always reachable for TABLE venues, in every day
+              lens (List / Timeline / Floor), not only by tapping a free tile
+              on the Floor map. Opens SeatNowSheet in table-picker mode. */}
+          {tableFloor && !isProvider && (
+            <Button
+              variant="primary"
+              size="lg"
+              iconLeft={<Armchair className="w-4 h-4" />}
+              onClick={openSeatWalkIn}
+            >
+              {t("rsvpSeatWalkIn", "Seat walk-in")}
+            </Button>
+          )}
           <Button
             variant="primary"
             size="lg"
@@ -2684,7 +2891,11 @@ function BookSection({ t, businessType, tableFloor = false }) {
         <StatCard
           label={t("rsvpCovers", "Covers")}
           value={summary.covers}
-          helper={t("rsvpCoversBookings", "{n} bookings", { n: summary.total })}
+          helper={
+            summary.total === 1
+              ? t("rsvpCoversBookingsOne", "{n} booking", { n: summary.total })
+              : t("rsvpCoversBookings", "{n} bookings", { n: summary.total })
+          }
         />
         <StatCard
           label={t("rsvpSeatedNow", "Seated now")}
@@ -2892,10 +3103,13 @@ function BookSection({ t, businessType, tableFloor = false }) {
         />
       )}
 
-      {/* Seat-now sheet — opened by tapping a FREE tile on the Plan view. */}
+      {/* Seat-now sheet — opened by tapping a FREE tile on the Plan view, OR
+          from the header "Seat walk-in" button (SEAT_WALK_IN_PICK sentinel →
+          the sheet shows a table picker over the live free/busy list). */}
       {seatTarget && (
         <SeatNowSheet
           table={seatTarget}
+          tables={walkInTables}
           t={t}
           busy={seating}
           onSeat={seatWalkIn}
@@ -2918,6 +3132,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
           isProvider={isProvider}
           behandlinger={behandlinger}
           providerStations={providerStations}
+          tables={assignableTables}
           onClose={() => {
             setNewOpen(false);
             setRoomFull(null);

@@ -159,6 +159,28 @@ def business_today_local(user) -> date:
     return now.date()
 
 
+def business_day_window_local(user, target_date: date | None = None) -> tuple[datetime, datetime]:
+    """NAIVE-local [start, end) for the user's business day.
+
+    Same cutoff semantics as `business_day_window`, but returns NAIVE local
+    datetimes instead of UTC — for filtering columns stored as naive
+    business-local wall-clock (e.g. `Reservation.starts_at`). A 23:30 booking
+    belongs to that evening's service; a 02:00 booking belongs to the PREVIOUS
+    day's service (before the cutoff). Half-open: the END of one business day
+    equals the START of the next.
+
+    Because both the bounds and the compared column are naive local wall-clock,
+    the comparison is pure wall-clock and DST-safe (no UTC round-trip needed).
+    """
+    cutoff = _user_cutoff_hour(user)
+    if target_date is None:
+        target_date = business_today_local(user)
+    cutoff_time = datetime.min.time().replace(hour=cutoff)
+    lo = datetime.combine(target_date, cutoff_time)
+    hi = datetime.combine(target_date + timedelta(days=1), cutoff_time)
+    return (lo, hi)
+
+
 # Note: `utc_now` is intentionally re-exported from `app.utils.time` via the
 # top-of-file import. Do NOT define a wrapper here — a previous wrapper
 # shadowed the import and recursed into itself (RecursionError landmine).

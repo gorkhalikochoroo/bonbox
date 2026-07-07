@@ -145,15 +145,16 @@ def _table(db, owner: User, *, seats: int = 4, zone: str | None = None,
     return r
 
 
-def _local_naive_utc(owner: User, local_dt: datetime) -> datetime:
-    """Given a desired LOCAL wall-clock datetime, return the naive-UTC datetime
-    to store (the stack stores naive UTC and treats it as UTC). We attach the
-    owner's zone, convert to UTC, then drop tzinfo — so the service's local
-    re-projection lands back on the wall-clock we intended."""
-    from datetime import timezone
-    from app.services.tz_utils import _user_zone
-    aware_local = local_dt.replace(tzinfo=_user_zone(owner))
-    return aware_local.astimezone(timezone.utc).replace(tzinfo=None)
+def _local_naive(owner: User, local_dt: datetime) -> datetime:
+    """Given a desired LOCAL wall-clock datetime, return the value to store.
+
+    Reservation.starts_at is stored NAIVE in business-LOCAL wall-clock (the DB
+    column is TIMESTAMP WITHOUT TIME ZONE; every write site — public strptime,
+    owner/waitlist payload — stores naive-local). So the value to store IS the
+    naive local wall-clock, unchanged. (The old helper converted to UTC and
+    dropped tzinfo, which wrote the WRONG frame and masked the mis-bucketing
+    bug this suite is meant to catch.)"""
+    return local_dt
 
 
 def _add_reservation(
@@ -168,7 +169,7 @@ def _add_reservation(
     before starts_at so the lead-time bucket is controllable. Optionally writes
     an active occupancy row (for seat-hour utilization)."""
     local_start = datetime(biz_day.year, biz_day.month, biz_day.day, hour, minute)
-    starts_at = _local_naive_utc(owner, local_start)
+    starts_at = _local_naive(owner, local_start)
     ends_at = starts_at + timedelta(minutes=duration_min)
     created_at = starts_at - timedelta(days=lead_days)
     r = Reservation(
@@ -292,6 +293,32 @@ def test_heatmap_buckets_into_correct_weekday_and_day_part(db):
     # Heatmap is Mon-first DK convention.
     assert out["heatmap"]["weekdays"][0] == "Mon"
     assert out["heatmap"]["day_parts"] == svc.DAY_PARTS
+
+
+def test_heatmap_local_wall_clock_not_utc_shifted(db):
+    """starts_at is NAIVE business-local wall-clock, so a 20:00 local booking
+    must land in "Dinner" — NOT shifted 1-2h by a spurious UTC round-trip. This
+    guards the naive-local frame end-to-end: the seed writes a naive-local
+    20:00 (exactly what production stores), and the service must bucket on that
+    wall clock directly. A regression that re-attaches UTC and astimezone()s
+    would push 20:00 CEST → 18:00 (still Dinner, but 22:00 CEST → 20:00 would
+    slide out of Late, etc.), so we also pin a 22:00 booking to Late."""
+    owner, _ = _owner(db, plan="pro", hours_open="11:00-23:59")
+    table = _table(db, owner, seats=6)
+    friday = _recent_weekday(owner, weekday=4, weeks_back=0)
+    _add_reservation(db, owner, biz_day=friday, hour=20, party=3,
+                     status="confirmed", resource=table)
+    _add_reservation(db, owner, biz_day=friday, hour=22, party=2,
+                     status="confirmed", resource=table)
+
+    out = svc.compute_insights(db, owner, range_days=56, zone="all")
+    cells = {(c["weekday"], c["day_part"]): c for c in out["heatmap"]["cells"]}
+    # 20:00 local → Dinner (17–22), NOT Afternoon (would be a UTC-shift symptom).
+    assert ("Fri", "Dinner") in cells, cells.keys()
+    assert cells[("Fri", "Dinner")]["covers"] == 3
+    # 22:00 local → Late (>=22), NOT Dinner (a UTC-back-shift symptom).
+    assert ("Fri", "Late") in cells, cells.keys()
+    assert cells[("Fri", "Late")]["covers"] == 2
 
 
 def test_heatmap_business_day_cutoff_late_night_rolls_back(db):

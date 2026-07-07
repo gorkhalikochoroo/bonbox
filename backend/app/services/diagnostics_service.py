@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from app.models.reservation import Reservation
 from app.models.payment_connection import PaymentConnection
 from app.models.daily_close import DailyClose
-from app.services.tz_utils import today_local, business_today_local
+from app.services.tz_utils import today_local, business_today_local, now_local
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -77,13 +77,21 @@ def _finding(code, severity, deep_link, meta=None):
 
 
 def _detect_unconfirmed_reservations(db: Session, user, now, skip=frozenset()):
-    """Upcoming bookings still 'requested' (awaiting the owner's approval)."""
+    """Upcoming bookings still 'requested' (awaiting the owner's approval).
+
+    Reservation.starts_at is stored NAIVE in business-LOCAL wall-clock, so the
+    "upcoming" cutoff must be the owner's local wall-clock now (naive), NOT the
+    aware-UTC `now` the runner passes for the bank-feed detector. Comparing the
+    naive-local column against aware-UTC would be off by the UTC offset and
+    mis-classify a booking right around "now" as past/future.
+    """
+    local_now = now_local(user).replace(tzinfo=None)
     cnt = (
         db.query(func.count(Reservation.id))
         .filter(
             Reservation.user_id == user.id,
             Reservation.status == "requested",
-            Reservation.starts_at >= now,
+            Reservation.starts_at >= local_now,
             Reservation.deleted_at.is_(None),
         )
         .scalar()

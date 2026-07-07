@@ -223,7 +223,7 @@ function mapsHref(address, city) {
 export default function ReservationPublicPage() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
-  const { t } = useLanguage();
+  const { t, setLang } = useLanguage();
 
   // ── Page data (GET /public/reservations/{slug}) ──────────────────
   const [page, setPage] = useState(null);
@@ -292,6 +292,9 @@ export default function ReservationPublicPage() {
   const [occasion, setOccasion] = useState("");
   const [guestNotes, setGuestNotes] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
+  // At least one contact channel is required so the guest can actually be
+  // confirmed — a name-only booking would leave us unable to reach them.
+  const [contactTouched, setContactTouched] = useState(false);
 
   // Step 2 — ONE optional disclosure collapses occasion + notes + the
   // allergy block. Default closed: only name (+ secondary email/phone) show
@@ -360,6 +363,36 @@ export default function ReservationPublicPage() {
       alive = false;
     };
   }, [slug]);
+
+  // ── Default the public page to the venue's language ───────────────
+  // A DK restaurant should greet any visitor in Danish (da-DK) by default
+  // — the backend resolves the venue language (`page.language`) from the
+  // owner's country / timezone. We only apply it when the visitor has NOT
+  // made an EXPLICIT language choice. "Explicit" = a stored `lang` with the
+  // `bonbox_lang_auto_picked` flag CLEARED (setLang() removes that flag on a
+  // real pick; the first-visit auto-detect sets it). If the flag is present
+  // — or nothing is stored — the current lang is an auto-guess we may refine
+  // to the venue default. Tax / receipt / DK-terminology strings stay Danish
+  // regardless (terminology lock); this only sets the UI chrome language.
+  useEffect(() => {
+    const venueLang = page?.language;
+    if (!venueLang || !setLang) return;
+    let explicitChoice = false;
+    try {
+      const stored = localStorage.getItem("lang");
+      const autoPicked = localStorage.getItem("bonbox_lang_auto_picked");
+      // Explicit only when a lang is stored AND it was NOT auto-picked.
+      explicitChoice = !!stored && !autoPicked;
+    } catch {
+      // Private mode / storage blocked → treat as no explicit choice.
+      explicitChoice = false;
+    }
+    if (!explicitChoice) setLang(venueLang);
+    // Run once per resolved venue language; a later explicit switch by the
+    // visitor persists (setLang clears the auto flag) and is never clobbered
+    // because page.language doesn't change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page?.language]);
 
   // ── Seed step-1 selections once the page + query params resolve ───
   useEffect(() => {
@@ -603,12 +636,17 @@ export default function ReservationPublicPage() {
   );
   const chosenStylistName = stylistId ? providerNameById[String(stylistId)] || "" : "";
   const nameValid = guestName.trim().length >= 1 && guestName.trim().length <= 160;
+  // Require at least one contact channel (email OR phone, never both) so we
+  // can actually confirm the booking — otherwise a name-only booking is a
+  // dead end. Either one is enough.
+  const contactValid = !!(guestEmail.trim() || guestPhone.trim());
   // A group request doesn't need a chosen slot (the visitor sends a
   // request for the day; the restaurant confirms a time). A normal
   // booking requires a slot. A provider (salon) tidsbestilling also needs a
   // chosen behandling.
   const canSubmit =
     nameValid &&
+    contactValid &&
     (groupRequest || !!slot) &&
     (!isProvider || !!behandlingId) &&
     !submitting;
@@ -639,6 +677,7 @@ export default function ReservationPublicPage() {
   const onSubmit = async () => {
     if (!canSubmit) {
       setNameTouched(true);
+      setContactTouched(true);
       return;
     }
     setSubmitting(true);
@@ -1564,14 +1603,21 @@ export default function ReservationPublicPage() {
                 />
               </div>
 
-              {/* Email + phone — secondary. Email gets the "why" helper. */}
+              {/* Email + phone — either one is required (the guest needs one
+                  reachable channel). Each field is individually optional, so
+                  the labels are bare and a single hint states the "one of these"
+                  rule honestly (no more "(optional)" on a field that, together,
+                  is required). Email gets the "why" helper. */}
               <div className="space-y-3">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {t("rsvpContactHint", "We need one way to reach you — email or phone.")}
+                </p>
                 <div>
                   <label
                     htmlFor="rsvp-email"
                     className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
                   >
-                    {t("rsvpEmail", "Email (valgfrit)")}
+                    {t("rsvpContactEmailLabel", "Email")}
                   </label>
                   <Input
                     id="rsvp-email"
@@ -1579,6 +1625,7 @@ export default function ReservationPublicPage() {
                     size="md"
                     value={guestEmail}
                     onChange={(e) => setGuestEmail(e.target.value)}
+                    onBlur={() => setContactTouched(true)}
                     placeholder={t("rsvpEmailPh", "anna@eksempel.dk")}
                     hint={t("rsvpEmailWhy", "So we can send your confirmation.")}
                     autoComplete="email"
@@ -1591,7 +1638,7 @@ export default function ReservationPublicPage() {
                     htmlFor="rsvp-phone"
                     className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
                   >
-                    {t("rsvpPhone", "Telefon (valgfrit)")}
+                    {t("rsvpContactPhoneLabel", "Telefon")}
                   </label>
                   <Input
                     id="rsvp-phone"
@@ -1599,12 +1646,21 @@ export default function ReservationPublicPage() {
                     size="md"
                     value={guestPhone}
                     onChange={(e) => setGuestPhone(e.target.value)}
+                    onBlur={() => setContactTouched(true)}
                     placeholder={t("rsvpPhonePh", "+45 12 34 56 78")}
                     autoComplete="tel"
                     inputMode="tel"
                     maxLength={40}
                   />
                 </div>
+                {contactTouched && !contactValid && (
+                  <p className="text-xs text-red-600 dark:text-red-400">
+                    {t(
+                      "rsvpContactRequired",
+                      "Add an email or phone so we can confirm your booking.",
+                    )}
+                  </p>
+                )}
               </div>
             </div>
 

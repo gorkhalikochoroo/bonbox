@@ -44,7 +44,7 @@ from app.services.billing import (
 )
 from app.services import reservation_service as rsvc
 from app.services import reservation_occupancy_service as occ_service
-from app.services.tz_utils import now_local
+from app.services.tz_utils import now_local, business_day_window_local
 from app.services.sms_service import send_sms, sms_configured
 from sqlalchemy.exc import IntegrityError
 from app.utils.time import utc_now
@@ -764,8 +764,13 @@ def reservation_book(
     # /availability side computes "today" (public_reservations._now_local), so
     # owner + guest agree on which day they're looking at.
     target = day or now_local(user).date()
-    lo = datetime.combine(target, datetime.min.time())
-    hi = lo + timedelta(days=1)
+    # DK business day, not midnight-to-midnight: a 00:30 late seating belongs
+    # to tonight's service (before the 06:00 cutoff), so it must show under
+    # `target`, not tomorrow. starts_at is stored naive business-local, so we
+    # filter with naive-local cutoff bounds — the SAME frame the insights
+    # service now uses (business_day_window_local), so owner book and insights
+    # bucket a booking into the identical business day.
+    lo, hi = business_day_window_local(user, target)
     rows = (
         db.query(Reservation)
         .filter(
@@ -1344,14 +1349,21 @@ def _waitlist_dict(w: ReservationWaitlistEntry) -> dict:
 
 def _local_date_of(dt: datetime | None, user: User) -> date:
     """Business-local calendar date of a stored datetime — the day a freed
-    booking is matched against waitlist_date."""
-    loc = now_local(user)
+    booking is matched against waitlist_date.
+
+    `Reservation.starts_at` is stored NAIVE in business-local time
+    (Europe/Copenhagen), so a naive value is ALREADY local — return its date
+    directly. The old code re-stamped a naive value as UTC and converted it,
+    which rolled an evening booking (>=22:00 CEST / >=23:00 CET) to the NEXT
+    service day and silently misfired the waitlist auto-match during the exact
+    dinner rush the Venteliste exists for. Only tz-aware values are converted.
+    """
     if dt is None:
-        return loc.date()
+        return now_local(user).date()
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        return dt.date()
     try:
-        return dt.astimezone(loc.tzinfo).date()
+        return dt.astimezone(now_local(user).tzinfo).date()
     except Exception:  # noqa: BLE001
         return dt.date()
 
