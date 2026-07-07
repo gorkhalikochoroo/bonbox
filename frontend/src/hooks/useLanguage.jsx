@@ -1245,6 +1245,18 @@ const translations = {
     rsvpProviderStaffRequired: "Pick a stylist for this station.",
     rsvpProviderShiftHint: "A stylist is bookable only during their published shifts. Add shifts in Vagtplan.",
     rsvpProviderNoStaff: "No stylist",
+    // Self-chair: the owner's own bookable station that follows the confirmed
+    // weekly opening hours (neutral, NOT the amber "needs a stylist" warning).
+    rsvpProviderFollowsHours: "Follows opening hours",
+    // Salon first-run card — confirm hours → open for booking (self-chair
+    // quick-setup). "behandling" stays Danish in every UI language.
+    rsvpSalonFirstRunTitle: "Take your first booking",
+    rsvpSalonFirstRunBody: "Confirm the hours you're open and guests can book you online.",
+    rsvpSalonHoursSuggestion: "Suggested — change if it doesn't fit",
+    rsvpSalonOpenForBooking: "Open for booking",
+    rsvpSalonOpeningForBooking: "Opening…",
+    rsvpSalonAddBehandlingNudge: "Add a behandling so guests can pick a service.",
+    rsvpSalonSetupError: "Couldn't open for booking. Try again.",
     rsvpClearTablesNotice: "You have {n} tables from an earlier setup. Clear them to switch fully to the stylist view.",
     rsvpClearTablesBtn: "Clear tables",
     rsvpClearTablesConfirm: "Remove the {n} leftover tables? This can't be undone.",
@@ -8234,6 +8246,18 @@ const translations = {
     rsvpProviderStaffRequired: "Vælg en behandler til denne station.",
     rsvpProviderShiftHint: "En behandler kan kun bookes i sine offentliggjorte vagter. Tilføj vagter i Vagtplanen.",
     rsvpProviderNoStaff: "Ingen behandler",
+    // Selv-stolen: ejerens egen bookbare station, der følger de bekræftede
+    // åbningstider (neutral, ikke den gule "mangler behandler"-advarsel).
+    rsvpProviderFollowsHours: "Følger åbningstider",
+    // Salon-førstegangskort — bekræft åbningstider → åbn for booking.
+    // "behandling" forbliver dansk i alle UI-sprog.
+    rsvpSalonFirstRunTitle: "Tag imod din første tid",
+    rsvpSalonFirstRunBody: "Bekræft dine åbningstider, så kunder kan booke tid online.",
+    rsvpSalonHoursSuggestion: "Forslag — ret hvis det ikke passer",
+    rsvpSalonOpenForBooking: "Åbn for booking",
+    rsvpSalonOpeningForBooking: "Åbner…",
+    rsvpSalonAddBehandlingNudge: "Tilføj en behandling, så kunder kan vælge en behandling.",
+    rsvpSalonSetupError: "Kunne ikke åbne for booking. Prøv igen.",
     rsvpClearTablesNotice: "Du har {n} borde fra en tidligere opsætning. Ryd dem for at skifte helt til behandler-visningen.",
     rsvpClearTablesBtn: "Ryd borde",
     rsvpClearTablesConfirm: "Fjern de {n} resterende borde? Dette kan ikke fortrydes.",

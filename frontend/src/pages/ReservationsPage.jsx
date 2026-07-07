@@ -209,6 +209,103 @@ function serializeBookingHours(hours) {
   });
   return out;
 }
+// Salon-flavored starting hours for the first-run card — the SAME shape
+// defaultBookingHours() returns, but a typical salon week (Tue–Fri 09–17,
+// Sat 09–14, Mon + Sun closed). A suggestion only; the owner confirms/edits
+// before we persist it via /reservations/salon/quick-setup.
+function defaultSalonHours() {
+  const o = {};
+  DAY_KEYS.forEach((k) => {
+    o[k] = { closed: false, open: "09:00", close: "17:00" };
+  });
+  o.sat = { closed: false, open: "09:00", close: "14:00" };
+  o.mon = { closed: true, open: "09:00", close: "17:00" };
+  o.sun = { closed: true, open: "09:00", close: "17:00" };
+  return o;
+}
+
+// Weekday opening-hours editor — the one weekday-rows grid shared by the
+// Settings section and the salon first-run card. Presentational: the parent
+// owns the `hours` state plus the setHourDay / applyMonToAll handlers (the
+// SAME helpers that serialize to the {mon:"HH:MM-HH:MM"|"closed", …} dict the
+// availability engine reads). Pass `onApplyMonToAll` to surface the "copy
+// Monday to every day" shortcut above the rows.
+function WeekHoursEditor({ t, hours, setHourDay, onApplyMonToAll }) {
+  // Static t() keys (not template literals) so the i18n grep can verify each
+  // has an EN+DA entry. DK weeks start Monday.
+  const dayLabel = {
+    mon: t("rsvpDayMon", "Mon"),
+    tue: t("rsvpDayTue", "Tue"),
+    wed: t("rsvpDayWed", "Wed"),
+    thu: t("rsvpDayThu", "Thu"),
+    fri: t("rsvpDayFri", "Fri"),
+    sat: t("rsvpDaySat", "Sat"),
+    sun: t("rsvpDaySun", "Sun"),
+  };
+  return (
+    <div className="space-y-2">
+      {onApplyMonToAll && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={onApplyMonToAll}
+            className="shrink-0 text-xs font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200 underline-offset-2 hover:underline"
+          >
+            {t("rsvpHoursCopyMon", "Apply Monday to all")}
+          </button>
+        </div>
+      )}
+      <div className="divide-y divide-gray-100 dark:divide-gray-800">
+        {DAY_KEYS.map((k) => {
+          const d = hours[k];
+          const isOpen = !d.closed;
+          return (
+            <div key={k} className="flex items-center gap-3 py-2 flex-wrap">
+              <span className="w-9 shrink-0 text-sm font-medium text-gray-700 dark:text-gray-300">
+                {dayLabel[k]}
+              </span>
+              {/* Open / closed — 44px tap target for the host stand. */}
+              <label className="inline-flex items-center gap-1.5 cursor-pointer select-none shrink-0 min-h-[44px]">
+                <input
+                  type="checkbox"
+                  checked={isOpen}
+                  onChange={(e) => setHourDay(k, { closed: !e.target.checked })}
+                  className="w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-400"
+                />
+                <span className="text-xs text-gray-500 dark:text-gray-400 w-12">
+                  {isOpen ? t("rsvpHoursOpen", "Open") : t("rsvpHoursClosed", "Closed")}
+                </span>
+              </label>
+              {isOpen ? (
+                <div className="inline-flex items-center gap-1.5">
+                  <input
+                    type="time"
+                    value={d.open}
+                    onChange={(e) => setHourDay(k, { open: e.target.value })}
+                    aria-label={t("rsvpHoursOpenAt", "Opens")}
+                    className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+                  />
+                  <span className="text-gray-400" aria-hidden>–</span>
+                  <input
+                    type="time"
+                    value={d.close}
+                    onChange={(e) => setHourDay(k, { close: e.target.value })}
+                    aria-label={t("rsvpHoursCloseAt", "Closes")}
+                    className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
+                  />
+                </div>
+              ) : (
+                <span className="text-sm text-gray-400 dark:text-gray-500">
+                  {t("rsvpHoursClosedDay", "Closed all day")}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 // Tab ids — kept as a const so the ?tab= deep-link (e.g. from the Insights
 // "Turn on SMS reminders" action) can validate against the real set.
@@ -1873,6 +1970,86 @@ function TimelineSkeleton() {
   );
 }
 
+// Salon first-run card — shown in the Book tab when a provider (salon) venue
+// has no bookable station (self-chair) yet. The owner confirms the hours they
+// open (seeded salon-flavored, editable) and ONE tap seeds the self-chair,
+// persists the hours, and enables reservations via
+// POST /reservations/salon/quick-setup. Presentational: the parent owns the
+// hours state, the busy/error flags, and the write. It NEVER writes on render.
+function SalonFirstRunCard({
+  t,
+  hours,
+  setHourDay,
+  applyMonToAll,
+  behandlingerCount,
+  busy,
+  error,
+  onOpen,
+}) {
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 space-y-5 max-w-2xl">
+      <div className="flex items-start gap-3">
+        <span className="shrink-0 inline-flex items-center justify-center h-10 w-10 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-gray-900">
+          <CalendarCheck className="w-5 h-5" aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            {t("rsvpSalonFirstRunTitle", "Take your first booking")}
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {t(
+              "rsvpSalonFirstRunBody",
+              "Confirm the hours you're open and guests can book you online.",
+            )}
+          </p>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+          <Clock className="w-3.5 h-3.5" aria-hidden />
+          {t("rsvpSalonHoursSuggestion", "Suggested — change if it doesn't fit")}
+        </div>
+        <WeekHoursEditor
+          t={t}
+          hours={hours}
+          setHourDay={setHourDay}
+          onApplyMonToAll={applyMonToAll}
+        />
+      </div>
+
+      {/* Soft, non-blocking nudge — the owner can open for booking now; a
+          behandling just makes the guest's pick richer. */}
+      {behandlingerCount === 0 && (
+        <div className="rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 px-3 py-2.5 text-sm text-gray-600 dark:text-gray-300 flex items-start gap-2">
+          <Scissors className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" aria-hidden />
+          <span>
+            {t(
+              "rsvpSalonAddBehandlingNudge",
+              "Add a behandling so guests can pick a service.",
+            )}
+          </span>
+        </div>
+      )}
+
+      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+      <Button
+        variant="primary"
+        size="lg"
+        busy={busy}
+        iconLeft={<Check className="w-4 h-4" />}
+        className="w-full sm:w-auto justify-center"
+        onClick={onOpen}
+      >
+        {busy
+          ? t("rsvpSalonOpeningForBooking", "Opening…")
+          : t("rsvpSalonOpenForBooking", "Open for booking")}
+      </Button>
+    </div>
+  );
+}
+
 function BookSection({ t, businessType, tableFloor = false }) {
   const { lang } = useLanguage();
   const confirm = useConfirm();
@@ -1922,6 +2099,10 @@ function BookSection({ t, businessType, tableFloor = false }) {
   });
   const [data, setData] = useState(null);
   const [resources, setResources] = useState([]);
+  // Tracks the first resources fetch so the salon first-run card only shows
+  // once we KNOW there are no stations (never flashes for an established salon
+  // while resources are still in flight).
+  const [resourcesLoaded, setResourcesLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actioningId, setActioningId] = useState(null);
@@ -1953,6 +2134,13 @@ function BookSection({ t, businessType, tableFloor = false }) {
   // `resources` (kind:"provider"); the public list/drawer resolves the
   // behandler name from those.
   const [behandlinger, setBehandlinger] = useState([]);
+  // Salon first-run — a provider venue with no self-chair / stylist station
+  // yet. The owner confirms the hours they're open (seeded salon-flavored)
+  // and one tap seeds the self-chair, persists the hours, and enables
+  // reservations (POST /reservations/salon/quick-setup). Writes ONLY on tap.
+  const [salonHours, setSalonHours] = useState(() => defaultSalonHours());
+  const [salonSetupBusy, setSalonSetupBusy] = useState(false);
+  const [salonSetupError, setSalonSetupError] = useState("");
 
   // ── Deep-link: /reservations?booking=<id>&date=<iso> ──────────────────
   // A live host-stand alert, the 8am brief, or a push lands the owner on the
@@ -2007,6 +2195,8 @@ function BookSection({ t, businessType, tableFloor = false }) {
       setResources(Array.isArray(res.data?.resources) ? res.data.resources : []);
     } catch {
       setResources([]);
+    } finally {
+      setResourcesLoaded(true);
     }
   }, []);
 
@@ -2019,24 +2209,59 @@ function BookSection({ t, businessType, tableFloor = false }) {
 
   // Provider venues only — load the active behandlinger catalog the New-
   // booking sheet offers. Soft-fail: no catalog → the sheet shows the
-  // "add a behandling first" guidance and stays closed-friendly.
-  useEffect(() => {
+  // "add a behandling first" guidance and stays closed-friendly. Exposed as a
+  // callback so the salon quick-setup can refetch it (the first-run nudge
+  // clears once a behandling exists).
+  const fetchBehandlinger = useCallback(async () => {
     if (!isProvider) return;
-    let alive = true;
-    api
-      .get("/reservations/behandlinger")
-      .then((res) => {
-        if (!alive) return;
-        const list = Array.isArray(res.data?.behandlinger) ? res.data.behandlinger : [];
-        setBehandlinger(list.filter((b) => b.active !== false));
-      })
-      .catch(() => {
-        if (alive) setBehandlinger([]);
-      });
-    return () => {
-      alive = false;
-    };
+    try {
+      const res = await api.get("/reservations/behandlinger");
+      const list = Array.isArray(res.data?.behandlinger) ? res.data.behandlinger : [];
+      setBehandlinger(list.filter((b) => b.active !== false));
+    } catch {
+      setBehandlinger([]);
+    }
   }, [isProvider]);
+
+  useEffect(() => {
+    fetchBehandlinger();
+  }, [fetchBehandlinger]);
+
+  // Salon first-run helpers — patch one weekday, fan Monday out to the week,
+  // and the one-tap quick-setup that opens the salon for booking.
+  const setSalonHourDay = (key, patch) =>
+    setSalonHours((h) => ({ ...h, [key]: { ...h[key], ...patch } }));
+  const applySalonMonToAll = () =>
+    setSalonHours((h) => {
+      const mon = h.mon;
+      const next = {};
+      DAY_KEYS.forEach((k) => {
+        next[k] = { ...mon };
+      });
+      return next;
+    });
+  const openSalonForBooking = async () => {
+    if (salonSetupBusy) return; // guard against double-submit
+    setSalonSetupBusy(true);
+    setSalonSetupError("");
+    try {
+      await api.post("/reservations/salon/quick-setup", {
+        booking_hours: serializeBookingHours(salonHours),
+      });
+      // Refetch so the self-chair now appears (providerStations > 0 → the
+      // first-run card falls away and the live book + New-booking sheet
+      // render); refresh the behandlinger catalog too.
+      await fetchResources();
+      await fetchBehandlinger();
+    } catch (e) {
+      setSalonSetupError(
+        e?.response?.data?.detail?.error ||
+          t("rsvpSalonSetupError", "Couldn't open for booking. Try again."),
+      );
+    } finally {
+      setSalonSetupBusy(false);
+    }
+  };
 
   // Step 1 — a deep-link for another day switches the book to that day first;
   // the day effect above then refetches. (No-op when the date matches or is
@@ -2438,6 +2663,11 @@ function BookSection({ t, businessType, tableFloor = false }) {
     () => resources.filter((r) => r.kind === "provider" && r.is_active !== false),
     [resources],
   );
+  // Salon first-run: a provider (salon) venue with no bookable station yet.
+  // Show the calm "confirm hours → open for booking" card instead of an empty,
+  // confusing book. `resourcesLoaded` guards the flash before resources land
+  // (an established salon never sees the card blink in).
+  const salonFirstRun = isProvider && resourcesLoaded && providerStations.length === 0;
   const behandlerByResourceId = useMemo(() => {
     const m = {};
     resources.forEach((r) => {
@@ -2785,6 +3015,25 @@ function BookSection({ t, businessType, tableFloor = false }) {
           </button>
         </div>
       )}
+      {/* Salon first-run — a provider (salon) venue with no self-chair yet
+          gets a calm "confirm your hours → open for booking" card in place of
+          the empty, confusing book. One tap seeds the self-chair + enables
+          reservations; the live book renders the moment a station exists. */}
+      {salonFirstRun && (
+        <SalonFirstRunCard
+          t={t}
+          hours={salonHours}
+          setHourDay={setSalonHourDay}
+          applyMonToAll={applySalonMonToAll}
+          behandlingerCount={behandlinger.length}
+          busy={salonSetupBusy}
+          error={salonSetupError}
+          onOpen={openSalonForBooking}
+        />
+      )}
+
+      {!salonFirstRun && (
+        <>
       {/* Toolbar: day controls (left) + view toggle (right). Every control is
           a ≥44px tap target for the Windows host-stand / tablet. */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -3086,6 +3335,8 @@ function BookSection({ t, businessType, tableFloor = false }) {
             onSelect={openDrawer}
           />
         ))}
+        </>
+      )}
 
       {/* Shared detail drawer — opened from a Liste row, a Plan tile, or a
           timeline block. Status actions reuse the same optimistic handler. */}
@@ -3929,6 +4180,13 @@ function FloorSection({ t, businessType }) {
                           {staffName}
                         </span>
                       ) : null
+                    ) : r.follows_opening_hours ? (
+                      // The owner "self-chair": no staff member, but bookable —
+                      // it follows the confirmed weekly opening hours. Neutral
+                      // gray, NOT the amber "needs a stylist" warning.
+                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                        {t("rsvpProviderFollowsHours", "Follows opening hours")}
+                      </span>
                     ) : (
                       <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
                         {t("rsvpProviderNoStaff", "No stylist")}
@@ -4589,18 +4847,6 @@ function SettingsSection({ t }) {
 
   const smsUnlocked = hasFeature("sms_reminders");
 
-  // Short weekday labels — static t() keys (not template-literal) so the i18n
-  // discipline grep can verify each has an EN+DA entry. DK weeks start Monday.
-  const dayLabel = {
-    mon: t("rsvpDayMon", "Mon"),
-    tue: t("rsvpDayTue", "Tue"),
-    wed: t("rsvpDayWed", "Wed"),
-    thu: t("rsvpDayThu", "Thu"),
-    fri: t("rsvpDayFri", "Fri"),
-    sat: t("rsvpDaySat", "Sat"),
-    sun: t("rsvpDaySun", "Sun"),
-  };
-
   if (loading) {
     return <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>;
   }
@@ -4758,76 +5004,25 @@ function SettingsSection({ t }) {
           booking_hours first, before any fallback), so the times guests see
           come from when the owner actually opens, not a hard-coded default. */}
       <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-gray-400" aria-hidden />
-              {t("rsvpHoursTitle", "Opening hours (bookings)")}
-            </h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              {t(
-                "rsvpHoursHint",
-                "Guests can only book while you're open. Set the hours for each day.",
-              )}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={applyMonToAll}
-            className="shrink-0 text-xs font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200 underline-offset-2 hover:underline"
-          >
-            {t("rsvpHoursCopyMon", "Apply Monday to all")}
-          </button>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+            <Clock className="w-4 h-4 text-gray-400" aria-hidden />
+            {t("rsvpHoursTitle", "Opening hours (bookings)")}
+          </h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            {t(
+              "rsvpHoursHint",
+              "Guests can only book while you're open. Set the hours for each day.",
+            )}
+          </p>
         </div>
 
-        <div className="divide-y divide-gray-100 dark:divide-gray-800">
-          {DAY_KEYS.map((k) => {
-            const d = hours[k];
-            const isOpen = !d.closed;
-            return (
-              <div key={k} className="flex items-center gap-3 py-2 flex-wrap">
-                <span className="w-9 shrink-0 text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {dayLabel[k]}
-                </span>
-                {/* Open / closed — 44px tap target for the host stand. */}
-                <label className="inline-flex items-center gap-1.5 cursor-pointer select-none shrink-0 min-h-[44px]">
-                  <input
-                    type="checkbox"
-                    checked={isOpen}
-                    onChange={(e) => setHourDay(k, { closed: !e.target.checked })}
-                    className="w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-400"
-                  />
-                  <span className="text-xs text-gray-500 dark:text-gray-400 w-12">
-                    {isOpen ? t("rsvpHoursOpen", "Open") : t("rsvpHoursClosed", "Closed")}
-                  </span>
-                </label>
-                {isOpen ? (
-                  <div className="inline-flex items-center gap-1.5">
-                    <input
-                      type="time"
-                      value={d.open}
-                      onChange={(e) => setHourDay(k, { open: e.target.value })}
-                      aria-label={t("rsvpHoursOpenAt", "Opens")}
-                      className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
-                    />
-                    <span className="text-gray-400" aria-hidden>–</span>
-                    <input
-                      type="time"
-                      value={d.close}
-                      onChange={(e) => setHourDay(k, { close: e.target.value })}
-                      aria-label={t("rsvpHoursCloseAt", "Closes")}
-                      className="h-11 px-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm text-gray-900 dark:text-gray-100"
-                    />
-                  </div>
-                ) : (
-                  <span className="text-sm text-gray-400 dark:text-gray-500">
-                    {t("rsvpHoursClosedDay", "Closed all day")}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <WeekHoursEditor
+          t={t}
+          hours={hours}
+          setHourDay={setHourDay}
+          onApplyMonToAll={applyMonToAll}
+        />
 
         <div className="flex items-center justify-end gap-3 pt-1">
           {hoursSaved && (

@@ -64,9 +64,24 @@ class BookableResource(Base):
     combinable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # For kind='provider': the StaffMember whose published schedule defines
-    # this resource's availability windows. NULL for tables/rooms.
+    # this resource's availability windows. NULL for tables/rooms — AND NULL
+    # for the owner "self-chair" (see follows_opening_hours below).
     staff_id: Mapped[uuid.UUID | None] = mapped_column(
         GUID(), ForeignKey("staff_members.id"), nullable=True, index=True,
+    )
+
+    # Owner "self-chair" honesty marker (salon first-booking unlock). When
+    # TRUE on a kind='provider' resource, this chair's availability comes from
+    # the owner's CONFIRMED weekly opening hours (booking_hours settings key)
+    # instead of a bound StaffMember's published shifts — so a solo salon owner
+    # can take appointments without creating a StaffMember (zero payroll/CPR/
+    # wage surface: this row has staff_id=NULL and no employment record).
+    # It is an EXPLICIT marker, not "staff_id IS NULL": a legacy NULL-staff
+    # provider row (default FALSE) never lights up on the opening-hours path.
+    # The engine still fails closed — no declared hours ⇒ no slots (never a
+    # silent venue-hours fallback). See reservation_service._opening_hours_windows.
+    follows_opening_hours: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false",
     )
 
     # Manual ordering in the owner floor list.
