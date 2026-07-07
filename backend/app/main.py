@@ -1846,6 +1846,10 @@ _migrations = [
     "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS pos_x DOUBLE PRECISION",
     "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS pos_y DOUBLE PRECISION",
     "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS shape VARCHAR(12) DEFAULT 'round'",
+    # Salon first-booking unlock: owner "self-chair" whose availability follows
+    # the confirmed weekly opening hours (booking_hours) instead of a StaffMember's
+    # published shifts — lets a solo salon take appointments with zero payroll surface.
+    "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS follows_opening_hours BOOLEAN NOT NULL DEFAULT FALSE",
 
     # ── Migration (2026-06-13): users.hidden_pillars — pillar visibility ──
     # The RELEVANCE axis of the 3-axis IA model (panel-approved declutter,

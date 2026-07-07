@@ -149,9 +149,48 @@ def restaurant_windows(profile: BusinessProfile | None, day: date,
     return [TimeWindow(start=start, end=end)]
 
 
-def provider_windows(db: Session, user_id, staff_id, day: date) -> list[TimeWindow]:
-    """Appointment vertical: a provider's open windows = their published
-    Schedule shifts for the day."""
+def _opening_hours_windows(settings: dict, day: date) -> list[TimeWindow]:
+    """Owner "self-chair" availability = the CONFIRMED weekly opening hours
+    (the `booking_hours` settings key), fail-closed.
+
+    Reads ONLY `booking_hours` the owner explicitly persisted — it NEVER
+    consults operating_hours_json / fallback_open (that would invent working
+    hours a salon owner never declared, breaking the honesty gate). No entry /
+    "closed" / unparseable spec ⇒ [] (no slots that day). A close ≤ open rolls
+    to the next day so a late salon (e.g. "12:00-01:00") still works."""
+    bh = settings.get("booking_hours")
+    if not isinstance(bh, dict):
+        return []
+    spec = bh.get(_WEEKDAY_KEYS[day.weekday()])
+    if not spec or spec == "closed" or "-" not in spec:
+        return []
+    parts = spec.split("-")
+    o, c = _parse_hhmm(parts[0]), _parse_hhmm(parts[1])
+    if not o or not c:
+        return []
+    start = datetime.combine(day, o)
+    end = datetime.combine(day, c)
+    if end <= start:                       # crosses midnight (late salon)
+        end += timedelta(days=1)
+    return [TimeWindow(start=start, end=end)]
+
+
+def provider_windows(db: Session, user_id, resource, day: date,
+                     settings: dict) -> list[TimeWindow]:
+    """A provider chair's open windows for the day — two HONEST sources, never
+    a venue-hours fallback:
+
+      • owner "self-chair" (`follows_opening_hours=True`) → the owner's CONFIRMED
+        weekly opening hours (`booking_hours`). Lets a solo salon take bookings
+        without a StaffMember; no declared hours ⇒ [].
+      • employed stylist (`staff_id` set) → that stylist's PUBLISHED Schedule
+        shifts; no published shift ⇒ [].
+
+    A provider row that is neither (a legacy NULL-staff row with
+    follows_opening_hours False) ⇒ [] — it never silently lights up."""
+    if getattr(resource, "follows_opening_hours", False):
+        return _opening_hours_windows(settings, day)
+    staff_id = getattr(resource, "staff_id", None)
     if not staff_id:
         return []
     shifts = (
@@ -267,9 +306,10 @@ def available_slots(db: Session, *, profile: BusinessProfile, user_id, day: date
             ):
                 starts.add(s.start)
 
-    # Appointment providers each have their own shift window.
+    # Appointment providers each have their own window (self-chair opening
+    # hours, or an employed stylist's published shift).
     for p in providers:
-        windows = provider_windows(db, user_id, p.staff_id, day)
+        windows = provider_windows(db, user_id, p, day, settings)
         if not windows:
             continue
         dur = duration_min or settings.get("default_service_duration_min", 60)
@@ -347,7 +387,7 @@ def recheck_and_assign_combo(db: Session, *, profile: BusinessProfile, user_id,
     for p in resources:
         if p.kind != "provider":
             continue
-        windows = provider_windows(db, user_id, p.staff_id, start.date())
+        windows = provider_windows(db, user_id, p, start.date(), settings)
         dur = duration_min or settings.get("default_service_duration_min", 60)
         ids = find_slot_resources(
             requested_start=start, party_size=party_size, windows=windows,
@@ -435,11 +475,13 @@ def public_floor(db: Session, *, profile: BusinessProfile, user_id,
 # is served entirely through this new pair of functions, so the live
 # table-booking behaviour is unchanged.
 #
-# Honesty gates (S3a):
-#   • Provider availability is 100% PUBLISHED-shift-driven — provider_windows()
-#     returns [] when there is no published shift, so no shift = no slot. There
-#     is NO venue-hours fallback for providers (restaurant_windows is never
-#     consulted here).
+# Honesty gates (S3a, extended by the salon self-chair unlock):
+#   • Provider availability comes from ONE of two OWNER-DECLARED sources, never
+#     an invented venue-hours fallback: an employed stylist's PUBLISHED shift,
+#     OR (owner "self-chair") the owner's CONFIRMED weekly opening hours. Either
+#     way provider_windows() returns [] when nothing is declared — no shift and
+#     no confirmed hours = no slot (restaurant_windows / fallback_open are never
+#     consulted for a provider).
 #   • The SERVER resolves the booking duration from the behandlinger catalog
 #     (resolve_behandling_duration) — a client-supplied duration is never
 #     trusted for a salon booking.
@@ -485,9 +527,10 @@ def available_provider_slots(db: Session, *, profile: BusinessProfile | None,
         {"start": <iso>, "resource_id": <provider id>,
          "staff_id": <staff id or None>, "duration_min": <int>}
 
-    Provider availability is 100% published-shift-driven: provider_windows()
-    reads only PUBLISHED Schedule rows, so a provider with no published shift
-    that day contributes nothing (no venue-hours fallback — the honesty gate).
+    Provider availability is owner-declared: provider_windows() reads either a
+    self-chair's CONFIRMED opening hours or an employed stylist's PUBLISHED
+    Schedule rows, so a provider with neither contributes nothing that day
+    (no invented venue-hours fallback — the honesty gate).
 
     `duration_min` is passed through verbatim (the caller resolves it from the
     behandlinger catalog via resolve_behandling_duration); each slot is checked
@@ -516,7 +559,7 @@ def available_provider_slots(db: Session, *, profile: BusinessProfile | None,
 
     out: list[dict] = []
     for p in providers:
-        windows = provider_windows(db, user_id, p.staff_id, day)
+        windows = provider_windows(db, user_id, p, day, settings)
         if not windows:
             continue
         for s in compute_slots(
@@ -565,7 +608,7 @@ def recheck_provider_slot(db: Session, *, profile: BusinessProfile | None,
     )
     if provider is None:
         return None
-    windows = provider_windows(db, user_id, provider.staff_id, start.date())
+    windows = provider_windows(db, user_id, provider, start.date(), settings)
     if not windows:
         return None
     ids = find_slot_resources(

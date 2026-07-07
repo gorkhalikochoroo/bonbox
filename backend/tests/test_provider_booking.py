@@ -174,6 +174,28 @@ def _behandling(db, owner, *, name="Klip dame", duration_min=45,
     return b
 
 
+def _self_chair(db, owner, *, label="Klip & Krølle") -> BookableResource:
+    """The owner "self-chair": a kind='provider' resource with NO staff_id whose
+    availability follows the confirmed opening hours (salon first-booking unlock).
+    Deliberately carries NO StaffMember — the payroll-free path."""
+    res = BookableResource(
+        user_id=owner.id, kind="provider", label=label, capacity_seats=1,
+        staff_id=None, follows_opening_hours=True, sort_order=0,
+    )
+    db.add(res)
+    db.commit()
+    db.refresh(res)
+    return res
+
+
+def _set_booking_hours(db, profile, hours: dict) -> None:
+    s = json.loads(profile.reservation_settings_json)
+    s["booking_hours"] = hours
+    profile.reservation_settings_json = json.dumps(s)
+    db.commit()
+    db.refresh(profile)
+
+
 def _active_occ(db, reservation_id) -> list[ReservationOccupancy]:
     return (
         db.query(ReservationOccupancy)
@@ -377,6 +399,166 @@ def test_valgfri_auto_assigns_free_provider(client, db):
         })
         assert third.status_code == 409, third.text
         assert third.json()["detail"]["error"] == "no_provider_available"
+    finally:
+        _clear_user_override()
+
+
+# ═════════════════════════════════════════════════════════════════════
+# Salon first-booking unlock — owner "self-chair" (opening-hours-driven,
+# staff-less, payroll-free). See reservation_service._opening_hours_windows.
+# ═════════════════════════════════════════════════════════════════════
+def test_self_chair_uses_confirmed_opening_hours(db):
+    """A self-chair builds slots from the owner's CONFIRMED opening hours —
+    hours 09:00–11:00 on _DATE's weekday, 60-min service @ 30-min granularity →
+    09:00, 09:30, 10:00 (same shape as the published-shift path)."""
+    owner, profile = _salon(db)
+    chair = _self_chair(db, owner)
+    wk = rsvc._WEEKDAY_KEYS[_DATE.weekday()]
+    _set_booking_hours(db, profile, {wk: "09:00-11:00"})
+
+    slots = rsvc.available_provider_slots(
+        db, profile=profile, user_id=owner.id, day=_DATE, duration_min=60,
+    )
+    starts = [datetime.fromisoformat(s["start"]).strftime("%H:%M") for s in slots]
+    assert starts == ["09:00", "09:30", "10:00"]
+    assert {s["resource_id"] for s in slots} == {str(chair.id)}
+    # No StaffMember behind it — staff_id is None on every slot (payroll-free).
+    assert all(s["staff_id"] is None for s in slots)
+
+
+def test_self_chair_closed_day_and_unset_hours_fail_closed(db):
+    """Honesty gate: a 'closed' weekday, or no booking_hours at all, yields zero
+    slots — never an invented window."""
+    owner, profile = _salon(db)
+    _self_chair(db, owner)
+    wk = rsvc._WEEKDAY_KEYS[_DATE.weekday()]
+
+    # No booking_hours persisted yet → [].
+    assert rsvc.available_provider_slots(
+        db, profile=profile, user_id=owner.id, day=_DATE, duration_min=60,
+    ) == []
+
+    # Explicitly closed that weekday → still [].
+    _set_booking_hours(db, profile, {wk: "closed"})
+    assert rsvc.available_provider_slots(
+        db, profile=profile, user_id=owner.id, day=_DATE, duration_min=60,
+    ) == []
+
+
+def test_self_chair_never_falls_back_to_operating_hours(db):
+    """A self-chair reads ONLY booking_hours — even a wide operating_hours_json
+    (the restaurant venue-hours source) must NOT invent salon availability."""
+    owner, profile = _salon(db)
+    _self_chair(db, owner)
+    profile.operating_hours_json = json.dumps(
+        {k: "00:00-23:59" for k in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")})
+    db.commit()
+
+    assert rsvc.available_provider_slots(
+        db, profile=profile, user_id=owner.id, day=_DATE, duration_min=60,
+    ) == []
+
+
+def test_legacy_null_staff_provider_does_not_light_up(db):
+    """A legacy provider station with NO staff_id and follows_opening_hours=False
+    stays dark even with booking_hours set — only the seeded self-chair reads
+    opening hours (the marker is explicit, not "staff_id IS NULL")."""
+    owner, profile = _salon(db)
+    legacy = BookableResource(user_id=owner.id, kind="provider", label="Stol 1",
+                              capacity_seats=1, staff_id=None,
+                              follows_opening_hours=False, sort_order=0)
+    db.add(legacy)
+    db.commit()
+    wk = rsvc._WEEKDAY_KEYS[_DATE.weekday()]
+    _set_booking_hours(db, profile, {wk: "09:00-17:00"})
+
+    assert rsvc.available_provider_slots(
+        db, profile=profile, user_id=owner.id, day=_DATE, duration_min=60,
+    ) == []
+
+
+def test_salon_quick_setup_seeds_payroll_free_self_chair(client, db):
+    """POST /salon/quick-setup: one call seeds a staff-less self-chair, persists
+    the VALIDATED opening hours, enables the page + mints a slug, and is
+    idempotent. Crucially it creates NO StaffMember (payroll containment)."""
+    u = User(email=f"ny-{uuid.uuid4().hex[:6]}@bonbox.test", password_hash="x",
+             business_name="Ny Salon", business_type="salon",
+             currency="DKK", plan="starter")
+    db.add(u)
+    db.commit()
+    db.refresh(u)
+
+    _override_user(u)
+    try:
+        resp = client.post("/api/reservations/salon/quick-setup", json={
+            "booking_hours": {
+                "mon": "09:00-17:00", "fri": "10:00-14:00",
+                "sat": "closed", "junk": "nope", "sun": "not-a-time",
+            },
+        })
+        assert resp.status_code == 200, resp.text
+
+        db.expire_all()
+        chairs = (db.query(BookableResource)
+                  .filter(BookableResource.user_id == u.id,
+                          BookableResource.kind == "provider").all())
+        assert len(chairs) == 1
+        chair = chairs[0]
+        assert chair.follows_opening_hours is True
+        assert chair.staff_id is None
+        assert chair.capacity_seats == 1
+        assert chair.label == "Ny Salon"
+
+        # Payroll containment: NO StaffMember created for the owner.
+        assert db.query(StaffMember).filter(StaffMember.user_id == u.id).count() == 0
+
+        # Profile created + enabled + slug minted; hours validated (junk dropped).
+        profile = (db.query(BusinessProfile)
+                   .filter(BusinessProfile.user_id == u.id).first())
+        assert profile is not None
+        assert profile.reservations_enabled is True
+        assert profile.reservation_slug
+        stored = json.loads(profile.reservation_settings_json)["booking_hours"]
+        assert stored == {"mon": "09:00-17:00", "fri": "10:00-14:00", "sat": "closed"}
+
+        # Idempotent: a second call makes no second chair.
+        again = client.post("/api/reservations/salon/quick-setup",
+                            json={"booking_hours": {"fri": "11:00-15:00"}})
+        assert again.status_code == 200, again.text
+        db.expire_all()
+        assert (db.query(BookableResource)
+                .filter(BookableResource.user_id == u.id,
+                        BookableResource.kind == "provider").count()) == 1
+    finally:
+        _clear_user_override()
+
+
+def test_self_chair_named_booking_fails_closed_on_double_book(client, db):
+    """The self-chair rides the same fail-closed occupancy machinery: pinning it
+    for an overlapping slot returns 409, never a phantom second booking."""
+    owner, profile = _salon(db)
+    chair = _self_chair(db, owner)
+    wk = rsvc._WEEKDAY_KEYS[_DATE.weekday()]
+    _set_booking_hours(db, profile, {wk: "09:00-17:00"})
+    b = _behandling(db, owner, duration_min=60)
+
+    _override_user(owner)
+    try:
+        first = client.post("/api/reservations/book", json={
+            "guest_name": "Anna", "starts_at": f"{_DAY}T10:00:00",
+            "behandling_id": str(b.id), "stylist_resource_id": str(chair.id),
+        })
+        assert first.status_code == 201, first.text
+        assert first.json()["resource_id"] == str(chair.id)
+
+        second = client.post("/api/reservations/book", json={
+            "guest_name": "Bo", "starts_at": f"{_DAY}T10:30:00",
+            "behandling_id": str(b.id), "stylist_resource_id": str(chair.id),
+        })
+        assert second.status_code == 409, second.text
+        assert second.json()["detail"]["error"] == "stylist_unavailable"
+        db.expire_all()
+        assert db.query(Reservation).count() == 1
     finally:
         _clear_user_override()
 

@@ -97,6 +97,9 @@ class ResourceCreate(BaseModel):
     zone: str | None = Field(default=None, max_length=60)
     combinable: bool = False
     staff_id: UUID | None = None
+    # Owner "self-chair": a kind='provider' resource with NO staff_id whose
+    # availability follows the confirmed opening hours (salon solo owner).
+    follows_opening_hours: bool = False
     sort_order: int = 0
     # Optional floor-plan placement on create (the bulk layout PUT is the
     # primary path, but a single-add form may drop a table at a point too).
@@ -252,6 +255,26 @@ def _allocate_slug(db: Session, base: str) -> str:
     raise HTTPException(status_code=500, detail={"error": "slug_collision"})
 
 
+def _valid_booking_hours(raw) -> dict:
+    """Sanitize an owner-submitted weekly opening-hours dict: keep only the
+    mon..sun keys whose value is "closed" or a parseable "HH:MM-HH:MM"; drop
+    everything else so junk can never reach the availability engine. This is the
+    single validation gate for the hours the owner confirms — the self-chair's
+    slots are built ONLY from what survives here."""
+    out: dict = {}
+    if not isinstance(raw, dict):
+        return out
+    for k in rsvc._WEEKDAY_KEYS:
+        v = raw.get(k)
+        if v == "closed":
+            out[k] = "closed"
+        elif isinstance(v, str) and "-" in v:
+            a, b = v.split("-", 1)
+            if rsvc._parse_hhmm(a) and rsvc._parse_hhmm(b):
+                out[k] = f"{a.strip()}-{b.strip()}"
+    return out
+
+
 def _resource_dict(r: BookableResource) -> dict:
     # pos_x / pos_y / shape drive the 2D floor-plan map. pos_x/pos_y are a
     # percent (0–100) of the room canvas; None = not yet placed (frontend
@@ -263,6 +286,7 @@ def _resource_dict(r: BookableResource) -> dict:
         "capacity_seats": r.capacity_seats, "zone": r.zone,
         "combinable": bool(getattr(r, "combinable", False)),
         "staff_id": str(r.staff_id) if r.staff_id else None,
+        "follows_opening_hours": bool(getattr(r, "follows_opening_hours", False)),
         "sort_order": r.sort_order, "is_active": r.is_active,
         "pos_x": getattr(r, "pos_x", None),
         "pos_y": getattr(r, "pos_y", None),
@@ -563,7 +587,9 @@ def create_resource(payload: ResourceCreate, request: Request,
         user_id=user.id, kind=payload.kind, label=payload.label,
         capacity_seats=payload.capacity_seats, zone=payload.zone,
         combinable=bool(payload.combinable),
-        staff_id=payload.staff_id, sort_order=payload.sort_order,
+        staff_id=payload.staff_id,
+        follows_opening_hours=bool(payload.follows_opening_hours),
+        sort_order=payload.sort_order,
         pos_x=_clamp_pct(payload.pos_x), pos_y=_clamp_pct(payload.pos_y),
         # Only stamp a shape if the caller sent one; otherwise leave it to the
         # column's server_default ('round') so create and bulk-layout agree.
@@ -574,6 +600,86 @@ def create_resource(payload: ResourceCreate, request: Request,
     audit_service.record(db, user, "reservation.resource_created", "bookable_resource", r.id)
     db.commit()
     return _resource_dict(r)
+
+
+class SalonQuickSetup(BaseModel):
+    # The owner-confirmed weekly opening hours ({mon..sun: "HH:MM-HH:MM"|"closed"}).
+    # Sanitized server-side by _valid_booking_hours before it is ever stored.
+    booking_hours: dict | None = None
+
+
+@router.post("/salon/quick-setup")
+def salon_quick_setup(payload: SalonQuickSetup, db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+    """One honest tap turns a fresh solo salon bookable.
+
+    Seeds an owner "self-chair" (kind='provider', staff_id=NULL,
+    follows_opening_hours=True — a booking resource with NO StaffMember, so zero
+    payroll/CPR/wage surface), persists the owner's CONFIRMED opening hours,
+    enables the public page and mints a slug. Idempotent: re-running updates the
+    hours + re-enables without ever creating a second chair. Availability is only
+    ever built from the hours the owner confirms here — never invented (the
+    honesty gate)."""
+    enforce_feature(user, "reservations")
+    profile = _profile(db, user)
+    if profile is None:
+        profile = BusinessProfile(user_id=user.id)
+        db.add(profile)
+        db.flush()
+
+    # 1. Persist the owner-confirmed opening hours (validated) into settings —
+    #    this is the ONLY write that makes the self-chair produce any slots.
+    if payload.booking_hours is not None:
+        merged = rsvc.load_settings(profile)
+        merged["booking_hours"] = _valid_booking_hours(payload.booking_hours)
+        profile.reservation_settings_json = json.dumps(merged)
+
+    # 2. Find-or-create the self-chair (idempotent — never a second chair, and
+    #    the cap is only consulted when we actually create one).
+    chair = (
+        db.query(BookableResource)
+        .filter(
+            BookableResource.user_id == user.id,
+            BookableResource.kind == "provider",
+            BookableResource.follows_opening_hours.is_(True),
+            BookableResource.is_deleted.is_(False),
+        )
+        .first()
+    )
+    if chair is None:
+        current = (
+            db.query(BookableResource)
+            .filter(BookableResource.user_id == user.id,
+                    BookableResource.is_deleted.is_(False))
+            .count()
+        )
+        enforce_cap(user, "bookable_resources_max", int(current))
+        label = (
+            (getattr(user, "business_name", None)
+             or getattr(profile, "company_name", None) or "Behandler").strip()[:120]
+            or "Behandler"
+        )
+        chair = BookableResource(
+            user_id=user.id, kind="provider", label=label,
+            capacity_seats=1, combinable=False, staff_id=None,
+            follows_opening_hours=True,
+        )
+        db.add(chair)
+        db.flush()
+        audit_service.record(db, user, "reservation.resource_created",
+                             "bookable_resource", chair.id)
+
+    # 3. Turn the public booking page on + mint a durable slug the first time.
+    profile.reservations_enabled = True
+    if not getattr(profile, "reservation_slug", None):
+        base = (getattr(profile, "company_name", None)
+                or getattr(user, "business_name", None) or "booking")
+        profile.reservation_slug = _allocate_slug(db, base)
+
+    audit_service.record(db, user, "reservation.salon_quick_setup",
+                         "business_profile", profile.id)
+    db.commit()
+    return get_settings(db, user)
 
 
 @router.post("/resources/bulk", status_code=201)
