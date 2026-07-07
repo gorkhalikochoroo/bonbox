@@ -766,8 +766,10 @@ def reservation_book(
     target = day or now_local(user).date()
     # DK business day, not midnight-to-midnight: a 00:30 late seating belongs
     # to tonight's service (before the 06:00 cutoff), so it must show under
-    # `target`, not tomorrow — matching Daily Close / insights. starts_at is
-    # naive business-local, so we filter with naive-local cutoff bounds.
+    # `target`, not tomorrow. starts_at is stored naive business-local, so we
+    # filter with naive-local cutoff bounds — the SAME frame the insights
+    # service now uses (business_day_window_local), so owner book and insights
+    # bucket a booking into the identical business day.
     lo, hi = business_day_window_local(user, target)
     rows = (
         db.query(Reservation)

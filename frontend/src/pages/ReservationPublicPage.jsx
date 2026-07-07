@@ -1603,14 +1603,21 @@ export default function ReservationPublicPage() {
                 />
               </div>
 
-              {/* Email + phone — secondary. Email gets the "why" helper. */}
+              {/* Email + phone — either one is required (the guest needs one
+                  reachable channel). Each field is individually optional, so
+                  the labels are bare and a single hint states the "one of these"
+                  rule honestly (no more "(optional)" on a field that, together,
+                  is required). Email gets the "why" helper. */}
               <div className="space-y-3">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {t("rsvpContactHint", "We need one way to reach you — email or phone.")}
+                </p>
                 <div>
                   <label
                     htmlFor="rsvp-email"
                     className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
                   >
-                    {t("rsvpEmail", "Email (valgfrit)")}
+                    {t("rsvpContactEmailLabel", "Email")}
                   </label>
                   <Input
                     id="rsvp-email"
@@ -1631,7 +1638,7 @@ export default function ReservationPublicPage() {
                     htmlFor="rsvp-phone"
                     className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
                   >
-                    {t("rsvpPhone", "Telefon (valgfrit)")}
+                    {t("rsvpContactPhoneLabel", "Telefon")}
                   </label>
                   <Input
                     id="rsvp-phone"

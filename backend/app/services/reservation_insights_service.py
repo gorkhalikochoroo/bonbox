@@ -58,7 +58,7 @@ from app.models.reservation import Reservation
 from app.models.reservation_occupancy import ReservationOccupancy
 from app.services import reservation_service as rsvc
 from app.services import revenue_resolver
-from app.services.tz_utils import business_day_window, business_today_local
+from app.services.tz_utils import business_day_window_local, business_today_local
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -267,18 +267,25 @@ def _party_size_bin(size: int) -> str:
 
 
 def _local_dt(user, dt: datetime):
-    """Render a stored (naive-UTC) datetime in the user's local TZ.
+    """Return a stored Reservation datetime as the owner's local wall clock.
 
-    Reservation timestamps are stored naive (no tzinfo) and treated as UTC by
-    the rest of the stack. To bucket by the owner's wall clock — which is what
-    "Friday dinner" means to them — we attach UTC then convert to their zone.
-    Falls back to the raw datetime if anything is off so a single odd row can't
-    crash the loop (fail-soft)."""
-    from datetime import timezone
+    Reservation.starts_at is stored NAIVE in business-LOCAL wall-clock
+    (Europe/Copenhagen) — every write site (public strptime, owner/waitlist
+    payload) stores naive-local, and the DB column is TIMESTAMP WITHOUT TIME
+    ZONE. So a naive value is ALREADY the owner's wall clock; we must NOT
+    attach UTC and astimezone() it (that would shift real data by the UTC
+    offset and mis-bucket "Friday dinner" by 1-2h). We simply return the naive
+    datetime as-is for hour/weekday bucketing. An aware value (shouldn't occur
+    from this column, but defensive) is converted into the owner's zone so its
+    wall-clock reads correctly. Falls back to the raw datetime on any oddity so
+    a single bad row can't crash the loop (fail-soft)."""
     from app.services.tz_utils import _user_zone  # local import — internal helper
     try:
-        aware = dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
-        return aware.astimezone(_user_zone(user))
+        if dt.tzinfo is None:
+            # Already naive business-local — bucket on it directly.
+            return dt
+        # Aware (defensive) → project into the owner's wall clock.
+        return dt.astimezone(_user_zone(user))
     except Exception:  # noqa: BLE001
         return dt
 
@@ -371,10 +378,14 @@ def compute_insights(
         end_day = business_today_local(user)
         start_day = end_day - timedelta(days=range_days - 1)
 
-        # One UTC half-open window covering the whole range, built from the
-        # per-day business windows so late-night service is captured correctly.
-        win_start, _ = business_day_window(user, start_day)
-        _, win_end = business_day_window(user, end_day)
+        # One NAIVE-local half-open window covering the whole range, built from
+        # the per-day business windows so late-night service is captured
+        # correctly. Reservation.starts_at is stored naive business-local, so the
+        # bounds MUST be naive-local too (business_day_window_local) — comparing
+        # the naive column against aware-UTC bounds would be off by the UTC
+        # offset and drop/duplicate the range's edge bookings.
+        win_start, _ = business_day_window_local(user, start_day)
+        _, win_end = business_day_window_local(user, end_day)
 
         # ── tenant-scoped pulls (L2) ──────────────────────────────────────
         reservations = (
@@ -549,8 +560,11 @@ def _compute_utilization(
         d += timedelta(days=1)
 
     # ── occupied seat-minutes: active occupancy rows × capacity, in-window ──
-    win_start, _ = business_day_window(user, start_day)
-    _, win_end = business_day_window(user, end_day)
+    # ReservationOccupancy.starts_at/ends_at are copied from Reservation.starts_at
+    # → naive business-local wall-clock. Use naive-local bounds so the overlap
+    # subtraction is pure wall-clock (both sides naive, DST-safe, no round-trip).
+    win_start, _ = business_day_window_local(user, start_day)
+    _, win_end = business_day_window_local(user, end_day)
     occupied_seat_minutes = 0.0
     try:
         occ_rows = (
@@ -574,8 +588,11 @@ def _compute_utilization(
         if seats <= 0:
             continue
         try:
-            seg_start = max(o.starts_at, _strip_tz(win_start))
-            seg_end = min(o.ends_at, _strip_tz(win_end))
+            # win_start/win_end are naive-local (business_day_window_local); the
+            # occupancy rows are naive-local too, so no tz normalisation needed.
+            # _strip_tz stays a defensive guard against an unexpectedly-aware row.
+            seg_start = max(_strip_tz(o.starts_at), win_start)
+            seg_end = min(_strip_tz(o.ends_at), win_end)
             overlap_min = max(0.0, (seg_end - seg_start).total_seconds() / 60.0)
         except Exception:  # noqa: BLE001
             continue
@@ -621,9 +638,11 @@ def _compute_utilization(
 
 
 def _strip_tz(dt: datetime) -> datetime:
-    """Drop tzinfo for arithmetic against naive-stored occupancy timestamps.
-    business_day_window returns aware UTC; occupancy rows are naive UTC, so we
-    normalise to naive for the overlap subtraction."""
+    """Drop tzinfo so an unexpectedly-aware timestamp can still be subtracted
+    against the naive-local window bounds. Both the occupancy rows and the
+    window bounds are naive business-local wall-clock, so this is normally a
+    no-op — kept only as a defensive guard against a stray aware row (which
+    would otherwise raise "can't subtract offset-naive and offset-aware")."""
     return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
 
 

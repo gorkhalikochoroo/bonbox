@@ -200,6 +200,10 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
     } catch (err) {
       if (err?.response?.status === 409) {
         flashToast(t("rsvpConvertFull", "That slot just filled — pick another time."));
+      } else {
+        // 402 / 500 / network — the button was spinning then silently gave up.
+        // Surface an honest generic error so the owner knows to retry.
+        flashToast(t("rsvpConvertError", "Couldn't book them just now — try again."));
       }
     } finally {
       setBusyId(null);

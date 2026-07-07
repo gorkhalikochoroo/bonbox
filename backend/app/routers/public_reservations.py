@@ -146,15 +146,23 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         for r, staff_name in _provider_rows
     ]
     # Best-effort venue UI language so a DK restaurant shows Danish to any
-    # visitor by default (the guest can still switch). DK signal wins:
-    # profile.country == "DK" → "da"; otherwise derive from the owner's IANA
-    # timezone — any "Europe/*" (Copenhagen et al.) reads as a DK-style venue
-    # → "da", else "en". Tax / receipt / DK-terminology strings are unaffected
-    # (they stay Danish regardless per the terminology lock); this only sets
-    # the default UI chrome language on the public page.
+    # visitor by default (the guest can still switch). ONLY a genuine DK signal
+    # picks "da": profile.country == "DK", OR (when country is blank) an actual
+    # Danish-realm timezone — Copenhagen, the Faroe Islands, or Greenland.
+    # A broad "any Europe/* → da" would wrongly default a German or French venue
+    # to Danish, so we no longer do that; everything non-DK falls back to "en".
+    # Tax / receipt / DK-terminology strings are unaffected (they stay Danish
+    # regardless per the terminology lock); this only sets the default UI chrome
+    # language on the public page.
+    _DK_TIMEZONES = {
+        "Europe/Copenhagen",   # Denmark
+        "Atlantic/Faroe",      # Faroe Islands (DK realm)
+        "America/Nuuk",        # Greenland (DK realm, current IANA id)
+        "America/Godthab",     # Greenland (legacy IANA alias)
+    }
     _country = (getattr(profile, "country", None) or "").strip().upper()
-    _tz = getattr(owner, "timezone", None) or ""
-    _is_dk_venue = _country == "DK" or (not _country and _tz.startswith("Europe/"))
+    _tz = (getattr(owner, "timezone", None) or "").strip()
+    _is_dk_venue = _country == "DK" or (not _country and _tz in _DK_TIMEZONES)
     venue_language = "da" if _is_dk_venue else "en"
     return {
         # Consumer-facing venue name: prefer the owner's editable trading name

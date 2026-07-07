@@ -43,18 +43,27 @@ def send_reservation_reminders() -> int:
         from app.services import reservation_service as rsvc
         from app.services import sms_service
         from app.services.billing import has_feature, at_cap
+        from app.services.tz_utils import now_local
 
         now = utc_now()
-        horizon = now + timedelta(hours=36)
         month_start = _month_start(now)
+        # Reservation.starts_at is stored NAIVE in business-LOCAL wall-clock, so
+        # we cannot compare it against an aware-UTC "now". The batch spans owners
+        # in different timezones, so there's no single correct naive bound at the
+        # DB layer — instead we widen the pre-filter by ±14h (covers every real
+        # IANA offset) around the naive-UTC clock, then apply the EXACT per-owner
+        # naive-local window inside the loop (now_local(owner) stripped to naive).
+        naive_utc_now = now.replace(tzinfo=None)
+        pre_lo = naive_utc_now - timedelta(hours=14)
+        pre_hi = naive_utc_now + timedelta(hours=36 + 14)
         rows = (
             db.query(Reservation)
             .filter(
                 Reservation.is_deleted.is_(False),
                 Reservation.status == "confirmed",
                 Reservation.reminder_sent_at.is_(None),
-                Reservation.starts_at > now,
-                Reservation.starts_at <= horizon,
+                Reservation.starts_at > pre_lo,
+                Reservation.starts_at <= pre_hi,
             )
             .all()
         )
@@ -70,6 +79,16 @@ def send_reservation_reminders() -> int:
                 owner = owners[r.user_id]
                 profile = profiles[r.user_id]
                 if owner is None:
+                    continue
+
+                # Exact window in the OWNER's local wall-clock (naive vs naive):
+                # the day-before reminder fires for a booking in the next ~36h.
+                # starts_at is naive-local, so "now"/horizon must be naive-local
+                # too — off-by-the-UTC-offset here would remind at the wrong time
+                # (or skip a booking that's genuinely inside the 36h window).
+                local_now = now_local(owner).replace(tzinfo=None)
+                local_horizon = local_now + timedelta(hours=36)
+                if not (local_now < r.starts_at <= local_horizon):
                     continue
                 biz = (
                     getattr(owner, "business_name", None)

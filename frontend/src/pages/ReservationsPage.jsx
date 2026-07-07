@@ -2086,18 +2086,38 @@ function BookSection({ t, businessType, tableFloor = false }) {
   const setStatus = async (r, status) => {
     if (status === "cancelled") {
       const who = r.guest_name || t("rsvpGuest", "Guest");
+      // A `requested` booking is DECLINED (it was never confirmed), not a
+      // confirmed booking CANCELLED — honest, distinct copy for each while
+      // keeping the ONE useConfirm dialog. This single confirm owns BOTH the
+      // list-row and drawer decline/cancel paths (rowActions hands "cancelled"
+      // straight here), so branching the copy here fixes both at once.
+      const isDecline = r.status === "requested";
       if (
-        !(await confirm({
-          title: t("rsvpCancelConfirmTitle", "Cancel this booking?"),
-          message: t(
-            "rsvpCancelConfirmBody",
-            "The booking for {name} is cancelled. They're notified if possible.",
-            { name: who },
-          ),
-          confirmLabel: t("rsvpCancelConfirmYes", "Cancel booking"),
-          cancelLabel: t("rsvpCancelConfirmKeep", "Keep"),
-          destructive: true,
-        }))
+        !(await confirm(
+          isDecline
+            ? {
+                title: t("rsvpDeclineConfirmTitle", "Decline this request?"),
+                message: t(
+                  "rsvpDeclineConfirmBody",
+                  "The request from {name} is declined. They're notified if possible.",
+                  { name: who },
+                ),
+                confirmLabel: t("rsvpDeclineAction", "Decline"),
+                cancelLabel: t("rsvpCancelConfirmKeep", "Keep"),
+                destructive: true,
+              }
+            : {
+                title: t("rsvpCancelConfirmTitle", "Cancel this booking?"),
+                message: t(
+                  "rsvpCancelConfirmBody",
+                  "The booking for {name} is cancelled. They're notified if possible.",
+                  { name: who },
+                ),
+                confirmLabel: t("rsvpCancelConfirmYes", "Cancel booking"),
+                cancelLabel: t("rsvpCancelConfirmKeep", "Keep"),
+                destructive: true,
+              },
+        ))
       ) {
         return;
       }
@@ -2362,12 +2382,29 @@ function BookSection({ t, businessType, tableFloor = false }) {
     [resources],
   );
   // Walk-in table picker (header-launched Seat-walk-in, no preset tile). Uses
-  // the SAME live floor state the Floor map paints — a table is "busy" when it
-  // currently holds a seated/upcoming booking — so the picker can annotate and
-  // disable occupied tables. The occupancy exclusion constraint on the backend
-  // is still the real race backstop; this is only a helpful default.
+  // the SAME live floor state the Floor map paints, but "busy" here means
+  // OCCUPIED RIGHT NOW — a guest seated NOW can take a table whose next booking
+  // is hours away, so we must NOT disable a table merely because it's reserved
+  // LATER today. A table counts as busy only if it's currently seated OR its
+  // booked window contains now (started, not yet ended). The occupancy
+  // exclusion constraint on the backend is still the real race backstop; this
+  // is only a helpful default. (deriveFloorState's "upcoming" fires for ANY
+  // future booking today, which is exactly the over-broad signal we avoid.)
   const walkInTables = useMemo(() => {
     const cells = deriveFloorState(reservations, resources, nowTs);
+    const occupiedNow = (c) => {
+      if (c.status === "seated") return true; // someone is sitting there now
+      // An upcoming booking only blocks a walk-in if its slot is happening NOW
+      // (start <= now < end). A slot that starts later today leaves the table
+      // free to seat a walk-in right now.
+      const res = c.booking?.reservation;
+      if (!res || !res.starts_at) return false;
+      const startMs = new Date(res.starts_at).getTime();
+      const endMs = res.ends_at
+        ? new Date(res.ends_at).getTime()
+        : startMs + 90 * 60000; // default turn if end missing
+      return startMs <= nowTs && nowTs < endMs;
+    };
     return cells
       .filter((c) => c.status !== "inactive")
       .map((c) => ({
@@ -2375,7 +2412,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
         label: c.res.label,
         capacity_seats: c.res.capacity_seats,
         zone: c.res.zone || null,
-        busy: c.status === "seated" || c.status === "upcoming",
+        busy: occupiedNow(c),
       }));
   }, [reservations, resources, nowTs]);
   // Provider (salon) booking — the stylist stations the New-booking sheet
@@ -2648,9 +2685,11 @@ function BookSection({ t, businessType, tableFloor = false }) {
   const rowActions = (r) => {
     const busy = actioningId === r.id;
     const who = r.guest_name || t("rsvpGuest", "Guest");
-    // setStatus already owns the single cancel confirm (guest-named, distinct
-    // Keep / Cancel-booking buttons), so don't double-prompt for "cancelled" —
-    // hand it straight through. Other destructive flips (no-show) confirm here.
+    // setStatus already owns the single "cancelled" confirm — and now picks
+    // DECLINE vs CANCEL copy from r.status (a `requested` booking is declined,
+    // a confirmed one is cancelled). So hand "cancelled" straight through (no
+    // opts needed — they'd be dead) and never double-prompt. Other destructive
+    // flips (no-show) still confirm here with their own copy.
     const guardedSet = (opts, status) => async () => {
       if (status === "cancelled") {
         setStatus(r, status);
@@ -2663,11 +2702,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
       out.push({ id: "confirmed", label: t("rsvpConfirmAction", "Confirm"), text: true, icon: <Check className="w-4 h-4" />, onClick: () => setStatus(r, "confirmed"), disabled: busy });
       out.push({
         id: "decline", label: t("rsvpDeclineAction", "Decline"), text: true, icon: <X className="w-4 h-4" />, variant: "danger", disabled: busy,
-        onClick: guardedSet({
-          title: t("rsvpDeclineConfirmTitle", "Decline this request?"),
-          message: t("rsvpDeclineConfirmBody", "{name} won't get the table. They're notified if possible.", { name: who }),
-          confirmLabel: t("rsvpDeclineAction", "Decline"),
-        }, "cancelled"),
+        onClick: guardedSet(null, "cancelled"),
       });
     } else if (r.status === "confirmed") {
       out.push({ id: "seated", label: t("rsvpSeatAction", "Seat"), text: true, icon: <Armchair className="w-4 h-4" />, onClick: () => setStatus(r, "seated"), disabled: busy });
@@ -2681,11 +2716,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
       });
       out.push({
         id: "cancel", label: t("rsvpCancelAction", "Cancel"), text: true, icon: <X className="w-4 h-4" />, variant: "danger", disabled: busy,
-        onClick: guardedSet({
-          title: t("rsvpCancelConfirmTitle", "Cancel this booking?"),
-          message: t("rsvpCancelConfirmBody", "The booking for {name} is cancelled. They're notified if possible.", { name: who }),
-          confirmLabel: t("rsvpCancelAction", "Cancel"),
-        }, "cancelled"),
+        onClick: guardedSet(null, "cancelled"),
       });
     } else if (r.status === "seated") {
       out.push({ id: "completed", label: t("rsvpCompleteAction", "Complete"), text: true, icon: <CheckCircle2 className="w-4 h-4" />, onClick: () => setStatus(r, "completed"), disabled: busy });
