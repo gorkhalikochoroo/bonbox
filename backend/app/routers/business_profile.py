@@ -34,7 +34,11 @@ from app.models.user import User
 # Brand-on-faktura is part of the invoicing module; same plan gate as
 # the rest of /api/invoices/*. Free tier can't issue fakturaer, so they
 # would never see the logo — keep the surface consistent.
-from app.routers.customers import _require_invoicing_plan
+from app.routers.customers import (
+    _require_invoicing_plan,
+    _STARTER_AND_ABOVE,
+    effective_plan,
+)
 from app.models.business_profile import BusinessProfile
 from app.schemas.business_profile import (
     BusinessProfileCreate,
@@ -758,10 +762,33 @@ def _get_or_create_profile(db: Session, user: User) -> BusinessProfile:
     return profile
 
 
+def _require_brand_access(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """Brand / logo access — available to any venue that can actually show a
+    logo: an INVOICING plan (logo on invoices + kasserapport) OR a venue that has
+    turned RESERVATIONS on (logo on the public booking page). So a
+    reservations-only salon on Free can still add the logo its booking-page guests
+    see. Everyone else gets the same 402 upgrade nudge as before."""
+    if (effective_plan(user) or "free").lower() in _STARTER_AND_ABOVE:
+        return user
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    if profile is not None and getattr(profile, "reservations_enabled", False):
+        return user
+    raise HTTPException(
+        402, "Upgrade to Starter, or turn on reservations, to add a logo",
+    )
+
+
 @router.get("/brand", response_model=_BrandResponse)
 def get_brand(
     db: Session = Depends(get_db),
-    user: User = Depends(_require_invoicing_plan),
+    user: User = Depends(_require_brand_access),
 ):
     """Read brand settings — used by Profile UI and the faktura PDF
     renderer. Returns a SIGNED URL for the logo (1h TTL), never the
@@ -787,7 +814,7 @@ async def upload_logo_endpoint(
     request: Request,
     file: Annotated[UploadFile, File(...)],
     db: Session = Depends(get_db),
-    user: User = Depends(_require_invoicing_plan),
+    user: User = Depends(_require_brand_access),
 ):
     """Upload a new logo. PNG or JPEG, max 1 MB.
 
@@ -845,7 +872,7 @@ async def upload_logo_endpoint(
 def delete_logo_endpoint(
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(_require_invoicing_plan),
+    user: User = Depends(_require_brand_access),
 ):
     """Remove the logo. Faktura PDFs revert to plain business name."""
     profile = _get_or_create_profile(db, user)
@@ -876,7 +903,7 @@ def update_brand(
     data: _BrandUpdateRequest,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(_require_invoicing_plan),
+    user: User = Depends(_require_brand_access),
 ):
     """Update accent color and/or logo position.
 
