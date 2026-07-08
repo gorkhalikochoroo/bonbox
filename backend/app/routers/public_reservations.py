@@ -39,6 +39,7 @@ from app.services import audit_service, reservation_service as rsvc
 from app.services import reservation_occupancy_service as occ_service
 from app.services.allergens import allergen_set_for, sanitize_severity, sanitize_tags
 from app.services.billing import at_cap, has_feature
+from app.services.logo_service import logo_signed_url
 from app.services.qr_signer import sign_booking_token, verify_booking_token
 from app.utils.time import utc_now
 
@@ -172,6 +173,12 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         "business_name": getattr(owner, "business_name", None)
             or getattr(profile, "company_name", None)
             or "BonBox",
+        # The owner's own brand logo (same one used on invoices/kasserapport) so
+        # the public booking page carries their identity, not just initials. A
+        # short-lived SIGNED url — never the storage key. None if unset / storage
+        # error (the page falls back to the typographic monogram). Not PII.
+        "logo_url": (logo_signed_url(profile.logo_url)
+                     if getattr(profile, "logo_url", None) else None),
         "business_type": btype,
         # Provider stations (salon stylists) for the public "book with <behandler>"
         # picker. PII-safe: only public label + resource id. [] for table venues.

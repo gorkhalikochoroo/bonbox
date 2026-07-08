@@ -155,10 +155,10 @@ function fmtDayLabel(isoStr) {
 }
 
 // ── Venue monogram ─────────────────────────────────────────────────
-// There is NO logo / image field on a business. We derive a tasteful
-// 1–2 letter monogram from the venue name purely typographically: first
-// letters of the first two words, else the first two letters. Upper-cased,
-// diacritics preserved (Café → C). Plain text — JSX escapes it.
+// Fallback venue identity when the owner hasn't uploaded a brand logo: a
+// tasteful 1–2 letter monogram derived from the venue name purely
+// typographically — first letters of the first two words, else the first two
+// letters. Upper-cased, diacritics preserved (Café → C). Plain text — JSX escapes it.
 function venueMonogram(name) {
   const clean = String(name || "").trim();
   if (!clean) return "·";
@@ -167,6 +167,34 @@ function venueMonogram(name) {
     return (words[0][0] + words[1][0]).toUpperCase();
   }
   return clean.slice(0, 2).toUpperCase();
+}
+
+// ── Venue identity tile ────────────────────────────────────────────
+// The owner's uploaded brand logo (the SAME logo used on their invoices),
+// served as a short-lived signed url from the public meta. Falls back to the
+// typographic monogram when there's no logo — or if the image fails to load /
+// the url has expired — so the header is never empty. The logo sits on a light
+// tile (logos often carry transparency and need light contrast).
+function VenueBadge({ logoUrl, name }) {
+  const [broken, setBroken] = useState(false);
+  if (logoUrl && !broken) {
+    return (
+      <img
+        src={logoUrl}
+        alt=""
+        onError={() => setBroken(true)}
+        className="shrink-0 w-12 h-12 rounded-xl object-contain bg-white ring-1 ring-gray-200 dark:ring-gray-700 p-1"
+      />
+    );
+  }
+  return (
+    <div
+      className="shrink-0 w-12 h-12 rounded-xl bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center text-base font-semibold tracking-tight select-none"
+      aria-hidden="true"
+    >
+      {venueMonogram(name)}
+    </div>
+  );
 }
 
 // ── Slot period grouping (biggest UX lever) ────────────────────────
@@ -1169,19 +1197,14 @@ export default function ReservationPublicPage() {
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 pb-32">
       <div className="max-w-md mx-auto px-4 sm:px-6 pt-8 sm:pt-10 space-y-6">
-        {/* ── Venue identity (typographic — there is no logo/image field) ──
-            Monogram tile + eyebrow + venue name H1 + location row with a
+        {/* ── Venue identity (brand logo or typographic monogram) ──
+            Identity tile + eyebrow + venue name H1 + location row with a
             quiet right-aligned tappable phone. One trust line underneath. */}
         <header className="space-y-3">
           <div className="flex items-start gap-3">
-            {/* Monogram tile — the identity moment, within the system.
-                gray-900 fill, dark-mode inverts. Derived from the name. */}
-            <div
-              className="shrink-0 w-12 h-12 rounded-xl bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center text-base font-semibold tracking-tight select-none"
-              aria-hidden="true"
-            >
-              {venueMonogram(page.business_name)}
-            </div>
+            {/* Identity tile — the owner's uploaded brand logo when they have
+                one, else a typographic monogram derived from the name. */}
+            <VenueBadge logoUrl={page.logo_url} name={page.business_name} />
             <div className="min-w-0 flex-1">
               <p className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500">
                 {isProvider ? t("rsvpBookATime", "Book en tid") : t("rsvpBookATable", "Book a table")}
