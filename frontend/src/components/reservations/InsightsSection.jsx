@@ -39,6 +39,8 @@ import {
   HeartHandshake,
 } from "lucide-react";
 import api from "../../services/api";
+import { useAuth } from "../../hooks/useAuth";
+import { bookingModeFor } from "../../config/venueProfiles";
 import { formatKr } from "../../utils/currency";
 import StatCard from "../ui/StatCard";
 import Chip from "../ui/Chip";
@@ -710,6 +712,13 @@ function ForecastBlock({ forecast, forecastLocked, t }) {
 
 // ─── main section ───────────────────────────────────────────────────────────
 export default function InsightsSection({ t, zones = [] }) {
+  const { user } = useAuth();
+  // A salon books a PROVIDER (a chair/behandler tied to a person), not a table,
+  // so the seat/table vocabulary reads wrong here. Reuse the app-wide provider
+  // signal (salon is the only "provider" archetype) so this stays in lockstep
+  // with the rest of the reservations page. Pure label/visibility reframe — the
+  // metrics are unchanged. Non-provider verticals are byte-identical.
+  const isSalon = bookingModeFor(user?.business_type) === "provider";
   const [range, setRange] = useState("4w");
   const [zone, setZone] = useState("all");
   const [data, setData] = useState(null);
@@ -781,7 +790,7 @@ export default function InsightsSection({ t, zones = [] }) {
     isShown(heatmap.confidence) ||
     isShown(noShow.confidence) ||
     isShown(sourceMix.confidence) ||
-    isShown(partyFit.confidence) ||
+    (!isSalon && isShown(partyFit.confidence)) ||
     isShown(recovered.confidence) ||
     !!forecast ||
     forecastLocked;
@@ -840,9 +849,13 @@ export default function InsightsSection({ t, zones = [] }) {
               implies a fabricated number. Provisional values are muted. */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatCard
-              label={t("rsvpInsKpiUtil", "Seat utilization")}
+              label={isSalon ? t("rsvpInsChairUtil", "Chair use") : t("rsvpInsKpiUtil", "Seat utilization")}
               value={kpiValue(isShown(util.confidence) ? fmtPct(util.seat_hour_pct) : "—", util.confidence)}
-              helper={t("rsvpInsKpiUtilHelp", "of seat-hours")}
+              helper={
+                isSalon
+                  ? t("rsvpInsKpiUtilHelpSalon", "of chair-hours")
+                  : t("rsvpInsKpiUtilHelp", "of seat-hours")
+              }
             />
             <StatCard
               label={t("rsvpInsKpiNoShow", "No-show rate")}
@@ -874,7 +887,8 @@ export default function InsightsSection({ t, zones = [] }) {
           {/* Secondary cards — each self-hides on its own confidence. */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {isShown(recovered.confidence) && <RecoveredCard data={recovered} t={t} />}
-            {isShown(partyFit.confidence) && <PartySizeCard data={partyFit} t={t} />}
+            {/* Party-size fit is meaningless for a salon (always party-of-1) — hide it. */}
+            {!isSalon && isShown(partyFit.confidence) && <PartySizeCard data={partyFit} t={t} />}
             {isShown(sourceMix.confidence) && <SourceMixCard data={sourceMix} t={t} />}
             {isShown(noShow.confidence) && <NoShowCard data={noShow} t={t} smsHref={smsHref} />}
           </div>
