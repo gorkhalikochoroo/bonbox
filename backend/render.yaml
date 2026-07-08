@@ -13,6 +13,13 @@ services:
         sync: false
       - key: SECRET_KEY
         generateValue: true
+      # Cloudflare origin lock — the app 403s any request missing this secret,
+      # so a direct hit to the *.onrender.com origin (bypassing Cloudflare) is
+      # rejected. ENABLE ORDER to avoid a self-inflicted outage: (1) add a
+      # Cloudflare Transform Rule that sets header `X-Bonbox-Origin: <secret>`
+      # on all requests, THEN (2) set this to the SAME value. Unset = OFF (no-op).
+      - key: ORIGIN_SHARED_SECRET
+        sync: false
       - key: FRONTEND_URL
         sync: false
       # Owner contact — receives new-signup notifications + ops alerts.
