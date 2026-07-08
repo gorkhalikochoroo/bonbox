@@ -39,6 +39,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -59,7 +60,7 @@ router = APIRouter()
 # Same limiter shape as auth.register (5–10/min/IP). Detection is a handful-of-
 # times human action during onboarding; 10/min is generous for a real user and
 # tight enough that a bot can't loop the (at most one) AI call to burn budget.
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 # The exact set of tokens the AI is allowed to emit + that archetype_id_for
 # understands. Sourced live from the canonical mapping so it never drifts.

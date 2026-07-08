@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 
 from fastapi.responses import FileResponse
 from sqlalchemy import func
@@ -27,7 +28,7 @@ from app.services.cash_sync import sync_cash_in_for_sale, delete_cash_entry_by_r
 from app.utils.time import utc_now
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 @router.get("", response_model=list[SaleResponse])

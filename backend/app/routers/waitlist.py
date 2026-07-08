@@ -13,6 +13,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.utils.client_ip import client_ip
 from app.models.user import User
 from app.models.waitlist import WaitlistEntry
 from app.services.auth import get_current_user
@@ -82,7 +83,7 @@ _LIMIT_PER_MIN = 5
 
 def _ip_rate_check(request: Request) -> bool:
     import time
-    ip = request.client.host if request.client else "unknown"
+    ip = client_ip(request) if request else "unknown"
     now = time.time()
     arr = _recent.setdefault(ip, [])
     arr[:] = [t for t in arr if t > now - 60]

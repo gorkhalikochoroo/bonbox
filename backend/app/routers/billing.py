@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -36,7 +37,7 @@ from app.utils.time import utc_now
 
 router = APIRouter()
 log = logging.getLogger("bonbox.billing")
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 # ── Per-user checkout-session rate limit (FIX 5) ──────────────────────
 # The slowapi @limiter.limit on /checkout-session is per-IP (10/min) — it
@@ -485,7 +486,7 @@ def _write_security_event(
     evt = SecurityEvent(
         user_id=user_id,
         event_type=event_type,
-        ip_address=(request.client.host if request.client else None) or
+        ip_address=(client_ip(request) if request else None) or
                    (request.headers.get("x-forwarded-for", "").split(",")[0].strip() or None),
         user_agent=request.headers.get("user-agent"),
         detail=detail[:1900] if detail else None,

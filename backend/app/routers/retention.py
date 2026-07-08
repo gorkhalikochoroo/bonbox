@@ -10,6 +10,7 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -21,7 +22,7 @@ router = APIRouter()
 log = logging.getLogger("bonbox.retention")
 # Retention insights run heavy aggregations across the whole customer × txn
 # table. Rate-limit per IP so we can't be DoS'd into a thundering herd.
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 def _safe_empty():

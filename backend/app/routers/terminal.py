@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -29,7 +30,7 @@ from sqlalchemy.orm import Session
 # being in the multi-barrier doctrine's L3 layer (every money/tier
 # surface should rate-limit). 30/min matches daily_close.lock's pattern;
 # 5/min on link/unlink because legitimate use is one click per scan.
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 from app.database import get_db
 from app.models.branch import Branch
@@ -569,7 +570,7 @@ def link_provider(
             "provider_confidence": float(new_conf),
             "provider_locked_by_owner": True,
         },
-        ip_address=request.client.host if request.client else None,
+        ip_address=client_ip(request) if request else None,
     )
 
     db.commit()
@@ -627,7 +628,7 @@ def unlink_provider(
             "provider_confidence": None,
             "provider_locked_by_owner": False,
         },
-        ip_address=request.client.host if request.client else None,
+        ip_address=client_ip(request) if request else None,
     )
 
     db.commit()

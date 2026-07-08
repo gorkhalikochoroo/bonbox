@@ -38,6 +38,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -50,7 +51,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 
 # Slug pattern guard — keeps the path parameter bounded so a hostile

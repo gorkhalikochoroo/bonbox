@@ -358,7 +358,8 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     pos_sale_q = (
         db.query(func.coalesce(func.sum(Sale.amount), 0))
         .filter(Sale.user_id == user_id, Sale.date >= start_date, Sale.date < end_date,
-                Sale.is_deleted.isnot(True), Sale.is_tax_exempt.isnot(True),
+                Sale.is_deleted.isnot(True), Sale.status == "completed",
+                Sale.is_tax_exempt.isnot(True),
                 Sale.invoice_id.is_(None))
     )
     if close_dates:
@@ -428,7 +429,8 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
     pos_exempt_q = (
         db.query(func.coalesce(func.sum(Sale.amount), 0))
         .filter(Sale.user_id == user_id, Sale.date >= start_date, Sale.date < end_date,
-                Sale.is_deleted.isnot(True), Sale.is_tax_exempt.is_(True),
+                Sale.is_deleted.isnot(True), Sale.status == "completed",
+                Sale.is_tax_exempt.is_(True),
                 Sale.invoice_id.is_(None))
     )
     if close_dates:
@@ -462,6 +464,7 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
             .filter(Sale.user_id == user_id,
                     Sale.date.in_(close_dates),
                     Sale.is_deleted.isnot(True),
+                    Sale.status == "completed",
                     Sale.is_tax_exempt.is_(True),
                     Sale.invoice_id.is_(None))
             .scalar()
@@ -534,6 +537,7 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
                 Sale.user_id == user_id,
                 Sale.date.in_(close_dates),
                 Sale.is_deleted.isnot(True),
+                Sale.status == "completed",
                 Sale.invoice_id.is_(None),
             )
             .group_by(Sale.date)

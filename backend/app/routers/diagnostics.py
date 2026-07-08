@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -29,7 +30,7 @@ router = APIRouter()
 
 # Public beacon endpoint needs its own limiter (auth endpoints elsewhere use
 # their own). SlowAPIMiddleware is registered app-wide, so this enforces.
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 # Only date-anchored findings may be skipped; the ongoing-condition codes
 # (stale_bank_feed, unconfirmed_reservations) are snoozed client-side so a

@@ -222,6 +222,30 @@ def test_compute_filing_data_with_b2c_sales(db_session):
     assert data["sales_count"] == 1
 
 
+def test_compute_filing_data_excludes_returned_and_exchanged_sales(db_session):
+    """Returned/exchanged sales (status != 'completed') must NOT inflate the
+    MOMS filing base. The return handler flips status but keeps amount positive
+    and is_deleted=False, so a raw SUM(Sale.amount) over-declares output VAT on
+    the signed SKAT angivelse. The filing must tie out to the return-aware
+    revenue resolver (status == 'completed'). Launch-audit P1 regression."""
+    user = _make_user(db_session)
+    _make_sale(db_session, user, amount=1250.0, sale_date=date(2026, 5, 15))
+    for amt, day, st in [(500.0, 16, "returned"), (300.0, 17, "exchanged")]:
+        db_session.add(Sale(
+            user_id=user.id, date=date(2026, 5, day), amount=amt,
+            payment_method="card", is_deleted=False, is_tax_exempt=False,
+            status=st,
+        ))
+    db_session.commit()
+
+    data = compute_filing_data(
+        db_session, user, date(2026, 5, 1), date(2026, 5, 31),
+    )
+    # Only the 1250 completed sale — NOT 1250 + 500 + 300 = 2050.
+    assert data["salg_med_moms"] == 1250.0, "returned/exchanged sales leaked into taxable base"
+    assert data["moms_af_salg"] == 250.0, "output VAT over-declared from returned sales"
+
+
 def test_compute_filing_data_with_expenses(db_session):
     """Expenses with VAT-inclusive prices: 500 gross yields 100 input VAT."""
     user = _make_user(db_session)

@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
@@ -31,7 +32,7 @@ from app.services.sale_parser import parse_sale_text
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 
 # ─────────────────────────────────────────────────────────────────

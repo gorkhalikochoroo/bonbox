@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
+from app.utils import login_guard
 
 from app.database import get_db
 from app.models.user import User
@@ -70,7 +72,7 @@ from app.utils.time import utc_now
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 def _cookie_scope(request: Request | None) -> tuple[str | None, str]:
@@ -342,7 +344,7 @@ def _audit_signup(db: Session, request: Request, event_type: str, email: str) ->
     """
     try:
         from app.models.security_event import SecurityEvent
-        ip = request.client.host if request and request.client else None
+        ip = client_ip(request) if request else None
         ua = request.headers.get("user-agent", "")[:500] if request else None
         evt = SecurityEvent(
             user_id=None,
@@ -884,8 +886,19 @@ def apple_auth(
 @router.post("/login", response_model=Token)
 @limiter.limit("10/minute")
 def login(request: Request, response: Response, data: UserLogin, db: Session = Depends(get_db)):
+    # Per-account failed-login lockout — the spoof-proof brute-force backstop
+    # that the per-IP throttle (now keyed on the unforgeable CF-Connecting-IP)
+    # can't provide against a botnet. Raise the SAME generic 401 as a bad
+    # password so a lockout can't be used to enumerate accounts.
+    if login_guard.is_locked_out(data.email):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+
     user = db.query(User).filter(User.email == data.email).first()
     if not user or not verify_password(data.password, user.password_hash):
+        login_guard.record_failure(data.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -899,6 +912,7 @@ def login(request: Request, response: Response, data: UserLogin, db: Session = D
             detail="Invalid email or password",
         )
 
+    login_guard.clear(data.email)  # success → reset the failure counter
     token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))
@@ -1847,8 +1861,31 @@ def delete_account(
     db.query(BankConnection).filter(BankConnection.user_id == uid).delete(synchronize_session=False)
     db.query(MobilePayConnection).filter(MobilePayConnection.user_id == uid).delete(synchronize_session=False)
 
+    # ── GDPR Art.17: purge storage blobs with no retention basis ──
+    # The row sweep above deletes the POINTERS; the BLOBS in Supabase
+    # Storage must be removed too or staff-chat photos, staff avatars and
+    # the business logo orphan forever (no row left to find them by). We
+    # delete by path prefix (<uid>/<kind>/), so it works regardless of DB
+    # state. Accounting source-doc images (kasserapport / expense / sale /
+    # inventory_import) are DELIBERATELY kept — Bogføringsloven §10 requires
+    # 5-year retention. Best-effort: a storage error must never abort the
+    # erasure that already committed the DB deletes.
+    try:
+        from app.services.storage import purge_user_blobs
+        _purged = purge_user_blobs(uid)
+        logger.info("delete_account: purged %s storage blob(s)", _purged)
+    except Exception:  # noqa: BLE001
+        logger.warning("delete_account: storage blob purge failed (non-fatal)", exc_info=True)
+
     # --- Finally, delete the user ---
     db.delete(current_user)
     db.commit()
 
-    return {"message": "Account and all data permanently deleted. We're sorry to see you go."}
+    return {
+        "message": (
+            "Account deleted and your personal data erased. As Danish law "
+            "requires (Bogføringsloven §10), accounting source documents "
+            "(kasserapport, faktura, receipts) are kept for 5 years, then "
+            "deleted. We're sorry to see you go."
+        )
+    }

@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models.security_event import SecurityEvent
+from app.utils.client_ip import client_ip
 from app.models.user import User
 from app.services.auth import get_current_user
 from app.utils.time import utc_now
@@ -75,7 +76,7 @@ def _audit(
 ) -> None:
     """Best-effort audit log — never fails the request."""
     try:
-        ip = request.client.host if request and request.client else None
+        ip = client_ip(request) if request else None
         ua = request.headers.get("user-agent", "")[:500] if request else None
         evt = SecurityEvent(
             user_id=user_id,

@@ -26,6 +26,7 @@ from pydantic import BaseModel, EmailStr, Field
 from fastapi.responses import Response, StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -62,7 +63,7 @@ router = APIRouter()
 # Limiter so each router controls its own thresholds. Mirrors the
 # 6-layer pattern (auth, bounds, rate limit, tenant scope, plan/quota,
 # audit) used everywhere else.
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 # Per-tier daily Z-report scan caps live in PLAN_CAPS
 # ("z_report_scans_per_day") — see services/billing.py for the source
@@ -2109,7 +2110,7 @@ async def scan_z_report(
                     "slug": detection["slug"],
                     "confidence": round(float(detection["confidence"]), 2),
                 },
-                ip_address=request.client.host if request.client else None,
+                ip_address=client_ip(request) if request else None,
             )
 
             # ─── Commit 3 conflict detection ────────────────────────────
@@ -2201,7 +2202,7 @@ async def scan_z_report(
                             "locked_by_owner": True,
                         },
                         ip_address=(
-                            request.client.host if request.client else None
+                            client_ip(request) if request else None
                         ),
                     )
             except Exception as e:  # noqa: BLE001
@@ -2249,7 +2250,7 @@ async def scan_z_report(
                             ),
                         },
                         ip_address=(
-                            request.client.host if request.client else None
+                            client_ip(request) if request else None
                         ),
                     )
 
@@ -2444,7 +2445,7 @@ def export_range_pdf(
         db, user, doc_type="daily_close_range_pdf",
         bilagsnummer=bilagsnummer,
         period={"from": f.isoformat(), "to": t.isoformat(), "closes": len(closes)},
-        ip_address=(request.client.host if request and request.client else None),
+        ip_address=(client_ip(request) if request else None),
     )
     filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.pdf"
     return Response(
@@ -2483,7 +2484,7 @@ def export_range_csv(
         db, user, doc_type="daily_close_range_csv",
         bilagsnummer=export_bilagsnummer("KR", f, t),
         period={"from": f.isoformat(), "to": t.isoformat(), "closes": len(closes)},
-        ip_address=(request.client.host if request and request.client else None),
+        ip_address=(client_ip(request) if request else None),
     )
     filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.csv"
     return Response(
@@ -2547,7 +2548,7 @@ def export_range_xlsx(
         db, user, doc_type="daily_close_range_xlsx",
         bilagsnummer=export_bilagsnummer("KR", f, t),
         period={"from": f.isoformat(), "to": t.isoformat(), "closes": len(closes)},
-        ip_address=(request.client.host if request and request.client else None),
+        ip_address=(client_ip(request) if request else None),
     )
     filename = f"daily-close_{f.isoformat()}_to_{t.isoformat()}.xlsx"
     return Response(

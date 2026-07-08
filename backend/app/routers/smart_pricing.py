@@ -21,6 +21,7 @@ import logging
 from fastapi import APIRouter, Depends, Query, Request, Response
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -40,7 +41,7 @@ logger = logging.getLogger("bonbox.smart_pricing.router")
 # 30/min on /item is fine for a curious owner browsing their menu;
 # 6/min on /all is fine for opening PricingPage every few seconds.
 # Above that, the rate limit catches abuse.
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 # Cache headers we set on every successful response.

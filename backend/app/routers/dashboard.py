@@ -32,6 +32,7 @@ from app.services.revenue_resolver import (
 )
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from fastapi import Request, HTTPException
 from pydantic import BaseModel, Field
 
@@ -43,7 +44,7 @@ router = APIRouter()
 # the per-user refresh_count cap (which is the primary gate). 30 calls/min
 # is generous for a logged-in user navigating fast; the per-user cap
 # prevents the actual cost issue.
-_ai_limiter = Limiter(key_func=get_remote_address)
+_ai_limiter = Limiter(key_func=client_ip)
 
 
 def _resolve_user_cutoff(db: Session, user: User) -> None:

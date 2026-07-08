@@ -55,6 +55,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, s
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
 
@@ -89,7 +90,7 @@ router = APIRouter()
 # slowapi resolves the limiter from `request.app.state.limiter` and raises
 # RateLimitExceeded, which IS handled. Each decorated endpoint already takes a
 # `request: Request` param, which slowapi requires for keying.
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 # How many times we retry on the (astronomically unlikely) code/short_code
 # UNIQUE collision before giving up. Each attempt is a fresh random triple.

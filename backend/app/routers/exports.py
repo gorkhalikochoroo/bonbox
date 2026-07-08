@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -36,7 +37,7 @@ _MAX_DAYS = 366
 
 # Rate limit — bookkeeping exports are heavy and unauth-bypassable scanners
 # could hammer this endpoint. 10/min per IP is more than any real user needs.
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 @router.get("/formats")

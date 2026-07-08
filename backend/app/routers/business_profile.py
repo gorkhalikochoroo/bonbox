@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -60,7 +61,7 @@ router = APIRouter()
 # free tier has plenty of headroom but we don't want a single client
 # (or a script masquerading as one) to chew through it for the whole
 # tenant. Same limiter pattern as the rest of the app.
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 # Per-user cooldown on the Re-verify button — measured against the
 # saved profile's cvr_verified_at column rather than a separate

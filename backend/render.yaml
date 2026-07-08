@@ -4,7 +4,10 @@ services:
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
-    healthCheckPath: /api/health
+    # Points at /api/health/ready (NOT the static /api/health) so a schema-drift
+    # or failed DB init fails the probe → Render aborts the cutover and keeps the
+    # previous healthy deploy live, instead of promoting a 503-forever worker.
+    healthCheckPath: /api/health/ready
     envVars:
       - key: DATABASE_URL
         sync: false

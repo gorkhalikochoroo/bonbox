@@ -224,7 +224,7 @@ export default function PrivacyPolicyPage() {
             <ul className="list-disc pl-6 space-y-2">
               <li><strong>Right of access (Article 15):</strong> Request a copy of all data we hold about you.</li>
               <li><strong>Right to rectification (Article 16):</strong> Correct inaccurate data at any time in your settings.</li>
-              <li><strong>Right to erasure (Article 17):</strong> Delete your account and all data from your settings. Deleted within 30 days.</li>
+              <li><strong>Right to erasure (Article 17):</strong> Delete your account from your settings. Your personal data — including uploaded photos, staff images and your logo — is erased within 30 days; legally-required accounting records (see Data retention) are kept for the 5-year window, then deleted.</li>
               <li><strong>Right to data portability (Article 20):</strong> Export all your data as CSV files from BonBox.</li>
               <li><strong>Right to restrict processing (Article 18):</strong> Request we stop processing while a complaint is resolved.</li>
               <li><strong>Right to object (Article 21):</strong> Object to processing based on legitimate interest.</li>

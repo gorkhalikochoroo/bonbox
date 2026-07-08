@@ -716,7 +716,7 @@ export default function DashboardPage() {
           title={greetingTitle}
           actions={headerActions}
         />
-        <FirstRunCollapsedDashboard />
+        <FirstRunCollapsedDashboard user={user} />
       </PageShell>
     );
   }

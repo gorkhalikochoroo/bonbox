@@ -34,6 +34,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -66,7 +67,7 @@ router = APIRouter()
 
 # Read-only public endpoint — generous per-IP brake (see gavekort.py note on
 # why explicit decorators fire even though SlowAPIMiddleware is unregistered).
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 # The envelope prefix the owner's QR carries. The signed JWT is everything
 # after it; verify_gavekort expects the bare JWT.

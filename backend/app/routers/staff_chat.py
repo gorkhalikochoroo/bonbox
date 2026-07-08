@@ -33,6 +33,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, field_validator
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -56,7 +57,7 @@ from app.utils.time import utc_now
 staff_router = APIRouter()   # /api/portal  (token-auth)
 owner_router = APIRouter()   # /api/staff   (session-auth)
 
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 # Limits ───────────────────────────────────────────────────────────────────
 MAX_BODY_CHARS = 2000          # one message body

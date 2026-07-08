@@ -50,6 +50,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from fastapi.responses import StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 import json
@@ -104,7 +105,7 @@ router = APIRouter()
 # Rate-limit shared with the "today on shift" dashboard card.  60/min is
 # permissive (the card refetches on focus + bonbox-data-changed events),
 # but blocks the obvious scrape vector if /today is harvested in a loop.
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1002,7 +1003,7 @@ def share_with_staff(
             "email_failed_count": email_failed_count,
             "skipped_no_email": skipped_no_email,
         },
-        ip_address=request.client.host if request and request.client else None,
+        ip_address=client_ip(request) if request else None,
     )
     db.commit()
 
@@ -1679,7 +1680,7 @@ def create_open_shift(
         after={"date": data.date.isoformat(),
                "start": data.start_time, "end": data.end_time,
                "role": data.role_on_shift},
-        ip_address=request.client.host if request and request.client else None,
+        ip_address=client_ip(request) if request else None,
     )
     return _serialize_open_shift(o)
 

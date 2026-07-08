@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from passlib.context import CryptContext
 
 from app.database import get_db, SessionLocal
@@ -111,7 +112,7 @@ def _pin_proof_valid(link: "StaffLink", proof: str | None) -> bool:
 
 
 router = APIRouter(dependencies=[Depends(_stash_portal_request)])
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 

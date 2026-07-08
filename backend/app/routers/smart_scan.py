@@ -43,6 +43,7 @@ from fastapi import (
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -63,7 +64,7 @@ router = APIRouter()
 # Per-IP rate limit on this surface. The classifier is cheap (~$0.0001)
 # but each call burns Anthropic tokens — 20/min comfortably covers any
 # realistic batch-upload workflow while capping abuse.
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 
 # ─── Schemas ──────────────────────────────────────────────────────────

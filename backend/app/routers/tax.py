@@ -12,6 +12,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -33,7 +34,7 @@ log = logging.getLogger("bonbox.tax")
 
 # Per-IP rate limiter — protects PDF generation + email send.
 # Same pattern as daily_close.py.
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 # Defense-in-depth: cap the requested period length so a malicious
 # caller can't ask for a 50-year range and DOS us with table scans.

@@ -29,6 +29,7 @@ from datetime import date as _date
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -45,7 +46,7 @@ router = APIRouter()
 # Per-IP rate limiter — search is cheap but typing fires on every
 # keystroke (debounced client-side). 60/min covers heavy use without
 # letting a runaway script torch the DB.
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 # Per-group result cap — keeps the modal compact + DB queries fast.
 _PER_GROUP_LIMIT = 5

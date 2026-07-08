@@ -49,6 +49,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -83,7 +84,7 @@ router = APIRouter()
 # Rate limiter for /init — 10/hour per IP. Mirrors the magic-link
 # pattern. The other routes don't get a custom limit beyond the global
 # 120/minute since they're tied to an existing connection.
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 # --- Helpers ---------------------------------------------------------
