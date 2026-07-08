@@ -89,6 +89,18 @@ def is_bank_connect_enabled() -> bool:
     if not _is_production():
         return True
 
+    # Product decision (2026-07-08): BonBox does NOT offer bank-connect — the
+    # wedge is the all-in-one premium suite, not a PSD2 feed. So in production
+    # the feature is OFF-BY-DEFAULT: it takes a deliberate ENABLE_BANK_CONNECT
+    # opt-in ON TOP of provider creds. This means it can't drift back on just
+    # because provider creds still linger in the env, and — crucially — with it
+    # off no PSD2 tokens are ever created, so the APP_SECRET_KEY at-rest-key
+    # concern (#359) is moot. The Connections bank tile + first-run bank step
+    # hide themselves off this flag; Foresight runs on the owner's typed balance.
+    enable = (os.environ.get("ENABLE_BANK_CONNECT") or "").strip().lower()
+    if enable not in {"1", "true", "yes", "on"}:
+        return False
+
     provider = (os.environ.get("BANK_PROVIDER") or "").strip().lower()
     if provider == "gocardless":
         # Task #104: accept either env-var family.  GOCARDLESS_BAD_*
