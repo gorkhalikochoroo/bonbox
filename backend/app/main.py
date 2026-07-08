@@ -3033,6 +3033,49 @@ async def db_readiness_gate(request: Request, call_next):
     return await call_next(request)
 
 
+# Infra paths that hit the origin DIRECTLY (Render's internal health probe) and
+# therefore never carry the Cloudflare-set header — must bypass the origin guard.
+_ORIGIN_GUARD_HEADER = "x-bonbox-origin"
+_ORIGIN_GUARD_EXEMPT = frozenset(
+    {"/", "/api/health", "/api/health/ready", "/api/health/db", "/api/keepalive"}
+)
+
+
+# --- Cloudflare origin lock: reject traffic that didn't come through Cloudflare ---
+@app.middleware("http")
+async def cloudflare_origin_guard(request: Request, call_next):
+    """Close the residual where an attacker bypasses Cloudflare (hits the
+    *.onrender.com origin directly) to defeat the CF-Connecting-IP rate limits
+    (OCR/AI cost caps, admin scan-ban). Cloudflare is configured to add a secret
+    header to every request it forwards; a direct origin hit won't have it.
+
+    FAIL-SAFE: enforcement is OFF unless ORIGIN_SHARED_SECRET is set, so merely
+    deploying this code changes nothing. Turn it on in THIS ORDER to avoid a
+    self-inflicted outage:
+      1. Add the Cloudflare Transform Rule that sets `X-Bonbox-Origin: <secret>`
+         on all requests (harmless until step 2 — the app ignores it).
+      2. THEN set ORIGIN_SHARED_SECRET (same value) in Render. Setting it FIRST
+         would 403 all legit traffic, which lacks the header until step 1 lands.
+
+    Exempt: Render's health probe hits the origin directly (/api/health*,
+    /api/keepalive, /) and CORS preflight (OPTIONS). Every EXTERNAL caller
+    (Stripe webhook, OAuth/bank callbacks, the public booking widget) must use
+    the Cloudflare-fronted domain (api.bonbox.dk / bonbox.dk) so it carries the
+    header — which they already do; point the Stripe webhook at api.bonbox.dk.
+    """
+    secret = (os.getenv("ORIGIN_SHARED_SECRET") or "").strip()
+    if (
+        secret
+        and request.method != "OPTIONS"
+        and request.url.path not in _ORIGIN_GUARD_EXEMPT
+    ):
+        import hmac
+        presented = request.headers.get(_ORIGIN_GUARD_HEADER, "")
+        if not (presented and hmac.compare_digest(presented, secret)):
+            return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+    return await call_next(request)
+
+
 # --- CORS (tightened, environment-aware) ---
 # Production:    only canonical bonbox.dk + Capacitor iOS shell
 # Non-production: also allow vercel.app preview alias + localhost for dev
