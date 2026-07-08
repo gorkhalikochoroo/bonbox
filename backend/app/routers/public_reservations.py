@@ -21,14 +21,16 @@ from datetime import datetime, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Path, Query, Request
+from fastapi import (
+    APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Path, Query, Request,
+)
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models.behandling import Behandling
 from app.models.bookable_resource import BookableResource
 from app.models.business_profile import BusinessProfile
@@ -510,6 +512,49 @@ def _notify_owner_email(owner: User, profile: BusinessProfile, r: Reservation) -
         logger.warning("owner reservation email failed: %s", exc)
 
 
+def _send_booking_notifications(reservation_id: str, owner_id: str) -> None:
+    """Run the post-booking notifications (guest confirmation email, owner push,
+    owner email) OFF the request path, on a FRESH DB session.
+
+    Why a fresh session + re-fetch by id: FastAPI tears down the request's
+    ``get_db`` session once the response is sent, and SQLAlchemy expires the ORM
+    objects on commit — so the request's ``r``/``owner``/``profile`` can't be
+    reused here. Reloading by id is cheap and correct.
+
+    This is the scale win: a slow email/push provider (≈0.3–2s of network I/O)
+    no longer holds a pooled DB connection or delays the guest's response — the
+    booking commits and returns in milliseconds, and this runs after. Each send
+    is individually best-effort; one failing never affects the booking or the
+    others. ``_send_confirmation`` re-stamps ``confirmation_sent_at`` here, which
+    this task's commit persists."""
+    db = SessionLocal()
+    try:
+        r = db.query(Reservation).filter(Reservation.id == reservation_id).first()
+        if r is None:
+            return
+        owner = db.query(User).filter(User.id == owner_id).first()
+        profile = (
+            db.query(BusinessProfile)
+            .filter(BusinessProfile.user_id == owner_id)
+            .first()
+        )
+        if owner is None or profile is None:
+            return
+        _send_confirmation(owner, profile, r)          # guest email (+ sent stamp)
+        try:
+            from app.services.notification_service import notify_owner_new_reservation
+            notify_owner_new_reservation(db, owner, r)  # owner device push
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("owner reservation notify failed: %s", exc)
+        _notify_owner_email(owner, profile, r)          # owner email fallback
+        db.commit()                                     # persist sent stamp + push writes
+    except Exception:  # noqa: BLE001 — never let a notification break anything
+        logger.exception("booking notifications task failed")
+        db.rollback()
+    finally:
+        db.close()
+
+
 def _create_public_provider_booking(db: Session, owner: User, profile, payload,
                                     start, settings, idempotency_key):
     """Public SALON booking (S3a) — books a PROVIDER for a behandling.
@@ -608,7 +653,8 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
 
 @router.post("/{slug}")
 @_limiter.limit("6/minute")
-def create_reservation(request: Request, slug: str = Path(...),
+def create_reservation(request: Request, background_tasks: BackgroundTasks,
+                       slug: str = Path(...),
                        payload: PublicReservationCreate = Body(...),
                        idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
                        db: Session = Depends(get_db)):
@@ -748,21 +794,15 @@ def create_reservation(request: Request, slug: str = Path(...),
         except occ_service.SlotUnavailable:
             raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
 
-    # Audit + confirmation run AFTER the booking is durably committed (the
-    # insert-and-catch helper commits internally and may have retried). The
-    # audit row + the email-sent timestamp commit in their own small txn.
-    _send_confirmation(owner, profile, r)
+    # Audit commits durably WITH the booking (a cheap DB write — it stays on the
+    # request path so the booking's audit trail is guaranteed before we respond).
     audit_service.record(db, owner, "reservation.created_public", "reservation", r.id)
     db.commit()
-    # Ping the owner's device(s) — "a table just got booked". Best-effort.
-    try:
-        from app.services.notification_service import notify_owner_new_reservation
-        notify_owner_new_reservation(db, owner, r)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("owner reservation notify failed: %s", exc)
-    # Email the owner too — the reliable channel that lands even when the
-    # owner never enabled push. Has its own try/except (best-effort).
-    _notify_owner_email(owner, profile, r)
+    # Notifications (guest confirmation email + owner push + owner email) run OFF
+    # the request path on a fresh session, so a slow email/push provider no longer
+    # holds the DB connection or delays the guest's response — the booking already
+    # committed above. All best-effort inside the task.
+    background_tasks.add_task(_send_booking_notifications, str(r.id), str(owner.id))
     return {"id": str(r.id), "status": r.status, "booking_token": sign_booking_token(str(r.id))}
 
 
