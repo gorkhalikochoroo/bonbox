@@ -181,11 +181,16 @@ class SupabaseStorageBackend(StorageBackend):
         folder = prefix.rstrip("/")
         removed = 0
         try:
-            offset = 0
-            while True:
+            # Delete what we list, always from offset 0. Each successful DELETE
+            # shrinks the object set, so re-listing from the top and looping
+            # until it's empty covers folders with >1000 objects. Advancing the
+            # offset after a delete would SKIP the objects that shifted down into
+            # positions 0..999 (they'd never be listed or deleted). Hard-bounded
+            # so a delete that keeps failing can't loop forever.
+            for _ in range(1000):  # bound: 1000 pages x 1000 = 1M objects/kind
                 lr = self._client.post(
                     f"{self.base}/object/list/{self.bucket}",
-                    json={"prefix": folder, "limit": 1000, "offset": offset,
+                    json={"prefix": folder, "limit": 1000, "offset": 0,
                           "sortBy": {"column": "name", "order": "asc"}},
                     headers=self._headers,
                 )
@@ -201,13 +206,11 @@ class SupabaseStorageBackend(StorageBackend):
                     "DELETE", f"{self.base}/object/{self.bucket}",
                     json={"prefixes": keys}, headers=self._headers,
                 )
-                if dr.status_code < 400:
-                    removed += len(keys)
-                else:
+                if dr.status_code >= 400:
+                    # Stop rather than re-list the same undeleted objects forever.
                     logger.warning("Supabase bulk-delete %s -> %s", folder, dr.status_code)
-                if len(names) < 1000:
                     break
-                offset += 1000
+                removed += len(keys)
         except Exception as e:  # noqa: BLE001 — erasure must never break on storage
             logger.warning("delete_prefix(%s) failed: %s", folder, e)
         return removed

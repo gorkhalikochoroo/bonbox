@@ -1861,15 +1861,17 @@ def delete_account(
     db.query(BankConnection).filter(BankConnection.user_id == uid).delete(synchronize_session=False)
     db.query(MobilePayConnection).filter(MobilePayConnection.user_id == uid).delete(synchronize_session=False)
 
-    # ── GDPR Art.17: purge storage blobs with no retention basis ──
-    # The row sweep above deletes the POINTERS; the BLOBS in Supabase
-    # Storage must be removed too or staff-chat photos, staff avatars and
-    # the business logo orphan forever (no row left to find them by). We
-    # delete by path prefix (<uid>/<kind>/), so it works regardless of DB
-    # state. Accounting source-doc images (kasserapport / expense / sale /
-    # inventory_import) are DELIBERATELY kept — Bogføringsloven §10 requires
-    # 5-year retention. Best-effort: a storage error must never abort the
-    # erasure that already committed the DB deletes.
+    # --- Finally, delete the user ---
+    db.delete(current_user)
+    db.commit()
+
+    # ── GDPR Art.17: purge storage blobs — AFTER the commit ──
+    # Runs only once the erasure is DURABLY committed. delete_prefix deletes by
+    # path (<uid>/<kind>/), independent of DB state, so deferring loses nothing
+    # and avoids destroying a still-live account's blobs if the commit had
+    # rolled back. We purge the kinds with no retention basis (staff photos,
+    # avatars, logo); accounting source-doc images are left to the retention
+    # policy. Best-effort: a storage error can't affect the committed erasure.
     try:
         from app.services.storage import purge_user_blobs
         _purged = purge_user_blobs(uid)
@@ -1877,15 +1879,10 @@ def delete_account(
     except Exception:  # noqa: BLE001
         logger.warning("delete_account: storage blob purge failed (non-fatal)", exc_info=True)
 
-    # --- Finally, delete the user ---
-    db.delete(current_user)
-    db.commit()
-
     return {
         "message": (
-            "Account deleted and your personal data erased. As Danish law "
-            "requires (Bogføringsloven §10), accounting source documents "
-            "(kasserapport, faktura, receipts) are kept for 5 years, then "
-            "deleted. We're sorry to see you go."
+            "Account deleted and your personal data erased. Any records we're "
+            "legally required to keep are handled per our privacy policy. "
+            "We're sorry to see you go."
         )
     }

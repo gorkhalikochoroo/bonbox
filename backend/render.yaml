@@ -5,8 +5,11 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'
     # Points at /api/health/ready (NOT the static /api/health) so a schema-drift
-    # or failed DB init fails the probe → Render aborts the cutover and keeps the
-    # previous healthy deploy live, instead of promoting a 503-forever worker.
+    # deploy — a model column missing its migration, the #206 prod-down class —
+    # fails the probe: Render aborts the cutover and keeps the previous healthy
+    # deploy live instead of promoting a 503-forever worker. (A DB that is
+    # unreachable at boot is NOT caught here — create_all's retries cover a
+    # transient blip; a persistent outage is an infra alert, not this probe.)
     healthCheckPath: /api/health/ready
     envVars:
       - key: DATABASE_URL

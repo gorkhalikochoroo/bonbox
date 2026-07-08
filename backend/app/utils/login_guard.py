@@ -1,31 +1,37 @@
 """Per-account failed-login lockout — spoof-proof brute-force backstop.
 
-The per-IP rate limit on /auth/login keys on the client IP; even after we
-switch that key to the unforgeable ``CF-Connecting-IP`` (see ``client_ip``),
-IP-keyed throttling can be diluted by a botnet. This adds a defense keyed on
-the ACCOUNT (email), which no IP trick can bypass: after N failed attempts in
-a rolling window the account refuses login for a cooldown, regardless of source
-IP. There is no other per-account lockout on owner login today.
+The per-IP rate limit on /auth/login keys on the client IP (now the unforgeable
+``CF-Connecting-IP`` — see ``client_ip``), which is the PRIMARY defense. This
+adds a second layer keyed on the ACCOUNT (email) that no IP trick can bypass:
+after N failed attempts in a rolling window the account is refused for a short
+cooldown, regardless of source IP.
 
-Storage is in-process (a module-level dict), which is correct for this app's
-deliberate SINGLE-worker deployment (same model as the in-memory SlowAPI
-limiter and the in-process SSE bus). A restart resets the counters — acceptable:
-it grants at most one more window per (infrequent) deploy, and the CF-IP rate
-limit still caps the attacker's raw request rate. If the web tier is ever
-scaled past one worker this must move to a shared store (Redis / a DB column) —
-see the single-worker invariant in ops docs.
+DoS tradeoff (deliberate, bounded): a hard per-account lock is a known
+account-lockout DoS vector — a third party who knows an owner's email can force
+the lock. We accept it, bounded, because (1) the cooldown is SHORT (5 min) and
+self-heals, and (2) the CF-IP rate limit is the primary brute-force gate, so
+this layer stays gentle. A future hardening could exempt a known-device/valid-
+session signal so a legitimate owner can never be fully locked out.
 
-Enumeration-safe: callers raise the SAME generic 401 for a lockout as for a
-bad password, so an attacker can't tell which emails exist or are locked.
+Storage is in-process (module-level dicts), correct for this app's deliberate
+SINGLE-worker deployment (same model as the in-memory SlowAPI limiter + SSE
+bus). It is SIZE-CAPPED and self-pruning so attacker-supplied emails can't grow
+it without bound. A restart resets counters — acceptable. If the web tier is
+ever scaled past one worker this must move to a shared store (Redis / DB).
+
+Enumeration-safe: callers raise the SAME generic 401 for a lockout as for a bad
+password, so an attacker can't tell which emails exist or are locked.
 """
 import threading
 import time
 
-# Tunables. 8 failures inside a 15-minute window locks the account for 15
-# minutes. Real users almost never fail 8× in 15 min; attackers are bounded.
+# Tunables. 8 failures inside a 15-min window locks the account for 5 min.
 _WINDOW_SECONDS = 15 * 60
 _MAX_FAILURES = 8
-_LOCKOUT_SECONDS = 15 * 60
+_LOCKOUT_SECONDS = 5 * 60
+# Hard cap on distinct emails tracked — memory-leak guard against an attacker
+# spraying millions of fake emails on the single worker.
+_MAX_TRACKED = 4096
 
 _lock = threading.Lock()
 # email(lowercased) -> list[failure_timestamp]
@@ -36,6 +42,29 @@ _locked_until: dict[str, float] = {}
 
 def _norm(email: str | None) -> str | None:
     return email.strip().lower() if email else None
+
+
+def _prune(now: float) -> None:
+    """Evict stale/oversized state. Caller must hold _lock.
+
+    Drops non-locked emails whose newest failure is older than the window, then
+    — if still over the cap — evicts the non-locked emails with the oldest last
+    failure. Locked emails are always kept until their cooldown expires.
+    """
+    stale = [
+        k for k, ts in _failures.items()
+        if k not in _locked_until and (not ts or now - ts[-1] >= _WINDOW_SECONDS)
+    ]
+    for k in stale:
+        _failures.pop(k, None)
+    if len(_failures) >= _MAX_TRACKED:
+        evictable = sorted(
+            (kv for kv in _failures.items() if kv[0] not in _locked_until),
+            key=lambda kv: kv[1][-1] if kv[1] else 0.0,
+        )
+        # Evict enough that after the caller's pending insert we stay <= cap.
+        for k, _ in evictable[: len(_failures) - _MAX_TRACKED + 1]:
+            _failures.pop(k, None)
 
 
 def is_locked_out(email: str | None) -> bool:
@@ -62,6 +91,7 @@ def record_failure(email: str | None) -> None:
         return
     now = time.time()
     with _lock:
+        _prune(now)
         recent = [t for t in _failures.get(key, []) if now - t < _WINDOW_SECONDS]
         recent.append(now)
         _failures[key] = recent

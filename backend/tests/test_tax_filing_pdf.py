@@ -244,6 +244,9 @@ def test_compute_filing_data_excludes_returned_and_exchanged_sales(db_session):
     # Only the 1250 completed sale — NOT 1250 + 500 + 300 = 2050.
     assert data["salg_med_moms"] == 1250.0, "returned/exchanged sales leaked into taxable base"
     assert data["moms_af_salg"] == 250.0, "output VAT over-declared from returned sales"
+    # The voucher count must share the same predicate as the base, or a revisor
+    # cross-checking count-vs-total sees 3 vouchers against a 1-sale base.
+    assert data["sales_count"] == 1, "voucher count must exclude returned/exchanged too"
 
 
 def test_compute_filing_data_with_expenses(db_session):

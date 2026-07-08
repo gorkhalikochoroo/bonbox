@@ -145,7 +145,8 @@ def _count_period_transactions(
             Sale.date >= period_start,
             Sale.date < period_end_exclusive,
             Sale.is_deleted.isnot(True),
-            Sale.is_tax_exempt.isnot(True),
+            Sale.status == "completed",  # exclude returned/exchanged so the
+            Sale.is_tax_exempt.isnot(True),  # voucher count ties out to the base
             Sale.invoice_id.is_(None),
         )
         .scalar()
