@@ -3020,7 +3020,7 @@ def _init_db():
 async def db_readiness_gate(request: Request, call_next):
     path = request.url.path
     # Always allow health checks, root, docs, and CORS preflight through
-    if path in ("/", "/api/health", "/api/health/db", "/api/keepalive", "/api/config/features", "/api/email/unsubscribe", "/docs", "/redoc", "/openapi.json") or request.method == "OPTIONS":
+    if path in ("/", "/api/health", "/api/health/ready", "/api/health/db", "/api/keepalive", "/api/config/features", "/api/email/unsubscribe", "/docs", "/redoc", "/openapi.json") or request.method == "OPTIONS":
         return await call_next(request)
     # Return 503 instantly if DB isn't ready yet (non-blocking — won't freeze event loop)
     if not _db_ready.is_set():
@@ -4750,3 +4750,29 @@ def health_db():
         return {"status": "ok", "database": "connected"}
     except Exception:
         return JSONResponse(status_code=503, content={"status": "error", "database": "unreachable"})
+
+
+@app.api_route("/api/health/ready", methods=["GET", "HEAD"])
+def health_ready():
+    """Readiness probe — this is what render.yaml's healthCheckPath points at.
+
+    Unlike /api/health (a static liveness 200) and /api/health/db (a bare
+    SELECT 1 that still passes during column drift), this reflects the
+    DB-readiness gate: 503 until `_db_ready` is set, and 503 FOREVER if the
+    schema-drift guard refused to signal readiness (`_init_db` returns early
+    without `_db_ready.set()` on drift).
+
+    Why it matters: /api/health answers 200 the instant uvicorn binds — so a
+    drift-broken worker looked healthy, Render completed the cutover, killed
+    the last-good instance, and every real request 503'd with no rollback.
+    Pointing the health check here makes a bad migration FAIL its probe, so
+    Render aborts the cutover and the previous healthy deploy stays live —
+    the behaviour the drift guard's own comments already promise.
+    """
+    if not _db_ready.is_set():
+        return JSONResponse(
+            status_code=503,
+            content={"status": "starting", "db_ready": False},
+            headers={"Retry-After": "3"},
+        )
+    return {"status": "ok", "db_ready": True}

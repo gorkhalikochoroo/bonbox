@@ -24,6 +24,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../ui";
 import { useLanguage } from "../../hooks/useLanguage";
 import { useFeatures } from "../../hooks/useFeatures";
+import { archetypeForUser } from "../../config/archetypes";
 import DemoDataCard from "../DemoDataCard";
 
 function StepRow({ index, title, body, action, lastItem = false }) {
@@ -57,83 +58,134 @@ function StepRow({ index, title, body, action, lastItem = false }) {
   );
 }
 
-export default function FirstRunCollapsedDashboard({ className = "" }) {
+// Secondary-step link styling (small, quiet — never competes with the hero).
+const SECONDARY_LINK =
+  "inline-flex items-center gap-1 text-xs font-medium " +
+  "text-gray-700 dark:text-gray-300 " +
+  "hover:text-gray-900 dark:hover:text-gray-100 transition-colors";
+
+export default function FirstRunCollapsedDashboard({ user = null, className = "" }) {
   const { t } = useLanguage();
   const navigate = useNavigate();
   // Bank-connect / MobilePay are fail-closed OFF in prod until a real PSD2
   // provider is configured (see useFeatures + ConnectionsPage gating). When
   // off, leading first-run with "Connect your bank" was a dead end — the
   // tile is hidden on /connections. So we ONLY surface that step when the
-  // backend says the integration is genuinely wired up. The product's real
-  // wedge — the daily kasserapport — leads instead.
+  // backend says the integration is genuinely wired up.
   const { bank_connect_enabled: bankConnectEnabled } = useFeatures();
 
-  // Steps are assembled as a list so numbering stays correct whether or not
-  // the optional bank step is present. The kasserapport snap is ALWAYS the
-  // primary action (step 1, gray-900 Button); sale + expense follow.
-  const steps = [
-    {
+  // ── Archetype-aware HERO step ──────────────────────────────────────────
+  // The hero (step 1, gray-900 Button) must be the first win that fits THIS
+  // owner's business — a salon takes a booking, a shop counts stock, a
+  // freelancer sends a faktura. Leading every vertical with "Snap your
+  // Z-report" was a dead-end CTA for the ~11 verticals with no till.
+  // Fail-safe: unknown/blank business_type → generic → daily_close (the
+  // historical default), so nobody ever loses the hero.
+  const arch = archetypeForUser(user);
+  const firstWin = arch?.firstWin || "daily_close";
+  const isTransactional =
+    (arch?.dashboardMode || "transactionalDaily") === "transactionalDaily";
+
+  const HERO_BY_FEATURE = {
+    daily_close: {
       key: "close",
       title: t("dashFirstRunCloseTitle", "Snap your first kasserapport"),
       body: t(
         "dashFirstRunCloseBody",
         "Photograph your Z-report or end-of-day total — we read the numbers, calculate MOMS, and your revisor view starts collecting bilag. This is BonBox's daily 2-minute close.",
       ),
-      action: (
-        <Button
-          variant="primary"
-          size="md"
-          onClick={() => navigate("/daily-close")}
-        >
-          {t("dashFirstRunCloseCta", "Snap your first kasserapport")}
-        </Button>
-      ),
+      cta: t("dashFirstRunCloseCta", "Snap your first kasserapport"),
+      route: "/daily-close",
     },
-    {
-      key: "sale",
-      title: t("dashFirstRunStep2Title", "Log your first sale"),
+    reservations: {
+      key: "booking",
+      title: t("dashFirstRunBookTitle", "Take your first booking"),
       body: t(
-        "dashFirstRunStep2Body",
-        "Tap a quick amount or type it in — your KPIs and Daily Brief unlock as soon as the first sale lands.",
+        "dashFirstRunBookBody",
+        "Add a booking — a walk-in or the phone — and your floor, waitlist, and no-show view start filling in. Share your booking link and guests book themselves.",
       ),
-      action: (
-        <Link
-          to="/sales?new=1"
-          className={
-            "inline-flex items-center gap-1 text-xs font-medium " +
-            "text-gray-700 dark:text-gray-300 " +
-            "hover:text-gray-900 dark:hover:text-gray-100 " +
-            "transition-colors"
-          }
-        >
-          {t("dashFirstRunStep2Cta", "Log your first sale")}
-          <span aria-hidden="true">→</span>
-        </Link>
-      ),
+      cta: t("dashFirstRunBookCta", "Open your booking book"),
+      route: "/reservations",
     },
-    {
-      key: "expense",
-      title: t("dashFirstRunStep3Title", "Add an expense"),
+    inventory: {
+      key: "stock",
+      title: t("dashFirstRunStockTitle", "Do your first stock count"),
       body: t(
-        "dashFirstRunStep3Body",
-        "Snap a receipt or pick a category — we OCR it and your revisor view starts collecting bilag.",
+        "dashFirstRunStockBody",
+        "Snap a delivery or count what's on the shelf — we track what you have, flag what's running low, and your real margins come into view.",
       ),
-      action: (
-        <Link
-          to="/expenses?new=1"
-          className={
-            "inline-flex items-center gap-1 text-xs font-medium " +
-            "text-gray-700 dark:text-gray-300 " +
-            "hover:text-gray-900 dark:hover:text-gray-100 " +
-            "transition-colors"
-          }
-        >
-          {t("dashFirstRunStep3Cta", "Snap a receipt")}
-          <span aria-hidden="true">→</span>
-        </Link>
-      ),
+      cta: t("dashFirstRunStockCta", "Start your first count"),
+      route: "/inventory",
     },
-  ];
+    faktura: {
+      key: "faktura",
+      title: t("dashFirstRunInvoiceTitle", "Send your first faktura"),
+      body: t(
+        "dashFirstRunInvoiceBody",
+        "Create a faktura in under a minute — MOMS calculated, PDF ready to send, and your revisor view starts collecting bilag.",
+      ),
+      cta: t("dashFirstRunInvoiceCta", "Create your first faktura"),
+      route: "/faktura",
+    },
+    expenses: {
+      key: "expense-lead",
+      title: t("dashFirstRunExpenseLeadTitle", "Add your first expense"),
+      body: t(
+        "dashFirstRunExpenseLeadBody",
+        "Snap a receipt or pick a category — we OCR it, sort erhverv vs privat, and your tax picture starts to build.",
+      ),
+      cta: t("dashFirstRunExpenseLeadCta", "Add your first expense"),
+      route: "/expenses",
+    },
+  };
+  const heroDef = HERO_BY_FEATURE[firstWin] || HERO_BY_FEATURE.daily_close;
+
+  const heroStep = {
+    key: heroDef.key,
+    title: heroDef.title,
+    body: heroDef.body,
+    action: (
+      <Button variant="primary" size="md" onClick={() => navigate(heroDef.route)}>
+        {heroDef.cta}
+      </Button>
+    ),
+  };
+
+  // Universal secondary steps (small quiet links). Sale only for transactional
+  // verticals (a freelancer/personal owner invoices, they don't ring up sales).
+  // Dedupe: skip a secondary the hero already covers.
+  const secondarySale = {
+    key: "sale",
+    title: t("dashFirstRunStep2Title", "Log your first sale"),
+    body: t(
+      "dashFirstRunStep2Body",
+      "Tap a quick amount or type it in — your KPIs and Daily Brief unlock as soon as the first sale lands.",
+    ),
+    action: (
+      <Link to="/sales?new=1" className={SECONDARY_LINK}>
+        {t("dashFirstRunStep2Cta", "Log your first sale")}
+        <span aria-hidden="true">→</span>
+      </Link>
+    ),
+  };
+  const secondaryExpense = {
+    key: "expense",
+    title: t("dashFirstRunStep3Title", "Add an expense"),
+    body: t(
+      "dashFirstRunStep3Body",
+      "Snap a receipt or pick a category — we OCR it and your revisor view starts collecting bilag.",
+    ),
+    action: (
+      <Link to="/expenses?new=1" className={SECONDARY_LINK}>
+        {t("dashFirstRunStep3Cta", "Snap a receipt")}
+        <span aria-hidden="true">→</span>
+      </Link>
+    ),
+  };
+
+  const steps = [heroStep];
+  if (isTransactional && heroDef.key !== "sale") steps.push(secondarySale);
+  if (heroDef.key !== "expense-lead") steps.push(secondaryExpense);
 
   // Bank/MobilePay only when the backend has a real provider configured.
   if (bankConnectEnabled) {
@@ -145,15 +197,7 @@ export default function FirstRunCollapsedDashboard({ className = "" }) {
         "Pull in your bank + payment data so reconciliation is automatic — or keep logging manually.",
       ),
       action: (
-        <Link
-          to="/connections"
-          className={
-            "inline-flex items-center gap-1 text-xs font-medium " +
-            "text-gray-700 dark:text-gray-300 " +
-            "hover:text-gray-900 dark:hover:text-gray-100 " +
-            "transition-colors"
-          }
-        >
+        <Link to="/connections" className={SECONDARY_LINK}>
           {t("dashFirstRunStep1Cta", "Open Connections")}
           <span aria-hidden="true">→</span>
         </Link>
