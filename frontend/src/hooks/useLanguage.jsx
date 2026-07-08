@@ -1746,6 +1746,9 @@ const translations = {
     // Headline KPIs
     rsvpInsKpiUtil: "Seat utilization",
     rsvpInsKpiUtilHelp: "of seat-hours",
+    // Salon reframe: a salon books chairs/behandlere, not seats/tables.
+    rsvpInsChairUtil: "Chair use",
+    rsvpInsKpiUtilHelpSalon: "of chair-hours",
     rsvpInsKpiNoShow: "No-show rate",
     rsvpInsKpiCovers: "Booked guests",
     rsvpInsKpiOnline: "Online share",
@@ -8721,6 +8724,9 @@ const translations = {
     // Nøgletal (overskrift)
     rsvpInsKpiUtil: "Pladsudnyttelse",
     rsvpInsKpiUtilHelp: "af pladstimer",
+    // Salon-omskrivning: en salon booker stole/behandlere, ikke pladser/borde.
+    rsvpInsChairUtil: "Stolebrug",
+    rsvpInsKpiUtilHelpSalon: "af stoletimer",
     rsvpInsKpiNoShow: "No-show-rate",
     rsvpInsKpiCovers: "Bookede gæster",
     rsvpInsKpiOnline: "Online-andel",
