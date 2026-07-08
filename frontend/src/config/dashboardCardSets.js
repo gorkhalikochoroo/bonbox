@@ -170,6 +170,15 @@ export function deriveActivations(ctx, archetype) {
   const complianceDays = ctx?.compliance?.daysToNext ?? Infinity;
   const daysToMonthEnd = ctx?.now?.daysToMonthEnd ?? Infinity;
   const totalSales = ctx?.summary?.totalSales ?? 0;
+  // has_activity (backend, both /batch + /summary): true once the owner has
+  // ANY first-touch row — sale, inventory item, daily close, expense, invoice,
+  // or reservation. Sales alone don't clear first-run because no archetype's
+  // guided first step creates a Sale (café closes a kasserapport, salon books,
+  // services invoice, personal expense, retail inventory), and "Try sample
+  // data" seeds everything BUT a Sale. Read both snake + camel to survive
+  // deploy skew / key-normalization on the summary object.
+  const hasActivity =
+    ctx?.summary?.has_activity ?? ctx?.summary?.hasActivity ?? false;
 
   return {
     hasInventory: inventoryCount > 0 || (defaults.hasInventory && totalSales === 0),
@@ -179,11 +188,14 @@ export function deriveActivations(ctx, archetype) {
     hasOutstandingInvoices: overdueCount > 0,
     hasUpcomingCompliance: complianceDays <= 30,
     isMonthEnd: daysToMonthEnd <= 5,
-    // Only mark first-run when summary is LOADED and confirms zero sales.
-    // DashboardPage passes totalSales = -1 during cold-start fetch — that
-    // prevents the "Welcome to BonBox" screen flicker for existing users
-    // while their dashboard data is still in flight.
-    isFirstRun: totalSales === 0,
+    // Only mark first-run when summary is LOADED and confirms zero sales AND
+    // zero activity of any kind. DashboardPage passes totalSales = -1 during
+    // cold-start fetch — that prevents the "Welcome to BonBox" screen flicker
+    // for existing users while their dashboard data is still in flight.
+    // `hasActivity` covers the archetypes whose guided first action is NOT a
+    // Sale (close / reservation / faktura / expense / inventory) plus "Try
+    // sample data" — without it those owners never clear Welcome.
+    isFirstRun: totalSales === 0 && !hasActivity,
     isLoadingSummary: totalSales < 0,
   };
 }

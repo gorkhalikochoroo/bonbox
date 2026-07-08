@@ -300,6 +300,49 @@ def get_dashboard_batch(
         .first()
     ) is not None
 
+    # First-run gate signal (launch-breaker fix): the "Welcome to BonBox"
+    # first-run screen must clear once the owner does ANYTHING real — not only
+    # when a Sale row exists. No archetype's guided first action creates a Sale
+    # (café/bar/bakery/generic close a kasserapport, salon books a reservation,
+    # services/freelancer send a faktura, personal logs an expense, retail adds
+    # inventory), and "Try sample data" seeds DailyClose + Expense + InventoryItem
+    # but zero Sale — so keying first-run off total_sales alone stranded brand-new
+    # owners on Welcome after doing exactly what the app told them. `has_activity`
+    # is true if any first-touch surface has a row. Cheap `.first()` existence
+    # checks scoped by user_id; is_deleted guard only on models that have it
+    # (DailyClose / Reservation / Expense — Invoice has none).
+    from app.models.daily_close import DailyClose
+    from app.models.invoice import Invoice
+    from app.models.reservation import Reservation
+    has_daily_close = (
+        db.query(DailyClose.id)
+        .filter(DailyClose.user_id == user.id, DailyClose.is_deleted.isnot(True))
+        .first()
+    ) is not None
+    has_any_expense = (
+        db.query(Expense.id)
+        .filter(Expense.user_id == user.id, Expense.is_deleted.isnot(True))
+        .first()
+    ) is not None
+    has_invoice = (
+        db.query(Invoice.id)
+        .filter(Invoice.user_id == user.id)
+        .first()
+    ) is not None
+    has_reservation = (
+        db.query(Reservation.id)
+        .filter(Reservation.user_id == user.id, Reservation.is_deleted.isnot(True))
+        .first()
+    ) is not None
+    has_activity = bool(
+        total_sales
+        or has_inventory_items
+        or has_daily_close
+        or has_any_expense
+        or has_invoice
+        or has_reservation
+    )
+
     # Real activation signals (fix the 2 dead dashboard inputs). staff_headcount
     # was READ on the frontend but never EMITTED here (phantom field → always 0);
     # events {recurringCount, totalCount} was hardcoded {0, 0}. Both now come
@@ -355,6 +398,7 @@ def get_dashboard_batch(
         "top_expense_amount": float(top_cat[1]) if top_cat else 0,
         "inventory_alerts": alert_count,
         "total_sales": total_sales,
+        "has_activity": has_activity,
         "has_expense_categories": has_expense_categories,
         "has_inventory_items": has_inventory_items,
         "has_business_profile_verified": has_business_profile_verified,
@@ -1337,6 +1381,44 @@ def get_summary(
         .first()
     ) is not None
 
+    # First-run gate signal — kept in sync with /dashboard/batch. The
+    # "Welcome to BonBox" screen must clear once the owner does ANY real
+    # first action, not only when a Sale row exists (no archetype's guided
+    # first step creates a Sale). True if any first-touch surface has a row.
+    # is_deleted guard only on models that have it (DailyClose / Reservation /
+    # Expense — Invoice has none).
+    from app.models.daily_close import DailyClose
+    from app.models.invoice import Invoice
+    from app.models.reservation import Reservation
+    has_daily_close = (
+        db.query(DailyClose.id)
+        .filter(DailyClose.user_id == user.id, DailyClose.is_deleted.isnot(True))
+        .first()
+    ) is not None
+    has_any_expense = (
+        db.query(Expense.id)
+        .filter(Expense.user_id == user.id, Expense.is_deleted.isnot(True))
+        .first()
+    ) is not None
+    has_invoice = (
+        db.query(Invoice.id)
+        .filter(Invoice.user_id == user.id)
+        .first()
+    ) is not None
+    has_reservation = (
+        db.query(Reservation.id)
+        .filter(Reservation.user_id == user.id, Reservation.is_deleted.isnot(True))
+        .first()
+    ) is not None
+    has_activity = bool(
+        total_sales
+        or has_inventory_items
+        or has_daily_close
+        or has_any_expense
+        or has_invoice
+        or has_reservation
+    )
+
     # Real activation signals (fix the 2 dead dashboard inputs) — kept in sync
     # with /dashboard/batch so the Dashboard activation derivation gets real
     # values regardless of which endpoint the client hit.
@@ -1390,6 +1472,7 @@ def get_summary(
         top_expense_amount=float(top_cat[1]) if top_cat else 0,
         inventory_alerts=alert_count,
         total_sales=total_sales,
+        has_activity=has_activity,
         has_expense_categories=has_expense_categories,
         has_inventory_items=has_inventory_items,
         has_business_profile_verified=has_business_profile_verified,
