@@ -311,7 +311,15 @@ export default function Layout() {
       window.removeEventListener("orientationchange", onResize);
     };
   }, []);
-  const [mode, setMode] = useState(localStorage.getItem("bonbox_mode") || "business");
+  // Seed the app mode: an explicit prior choice (localStorage) always wins;
+  // otherwise a `personal` business_type lands the owner straight in personal-
+  // finance mode instead of the full business app. The Settings mode toggle
+  // (toggleMode) still overrides + persists either way.
+  const [mode, setMode] = useState(
+    () =>
+      localStorage.getItem("bonbox_mode") ||
+      (user?.business_type === "personal" ? "personal" : "business"),
+  );
 
   // Owner's enabled vertical modules — drives sidebar gating for Bar,
   // Wine, Workshop, etc. Empty Set on first render = strict default

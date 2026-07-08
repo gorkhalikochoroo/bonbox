@@ -73,7 +73,8 @@ import { Armchair, Beer, Scissors, Croissant, ShoppingBag, Wrench } from "lucide
 // ─────────────────────────────────────────────────────────────────────
 
 export const VENUE_ARCHETYPES = {
-  // dining — restaurant / cafe / bakery / tea_shop / food_truck.
+  // dining — restaurant / cafe / tea_shop. (bakery has its OWN archetype now;
+  // food_truck resolves to the no-floor `generic` venue — see BUSINESS_TYPE_TO_VENUE.)
   // Round for an intimate top (≤4), square for a larger shared table (≥6).
   dining: {
     id: "dining",
@@ -238,7 +239,12 @@ export const BUSINESS_TYPE_TO_VENUE = {
   // trade and must never be offered a table floor it can't use.
   bakery: "bakery",
   tea_shop: "dining",
-  food_truck: "dining",
+  // food_truck is a mobile counter — no fixed table floor to seat a booking.
+  // Resolve to the no-floor `generic` venue (bookingMode "none"). NB: this is
+  // the FLOOR / booking layer ONLY — food_truck's dashboard rhythm + 06:00
+  // cutoff still come from the food_service archetype (archetypes.js /
+  // archetype.py), which this file does not touch.
+  food_truck: "generic",
   takeaway: "generic", // counter trade → generic (bookingMode "none", no floor)
   bar: "bar",
   salon: "salon",

@@ -45,6 +45,7 @@ import time
 from typing import Any
 
 from app.config import settings
+from app.services.archetype import archetype_for
 
 logger = logging.getLogger(__name__)
 
@@ -708,7 +709,16 @@ def get_taxonomy(business_type: str | None) -> list[str]:
     """
     if not business_type:
         return GENERIC_CATEGORIES
-    return TAXONOMY.get(business_type.lower(), GENERIC_CATEGORIES)
+    # Resolve raw business_type → a canonical TAXONOMY key. A direct key wins
+    # (grocery/workshop/cafe keep their specific list); otherwise fall back to
+    # the archetype's inv_taxonomy so every shop sibling (clothing/electronics/
+    # jewelry/pharmacy/…) inherits the 'retail' taxonomy and food_truck/tea_shop
+    # the 'restaurant' one, instead of the bland GENERIC buckets. An archetype
+    # whose inv_taxonomy is not itself a TAXONOMY key (services/personal/generic
+    # → 'generic') still degrades safely via the .get default below.
+    bt = business_type.lower()
+    key = bt if bt in TAXONOMY else (archetype_for(bt).get("inv_taxonomy") or bt)
+    return TAXONOMY.get(key, GENERIC_CATEGORIES)
 
 
 def _match_category(name: str, rules: dict[str, list[str]]) -> str | None:
@@ -746,7 +756,13 @@ def categorize_deterministic(
     Items that already have a non-empty `category` (e.g. user provided
     one on input) are left alone.
     """
-    rules = _RULES.get((business_type or "").lower(), {})
+    # Same archetype resolution as get_taxonomy: a direct _RULES key wins, else
+    # fall back to the archetype's inv_taxonomy so shop siblings get the retail
+    # rule set and food_truck/tea_shop the restaurant rules (an unmapped key →
+    # {} → the AI fallback, exactly as before).
+    bt = (business_type or "").lower()
+    key = bt if bt in _RULES else (archetype_for(bt).get("inv_taxonomy") or bt)
+    rules = _RULES.get(key, {})
     out: list[dict] = []
     unknown: list[int] = []
 

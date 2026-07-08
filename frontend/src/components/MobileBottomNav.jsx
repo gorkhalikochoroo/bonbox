@@ -4,6 +4,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { Icon } from "./ui";
 import { Plus, Menu } from "lucide-react";
 import { NAV_MANIFEST } from "../config/navManifest";
+import { archetypeIdFor } from "../config/archetypes";
 
 /**
  * iOS-style 5-tab bottom bar. The slot LAYOUT is bottom-nav chrome (fixed:
@@ -63,7 +64,14 @@ function getTabsForType(branchType) {
     freelance:  "/cashflow",
     general:    "/daily-close",
   };
-  const typeTo = typeRoute[branchType] || typeRoute.general;
+  // Retail siblings (clothing / grocery / kiosk / pharmacy / electronics / …)
+  // resolve to the retail archetype and share retail's Inventory-first
+  // contextual tab, instead of falling through to the general '/daily-close'
+  // slot. Direct typeRoute hits (restaurant / cafe / bar / salon / workshop /
+  // …) are matched first and stay exactly as before.
+  const typeTo =
+    typeRoute[branchType] ||
+    (archetypeIdFor(branchType) === "retail" ? "/inventory" : typeRoute.general);
 
   return [
     manifestTab("/dashboard", { to: "/dashboard", icon: "Home", labelKey: "navHome" }),
