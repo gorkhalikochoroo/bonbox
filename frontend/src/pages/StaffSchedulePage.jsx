@@ -38,7 +38,18 @@ import ScheduleConfirmationCard from "../components/ScheduleConfirmationCard";
 /* ═══════════════════════════════════════════════════════════
    CONSTANTS & HELPERS
    ═══════════════════════════════════════════════════════════ */
-const ROLES = ["Chef", "Bartender", "Server", "Runner", "Dishwasher", "Manager"];
+// Shift-role options are VERTICAL-AWARE (display-only vocab; role_on_shift never
+// drives availability/booking). A restaurant/cafe/bar owner sees kitchen/floor
+// roles; a salon owner sees salon roles. Default = restaurant so every existing
+// (non-salon) account stays byte-identical. Salon role names stay Danish in BOTH
+// locales (proper role nouns, like the DK terminology lock) — plain strings,
+// never t() keys.
+const ROLES_RESTAURANT = ["Chef", "Bartender", "Server", "Runner", "Dishwasher", "Manager"];
+const ROLES_SALON = ["Frisør", "Barber", "Kolorist", "Kosmetolog", "Negletekniker", "Reception"];
+const ROLES_BY_TYPE = { salon: ROLES_SALON }; // extend later (bakery/retail); default = restaurant
+function rolesFor(businessType) {
+  return ROLES_BY_TYPE[String(businessType || "").toLowerCase()] || ROLES_RESTAURANT;
+}
 
 // Staff roles are stored lowercase ("server", "kitchen"), but the shift-role
 // <select> options are capitalized ("Server"). A raw `member.role` default left
@@ -53,11 +64,11 @@ const ROLE_TO_SHIFT_OPTION = {
   barista: "Bartender", bartender: "Bartender", bar: "Bartender",
   runner: "Runner",
 };
-function roleToShiftOption(r) {
-  if (!r) return ROLES[0];
-  const exact = ROLES.find((x) => x.toLowerCase() === String(r).toLowerCase());
+function roleToShiftOption(r, roles = ROLES_RESTAURANT) {
+  if (!r) return roles[0];
+  const exact = roles.find((x) => x.toLowerCase() === String(r).toLowerCase());
   if (exact) return exact;
-  return ROLE_TO_SHIFT_OPTION[String(r).toLowerCase()] || ROLES[0];
+  return ROLE_TO_SHIFT_OPTION[String(r).toLowerCase()] || roles[0];
 }
 const CONTRACT_TYPES = [
   { value: "full", label: "Full-time" },
@@ -570,6 +581,9 @@ export default function StaffSchedulePage() {
   const confirm = useConfirm();
   const { branchId } = useBranch();
   const currency = displayCurrency(user?.currency);
+  // Vertical-aware shift-role list (salon → Frisør/…; else restaurant). Stable
+  // module-array reference, so it's safe in hook dep arrays.
+  const roles = rolesFor(user?.business_type);
 
   // Week navigation
   const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
@@ -823,7 +837,7 @@ export default function StaffSchedulePage() {
         // suggestion for these times so a quick-placed 6h+ shift reads the
         // same hours as the punched/rostered one instead of a silent 0.
         break_minutes: seed?.break_minutes ?? suggestedBreak(startT, endT),
-        role_on_shift: roleToShiftOption(seed?.role_on_shift || seed?.role || memberRole),
+        role_on_shift: roleToShiftOption(seed?.role_on_shift || seed?.role || memberRole, roles),
         branch_id: branchId || undefined,
         // status intentionally OMITTED → backend defaults 'draft' → no notify.
       };
@@ -851,7 +865,7 @@ export default function StaffSchedulePage() {
         }
       }
     },
-    [shifts, lastShiftTemplate, armedTemplate, branchId, fetchShifts, t]
+    [shifts, lastShiftTemplate, armedTemplate, branchId, fetchShifts, t, roles]
   );
 
   const undoBloom = useCallback(async () => {
@@ -2619,6 +2633,7 @@ function StaffDetailModal({
   onClose,
   onShare,
   onDeactivate,
+  roles = ROLES_RESTAURANT,
   t,
 }) {
   const cardRef = useRef(null);
@@ -2776,7 +2791,7 @@ function StaffDetailModal({
                 onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
                 className={inputCls}
               >
-                {ROLES.map((r) => (
+                {roles.map((r) => (
                   <option key={r} value={r}>{r}</option>
                 ))}
               </select>
@@ -3006,10 +3021,11 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
   // panel with `ReferenceError: user is not defined` and bounced the
   // whole /staff/schedule page through the global error boundary.
   const { user } = useAuth();
+  const roles = rolesFor(user?.business_type);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [role, setRole] = useState(ROLES[0]);
+  const [role, setRole] = useState(roles[0]);
   const [contractType, setContractType] = useState("full");
   const [baseRate, setBaseRate] = useState("");
   const [saving, setSaving] = useState(false);
@@ -3091,7 +3107,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
       setName("");
       setEmail("");
       setPhone("");
-      setRole(ROLES[0]);
+      setRole(roles[0]);
       setContractType("full");
       setBaseRate("");
       onRefresh();
@@ -3155,10 +3171,10 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
     name: member.name,
     email: member.email || "",
     phone: member.phone || "",
-    // Normalise to a ROLES option (stored roles can be lowercase "server",
+    // Normalise to a shift-role option (stored roles can be lowercase "server",
     // but the <select> options are capitalized "Server") so the dropdown
     // pre-selects the member's ACTUAL role instead of defaulting to "Chef".
-    role: roleToShiftOption(member.role),
+    role: roleToShiftOption(member.role, roles),
     contract_type: member.contract_type,
     base_rate: member.base_rate || "",
     evening_rate: member.evening_rate ?? "",
@@ -3234,7 +3250,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
             onChange={(e) => setRole(e.target.value)}
             className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
-            {ROLES.map((r) => (
+            {roles.map((r) => (
               <option key={r} value={r}>{r}</option>
             ))}
           </select>
@@ -3582,6 +3598,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
         onClose={closeDetail}
         onShare={() => generateLink(detailMember)}
         onDeactivate={() => handleDeactivate(detailMember.id)}
+        roles={roles}
         t={t}
       />
     </div>
@@ -4943,6 +4960,8 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
    ═══════════════════════════════════════════════════════════ */
 function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemplateSave, onClose, onSaved, branchId }) {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const roles = rolesFor(user?.business_type);
   const existingShift = modal.shift;
   const isEdit = !!existingShift;
 
@@ -4978,9 +4997,9 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
     () => seed?.break_minutes ?? suggestedBreak(seed?.start || "16:00", seed?.end || "23:00")
   );
   const [roleOnShift, setRoleOnShift] = useState(() => {
-    if (seed?.role) return roleToShiftOption(seed.role);
+    if (seed?.role) return roleToShiftOption(seed.role, roles);
     const member = staff.find((s) => s.id === (modal.staffId || existingShift?.staff_member_id || existingShift?.staff_id));
-    return roleToShiftOption(member?.role);
+    return roleToShiftOption(member?.role, roles);
   });
   const [notes, setNotes] = useState(existingShift?.notes || "");
   const [saving, setSaving] = useState(false);
@@ -5004,7 +5023,7 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
     prevStaffRef.current = staffId;
     if (!staffId) return;
     const member = staff.find((s) => s.id === staffId);
-    if (member?.role) setRoleOnShift(roleToShiftOption(member.role));
+    if (member?.role) setRoleOnShift(roleToShiftOption(member.role, roles));
     if (!changed || touched) return;
     const r = mostRecentShiftFor(shifts, staffId);
     if (r) {
@@ -5303,7 +5322,7 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
               onChange={(e) => setRoleOnShift(e.target.value)}
               className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
             >
-              {ROLES.map((r) => (
+              {roles.map((r) => (
                 <option key={r} value={r}>{r}</option>
               ))}
             </select>
