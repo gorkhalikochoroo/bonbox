@@ -42,6 +42,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -56,7 +57,7 @@ from app.services.magic_link_service import create_token, verify_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 # ── Tunables ─────────────────────────────────────────────────────────

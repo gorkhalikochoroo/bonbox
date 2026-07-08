@@ -44,6 +44,7 @@ from sqlalchemy.orm import Session
 from app.database import SessionLocal
 from app.models.user import User
 from app.services import audit_service
+from app.utils.client_ip import client_ip
 from app.utils.email_unsubscribe_token import parse_unsubscribe_token
 
 logger = logging.getLogger(__name__)
@@ -241,7 +242,7 @@ def unsubscribe_action(
                     db, user, "email.unsubscribed",
                     entity_type="user", entity_id=user.id,
                     after={"topic": topic, "via": "one_click_email"},
-                    ip_address=(request.client.host if request.client else None),
+                    ip_address=(client_ip(request) if request else None),
                 )
                 db.commit()
         else:

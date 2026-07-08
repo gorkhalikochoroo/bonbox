@@ -13,6 +13,8 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
+from app.utils import login_guard
 
 from app.database import get_db
 from app.models.user import User
@@ -70,7 +72,7 @@ from app.utils.time import utc_now
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 def _cookie_scope(request: Request | None) -> tuple[str | None, str]:
@@ -342,7 +344,7 @@ def _audit_signup(db: Session, request: Request, event_type: str, email: str) ->
     """
     try:
         from app.models.security_event import SecurityEvent
-        ip = request.client.host if request and request.client else None
+        ip = client_ip(request) if request else None
         ua = request.headers.get("user-agent", "")[:500] if request else None
         evt = SecurityEvent(
             user_id=None,
@@ -884,8 +886,19 @@ def apple_auth(
 @router.post("/login", response_model=Token)
 @limiter.limit("10/minute")
 def login(request: Request, response: Response, data: UserLogin, db: Session = Depends(get_db)):
+    # Per-account failed-login lockout — the spoof-proof brute-force backstop
+    # that the per-IP throttle (now keyed on the unforgeable CF-Connecting-IP)
+    # can't provide against a botnet. Raise the SAME generic 401 as a bad
+    # password so a lockout can't be used to enumerate accounts.
+    if login_guard.is_locked_out(data.email):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+
     user = db.query(User).filter(User.email == data.email).first()
     if not user or not verify_password(data.password, user.password_hash):
+        login_guard.record_failure(data.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -899,6 +912,7 @@ def login(request: Request, response: Response, data: UserLogin, db: Session = D
             detail="Invalid email or password",
         )
 
+    login_guard.clear(data.email)  # success → reset the failure counter
     token = create_access_token(str(user.id), user.token_version)
     _set_auth_cookie(response, token, request)
     return Token(access_token=token, user=UserResponse.model_validate(user))

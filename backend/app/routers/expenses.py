@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 
 # Per-IP rate limiter for OCR endpoints below. slowapi attaches itself
 # to the FastAPI app via main.py app.state.limiter wiring; this module-
@@ -17,7 +18,7 @@ from slowapi.util import get_remote_address
 # so the limits apply per IP, not per user — defends against same-IP
 # multi-account abuse (one machine creating 10 free accounts and
 # round-robining OCR calls to drain cost).
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 from app.database import get_db
 from app.models.user import User

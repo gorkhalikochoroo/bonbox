@@ -34,6 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
@@ -2680,7 +2681,7 @@ def _run_data_migration():
     print("Data migration: cashbook entries fixed")
 
 # --- Rate Limiter ---
-limiter = Limiter(key_func=get_remote_address, default_limits=["120/minute"])
+limiter = Limiter(key_func=client_ip, default_limits=["120/minute"])
 
 # --- App Setup ---
 is_prod = settings.ENVIRONMENT == "production"
@@ -2822,7 +2823,7 @@ async def _global_exception_handler(request: Request, exc: Exception):
                 path=path[:500] if path else None,
                 status_code=500,
                 user_id=getattr(getattr(request, "state", None), "user_id", None),
-                ip_address=(request.client.host if request.client else None),
+                ip_address=(client_ip(request) if request else None),
                 user_agent=(request.headers.get("user-agent") or "")[:500],
                 error_type=type(exc).__name__[:100],
                 message=str(exc)[:1000],
@@ -2839,7 +2840,7 @@ async def _global_exception_handler(request: Request, exc: Exception):
         pass
     # Audit spike detection: many exceptions from same IP looks like probing
     try:
-        ip = request.client.host if request.client else ""
+        ip = client_ip(request) if request else ""
         _audit_exception_spike(ip, f"{request.method}:{path}:{type(exc).__name__}")
     except Exception:
         pass
@@ -3088,7 +3089,7 @@ async def admin_scan_blocker(request: Request, call_next):
     if not request.url.path.startswith("/api/admin"):
         return await call_next(request)
     import time
-    ip = request.client.host if request.client else "unknown"
+    ip = client_ip(request) if request else "unknown"
     now = time.time()
     # Already banned?
     ban_until = _admin_ip_banned.get(ip)
@@ -3961,7 +3962,7 @@ async def sliding_refresh_middleware(request: Request, call_next):
                             "new_token_iat": now_ts,
                             "mode": mode,
                         },
-                        ip_address=(request.client.host if request.client else None),
+                        ip_address=(client_ip(request) if request else None),
                         actor_id=None,
                         actor_type="system.session_refresh",
                     )

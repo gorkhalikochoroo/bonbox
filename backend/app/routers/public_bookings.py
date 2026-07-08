@@ -43,6 +43,7 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Path, Reque
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -72,7 +73,7 @@ router = APIRouter()
 # main.py so the path isn't `/api/public/internal/...`.
 internal_router = APIRouter()
 
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 
 # Default pending lifetime for a booking before the expiry cron sweeps

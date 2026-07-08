@@ -51,6 +51,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, StringConstraints
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -71,7 +72,7 @@ router = APIRouter()
 # Pillar toggling is a low-frequency human action (onboarding presets
 # + the occasional "we started doing events"); 60/min/IP is far above
 # any legitimate UI loop.
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 
 class SetPillarsRequest(BaseModel):
@@ -193,7 +194,7 @@ def set_pillars_endpoint(
         entity_id=row.id,
         before={"hidden": before},
         after={"hidden": [p for p in PILLARS if p in new_hidden]},
-        ip_address=request.client.host if request.client else None,
+        ip_address=client_ip(request) if request else None,
     )
 
     # Layer 6 lives inside set_hidden (allowlist re-filter at the

@@ -44,6 +44,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -65,7 +66,7 @@ router = APIRouter()
 # authenticated user from fanning push spam to themselves (or — more
 # importantly — using us as a free push relay if there's ever a bug
 # in the multi-tenant scope).
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 # ─── Schemas ──────────────────────────────────────────────────────────

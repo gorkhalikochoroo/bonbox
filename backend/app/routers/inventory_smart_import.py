@@ -54,6 +54,7 @@ from fastapi import (
 from pydantic import BaseModel, Field, StringConstraints
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -94,7 +95,7 @@ router = APIRouter()
 # because each call may spend Anthropic tokens — 12/min is plenty for
 # real human workflows + caps the worst-case spend if a script tries to
 # hammer the endpoint past the daily quota.
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 
 # ─── Schemas ───────────────────────────────────────────────────────────

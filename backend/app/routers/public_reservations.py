@@ -27,6 +27,7 @@ from fastapi import (
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
@@ -48,7 +49,7 @@ from app.utils.time import utc_now
 logger = logging.getLogger(__name__)
 router = APIRouter()
 internal_router = APIRouter()
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 _TZ = ZoneInfo("Europe/Copenhagen")
 
 

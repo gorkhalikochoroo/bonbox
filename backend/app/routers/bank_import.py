@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.utils.client_ip import client_ip
 from app.models.user import User
 from app.models.sale import Sale
 from app.models.expense import Expense, ExpenseCategory
@@ -337,7 +338,7 @@ def confirm_match_batch(
     enforce_feature(user, "bank_auto_reconcile")
     _validate_import_id(import_id)
 
-    ip = request.client.host if request.client else None
+    ip = client_ip(request) if request else None
     result = bank_reconciliation.confirm_matches(
         db, user,
         matches=[m.model_dump() for m in body.matches],

@@ -29,6 +29,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.utils.client_ip import client_ip
 from app.models.inventory import InventoryItem
 from app.models.user import User
 from app.routers.auth import get_current_user
@@ -171,7 +172,7 @@ def mark_item_action(
         # Belt-and-braces against pydantic Literal drift.
         raise HTTPException(status_code=400, detail="Unknown action")
 
-    ip = request.client.host if request and request.client else None
+    ip = client_ip(request) if request else None
     try:
         result = record_expiry_action(
             db, current_user, item, action=body.action, ip_address=ip,

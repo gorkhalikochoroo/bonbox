@@ -41,6 +41,7 @@ import logging
 from fastapi import APIRouter, Depends, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import and_
 from sqlalchemy.orm import Session
 
@@ -56,7 +57,7 @@ router = APIRouter()
 # status once per landing-page load (~5 sec render budget = 0.2/sec
 # peak).  60/min per IP gives a 300x headroom for legitimate traffic
 # and shuts down hammer-scraping at 1 req/sec sustained.
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 @router.get("/founder-rate-status")

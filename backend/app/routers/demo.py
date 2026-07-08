@@ -33,6 +33,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -54,7 +55,7 @@ router = APIRouter()
 # them — without a cap, a loop costs almost nothing to the attacker
 # and meaningful CPU/IO to the server.  3/hour per IP is generous for
 # a genuine "tried sample, decided I'm done" flow.
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 def _client_ip(request: Request) -> str | None:

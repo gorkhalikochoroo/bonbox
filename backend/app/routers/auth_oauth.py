@@ -53,6 +53,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -65,7 +66,7 @@ from app.services.oauth_google import verify_google_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 # Audit P2 (Task #78): combine /oauth/apple + /oauth/google under one
 # shared bucket so an attacker can't get 30/h on Apple AND a separate

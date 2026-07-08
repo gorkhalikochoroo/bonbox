@@ -37,6 +37,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -48,7 +49,7 @@ from app.services.billing import effective_plan
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 # ─── L2 — max-range guard ─────────────────────────────────────────────

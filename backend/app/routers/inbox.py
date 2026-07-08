@@ -70,6 +70,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -107,7 +108,7 @@ router = APIRouter()
 # so the global 5/sec applies across all our tenants combined — fine
 # because Postmark delivers serially per Server. The /test endpoint
 # uses the authenticated user id as its key.
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 # ── L2 — input bounds ─────────────────────────────────────────────

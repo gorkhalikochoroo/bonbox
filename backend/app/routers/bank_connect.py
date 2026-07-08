@@ -49,6 +49,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -104,7 +105,7 @@ connections_router = APIRouter()
 # future-import from this file or registering SlowAPIMiddleware app-wide (a
 # deliberate, smoke-tested change — see task #361 residual).  They stay
 # auth-gated (Starter+) so the cost-abuse blast radius needs a paid seat.
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────

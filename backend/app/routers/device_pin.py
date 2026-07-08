@@ -26,6 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -45,7 +46,7 @@ from app.utils.time import utc_now
 from datetime import timedelta
 
 router = APIRouter(prefix="/auth/device-pin", tags=["device-pin"])
-limiter = Limiter(key_func=get_remote_address)
+limiter = Limiter(key_func=client_ip)
 
 _PIN_LOCK_THRESHOLD = 8          # wrong tries before a temporary lock
 _PIN_LOCK_MINUTES = 15

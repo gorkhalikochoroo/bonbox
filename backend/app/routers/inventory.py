@@ -7,6 +7,7 @@ from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
@@ -34,7 +35,7 @@ router = APIRouter()
 # a busy bartender pouring at peak ~ 5/min; a stocktake script doing
 # 60 logs/min is plausible. 120 starts to look suspicious. Defense layer
 # 1 of 3: rate limit, input bounds (Pydantic Field ge/le), tenant scope.
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 
 @router.get("", response_model=list[InventoryItemResponse])

@@ -21,6 +21,7 @@ from tempfile import NamedTemporaryFile
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from app.utils.client_ip import client_ip
 from sqlalchemy import func as sa_func
 from sqlalchemy.orm import Session
 
@@ -43,7 +44,7 @@ from app.utils.time import utc_now
 logger = logging.getLogger("bonbox.kasserapport_router")
 
 router = APIRouter()
-_limiter = Limiter(key_func=get_remote_address)
+_limiter = Limiter(key_func=client_ip)
 
 
 # Per-tier daily caps live in PLAN_CAPS ("kasse_extracts_per_day") —
