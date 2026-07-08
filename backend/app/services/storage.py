@@ -93,6 +93,16 @@ class StorageBackend(ABC):
     def delete(self, key: str) -> bool:
         """Delete blob at `key`. Returns True iff something was removed."""
 
+    def delete_prefix(self, prefix: str) -> int:
+        """Delete every object directly under `prefix` (e.g. '<uid>/<kind>').
+
+        Used by GDPR account erasure to remove a user's blobs by path
+        (independent of whether the DB rows that pointed at them still
+        exist). Best-effort: returns the count removed, never raises.
+        Default no-op; overridden per backend.
+        """
+        return 0
+
     def signed_url(self, key: str, ttl_seconds: int = 3600) -> str | None:
         """Return a time-limited URL the browser can fetch directly.
 
@@ -163,6 +173,44 @@ class SupabaseStorageBackend(StorageBackend):
         url = f"{self.base}/object/{self.bucket}/{key}"
         resp = self._client.delete(url, headers=self._headers)
         return resp.status_code < 400
+
+    def delete_prefix(self, prefix: str) -> int:
+        """List and bulk-remove every object under `<prefix>/`. Keys are
+        `<uid>/<kind>/<sha>.<ext>`, so `prefix='<uid>/<kind>'` lists the leaf
+        files directly. Paginates; best-effort (logs, never raises)."""
+        folder = prefix.rstrip("/")
+        removed = 0
+        try:
+            offset = 0
+            while True:
+                lr = self._client.post(
+                    f"{self.base}/object/list/{self.bucket}",
+                    json={"prefix": folder, "limit": 1000, "offset": offset,
+                          "sortBy": {"column": "name", "order": "asc"}},
+                    headers=self._headers,
+                )
+                if lr.status_code >= 400:
+                    logger.warning("Supabase list %s -> %s", folder, lr.status_code)
+                    break
+                items = lr.json() or []
+                names = [it.get("name") for it in items if it.get("name")]
+                if not names:
+                    break
+                keys = [f"{folder}/{n}" for n in names]
+                dr = self._client.request(
+                    "DELETE", f"{self.base}/object/{self.bucket}",
+                    json={"prefixes": keys}, headers=self._headers,
+                )
+                if dr.status_code < 400:
+                    removed += len(keys)
+                else:
+                    logger.warning("Supabase bulk-delete %s -> %s", folder, dr.status_code)
+                if len(names) < 1000:
+                    break
+                offset += 1000
+        except Exception as e:  # noqa: BLE001 — erasure must never break on storage
+            logger.warning("delete_prefix(%s) failed: %s", folder, e)
+        return removed
 
     def signed_url(self, key: str, ttl_seconds: int = 3600) -> str | None:
         """Generate a signed URL valid for `ttl_seconds`. Used by the
@@ -247,6 +295,23 @@ class LocalStorageBackend(StorageBackend):
             return True
         return False
 
+    def delete_prefix(self, prefix: str) -> int:
+        """Delete every file under the `<prefix>/` directory. Best-effort."""
+        removed = 0
+        try:
+            folder = self._resolve(prefix.rstrip("/"))
+        except StorageError:
+            return 0
+        if folder.exists() and folder.is_dir():
+            for f in folder.rglob("*"):
+                if f.is_file():
+                    try:
+                        f.unlink()
+                        removed += 1
+                    except OSError:
+                        pass
+        return removed
+
 
 class StorageError(Exception):
     """Raised by storage backends on operational failure."""
@@ -285,3 +350,31 @@ def reset_storage_for_tests() -> None:
     backends. NEVER call from production code."""
     global _backend
     _backend = None
+
+
+# ─── GDPR erasure helper ───────────────────────────────────────────────
+
+# Storage kinds with NO legal retention basis — purged on account erasure
+# (GDPR Art.17). The accounting source-document kinds (kasserapport /
+# expense / sale / inventory_import) are deliberately EXCLUDED: they are
+# retained for 5 years under Bogføringsloven §10, then deleted. Keep this
+# in sync with the retention disclosure in the delete-account response +
+# PrivacyPolicyPage.
+ERASURE_PURGE_KINDS = frozenset({"staff_chat", "staff_avatar", "business_logo"})
+
+
+def purge_user_blobs(user_id, kinds=ERASURE_PURGE_KINDS) -> int:
+    """Delete a user's storage blobs for the given kinds (default: the
+    no-retention-basis kinds). Best-effort — returns the count removed and
+    never raises, so a storage hiccup can't abort GDPR account erasure."""
+    backend = get_storage()
+    uid = str(user_id)
+    total = 0
+    for kind in kinds:
+        if kind not in ALLOWED_KINDS:
+            continue
+        try:
+            total += backend.delete_prefix(f"{uid}/{kind}")
+        except Exception:  # noqa: BLE001 — never break erasure on one kind
+            logger.warning("purge_user_blobs: failed on kind=%s", kind, exc_info=True)
+    return total

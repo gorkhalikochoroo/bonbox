@@ -1861,8 +1861,31 @@ def delete_account(
     db.query(BankConnection).filter(BankConnection.user_id == uid).delete(synchronize_session=False)
     db.query(MobilePayConnection).filter(MobilePayConnection.user_id == uid).delete(synchronize_session=False)
 
+    # ── GDPR Art.17: purge storage blobs with no retention basis ──
+    # The row sweep above deletes the POINTERS; the BLOBS in Supabase
+    # Storage must be removed too or staff-chat photos, staff avatars and
+    # the business logo orphan forever (no row left to find them by). We
+    # delete by path prefix (<uid>/<kind>/), so it works regardless of DB
+    # state. Accounting source-doc images (kasserapport / expense / sale /
+    # inventory_import) are DELIBERATELY kept — Bogføringsloven §10 requires
+    # 5-year retention. Best-effort: a storage error must never abort the
+    # erasure that already committed the DB deletes.
+    try:
+        from app.services.storage import purge_user_blobs
+        _purged = purge_user_blobs(uid)
+        logger.info("delete_account: purged %s storage blob(s)", _purged)
+    except Exception:  # noqa: BLE001
+        logger.warning("delete_account: storage blob purge failed (non-fatal)", exc_info=True)
+
     # --- Finally, delete the user ---
     db.delete(current_user)
     db.commit()
 
-    return {"message": "Account and all data permanently deleted. We're sorry to see you go."}
+    return {
+        "message": (
+            "Account deleted and your personal data erased. As Danish law "
+            "requires (Bogføringsloven §10), accounting source documents "
+            "(kasserapport, faktura, receipts) are kept for 5 years, then "
+            "deleted. We're sorry to see you go."
+        )
+    }
