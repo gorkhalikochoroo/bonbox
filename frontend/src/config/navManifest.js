@@ -313,6 +313,10 @@ export const NAV_MANIFEST = [
     group: "stock",
     pillar: "inventory",
     visibleFor: ["restaurant", "retail", "general"],
+    // Root-cause rule: resolve through the archetype so every retail sibling
+    // (grocery / veggie_shop / flower_shop / pharmacy / … — the MOST perishable
+    // shops) gets Expiry, not just the raw `retail` token. See passesType().
+    visibleForArchetypes: ["retail"],
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
     aliases: ["expiry", "expiring", "udløb"],
@@ -324,6 +328,8 @@ export const NAV_MANIFEST = [
     group: "stock",
     pillar: "inventory",
     visibleFor: ["restaurant", "retail", "general"],
+    // Archetype-aware (see /expiry) — every retail sibling gets Waste too.
+    visibleForArchetypes: ["retail"],
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
     aliases: ["waste", "spild"],
@@ -450,6 +456,8 @@ export const NAV_MANIFEST = [
     group: "reports",
     pillar: "insights",
     visibleFor: ["restaurant", "retail", "service", "general"],
+    // Archetype-aware (see /expiry) — every retail sibling gets Insights too.
+    visibleForArchetypes: ["retail"],
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
     aliases: [
@@ -744,11 +752,19 @@ export function filterDestinations(items, ctx = {}) {
   const hasFeat = typeof hasFeature === "function" ? hasFeature : () => false;
 
   // BUSINESS TYPE — null visibleFor = all; empty active types = don't gate
-  // by type (fresh signup with no branch). Module gate still applies.
-  const passesType = (vf) => {
-    if (!vf) return true;
+  // by type (fresh signup with no branch). Module gate still applies. An entry
+  // may ALSO declare `visibleForArchetypes` (the root-cause rule): it then
+  // passes when the resolved archetype matches, so every sibling token of that
+  // archetype inherits the same visibility without re-listing each token.
+  // Additive OR: an entry with neither field is visible to all; an archetype
+  // match never REMOVES an entry a raw visibleFor already allowed, and an entry
+  // without `visibleForArchetypes` behaves exactly as before.
+  const passesType = (vf, vfa) => {
+    if (!vf && (!vfa || !vfa.length)) return true;
     if (!types || types.length === 0) return true;
-    return vf.some((tp) => types.includes(tp));
+    if (vf && vf.some((tp) => types.includes(tp))) return true;
+    if (vfa && vfa.length && archetypeId && vfa.includes(archetypeId)) return true;
+    return false;
   };
   const passesModule = (req, reqAny) => {
     if (!req && !reqAny) return true;
@@ -812,7 +828,7 @@ export function filterDestinations(items, ctx = {}) {
   for (const item of items) {
     if (!passesOwnerOnly(item.ownerOnly)) continue;
     if (!passesPillar(item.pillar)) continue;
-    if (!passesType(item.visibleFor)) continue;
+    if (!passesType(item.visibleFor, item.visibleForArchetypes)) continue;
     if (!passesArchetype(item.hideForArchetypes)) continue;
     if (!passesModule(item.requiresModule, item.requiresAnyModule)) continue;
     // ENTITLEMENT (locked-but-visible) takes precedence over ACTIVATION — a

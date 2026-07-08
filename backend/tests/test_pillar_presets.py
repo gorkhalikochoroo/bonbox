@@ -5,11 +5,13 @@ Two halves:
   A. Pure function — services.pillars.preset_hidden_pillars(business_type):
      the LOCKED DK OFF-list per business type (panel + founder verdict,
      June 2026). restaurant hides nothing; cafe/bakery/tea_shop hide
-     events+insights; takeaway/kiosk hide reservations+events+inventory+
-     insights (staff stays); bar hides events+insights; salon/retail/
-     service/general hide events; unknown/null/blank -> {} (fail-open).
-     Sibling retail/services tokens inherit the locked {events} verdict
-     via the archetype fallback.
+     events+insights; takeaway hides reservations+events+inventory+insights
+     (staff stays); kiosk hides only reservations+events (inventory-first
+     retail); bar hides events+insights; salon/service/general hide events;
+     retail/food_truck hide reservations+events; personal hides reservations+
+     events+inventory+staff (only Insights stays); unknown/null/blank -> {}
+     (fail-open). Sibling retail tokens inherit {reservations, events} and
+     services tokens inherit {reservations, events} via the archetype fallback.
 
   B. Endpoint + apply-once wiring:
      - GET /api/pillars/preset returns the suggested chips (pure read,
@@ -60,8 +62,10 @@ _EXPECTED_PRESETS = {
     "bakery": {"reservations", "events", "insights"},
     "tea_shop": {"events", "insights"},
     "takeaway": {"reservations", "events", "inventory", "insights"},
-    # counter trade
-    "kiosk": {"reservations", "events", "inventory", "insights"},
+    # kiosk is the MOST inventory-first retail sibling — it inherits inventory-ON
+    # like every retail sibling (only reservations + events hidden). The earlier
+    # {…, inventory, …} list was copy-pasted from takeaway and wrongly hid stock.
+    "kiosk": {"reservations", "events"},
     # bar (reservations + inventory STAY on; bar_pour is a separate module)
     "bar": {"events", "insights"},
     # salon / service / general stay {events}-only
@@ -71,6 +75,12 @@ _EXPECTED_PRESETS = {
     # Phase A (BUG #2): retail is inventory-led, no floor — Reservations OFF
     # (was leaking ON via the {events}-only list).
     "retail": {"reservations", "events"},
+    # food_truck: food-service rhythm but a mobile counter with NO table floor —
+    # hide reservations + events (the booking book it can't use).
+    "food_truck": {"reservations", "events"},
+    # personal-finance mode: none of the business pillars apply — only Insights
+    # stays (reservations/events/inventory/staff all hidden).
+    "personal": {"reservations", "events", "inventory", "staff"},
 }
 
 
@@ -101,10 +111,12 @@ def test_bar_keeps_reservations_and_inventory_on():
     assert off == {"events", "insights"}
 
 
-@pytest.mark.parametrize("business_type", ["other", "personal", "", "   ", None, "zxqv_unknown"])
+@pytest.mark.parametrize("business_type", ["other", "", "   ", None, "zxqv_unknown"])
 def test_unknown_or_blank_type_is_fail_open(business_type):
     """Unknown / null / blank / unmapped -> hide nothing (fail-open). A
-    mis-typed or OAuth-blank account must never silently lose surfaces."""
+    mis-typed or OAuth-blank account must never silently lose surfaces.
+    ('personal' is deliberately NOT here — it is a pinned type that hides the
+    business-only pillars; see _EXPECTED_PRESETS.)"""
     assert preset_hidden_pillars(business_type) == set()
 
 
@@ -118,11 +130,13 @@ def test_unknown_or_blank_type_is_fail_open(business_type):
         ("electronics", {"reservations", "events"}),
         ("pharmacy", {"reservations", "events"}),
         ("wholesale", {"reservations", "events"}),
-        # services-archetype siblings still inherit {events}
-        ("mobile_repair", {"events"}),
-        ("laundry", {"events"}),
-        ("workshop", {"events"}),
-        ("freelancer", {"events"}),
+        # services-archetype siblings inherit {reservations, events} — invoice-
+        # led with NO table/booking primitive (was leaking the restaurant-vocab
+        # booking book ON via the earlier {events}-only list).
+        ("mobile_repair", {"reservations", "events"}),
+        ("laundry", {"reservations", "events"}),
+        ("workshop", {"reservations", "events"}),
+        ("freelancer", {"reservations", "events"}),
     ],
 )
 def test_sibling_tokens_inherit_archetype_offlist(business_type, expected):

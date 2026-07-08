@@ -113,8 +113,18 @@ _PRESET_OFF_LISTS: dict[str, frozenset[str]] = {
     # rather than offer booking it can't use.
     "bakery": frozenset({"reservations", "events", "insights"}),
     "tea_shop": frozenset({"events", "insights"}),
+    # food_truck is food-service (keeps the food_service dashboard rhythm + 06:00
+    # cutoff from archetype.py) but has NO table floor / booking primitive — a
+    # mobile counter can't seat a reservation. Hide Reservations + Events so it is
+    # not offered a booking book it can't use (venueProfiles maps it to the
+    # 'generic' no-floor venue in the same batch).
+    "food_truck": frozenset({"reservations", "events"}),
     "takeaway": frozenset({"reservations", "events", "inventory", "insights"}),
-    "kiosk": frozenset({"reservations", "events", "inventory", "insights"}),
+    # kiosk is the MOST inventory-first retail sibling — it must inherit
+    # inventory-on like every other shop (retail → {reservations, events}). The
+    # earlier {…, "inventory", …} list was copy-pasted from takeaway (counter
+    # food, no stock module) and wrongly hid the Inventory pillar.
+    "kiosk": frozenset({"reservations", "events"}),
     "bar": frozenset({"events", "insights"}),
     "salon": frozenset({"events"}),
     # Phase A bug fix (BUG #2): retail is inventory-led with no floor/booking —
@@ -122,20 +132,29 @@ _PRESET_OFF_LISTS: dict[str, frozenset[str]] = {
     "retail": frozenset({"reservations", "events"}),
     "service": frozenset({"events"}),
     "general": frozenset({"events"}),
+    # Personal-finance mode: none of the business pillars apply — only Insights
+    # stays. Reservations/Events/Inventory/Staff make no sense for a private user
+    # (Layout.jsx also seeds mode='personal' from this business_type).
+    "personal": frozenset({"reservations", "events", "inventory", "staff"}),
 }
 
 # Archetype-level fallback (canonical ids from services/archetype.py). Keeps
-# the locked retail/services verdict ({events}) applying to every sibling
-# token of those archetypes without enumerating them all above. food_service
-# is deliberately ABSENT — restaurant vs cafe vs takeaway diverge sharply, so
-# food-service tokens must hit the exact table or fail open, never a blanket
-# archetype default. generic/personal/bar also stay out of the fallback (bar
-# is pinned exactly; generic/personal fail open).
+# the locked retail/services verdict ({reservations, events} — no floor/booking
+# primitive) applying to every sibling token of those archetypes without
+# enumerating them all above. food_service is deliberately ABSENT — restaurant
+# vs cafe vs takeaway diverge sharply, so food-service tokens must hit the exact
+# table or fail open, never a blanket archetype default. generic/personal/bar
+# also stay out of THIS fallback (bar is pinned exactly; personal is pinned
+# exactly in the raw-token table above; generic fails open).
 _PRESET_OFF_LISTS_BY_ARCHETYPE: dict[str, frozenset[str]] = {
     # Phase A (BUG #2): every retail sibling token (clothing/grocery/electronics/
     # …) hides Reservations by default — inventory-led, no floor/booking.
     "retail": frozenset({"reservations", "events"}),
-    "services": frozenset({"events"}),
+    # services (mobile_repair/laundry/workshop/…) are invoice-led with NO table
+    # / booking primitive — hide Reservations too (was leaking the restaurant-
+    # vocab booking book ON via the {events}-only list). A real service-booking
+    # flow is a separate roadmap item; until then don't offer the mismatched one.
+    "services": frozenset({"reservations", "events"}),
     "salon": frozenset({"events"}),
 }
 

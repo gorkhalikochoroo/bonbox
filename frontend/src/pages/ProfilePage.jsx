@@ -53,6 +53,20 @@ import { Button, Card, Icon, PageHeader } from "../components/ui";
 import { venueProfile, bookingModeFor } from "../config/venueProfiles";
 import { cutoffHourFor } from "../config/archetypes";
 
+// Every business_type value offered in the type <select> below — kept in parity
+// with RegisterPage's picker so a saved value can never fail to match an option.
+// Used to detect (and surface) a saved type that matches none of the rendered
+// options, so the controlled <select> never silently coerces it to the first
+// option (Restaurant) on the next save. Order groups food / retail / services /
+// other, mirroring RegisterPage.
+const PROFILE_BUSINESS_TYPES = [
+  "restaurant", "cafe", "bar", "bakery", "takeaway", "food_truck", "tea_shop",
+  "clothing", "online_clothing", "grocery", "veggie_shop", "kiosk", "electronics",
+  "pharmacy", "cosmetics", "stationery", "hardware", "flower_shop", "jewelry", "thrift",
+  "salon", "mobile_repair", "laundry",
+  "retail", "wholesale", "personal", "other",
+];
+
 /* ─── form primitives ─────────────────────────────────────────────
    Centralised here so every form field on the page lands at exactly
    the same height, radius, and focus colour. The old hand-rolled
@@ -784,17 +798,49 @@ export default function ProfilePage() {
                       onChange={(e) => setForm({ ...form, business_type: e.target.value })}
                       className={INPUT_CLASS}
                     >
-                      <option value="restaurant">{t("restaurantType")}</option>
-                      <option value="cafe">{t("cafeType")}</option>
-                      <option value="bar">{t("barType")}</option>
-                      <option value="bakery">{t("bakeryType")}</option>
-                      <option value="food_truck">{t("foodTruckType")}</option>
-                      <option value="retail">{t("retailShopType")}</option>
-                      <option value="clothing">{t("clothingStoreType")}</option>
-                      <option value="grocery">{t("groceryStoreType")}</option>
-                      <option value="salon">{t("salonBeautyType")}</option>
-                      <option value="pharmacy">{t("pharmacyType")}</option>
-                      <option value="other">{t("otherType")}</option>
+                      {/* Belt-and-suspenders: if the saved type isn't one of the
+                          options below (e.g. a workshop/freelancer signup, or a
+                          future type), surface it as its own option so saving
+                          never silently coerces it to the first option. */}
+                      {form.business_type
+                        && !PROFILE_BUSINESS_TYPES.includes(form.business_type) && (
+                        <option value={form.business_type}>{form.business_type}</option>
+                      )}
+                      <optgroup label={t("foodAndDrink")}>
+                        <option value="restaurant">{t("btRestaurant")}</option>
+                        <option value="cafe">{t("btCafe")}</option>
+                        <option value="bar">{t("btBar")}</option>
+                        <option value="bakery">{t("btBakery")}</option>
+                        <option value="takeaway">{t("btTakeaway")}</option>
+                        <option value="food_truck">{t("btFoodTruck")}</option>
+                        <option value="tea_shop">{t("btTeaShop")}</option>
+                      </optgroup>
+                      <optgroup label={t("retail")}>
+                        <option value="clothing">{t("btClothing")}</option>
+                        <option value="online_clothing">{t("btOnlineClothing")}</option>
+                        <option value="grocery">{t("btGrocery")}</option>
+                        <option value="veggie_shop">{t("btVeggieShop")}</option>
+                        <option value="kiosk">{t("btKiosk")}</option>
+                        <option value="electronics">{t("btElectronics")}</option>
+                        <option value="pharmacy">{t("btPharmacy")}</option>
+                        <option value="cosmetics">{t("btCosmetics")}</option>
+                        <option value="stationery">{t("btStationery")}</option>
+                        <option value="hardware">{t("btHardware")}</option>
+                        <option value="flower_shop">{t("btFlowerShop")}</option>
+                        <option value="jewelry">{t("btJewelry")}</option>
+                        <option value="thrift">{t("btThrift")}</option>
+                      </optgroup>
+                      <optgroup label={t("services")}>
+                        <option value="salon">{t("btSalon")}</option>
+                        <option value="mobile_repair">{t("btMobileRepair")}</option>
+                        <option value="laundry">{t("btLaundry")}</option>
+                      </optgroup>
+                      <optgroup label={t("other")}>
+                        <option value="retail">{t("btGeneralRetail")}</option>
+                        <option value="wholesale">{t("btWholesale")}</option>
+                        <option value="personal">{t("personalFinance")}</option>
+                        <option value="other">{t("other")}</option>
+                      </optgroup>
                     </select>
                   </Field>
                   <Field label={t("currencyLabel")}>
