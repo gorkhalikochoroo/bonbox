@@ -26,6 +26,14 @@ class DashboardSummary(BaseModel):
     top_expense_amount: float
     inventory_alerts: int  # count of items below threshold
     total_sales: int  # total number of sales ever recorded
+    # True iff the user has ANY first-touch activity (sale, inventory item,
+    # daily close, expense, invoice, or reservation). The first-run "Welcome
+    # to BonBox" screen keys off this — not total_sales alone — because no
+    # archetype's guided first action creates a Sale (café closes a
+    # kasserapport, salon books a reservation, services sends a faktura,
+    # personal logs an expense, retail adds inventory). Default False so
+    # older clients/tests that don't set it still validate.
+    has_activity: bool = False
     has_expense_categories: bool  # whether user has any expense categories
     has_inventory_items: bool  # whether user has any inventory items
     # Onboarding completion flags surfaced to the new-user checklist.

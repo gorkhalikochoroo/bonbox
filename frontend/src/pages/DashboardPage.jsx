@@ -420,7 +420,15 @@ export default function DashboardPage() {
         // "Welcome to BonBox" during the 600ms cold-start fetch.
         // Backend returns `total_sales` (see dashboard.py:300) — NOT
         // `lifetime_sale_count` (that field doesn't exist).
-        summary: { totalSales: summary ? (summary.total_sales ?? summary.sale_count ?? 0) : -1 },
+        // has_activity clears first-run for archetypes whose guided first
+        // action isn't a Sale (close / reservation / faktura / expense /
+        // inventory) + "Try sample data". This minimal object does NOT spread
+        // `summary`, so the field has to be carried explicitly or deriveActivations
+        // would fall back to `false` and strand those owners on Welcome.
+        summary: {
+          totalSales: summary ? (summary.total_sales ?? summary.sale_count ?? 0) : -1,
+          has_activity: summary ? (summary.has_activity ?? false) : false,
+        },
       },
       archetype,
     );
@@ -469,6 +477,9 @@ export default function DashboardPage() {
         ...(summary || {}),
         // KpiStrip + BusinessHealthCard look at these specific keys.
         currency,
+        // Explicit camel mirror of has_activity (snake already flows via the
+        // spread) — first-run clears on any activity, not just sales.
+        hasActivity: !!summary?.has_activity,
         totalSales: summary?.total_sales ?? summary?.sale_count ?? 0,
         todaySales: summary?.today_sale_count || 0,
         todayRevenue: summary?.today_revenue || 0,

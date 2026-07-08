@@ -49,7 +49,11 @@ logger = logging.getLogger(__name__)
 # env after this module has been imported. Default to bonbox.dk.
 def _app_base_url() -> str:
     import os
-    return (os.getenv("PUBLIC_APP_URL") or "https://app.bonbox.dk").rstrip("/")
+    # Default to www.bonbox.dk — the SPA's REAL host. app.bonbox.dk does not
+    # resolve (NXDOMAIN), so it would dead-end every booking-confirmation /
+    # self-cancel / reminder link + owner brief deep-link if PUBLIC_APP_URL is
+    # unset. Set PUBLIC_APP_URL in Render to override.
+    return (os.getenv("PUBLIC_APP_URL") or "https://www.bonbox.dk").rstrip("/")
 
 
 # ─────────────────────────────────────────────────────────────────
