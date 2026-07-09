@@ -382,7 +382,7 @@ export default function MultiTerminalClosePage() {
                         <>
                           <button
                             onClick={() => clearScan(term.id)}
-                            className="px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                            className="px-3 py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
                           >
                             {t("rescan") || "Rescan"}
                           </button>
@@ -400,7 +400,7 @@ export default function MultiTerminalClosePage() {
                           <button
                             onClick={() => fileInputRefs.current[term.id]?.click()}
                             disabled={isScanning}
-                            className="px-4 py-2 bg-[#22c55e] hover:bg-[#16a34a] text-white text-sm font-semibold rounded-lg disabled:opacity-50 transition"
+                            className="px-4 py-2 min-h-[44px] sm:min-h-0 bg-[#22c55e] hover:bg-[#16a34a] text-white text-sm font-semibold rounded-lg disabled:opacity-50 transition"
                           >
                             {isScanning ? (t("scanning") || "Scanning…") : `📸 ${t("scan") || "Scan"}`}
                           </button>
@@ -1098,7 +1098,7 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
         </a>
         <button
           onClick={onReset}
-          className="px-5 py-2 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold rounded-lg transition"
+          className="px-5 py-2 min-h-[44px] sm:min-h-0 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold rounded-lg transition"
         >
           {t("newClose") || "Start another close"}
         </button>
@@ -1180,7 +1180,7 @@ function RecipientButton({ recipient, title, text, t }) {
   return (
     <button
       onClick={handleClick}
-      className="px-3 py-1.5 text-xs font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-300 dark:hover:border-gray-500 rounded-lg transition flex items-center gap-1.5"
+      className="px-3 py-1.5 text-xs font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-300 dark:hover:border-gray-500 rounded-lg transition flex items-center gap-1.5 min-h-[44px] sm:min-h-0"
       title={recipient.target || ""}
     >
       <span>{meta.icon}</span>

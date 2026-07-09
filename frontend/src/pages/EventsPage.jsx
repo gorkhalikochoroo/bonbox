@@ -1311,7 +1311,7 @@ export default function EventsPage() {
                             e.stopPropagation();
                             copyEventLink(ev);
                           }}
-                          className="inline-flex items-center justify-center h-8 w-8 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+                          className="inline-flex items-center justify-center h-8 w-8 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
                           aria-label={t("eventShareLink", "Copy link")}
                           title={t("eventShareLink", "Copy link")}
                         >
@@ -1329,7 +1329,7 @@ export default function EventsPage() {
                             e.stopPropagation();
                             unpublishEvent(ev);
                           }}
-                          className="text-[11px] px-2 h-8 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+                          className="text-[11px] px-2 h-8 min-h-[44px] sm:min-h-0 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
                           aria-label={t(
                             "eventPublishUnpublish",
                             "Unpublish",
@@ -1344,7 +1344,7 @@ export default function EventsPage() {
                             e.stopPropagation();
                             publishEvent(ev);
                           }}
-                          className="text-[11px] px-2 h-8 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
+                          className="text-[11px] px-2 h-8 min-h-[44px] sm:min-h-0 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors"
                           aria-label={t("eventPublishAction", "Publish")}
                           title={t("eventPublishAction", "Publish")}
                         >
@@ -1356,7 +1356,7 @@ export default function EventsPage() {
                           e.stopPropagation();
                           deleteEvent(ev.id);
                         }}
-                        className="text-xs text-gray-400 hover:text-red-600 w-8 h-8 inline-flex items-center justify-center"
+                        className="text-xs text-gray-400 hover:text-red-600 w-8 h-8 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center"
                         aria-label={t("delete", "Delete")}
                       >
                         ×

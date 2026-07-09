@@ -2577,7 +2577,7 @@ function AvailabilityTab({ token }) {
                 </div>
                 <button
                   onClick={() => remove(row.id)}
-                  className="w-8 h-8 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition shrink-0"
+                  className="w-8 h-8 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition shrink-0"
                   aria-label={t("kanIkkeRemove", "Remove")}
                 >
                   <X className="w-4 h-4" strokeWidth={2} aria-hidden />
@@ -3742,7 +3742,7 @@ export default function StaffPortalPage() {
                 key={item.key}
                 onClick={() => setTab(item.key)}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex flex-col items-center gap-0.5 px-4 py-1 rounded-lg transition-colors ${
+                className={`relative flex flex-col items-center gap-0.5 px-1.5 sm:px-4 py-1 rounded-lg transition-colors ${
                   active ? "" : "text-gray-400"
                 }`}
                 style={active ? { color: "rgb(var(--brand-600))" } : undefined}

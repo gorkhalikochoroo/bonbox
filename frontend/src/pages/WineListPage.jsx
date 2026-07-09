@@ -198,7 +198,7 @@ export default function WineListPage() {
           { id: "sommelier", label: t("wineTabSommelier"), icon: "🤖" },
         ].map(tb => (
           <button key={tb.id} onClick={() => setTab(tb.id)}
-            className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
+            className={`flex-1 py-2.5 rounded-lg text-xs sm:text-sm font-medium transition ${
               tab === tb.id ? "bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white"
                 : "text-gray-500 dark:text-gray-400 hover:text-gray-700"
             }`}>
@@ -212,7 +212,7 @@ export default function WineListPage() {
         <>
           {/* Filters */}
           <div className="flex flex-wrap gap-2 items-center">
-            <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 flex-wrap">
+            <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 flex-nowrap overflow-x-auto w-full sm:w-auto sm:flex-wrap sm:overflow-visible [&>*]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {WINE_TYPES.map(wt => (
                 <button key={wt.key} onClick={() => { setFilter(wt.key); setSelected(new Set()); }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
@@ -385,7 +385,7 @@ function WineCard({ wine: w, currency, isSelected, onToggle, onSell, onDelete })
           )}
         </div>
 
-        <div className="flex items-center gap-4 flex-shrink-0 text-right">
+        <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0 text-right">
           <div>
             <p className={`text-sm font-bold ${marginColor}`}>{w.margin_pct}%</p>
             <p className="text-[10px] text-gray-400">{t("wineMarginLabel", "margin")}</p>

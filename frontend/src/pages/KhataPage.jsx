@@ -299,7 +299,7 @@ export default function KhataPage() {
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-2 mt-2">
+                <div className="flex gap-2 mt-2 min-h-[44px] sm:min-h-0">
                   <button onClick={(e) => { e.stopPropagation(); setEditCust(c); setCustForm({ name: c.name, phone: c.phone || "", address: c.address || "" }); setShowAddCustomer(true); }}
                     className="text-xs text-blue-600 hover:underline">{t("edit")}</button>
                   <button onClick={(e) => { e.stopPropagation(); handleDeleteCustomer(c.id); }}
@@ -507,7 +507,7 @@ export default function KhataPage() {
               </div>
             </>
           ) : (
-            <div className="p-12 text-center text-gray-400">
+            <div className="p-8 sm:p-12 text-center text-gray-400">
               <p className="text-4xl mb-3">📋</p>
               <p className="text-lg font-medium">{t("selectCustomer")}</p>
               <p className="text-sm">{t("selectCustomerDesc")}</p>

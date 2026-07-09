@@ -789,7 +789,7 @@ export default function StaffPayrollPage() {
                         setError(t("payrollCsvFailed", "Could not generate CSV."));
                       }
                     }}
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition"
+                    className="px-3 py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium rounded-lg bg-gray-900 dark:bg-white text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-gray-100 transition"
                   >
                     {t("payrollDownloadCsv", "Download summary CSV (for DataLøn / Zenegy)")}
                   </button>
@@ -810,7 +810,7 @@ export default function StaffPayrollPage() {
                         setError(e?.response?.status === 404 ? t("payrollNoHoursLogged", "No staff hours logged in this period.") : t("payrollLoenseddelFailed", "Could not generate Lønseddel."));
                       }
                     }}
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                    className="px-3 py-1.5 min-h-[44px] sm:min-h-0 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
                   >
                     {t("payrollLoenseddelPdf", "Lønseddel PDF (one per employee)")}
                   </button>

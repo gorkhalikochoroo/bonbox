@@ -108,7 +108,7 @@ function DateStrip({ today, dayMap, value, onPick, t }) {
             aria-pressed={active}
             aria-label={closed ? `${fmt(iso)} — ${t("rsvpClosed", "lukket")}` : fmt(iso)}
             className={[
-              "shrink-0 rounded-xl px-3 py-2 text-sm border transition text-center min-w-[76px] leading-tight",
+              "shrink-0 rounded-xl px-3 py-2 text-sm border transition text-center min-w-[76px] min-h-[44px] sm:min-h-0 leading-tight",
               active
                 ? "border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900"
                 : "border-gray-200 text-gray-700 hover:border-gray-400 dark:border-gray-700 dark:text-gray-300",
@@ -1557,7 +1557,7 @@ export default function ReservationPublicPage() {
                 behandler + duration + dato/tid (e.g. "Klip · Marta · 30 min ·
                 lørdag 13. juni 14:00", or "Valgfri behandler"). Table venues
                 keep the date · time · party · table line. */}
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-4 py-3 flex items-center gap-3 text-sm text-gray-700 dark:text-gray-300">
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/60 px-4 py-3 flex flex-wrap sm:flex-nowrap items-center gap-3 text-sm text-gray-700 dark:text-gray-300">
               <Calendar size={16} strokeWidth={1.75} className="text-gray-500 shrink-0" />
               {isProvider ? (
                 <span className="min-w-0">
@@ -1713,7 +1713,7 @@ export default function ReservationPublicPage() {
                   type="button"
                   onClick={() => setDetailsOpen(true)}
                   aria-expanded="false"
-                  className="w-full text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
+                  className="w-full min-h-[44px] sm:min-h-0 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
                 >
                   {t("rsvpAddNote", "Add a message or special request (optional)")}
                 </button>

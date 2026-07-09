@@ -573,7 +573,7 @@ export default function PersonalPage() {
       </div>
 
       {/* Add entry */}
-      <div className="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
         <h2 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">{t("addEntry")}</h2>
         <p className="text-sm text-gray-400 mb-4">{t("pickCategoryOrType")}</p>
 
@@ -654,7 +654,7 @@ export default function PersonalPage() {
           <div className="flex gap-1">
             {["cash", "card", "bankTransfer"].map((m) => (
               <button key={m} onClick={() => setMethod(m === "bankTransfer" ? "bank_transfer" : m)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+                className={`px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg text-sm font-medium ${
                   method === (m === "bankTransfer" ? "bank_transfer" : m) ? "bg-purple-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300"
                 }`}>{t(m)}</button>
             ))}
@@ -679,7 +679,7 @@ export default function PersonalPage() {
             <div className="flex gap-1 ml-2">
               {[{ key: "all", label: "all" }, { key: "income", label: "income" }, { key: "spent", label: "expense" }].map(({ key, label }) => (
                 <button key={key} onClick={() => setTab(key)}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition ${
+                  className={`px-2.5 py-1 min-h-[44px] sm:min-h-0 rounded text-xs font-medium transition ${
                     tab === key ? "bg-purple-600 text-white" : "bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400"
                   }`}>{t(label)}</button>
               ))}
