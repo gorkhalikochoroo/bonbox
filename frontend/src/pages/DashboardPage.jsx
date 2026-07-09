@@ -593,8 +593,10 @@ export default function DashboardPage() {
     else greet = tr("goodEvening", "Good evening");
     const rawName = user?.business_name?.trim() || "";
     const looksLikeAppName = /^bonbox$/i.test(rawName);
-    const displayName =
-      !rawName || looksLikeAppName ? user?.email?.split("@")[0] || "" : rawName;
+    // Greet by the real business name, or not at all. The old email-handle
+    // fallback rendered "Good evening, gorkhalikochoroo" — a raw login handle
+    // reads worse than a clean "Good evening".
+    const displayName = !rawName || looksLikeAppName ? "" : rawName;
     return displayName ? `${greet}, ${displayName}` : greet;
   }, [t, user]);
 
