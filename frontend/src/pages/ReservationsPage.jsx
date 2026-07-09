@@ -3105,7 +3105,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
               }
               aria-label={t("rsvpOpenStand", "Open host-stand view")}
               title={t("rsvpOpenStand", "Open host-stand view")}
-              className="inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
+              className="hidden sm:inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
             >
               <ExternalLink className="w-5 h-5" />
             </button>
@@ -3152,8 +3152,13 @@ function BookSection({ t, businessType, tableFloor = false }) {
           Awaiting are click-to-filter into the list; Next arrival opens that
           booking; Belægning is a calm fill gauge. Awaiting goes amber when
           requests pile up — otherwise the whole row stays calm gray. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+      {/* On mobile these six vitals pack into a compact 3-across, 2-row grid
+          (dense tiles, tighter gap) so they read as a glance-bar instead of
+          four rows of tall cards pushing the booking list off-screen. From
+          sm: up it's the original 3-col → 6-col layout at full scale. */}
+      <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
         <StatCard
+          dense
           label={t("rsvpCovers", "Covers")}
           value={summary.covers}
           helper={
@@ -3163,6 +3168,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
           }
         />
         <StatCard
+          dense
           label={t("rsvpSeatedNow", "Seated now")}
           value={seatedCount}
           helper={t("rsvpSeatedHelper", "in the room")}
@@ -3170,12 +3176,14 @@ function BookSection({ t, businessType, tableFloor = false }) {
           selected={view === "liste" && statusFilter === "seated"}
         />
         <StatCard
+          dense
           label={t("rsvpNextArrival", "Next arrival")}
           value={nextArrival ? fmtTime(nextArrival.starts_at) : "—"}
           helper={nextArrivalHelper}
           onClick={nextArrival ? () => openDrawer(nextArrival) : null}
         />
         <StatCard
+          dense
           label={t("rsvpAwaiting", "Awaiting")}
           value={requestedCount}
           accent={requestedCount > 0 ? "warn" : "neutral"}
@@ -3184,7 +3192,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
           selected={view === "liste" && statusFilter === "requested"}
         />
         <StatCard
-          className="col-span-2 sm:col-span-1"
+          dense
           label={t("rsvpUtilization", "Occupancy")}
           value={peakPct == null ? "—" : `${peakPct}%`}
           helper={
@@ -3196,6 +3204,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
           }
         />
         <StatCard
+          dense
           label={t("rsvpWlCockpitToday", "On waitlist")}
           value={waitlistCount}
           accent={waitlistCount > 0 ? "warn" : "neutral"}
