@@ -101,7 +101,7 @@ export default function StatCard({
   // selected state pulls in a 1px gray-900 ring + gray-50 surface,
   // matching the sidebar's "active item" treatment exactly (Layout.jsx).
   const baseChrome =
-    "rounded-xl border px-4 py-3.5 text-left transition " +
+    "rounded-xl border text-left transition " + padClass + " " +
     (selected
       ? "ring-1 ring-gray-900 dark:ring-gray-100 bg-gray-50 dark:bg-gray-900/60 border-gray-300 dark:border-gray-700 "
       : "bg-white border-gray-200 dark:bg-gray-900 dark:border-gray-800 ");
@@ -143,7 +143,7 @@ export default function StatCard({
           matters more than a flashier font. */}
       <p
         className={
-          "text-[26px] font-bold tabular-nums leading-tight mt-0.5 " + valueClass
+          valueSizeClass + " font-bold tabular-nums leading-tight mt-0.5 " + valueClass
         }
       >
         {value}
