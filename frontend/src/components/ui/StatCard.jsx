@@ -76,9 +76,19 @@ export default function StatCard({
   // announce the relationship. Falls back to inferring from `selected`.
   ariaExpanded = undefined,
   ariaControls = undefined,
+  // Dense — shrinks padding + value size ON MOBILE ONLY (sm: restores the
+  // full scale). Lets a caller pack a row of tiles into a tighter phone
+  // grid without touching tablet/desktop. Default false → byte-identical
+  // to the original classes for every existing caller.
+  dense = false,
 }) {
   const valueClass = ACCENT_VALUE_CLASS[accent] || ACCENT_VALUE_CLASS.neutral;
   const isClickable = typeof onClick === "function";
+
+  // Dense scale is mobile-only: the sm: breakpoint always lands back on the
+  // canonical px-4 py-3.5 / 26px so tablet + desktop stay pixel-identical.
+  const padClass = dense ? "px-3 py-2.5 sm:px-4 sm:py-3.5" : "px-4 py-3.5";
+  const valueSizeClass = dense ? "text-[20px] sm:text-[26px]" : "text-[26px]";
 
   // Label class shifts to gray-900 when selected — quiet but unambiguous
   // active state. Stays gray-400 in the default + non-selected hover state
