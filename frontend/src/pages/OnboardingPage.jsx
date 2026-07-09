@@ -1318,7 +1318,7 @@ export default function OnboardingPage() {
                         setTax((tx) => ({ ...tx, day_cutoff_mode: "custom" }));
                       }}
                       aria-label={t("onbStep3CutoffCustomAria")}
-                      className="w-16 px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-center focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
+                      className="w-16 min-h-[44px] sm:min-h-0 px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-center focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400"
                     />
                     <span className="text-[11px] text-gray-500 dark:text-gray-400 shrink-0">
                       {t("onbStep3CutoffCustomSuffix")}
@@ -1776,7 +1776,7 @@ function StepFooter({
   primaryBusy = false,
 }) {
   return (
-    <div className="mt-8 pt-5 border-t border-gray-200 dark:border-gray-800 flex items-center justify-between gap-3">
+    <div className="mt-8 pt-5 border-t border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3 sm:flex-nowrap">
       <Button variant="ghost" onClick={onBack} disabled={backDisabled}>
         {backLabel}
       </Button>
