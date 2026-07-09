@@ -846,10 +846,10 @@ export default function Layout() {
             to="/profile"
             onClick={closeSidebar}
             className={({ isActive }) =>
-              `flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition ${isActive ? activeClass : inactiveClass}`
+              `flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs font-medium transition ${isActive ? activeClass : inactiveClass}`
             }
           >
-            <span className="w-5 flex items-center justify-center"><Icon name="User" size={15} /></span>
+            <span className="w-5 flex items-center justify-center"><Icon name="User" size={14} /></span>
             {t("profile")}
           </NavLink>
           {/* Help & feedback — the discoverable desktop entry to the support
@@ -858,29 +858,29 @@ export default function Layout() {
               global listener opens the modal (z-50) over everything. */}
           <button
             onClick={() => { closeSidebar(); window.dispatchEvent(new Event("bonbox:open-support")); }}
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
           >
-            <span className="w-5 flex items-center justify-center"><Icon name="MessageSquare" size={15} /></span>
+            <span className="w-5 flex items-center justify-center"><Icon name="MessageSquare" size={14} /></span>
             {t("helpFeedback") || "Help & feedback"}
           </button>
           <button
             onClick={toggleDark}
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
           >
-            <span className="w-5 flex items-center justify-center"><Icon name={dark ? "Sun" : "Moon"} size={15} /></span>
+            <span className="w-5 flex items-center justify-center"><Icon name={dark ? "Sun" : "Moon"} size={14} /></span>
             {dark ? t("lightMode") : t("darkMode")}
           </button>
           {/* Language — same footer-row treatment as Profile / Dark mode:
               a Lucide Globe + the short code (EN / DK), no flag emoji, no
               bordered box. Keeps the footer one consistent icon+text set so
               the dark-mode glyph sits flush with its neighbours. */}
-          <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
-            <span className="w-5 flex items-center justify-center"><Icon name="Globe" size={15} /></span>
+          <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition">
+            <span className="w-5 flex items-center justify-center"><Icon name="Globe" size={14} /></span>
             <select
               value={lang}
               onChange={(e) => setLang(e.target.value)}
               aria-label="Language"
-              className="bg-transparent text-[13px] font-medium outline-none cursor-pointer pr-1"
+              className="bg-transparent text-xs font-medium outline-none cursor-pointer pr-1"
             >
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>
@@ -891,9 +891,9 @@ export default function Layout() {
           </div>
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition font-medium"
+            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition font-medium"
           >
-            <span className="w-5 flex items-center justify-center"><Icon name="LogOut" size={15} /></span>
+            <span className="w-5 flex items-center justify-center"><Icon name="LogOut" size={14} /></span>
             {t("signOut")}
           </button>
         </div>
