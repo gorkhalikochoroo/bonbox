@@ -501,7 +501,7 @@ export default function BankImportPage() {
               onDragOver={onDragOver}
               onDragLeave={onDragLeave}
               onClick={() => fileRef.current?.click()}
-              className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-10 text-center cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
+              className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 sm:p-10 text-center cursor-pointer hover:border-blue-400 dark:hover:border-blue-500 transition-colors"
             >
               <input
                 ref={fileRef}
@@ -722,7 +722,7 @@ export default function BankImportPage() {
          ═══════════════════════════════════════════ */}
       {step === "done" && result && (
         <FadeIn>
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-8 border border-gray-100 dark:border-gray-700 shadow-sm text-center space-y-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 sm:p-8 border border-gray-100 dark:border-gray-700 shadow-sm text-center space-y-4">
             <div className="flex justify-center text-emerald-600">
               <Icon name="CheckCircle2" size={48} />
             </div>
@@ -910,7 +910,7 @@ export default function BankImportPage() {
                             if (sel) toggleChosen(txn.txn_id, sel);
                           }}
                           disabled={isSkipped}
-                          className="flex-1 min-w-0 px-2.5 py-1.5 text-xs sm:text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 disabled:opacity-50"
+                          className="flex-1 min-w-0 min-h-[44px] sm:min-h-0 px-2.5 py-1.5 text-xs sm:text-sm rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 disabled:opacity-50"
                         >
                           {txn.suggestions.map((s) => (
                             <option key={s.target_id} value={s.target_id}>

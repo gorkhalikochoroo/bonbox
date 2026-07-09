@@ -207,7 +207,7 @@ function UpcomingEventsList({ events, loading, onPick, t }) {
           cta={
             <Link
               to="/events"
-              className="inline-flex h-9 items-center justify-center px-3.5 text-sm font-medium rounded-lg bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
+              className="inline-flex h-9 min-h-[44px] sm:min-h-0 items-center justify-center px-3.5 text-sm font-medium rounded-lg bg-gray-100 text-gray-800 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700"
             >
               {t("openEvents", "Åbn arrangementer")}
             </Link>

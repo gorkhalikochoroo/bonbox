@@ -309,7 +309,7 @@ export default function WeatherPage({ embedded = false }) {
             <button
               onClick={syncWeather}
               disabled={syncing}
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition disabled:opacity-50"
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition disabled:opacity-50 min-h-[44px] sm:min-h-0"
             >
               {syncing ? t("wxSyncing", "Syncing...") : `⚡ ${t("wxSyncWeatherData", "Sync Weather Data")}`}
             </button>
@@ -349,7 +349,7 @@ export default function WeatherPage({ embedded = false }) {
           <button
             onClick={syncWeather}
             disabled={syncing}
-            className="px-3 py-1.5 text-xs bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition disabled:opacity-50"
+            className="px-3 py-1.5 text-xs bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition disabled:opacity-50 min-h-[44px] sm:min-h-0"
           >
             {syncing ? "..." : `↻ ${t("wxSync", "Sync")}`}
           </button>

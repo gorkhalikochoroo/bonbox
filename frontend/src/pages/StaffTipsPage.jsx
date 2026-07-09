@@ -456,7 +456,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                         min="0"
                         value={row.hours || ""}
                         onChange={e => updateStaffHours(row.staff_id, e.target.value)}
-                        className="w-20 px-2 py-1.5 text-sm text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
+                        className="w-20 px-2 py-1.5 min-h-[44px] sm:min-h-0 text-sm text-right border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:outline-none focus:ring-1 focus:ring-gray-400"
                         placeholder="0"
                       />
                     </td>
@@ -556,7 +556,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
                   <h2 className="text-lg font-bold dark:text-white">{"\u2705"} {t("stDistributionPreview", "Distribution Preview")}</h2>
                   <button
                     onClick={() => setShowPreview(false)}
-                    className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    className="text-sm text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 inline-flex items-center justify-end min-h-[44px] min-w-[44px] sm:inline-block sm:min-h-0 sm:min-w-0"
                   >
                     {t("close", "Close")}
                   </button>

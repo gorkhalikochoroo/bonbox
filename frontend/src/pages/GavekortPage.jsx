@@ -1221,7 +1221,7 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
         style={{ paddingRight: "env(safe-area-inset-right)" }}
       >
         {/* Header */}
-        <div className="shrink-0 flex items-start justify-between gap-3 p-5 border-b border-gray-200 dark:border-gray-800">
+        <div className="shrink-0 flex items-start justify-between gap-3 p-5 pt-[max(1.25rem,env(safe-area-inset-top))] border-b border-gray-200 dark:border-gray-800">
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
               {t("gkDetailEyebrow", "Gavekort")}

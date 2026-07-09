@@ -304,7 +304,7 @@ export default function StaffingPage({ embedded = false }) {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-1 md:grid-cols-3 gap-4">
                 <SummaryCard title={t("slowDaysAhead")} value={recs.filter((r) => r.business_level?.toLowerCase().includes("slow")).length} subtitle={t("reduceStaff")} color="text-emerald-600" />
                 <SummaryCard title={t("normalDays")} value={recs.filter((r) => r.business_level?.toLowerCase().includes("normal")).length} subtitle={t("standardStaffing")} color="text-blue-600" />
                 <SummaryCard title={t("busyDaysAhead")} value={recs.filter((r) => r.business_level?.toLowerCase().includes("busy")).length} subtitle={t("extraStaff")} color="text-orange-600" />
@@ -457,7 +457,7 @@ export default function StaffingPage({ embedded = false }) {
               <input type="number" placeholder={t("staffNeeded")} value={ruleForm.recommended_staff}
                 onChange={(e) => setRuleForm({ ...ruleForm, recommended_staff: e.target.value })}
                 className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white" required />
-              <button type="submit" className="bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition text-sm font-medium">
+              <button type="submit" className="bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition text-sm font-medium min-h-[44px] sm:min-h-0">
                 {t("addRule")}
               </button>
             </form>
@@ -469,7 +469,7 @@ export default function StaffingPage({ embedded = false }) {
                       <span className="font-medium">{rule.label}</span> — <Amount value={rule.revenue_min} currency={currency} />–<Amount value={rule.revenue_max} currency={currency} />
                       → <span className="font-bold">{rule.recommended_staff} {t("staff")}</span>
                     </span>
-                    <button onClick={() => deleteRule(rule.id)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-sm">{t("remove")}</button>
+                    <button onClick={() => deleteRule(rule.id)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-sm min-h-[44px] sm:min-h-0">{t("remove")}</button>
                   </div>
                 ))}
               </div>
@@ -603,7 +603,7 @@ export default function StaffingPage({ embedded = false }) {
                 onChange={e => setLogForm({ ...logForm, labor_cost: e.target.value })}
                 className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
               />
-              <button type="submit" className="bg-gray-900 text-white py-2 rounded-lg hover:bg-gray-700 transition text-sm font-medium">
+              <button type="submit" className="bg-gray-900 text-white py-2 rounded-lg hover:bg-gray-700 transition text-sm font-medium min-h-[44px] sm:min-h-0">
                 {t("staffingTabLog", "Log Staff")}
               </button>
             </form>

@@ -220,7 +220,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
             {t("keysStoredSecurely") || "Your keys are stored securely and only used to fetch your transactions. BonBox never stores your customers' payment details."}
           </p>
 
-          <div className="flex gap-3 pt-1">
+          <div className="flex flex-col sm:flex-row gap-3 pt-1">
             <Button variant="primary" size="lg" onClick={() => setStep(1)} className="flex-1">
               {t("iHaveKeysLetsGo") || "I have my keys — let's go"}
             </Button>
@@ -257,7 +257,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
         icon={
           <button
             onClick={() => setStep(0)}
-            className="w-7 h-7 -ml-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center text-gray-500 transition"
+            className="w-7 h-7 min-w-[44px] sm:min-w-0 -ml-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center justify-center text-gray-500 transition"
             aria-label={t("back") || "Back"}
           >
             <ChevronLeft size={16} />
