@@ -168,7 +168,7 @@ export default function TaxAutopilotPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm opacity-80">{t("taxNextFiling", { taxName: tax_name })}</p>
-              <p className="text-4xl font-bold mt-1">
+              <p className="text-3xl sm:text-4xl font-bold mt-1">
                 {nextDeadline.days_until < 0
                   ? t("taxDaysOverdue", { n: Math.abs(nextDeadline.days_until) })
                   : nextDeadline.days_until === 0
@@ -790,7 +790,7 @@ function ReconCard({ recon, taxName, currency }) {
 
           {/* YTD line */}
           {yt && yt.closes_count > 0 && (
-            <div className="mt-2 pt-2 border-t border-gray-200/40 dark:border-gray-700/40 flex items-center justify-between text-xs text-gray-400">
+            <div className="mt-2 pt-2 border-t border-gray-200/40 dark:border-gray-700/40 flex flex-col gap-1 sm:flex-row sm:gap-0 sm:items-center sm:justify-between text-xs text-gray-400">
               <span>{t("taxReconYtdLine", { n: yt.closes_count, amount: formatOwnerMoney(yt.moms_from_closes, currency), taxName })}</span>
               <span>{t("taxReconYtdSalesLine", { amount: formatOwnerMoney(yt.moms_from_sales, currency), taxName })}</span>
             </div>

@@ -401,7 +401,7 @@ export default function TeamPage() {
         <FadeIn>
           <div className="space-y-3">
             {members.map((m) => (
-              <div key={m.id} className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm flex items-center gap-4">
+              <div key={m.id} className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm flex items-center gap-2 sm:gap-4">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-semibold text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 uppercase">
                   {(m.business_name || m.email).slice(0, 2)}
                 </div>

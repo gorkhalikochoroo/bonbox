@@ -503,7 +503,7 @@ export default function ReportsPage() {
                   + Anvend. The resolved [start,end] drives the cards and the
                   MOMS number (recomputed server-side via the filing engine). */}
               <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-3 sm:p-4 space-y-3">
-                <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("periodType")}>
+                <div className="flex flex-nowrap items-center gap-2 overflow-x-auto sm:flex-wrap sm:overflow-visible [&>*]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" role="group" aria-label={t("periodType")}>
                   <span className="text-xs font-medium text-gray-500 dark:text-gray-400 mr-1">{t("periodType")}</span>
                   {periodTypeTabs.map((pt) => {
                     const on = periodType === pt.id;
@@ -598,16 +598,16 @@ export default function ReportsPage() {
                 </div>
               ) : overview && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <StatCard label={t("revenue")} value={money(overview.revenue)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
-                  <StatCard label={t("expenses")} value={money(overview.expenses)} helper={`${fmt(overview.total_expense_count)} ${t("entries")}`} />
-                  <StatCard label={t("netProfit")} value={money(overview.net_profit)} helper={overview.has_expenses && overview.revenue > 0 ? `${Math.round((overview.net_profit/overview.revenue)*100)}% ${t("margin")}` : "—"} accent={overview.net_profit < 0 ? "critical" : "neutral"} />
-                  <StatCard label={`${vat.vatName} ${t("payable")}`} value={money(overview.vat_payable)} helper={`${t("to")} ${vat.taxAuthority}`} />
-                  <StatCard label={t("stockValue")} value={money(overview.inventory_value)} helper={`${overview.low_stock_count} ${t("lowStock")}`} accent={overview.low_stock_count > 0 ? "warn" : "neutral"} />
-                  <StatCard label={t("khataOutstanding")} value={money(overview.khata_outstanding)} helper={t("creditOwed")} />
-                  <StatCard label={t("cashIn")} value={money(overview.cash_in)} />
-                  <StatCard label={t("cashOut")} value={money(overview.cash_out)} />
-                  <StatCard label={t("avgPerSale") || "Avg/Sale"} value={money(overview.avg_per_sale)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
-                  <StatCard label={t("avgDailySales") || "Avg/Day"} value={money(overview.avg_daily_sales)} helper={`${overview.days_with_sales || 0} ${t("days") || "days"}`} />
+                  <StatCard dense label={t("revenue")} value={money(overview.revenue)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
+                  <StatCard dense label={t("expenses")} value={money(overview.expenses)} helper={`${fmt(overview.total_expense_count)} ${t("entries")}`} />
+                  <StatCard dense label={t("netProfit")} value={money(overview.net_profit)} helper={overview.has_expenses && overview.revenue > 0 ? `${Math.round((overview.net_profit/overview.revenue)*100)}% ${t("margin")}` : "—"} accent={overview.net_profit < 0 ? "critical" : "neutral"} />
+                  <StatCard dense label={`${vat.vatName} ${t("payable")}`} value={money(overview.vat_payable)} helper={`${t("to")} ${vat.taxAuthority}`} />
+                  <StatCard dense label={t("stockValue")} value={money(overview.inventory_value)} helper={`${overview.low_stock_count} ${t("lowStock")}`} accent={overview.low_stock_count > 0 ? "warn" : "neutral"} />
+                  <StatCard dense label={t("khataOutstanding")} value={money(overview.khata_outstanding)} helper={t("creditOwed")} />
+                  <StatCard dense label={t("cashIn")} value={money(overview.cash_in)} />
+                  <StatCard dense label={t("cashOut")} value={money(overview.cash_out)} />
+                  <StatCard dense label={t("avgPerSale") || "Avg/Sale"} value={money(overview.avg_per_sale)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
+                  <StatCard dense label={t("avgDailySales") || "Avg/Day"} value={money(overview.avg_daily_sales)} helper={`${overview.days_with_sales || 0} ${t("days") || "days"}`} />
                 </div>
               )}
 

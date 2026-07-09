@@ -1592,7 +1592,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <p className="text-gray-100 text-sm mb-5">
                 {t("scanZReportBody", "Take photos or upload images of your Z-report — add multiple pages and we'll merge the results.")}
               </p>
-              <div className="flex gap-3 justify-center">
+              <div className="flex flex-wrap gap-3 justify-center sm:flex-nowrap">
                 <button
                   onClick={() => { if (fileInputRef.current) { fileInputRef.current.setAttribute("capture", "environment"); fileInputRef.current.click(); } }}
                   className="px-5 py-2.5 bg-white text-gray-700 rounded-xl font-semibold shadow-sm hover:shadow-sm transition text-sm inline-flex items-center gap-1.5">
@@ -1611,7 +1611,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   "with VAT (gross)" and a Danish user sees "with Moms
                   (gross)" — fixes the #148 MEDIUM-10 mix where this
                   block hardcoded "MOMS" while siblings used `vatName`. */}
-              <div className="mt-4 flex items-center gap-2 justify-center">
+              <div className="mt-4 flex flex-wrap items-center gap-2 justify-center sm:flex-nowrap">
                 <span className="text-xs text-gray-100">{t("receiptAmountsAre", "Receipt amounts are:")}</span>
                 <button
                   onClick={() => setScanMomsMode("with-moms")}
