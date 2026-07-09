@@ -159,3 +159,121 @@ def test_subject_length_140_chars_persists(db):
     t = _ticket(db, user, subject=long_subject)
     fetched = db.query(SupportTicket).filter(SupportTicket.id == t.id).first()
     assert len(fetched.subject) == 140
+
+
+# ─── Admin-mail notification (the "connected to my admin mail" half) ──────
+
+from types import SimpleNamespace  # noqa: E402
+from app.routers import support as support_router  # noqa: E402
+
+
+def _fake_ticket(**over):
+    base = dict(
+        id=uuid.uuid4(), user_id=uuid.uuid4(), kind="bug",
+        subject="Login broken", body="It crashes", context=None,
+        is_priority=False, response_text=None,
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def _capture_send_email(monkeypatch):
+    calls = []
+
+    def fake_send_email(**kwargs):
+        calls.append(kwargs)
+        return True
+
+    monkeypatch.setattr("app.services.email_service.send_email", fake_send_email)
+    return calls
+
+
+def test_notify_recipients_prefers_explicit_env(monkeypatch):
+    monkeypatch.setenv("SUPPORT_NOTIFY_EMAIL", "support@bonbox.dk")
+    assert support_router._admin_notify_recipients() == ["support@bonbox.dk"]
+
+
+def test_notify_recipients_falls_back_to_superadmin_allowlist(monkeypatch):
+    monkeypatch.delenv("SUPPORT_NOTIFY_EMAIL", raising=False)
+    monkeypatch.setattr(support_router, "_allowed_emails", lambda: ["founder@bonbox.dk"])
+    assert support_router._admin_notify_recipients() == ["founder@bonbox.dk"]
+
+
+def test_admin_notification_emails_founder_with_reply_to_owner(monkeypatch):
+    calls = _capture_send_email(monkeypatch)
+    monkeypatch.setattr(support_router, "_admin_notify_recipients", lambda: ["founder@bonbox.dk"])
+    owner = SimpleNamespace(email="cafe@owner.dk")
+    support_router._send_admin_notification(ticket=_fake_ticket(), owner=owner)
+    assert len(calls) == 1
+    assert calls[0]["to"] == "founder@bonbox.dk"
+    # Reply-To = the owner, so hitting Reply reaches the person who reported it.
+    assert calls[0]["reply_to"] == "cafe@owner.dk"
+    assert "Login broken" in calls[0]["subject"]
+
+
+def test_admin_notification_noop_when_no_recipients(monkeypatch):
+    calls = _capture_send_email(monkeypatch)
+    monkeypatch.setattr(support_router, "_admin_notify_recipients", lambda: [])
+    support_router._send_admin_notification(ticket=_fake_ticket(), owner=SimpleNamespace(email="x@y.dk"))
+    assert calls == []
+
+
+def test_admin_notification_escapes_owner_html(monkeypatch):
+    """A crafted body must not inject markup into the founder's mail client."""
+    calls = _capture_send_email(monkeypatch)
+    monkeypatch.setattr(support_router, "_admin_notify_recipients", lambda: ["founder@bonbox.dk"])
+    evil = _fake_ticket(body="<script>alert(1)</script>", subject="<b>x</b>")
+    support_router._send_admin_notification(ticket=evil, owner=SimpleNamespace(email="e@v.il"))
+    html = calls[0]["html"]
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+# ─── Owner reply email (makes "we'll reply by email" true) ───────────────
+
+
+def test_owner_response_email_reply_to_uses_support_alias(monkeypatch):
+    calls = _capture_send_email(monkeypatch)
+    monkeypatch.delenv("SUPPORT_REPLY_TO", raising=False)
+    monkeypatch.setenv("SUPPORT_NOTIFY_EMAIL", "support@bonbox.dk")
+    tk = _fake_ticket(response_text="Fixed in the next deploy 🙏", subject="Login broken")
+    owner = SimpleNamespace(email="cafe@owner.dk")
+    support_router._send_owner_response_email(ticket=tk, owner=owner)
+    assert len(calls) == 1
+    assert calls[0]["to"] == "cafe@owner.dk"
+    assert calls[0]["reply_to"] == "support@bonbox.dk"
+    assert "Fixed in the next deploy" in calls[0]["html"]
+
+
+def test_owner_response_reply_to_never_leaks_superadmin(monkeypatch):
+    """Owner-facing Reply-To must NEVER fall back to the super-admin login
+    allowlist — that would hand every customer the admin-takeover target.
+    With no support alias configured, we send with no Reply-To."""
+    calls = _capture_send_email(monkeypatch)
+    monkeypatch.delenv("SUPPORT_NOTIFY_EMAIL", raising=False)
+    monkeypatch.delenv("SUPPORT_REPLY_TO", raising=False)
+    monkeypatch.setattr(support_router, "_allowed_emails", lambda: ["founder-login@gmail.com"])
+    support_router._send_owner_response_email(
+        ticket=_fake_ticket(response_text="hi"), owner=SimpleNamespace(email="cafe@owner.dk"))
+    assert len(calls) == 1
+    assert calls[0]["reply_to"] is None  # NOT the super-admin login address
+
+
+def test_owner_response_email_noop_without_owner_email(monkeypatch):
+    calls = _capture_send_email(monkeypatch)
+    support_router._send_owner_response_email(ticket=_fake_ticket(response_text="hi"), owner=SimpleNamespace(email=""))
+    assert calls == []
+    support_router._send_owner_response_email(ticket=_fake_ticket(response_text="hi"), owner=None)
+    assert calls == []
+
+
+def test_admin_endpoints_use_super_admin_guard():
+    """The admin triage endpoints must depend on the real super-admin guard
+    (the old getattr(user,'is_admin') gated on a non-existent attr → 403 for
+    everyone). Assert require_super_admin is wired in the dependency graph."""
+    from app.services.admin_security import require_super_admin
+    deps = []
+    for route in support_router.router.routes:
+        if getattr(route, "path", "").startswith("/admin/"):
+            deps.extend(d.call for d in route.dependant.dependencies)
+    assert require_super_admin in deps

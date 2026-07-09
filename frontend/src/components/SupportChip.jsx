@@ -23,10 +23,16 @@
  *     — no PII beyond what the user types.
  *   • Server enforces 5/hour cap; on 429 we surface the message.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
+
+// Global open-event name. Any in-app surface (the retired /feedback page, a
+// "Contact / help" link) funnels into this ONE channel by dispatching
+// `window.dispatchEvent(new Event(OPEN_SUPPORT_EVENT))` — no prop drilling,
+// no second composer to keep in sync.
+export const OPEN_SUPPORT_EVENT = "bonbox:open-support";
 
 
 const KIND_OPTIONS = [
@@ -51,6 +57,18 @@ export default function SupportChip() {
   const [sentToast, setSentToast] = useState(false);
 
   const labelFor = (l) => (l && (l[lang] || l.en)) || "";
+
+  // Open from anywhere via the global event. Optional `detail.kind`
+  // pre-selects the category (e.g. a "report a bug" entry point).
+  useEffect(() => {
+    function onOpen(e) {
+      const k = e?.detail?.kind;
+      if (k && KIND_OPTIONS.some((o) => o.id === k)) setKind(k);
+      setOpen(true);
+    }
+    window.addEventListener(OPEN_SUPPORT_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_SUPPORT_EVENT, onOpen);
+  }, []);
 
   function reset() {
     setKind("question");

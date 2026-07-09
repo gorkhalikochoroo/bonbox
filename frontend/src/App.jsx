@@ -301,6 +301,7 @@ const VerifyEmailPage = lazyRetry(() => import("./pages/VerifyEmailPage"));
 const OnboardingPage = lazyRetry(() => import("./pages/OnboardingPage"));
 const AdminPage = lazyRetry(() => import("./pages/AdminPage"));
 const AdminTrainingPage = lazyRetry(() => import("./pages/AdminTrainingPage"));
+const AdminSupportPage = lazyRetry(() => import("./pages/AdminSupportPage"));
 const SubscriptionPage = lazyRetry(() => import("./pages/SubscriptionPage"));
 const BookkeepingExportPage = lazyRetry(() => import("./pages/BookkeepingExportPage"));
 // C6 — /insights is now the InsightsHub (TabPills over the AI-insights,
@@ -646,6 +647,7 @@ function AppRoutes() {
         >
           <Route path="/admin" element={<AdminPage />} />
           <Route path="/admin/training" element={<AdminTrainingPage />} />
+          <Route path="/admin/support" element={<AdminSupportPage />} />
         </Route>
         {/* Catch-all — any unknown / mistyped / stale-bookmark URL routes to
             "/", which renders the landing page (logged-out) or the dashboard
