@@ -3097,6 +3097,9 @@ const translations = {
     // Feedback
     feedback: "Feedback", sendFeedback: "Send Feedback", yourFeedback: "Your Feedback",
     feedbackSent: "Thank you for your feedback!", rateExperience: "Rate your experience",
+    feedbackLaunchTitle: "Got feedback or found a bug?",
+    feedbackLaunchBody: "Tell us anything — a bug, an idea, a question. It goes straight to the founder, and we reply by email.",
+    feedbackLaunchCta: "Write to us",
     feedbackMessage: "Tell us what you think...", bugReport: "Bug Report",
     featureRequest: "Feature Request", generalFeedback: "General Feedback",
     complaint: "Complaint", praise: "Praise", noFeedbackYet: "No feedback submitted yet",
@@ -3148,6 +3151,7 @@ const translations = {
     avgPerOrder: "avg", printOrSavePdf: "Print / Save as PDF",
     emailAccountant: "Email to accountant",
     platformAdmin: "Platform Admin",
+    platformSupport: "Support",
     businessRegistration: "Business Registration", businessRegistrationDesc: "Look up and save your company details from public registers",
     // GDPR
     yourData: "Your Data", gdprRights: "GDPR: Right to data portability & right to erasure",
@@ -10046,6 +10050,9 @@ const translations = {
     // Feedback
     feedback: "Tilbagemelding", sendFeedback: "Send tilbagemelding", yourFeedback: "Din tilbagemelding",
     feedbackSent: "Tak for din tilbagemelding!", rateExperience: "Bedøm din oplevelse",
+    feedbackLaunchTitle: "Har du feedback eller fundet en fejl?",
+    feedbackLaunchBody: "Fortæl os alt — en fejl, en idé, et spørgsmål. Det går direkte til stifteren, og vi svarer på e-mail.",
+    feedbackLaunchCta: "Skriv til os",
     feedbackMessage: "Fortæl os hvad du synes...", bugReport: "Fejlrapport",
     featureRequest: "Funktionsønske", generalFeedback: "Generel tilbagemelding",
     complaint: "Klage", praise: "Ros", noFeedbackYet: "Ingen tilbagemelding endnu",
@@ -10096,6 +10103,7 @@ const translations = {
     avgPerOrder: "gns.", printOrSavePdf: "Print / Gem som PDF",
     emailAccountant: "Send til revisor",
     platformAdmin: "Platform Admin",
+    platformSupport: "Support",
     businessRegistration: "Virksomhedsregistrering", businessRegistrationDesc: "Slå din virksomhed op i offentlige registre og gem oplysningerne",
     // GDPR
     yourData: "Dine data", gdprRights: "GDPR: Ret til dataportabilitet og ret til sletning",

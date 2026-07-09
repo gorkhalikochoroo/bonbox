@@ -33,6 +33,7 @@ from app.database import get_db
 from app.models.support_ticket import SupportTicket
 from app.models.user import User
 from app.services.auth import get_current_user
+from app.services.admin_security import require_super_admin, _allowed_emails
 from app.utils.time import utc_now
 
 logger = logging.getLogger("bonbox.support_router")
@@ -66,6 +67,120 @@ def _serialise(t: SupportTicket) -> dict:
         "responded_at": t.responded_at.isoformat() if t.responded_at else None,
         "closed_at": t.closed_at.isoformat() if t.closed_at else None,
     }
+
+
+def _admin_notify_recipients() -> list[str]:
+    """Who gets emailed when ANY owner submits a ticket.
+
+    Reuses existing config so no NEW env var is required to be notified:
+      1. SUPPORT_NOTIFY_EMAIL (explicit override), else
+      2. the super-admin allowlist (SUPER_ADMIN_EMAILS) — i.e. the founder.
+
+    Returns [] when nothing is configured, in which case the notifier is
+    a silent no-op (the ticket is still persisted + visible in the admin
+    triage queue; email is an additive convenience, never the source of
+    truth).
+    """
+    import os
+    explicit = (os.environ.get("SUPPORT_NOTIFY_EMAIL") or "").strip()
+    if explicit:
+        return [explicit]
+    return _allowed_emails()
+
+
+def _owner_facing_reply_to() -> str | None:
+    """Reply-To for OWNER-facing mail (the reply the customer receives).
+
+    Deliberately does NOT fall back to SUPER_ADMIN_EMAILS: that allowlist is
+    the founder's personal admin-LOGIN address, and stamping it as Reply-To on
+    every customer reply would hand an attacker the exact account to target for
+    admin takeover. Only an explicit support alias is used; with none set we
+    send no Reply-To (replies go to the From noreply@ address, and the public
+    support address on the Contact page stays the escape hatch). This is the
+    inverse of _admin_notify_recipients, which is INBOUND (to the founder) and
+    may safely use the login address as a recipient.
+    """
+    import os
+    for var in ("SUPPORT_REPLY_TO", "SUPPORT_NOTIFY_EMAIL"):
+        v = (os.environ.get(var) or "").strip()
+        if v:
+            return v
+    return None
+
+
+def _send_admin_notification(*, ticket: SupportTicket, owner: User) -> None:
+    """Best-effort email to the founder for EVERY new ticket (not just Pro
+    priority). Without this, a Free/Starter owner's bug report only landed
+    in the DB and the founder had to remember to open the triage queue.
+
+    Never raises: wrapped by the caller, but we also swallow here so a
+    Resend blip can't turn a committed 201 into a surfaced error.
+
+    Security: all owner-supplied text (subject / body / context / email)
+    is HTML-escaped before interpolation so a crafted ticket can't inject
+    markup into the founder's mail client.
+    """
+    recipients = _admin_notify_recipients()
+    if not recipients:
+        return
+    import html as _html
+    from app.services.email_service import send_email
+
+    tag = "[PRIORITY] " if getattr(ticket, "is_priority", False) else ""
+    subject = f"{tag}[BonBox] {ticket.kind}: {ticket.subject}"[:180]
+    body_txt = _html.escape((ticket.body or "")[:5000])
+    ctx_txt = _html.escape((ticket.context or "")[:2000])
+    email_html = (
+        "<p>New in-app support ticket:</p>"
+        f"<p><b>From:</b> {_html.escape(owner.email or 'unknown')}<br/>"
+        f"<b>Kind:</b> {_html.escape(ticket.kind or 'other')}<br/>"
+        f"<b>Priority:</b> {'yes' if getattr(ticket, 'is_priority', False) else 'no'}<br/>"
+        f"<b>Subject:</b> {_html.escape(ticket.subject or '')}</p>"
+        "<pre style=\"white-space:pre-wrap;font-family:inherit\">"
+        f"{body_txt}</pre>"
+        f"<p style=\"color:#888;font-size:12px\">Context: {ctx_txt}</p>"
+    )
+    for to in recipients:
+        try:
+            # Reply-To = the owner, so hitting Reply in the founder's inbox
+            # lands straight back with the person who reported the issue.
+            send_email(to=to, subject=subject, html=email_html, reply_to=owner.email or None)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("support admin notify failed for %s: %s", to, exc)
+
+
+def _send_owner_response_email(*, ticket: SupportTicket, owner: User) -> None:
+    """Email the owner the founder's reply. Makes the SupportChip promise
+    ("we'll reply by email") actually true — previously /respond only wrote
+    response_text to the DB and the owner was never told.
+
+    Best-effort + escaped, same doctrine as the admin notification.
+    Reply-To is the founder's support address so the owner can reply back.
+    """
+    if not owner or not (owner.email or "").strip():
+        return
+    import html as _html
+    from app.services.email_service import send_email
+
+    # NEVER the super-admin login allowlist — see _owner_facing_reply_to.
+    reply_to = _owner_facing_reply_to()
+    subject = f"Re: {ticket.subject}"[:180]
+    resp_txt = _html.escape((ticket.response_text or "")[:5000])
+    orig_txt = _html.escape((ticket.body or "")[:2000])
+    email_html = (
+        "<p>Hi,</p>"
+        "<p>Here's a reply to the message you sent us in BonBox:</p>"
+        "<pre style=\"white-space:pre-wrap;font-family:inherit;"
+        "border-left:3px solid #10b981;padding-left:12px\">"
+        f"{resp_txt}</pre>"
+        "<hr style=\"border:none;border-top:1px solid #eee;margin:16px 0\"/>"
+        "<p style=\"color:#888;font-size:12px\">"
+        f"Your original message ({_html.escape(ticket.subject or '')}):<br/>{orig_txt}</p>"
+    )
+    try:
+        send_email(to=owner.email, subject=subject, html=email_html, reply_to=reply_to)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("support owner response email failed: %s", exc)
 
 
 def _post_to_priority_slack(*, ticket: SupportTicket, owner: User) -> None:
@@ -165,18 +280,20 @@ def _send_priority_email(*, ticket: SupportTicket, owner: User) -> None:
     if not priority_to:
         return
     try:
+        import html as _html
         from app.services.email_service import send_email
         subject = f"[PRIORITY] {ticket.subject}" if not ticket.subject.startswith("[PRIORITY]") else ticket.subject
         # Plain-text body wrapped in <pre> — same minimal shape as the
-        # other internal admin notifications. No markdown / HTML in the
-        # body to avoid surprising the recipient client.
+        # other internal admin notifications. Owner-supplied text is
+        # HTML-escaped so a crafted ticket can't inject markup into the
+        # founder's mail client.
         html = (
             "<p>New Pro priority ticket:</p>"
-            f"<p><b>From:</b> {owner.email or 'unknown'}<br/>"
-            f"<b>Kind:</b> {ticket.kind}<br/>"
-            f"<b>Subject:</b> {ticket.subject}</p>"
+            f"<p><b>From:</b> {_html.escape(owner.email or 'unknown')}<br/>"
+            f"<b>Kind:</b> {_html.escape(ticket.kind or 'other')}<br/>"
+            f"<b>Subject:</b> {_html.escape(ticket.subject or '')}</p>"
             "<pre style=\"white-space:pre-wrap;font-family:inherit\">"
-            f"{(ticket.body or '')[:5000]}"
+            f"{_html.escape((ticket.body or '')[:5000])}"
             "</pre>"
         )
         send_email(
@@ -259,6 +376,15 @@ def create_ticket(
     db.commit()
     db.refresh(t)
 
+    # Founder notification for EVERY ticket (Free/Starter/Pro alike). This
+    # is the "connected to my admin mail" half — without it a normal owner's
+    # bug report only sat in the DB. Best-effort + wrapped: the ticket is
+    # already committed, so an email blip must not turn a 201 into a 500.
+    try:
+        _send_admin_notification(ticket=t, owner=user)
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning("support admin notify best-effort failed: %s", _exc)
+
     # P10 — out-of-band priority routing, best-effort. Both helpers no-op
     # silently when their env var is empty. Wrapped in a top-level
     # try/except so a network blip cannot turn a 201 into a 500 (the
@@ -292,20 +418,20 @@ def list_my_tickets(
 
 
 # ─── Admin / triage ───────────────────────────────────────────────────
-
-
-def _require_admin(user: User):
-    if not getattr(user, "is_admin", False):
-        raise HTTPException(status_code=403, detail="Admin only")
+#
+# Guarded by require_super_admin (SUPER_ADMIN_EMAILS allowlist + role ==
+# super_admin, with audit logging + generic 404). NOTE: the old guard here
+# gated on a non-existent `User.is_admin` attribute → getattr default False
+# → these endpoints 403'd for EVERYONE, including the founder. Fixed to the
+# same guard every other /admin route uses.
 
 
 @router.get("/admin/tickets")
 def admin_list(
     status: str | None = Query(None),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    admin: User = Depends(require_super_admin),
 ):
-    _require_admin(user)
     q = db.query(SupportTicket)
     if status:
         q = q.filter(SupportTicket.status == status)
@@ -319,7 +445,23 @@ def admin_list(
         .limit(200)
         .all()
     )
-    return {"tickets": [_serialise(t) for t in rows], "count": len(rows)}
+    # Enrich with the owner's email/id so the founder can see WHO submitted
+    # (the shared owner-facing serializer omits this on purpose). Batched to
+    # avoid an N+1 across the triage list.
+    user_ids = {t.user_id for t in rows}
+    emails: dict = {}
+    if user_ids:
+        for uid, email in db.query(User.id, User.email).filter(User.id.in_(user_ids)).all():
+            emails[uid] = email
+
+    def _admin_row(t: SupportTicket) -> dict:
+        d = _serialise(t)
+        d["user_id"] = str(t.user_id) if t.user_id else None
+        d["owner_email"] = emails.get(t.user_id)
+        d["context"] = t.context
+        return d
+
+    return {"tickets": [_admin_row(t) for t in rows], "count": len(rows)}
 
 
 class RespondBody(BaseModel):
@@ -332,9 +474,8 @@ def admin_respond(
     ticket_id: str,
     body: RespondBody,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    admin: User = Depends(require_super_admin),
 ):
-    _require_admin(user)
     try:
         tid = uuid.UUID(ticket_id)
     except ValueError:
@@ -349,4 +490,17 @@ def admin_respond(
         t.closed_at = utc_now()
     db.commit()
     db.refresh(t)
+
+    # Close the loop with the owner — email them the reply so the
+    # SupportChip's "we'll reply by email" promise is actually kept.
+    # Best-effort: the response is already committed, so a mail blip (or the
+    # owner lookup itself) must not fail the request. Looked up server-side,
+    # never trusted from the client — and inside the try so a post-commit DB
+    # blip can't turn a saved 200 into a 500.
+    try:
+        owner = db.query(User).filter(User.id == t.user_id).first()
+        _send_owner_response_email(ticket=t, owner=owner)
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning("support owner response email best-effort failed: %s", _exc)
+
     return _serialise(t)

@@ -422,6 +422,7 @@ export default function Layout() {
           visibleFor: null,
           items: [
             { to: "/admin", icon: "Shield", labelKey: "platformAdmin" },
+            { to: "/admin/support", icon: "MessageSquare", labelKey: "platformSupport" },
           ],
         },
       ]
