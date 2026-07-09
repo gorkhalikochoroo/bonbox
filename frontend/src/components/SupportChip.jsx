@@ -110,12 +110,17 @@ export default function SupportChip() {
 
   return (
     <>
-      {/* Floating chip — bottom-left, restrained */}
+      {/* Floating chip — bottom-left. On desktop the sidebar (w-56, z-50) owns
+          the left column, so `left-5` (20px) would sit UNDER it: the chip was
+          occluded and clicks landed on the sidebar's "Sign Out" (silent logout).
+          `md:left-[15rem]` (240px) clears the 224px sidebar with a small gap on
+          desktop; on mobile the sidebar is off-canvas so `left-5` is clear.
+          Bottom-right is avoided — QuickAdd + BonBoxAgent live there. */}
       <button
         type="button"
         onClick={() => setOpen(true)}
         aria-label={t("supportChipAria") || "Get help / send feedback"}
-        className="fixed bottom-5 left-5 z-40 w-11 h-11 rounded-full bg-gray-900/80 dark:bg-gray-700 hover:bg-gray-900 dark:hover:bg-gray-600 text-white text-lg font-bold shadow-sm flex items-center justify-center transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+        className="fixed bottom-5 left-5 md:left-[15rem] z-40 w-11 h-11 rounded-full bg-gray-900/80 dark:bg-gray-700 hover:bg-gray-900 dark:hover:bg-gray-600 text-white text-lg font-bold shadow-sm flex items-center justify-center transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
       >
         ?
       </button>
