@@ -852,6 +852,17 @@ export default function Layout() {
             <span className="w-5 flex items-center justify-center"><Icon name="User" size={16} /></span>
             {t("profile")}
           </NavLink>
+          {/* Help & feedback — the discoverable desktop entry to the support
+              composer (the floating "?" is mobile-only). Dispatches
+              SupportChip.OPEN_SUPPORT_EVENT ("bonbox:open-support"); the chip's
+              global listener opens the modal (z-50) over everything. */}
+          <button
+            onClick={() => { closeSidebar(); window.dispatchEvent(new Event("bonbox:open-support")); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+          >
+            <span className="w-5 flex items-center justify-center"><Icon name="MessageSquare" size={16} /></span>
+            {t("helpFeedback") || "Help & feedback"}
+          </button>
           <button
             onClick={toggleDark}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
