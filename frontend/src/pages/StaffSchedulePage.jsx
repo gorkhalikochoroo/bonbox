@@ -539,7 +539,10 @@ function ClockGeofenceSettings() {
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-      <p className="w-full text-[12px] text-gray-500 dark:text-gray-400 leading-snug">
+      {/* Verbose explainer is desktop-only — on mobile it dominated the top of
+          the Schedule page above the actual grid. The toggle + status below
+          still convey the essential state. */}
+      <p className="hidden sm:block w-full text-[12px] text-gray-500 dark:text-gray-400 leading-snug">
         {t("schedGeoHelp", "Staff can only clock in near the venue. Stand at the venue and set it as the anchor — their phone's location is checked at that moment only, never saved or tracked.")}
       </p>
       <label className="flex items-center gap-2 cursor-pointer">
@@ -1620,7 +1623,10 @@ export default function StaffSchedulePage() {
                 staff) collapse to icon-only with title-tooltips, so they
                 fit a 375px viewport in 2 rows max. Tablet+ shows full
                 labels. */}
-            <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-end w-full sm:w-auto">
+            {/* Mobile: one tidy horizontally-scrollable row (icon buttons) instead
+                of a 3-row wrapped cluster. Desktop (sm+) keeps the wrapped
+                full-label toolbar unchanged. */}
+            <div className="flex items-center gap-2 flex-nowrap overflow-x-auto sm:flex-wrap sm:overflow-visible [&>*]:shrink-0 justify-start sm:justify-end w-full sm:w-auto -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <Button
                 variant="primary"
                 size="sm"
