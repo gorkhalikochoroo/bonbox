@@ -864,7 +864,7 @@ function FromScheduleForm({ periodFrom, onLogged }) {
         <button
           onClick={handleConfirm}
           disabled={confirming}
-          className="bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-5 py-2.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+          className="bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-5 py-2.5 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed whitespace-normal sm:whitespace-nowrap"
         >
           {confirming ? (
             <span className="flex items-center gap-2">
@@ -1007,7 +1007,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                       {badgeLabel}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     <span>{fmtDateFull(entry.date)}</span>
                     {entry.start_time && entry.end_time && (
                       <>

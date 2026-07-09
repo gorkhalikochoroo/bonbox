@@ -180,24 +180,24 @@ export default function CustomersPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-900/40 text-gray-500 dark:text-gray-400 uppercase text-xs">
               <tr>
-                <th className="text-left px-5 py-3">{t("name") || "Name"}</th>
-                <th className="text-left px-5 py-3">CVR</th>
-                <th className="text-left px-5 py-3">{t("email") || "Email"}</th>
-                <th className="text-left px-5 py-3">{t("paymentTermsDays") || "Terms"}</th>
-                <th className="text-right px-5 py-3"></th>
+                <th className="text-left px-3 py-3 sm:px-5">{t("name") || "Name"}</th>
+                <th className="text-left px-3 py-3 sm:px-5">CVR</th>
+                <th className="text-left px-3 py-3 sm:px-5">{t("email") || "Email"}</th>
+                <th className="text-left px-3 py-3 sm:px-5">{t("paymentTermsDays") || "Terms"}</th>
+                <th className="text-right px-3 py-3 sm:px-5"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
               {filtered.map((c) => (
                 <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
-                  <td className="px-5 py-3 font-medium text-gray-800 dark:text-white">
+                  <td className="px-3 py-3 sm:px-5 font-medium text-gray-800 dark:text-white">
                     {c.name}
                     {c.is_company && <span className="ml-2 text-xs text-blue-600 dark:text-blue-300">B2B</span>}
                   </td>
-                  <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{c.cvr || "—"}</td>
-                  <td className="px-5 py-3 text-gray-600 dark:text-gray-300 truncate max-w-[200px]">{c.email || "—"}</td>
-                  <td className="px-5 py-3 text-gray-600 dark:text-gray-300">{c.payment_terms_days} {t("days") || "days"}</td>
-                  <td className="px-5 py-3 text-right">
+                  <td className="px-3 py-3 sm:px-5 text-gray-600 dark:text-gray-300">{c.cvr || "—"}</td>
+                  <td className="px-3 py-3 sm:px-5 text-gray-600 dark:text-gray-300 truncate max-w-[200px]">{c.email || "—"}</td>
+                  <td className="px-3 py-3 sm:px-5 text-gray-600 dark:text-gray-300">{c.payment_terms_days} {t("days") || "days"}</td>
+                  <td className="px-3 py-3 sm:px-5 text-right">
                     <button
                       onClick={() => {
                         setEditingId(c.id);

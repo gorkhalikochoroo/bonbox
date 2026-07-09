@@ -724,7 +724,7 @@ export default function InventoryPage() {
           neutral — there's no alert to signal), amber on "priced" only
           when a meaningful share of items are still un-priced. */}
       <div className="space-y-3">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <StatCard
             label={t("totalItems")}
             value={items.length}

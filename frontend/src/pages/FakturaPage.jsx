@@ -270,7 +270,7 @@ export default function FakturaPage() {
           on first load — preset chips narrow when needed. */}
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 space-y-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2 flex-wrap text-xs">
+          <div className="flex items-center gap-2 flex-nowrap overflow-x-auto sm:flex-wrap sm:overflow-visible [&>*]:shrink-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden text-xs">
             <span className="text-gray-500 dark:text-gray-400 font-medium">
               {t("dateRange") || "Date range"}:
             </span>
