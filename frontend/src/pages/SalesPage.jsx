@@ -476,7 +476,7 @@ export default function SalesPage() {
 
   // ─── Right-rail panel (rendered inline in the JSX below) ──────────────
   const rightRailFourTile = (
-    <div className="lg:col-span-2 grid grid-cols-2 gap-3 content-start">
+    <div className="lg:col-span-1 grid grid-cols-2 lg:grid-cols-1 gap-3 content-start">
       {/* Currency token now lives IN the value via <Amount> (whispered at
           0.62em), so the helper no longer repeats "· DKK" after the count. */}
       <StatCard
@@ -908,7 +908,7 @@ export default function SalesPage() {
           grid of small StatCards.  When "sessionInline" the rail is
           removed and a single muted line sits above the table instead
           (rendered further down). */}
-      <div className={rightRailMode === "session4tile" ? "grid grid-cols-1 lg:grid-cols-5 gap-4" : ""}>
+      <div className={rightRailMode === "session4tile" ? "grid grid-cols-1 lg:grid-cols-4 gap-4" : ""}>
         <div className={rightRailMode === "session4tile" ? "lg:col-span-3" : ""}>
           <EntryCard
             title={t("logSale")}
