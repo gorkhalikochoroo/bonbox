@@ -594,7 +594,12 @@ export default function SalesPage() {
     },
     {
       id: "notes",
+      // Flex column: absorbs the table's slack width so Amount/Payment stay
+      // compact on the left and Date sits at its w-32 on the right, instead of
+      // a big empty gap opening between Notes and Date on wide screens.
+      // Desktop-only effect — the mobile card view ignores column widths.
       label: t("notes"),
+      width: "w-full",
       render: (r) => {
         if (r.item_name) {
           return (
