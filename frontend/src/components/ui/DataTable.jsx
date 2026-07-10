@@ -163,7 +163,7 @@ export default function DataTable({
     const actions = rowActions(row) || [];
     if (actions.length === 0) return null;
     return (
-      <div className="flex items-center justify-end gap-1 flex-wrap">
+      <div className="flex items-center justify-end gap-1 flex-wrap sm:flex-nowrap">
         {actions.map((a, i) => {
           // Opt-in visible label: `text: true` renders the word beside the
           // icon (auto-width pill) instead of a bare icon button. Icon-only
