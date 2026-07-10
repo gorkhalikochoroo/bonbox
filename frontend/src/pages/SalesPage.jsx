@@ -594,12 +594,7 @@ export default function SalesPage() {
     },
     {
       id: "notes",
-      // Flex column: absorbs the table's slack width so Amount/Payment stay
-      // compact on the left and Date sits at its w-32 on the right, instead of
-      // a big empty gap opening between Notes and Date on wide screens.
-      // Desktop-only effect — the mobile card view ignores column widths.
       label: t("notes"),
-      width: "w-full",
       render: (r) => {
         if (r.item_name) {
           return (
@@ -616,7 +611,9 @@ export default function SalesPage() {
       id: "date",
       label: t("date"),
       width: "w-32",
-      render: (r) => formatDateClear(r.date),
+      // Keep the date on one line — capped-table column widths can otherwise
+      // squeeze "8 Jul 26" into a 3-line stack.
+      render: (r) => <span className="whitespace-nowrap">{formatDateClear(r.date)}</span>,
     },
   ];
 
@@ -1118,6 +1115,10 @@ export default function SalesPage() {
         )}
 
         <DataTable
+          // Cap the desktop ledger width so the 4 short columns sit close
+          // together instead of stretching edge-to-edge with a big void in the
+          // middle. No-op on phones (viewport < 3xl → mobile cards stay full).
+          className="max-w-3xl"
           columns={columns}
           rows={filtered.slice(0, 50)}
           rowKey="id"
