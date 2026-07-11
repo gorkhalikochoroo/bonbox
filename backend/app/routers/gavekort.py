@@ -47,11 +47,14 @@ resolver fails to dereference inline request models under PEP-563 (same caveat
 as reservations.py / public_bookings.py).
 """
 import html as _html
+import io
 import logging
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -71,6 +74,7 @@ from app.services import audit_service
 from app.services.auth import get_current_user
 from app.services.billing import enforce_cap, enforce_feature
 from app.services.gavekort_codes import generate_code, hash_code
+from app.services.gavekort_pdf import build_gavekort_pdf
 from app.services.qr_signer import GavekortKeyUnset, sign_gavekort, verify_gavekort
 from app.services.tz_utils import business_today_local
 from app.utils.time import utc_now
@@ -511,6 +515,25 @@ def _gavekort_public_url(qr_token: str) -> str:
     return f"{base}/g/{quote(qr_token, safe='')}"
 
 
+def _card_redeem_url(card, user) -> str | None:
+    """Signed, scannable redeem URL for a card's printed / preview QR.
+
+    Re-mints the same BB1.G envelope the scanner (/scan-resolve, /g/<token>)
+    resolves — a fresh jti each call, exp pinned to the card's expiry — so the
+    printed QR keeps working until the card itself expires. Returns None when
+    the signing key is unset (prod fail-closed) so callers OMIT the QR rather
+    than print a code the scanner can't act on (no dead-end affordance).
+    """
+    try:
+        token = "BB1.G." + sign_gavekort(
+            gift_card_id=str(card.id), user_id=str(user.id),
+            jti=uuid4().hex, expires_at=card.expires_at,
+        )
+    except GavekortKeyUnset:
+        return None
+    return _gavekort_public_url(token)
+
+
 def _buy_public_url(slug: str | None) -> str | None:
     if not slug:
         return None
@@ -755,11 +778,87 @@ def get_gavekort(card_id: UUID, db: Session = Depends(get_db),
             "status": card.status,
             "issued_at": _iso(card.issued_at),
             "expires_at": _iso(card.expires_at),
+            # Signed, scannable redeem URL — the print PDF encodes the same, so
+            # the on-screen preview QR and the printed QR both resolve.
+            "redeem_url": _card_redeem_url(card, user),
         },
         "transactions": [
             _tx_dict(t, staff_name=name_by_id.get(t.created_by_user_id)) for t in txns
         ],
     }
+
+
+# ═════════════════════════════════════════════════════════════════════
+# GET /{id}/pdf — printable, owner-branded gavekort card (minimal | foil)
+# ═════════════════════════════════════════════════════════════════════
+@router.get("/{card_id}/pdf")
+@limiter.limit("60/minute")                          # D4/L3 per-endpoint brake
+def gavekort_pdf(request: Request, card_id: UUID, template: str = "minimal",
+                 db: Session = Depends(get_db),
+                 user: User = Depends(get_current_user)):
+    """Render the owner's gavekort as a printable, owner-branded PDF card.
+
+    Owner-authenticated + TENANT-SCOPED (L5): the card must belong to the
+    caller — a foreign or missing id is an IDOR-safe 404, never a 403 leak.
+
+    The card face shows the FACE VALUE (`face_value_minor`), the owner's
+    branding (logo/monogram, accent, address, CVR), and a QR that encodes a
+    freshly-minted SIGNED redeem URL the existing scanner resolves — a working
+    scan, not a dead code (omitted entirely when the signing key is unset). Two
+    templates: "minimal" (light) and "foil" (dark); unknown value → "minimal".
+    """
+    enforce_feature(user, "gavekort")
+
+    card = (
+        db.query(GiftCard)
+        .filter(GiftCard.id == card_id, GiftCard.user_id == user.id)  # L5 tenant
+        .first()
+    )
+    if not card:
+        # Cross-tenant or missing → 404 (never 403 — don't leak existence).
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+    tpl = template if template in ("minimal", "foil") else "minimal"
+
+    profile = (
+        db.query(BusinessProfile)
+        .filter(BusinessProfile.user_id == user.id)
+        .first()
+    )
+    # Fall back to the user's business name when the profile carries no
+    # company_name, so the card is never nameless. Read-only shim — we never
+    # mutate (nor commit) the ORM row on a GET.
+    render_profile = profile
+    if user.business_name and not (getattr(profile, "company_name", "") or "").strip():
+        render_profile = SimpleNamespace(
+            company_name=user.business_name,
+            vat_number=getattr(profile, "vat_number", None),
+            org_number=getattr(profile, "org_number", None),
+            address=getattr(profile, "address", None),
+            zipcode=getattr(profile, "zipcode", None),
+            city=getattr(profile, "city", None),
+            accent_color=getattr(profile, "accent_color", None),
+            logo_url=getattr(profile, "logo_url", None),
+            logo_position=getattr(profile, "logo_position", None),
+        )
+
+    # QR = a freshly-minted, SIGNED redeem URL (BB1.G) the scanner actually
+    # resolves (/scan-resolve, /g/<token>); None when the signing key is unset
+    # → the card prints without a QR rather than implying scannability it can't
+    # honor. get_gavekort returns the same redeem_url so the on-screen preview
+    # QR and the printed QR both resolve.
+    pdf_bytes = build_gavekort_pdf(
+        card=card, profile=render_profile, template=tpl,
+        redeem_url=_card_redeem_url(card, user),
+    )
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="gavekort-{card.short_code}.pdf"',
+        },
+    )
 
 
 # ═════════════════════════════════════════════════════════════════════

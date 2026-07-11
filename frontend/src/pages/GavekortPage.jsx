@@ -68,6 +68,7 @@ import TabPills from "../components/ui/TabPills";
 import FilterBar from "../components/ui/FilterBar";
 import Card from "../components/ui/Card";
 import UpgradeNudge from "../components/ui/UpgradeNudge";
+import GavekortPrintModal from "../components/GavekortPrintModal";
 import { formatKr } from "../utils/currency";
 import { errText } from "../utils/errText";
 
@@ -1115,6 +1116,7 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [mode, setMode] = useState("view"); // view | redeem | void
+  const [showPrint, setShowPrint] = useState(false); // owner-branded print modal
   const [redeemAmount, setRedeemAmount] = useState("");
   const [actionBusy, setActionBusy] = useState(false);
   const [actionError, setActionError] = useState("");
@@ -1211,6 +1213,7 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
   };
 
   return (
+    <>
     <div className="fixed inset-0 z-[60] flex" role="dialog" aria-modal="true">
       <div
         className="absolute inset-0 bg-black/40 motion-safe:animate-backdropFade"
@@ -1290,6 +1293,18 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
                   <MetaRow label={t("gkExpiresAt", "Udløber")} value={fmtDate(card.expires_at)} />
                 )}
               </div>
+
+              {/* Udskriv gavekort — the owner-branded printable card (two
+                  premium templates + PDF download). Available for any card. */}
+              <Button
+                variant="secondary"
+                size="lg"
+                onClick={() => setShowPrint(true)}
+                iconLeft={<Printer className="w-4 h-4" aria-hidden />}
+                className="w-full justify-center"
+              >
+                {t("gkPrintCard", "Udskriv gavekort")}
+              </Button>
 
               {/* Transaktionsspor — the indented trail. */}
               <div>
@@ -1427,6 +1442,10 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
         )}
       </div>
     </div>
+    {showPrint && (
+      <GavekortPrintModal card={card} open={showPrint} onClose={() => setShowPrint(false)} />
+    )}
+    </>
   );
 }
 
