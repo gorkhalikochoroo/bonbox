@@ -394,13 +394,22 @@ def create_staff_member(
     # Defense-in-depth: re-run the schema validators at the boundary even
     # though Pydantic already coerced. Catches malformed clients sending
     # raw strings/etc bypassing the Pydantic model.
-    from app.schemas.staff import _validate_tax_card_type, _validate_tax_card_rate
+    from app.schemas.staff import (
+        _validate_tax_card_type, _validate_tax_card_rate, _clean_address_field,
+    )
+    addr = _clean_address_field(data.address, 200)
+    postal = _clean_address_field(data.postal_code, 20)
+    city = _clean_address_field(data.city, 120)
     member = StaffMember(
         id=uuid.uuid4(),
         user_id=user.id,
         name=data.name,
         phone=data.phone,
         email=data.email,
+        address=addr,
+        postal_code=postal,
+        city=city,
+        address_updated_at=utc_now() if (addr or postal or city) else None,
         role=data.role,
         contract_type=data.contract_type,
         base_rate=data.base_rate,
@@ -435,12 +444,29 @@ def update_staff_member(
 
     # Validate trækkort fields before applying — multi-barrier defense so
     # a malformed value can't poison the DB and break payroll estimates.
-    from app.schemas.staff import _validate_tax_card_type, _validate_tax_card_rate
+    from app.schemas.staff import (
+        _validate_tax_card_type, _validate_tax_card_rate, _clean_address_field,
+    )
     updates = data.model_dump(exclude_unset=True)
     if "tax_card_type" in updates:
         updates["tax_card_type"] = _validate_tax_card_type(updates["tax_card_type"])
     if "tax_card_rate" in updates:
         updates["tax_card_rate"] = _validate_tax_card_rate(updates["tax_card_rate"])
+    # Address fields: trim/cap, blank → NULL. Stamp address_updated_at ONLY when
+    # a value actually CHANGES — the owner's editor always sends these fields
+    # (they're seeded from the row), so stamping on mere presence would refresh
+    # "Opdateret {dato}" on every unrelated save (a rate tweak) and misrepresent
+    # when the address was really last updated. Honest = stamp on real change.
+    _addr_caps = {"address": 200, "postal_code": 20, "city": 120}
+    _addr_changed = False
+    for _f, _cap in _addr_caps.items():
+        if _f in updates:
+            new_val = _clean_address_field(updates[_f], _cap)
+            updates[_f] = new_val
+            if new_val != getattr(member, _f):
+                _addr_changed = True
+    if _addr_changed:
+        member.address_updated_at = utc_now()
 
     for field, value in updates.items():
         setattr(member, field, value)

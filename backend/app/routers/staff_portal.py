@@ -125,6 +125,9 @@ class PortalInfo(BaseModel):
     role: str
     email: str | None = None
     phone: str | None = None
+    address: str | None = None
+    postal_code: str | None = None
+    city: str | None = None
     pin_ok: bool = False
     restaurant_name: str | None = None
     has_pin: bool = False
@@ -135,6 +138,9 @@ class PortalInfo(BaseModel):
 class ContactUpdateRequest(BaseModel):
     email: str | None = None
     phone: str | None = None
+    address: str | None = None
+    postal_code: str | None = None
+    city: str | None = None
 
 
 class PortalNotification(BaseModel):
@@ -348,6 +354,9 @@ def get_portal_info(token: str, request: Request, db: Session = Depends(get_db))
         role=member.role or "staff",
         email=member.email,
         phone=member.phone,
+        address=member.address,
+        postal_code=member.postal_code,
+        city=member.city,
         restaurant_name=restaurant_name,
         has_pin=bool(link.pin_hash),
         pin_ok=bool(link.pin_hash) and _pin_proof_valid(link, request.headers.get("x-bonbox-pin")),
@@ -1165,7 +1174,11 @@ def verify_pin(token: str, body: PinVerifyRequest, request: Request, db: Session
 @router.put("/{token}/email")
 @limiter.limit("5/minute")
 def update_portal_contact(token: str, body: ContactUpdateRequest, request: Request, db: Session = Depends(get_db)):
-    """Staff updates their own email and/or phone from the portal."""
+    """Staff updates their own contact details (email, phone, home address) from
+    the portal. Token-scoped: `_get_staff_from_token` resolves to exactly ONE
+    staff row, so a staffer can only ever edit their own record — never anyone
+    else's. Address is contact info for the owner, never a gate: we trim + cap
+    but never reject it."""
     link, member = _get_staff_from_token(token, db)
 
     # Handle email
@@ -1191,8 +1204,51 @@ def update_portal_contact(token: str, body: ContactUpdateRequest, request: Reque
                 raise HTTPException(status_code=400, detail="Invalid phone format. Use international format e.g. +4512345678")
             member.phone = cleaned
 
+    # Handle home address — DK-structured (adresse / postnr / by). Trim + cap,
+    # blank → NULL. Stamp address_updated_at ONLY when a value actually CHANGES
+    # so "Opdateret {dato}" honestly reflects the last real edit (the portal
+    # always sends all three fields on save, so stamping on presence would lie).
+    from app.schemas.staff import _clean_address_field
+    _addr_changed = False
+    if body.address is not None:
+        _v = _clean_address_field(body.address, 200)
+        if _v != member.address:
+            member.address = _v
+            _addr_changed = True
+    if body.postal_code is not None:
+        _v = _clean_address_field(body.postal_code, 20)
+        if _v != member.postal_code:
+            member.postal_code = _v
+            _addr_changed = True
+    if body.city is not None:
+        _v = _clean_address_field(body.city, 120)
+        if _v != member.city:
+            member.city = _v
+            _addr_changed = True
+    if _addr_changed:
+        member.address_updated_at = utc_now()
+        # Best-effort audit — the owner's trail of who changed contact PII.
+        try:
+            from app.services import audit_service
+
+            audit_service.record(
+                db, link.user_id, "staff.portal.profile_updated", "staff_member",
+                entity_id=member.id,
+                after={"field": "address"},
+                actor_type="staff",
+            )
+        except Exception:  # noqa: BLE001 — audit is best-effort, never blocks the save
+            pass
+
     db.commit()
-    return {"email": member.email, "phone": member.phone, "message": "Contact info updated"}
+    return {
+        "email": member.email,
+        "phone": member.phone,
+        "address": member.address,
+        "postal_code": member.postal_code,
+        "city": member.city,
+        "message": "Contact info updated",
+    }
 
 
 @router.get("/{token}/notifications")

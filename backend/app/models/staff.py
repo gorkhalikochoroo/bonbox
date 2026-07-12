@@ -30,6 +30,18 @@ class StaffMember(Base):
     display_name: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
     profile_photo_key: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     profile_photo_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # Staff self-edit (portal) — home address, so the owner has a current
+    # contact address on file without chasing the staffer. PII: rides on this
+    # tenant-scoped row (purged by the metadata-driven GDPR erasure sweep).
+    # DK-structured: `address` = gade + husnummer (+ etage/dør), `postal_code`
+    # = postnr, `city` = by. All nullable/optional — never required.
+    # NOT a payroll field (see decision_staff_scope_not_payroll): the staff
+    # module tracks schedule/hours, not CPR/konto. `address_updated_at` stamps
+    # the last change so the owner can see "Opdateret {dato}" at a glance.
+    address: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    postal_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    city: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    address_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     role: Mapped[str] = mapped_column(String(50), default="server")
     contract_type: Mapped[str] = mapped_column(String(20), default="full")
     base_rate: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
