@@ -3306,6 +3306,11 @@ export default function StaffPortalPage() {
   const [showEmailEdit, setShowEmailEdit] = useState(false);
   const [emailInput, setEmailInput] = useState("");
   const [phoneInput, setPhoneInput] = useState("");
+  // Home address (staff self-edit) — saved through the same contact PUT so
+  // there's ONE Save button behind the avatar. DK-structured: adresse/postnr/by.
+  const [addressInput, setAddressInput] = useState("");
+  const [postalInput, setPostalInput] = useState("");
+  const [cityInput, setCityInput] = useState("");
   const [emailSaving, setEmailSaving] = useState(false);
   const [emailMsg, setEmailMsg] = useState("");
   const [emailStatus, setEmailStatus] = useState(null); // "ok" | "err"
@@ -3611,8 +3616,21 @@ export default function StaffPortalPage() {
     setEmailMsg("");
     setEmailStatus(null);
     try {
-      const res = await portalApi.put(`/portal/${token}/email`, { email: emailInput.trim(), phone: phoneInput.trim() });
-      setInfo({ ...info, email: res.data.email, phone: res.data.phone });
+      const res = await portalApi.put(`/portal/${token}/email`, {
+        email: emailInput.trim(),
+        phone: phoneInput.trim(),
+        address: addressInput.trim(),
+        postal_code: postalInput.trim(),
+        city: cityInput.trim(),
+      });
+      setInfo({
+        ...info,
+        email: res.data.email,
+        phone: res.data.phone,
+        address: res.data.address,
+        postal_code: res.data.postal_code,
+        city: res.data.city,
+      });
       setEmailStatus("ok");
       setEmailMsg(t("portalSaved", "Saved"));
       setTimeout(() => { setEmailMsg(""); setEmailStatus(null); setShowEmailEdit(false); }, 1500);
@@ -3687,7 +3705,7 @@ export default function StaffPortalPage() {
               />
             )}
             <button
-              onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setEmailMsg(""); setEmailStatus(null); }}
+              onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setAddressInput(info?.address || ""); setPostalInput(info?.postal_code || ""); setCityInput(info?.city || ""); setEmailMsg(""); setEmailStatus(null); }}
               className="relative w-9 h-9 rounded-full bg-gray-100 border border-gray-200 shadow-soft flex items-center justify-center text-sm font-bold text-gray-700 active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
               title={t("portalEditContact", "Edit email")}
             >
@@ -3720,6 +3738,47 @@ export default function StaffPortalPage() {
                   className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
                 />
               </div>
+              {/* Home address — DK-structured (adresse / postnr / by). Optional;
+                  the owner sees it so they have a current address on file. */}
+              <div className="pt-1 border-t border-gray-100 space-y-3">
+                <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">{t("portalAddressSection", "Address")}</div>
+                <div>
+                  <label className="text-[10px] text-gray-500 mb-1 block">{t("portalAddressStreetLabel", "Street & number")}</label>
+                  <input
+                    type="text"
+                    value={addressInput}
+                    onChange={(e) => setAddressInput(e.target.value)}
+                    autoComplete="street-address"
+                    placeholder={t("portalAddressStreetPlaceholder", "e.g. Nørrebrogade 12, 2. th")}
+                    className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <div className="w-24 shrink-0">
+                    <label className="text-[10px] text-gray-500 mb-1 block">{t("portalAddressPostalLabel", "Postal code")}</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={postalInput}
+                      onChange={(e) => setPostalInput(e.target.value)}
+                      autoComplete="postal-code"
+                      placeholder="2200"
+                      className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-[10px] text-gray-500 mb-1 block">{t("portalAddressCityLabel", "City")}</label>
+                    <input
+                      type="text"
+                      value={cityInput}
+                      onChange={(e) => setCityInput(e.target.value)}
+                      autoComplete="address-level2"
+                      placeholder={t("portalAddressCityPlaceholder", "København N")}
+                      className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+                    />
+                  </div>
+                </div>
+              </div>
               <button
                 onClick={handleContactSave}
                 disabled={emailSaving}
@@ -3745,6 +3804,12 @@ export default function StaffPortalPage() {
                   t("portalContactEmptyHint", "Add your email or phone to get notified when your schedule changes.")
                 )}
               </div>
+              {(info?.address || info?.postal_code || info?.city) && (
+                <div className="text-[10px] text-gray-400 inline-flex items-start gap-1">
+                  <MapPin className="w-3 h-3 mt-px shrink-0" strokeWidth={2} aria-hidden />
+                  <span>{[info.address, [info.postal_code, info.city].filter(Boolean).join(" ")].filter(Boolean).join(", ")}</span>
+                </div>
+              )}
               {/* Native Web Push opt-in moved to the prominent
                   InstallNotifyCard on the Schedule tab — far better
                   discovery than buried behind the avatar. */}

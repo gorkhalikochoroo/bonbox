@@ -40,10 +40,25 @@ def _validate_tax_card_rate(v: float | None) -> float | None:
     return f
 
 
+def _clean_address_field(v: str | None, max_len: int) -> str | None:
+    """Trim + length-cap a free-text address field. Empty → None so a blank
+    field truthfully clears the value rather than storing "". Tolerant by
+    design: an address is contact info, never a gate — we never reject it."""
+    if v is None:
+        return None
+    v = str(v).strip()
+    if not v:
+        return None
+    return v[:max_len]
+
+
 class StaffMemberCreate(BaseModel):
     name: str
     phone: str | None = None
     email: str | None = None
+    address: str | None = None
+    postal_code: str | None = None
+    city: str | None = None
     role: str = "server"
     contract_type: str = "full"
     base_rate: float | None = None
@@ -60,6 +75,9 @@ class StaffMemberUpdate(BaseModel):
     name: str | None = None
     phone: str | None = None
     email: str | None = None
+    address: str | None = None
+    postal_code: str | None = None
+    city: str | None = None
     role: str | None = None
     contract_type: str | None = None
     base_rate: float | None = None
@@ -78,6 +96,10 @@ class StaffMemberResponse(BaseModel):
     name: str
     phone: str | None = None
     email: str | None = None
+    address: str | None = None
+    postal_code: str | None = None
+    city: str | None = None
+    address_updated_at: datetime.datetime | None = None
     role: str
     contract_type: str
     base_rate: float | None = None

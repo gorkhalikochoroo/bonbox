@@ -2042,6 +2042,12 @@ _migrations = [
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS display_name VARCHAR(80)",
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS profile_photo_key VARCHAR(200)",
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS profile_photo_at TIMESTAMP",
+    # Migration 060 — staff self-edit home address (portal). PII on the
+    # tenant-scoped staff_members row; erased by the metadata-driven GDPR sweep.
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS address VARCHAR(200)",
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20)",
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS city VARCHAR(120)",
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS address_updated_at TIMESTAMP",
     """CREATE TABLE IF NOT EXISTS staff_chat_threads (
         id UUID PRIMARY KEY,
         user_id UUID NOT NULL REFERENCES users(id),

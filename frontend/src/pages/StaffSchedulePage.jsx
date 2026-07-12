@@ -11,7 +11,7 @@ import { displayCurrency, formatKr } from "../utils/currency";
 import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
-import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPinOff, CalendarOff, Lock, LockKeyholeOpen } from "lucide-react";
+import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPin, MapPinOff, CalendarOff, Lock, LockKeyholeOpen } from "lucide-react";
 import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
 // Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
 // EMPTY cell (different staff and/or day) to REASSIGN it. dnd-kit gives us an
@@ -2848,6 +2848,56 @@ function StaffDetailModal({
                 placeholder={t("optional", "Optional")}
               />
             </div>
+            {/* Home address — staff keep this current from the portal; the
+                owner sees + can edit it here. "Opdateret {dato}" shows when it
+                last changed so the owner knows it's fresh. */}
+            <div className="sm:col-span-2">
+              <label className={labelCls} htmlFor="sd-address">
+                <span className="inline-flex items-center gap-1.5">
+                  <MapPin className="w-3 h-3" /> {t("staffAddress", "Address")}
+                </span>
+              </label>
+              <input
+                id="sd-address"
+                type="text"
+                value={editForm.address || ""}
+                onChange={(e) => setEditForm({ ...editForm, address: e.target.value })}
+                className={inputCls}
+                placeholder={t("staffAddressStreetPlaceholder", "Street & number")}
+                autoComplete="street-address"
+              />
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="sd-postal">{t("staffPostalCode", "Postal code")}</label>
+              <input
+                id="sd-postal"
+                type="text"
+                inputMode="numeric"
+                value={editForm.postal_code || ""}
+                onChange={(e) => setEditForm({ ...editForm, postal_code: e.target.value })}
+                className={inputCls}
+                placeholder="2200"
+                autoComplete="postal-code"
+              />
+            </div>
+            <div>
+              <label className={labelCls} htmlFor="sd-city">{t("staffCity", "City")}</label>
+              <input
+                id="sd-city"
+                type="text"
+                value={editForm.city || ""}
+                onChange={(e) => setEditForm({ ...editForm, city: e.target.value })}
+                className={inputCls}
+                placeholder={t("optional", "Optional")}
+                autoComplete="address-level2"
+              />
+            </div>
+            {member.address_updated_at && (
+              <p className="sm:col-span-2 -mt-1 text-[11px] text-gray-400 dark:text-gray-500">
+                {t("staffAddressUpdated", "Address updated")}{" "}
+                {new Date(member.address_updated_at).toLocaleDateString()}
+              </p>
+            )}
             {/* Base rate */}
             <div className="sm:col-span-2">
               <label className={labelCls} htmlFor="sd-rate">{t("baseRate")} ({currency}/hr)</label>
@@ -3136,6 +3186,9 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
         name: editForm.name?.trim() || undefined,
         email: editForm.email !== undefined ? (editForm.email.trim() || null) : undefined,
         phone: editForm.phone !== undefined ? (editForm.phone.trim() || null) : undefined,
+        address: editForm.address !== undefined ? (editForm.address.trim() || null) : undefined,
+        postal_code: editForm.postal_code !== undefined ? (editForm.postal_code.trim() || null) : undefined,
+        city: editForm.city !== undefined ? (editForm.city.trim() || null) : undefined,
         role: editForm.role || undefined,
         contract_type: editForm.contract_type || undefined,
         base_rate: editForm.base_rate !== undefined ? parseFloat(editForm.base_rate) : undefined,
@@ -3177,6 +3230,9 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
     name: member.name,
     email: member.email || "",
     phone: member.phone || "",
+    address: member.address || "",
+    postal_code: member.postal_code || "",
+    city: member.city || "",
     // Normalise to a shift-role option (stored roles can be lowercase "server",
     // but the <select> options are capitalized "Server") so the dropdown
     // pre-selects the member's ACTUAL role instead of defaulting to "Chef".
