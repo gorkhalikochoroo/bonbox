@@ -100,6 +100,10 @@ class StaffMemberResponse(BaseModel):
     postal_code: str | None = None
     city: str | None = None
     address_updated_at: datetime.datetime | None = None
+    # Set when the staffer has uploaded a profile photo. The owner UI renders
+    # the avatar from GET /staff/members/{id}/photo?v={profile_photo_at} — the
+    # stamp both gates the render and cache-busts so a new photo shows at once.
+    profile_photo_at: datetime.datetime | None = None
     role: str
     contract_type: str
     base_rate: float | None = None

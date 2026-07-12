@@ -2261,8 +2261,9 @@ export default function StaffSchedulePage() {
                       onChange={() => toggleShareOne(s.id)}
                       className="w-4 h-4 rounded accent-gray-900 dark:accent-gray-100"
                     />
-                    <div className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300 flex-shrink-0">
+                    <div className="relative w-7 h-7 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-600 dark:text-gray-300 flex-shrink-0">
                       {(s.name || "?").charAt(0).toUpperCase()}
+                      <StaffAvatar member={s} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate">{s.name}</div>
@@ -2628,6 +2629,43 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
      onDeactivate — () => handleDeactivate(member.id).
      t          — translator from useLanguage.
 */
+
+// Overlay that fills an avatar circle with the staffer's uploaded profile photo.
+// Renders NOTHING until the photo loads (the caller shows the name initial as
+// the base layer), so it degrades to initials with no flicker. The image is
+// fetched as a blob through the authed `api` client — not a bare <img src> —
+// so it works in the native owner app where an <img> can't carry the bearer
+// token, and it cache-busts on profile_photo_at so a staffer's new photo shows
+// up the next time the owner loads the roster. Wrap it in a `relative
+// overflow-hidden rounded-full` container.
+function StaffAvatar({ member }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    let obj = null;
+    if (member?.id && member?.profile_photo_at) {
+      api
+        // ?v= busts the browser HTTP cache (proxy sets max-age=86400) so a
+        // staffer's new photo replaces the old one instead of showing stale.
+        .get(`/staff/members/${member.id}/photo?v=${encodeURIComponent(member.profile_photo_at)}`, { responseType: "blob" })
+        .then((r) => {
+          if (cancelled) return;
+          obj = URL.createObjectURL(r.data);
+          setUrl(obj);
+        })
+        .catch(() => { if (!cancelled) setUrl(null); });
+    } else {
+      setUrl(null);
+    }
+    return () => {
+      cancelled = true;
+      if (obj) URL.revokeObjectURL(obj);
+    };
+  }, [member?.id, member?.profile_photo_at]);
+  if (!url) return null;
+  return <img src={url} alt="" className="absolute inset-0 w-full h-full object-cover" />;
+}
+
 function StaffDetailModal({
   member,
   editForm,
@@ -2744,8 +2782,9 @@ function StaffDetailModal({
       >
         {/* Header */}
         <div className="flex items-start gap-3 p-5 border-b border-gray-100 dark:border-gray-700">
-          <div className="flex-shrink-0 w-11 h-11 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center text-base font-semibold">
+          <div className="relative flex-shrink-0 w-11 h-11 rounded-full overflow-hidden bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center text-base font-semibold">
             {initial}
+            <StaffAvatar member={member} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">

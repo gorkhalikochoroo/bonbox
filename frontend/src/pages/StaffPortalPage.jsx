@@ -10,6 +10,8 @@ import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
 import { isNativeApp } from "../utils/platform";
+import { capturePhoto } from "../utils/camera";
+import { Camera as CameraIcon, Trash2 } from "lucide-react";
 import { haptic } from "../utils/haptics"; // no-op on web; physical feedback in the iOS shell
 import useNativePush, { unregisterNativePush } from "../hooks/useNativePush";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
@@ -3315,6 +3317,73 @@ export default function StaffPortalPage() {
   const [emailMsg, setEmailMsg] = useState("");
   const [emailStatus, setEmailStatus] = useState(null); // "ok" | "err"
 
+  // Profile photo (staff self-edit). Fetched as a blob through portalApi (which
+  // attaches the X-BonBox-Pin header) → object URL, so it renders even on
+  // PIN-protected links where a bare <img src> to the gated proxy would 401.
+  const [photoUrl, setPhotoUrl] = useState(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let obj = null;
+    if (info?.profile_photo_at && (pinVerified || !info?.has_pin)) {
+      portalApi
+        // ?v= busts the browser HTTP cache (the proxy sets max-age=86400) so a
+        // freshly-changed photo shows immediately instead of the stale one.
+        .get(`/portal/${token}/profile-photo?v=${encodeURIComponent(info.profile_photo_at)}`, { responseType: "blob" })
+        .then((res) => {
+          if (cancelled) return;
+          obj = URL.createObjectURL(res.data);
+          setPhotoUrl(obj);
+        })
+        .catch(() => { if (!cancelled) setPhotoUrl(null); });
+    } else {
+      setPhotoUrl(null);
+    }
+    return () => {
+      cancelled = true;
+      if (obj) URL.revokeObjectURL(obj);
+    };
+  }, [info?.profile_photo_at, info?.has_pin, pinVerified, token]);
+
+  const handlePhotoChange = async () => {
+    setEmailMsg("");
+    setEmailStatus(null);
+    let b64;
+    try {
+      b64 = await capturePhoto("gallery");
+    } catch {
+      setEmailStatus("err");
+      setEmailMsg(t("portalPhotoFailed", "Couldn't add the photo. Try again."));
+      return;
+    }
+    if (!b64) return; // cancelled
+    setPhotoBusy(true);
+    try {
+      const bin = atob(b64);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      const fd = new FormData();
+      fd.append("file", new Blob([arr], { type: "image/jpeg" }), "avatar.jpg");
+      const res = await portalApi.post(`/portal/${token}/profile-photo`, fd);
+      setInfo((prev) => ({ ...prev, profile_photo_at: res.data.profile_photo_at }));
+    } catch (err) {
+      setEmailStatus("err");
+      setEmailMsg(errText(err, t("portalPhotoFailed", "Couldn't add the photo. Try again.")));
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+
+  const handlePhotoRemove = async () => {
+    setPhotoBusy(true);
+    try {
+      await portalApi.delete(`/portal/${token}/profile-photo`);
+      setInfo((prev) => ({ ...prev, profile_photo_at: null }));
+    } catch { /* best-effort */ }
+    finally { setPhotoBusy(false); }
+  };
+
   // 1. Validate token on mount
   useEffect(() => {
     portalApi.get(`/portal/${token}`)
@@ -3714,10 +3783,14 @@ export default function StaffPortalPage() {
             )}
             <button
               onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setAddressInput(info?.address || ""); setPostalInput(info?.postal_code || ""); setCityInput(info?.city || ""); setEmailMsg(""); setEmailStatus(null); }}
-              className="relative w-9 h-9 rounded-full bg-gray-100 border border-gray-200 shadow-soft flex items-center justify-center text-sm font-bold text-gray-700 active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
-              title={t("portalEditContact", "Edit email")}
+              className="relative w-9 h-9 rounded-full bg-gray-100 border border-gray-200 shadow-soft overflow-hidden flex items-center justify-center text-sm font-bold text-gray-700 active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
+              title={t("portalEditContact", "Edit profile")}
             >
-              {info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+              {photoUrl ? (
+                <img src={photoUrl} alt="" className="w-full h-full object-cover" />
+              ) : (
+                info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+              )}
             </button>
           </div>
         </div>
@@ -3725,6 +3798,40 @@ export default function StaffPortalPage() {
         {showEmailEdit && (
           <div className="max-w-lg mx-auto px-4 pb-3">
             <div className="rounded-xl bg-white border border-gray-200 p-3 space-y-3">
+              {/* Profile photo — staff pick a photo; the owner sees it too. */}
+              <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
+                <div className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center text-base font-bold text-gray-500 shrink-0">
+                  {photoUrl ? (
+                    <img src={photoUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-1.5">{t("portalPhotoLabel", "Photo")}</div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handlePhotoChange}
+                      disabled={photoBusy}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-900 text-white hover:bg-gray-700 transition disabled:opacity-50"
+                    >
+                      <CameraIcon className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
+                      {photoBusy ? t("portalSaving", "Saving…") : (photoUrl ? t("portalPhotoChange", "Change") : t("portalPhotoAdd", "Add photo"))}
+                    </button>
+                    {photoUrl && !photoBusy && (
+                      <button
+                        type="button"
+                        onClick={handlePhotoRemove}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 transition"
+                        aria-label={t("portalPhotoRemove", "Remove photo")}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
               <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">{t("portalNotifications", "Notifications")}</div>
               <div>
                 <label className="text-[10px] text-gray-500 mb-1 block">{t("portalContactEmailLabel", "Email")}</label>
