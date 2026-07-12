@@ -1,22 +1,36 @@
 import axios from "axios";
 import { getRevealProof, setRevealProof, triggerDeviceLock } from "./deviceShare";
+import { platform } from "../utils/platform";
+
+// The one prod origin. A native Capacitor shell (iOS/Android) has NO other
+// backend it could ever talk to — it ships pre-built and always points here.
+const PROD_API_URL = "https://api.bonbox.dk/api";
 
 // Default API URL when no VITE_API_URL env var is set. Production users on
 // any *.bonbox.dk page get pointed at api.bonbox.dk so cookies stay
 // first-party (Round 2 — same registrable domain → SameSite=Lax + JS-
 // readable CSRF cookie). Vercel env vars still win if explicitly set.
 const _DEFAULT_API_URL = (() => {
+  // Native shell first: window.location.hostname is "localhost" inside a
+  // Capacitor WKWebView, so the hostname branch below can NEVER fire on-device.
+  // Without this, native falls through to the localhost:8000 dead-end. Belt +
+  // braces with the baseURL guard below.
+  if (platform.isNative) return PROD_API_URL;
   try {
     const h = (typeof window !== "undefined" && window.location?.hostname) || "";
     if (h === "bonbox.dk" || h.endsWith(".bonbox.dk")) {
-      return "https://api.bonbox.dk/api";
+      return PROD_API_URL;
     }
   } catch { /* SSR / sandboxed — fall through */ }
   return "http://localhost:8000/api";
 })();
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || _DEFAULT_API_URL,
+  // Native → hard-forced to prod, ABOVE the env var, so a mis-baked or empty
+  // VITE_API_URL (e.g. a --mode slip letting .env.local=localhost win) can
+  // never strand the app on the phone's own localhost. Web → explicit env
+  // override wins, else the host-based default.
+  baseURL: platform.isNative ? PROD_API_URL : (import.meta.env.VITE_API_URL || _DEFAULT_API_URL),
   timeout: 60000, // 60s timeout for slow connections (Nepal, etc.)
   // Send the HttpOnly auth cookie set by /auth/login. Pairs with the
   // existing Authorization: Bearer header — backend accepts either.

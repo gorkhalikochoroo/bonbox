@@ -4,20 +4,32 @@
  * Used exclusively by the staff self-service portal (/s/:token).
  */
 import axios from "axios";
+import { platform } from "../utils/platform";
+
+// This is the scheduler iOS app's PRIMARY client — every /s/:token portal +
+// /join screen goes through here. The native shell has exactly one backend.
+const PROD_API_URL = "https://api.bonbox.dk/api";
 
 // Same defaulting logic as api.js — bonbox.dk pages point at api.bonbox.dk.
 const _DEFAULT_API_URL = (() => {
+  // Native shell always talks to prod: hostname is "localhost" in a Capacitor
+  // WKWebView, so the hostname check never fires and the app would otherwise
+  // fall through to the localhost:8000 dead-end. This is the layer that makes
+  // the scheduler connection independent of the build-time env var.
+  if (platform.isNative) return PROD_API_URL;
   try {
     const h = (typeof window !== "undefined" && window.location?.hostname) || "";
     if (h === "bonbox.dk" || h.endsWith(".bonbox.dk")) {
-      return "https://api.bonbox.dk/api";
+      return PROD_API_URL;
     }
   } catch { /* SSR / sandboxed */ }
   return "http://localhost:8000/api";
 })();
 
 const portalApi = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || _DEFAULT_API_URL,
+  // Native → forced prod regardless of env (never localhost on a phone).
+  // Web → env override wins, else host default.
+  baseURL: platform.isNative ? PROD_API_URL : (import.meta.env.VITE_API_URL || _DEFAULT_API_URL),
   timeout: 30000,
 });
 
