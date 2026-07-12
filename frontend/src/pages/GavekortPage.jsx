@@ -640,6 +640,7 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
   const qrToken = result?.qr_token || "";
   const shortCode = result?.short_code || "";
   const [showQR, setShowQR] = useState(false); // fullscreen QR for hand-over
+  const [showPrint, setShowPrint] = useState(false); // owner-branded print modal
   const [copied, setCopied] = useState(false);
   const { user } = useAuth();
   const venue = user?.business_name?.trim() || ""; // for the printable card
@@ -671,14 +672,6 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
         year: "numeric",
       })
     : null;
-
-  const print = () => {
-    try {
-      window.print();
-    } catch {
-      /* no-op — print unavailable */
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -771,9 +764,9 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
           <Button
             variant="secondary"
             iconLeft={<Printer className="w-4 h-4" aria-hidden />}
-            onClick={print}
+            onClick={() => setShowPrint(true)}
           >
-            {t("gkPrint", "Print")}
+            {t("gkPrintCard", "Udskriv gavekort")}
           </Button>
         </div>
       </Card>
@@ -830,9 +823,20 @@ function IssuedResult({ t, result, onIssueAnother, onGoToLedger }) {
         </div>
       )}
 
-      {/* Printable card — display:none on screen; laid out only for the
-          printer (see .gk-print-card in index.css). The Print button scopes
-          window.print() to THIS one clean gavekort. Light, print-safe styles. */}
+      {/* Udskriv gavekort — the same owner-branded print modal the ledger uses
+          (two premium templates + real PDF). Opening it straight from the
+          sell-success screen is the natural moment to hand over a printed card. */}
+      {showPrint && (
+        <GavekortPrintModal
+          card={result}
+          open={showPrint}
+          onClose={() => setShowPrint(false)}
+        />
+      )}
+
+      {/* Native-print fallback — display:none on screen; laid out only for the
+          browser's own print (Cmd/Ctrl+P) via .gk-print-card in index.css. The
+          premium PDF above is the primary path; this stays as a plain fallback. */}
       <div className="gk-print-card hidden">
         <div
           style={{
