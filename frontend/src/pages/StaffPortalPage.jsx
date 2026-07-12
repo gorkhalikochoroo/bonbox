@@ -3608,7 +3608,15 @@ export default function StaffPortalPage() {
 
   // PIN gate
   if (info?.has_pin && !pinVerified) {
-    return <PinGate token={token} staffName={info.staff_name} onVerified={() => setPinVerified(true)} />;
+    return <PinGate token={token} staffName={info.staff_name} onVerified={() => {
+      setPinVerified(true);
+      // Re-fetch now that the PIN proof is stored (PinGate stores it before
+      // calling this). The validate endpoint gates the staffer's contact PII
+      // (email/phone/home address) behind pin_ok, so the pre-PIN `info` has
+      // them null — hydrate the real values so the profile + address editor
+      // don't show (or save) blanks.
+      portalApi.get(`/portal/${token}`).then((r) => setInfo(r.data)).catch(() => { /* keep pre-PIN info */ });
+    }} />;
   }
 
   const handleContactSave = async () => {

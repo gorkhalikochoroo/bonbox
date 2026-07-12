@@ -30,9 +30,20 @@ const BUILD_ID = (() => {
   } catch { return "dev"; }
 })();
 
-// Same resolution api.js uses, inlined so we take no import. Vite replaces
-// import.meta.env.VITE_API_URL with a literal at build time.
+// Same resolution api.js uses, inlined so we take no import (this file's hard
+// ZERO-imports rule — importing utils/platform.js would pull @capacitor/core
+// onto the crash path). Vite replaces import.meta.env.VITE_API_URL with a
+// literal at build time.
 function apiBase() {
+  // Native shell (Capacitor) always reports to prod — window.location.hostname
+  // is "localhost" in the WKWebView, so without this the beacon (the one
+  // channel that would reveal a stranded build) would itself point at the dead
+  // localhost:8000. Guarded so a missing global never throws on the crash path.
+  try {
+    if (typeof window !== "undefined" && window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+      return "https://api.bonbox.dk/api";
+    }
+  } catch { /* ignore — fall through */ }
   try {
     const env = import.meta.env && import.meta.env.VITE_API_URL;
     if (env) return String(env).replace(/\/$/, "");
