@@ -10,8 +10,14 @@ import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
 import { isNativeApp } from "../utils/platform";
+import { haptic } from "../utils/haptics"; // no-op on web; physical feedback in the iOS shell
 import useNativePush, { unregisterNativePush } from "../hooks/useNativePush";
 import { PhotoGrid, PendingPhotos, AttachButton, usePhotoPicker } from "../components/staff/chatPhotoKit";
+
+// One-per-PAGE-LOAD latch for the hero's ceremonial settle beat. Module scope
+// on purpose: switching tabs remounts ScheduleTab, and the beat must not
+// replay on every return to the Schedule tab — only on a fresh load.
+let heroBeatPlayed = false;
 
 
 // ─── Push subscription helpers (Staff v2, 2026-05-28) ───────────────────
@@ -144,7 +150,10 @@ function roleBarColor(role) {
     return "bg-blue-500";
   }
   if (r.includes("floor") || r.includes("gulv") || r.includes("tjener") || r.includes("waiter") || r.includes("server")) {
-    return "bg-emerald-500";
+    // Violet, NOT emerald — green is reserved exclusively for "live/now"
+    // (Live pill + clocked-in ping). Tjener is the majority persona; painting
+    // it green flooded every page with false "live" signals.
+    return "bg-violet-500";
   }
   return "bg-gray-600";
 }
@@ -511,6 +520,7 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange }) {
     setError("");
     try {
       const res = await portalApi.post(`/portal/${token}/confirm-schedule`, {});
+      haptic.light(); // a quiet physical ack — confirm is routine, not ceremonial
       const n = res?.data?.confirmed_count ?? 0;
       setFeedback(n > 0
         ? `✓ ${t("portalConfirmCount", "{n} shifts confirmed", { n })}`
@@ -666,6 +676,10 @@ function useClock(token) {
       }
       const res = await portalApi.post(`/portal/${token}/clock-${dir}`, payload);
       applySt(res.data);
+      // Native feel: a physical answer to the physical act. Success for a real
+      // punch; warning when the punch was too short and discarded (honest).
+      if (res.data?.discarded) haptic.warning();
+      else haptic.success();
       if (dir === "out" && !res.data?.discarded) {
         // A completed punch just landed — nudge the portal to refetch hours so
         // the worker sees it in "My hours" without a manual reload.
@@ -691,8 +705,10 @@ function useClock(token) {
       if (det?.error === "too_far") {
         // Keep the real numbers — the hero renders a calm "you're ~X away" block
         // instead of a flat red line (being off-site isn't an error you caused).
+        haptic.warning();
         setErr({ kind: "too_far", distance_m: det.distance_m, radius_m: det.radius_m });
       } else {
+        haptic.error();
         setErr(
           det?.error === "not_clocked_in"
             ? t("portalClockErrOut", "You're not clocked in.")
@@ -765,21 +781,14 @@ function staffInitials(name) {
 }
 
 // ── "På arbejde med dig" — teammate avatar strip for the next shift's date.
-// Fully client-side off /portal/{token}/team-schedule. The endpoint now filters
+// PURE-PROPS: teamShifts is hoisted to the page-level loadData (fetched in the
+// same Promise.allSettled as the schedule) so this strip paints WITH the hero
+// instead of growing it ~100ms later — stillness doctrine. The endpoint filters
 // to published/confirmed shifts server-side (no draft leak), and we ALSO restrict
 // to nextShift.date only as defense-in-depth — never widen beyond the one date
 // the staffer is already trusted to see.
-function WhosOnStrip({ token, nextShift }) {
+function WhosOnStrip({ teamShifts, nextShift }) {
   const { t } = useLanguage();
-  const [teamShifts, setTeamShifts] = useState([]);
-
-  useEffect(() => {
-    if (!token) return;
-    portalApi
-      .get(`/portal/${token}/team-schedule`)
-      .then((r) => setTeamShifts(r.data || []))
-      .catch(() => setTeamShifts([]));
-  }, [token]);
 
   if (!nextShift) return null;
 
@@ -840,43 +849,39 @@ function WhosOnStrip({ token, nextShift }) {
 // model — appears only when there's something to take, never a notification
 // blast). Claim is atomic + overlap-guarded server-side; on success the shift
 // lands in the staffer's own schedule, so we refresh.
-function OpenShiftsClaimCard({ token, onClaimed }) {
+function OpenShiftsClaimCard({ token, rows, onClaimed }) {
+  // PURE-PROPS rows: hoisted to the page-level loadData (same Promise.allSettled
+  // as the schedule) so this card paints WITH the first render instead of
+  // inserting itself after settle. Claim refreshes via onClaimed → loadData.
   const { t, lang } = useLanguage();
-  const [rows, setRows] = useState([]);
   const [claiming, setClaiming] = useState(null);
   const [msg, setMsg] = useState("");
-
-  const fetchOpen = useCallback(() => {
-    if (!token) return;
-    portalApi
-      .get(`/portal/${token}/open-shifts`)
-      .then((r) => setRows(Array.isArray(r.data) ? r.data : []))
-      .catch(() => setRows([]));
-  }, [token]);
-
-  useEffect(() => { fetchOpen(); }, [fetchOpen]);
 
   const claim = async (id) => {
     setClaiming(id);
     setMsg("");
     try {
       await portalApi.post(`/portal/${token}/open-shifts/${id}/claim`);
+      haptic.success();
       setMsg(t("portalOpenClaimed", "Added to your schedule."));
       setTimeout(() => setMsg(""), 3500);  // clear the confirmation after the moment
-      fetchOpen();
       onClaimed?.();
     } catch (err) {
       const code = err?.response?.data?.detail?.code;
+      haptic.warning();
       if (code === "already_taken") setMsg(t("portalOpenTaken", "That shift was just taken."));
       else if (code === "shift_overlap") setMsg(t("portalOpenOverlap", "You already work then."));
       else setMsg(errText(err, t("portalOpenClaimFailed", "Couldn't take the shift.")));
-      fetchOpen();
+      onClaimed?.();
     } finally {
       setClaiming(null);
     }
   };
 
-  if (!rows.length) return null;  // silent when there's nothing to claim
+  // Silent when there's nothing to claim — but the "Added to your schedule"
+  // confirmation must survive claiming the LAST shift (msg keeps the card
+  // alive for its 3.5s moment; without this the card vanished mid-thanks).
+  if (!rows.length && !msg) return null;
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -915,7 +920,7 @@ function OpenShiftsClaimCard({ token, onClaimed }) {
 }
 
 
-function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onShiftsChanged, onNeedChange }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, onShiftsChanged, onNeedChange }) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -1023,12 +1028,22 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
     ? shifts.find((s) => s.date === expandedDate)
     : null;
 
+  // The ONE ceremonial beat: hero settles in once per page load. useRef pins
+  // the decision for this mount so mid-animation re-renders (clock fetch,
+  // freshness tick) can't strip the class before the 500ms beat completes;
+  // the module-scope latch — written in a mount effect so render stays pure —
+  // keeps tab-switch remounts still.
+  const playBeat = useRef(!heroBeatPlayed).current;
+  useEffect(() => {
+    heroBeatPlayed = true;
+  }, []);
+
   return (
     <div className="space-y-4">
       {/* HERO — dark gray-900 next-shift card with a 4px role-colored left-bar.
           Absorbs the punch-clock (elapsed timer + Stempl ind/ud) and a live
           countdown. Role shows ONLY via the thin left-bar + a tiny label. */}
-      <div className="relative overflow-hidden rounded-2xl bg-gray-900 text-white p-5 shadow-soft-lg">
+      <div className={`relative overflow-hidden rounded-2xl bg-gray-900 text-white p-5 shadow-soft-lg${playBeat ? " motion-safe:animate-heroSettle" : ""}`}>
         {/* Faint --brand corner under-glow — the portal's one ceremonial glossy
             beat: felt, not seen. Static, low-alpha (0.20), never neon. */}
         <div
@@ -1041,11 +1056,14 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
           aria-hidden
           className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent"
         />
-        {/* Role-colored left-bar — a thin SIGNAL, the only role colour. */}
-        <span
-          className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl ${roleBarColor(nextShift?.role_on_shift)}`}
-          aria-hidden
-        />
+        {/* Role-colored left-bar — a thin SIGNAL, the only role colour. Only
+            when there IS a shift: an empty hero has no role to signal. */}
+        {nextShift && (
+          <span
+            className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl ${roleBarColor(nextShift.role_on_shift)}`}
+            aria-hidden
+          />
+        )}
         <div className="flex items-start justify-between gap-2">
           <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
             {t("portalNextShiftHero")}
@@ -1062,8 +1080,12 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
             <div className="mt-2 text-3xl font-bold text-white leading-tight tracking-[-0.02em]">
               {isToday(nextShift.date) ? t("portalToday") : fmtDate(nextShift.date, lang)}
             </div>
-            <div className="mt-1 text-[13px] text-gray-300 tabular-nums">
-              {nextShift.start_time}–{nextShift.end_time} · {nextShift.net_hours} {t("portalHrsShort")}
+            {/* The TIME is the answer a staffer opens this page for — it speaks
+                at headline-adjacent scale; date → time → meta, a true F-pattern.
+                (Was 13px gray — the payload rendered as a footnote.) */}
+            <div className="mt-1 text-lg font-semibold text-white tabular-nums">
+              {nextShift.start_time}–{nextShift.end_time}{" "}
+              <span className="text-[13px] font-normal text-gray-400">· {nextShift.net_hours} {t("portalHrsShort")}</span>
             </div>
             <div className="mt-1 text-[12px] text-gray-400">{nextShiftRole}</div>
 
@@ -1174,15 +1196,22 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
                 gray-900, built for this surface). Who's-on is a property of this
                 next shift, so it belongs here, not floating on the gray page.
                 Renders nothing on a solo shift. */}
-            {token && <WhosOnStrip token={token} nextShift={nextShift} />}
+            {token && <WhosOnStrip teamShifts={teamShifts || []} nextShift={nextShift} />}
           </>
         ) : (
-          <div className="mt-1 text-2xl font-bold text-gray-500">{t("portalNoUpcomingShift")}</div>
+          <>
+            <div className="mt-1 text-2xl font-bold text-gray-500">{t("portalNoUpcomingShift")}</div>
+            {/* Honesty crumb: an empty hero says what happens next, not just
+                "nothing" — the portal will light up when the plan is published. */}
+            <div className="mt-2 text-[13px] text-gray-400">
+              {t("portalNoShiftHint", "You'll get notified here when {venue} publishes the schedule.", { venue: restaurantName || "" })}
+            </div>
+          </>
         )}
       </div>
 
       {/* Åbne vagter — open shifts this staffer can pick up one-tap. */}
-      {token && <OpenShiftsClaimCard token={token} onClaimed={onShiftsChanged} />}
+      {token && <OpenShiftsClaimCard token={token} rows={openShifts || []} onClaimed={onShiftsChanged} />}
 
       {/* Bidirectional confirmation — calm "Jeg har set det" strip. Truth logic
           (allConfirmed gated on every confirmed_at) untouched; only the CTA
@@ -1211,8 +1240,8 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
 
       {/* 7-dot week-at-a-glance — replaces the three long ShiftRow scrolls. One
           strip at a time (this/next week). Working day = thin role-colored bar;
-          OFF = silent hollow dot; TODAY = filled + gray-900 ring. Tap a working
-          day → expand ONE inline ShiftRow below. */}
+          OFF = silent hollow dot; TODAY = bold gray-900 label + soft cell fill.
+          Tap a working day → expand ONE inline ShiftRow below. */}
       <div className="rounded-xl bg-white border border-gray-200 p-4">
         <div className="flex items-start justify-between mb-2">
           {/* Eyebrow stays a pure uppercase-tracked label; the date range drops
@@ -1231,13 +1260,13 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
               setWeekView((v) => (v === "this" ? "next" : "this"));
               setExpandedDate(null);
             }}
-            className="text-[11px] font-medium text-gray-500 hover:text-gray-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded px-1 py-0.5"
+            className="text-[11px] font-medium text-gray-500 hover:text-gray-700 active:opacity-60 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded px-2 -mx-1 py-2.5 -my-2"
           >
             {weekView === "this" ? t("portalSecNextWeek", "Next week") : t("portalSecThisWeek", "This week")} →
           </button>
         </div>
 
-        <div className="grid grid-cols-7 gap-1">
+        <div className="grid grid-cols-7 gap-0.5">
           {weekDays.map(({ date: d, shift }, i) => {
             const isTodayCell = isToday(d);
             const isExpanded = expandedDate === d;
@@ -1246,12 +1275,17 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
                 key={d}
                 type="button"
                 onClick={() => setExpandedDate(isExpanded || !shift ? null : d)}
-                className={`flex flex-col items-center gap-1.5 rounded-lg py-2 min-h-[44px] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${isTodayCell || isExpanded ? "bg-gray-50" : "hover:bg-gray-50"}`}
+                className={`flex flex-col items-center gap-1.5 rounded-lg py-2 min-h-[44px] transition active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${isExpanded ? "bg-gray-100" : isTodayCell ? "bg-gray-50" : "hover:bg-gray-50"}`}
                 aria-label={`${WD[i]} ${fmtShort(d, lang)}`}
+                aria-current={isTodayCell ? "date" : undefined}
+                aria-expanded={shift ? isExpanded : undefined}
               >
                 {/* TODAY = bold gray-900 label + soft cell fill (above). No ink
-                    ring — a ring hugging a 4px bar rendered as a broken pill. */}
+                    ring — a ring hugging a 4px bar rendered as a broken pill.
+                    EXPANDED = a step darker (bg-gray-100) so "open" reads
+                    distinctly from "today". */}
                 <span className={`text-[10px] ${isTodayCell ? "text-gray-900 font-semibold" : "text-gray-400"}`}>{WD[i]}</span>
+                <span className={`text-[10px] tabular-nums ${isTodayCell ? "text-gray-900 font-semibold" : "text-gray-400"}`}>{parseInt(d.slice(8), 10)}</span>
                 {shift ? (
                   <span
                     className={`block w-1.5 h-5 rounded-full ${roleBarColor(shift.role_on_shift)}`}
@@ -1270,7 +1304,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
 
         {/* Opt-in detail: ONE inline ShiftRow for the tapped working day. */}
         {expandedShift && (
-          <div className="mt-2">
+          <div className="mt-2 motion-safe:animate-scaleIn">
             <ShiftRow date={expandedShift.date} shift={expandedShift} />
           </div>
         )}
@@ -1389,7 +1423,7 @@ function HoursTab({ data, maxHours }) {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3">
+        <div className="rounded-xl bg-white border border-gray-200 p-3">
           <div className="text-[11px] text-gray-500 mb-1">{hoursLabel}</div>
           <div className="text-2xl font-bold text-gray-900">
             {data.total_hours} {maxHours ? <span className="text-sm text-gray-500">/ {maxHours}</span> : null}
@@ -1411,7 +1445,7 @@ function HoursTab({ data, maxHours }) {
             </>
           )}
         </div>
-        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3">
+        <div className="rounded-xl bg-white border border-gray-200 p-3">
           <div className="text-[11px] text-gray-500 mb-1">{t("portalHoursShiftsCount", "Shifts")}</div>
           <div className="text-2xl font-bold text-gray-900">{data.entries.length}</div>
           <div className="text-[11px] text-gray-500">{t("portalHoursThisPeriod", "this period")}</div>
@@ -1502,15 +1536,15 @@ function TipsTab({ data }) {
     <div className="space-y-4">
       {/* KPIs */}
       <div className="grid grid-cols-3 gap-2">
-        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3">
+        <div className="rounded-xl bg-white border border-gray-200 p-3">
           <div className="text-[10px] text-gray-500 mb-1">{tr("portalTipsLast30", "Last 30 days")}</div>
           <div className="text-lg font-bold text-gray-700">{Math.round(data.total_tips_30d).toLocaleString()}</div>
         </div>
-        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3">
+        <div className="rounded-xl bg-white border border-gray-200 p-3">
           <div className="text-[10px] text-gray-500 mb-1">{tr("portalTipsLastShift", "Last shift")}</div>
           <div className="text-lg font-bold text-gray-900">{lastTip ? Math.round(lastTip.amount) : "—"}</div>
         </div>
-        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3">
+        <div className="rounded-xl bg-white border border-gray-200 p-3">
           <div className="text-[10px] text-gray-500 mb-1">{tr("portalTipsAvgPerShift", "Avg / shift")}</div>
           <div className="text-lg font-bold text-gray-900">{Math.round(avgPerShift)}</div>
         </div>
@@ -1693,7 +1727,7 @@ function SwapRow({ swap, token, onChanged }) {
           : swap.status;
 
   return (
-    <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3 space-y-2">
+    <div className="rounded-xl bg-white border border-gray-200 p-3 space-y-2">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[10px] uppercase tracking-wide font-medium text-gray-500">
           {swap.direction === "outgoing" ? t("portalSwapOutgoing", "Outgoing") : t("portalSwapIncoming", "Incoming")}
@@ -2374,7 +2408,7 @@ function AbsenceSection({ token }) {
           {groups.map((g) => {
             const st = STATUS[g.status] || STATUS.pending;
             return (
-              <div key={g.ids[0]} className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3 flex items-center gap-3">
+              <div key={g.ids[0]} className="rounded-xl bg-white border border-gray-200 p-3 flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
                   <CalendarPlus className="w-[18px] h-[18px] text-gray-500" strokeWidth={2} aria-hidden />
                 </div>
@@ -2409,7 +2443,7 @@ function AbsenceSection({ token }) {
           {t("fravaerAdd", "Request holiday / sick leave")}
         </button>
       ) : (
-        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-4 space-y-4">
+        <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-4">
           <div className="grid grid-cols-2 gap-1.5">
             {["ferie", "sick", "barns_syg", "andet"].map((k) => (
               <button
@@ -2578,7 +2612,7 @@ function AvailabilityTab({ token }) {
           {(rows || []).map((row) => {
             const { when, time } = describe(row);
             return (
-              <div key={row.id} className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3 flex items-center gap-3">
+              <div key={row.id} className="rounded-xl bg-white border border-gray-200 p-3 flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
                   <CalendarOff className="w-[18px] h-[18px] text-gray-500" strokeWidth={2} aria-hidden />
                 </div>
@@ -2611,7 +2645,7 @@ function AvailabilityTab({ token }) {
           {t("kanIkkeAdd", "Mark “can't work”")}
         </button>
       ) : (
-        <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-4 space-y-4">
+        <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-4">
           {/* recurring vs one-off */}
           <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-xl">
             {[["weekday", t("kanIkkeRecurring", "Weekly")], ["date", t("kanIkkeOneOff", "One date")]].map(([k, lbl]) => (
@@ -2804,7 +2838,7 @@ function InstallNotifyCard({ token }) {
           type="button"
           onClick={() => setExpanded((e) => !e)}
           aria-label={t("staffInstallToggle", "Show install options")}
-          className="text-gray-400 hover:text-gray-600 shrink-0"
+          className="p-3 -m-2 text-gray-400 hover:text-gray-600 active:opacity-60 shrink-0"
         >
           <ChevronDown
             className={`w-4 h-4 transition-transform ${expanded ? "rotate-180" : ""}`}
@@ -2812,14 +2846,18 @@ function InstallNotifyCard({ token }) {
             aria-hidden
           />
         </button>
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label={t("dismiss", "Dismiss")}
-          className="text-gray-400 hover:text-gray-600 shrink-0"
-        >
-          <X className="w-4 h-4" strokeWidth={2} aria-hidden />
-        </button>
+        {/* Dismiss only once installed — pre-install the card's job isn't done,
+            and an X that resurrects nothing next visit is a dead control. */}
+        {installed && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label={t("dismiss", "Dismiss")}
+            className="p-3 -m-2 text-gray-400 hover:text-gray-600 active:opacity-60 shrink-0"
+          >
+            <X className="w-4 h-4" strokeWidth={2} aria-hidden />
+          </button>
+        )}
       </div>
 
       {/* Expanded: the install affordance + push opt-in (unchanged behaviour). */}
@@ -3157,22 +3195,21 @@ function SyncPill({ isOnline, live, lastSynced, onRefresh, t }) {
     );
   }
 
-  // Live — the realtime stream is open, so changes land instantly. A subtle
-  // pulsing dot signals it without shouting. Only shown when truly connected
-  // (honest: never imply "live" when we're actually polling).
+  // Live — the realtime stream is open, so changes land instantly. This is
+  // the ONE honest "live/now" use of the full emerald pill (green exclusivity:
+  // LIVE keeps the pill; mere freshness gets the quiet gray+dot below). Solid
+  // dot, NO animate-ping — the clocked-in ping in the hero owns the pulse.
+  // Only shown when truly connected (never imply "live" while polling).
   if (live) {
     return (
       <button
         type="button"
         onClick={onRefresh}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-medium text-emerald-700"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 active:scale-[0.98] transition"
         title={t("portalLive")}
         aria-label={t("portalLive")}
       >
-        <span className="relative flex w-1.5 h-1.5" aria-hidden>
-          <span className="absolute inline-flex w-full h-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
-          <span className="relative inline-flex w-1.5 h-1.5 rounded-full bg-emerald-500" />
-        </span>
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden />
         {t("portalLive")}
       </button>
     );
@@ -3183,7 +3220,7 @@ function SyncPill({ isOnline, live, lastSynced, onRefresh, t }) {
       <button
         type="button"
         onClick={onRefresh}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-medium text-emerald-700"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-[11px] font-medium text-gray-500 hover:bg-gray-200 active:scale-[0.98] transition"
         title={t("portalSynced")}
         aria-label={t("portalSynced")}
       >
@@ -3232,6 +3269,10 @@ export default function StaffPortalPage() {
 
   // Data for each tab
   const [shifts, setShifts] = useState([]);
+  // Hoisted from WhosOnStrip / OpenShiftsClaimCard so the Schedule tab paints
+  // ONCE — no post-settle hero growth or card insertion (stillness doctrine).
+  const [teamShifts, setTeamShifts] = useState([]);
+  const [openShifts, setOpenShifts] = useState([]);
   const [hoursData, setHoursData] = useState(null);
   const [tipsData, setTipsData] = useState(null);
   // Unread owner→staff chat messages — drives the "Beskeder" nav badge.
@@ -3302,21 +3343,36 @@ export default function StaffPortalPage() {
     // Schedule — the freshness source of truth. On success we stamp
     // lastSynced (drives the "Synced" pill) and diff the published shifts
     // against the last-rendered signature to decide whether to toast.
-    portalApi.get(`/portal/${token}/schedule`).then((res) => {
-      const nextShifts = res.data.shifts || [];
-      const nextSig = publishedScheduleSignature(nextShifts);
-      const prevSig = scheduleSigRef.current;
-      // Only toast on a REAL change after we already had data — never on the
-      // first successful load (prevSig === null means we've shown nothing yet).
-      if (prevSig !== null && prevSig !== nextSig) {
-        setScheduleUpdated(true);
+    // Schedule + who's-on + open-shifts settle TOGETHER (Promise.allSettled →
+    // React 18 batches the sets into one paint), so the hero never grows and
+    // no card inserts after first paint. Each leg fails independently and
+    // honest: on error we keep the previous data, never clear it.
+    Promise.allSettled([
+      portalApi.get(`/portal/${token}/schedule`),
+      portalApi.get(`/portal/${token}/team-schedule`),
+      portalApi.get(`/portal/${token}/open-shifts`),
+    ]).then(([sched, team, open]) => {
+      if (sched.status === "fulfilled") {
+        const nextShifts = sched.value.data.shifts || [];
+        const nextSig = publishedScheduleSignature(nextShifts);
+        const prevSig = scheduleSigRef.current;
+        // Only toast on a REAL change after we already had data — never on the
+        // first successful load (prevSig === null means we've shown nothing yet).
+        if (prevSig !== null && prevSig !== nextSig) {
+          setScheduleUpdated(true);
+        }
+        scheduleSigRef.current = nextSig;
+        setShifts(nextShifts);
+        setLastSynced(new Date());
       }
-      scheduleSigRef.current = nextSig;
-      setShifts(nextShifts);
-      setLastSynced(new Date());
-    }).catch(() => {
-      // Fail honest: do NOT advance lastSynced on a failed fetch, so the pill
-      // keeps showing the real last-good time (or Offline) rather than lying.
+      // Fail honest: do NOT advance lastSynced on a failed schedule fetch, so
+      // the pill keeps showing the real last-good time (or Offline).
+      if (team.status === "fulfilled") {
+        setTeamShifts(team.value.data || []);
+      }
+      if (open.status === "fulfilled") {
+        setOpenShifts(Array.isArray(open.value.data) ? open.value.data : []);
+      }
     });
 
     // Hours
@@ -3597,14 +3653,19 @@ export default function StaffPortalPage() {
             {/* DA / EN toggle — staff pick their language. Danish phones
                 already default to da via browser detection; this lets an
                 English-phone staffer at a DK workplace switch, and back. */}
-            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-[11px] font-semibold" role="group" aria-label={t("portalLangLabel", "Language")}>
+            {/* Per-button rounding (not container overflow-hidden) so the
+                invisible before: hit-halo isn't clipped — visual size is
+                unchanged, but the tap target clears ~44px vertically. */}
+            <div className="flex rounded-lg border border-gray-200 text-[11px] font-semibold" role="group" aria-label={t("portalLangLabel", "Language")}>
               {["da", "en"].map((code) => (
                 <button
                   key={code}
                   type="button"
                   onClick={() => setLang(code)}
                   aria-pressed={lang === code}
-                  className={`px-2 py-1 transition ${
+                  className={`relative px-2 py-1 transition active:scale-[0.98] before:absolute before:inset-x-0 before:-inset-y-2.5 before:content-[''] ${
+                    code === "da" ? "rounded-l-[7px]" : "rounded-r-[7px]"
+                  } ${
                     lang === code
                       ? "bg-gray-900 text-white"
                       : "bg-white text-gray-500 hover:bg-gray-50"
@@ -3627,7 +3688,7 @@ export default function StaffPortalPage() {
             )}
             <button
               onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setEmailMsg(""); setEmailStatus(null); }}
-              className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 shadow-soft flex items-center justify-center text-sm font-bold text-gray-700"
+              className="relative w-9 h-9 rounded-full bg-gray-100 border border-gray-200 shadow-soft flex items-center justify-center text-sm font-bold text-gray-700 active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
               title={t("portalEditContact", "Edit email")}
             >
               {info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
@@ -3637,7 +3698,7 @@ export default function StaffPortalPage() {
         {/* Email edit panel */}
         {showEmailEdit && (
           <div className="max-w-lg mx-auto px-4 pb-3">
-            <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3 space-y-3">
+            <div className="rounded-xl bg-white border border-gray-200 p-3 space-y-3">
               <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">{t("portalNotifications", "Notifications")}</div>
               <div>
                 <label className="text-[10px] text-gray-500 mb-1 block">{t("portalContactEmailLabel", "Email")}</label>
@@ -3720,6 +3781,8 @@ export default function StaffPortalPage() {
         {tab === "schedule" && (
           <ScheduleTab
             shifts={shifts}
+            teamShifts={teamShifts}
+            openShifts={openShifts}
             staffName={info?.staff_name}
             token={token}
             restaurantName={info?.restaurant_name}
@@ -3761,36 +3824,37 @@ export default function StaffPortalPage() {
                 key={item.key}
                 onClick={() => setTab(item.key)}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex flex-col items-center gap-0.5 px-1.5 sm:px-4 py-1 rounded-lg transition-colors ${
+                className={`relative flex flex-col items-center gap-0.5 px-1.5 sm:px-4 py-1 rounded-lg transition-colors active:opacity-60 ${
                   active ? "" : "text-gray-400"
                 }`}
                 style={active ? { color: "rgb(var(--brand-600))" } : undefined}
               >
-                {/* Soft --brand lozenge behind the active tab — the portal's one
-                    recurring, deliberate touch of colour. */}
-                {active && (
-                  <span
-                    aria-hidden
-                    className="absolute inset-x-2 top-0.5 h-7 rounded-lg"
-                    style={{ background: "rgb(var(--brand-50))" }}
-                  />
-                )}
                 <span className="relative">
+                  {/* Soft --brand lozenge hugging ONLY the icon — the portal's
+                      one recurring, deliberate touch of colour. Scoped to the
+                      icon so it never slices through the label below. */}
+                  {active && (
+                    <span
+                      aria-hidden
+                      className="absolute -inset-x-3.5 -inset-y-[3px] rounded-full"
+                      style={{ background: "rgb(var(--brand-50))" }}
+                    />
+                  )}
                   <item.Icon
-                    className="w-[18px] h-[18px]"
+                    className="relative z-10 w-[18px] h-[18px]"
                     strokeWidth={active ? 2.25 : 2}
                     aria-hidden
                   />
                   {item.key === "messages" && chatUnread > 0 && (
                     <span
-                      className="absolute -top-1 -right-1.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold leading-[14px] text-center"
+                      className="absolute z-10 -top-1 -right-1.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold leading-[14px] text-center"
                       aria-label={t("staffChatUnreadBadge", "Unread messages")}
                     >
                       {chatUnread > 9 ? "9+" : chatUnread}
                     </span>
                   )}
                 </span>
-                <span className="relative text-[10px] font-semibold">
+                <span className="relative max-w-[64px] truncate text-[10px] font-semibold">
                   {t(item.labelKey, item.labelFallback)}
                 </span>
               </button>
@@ -3813,7 +3877,7 @@ export default function StaffPortalPage() {
           <button
             type="button"
             onClick={() => { setScheduleUpdated(false); setTab("schedule"); }}
-            className="pointer-events-auto inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-medium shadow-lg"
+            className="pointer-events-auto inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-medium shadow-lg active:scale-[0.98] motion-safe:animate-fadeIn"
           >
             <RefreshCw className="w-4 h-4" strokeWidth={2} aria-hidden />
             {t("portalScheduleUpdated")}
