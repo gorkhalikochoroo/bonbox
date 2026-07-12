@@ -229,19 +229,18 @@ def test_free_user_blocked(client, db):
 # ─── 2. Starter user blocked (this is the Pro killer) ──────────────────
 
 
-def test_starter_user_blocked(client, db):
+def test_starter_user_can_use_autopilot(client, db):
+    # 2026-07-12 doctrine: Schedule Autopilot is on for Starter+ (only Free gated).
     owner = _owner(db, plan="starter")
+    _staff(db, owner, name="Marie", rate=180.0)
     _override_user(owner)
 
     res = client.post(
         "/api/staff/schedules/autopilot",
         json={"week_start": _next_monday().isoformat()},
     )
-    assert res.status_code == 402, res.text
-    detail = res.json()["detail"]
-    assert detail["code"] == "plan_required"
-    assert detail["upgrade_to"] == "pro"
-    assert detail["current_plan"] == "starter"
+    assert res.status_code == 200, res.text
+    assert len(res.json()["days"]) == 7
 
 
 # ─── 3. Pro user — sensible default for empty history ──────────────────
@@ -623,8 +622,9 @@ def test_plan_features_contract():
     for plan, feats in PLAN_FEATURES.items():
         assert "schedule_autopilot" in feats, f"plan {plan!r} missing key"
 
+    # 2026-07-12 doctrine: all functional features on Starter+; only Free gated.
     assert PLAN_FEATURES["free"]["schedule_autopilot"] is False
-    assert PLAN_FEATURES["starter"]["schedule_autopilot"] is False
+    assert PLAN_FEATURES["starter"]["schedule_autopilot"] is True
     assert PLAN_FEATURES["pro"]["schedule_autopilot"] is True
     assert PLAN_FEATURES["trial"]["schedule_autopilot"] is True
 

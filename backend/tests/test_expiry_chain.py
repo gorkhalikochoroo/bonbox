@@ -158,10 +158,11 @@ def test_expiry_alerts_tier_matrix():
     assert PLAN_FEATURES["trial"]["expiry_alerts"] is True
 
 
-def test_expiry_push_notification_is_pro_only():
-    """Push = the Pro-only differentiator; Starter does NOT get it."""
+def test_expiry_push_notification_paid_tiers():
+    """2026-07-12 doctrine: day-of-expiry push is ON for Starter + Pro + Trial;
+    only Free is gated."""
     assert PLAN_FEATURES["free"]["expiry_push_notifications"] is False
-    assert PLAN_FEATURES["starter"]["expiry_push_notifications"] is False
+    assert PLAN_FEATURES["starter"]["expiry_push_notifications"] is True
     assert PLAN_FEATURES["pro"]["expiry_push_notifications"] is True
     assert PLAN_FEATURES["trial"]["expiry_push_notifications"] is True
 

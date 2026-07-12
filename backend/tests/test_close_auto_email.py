@@ -192,11 +192,11 @@ def test_close_scan_attached_tier_matrix():
     assert PLAN_FEATURES["pro"]["close_scan_attached"] is True
 
 
-def test_close_push_notification_is_pro_only():
-    """Push to owner = the Pro killer.
-       Starter does NOT get push; only the email."""
+def test_close_push_notification_paid_tiers():
+    """2026-07-12 doctrine: push-on-lock is ON for Starter + Pro + Trial;
+    only Free is gated (Free still gets nothing on lock)."""
     assert PLAN_FEATURES["free"]["close_push_notification"] is False
-    assert PLAN_FEATURES["starter"]["close_push_notification"] is False
+    assert PLAN_FEATURES["starter"]["close_push_notification"] is True
     assert PLAN_FEATURES["pro"]["close_push_notification"] is True
     assert PLAN_FEATURES["trial"]["close_push_notification"] is True
 
@@ -680,10 +680,10 @@ def test_pro_user_lock_attempts_push_notification(db_session, client, monkeypatc
     assert ritual["push_status"] == "skipped_no_subscription"
 
 
-def test_starter_user_push_locked_to_pro_only(db_session, client, monkeypatch):
-    """L3 — Starter doesn't get push (Pro-only feature). push_status
-    must say 'skipped_feature_locked' so the frontend can render the
-    Pro upsell next to it."""
+def test_starter_user_push_not_feature_locked(db_session, client, monkeypatch):
+    """2026-07-12 doctrine: push-on-lock is on for Starter+ (only Free gated).
+    With no push subscription set up, Starter gets 'skipped_no_subscription'
+    — NOT the feature-locked path."""
     monkeypatch.setattr(
         "app.services.email_service.resend.Emails.send", lambda p: None,
     )
@@ -693,7 +693,7 @@ def test_starter_user_push_locked_to_pro_only(db_session, client, monkeypatch):
     _make_profile(db_session, user)
     r = client.post("/api/daily-close", json=_lock_payload(), headers=_auth_headers(user))
     ritual = r.json()["close_ritual"]
-    assert ritual["push_status"] == "skipped_feature_locked"
+    assert ritual["push_status"] == "skipped_no_subscription"
 
 
 # ─── Layer 10: Honest "upgrade hint" for Free users ────────────────────

@@ -742,13 +742,21 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # features, only Free is gated). Audits flagged ai_predictive_staffing
         # as illegally Pro-only — opened to Starter+.
         "ai_predictive_staffing": True,
-        "white_label_pdf": False,
-        "priority_support": False,
+        # ── 2026-07-12 tier-doctrine COMPLETION (Manoj) ────────────────────
+        # Finishes the "Starter+Pro share ALL functional features, differentiate
+        # by NUMBERS (seats/locations/volume + cost-bearing caps)" model. Every
+        # product feature is now ON for Starter. The ONLY things left Pro-only
+        # are: (a) premium perks — white_label_pdf, priority_support; and
+        # (b) business-SIZE levers metered by count — multi_branch_dashboard
+        # (branches) + multi_terminal_close (terminals). Marketing copy + tests
+        # updated in lockstep so no feature is advertised as "Pro-only".
+        "white_label_pdf": False,          # Pro perk — remove BonBox branding
+        "priority_support": False,         # Pro perk — support SLA, not a feature
         "custom_export_templates": True,
         "advanced_benchmarks": True,
-        "multi_branch_dashboard": False,  # 1 branch only on Starter
+        "multi_branch_dashboard": False,   # Size lever — follows the branches count (Starter = 1)
         "direct_accountant_email": True,   # THE Starter killer feature
-        "ai_menu_scan": False,
+        "ai_menu_scan": True,              # 2026-07-12 — opened to Starter+ (all-features doctrine)
         # 2026-05-25 tier-doctrine fix — opened to Starter+ (was Pro-only).
         # Solo Starter owners CAN have a small team and want to email the
         # schedule. The "multi-staff so it belongs in Pro" rationale didn't
@@ -758,8 +766,8 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         "mobilepay_autosync": True,        # Task #71 — pairs with bank_auto_reconcile
         "recurring_expenses": True,        # Task #47 — auto-post monthly
         "accountant_login": True,          # Task #49 — stickiness moat
-        "schedule_autopilot": False,       # Pro-only — Task #50 Pro killer
-        "tax_filing_pdf": False,           # Pro-only — Task #51 Pro killer
+        "schedule_autopilot": True,        # 2026-07-12 — opened to Starter+ (was Pro Task #50)
+        "tax_filing_pdf": True,            # 2026-07-12 — opened to Starter+ (was Pro Task #51)
         "daily_brief_email": True,         # Task #54 — same as Free, retention
         # 2026-05-25 tier-doctrine fix — opened to Starter+ (was Pro-only).
         # Starter owners running inventory deserve the auto-reorder layer; the
@@ -771,35 +779,35 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
         # Loyalty campaigns / outreach is a Starter expectation; gating it
         # behind Pro broke the "Starter is the workhorse" doctrine.
         "customer_outreach": True,
-        "multi_terminal_close": False,     # Pro-only — P5 honesty fix
+        "multi_terminal_close": False,     # Size lever — multiple POS terminals (Pro)
         "supplier_auto_detection": True,   # Starter+ — Danish supplier dict + auto-categorize
         "close_auto_email": True,          # Lane A — auto-fire on lock
         "close_scan_attached": True,       # Lane A — Z-report photo on the email
-        "close_push_notification": False,  # Pro-only — push to owner on lock
+        "close_push_notification": True,   # 2026-07-12 — opened to Starter+ (all-features doctrine)
         "expiry_alerts": True,             # Phase 1 — Brief insight + Dashboard card + waste-cost
-        "expiry_push_notifications": False,  # Pro-only — day-of-expiry push
+        "expiry_push_notifications": True, # 2026-07-12 — opened to Starter+ (all-features doctrine)
         "smart_scan_batch": True,          # Starter+ — batch upload multiple docs
-        "smart_scan_pdf_direct": False,    # Pro-only — drag PDFs in without photo
+        "smart_scan_pdf_direct": True,     # 2026-07-12 — opened to Starter+ (all-features doctrine)
         "accountant_hours_widget": True,   # Starter+ — the time-saved tracker
-        "accountant_month_end_bundle": False,  # Pro-only — positioned, build pending
+        "accountant_month_end_bundle": True,  # 2026-07-12 — opened to Starter+ (positioned, build pending)
         "multi_tier_tickets": True,        # Starter+ — adult/student/family pricing
-        "cross_event_analytics": False,    # Pro-only — comparison across events
+        "cross_event_analytics": True,     # 2026-07-12 — opened to Starter+ (all-features doctrine)
         "reservations": True,              # Starter = full reservations
         "gavekort": True,                  # Starter = full gavekort (cap=200)
         "sms_reminders": True,             # SMS reminders on Starter + Pro
-        "reservation_insights": False,     # Pro-only — forecast + no-show detail
+        "reservation_insights": True,      # 2026-07-12 — opened to Starter+ (forecast + no-show detail)
         "inbox_email_capture": True,       # Universal — workflow feature
         # ── Tier 4 Dashboard restructure (Phase F) — see Free comment ──
         "dashboard_accountant_hours": True,        # Starter+ — retention card
         "dashboard_business_health": True,         # Starter+ — composite verdict line
         "dashboard_expiry_warnings": True,         # Starter+ — Dashboard alert card
         "dashboard_goal_tracker": True,            # Starter+ — Zone 2 progress card
-        "dashboard_outstanding_invoices": False,   # Pro-only — uses customer_outreach
-        "dashboard_tax_autopilot_preview": False,  # Pro-only — uses tax_autopilot
+        "dashboard_outstanding_invoices": True,    # 2026-07-12 — opened to Starter+ (all-features doctrine)
+        "dashboard_tax_autopilot_preview": True,   # 2026-07-12 — opened to Starter+ (all-features doctrine)
         "dashboard_top_sellers": True,             # Starter+ — Zone 2 ranked items
         "revenue_trend_7d": True,                  # Universal
         "revenue_trend_30d": True,                 # Starter+ unlocks the 30-day window
-        "revenue_trend_90d": False,                # Pro-only — 90d + confidence band
+        "revenue_trend_90d": True,                 # 2026-07-12 — opened to Starter+ (90d + confidence band)
         # 2026-05-25 tier-doctrine fix — opened to Starter+ (was Pro-only).
         # GrowthLever signals are valuable to Starter users too; we removed
         # the "Pro-only because Starter would mostly see []" reasoning since

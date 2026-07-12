@@ -156,9 +156,9 @@ def jpeg_bytes():
 # ─── PLAN_FEATURES matrix ────────────────────────────────────────────
 
 def test_plan_features_smart_scan_matrix():
-    """Manoj-confirmed tier matrix:
+    """Tier matrix (2026-07-12 doctrine — all functional features on Starter+):
       Free:    no batch, no pdf-direct (but basic auto-route is universal)
-      Starter: batch yes,  pdf-direct no
+      Starter: batch yes,  pdf-direct yes
       Pro:     batch yes,  pdf-direct yes
       Trial:   = Pro (batch yes, pdf-direct yes)
     """
@@ -166,7 +166,7 @@ def test_plan_features_smart_scan_matrix():
 
     expected = {
         "free":    (False, False),
-        "starter": (True,  False),
+        "starter": (True,  True),   # 2026-07-12 — pdf-direct opened to Starter+
         "pro":     (True,  True),
         "trial":   (True,  True),
     }
@@ -461,11 +461,11 @@ def test_batch_upload_gated_to_starter(free_user, starter_user, pro_user):
     assert has_feature(pro_user, "smart_scan_batch")
 
 
-def test_pdf_direct_gated_to_pro(free_user, starter_user, pro_user):
-    """smart_scan_pdf_direct is gated to Pro+. Free + Starter fail closed."""
+def test_pdf_direct_paid_tiers(free_user, starter_user, pro_user):
+    """2026-07-12 doctrine: pdf-direct is on for Starter+; only Free fails closed."""
     from app.services.billing import has_feature
     assert not has_feature(free_user, "smart_scan_pdf_direct")
-    assert not has_feature(starter_user, "smart_scan_pdf_direct")
+    assert has_feature(starter_user, "smart_scan_pdf_direct")
     assert has_feature(pro_user, "smart_scan_pdf_direct")
 
 
