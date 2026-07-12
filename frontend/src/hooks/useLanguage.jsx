@@ -6949,6 +6949,7 @@ const translations = {
     schedGeoUnverifiedChip: 'Location not verified',
     shpUnverifiedLoc: 'Location not verified',
     portalNoUpcomingShift: 'No upcoming shift',
+    portalNoShiftHint: "You'll get notified here when {venue} publishes the schedule.",
     portalThisWeek: 'This week',
     portalShiftsCount: 'shifts',
     nudgeAutopilot: 'Let BonBox propose next week\'s schedule from your sales history + weather',
@@ -13675,7 +13676,9 @@ const translations = {
     navMessages: 'Beskeder',
     navSwaps: 'Bytte',
     navHours: 'Timer',
-    navTips: 'Drikkepenge',
+    // Bottom-nav label only — "Drikkepenge" wraps/slices at nav size; the page
+    // title (portalTitleTips) keeps the full Danish word.
+    navTips: 'Tips',
     navAlerts: 'Varsler',
     portalTitleSchedule: 'Min vagtplan',
     portalTitleMessages: 'Beskeder',
@@ -13769,6 +13772,7 @@ const translations = {
     schedGeoUnverifiedChip: 'Placering ikke verificeret',
     shpUnverifiedLoc: 'Placering ikke verificeret',
     portalNoUpcomingShift: 'Ingen kommende vagt',
+    portalNoShiftHint: 'Du får besked her, når {venue} udgiver planen.',
     portalThisWeek: 'Denne uge',
     portalShiftsCount: 'vagter',
     nudgeAutopilot: 'Lad BonBox foreslå næste uges vagtplan ud fra dit salg + vejret',

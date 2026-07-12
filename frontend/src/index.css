@@ -101,6 +101,14 @@ body {
 
 .animate-fadeIn { animation: fadeIn 0.4s ease-out; }
 .animate-slideIn { animation: slideIn 0.3s ease-out; }
+/* heroSettle — the staff portal's ONE ceremonial beat: the dark hero card
+   settles into place once per page load (~500ms), then stillness. Covered by
+   the global prefers-reduced-motion rule below (collapses to ~0.01ms). */
+@keyframes heroSettle {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-heroSettle { animation: heroSettle 500ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 /* Pure opacity fade for scrims/backdrops — no transform, so it doesn't fight
    a panel that's sliding in on another axis (e.g. the reservation drawer). */
 @keyframes backdropFade { from { opacity: 0; } to { opacity: 1; } }
