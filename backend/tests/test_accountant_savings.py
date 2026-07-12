@@ -227,11 +227,11 @@ def test_accountant_hours_widget_tier_matrix():
     assert PLAN_FEATURES["trial"]["accountant_hours_widget"] is True
 
 
-def test_accountant_month_end_bundle_is_pro_only():
-    """Month-end bundle is positioned but only ON for Pro (and Trial,
-    which mirrors Pro). Starter sees it as a Pro upsell."""
+def test_accountant_month_end_bundle_paid_tiers():
+    """2026-07-12 doctrine: positioned month-end bundle is ON for Starter +
+    Pro + Trial; only Free is gated."""
     assert PLAN_FEATURES["free"]["accountant_month_end_bundle"] is False
-    assert PLAN_FEATURES["starter"]["accountant_month_end_bundle"] is False
+    assert PLAN_FEATURES["starter"]["accountant_month_end_bundle"] is True
     assert PLAN_FEATURES["pro"]["accountant_month_end_bundle"] is True
     assert PLAN_FEATURES["trial"]["accountant_month_end_bundle"] is True
 

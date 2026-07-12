@@ -150,6 +150,17 @@ const buildTiers = (t) => [
       // & Lock. This bullet is the user-facing translation of the
       // close_auto_email + close_scan_attached entitlements.
       { text: t("featStarterCloseAutoEmail", "Auto-email kasserapport + scanned Z-report to your owner + accountant the moment you lock — no extra tap, no forgetting") || "Auto-email kasserapport + scanned Z-report to your owner + accountant the moment you lock — no extra tap, no forgetting" },
+      // ── Moved to Starter under the 2026-07 tier doctrine ──────────────
+      // Every functional feature now ships on Starter; Pro differs ONLY by
+      // size (branches/seats), volume caps, white-label + priority support.
+      // (Keys keep their featPro* names — only their tier placement moved.)
+      { text: t("featProScheduleAutopilot", "Staff schedule autopilot — weather + revenue forecast + DK labor law, in one tap") || "Staff schedule autopilot — weather + revenue forecast + DK labor law, in one tap" },
+      { text: t("featProStaffEmail", "Email schedule to every staff member at once") || "Email schedule to every staff member at once" },
+      { text: t("featProTaxFilingPdf", "MOMS filing-ready PDF — pre-filled angivelse format your revisor can upload to SKAT") || "MOMS filing-ready PDF — pre-filled angivelse format your revisor can upload to SKAT" },
+      { text: t("featProClosePush", "Push notification to owner when staff locks the close — peace of mind from anywhere") || "Push notification to owner when staff locks the close — peace of mind from anywhere" },
+      { text: t("featProExpiryPush", "Push notification when items expire today — never lose a perishable to a forgotten reminder") || "Push notification when items expire today — never lose a perishable to a forgotten reminder" },
+      { text: t("featStarterReservationInsights", "Reservation Insights — demand forecast + no-show detail per weekday") || "Reservation Insights — demand forecast + no-show detail per weekday" },
+      { text: t("featProLoyalty", "Customer loyalty signal in the Brief — top regulars who haven't been back") || "Customer loyalty signal in the Brief — top regulars who haven't been back" },
       { text: t("featStarterFaktura30", "Faktura — up to 30 / month, emailed direct to customer") || "Faktura — up to 30 / month, emailed direct to customer" },
       { text: t("featStarterKreditnota", "Proper kreditnota flow — Bogføringsloven §7 compliant") || "Proper kreditnota flow — Bogføringsloven §7 compliant" },
       { text: t("featStarterHistory31", "31 days of history + Dinero / Billy / e-conomic CSV templates") || "31 days of history + Dinero / Billy / e-conomic CSV templates" },
@@ -165,13 +176,13 @@ const buildTiers = (t) => [
     job:
       t(
         "pricingJobPro",
-        "AI does the boring parts — reads competitor menus, forecasts staffing, merges every terminal.",
+        "I run three locations from one login — bigger limits, my brand on every faktura, support that answers first.",
       ) ||
-      "AI does the boring parts — reads competitor menus, forecasts staffing, merges every terminal.",
+      "I run three locations from one login — bigger limits, my brand on every faktura, support that answers first.",
     timeSaved: t("pricingTimePro", "~12 hours saved every month"),
     tagline:
       t("pricingTaglinePro") ||
-      "For 2-3 locations. AI that thinks across them.",
+      "For 2-3 locations — more branches, more seats, higher limits, white-label, priority support.",
     price_monthly: 349,
     price_annual: 279,
     founding_price: 249,
@@ -185,32 +196,19 @@ const buildTiers = (t) => [
       "🎁 14 days free · No card required",
     addsHeader: t("featProAdds", "Everything in Starter, plus:") || "Everything in Starter, plus:",
     features: [
-      // Refreshed May 2026 — Pro now leads with the staff-schedule
-      // autopilot (just shipped) + tax filing PDF (just shipped). These
-      // are the features that justify 249 DKK/mo over Starter. AI menu
-      // scan and competitor scan are still in the app but lose their
-      // headline slots — production usage was effectively zero, so
-      // we stop promising them as the reason to upgrade.
-      { text: t("featProScheduleAutopilot", "Staff schedule autopilot — weather + revenue forecast + DK labor law, in one tap") || "Staff schedule autopilot — weather + revenue forecast + DK labor law, in one tap" },
-      { text: t("featProTaxFilingPdf", "MOMS filing-ready PDF — pre-filled angivelse format your revisor can upload to SKAT") || "MOMS filing-ready PDF — pre-filled angivelse format your revisor can upload to SKAT" },
-      { text: t("featProLoyalty", "Customer loyalty signal in the Brief — top regulars who haven't been back") || "Customer loyalty signal in the Brief — top regulars who haven't been back" },
+      // Doctrine 2026-07 — Pro is the SIZE + VOLUME + premium-perks tier.
+      // Every functional AI/automation feature now also ships on Starter,
+      // so Pro no longer advertises "AI Starter can't have". Pro's job is
+      // MORE locations, MORE seats, HIGHER volume caps, white-label faktura
+      // and priority support. (Autopilot, MOMS filing PDF, loyalty signal,
+      // close/expiry push, bulk staff email + reservation insights all moved
+      // up to the Starter list above.)
+      { text: t("featProMulti3", "3 branches, 5 team members") || "3 branches, 5 team members" },
+      { text: t("featProMultiTerm", "Multi-terminal close — merge Z-reports from every POS into one PDF") || "Multi-terminal close — merge Z-reports from every POS into one PDF" },
       { text: t("featProFakturaUnlimited", "Faktura — unlimited") || "Faktura — unlimited" },
       { text: t("featProReceipt500", "Receipt OCR — 500 / month, AI vision-grade accuracy") || "Receipt OCR — 500 / month, AI vision-grade accuracy" },
-      { text: t("featProMultiTerm", "Multi-terminal close — merge Z-reports from every POS into one PDF") || "Multi-terminal close — merge Z-reports from every POS into one PDF" },
-      { text: t("featProStaffEmail", "Email schedule to every staff member at once") || "Email schedule to every staff member at once" },
-      // Lane A — Pro-only push notification. Owner gets a push the
-      // moment FoH staff locks the close so they know "the day is
-      // wrapped" from anywhere, without waiting for the morning
-      // brief. Peace-of-mind moat for multi-branch owners who can't
-      // physically be at every location.
-      { text: t("featProClosePush", "Push notification to owner when staff locks the close — peace of mind from anywhere") || "Push notification to owner when staff locks the close — peace of mind from anywhere" },
-      // Phase 1 expiry chain — Pro-only add-on on top of the Starter
-      // alerts. Day-of-expiry push hits the owner's phone at 06:15 UTC
-      // so they walk into the kitchen knowing what to use first.
-      { text: t("featProExpiryPush", "Push notification when items expire today — never lose a perishable to a forgotten reminder") || "Push notification when items expire today — never lose a perishable to a forgotten reminder" },
-      { text: t("featProMulti3", "3 branches, 5 team members") || "3 branches, 5 team members" },
-      { text: t("featProWhiteLabel", "White-label faktura PDFs — no BonBox brand") || "White-label faktura PDFs — no BonBox brand" },
       { text: t("featProBrief5", "AI brief — 5 refreshes / day, 200 chat messages") || "AI brief — 5 refreshes / day, 200 chat messages" },
+      { text: t("featProWhiteLabel", "White-label faktura PDFs — no BonBox brand") || "White-label faktura PDFs — no BonBox brand" },
       { text: t("featProPriority", "Priority email support") || "Priority email support" },
     ],
   },
@@ -904,10 +902,11 @@ export default function SubscriptionPage() {
                   Starter shows a live "saves your revisor ~X timer/md = ~Y kr"
                   computed from the current user's actual data when they
                   have it; falls back to a generic "every month" line for
-                  new accounts and anonymous visitors. Pro positions the
-                  Pro-only one-click month-end revisor pack (the feature
-                  itself is gated by `accountant_month_end_bundle` and
-                  ships in a follow-up build). */}
+                  new accounts and anonymous visitors. Pro's footer pitches
+                  its genuine differentiators (white-label faktura + priority
+                  support) — the one-click month-end revisor pack moved to
+                  Starter under the 2026-07 tier doctrine, so Pro no longer
+                  claims it as an exclusive. */}
               {tier.id === "starter" && (
                 <p className="mt-4 text-[12px] text-gray-700 dark:text-emerald-400 font-medium leading-snug">
                   {renderStarterAcctTagline(t, acctSavings)}
@@ -917,8 +916,8 @@ export default function SubscriptionPage() {
                 <p className="mt-4 text-[12px] text-gray-700 dark:text-emerald-400 font-medium leading-snug">
                   {t(
                     "pricingProAcctTagline",
-                    "+ one-click revisor pack at month-end",
-                  ) || "+ one-click revisor pack at month-end"}
+                    "+ white-label faktura + priority support",
+                  ) || "+ white-label faktura + priority support"}
                 </p>
               )}
             </Card>

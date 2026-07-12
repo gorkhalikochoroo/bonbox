@@ -565,8 +565,10 @@ def test_forecast_locked_for_non_pro_even_with_rich_data(db):
     assert out["forecast_locked"] is True
 
 
-def test_starter_also_locked_out_of_forecast(db):
-    owner, _ = _owner(db, plan="starter")     # Starter — also False
+def test_starter_gets_forecast_like_pro(db):
+    # 2026-07-12 doctrine: reservation_insights forecast is on for Starter+.
+    # The tier gate is lifted → forecast_locked is False (only Free stays locked).
+    owner, _ = _owner(db, plan="starter")
     table = _table(db, owner, seats=8)
     for weeks_back in range(0, 5):
         for wd in (4, 5):
@@ -575,8 +577,7 @@ def test_starter_also_locked_out_of_forecast(db):
                 _add_reservation(db, owner, biz_day=d, hour=18 + slot, party=2,
                                  status="confirmed", resource=table)
     out = svc.compute_insights(db, owner, range_days=84, zone="all")
-    assert out["forecast"] is None
-    assert out["forecast_locked"] is True
+    assert out["forecast_locked"] is False
 
 
 # ═══════════════════════════════════════════════════════════════════════════

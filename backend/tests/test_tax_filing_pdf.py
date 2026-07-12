@@ -163,14 +163,11 @@ def test_tax_filing_pdf_feature_present_on_every_tier():
         )
 
 
-def test_tax_filing_pdf_only_pro_and_trial():
-    """Free + Starter are locked; Pro + Trial are unlocked.
-
-    The Pro-only gate is the entire point of this feature — if Starter
-    ever flips to True without a deliberate decision, it changes the
-    pricing-page promise. Hard-pin both sides."""
+def test_tax_filing_pdf_paid_tiers():
+    """2026-07-12 deliberate decision: all functional features on Starter+;
+    only Free is gated. tax_filing_pdf now ON for Starter + Pro + Trial."""
     assert PLAN_FEATURES["free"]["tax_filing_pdf"] is False
-    assert PLAN_FEATURES["starter"]["tax_filing_pdf"] is False
+    assert PLAN_FEATURES["starter"]["tax_filing_pdf"] is True
     assert PLAN_FEATURES["pro"]["tax_filing_pdf"] is True
     assert PLAN_FEATURES["trial"]["tax_filing_pdf"] is True
 
@@ -183,7 +180,7 @@ def test_has_feature_returns_correct_value_per_plan(db_session):
     pro_user = _make_user(db_session, email="pro@x.dk", plan="pro")
 
     assert has_feature(free_user, "tax_filing_pdf") is False
-    assert has_feature(starter_user, "tax_filing_pdf") is False
+    assert has_feature(starter_user, "tax_filing_pdf") is True
     assert has_feature(pro_user, "tax_filing_pdf") is True
 
 
@@ -414,15 +411,16 @@ def test_filing_pdf_free_user_gets_402_plan_required(db_session, client):
     assert body["detail"]["current_plan"] == "free"
 
 
-def test_filing_pdf_starter_user_gets_402_plan_required(db_session, client):
-    """Starter is also locked — this is a Pro-only differentiator."""
+def test_filing_pdf_starter_user_downloads(db_session, client):
+    """2026-07-12 doctrine: filing PDF is on for Starter+ (only Free gated).
+    Starter with no data still downloads a valid 0,00 kr filing PDF."""
     user = _make_user(db_session, plan="starter")
     r = client.get(
         "/api/tax/filing-pdf?period_start=2026-05-01&period_end=2026-05-31",
         headers=_auth_headers(user),
     )
-    assert r.status_code == 402
-    assert r.json()["detail"]["current_plan"] == "starter"
+    assert r.status_code == 200
+    assert r.content[:4] == b"%PDF"
 
 
 def test_filing_pdf_empty_pro_user_still_downloads(db_session, client):

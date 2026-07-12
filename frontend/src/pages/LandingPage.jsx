@@ -929,6 +929,10 @@ export default function LandingPage() {
         tx_("landingPricingStarterB3", "Auto-email close + Z-photo to revisor"),
         tx_("landingPricingStarterB4", "Reservationer unlimited · SMS reminders 300/mo"),
         tx_("landingPricingStarterB5", "Netbank-CSV reconciliation · 300 receipt scans/mo"),
+        // Moved to Starter under the 2026-07 tier doctrine (every functional
+        // feature is on Starter now; Pro differs only by size + volume + perks).
+        tx_("landingPricingStarterB6", "Vagtplan autopilot (revenue + weather + labour %)"),
+        tx_("landingPricingStarterB7", "Filing-ready MOMS angivelse PDF + reservation insights"),
       ],
       ctaLabel: tx_("landingPricingCtaStarter", "Try 14 days free"),
       ctaStyle: "dark",
@@ -937,14 +941,14 @@ export default function LandingPage() {
     {
       key: "pro",
       name: tx_("landingPricingProName", "Pro"),
-      tagline: tx_("landingPricingProTagline", "Vagtplan autopilot, multi-terminal close, filing-ready MOMS PDF."),
+      tagline: tx_("landingPricingProTagline", "Multi-terminal close, 3 locations, white-label faktura, priority support."),
       priceNow: foundingOpen ? "249" : "349",
       priceWas: foundingOpen ? "349" : null,
       foundingLabel: foundingOpen ? foundingLabel : null,
       bullets: [
         tx_("landingPricingProB1", "Everything in Starter"),
-        tx_("landingPricingProB2", "Vagtplan autopilot (revenue + weather + labour %)"),
-        tx_("landingPricingProB3", "Filing-ready MOMS angivelse PDF + email to revisor"),
+        tx_("landingPricingProB2", "3 branches + 5 team members with role permissions"),
+        tx_("landingPricingProB3", "Priority email support"),
         tx_("landingPricingProB4", "Multi-terminal consolidated close (up to 3 sites)"),
         tx_("landingPricingProB5", "White-label faktura · unlimited faktura · 1,000 scans + 1,000 SMS/mo"),
       ],
@@ -994,7 +998,7 @@ export default function LandingPage() {
     {
       titleKey: "landingCatStaff", titleFallback: "Staff",
       items: [
-        tx_("landingCatStaff1", "Schedule autopilot (Pro)"),
+        tx_("landingCatStaff1", "Schedule autopilot"),
         tx_("landingCatStaff2", "Hours logged + tip-pool"),
         tx_("landingCatStaff3", "Payroll PDF + lønseddel"),
         tx_("landingCatStaff4", "Staff portal (mobile)"),
