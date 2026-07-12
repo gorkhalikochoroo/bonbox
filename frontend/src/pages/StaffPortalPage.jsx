@@ -541,9 +541,11 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange }) {
   if (allConfirmed) {
     return (
       <div>
-        <div className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-gray-700 flex items-center justify-center gap-2">
-          <Check className="w-4 h-4 shrink-0 text-emerald-600" strokeWidth={2.5} aria-hidden />
-          <span className="font-medium">{t("portalConfirmedThanks", "You've confirmed this schedule. Thanks!")}</span>
+        {/* Confirmation is a resting past-state, not an alert — a quiet gray
+            line, no fill/border. Green is reserved strictly for "live/now". */}
+        <div className="w-full flex items-center justify-center gap-1.5 text-[13px] text-gray-500">
+          <Check className="w-4 h-4 shrink-0 text-gray-400" strokeWidth={2.5} aria-hidden />
+          <span>{t("portalConfirmedThanks", "You've confirmed this schedule. Thanks!")}</span>
         </div>
         {needChangeLink}
       </div>
@@ -802,34 +804,33 @@ function WhosOnStrip({ token, nextShift }) {
   const shown = mates.slice(0, CAP);
   const overflow = mates.length - shown.length;
 
+  // Lives INSIDE the dark next-shift hero (its avatars ring gray-900 — built
+  // for that surface, which is why they looked orphaned on the gray page).
+  // Renders NOTHING on a solo shift, so stillness costs zero chrome. No
+  // per-avatar role bar — role colour lives only on the hero's left-bar.
+  if (mates.length === 0) return null;
   return (
-    <div>
-      <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+    <div className="mt-4 pt-4 border-t border-white/10">
+      <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
         {t("portalWhosOnTitle")}
       </div>
-      {mates.length === 0 ? (
-        <div className="text-[13px] text-gray-500">{t("portalWhosOnAlone")}</div>
-      ) : (
-        <div className="flex items-center gap-3 overflow-x-auto pb-1">
-          {shown.map((s, i) => (
-            <div key={`${s.staff_id ?? s.staff_name}-${i}`} className="flex flex-col items-center gap-1 shrink-0">
-              <div
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-800 text-[12px] font-semibold text-white ring-2 ring-gray-900"
-                title={staffInitials(s.staff_name)}
-                aria-hidden
-              >
-                {staffInitials(s.staff_name)}
-              </div>
-              <span className={`block h-[3px] w-6 rounded-full ${roleBarColor(s.role)}`} aria-hidden />
-            </div>
-          ))}
-          {overflow > 0 && (
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 text-[12px] font-semibold text-gray-500">
-              +{overflow}
-            </div>
-          )}
-        </div>
-      )}
+      <div className="flex items-center gap-3 overflow-x-auto pb-1">
+        {shown.map((s, i) => (
+          <div
+            key={`${s.staff_id ?? s.staff_name}-${i}`}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-800 text-[12px] font-semibold text-white ring-2 ring-gray-900"
+            title={staffInitials(s.staff_name)}
+            aria-hidden
+          >
+            {staffInitials(s.staff_name)}
+          </div>
+        ))}
+        {overflow > 0 && (
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-[12px] font-semibold text-gray-300">
+            +{overflow}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -878,7 +879,7 @@ function OpenShiftsClaimCard({ token, onClaimed }) {
   if (!rows.length) return null;  // silent when there's nothing to claim
 
   return (
-    <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-4">
+    <div className="rounded-xl border border-gray-200 bg-white p-4">
       <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
         <CalendarPlus className="w-3.5 h-3.5" />
         {t("portalOpenTitle", "Open shifts")}
@@ -902,7 +903,7 @@ function OpenShiftsClaimCard({ token, onClaimed }) {
             <button
               onClick={() => claim(o.id)}
               disabled={claiming === o.id}
-              className="shrink-0 rounded-full bg-gray-900 text-white text-[13px] font-medium px-4 py-2 active:scale-95 transition disabled:opacity-60"
+              className="shrink-0 inline-flex items-center justify-center min-h-[44px] rounded-xl bg-gray-900 text-white text-[13px] font-medium px-4 active:scale-95 transition disabled:opacity-60"
             >
               {claiming === o.id ? "…" : t("portalOpenClaim", "Take it")}
             </button>
@@ -1061,7 +1062,7 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
             <div className="mt-2 text-3xl font-bold text-white leading-tight tracking-[-0.02em]">
               {isToday(nextShift.date) ? t("portalToday") : fmtDate(nextShift.date, lang)}
             </div>
-            <div className="mt-1 text-[13px] text-emerald-300/80 tabular-nums">
+            <div className="mt-1 text-[13px] text-gray-300 tabular-nums">
               {nextShift.start_time}–{nextShift.end_time} · {nextShift.net_hours} {t("portalHrsShort")}
             </div>
             <div className="mt-1 text-[12px] text-gray-400">{nextShiftRole}</div>
@@ -1168,14 +1169,17 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
             {clock.result && !clock.err && (
               <div className="mt-2 text-[12px] text-gray-200">{clock.result}</div>
             )}
+
+            {/* "På arbejde med dig" — folded INTO the hero (its avatars ring
+                gray-900, built for this surface). Who's-on is a property of this
+                next shift, so it belongs here, not floating on the gray page.
+                Renders nothing on a solo shift. */}
+            {token && <WhosOnStrip token={token} nextShift={nextShift} />}
           </>
         ) : (
           <div className="mt-1 text-2xl font-bold text-gray-500">{t("portalNoUpcomingShift")}</div>
         )}
       </div>
-
-      {/* "På arbejde med dig" — teammate avatars on the next shift's date. */}
-      {token && <WhosOnStrip token={token} nextShift={nextShift} />}
 
       {/* Åbne vagter — open shifts this staffer can pick up one-tap. */}
       {token && <OpenShiftsClaimCard token={token} onClaimed={onShiftsChanged} />}
@@ -1209,10 +1213,17 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
           strip at a time (this/next week). Working day = thin role-colored bar;
           OFF = silent hollow dot; TODAY = filled + gray-900 ring. Tap a working
           day → expand ONE inline ShiftRow below. */}
-      <div className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-3">
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
-            {weekView === "this" ? t("portalSecThisWeek", "This week") : t("portalSecNextWeek", "Next week")} — {fmtShort(weekLabelStart, lang)} – {fmtShort(addDays(weekLabelStart, 6), lang)}
+      <div className="rounded-xl bg-white border border-gray-200 p-4">
+        <div className="flex items-start justify-between mb-2">
+          {/* Eyebrow stays a pure uppercase-tracked label; the date range drops
+              to its own quiet line instead of muddying the tracked eyebrow. */}
+          <div>
+            <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+              {weekView === "this" ? t("portalSecThisWeek", "This week") : t("portalSecNextWeek", "Next week")}
+            </div>
+            <div className="text-[11px] text-gray-400 tabular-nums mt-0.5">
+              {fmtShort(weekLabelStart, lang)} – {fmtShort(addDays(weekLabelStart, 6), lang)}
+            </div>
           </div>
           <button
             type="button"
@@ -1235,18 +1246,20 @@ function ScheduleTab({ shifts: rawShifts, staffName, token, restaurantName, onSh
                 key={d}
                 type="button"
                 onClick={() => setExpandedDate(isExpanded || !shift ? null : d)}
-                className={`flex flex-col items-center gap-1.5 rounded-lg py-2 min-h-[44px] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${isExpanded ? "bg-gray-50" : "hover:bg-gray-50"}`}
+                className={`flex flex-col items-center gap-1.5 rounded-lg py-2 min-h-[44px] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${isTodayCell || isExpanded ? "bg-gray-50" : "hover:bg-gray-50"}`}
                 aria-label={`${WD[i]} ${fmtShort(d, lang)}`}
               >
-                <span className="text-[10px] text-gray-400">{WD[i]}</span>
+                {/* TODAY = bold gray-900 label + soft cell fill (above). No ink
+                    ring — a ring hugging a 4px bar rendered as a broken pill. */}
+                <span className={`text-[10px] ${isTodayCell ? "text-gray-900 font-semibold" : "text-gray-400"}`}>{WD[i]}</span>
                 {shift ? (
                   <span
-                    className={`block w-[4px] h-5 rounded-full ${roleBarColor(shift.role_on_shift)} ${isTodayCell ? "ring-2 ring-gray-900 ring-offset-1" : ""}`}
+                    className={`block w-1.5 h-5 rounded-full ${roleBarColor(shift.role_on_shift)}`}
                     aria-hidden
                   />
                 ) : (
                   <span
-                    className={`block w-2 h-2 rounded-full ${isTodayCell ? "bg-gray-900 ring-2 ring-gray-900 ring-offset-1" : "border border-gray-300"}`}
+                    className={`block w-2 h-2 rounded-full ${isTodayCell ? "bg-gray-900" : "border border-gray-300"}`}
                     aria-hidden
                   />
                 )}
