@@ -218,10 +218,11 @@ def _get_staff_from_token(token: str, db: Session):
 
     # L2 proof-of-PIN: a PIN-protected link requires the X-BonBox-Pin header
     # (minted by /verify-pin) on every data endpoint. Exempt: the validate
-    # endpoint itself (the UI needs has_pin to render the gate; it returns
-    # names only), the PWA manifest and the SSE stream (both fetched by the
-    # browser, which cannot attach headers — the stream carries only
-    # "something changed" pings, no business data).
+    # endpoint itself (the UI needs has_pin to render the gate — and it gates
+    # its OWN response so a pre-PIN caller sees only name/role/venue, never the
+    # staffer's contact PII; see get_portal_info), the PWA manifest and the SSE
+    # stream (both fetched by the browser, which cannot attach headers — the
+    # stream carries only "something changed" pings, no business data).
     if link.pin_hash and os.getenv("PORTAL_PIN_ENFORCE", "1") == "1":
         req = _portal_request.get()
         path = (req.url.path if req is not None else "").rstrip("/")
@@ -349,19 +350,30 @@ def get_portal_info(token: str, request: Request, db: Session = Depends(get_db))
         or (profile.company_name if profile else None)
     )
 
+    pin_ok = bool(link.pin_hash) and _pin_proof_valid(link, request.headers.get("x-bonbox-pin"))
+    # L2 PIN gate for PII: this validate endpoint is deliberately PIN-EXEMPT so
+    # the app can learn has_pin and draw the PIN curtain on boot — but that means
+    # it runs BEFORE the PIN is proven. So it must reveal only what draws the
+    # gate (name / role / venue) and withhold the staffer's contact PII
+    # (home address, phone, email are GDPR personal data) until the PIN is
+    # proven. Otherwise a forwarded link or a shoulder-surfed/stolen phone leaks
+    # PII pre-PIN — exactly what the PIN layer exists to prevent. A link with NO
+    # PIN is inherently open (the 192-bit token IS the credential), so it still
+    # returns contact info.
+    pii_ok = pin_ok or not link.pin_hash
     return PortalInfo(
         staff_name=member.name,
         role=member.role or "staff",
-        email=member.email,
-        phone=member.phone,
-        address=member.address,
-        postal_code=member.postal_code,
-        city=member.city,
+        email=member.email if pii_ok else None,
+        phone=member.phone if pii_ok else None,
+        address=member.address if pii_ok else None,
+        postal_code=member.postal_code if pii_ok else None,
+        city=member.city if pii_ok else None,
         restaurant_name=restaurant_name,
         has_pin=bool(link.pin_hash),
-        pin_ok=bool(link.pin_hash) and _pin_proof_valid(link, request.headers.get("x-bonbox-pin")),
-        max_hours_month=float(member.max_hours_month) if member.max_hours_month else None,
-        max_hours_week=float(member.max_hours_week) if member.max_hours_week else None,
+        pin_ok=pin_ok,
+        max_hours_month=float(member.max_hours_month) if (pii_ok and member.max_hours_month) else None,
+        max_hours_week=float(member.max_hours_week) if (pii_ok and member.max_hours_week) else None,
     )
 
 
@@ -896,6 +908,20 @@ def portal_clock_in(
         entry_method="clock",
         notes=geo_note,
     ))
+    # L7 best-effort audit: a self-service punch becomes paid labor, so the
+    # owner gets an immutable "who clocked in, from the portal, when" trail
+    # (mirrors the contact-edit audit). Fail-soft — never blocks the punch.
+    try:
+        from app.services import audit_service
+
+        audit_service.record(
+            db, member.user_id, "staff.portal.clock_in", "staff_member",
+            entity_id=member.id,
+            after={"start_time": now_dt.strftime("%H:%M"), "geo": geo_note},
+            actor_type="staff",
+        )
+    except Exception:  # noqa: BLE001 — audit is best-effort
+        pass
     db.commit()
     return _clock_status_dict(db, member, owner)
 
@@ -954,6 +980,18 @@ def portal_clock_out(token: str, request: Request, db: Session = Depends(get_db)
             punch.earned = round(total * float(rate), 2)
     except Exception:
         pass  # pay can be filled owner-side; never block a clock-out on it
+    # L7 best-effort audit — the paid-hours side of the punch (see clock-in).
+    try:
+        from app.services import audit_service
+
+        audit_service.record(
+            db, member.user_id, "staff.portal.clock_out", "staff_member",
+            entity_id=member.id,
+            after={"end_time": end_str, "total_hours": round(total, 2)},
+            actor_type="staff",
+        )
+    except Exception:  # noqa: BLE001 — audit is best-effort
+        pass
     db.commit()
     out = _clock_status_dict(db, member, owner)
     out["clocked_out"] = True
@@ -1876,8 +1914,10 @@ def portal_propose_swap(
 
 
 @router.get("/{token}/swap-requests", response_model=list[SwapPortalResponse])
+@limiter.limit("30/minute")
 def portal_list_swaps(
     token: str,
+    request: Request,
     include_resolved: bool = False,
     db: Session = Depends(get_db),
 ):

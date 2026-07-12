@@ -146,6 +146,47 @@ def test_no_pin_links_unaffected(client, db):
     assert client.get("/api/portal/tokP/schedule").status_code == 200
 
 
+def test_contact_pii_withheld_until_pin_proven(client, db):
+    """GDPR / L2: the PIN-exempt validate endpoint must NOT leak the staffer's
+    contact PII (home address, phone, email) before the PIN is proven. The app
+    calls GET /portal/{token} first on boot to render the gate; a forwarded or
+    shoulder-surfed link must then reveal only name/role/venue. Once the PIN is
+    proven, the real contact values come through."""
+    _, a, _ = _seed(db, pin="1234")
+    a.email = "agnes@example.dk"
+    a.phone = "+4512345678"
+    a.address = "Nørrebrogade 12"
+    a.postal_code = "2200"
+    a.city = "København N"
+    db.commit()
+
+    # Pre-PIN: gate announced, contact PII withheld.
+    j = client.get("/api/portal/tokP").json()
+    assert j["staff_name"] == "Agnes" and j["has_pin"] is True and j["pin_ok"] is False
+    assert j["email"] is None and j["phone"] is None
+    assert j["address"] is None and j["postal_code"] is None and j["city"] is None
+
+    # Post-PIN: real values revealed.
+    proof = _mint(client)
+    j = client.get("/api/portal/tokP", headers={"X-BonBox-Pin": proof}).json()
+    assert j["pin_ok"] is True
+    assert j["email"] == "agnes@example.dk" and j["phone"] == "+4512345678"
+    assert j["address"] == "Nørrebrogade 12"
+    assert j["postal_code"] == "2200" and j["city"] == "København N"
+
+
+def test_no_pin_link_still_returns_contact(client, db):
+    """A no-PIN link is inherently open (the 192-bit token IS the credential),
+    so it still returns the staffer's own contact info — their profile/address
+    editor must not show (or save) blanks."""
+    _, a, _ = _seed(db, pin=None)
+    a.email = "agnes@example.dk"
+    a.address = "Nørrebrogade 12"
+    db.commit()
+    j = client.get("/api/portal/tokP").json()
+    assert j["email"] == "agnes@example.dk" and j["address"] == "Nørrebrogade 12"
+
+
 def test_proof_void_after_pin_change(client, db):
     """L5: changing the PIN revokes every issued proof (binds to pin_hash)."""
     _, _, link = _seed(db, pin="1234")
