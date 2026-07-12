@@ -3556,8 +3556,14 @@ export default function StaffPortalPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 pb-24">
-      {/* Header */}
+    // full-height + scrollable = one fixed app-shell with a single internal
+    // momentum scroller (‑webkit-overflow-scrolling + overscroll containment).
+    // Replaces min-h-screen BODY scroll, which rubber-bands on iOS WKWebView
+    // and makes the sticky header + fixed bottom nav feel loose. The nav and
+    // chat composer stay position:fixed (viewport-pinned) — .scrollable has no
+    // transform, so it doesn't trap them.
+    <div className="full-height scrollable bg-gray-50 text-gray-900 pb-24">
+      {/* Header — sticks to the top of the internal scroller. */}
       <div className="sticky top-0 z-10 glass border-b border-gray-200/70 pt-[env(safe-area-inset-top)]">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div>
