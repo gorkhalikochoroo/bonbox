@@ -27,6 +27,12 @@ MAX_CHAT_PHOTO_BYTES = 8_000_000  # 8 MB raw — phone photos fit comfortably
 MAX_OUTPUT_DIM = 1600             # plenty for receipts / schedules on a phone
 JPEG_QUALITY = 82
 
+# Profile avatar: staff can pick a full-res iPhone/Android photo (up to 8 MB),
+# and we re-encode it down to a small square JPEG — light to store + serve, and
+# it always fills the circular avatar cleanly (center-crop, no letterboxing).
+MAX_PROFILE_PHOTO_BYTES = 8_000_000
+PROFILE_OUTPUT_DIM = 512          # a 512² avatar is ~40–90 KB at q85
+
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _JPEG_MAGIC_PREFIX = b"\xff\xd8\xff"
 
@@ -100,6 +106,88 @@ def sanitize_chat_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
         raise
     except Exception as e:  # noqa: BLE001
         logger.warning("Chat photo re-encode failed: %s", e)
+        raise HTTPException(
+            http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            "Billedet er beskadiget eller kan ikke læses.",
+        ) from e
+
+    sha_hex = hashlib.sha256(sanitized).hexdigest()
+    return sanitized, "image/jpeg", sha_hex
+
+
+def sanitize_profile_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
+    """Validate + re-encode a staff profile avatar. Same paranoid pipeline as
+    sanitize_chat_photo (size cap → magic bytes → Pillow re-encode strips EXIF/
+    GPS/ICC + kills polyglots), but shaped for an avatar: center-cropped to a
+    square and downscaled to PROFILE_OUTPUT_DIM. Returns (bytes, content_type,
+    sha_hex). Raises HTTPException on any validation failure."""
+    if not raw_bytes:
+        raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "Tomt billede.")
+    if len(raw_bytes) > MAX_PROFILE_PHOTO_BYTES:
+        raise HTTPException(
+            http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            f"Billedet er for stort (maks {MAX_PROFILE_PHOTO_BYTES // 1_000_000} MB).",
+        )
+
+    inferred = _verify_magic_bytes(raw_bytes)
+
+    try:
+        from PIL import Image, ImageFile
+    except ImportError as e:  # pragma: no cover
+        logger.error("Pillow not installed — profile photo upload disabled")
+        raise HTTPException(
+            http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Billedbehandling er midlertidigt utilgængelig.",
+        ) from e
+
+    ImageFile.LOAD_TRUNCATED_IMAGES = False
+    try:
+        with Image.open(io.BytesIO(raw_bytes)) as img:
+            # Decompression-bomb guard: img.size is known right after open,
+            # BEFORE the full decode. A small, highly-compressible file can
+            # explode to hundreds of MB of bitmap on load(); reject absurd
+            # dimensions first. 50 MP is orders of magnitude more than an avatar
+            # needs (and below Pillow's own ~89 MP warn threshold).
+            if (img.width * img.height) > 50_000_000:
+                raise HTTPException(
+                    http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    "Billedet har for høj opløsning.",
+                )
+            img.load()
+            pillow_fmt = (img.format or "").lower()
+            if inferred == "png" and pillow_fmt != "png":
+                raise HTTPException(
+                    http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    "Billedformatet er inkonsistent (polyglot afvist).",
+                )
+            if inferred == "jpeg" and pillow_fmt not in ("jpeg", "mpo"):
+                raise HTTPException(
+                    http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                    "Billedformatet er inkonsistent (polyglot afvist).",
+                )
+            # Flatten transparency onto white → RGB for JPEG.
+            if img.mode in ("RGBA", "LA", "P"):
+                img = img.convert("RGBA")
+                bg = Image.new("RGB", img.size, (255, 255, 255))
+                bg.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+                img = bg
+            else:
+                img = img.convert("RGB")
+            # Center-crop to a square so the circular avatar never letterboxes.
+            w, h = img.size
+            side = min(w, h)
+            left = (w - side) // 2
+            top = (h - side) // 2
+            img = img.crop((left, top, left + side, top + side))
+            if side > PROFILE_OUTPUT_DIM:
+                img = img.resize((PROFILE_OUTPUT_DIM, PROFILE_OUTPUT_DIM), Image.LANCZOS)
+            out = io.BytesIO()
+            img.save(out, format="JPEG", quality=85, optimize=True)
+            sanitized = out.getvalue()
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Profile photo re-encode failed: %s", e)
         raise HTTPException(
             http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             "Billedet er beskadiget eller kan ikke læses.",

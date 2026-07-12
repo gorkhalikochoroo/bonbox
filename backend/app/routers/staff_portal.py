@@ -25,7 +25,7 @@ import time
 from contextvars import ContextVar
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -128,6 +128,10 @@ class PortalInfo(BaseModel):
     address: str | None = None
     postal_code: str | None = None
     city: str | None = None
+    # ISO stamp of the last profile-photo change — None if no photo. The client
+    # uses it both to decide whether to render the avatar image and as a
+    # cache-buster (?v=) so a new photo shows immediately.
+    profile_photo_at: datetime | None = None
     pin_ok: bool = False
     restaurant_name: str | None = None
     has_pin: bool = False
@@ -369,6 +373,10 @@ def get_portal_info(token: str, request: Request, db: Session = Depends(get_db))
         address=member.address if pii_ok else None,
         postal_code=member.postal_code if pii_ok else None,
         city=member.city if pii_ok else None,
+        # The photo itself is served by a separate PIN-gated proxy endpoint;
+        # the stamp is harmless (just "has a photo, changed at X") and lets the
+        # avatar render once the PIN is proven. Gate it with the rest of the PII.
+        profile_photo_at=member.profile_photo_at if pii_ok else None,
         restaurant_name=restaurant_name,
         has_pin=bool(link.pin_hash),
         pin_ok=pin_ok,
@@ -1287,6 +1295,100 @@ def update_portal_contact(token: str, body: ContactUpdateRequest, request: Reque
         "city": member.city,
         "message": "Contact info updated",
     }
+
+
+@router.post("/{token}/profile-photo")
+@limiter.limit("6/minute")
+def upload_portal_profile_photo(
+    token: str,
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Staffer uploads/replaces their OWN profile photo. Token-scoped, so a
+    staffer can only ever set their own avatar. The image (a full-res phone
+    photo up to 8 MB) is re-encoded to a small square JPEG — EXIF/GPS stripped,
+    polyglots killed — BEFORE it touches storage, so what the owner sees is
+    light and clean. Served only via the tenant-checked proxy below, never a
+    public URL."""
+    link, member = _get_staff_from_token(token, db)
+
+    from app.services.chat_image import sanitize_profile_photo
+    from app.services.storage import compose_key, get_storage
+
+    raw = file.file.read()
+    data, content_type, sha = sanitize_profile_photo(raw)  # validates + resizes; raises on bad input
+
+    storage = get_storage()
+    # "staff_avatar" is the registered kind for this — it's in BOTH
+    # storage.ALLOWED_KINDS (so compose_key accepts it) AND ERASURE_PURGE_KINDS
+    # (so the GDPR account-delete prefix purge actually removes the face photo).
+    key = compose_key(member.user_id, "staff_avatar", sha, ext="jpg")
+    storage.put(key, data, content_type)
+
+    old_key = member.profile_photo_key
+    member.profile_photo_key = key
+    member.profile_photo_at = utc_now()
+    # Best-effort orphan cleanup: drop the previous blob when the key actually
+    # changed (content-addressed keys mean re-uploading the SAME image reuses
+    # the key). The GDPR delete-account prefix purge is the backstop.
+    if old_key and old_key != key:
+        try:
+            storage.delete(old_key)
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        from app.services import audit_service
+
+        audit_service.record(
+            db, link.user_id, "staff.portal.profile_photo", "staff_member",
+            entity_id=member.id, after={"action": "upload"}, actor_type="staff",
+        )
+    except Exception:  # noqa: BLE001 — audit is best-effort
+        pass
+
+    db.commit()
+    return {"profile_photo_at": member.profile_photo_at}
+
+
+@router.delete("/{token}/profile-photo")
+@limiter.limit("6/minute")
+def delete_portal_profile_photo(token: str, request: Request, db: Session = Depends(get_db)):
+    """Staffer removes their own profile photo."""
+    link, member = _get_staff_from_token(token, db)
+    old_key = member.profile_photo_key
+    member.profile_photo_key = None
+    member.profile_photo_at = None
+    if old_key:
+        try:
+            from app.services.storage import get_storage
+
+            get_storage().delete(old_key)
+        except Exception:  # noqa: BLE001
+            pass
+    db.commit()
+    return {"profile_photo_at": None}
+
+
+@router.get("/{token}/profile-photo")
+@limiter.limit("60/minute")
+def get_portal_profile_photo(token: str, request: Request, db: Session = Depends(get_db)):
+    """Proxy-serve the token-owner's OWN profile photo (self-only via the
+    token). 404 when none set — the client falls back to initials."""
+    _link, member = _get_staff_from_token(token, db)
+    if not member.profile_photo_key:
+        raise HTTPException(status_code=404, detail="No profile photo")
+    from app.services.storage import get_storage
+
+    data = get_storage().get(member.profile_photo_key)
+    if data is None:
+        raise HTTPException(status_code=404, detail="No profile photo")
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 @router.get("/{token}/notifications")

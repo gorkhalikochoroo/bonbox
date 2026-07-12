@@ -47,7 +47,7 @@ from io import BytesIO
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
@@ -491,6 +491,36 @@ def deactivate_staff_member(
     member.active = False
     member.updated_at = utc_now()
     db.commit()
+
+
+@router.get("/members/{member_id}/photo")
+def get_staff_member_photo(
+    member_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner-side proxy for a staffer's profile photo. Tenant-scoped
+    (StaffMember.user_id == the caller) so an owner only ever sees their own
+    staff. The staffer sets the photo from the portal; the owner UI renders it
+    here with ?v={profile_photo_at} so a change shows up immediately. 404 when
+    none set → the UI falls back to initials."""
+    member = db.query(StaffMember).filter(
+        StaffMember.id == member_id,
+        StaffMember.user_id == user.id,
+        StaffMember.is_deleted.isnot(True),
+    ).first()
+    if not member or not member.profile_photo_key:
+        raise HTTPException(status_code=404, detail="No profile photo")
+    from app.services.storage import get_storage
+
+    data = get_storage().get(member.profile_photo_key)
+    if data is None:
+        raise HTTPException(status_code=404, detail="No profile photo")
+    return Response(
+        content=data,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
