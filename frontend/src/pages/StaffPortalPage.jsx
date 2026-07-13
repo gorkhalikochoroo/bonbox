@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, CalendarOff, Plus } from "lucide-react";
+import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus } from "lucide-react";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
@@ -2329,7 +2329,7 @@ function groupAbsence(rows) {
  * range; the owner sees + approves. Tracking only, no pay. Lives inside the
  * "Kan ikke" tab (the staffer's "when I'm off" home) so it's not an 8th nav tab.
  */
-function AbsenceSection({ token }) {
+function AbsenceSection({ token, onChanged }) {
   const { t, lang } = useLanguage();
   const [rows, setRows] = useState(null);
   const [adding, setAdding] = useState(false);
@@ -2381,7 +2381,7 @@ function AbsenceSection({ token }) {
       if (to) body.date_to = to;
       if (reason.trim()) body.reason = reason.trim();
       await portalApi.post(`/portal/${token}/absence`, body);
-      reset(); setAdding(false); await load();
+      reset(); setAdding(false); await load(); onChanged?.();
     } catch {
       setErr(t("fravaerSaveFailed", "Couldn't send — try again"));
     } finally { setSaving(false); }
@@ -2390,7 +2390,7 @@ function AbsenceSection({ token }) {
   const withdraw = async (g) => {
     try {
       await portalApi.post(`/portal/${token}/absence/withdraw`, { ids: g.ids });
-      await load();
+      await load(); onChanged?.();
     } catch {
       setErr(t("fravaerWithdrawFailed", "Couldn't withdraw — try again"));
     }
@@ -2400,8 +2400,13 @@ function AbsenceSection({ token }) {
 
   return (
     <div className="space-y-3">
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-        {t("fravaerTitle", "Holiday & sick leave")}
+      <div>
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+          {t("fravaerHeading", "Time off · needs approval")}
+        </div>
+        <p className="text-[12px] text-gray-500 mt-0.5 leading-snug">
+          {t("fravaerNeedsApprovalSub", "This is a request — your manager approves it. You'll see Pending, then Approved.")}
+        </p>
       </div>
 
       {rows === null ? (
@@ -2475,6 +2480,9 @@ function AbsenceSection({ token }) {
             placeholder={t("fravaerNotePlaceholder", "Note (optional)")}
             className="w-full px-3 py-2.5 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
           />
+          <div className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-snug">
+            {t("fravaerNeedsApproval", "This is a request — your manager must approve it.")}
+          </div>
           {err && <div className="text-xs text-red-600">{err}</div>}
           <div className="flex gap-2">
             <button onClick={() => { setAdding(false); reset(); }}
@@ -2492,245 +2500,418 @@ function AbsenceSection({ token }) {
   );
 }
 
-/**
- * AvailabilityTab — staff-side "Kan ikke arbejde" (Planday-style unavailability).
- * A STANDING preference (recurring weekday or one-off date, all-day or a time
- * window) the owner sees while building the roster and the autopilot respects.
- * Honest: a soft signal, never a hidden hard block — the copy says so.
- */
-function AvailabilityTab({ token }) {
-  const { t, lang } = useLanguage();
-  const [rows, setRows] = useState(null); // null = loading
-  const [adding, setAdding] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState("");
+/* ═══════════════════════════════════════════════════════════════
+   MonthCalendar — tappable "when I'm off" month grid. Pure presentation:
+   the parent owns the data + tap handler. LOCAL dates only (toLocalISO /
+   addDays), Monday-first ((getDay()+6)%7), 42 fixed cells so the block never
+   reflows or scrolls internally (in-flow only — protects the iOS wobble fix).
+   ═══════════════════════════════════════════════════════════════ */
+function MonthCalendar({
+  viewYear, viewMonth, onPrev, onNext, onToday, showToday,
+  oneOffByDate, recurringSet, absenceByDate, shiftSet, savingSet,
+  onTapDay, lang, t,
+}) {
+  const WD = useMemo(() => weekdayNames(lang), [lang]);
+  const todayIso = toLocalISO(new Date());
+  const monthLabel = new Date(viewYear, viewMonth, 1)
+    .toLocaleDateString(localeFor(lang), { month: "long", year: "numeric" });
 
-  // Add-form state
-  const [mode, setMode] = useState("weekday"); // "weekday" | "date"
-  const [weekday, setWeekday] = useState(0);
-  const [dateVal, setDateVal] = useState("");
-  const [allDay, setAllDay] = useState(true);
-  const [startT, setStartT] = useState("08:00");
-  const [endT, setEndT] = useState("12:00");
-  const [note, setNote] = useState("");
-
-  // Monday-first short weekday names in the CHOSEN app language — no i18n keys.
-  const WD = useMemo(() => {
-    const base = new Date(Date.UTC(2026, 6, 6)); // 2026-07-06 is a Monday
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(base);
-      d.setUTCDate(base.getUTCDate() + i);
-      return d.toLocaleDateString(localeFor(lang), { weekday: "short" });
-    });
-  }, [lang]);
-
-  const load = async () => {
-    try {
-      const res = await portalApi.get(`/portal/${token}/availability`);
-      setRows(res.data?.availability || []);
-    } catch {
-      setRows([]);
-    }
-  };
-  useEffect(() => { load(); }, [token]);
-
-  const resetForm = () => {
-    setMode("weekday"); setWeekday(0); setDateVal("");
-    setAllDay(true); setStartT("08:00"); setEndT("12:00"); setNote(""); setErr("");
-  };
-
-  const submit = async () => {
-    setErr("");
-    const body = { kind: "unavailable" };
-    if (mode === "weekday") {
-      body.weekday = weekday;
-    } else {
-      if (!dateVal) { setErr(t("kanIkkePickDate", "Pick a date")); return; }
-      body.date = dateVal;
-    }
-    if (!allDay) {
-      if (endT <= startT) { setErr(t("kanIkkeEndAfterStart", "End must be after start")); return; }
-      body.start_time = startT;
-      body.end_time = endT;
-    }
-    if (note.trim()) body.note = note.trim();
-    setSaving(true);
-    try {
-      await portalApi.post(`/portal/${token}/availability`, body);
-      resetForm(); setAdding(false); await load();
-    } catch {
-      setErr(t("kanIkkeSaveFailed", "Couldn't save — try again"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const remove = async (id) => {
-    setRows((r) => (r || []).filter((x) => x.id !== id)); // optimistic
-    try {
-      await portalApi.delete(`/portal/${token}/availability/${id}`);
-    } catch {
-      load(); // put it back if the delete really failed
-    }
-  };
-
-  const describe = (row) => {
-    const when = row.date
-      ? new Date(row.date + "T00:00:00").toLocaleDateString(localeFor(lang), {
-          weekday: "short", day: "numeric", month: "short",
-        })
-      : t("kanIkkeEveryWeekday", "Every {day}", { day: WD[row.weekday ?? 0] });
-    const time = row.start_time
-      ? `${row.start_time}–${row.end_time}`
-      : t("kanIkkeAllDay", "All day");
-    return { when, time };
-  };
+  const cells = useMemo(() => {
+    const first = new Date(viewYear, viewMonth, 1);
+    const lead = (first.getDay() + 6) % 7; // Monday = 0
+    const startIso = addDays(toLocalISO(first), -lead);
+    return Array.from({ length: 42 }, (_, i) => addDays(startIso, i));
+  }, [viewYear, viewMonth]);
 
   return (
-    <div className="space-y-4">
-      {/* Ferie & sygdom — a request the owner approves. Grouped here (the
-          staffer's "when I'm off" home) rather than an 8th nav tab. */}
-      <AbsenceSection token={token} />
-
-      <div className="h-px bg-gray-100" />
-
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-        {t("kanIkkeSectionLabel", "Can't work")}
-      </div>
-      {/* Honest soft-signal framing */}
-      <p className="text-[13px] leading-relaxed text-gray-600">
-        {t("kanIkkeIntro", "Mark the days or times you can't work. Your manager sees it while building the schedule.")}
-      </p>
-
-      {/* Existing blocks */}
-      {rows === null ? (
-        <div className="text-xs text-gray-500">{t("portalLoading", "Loading…")}</div>
-      ) : rows.length === 0 && !adding ? (
-        <div className="rounded-2xl border border-dashed border-gray-200 bg-white/60 p-6 text-center">
-          <CalendarOff className="w-6 h-6 text-gray-300 mx-auto mb-2" strokeWidth={1.75} aria-hidden />
-          <div className="text-sm text-gray-500">{t("kanIkkeEmpty", "Nothing marked yet.")}</div>
+    <div className="rounded-xl border border-gray-200 bg-white p-2">
+      {/* Month nav — mutates view only, never data */}
+      <div className="flex items-center justify-between px-1 pb-1">
+        <button type="button" onClick={onPrev} aria-label={t("kanIkkePrevMonth", "Previous month")}
+          className="w-9 h-9 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-lg flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition">
+          <ChevronLeft className="w-5 h-5" strokeWidth={2} aria-hidden />
+        </button>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-semibold text-gray-900 capitalize truncate">{monthLabel}</span>
+          {showToday && (
+            <button type="button" onClick={onToday}
+              className="text-[12px] text-gray-500 hover:text-gray-900 underline underline-offset-2">
+              {t("calToday", "Today")}
+            </button>
+          )}
         </div>
-      ) : (
-        <div className="space-y-2">
-          {(rows || []).map((row) => {
-            const { when, time } = describe(row);
+        <button type="button" onClick={onNext} aria-label={t("kanIkkeNextMonth", "Next month")}
+          className="w-9 h-9 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-lg flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition">
+          <ChevronRight className="w-5 h-5" strokeWidth={2} aria-hidden />
+        </button>
+      </div>
+
+      {/* Weekday header (Monday-first, localized) */}
+      <div className="grid grid-cols-7 mb-1">
+        {WD.map((w, i) => (
+          <div key={i} className="text-[11px] font-medium text-gray-400 uppercase text-center py-1">{w}</div>
+        ))}
+      </div>
+
+      {/* 6×7 day grid */}
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map((iso) => {
+          const cellDate = new Date(iso + "T00:00:00");
+          const inMonth = cellDate.getMonth() === viewMonth;
+          const dayNum = cellDate.getDate();
+          if (!inMonth) {
             return (
-              <div key={row.id} className="rounded-xl bg-white border border-gray-200 p-3 flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
-                  <CalendarOff className="w-[18px] h-[18px] text-gray-500" strokeWidth={2} aria-hidden />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-gray-900 truncate">{when}</div>
-                  <div className="text-[12px] text-gray-500 truncate">
-                    {time}{row.note ? ` · ${row.note}` : ""}
-                  </div>
-                </div>
-                <button
-                  onClick={() => remove(row.id)}
-                  className="w-8 h-8 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition shrink-0"
-                  aria-label={t("kanIkkeRemove", "Remove")}
-                >
-                  <X className="w-4 h-4" strokeWidth={2} aria-hidden />
-                </button>
+              <div key={iso} className="aspect-square min-h-[44px] flex items-center justify-center text-[15px] text-gray-300 tabular-nums select-none">
+                {dayNum}
               </div>
             );
-          })}
-        </div>
-      )}
+          }
+          const past = isPast(iso);
+          const today = iso === todayIso;
+          const wd = (cellDate.getDay() + 6) % 7;
+          const abs = absenceByDate[iso];        // { status, kind }
+          const oneOff = oneOffByDate[iso];       // { id, timed, ... }
+          const recurring = recurringSet.has(wd);
+          const hasShift = shiftSet.has(iso);
+          const saving = savingSet.has(iso);
+          const approved = abs && (abs.status === "acknowledged" || abs.status === "covered");
+          const pending = abs && abs.status === "pending";
 
-      {/* Add */}
-      {!adding ? (
-        <button
-          onClick={() => { resetForm(); setAdding(true); }}
-          className="w-full px-4 py-3 rounded-xl bg-gray-900 text-white hover:bg-gray-700 text-sm font-semibold transition flex items-center justify-center gap-2"
-        >
-          <Plus className="w-4 h-4" strokeWidth={2.25} aria-hidden />
-          {t("kanIkkeAdd", "Mark “can't work”")}
-        </button>
-      ) : (
-        <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-4">
-          {/* recurring vs one-off */}
-          <div className="grid grid-cols-2 gap-1 p-1 bg-gray-100 rounded-xl">
-            {[["weekday", t("kanIkkeRecurring", "Weekly")], ["date", t("kanIkkeOneOff", "One date")]].map(([k, lbl]) => (
-              <button
-                key={k}
-                onClick={() => setMode(k)}
-                className={`py-2 rounded-lg text-[13px] font-semibold transition ${mode === k ? "bg-white text-gray-900 shadow-soft" : "text-gray-500"}`}
-              >
-                {lbl}
-              </button>
-            ))}
-          </div>
+          // Exactly ONE background — precedence: approved > pending > one-off > recurring > free.
+          let fill = "", num = "text-gray-900", ring = "";
+          let tappable = !past;
+          if (approved) { fill = "bg-emerald-50"; ring = "ring-1 ring-inset ring-emerald-200"; num = "text-emerald-700 font-semibold"; tappable = false; }
+          else if (pending) { fill = "bg-amber-50"; ring = "ring-1 ring-inset ring-amber-200"; num = "text-amber-700 font-semibold"; tappable = false; }
+          else if (oneOff) { fill = "bg-gray-900"; num = "text-white font-semibold"; }
+          else if (recurring) { ring = "ring-1 ring-inset ring-gray-900"; num = "text-gray-900"; }
+          if (past) num = "text-gray-300 font-normal";
 
-          {mode === "weekday" ? (
-            <div className="flex gap-1.5">
-              {WD.map((w, i) => (
-                <button
-                  key={i}
-                  onClick={() => setWeekday(i)}
-                  className={`flex-1 py-2 rounded-lg text-[12px] font-semibold capitalize transition ${weekday === i ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-                >
-                  {w}
-                </button>
-              ))}
-            </div>
-          ) : (
-            <input
-              type="date"
-              value={dateVal}
-              onChange={(e) => setDateVal(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-gray-900/30"
-            />
-          )}
+          const cls =
+            "relative aspect-square min-h-[44px] rounded-xl flex items-center justify-center text-[15px] font-medium tabular-nums transition " +
+            fill + " " + ring + " " + num +
+            (tappable ? " active:scale-[0.97] cursor-pointer" : " cursor-default") +
+            (saving ? " opacity-60" : "") +
+            (today && !fill && !ring ? " bg-gray-100" : "") +
+            (past && (oneOff || abs || recurring) ? " opacity-40" : "");
 
-          {/* all-day vs window */}
-          <label className="flex items-center justify-between cursor-pointer">
-            <span className="text-[13px] font-medium text-gray-700">{t("kanIkkeAllDayToggle", "All day")}</span>
+          const shiftDot = oneOff ? "bg-white" : approved ? "bg-emerald-600" : pending ? "bg-amber-500" : "bg-gray-900";
+
+          return (
             <button
+              key={iso}
               type="button"
-              role="switch"
-              aria-checked={allDay}
-              onClick={() => setAllDay(!allDay)}
-              className={`relative w-11 h-6 rounded-full transition ${allDay ? "bg-gray-900" : "bg-gray-300"}`}
+              disabled={!tappable || saving}
+              aria-disabled={!tappable}
+              aria-current={today ? "date" : undefined}
+              aria-label={iso}
+              onClick={() => tappable && onTapDay(iso, { oneOff, recurring, abs, wd })}
+              className={cls}
             >
+              <span className={today ? "font-bold" : ""}>{dayNum}</span>
+              {recurring && !oneOff && !abs && (
+                <Repeat className="absolute top-0.5 right-0.5 w-2.5 h-2.5 text-gray-500" strokeWidth={2.5} aria-hidden />
+              )}
+              {oneOff?.timed && (
+                <Clock className="absolute bottom-0.5 left-0.5 w-2.5 h-2.5 text-white" strokeWidth={2.5} aria-hidden />
+              )}
+              {hasShift && (
+                <span className={`absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${shiftDot}`} aria-hidden />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* MarkedDayRow — one one-off "Kan ikke" date; expands to set a time-window /
+   note (DELETE+POST since the backend has no PATCH). */
+function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
+  const [allDay, setAllDay] = useState(!row.timed);
+  const [start, setStart] = useState(row.start || "08:00");
+  const [end, setEnd] = useState(row.end || "12:00");
+  const [note, setNote] = useState(row.note || "");
+  const timeText = row.timed ? `${row.start}–${row.end}` : t("kanIkkeAllDay", "All day");
+  return (
+    <div className="rounded-xl bg-white border border-gray-200">
+      <div className="p-3 flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl bg-gray-900 flex items-center justify-center shrink-0">
+          <CalendarOff className="w-[18px] h-[18px] text-white" strokeWidth={2} aria-hidden />
+        </div>
+        <button type="button" onClick={onToggle} className="min-w-0 flex-1 text-left">
+          <div className="text-sm font-semibold text-gray-900 truncate">{label}</div>
+          <div className="text-[12px] text-gray-500 truncate">
+            {timeText}{row.note ? ` · ${row.note}` : ` · ${t("kanIkkeAddTimeNote", "Add a time / note")}`}
+          </div>
+        </button>
+        <button type="button" onClick={onRemove} aria-label={t("kanIkkeRemove", "Remove")}
+          className="w-8 h-8 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition shrink-0">
+          <X className="w-4 h-4" strokeWidth={2} aria-hidden />
+        </button>
+      </div>
+      {expanded && (
+        <div className="px-3 pb-3 pt-3 space-y-3 border-t border-gray-100">
+          <label className="flex items-center justify-between cursor-pointer">
+            <span className="text-[13px] font-medium text-gray-700">{t("kanIkkeAllDay", "All day")}</span>
+            <button type="button" role="switch" aria-checked={allDay} onClick={() => setAllDay(!allDay)}
+              className={`relative w-11 h-6 rounded-full transition ${allDay ? "bg-gray-900" : "bg-gray-300"}`}>
               <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${allDay ? "translate-x-5" : ""}`} />
             </button>
           </label>
           {!allDay && (
             <div className="flex items-center gap-2">
-              <input type="time" value={startT} onChange={(e) => setStartT(e.target.value)}
+              <input type="time" value={start} onChange={(e) => setStart(e.target.value)}
                 className="flex-1 px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm outline-none focus:border-gray-900/30" />
               <span className="text-gray-400" aria-hidden>–</span>
-              <input type="time" value={endT} onChange={(e) => setEndT(e.target.value)}
+              <input type="time" value={end} onChange={(e) => setEnd(e.target.value)}
                 className="flex-1 px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm outline-none focus:border-gray-900/30" />
             </div>
           )}
-
-          <input
-            type="text"
-            value={note}
-            maxLength={80}
-            onChange={(e) => setNote(e.target.value)}
+          <input type="text" value={note} maxLength={80} onChange={(e) => setNote(e.target.value)}
             placeholder={t("kanIkkeNotePlaceholder", "Note (optional) — e.g. exam")}
-            className="w-full px-3 py-2.5 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
-          />
+            className="w-full px-3 py-2.5 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30" />
+          <button type="button" onClick={() => onSave(allDay, start, end, note)}
+            className="w-full py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 transition">
+            {t("kanIkkeSave", "Save")}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
-          {err && <div className="text-xs text-red-600">{err}</div>}
+/**
+ * AvailabilityTab — the staff "when I'm off" surface. A tappable month calendar
+ * to mark the days you can't work (a SOFT signal — the owner sees it, the
+ * autopilot respects it, it's never a hard block), plus the Fravær request
+ * (ferie/sygdom) the owner APPROVES. One calm view over the existing
+ * availability + absence endpoints; nothing here is cosmetic.
+ */
+function AvailabilityTab({ token, shifts }) {
+  const { t, lang } = useLanguage();
+  const [avail, setAvail] = useState(null);     // null = loading
+  const [absence, setAbsence] = useState([]);
+  const now = new Date();
+  const [viewYear, setViewYear] = useState(now.getFullYear());
+  const [viewMonth, setViewMonth] = useState(now.getMonth());
+  const [savingSet, setSavingSet] = useState(() => new Set());
+  const [recurOpen, setRecurOpen] = useState(false);
+  const [expandedDate, setExpandedDate] = useState(null);
+  const [confirmWeekday, setConfirmWeekday] = useState(null); // { wd }
+  const [err, setErr] = useState("");
 
-          <div className="flex gap-2">
-            <button
-              onClick={() => { setAdding(false); resetForm(); }}
-              className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition"
-            >
-              {t("portalCancel", "Cancel")}
-            </button>
-            <button
-              onClick={submit}
-              disabled={saving}
-              className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-50"
-            >
-              {saving ? t("portalSaving", "Saving…") : t("kanIkkeSave", "Save")}
-            </button>
+  const loadAvail = async () => {
+    try { const r = await portalApi.get(`/portal/${token}/availability`); setAvail(r.data?.availability || []); }
+    catch { setAvail([]); }
+  };
+  const loadAbsence = async () => {
+    try { const r = await portalApi.get(`/portal/${token}/absence`); setAbsence(r.data?.absence || []); }
+    catch { setAbsence([]); }
+  };
+  useEffect(() => { loadAvail(); loadAbsence(); }, [token]);
+
+  const WD = useMemo(() => weekdayNames(lang), [lang]);
+
+  const oneOffByDate = useMemo(() => {
+    const m = {};
+    (avail || []).forEach((a) => {
+      if (a.kind === "unavailable" && a.date) {
+        m[a.date] = { id: a.id, timed: !!a.start_time, start: a.start_time, end: a.end_time, note: a.note };
+      }
+    });
+    return m;
+  }, [avail]);
+  const recurringByWeekday = useMemo(() => {
+    const m = new Map();
+    (avail || []).forEach((a) => {
+      if (a.kind === "unavailable" && a.date == null && a.weekday != null) m.set(a.weekday, a.id);
+    });
+    return m;
+  }, [avail]);
+  const recurringSet = useMemo(() => new Set(recurringByWeekday.keys()), [recurringByWeekday]);
+  const absenceByDate = useMemo(() => {
+    const rank = (s) => (s === "acknowledged" || s === "covered") ? 2 : 1;
+    const m = {};
+    (absence || []).forEach((a) => {
+      if (a.status === "cancelled") return;
+      const prev = m[a.date];
+      if (!prev || rank(a.status) >= rank(prev.status)) m[a.date] = { status: a.status, kind: a.kind };
+    });
+    return m;
+  }, [absence]);
+  const shiftSet = useMemo(() => new Set((shifts || []).map((s) => s.date)), [shifts]);
+  const markedList = useMemo(
+    () => Object.entries(oneOffByDate).map(([date, v]) => ({ date, ...v })).sort((a, b) => a.date.localeCompare(b.date)),
+    [oneOffByDate],
+  );
+  const hasAbsence = (absence || []).some((a) => a.status !== "cancelled");
+
+  const withSaving = (iso, on) => setSavingSet((s) => { const n = new Set(s); on ? n.add(iso) : n.delete(iso); return n; });
+
+  const tapDay = async (iso, meta) => {
+    setErr("");
+    if (isPast(iso) || savingSet.has(iso)) return;
+    if (meta.abs) return; // absence day — the request flow governs it, not a soft tap
+    if (meta.oneOff) {                                   // un-mark
+      withSaving(iso, true);
+      setAvail((rows) => (rows || []).filter((r) => r.id !== meta.oneOff.id));
+      try { await portalApi.delete(`/portal/${token}/availability/${meta.oneOff.id}`); }
+      catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
+      finally { withSaving(iso, false); }
+      return;
+    }
+    if (meta.recurring) {                                // covered by a weekly rule — confirm scope, don't dup
+      setConfirmWeekday({ wd: meta.wd });
+      return;
+    }
+    if (oneOffByDate[iso]) return;                       // dedupe guard vs rapid double-tap
+    withSaving(iso, true);
+    setAvail((rows) => [...(rows || []), { id: "tmp-" + iso, kind: "unavailable", date: iso, weekday: null, start_time: null, end_time: null, note: null }]);
+    try { await portalApi.post(`/portal/${token}/availability`, { date: iso, kind: "unavailable" }); await loadAvail(); }
+    catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
+    finally { withSaving(iso, false); }
+  };
+
+  const addWeekly = async (wd) => {
+    if (recurringByWeekday.has(wd)) return;
+    // Optimistically add the rule so a rapid second tap sees `on` (routes to
+    // remove, never a duplicate add) — mirrors the calendar-tap dedupe guard.
+    setAvail((rows) => [...(rows || []), { id: "tmp-wd-" + wd, kind: "unavailable", date: null, weekday: wd, start_time: null, end_time: null, note: null }]);
+    try { await portalApi.post(`/portal/${token}/availability`, { weekday: wd, kind: "unavailable" }); await loadAvail(); }
+    catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
+  };
+  const removeWeekly = async (wd) => {
+    const id = recurringByWeekday.get(wd);
+    setConfirmWeekday(null);
+    if (!id) return;
+    setAvail((rows) => (rows || []).filter((r) => r.id !== id));
+    try { await portalApi.delete(`/portal/${token}/availability/${id}`); }
+    catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
+  };
+  const removeOneOff = async (id) => {
+    setAvail((rows) => (rows || []).filter((r) => r.id !== id));
+    try { await portalApi.delete(`/portal/${token}/availability/${id}`); }
+    catch { await loadAvail(); }
+  };
+  // No PATCH: edit an all-day mark to timed = DELETE the old row, POST a new one.
+  const saveTime = async (row, allDay, start, end, note) => {
+    setErr("");
+    if (!allDay && end <= start) { setErr(t("kanIkkeEndAfterStart", "End time must be after start.")); return; }
+    setExpandedDate(null);
+    // Abort if the delete didn't land — else a transient failure + a successful
+    // POST would leave TWO rows for one date (backend has no dedup/unique).
+    try { await portalApi.delete(`/portal/${token}/availability/${row.id}`); }
+    catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); return; }
+    const body = { date: row.date, kind: "unavailable" };
+    if (!allDay) { body.start_time = start; body.end_time = end; }
+    if (note && note.trim()) body.note = note.trim();
+    try { await portalApi.post(`/portal/${token}/availability`, body); await loadAvail(); }
+    catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
+  };
+
+  const goPrev = () => { const d = new Date(viewYear, viewMonth - 1, 1); setViewYear(d.getFullYear()); setViewMonth(d.getMonth()); };
+  const goNext = () => { const d = new Date(viewYear, viewMonth + 1, 1); setViewYear(d.getFullYear()); setViewMonth(d.getMonth()); };
+  const goToday = () => { const d = new Date(); setViewYear(d.getFullYear()); setViewMonth(d.getMonth()); };
+  const isCurrentMonth = viewYear === now.getFullYear() && viewMonth === now.getMonth();
+  const fmtWhen = (iso) => new Date(iso + "T00:00:00").toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric", month: "short" });
+
+  if (avail === null) {
+    return <div className="text-xs text-gray-500 py-6">{t("portalLoading", "Loading…")}</div>;
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Intro — mental model + honesty boundary before the first tap */}
+      <p className="text-[13px] leading-relaxed text-gray-600">
+        {t("kanIkkeCalIntro", "Tap the days you can't work. Your manager sees it while planning — a heads-up, not approved time off.")}
+      </p>
+
+      <MonthCalendar
+        viewYear={viewYear} viewMonth={viewMonth}
+        onPrev={goPrev} onNext={goNext} onToday={goToday} showToday={!isCurrentMonth}
+        oneOffByDate={oneOffByDate} recurringSet={recurringSet} absenceByDate={absenceByDate}
+        shiftSet={shiftSet} savingSet={savingSet}
+        onTapDay={tapDay} lang={lang} t={t}
+      />
+
+      {err && <div className="text-xs text-red-600">{err}</div>}
+
+      {/* Legend — text always present, never colour-only */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500">
+        <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-gray-900" />{t("legendCantWork", "Can't work")}</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded ring-1 ring-inset ring-gray-900" />{t("legendRepeats", "Every week")}</span>
+        {hasAbsence && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-100 ring-1 ring-inset ring-amber-300" />{t("legendPending", "Pending")}</span>}
+        {hasAbsence && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-emerald-100 ring-1 ring-inset ring-emerald-300" />{t("legendApproved", "Approved off")}</span>}
+        {shiftSet.size > 0 && <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gray-900" />{t("legendScheduled", "Scheduled")}</span>}
+      </div>
+      <p className="text-[11px] text-gray-400 -mt-2">{t("legendCaption", "Grey = your note. Colour = your manager's answer.")}</p>
+
+      {/* Marked days — where time-window + note live (never on the grid cell) */}
+      {markedList.length > 0 && (
+        <div className="space-y-2">
+          {markedList.map((row) => (
+            <MarkedDayRow
+              key={row.date}
+              row={row}
+              label={fmtWhen(row.date)}
+              expanded={expandedDate === row.date}
+              onToggle={() => setExpandedDate(expandedDate === row.date ? null : row.date)}
+              onRemove={() => removeOneOff(row.id)}
+              onSave={(allDay, s, e, n) => saveTime(row, allDay, s, e, n)}
+              t={t}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Recurring weekly — advanced, opt-in, low emphasis */}
+      <div>
+        <button type="button" onClick={() => setRecurOpen((o) => !o)}
+          className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 text-[13px] font-semibold transition">
+          <span className="inline-flex items-center gap-2"><Repeat className="w-4 h-4" strokeWidth={2} aria-hidden />{t("kanIkkeRepeatToggle", "Repeat weekly")}</span>
+          <ChevronDown className={`w-4 h-4 transition-transform ${recurOpen ? "rotate-180" : ""}`} aria-hidden />
+        </button>
+        {recurOpen && (
+          <div className="mt-2 space-y-2">
+            <p className="text-[12px] text-gray-500">{t("kanIkkeRepeatHint", "Pick a weekday you can never work.")}</p>
+            <div className="flex gap-1.5">
+              {WD.map((w, i) => {
+                const on = recurringSet.has(i);
+                return (
+                  <button key={i} type="button" onClick={() => (on ? removeWeekly(i) : addWeekly(i))} aria-pressed={on}
+                    className={`flex-1 py-2 rounded-lg text-[12px] font-semibold capitalize transition ${on ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                    {w}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Time-window discovery hint (no per-cell chrome) */}
+      {markedList.length > 0 && (
+        <p className="text-[11px] text-gray-400">{t("kanIkkeHoldHint", "Tap a marked day above to set hours.")}</p>
+      )}
+
+      {/* Divider — a different kind of thing below */}
+      <div className="h-px bg-gray-100" />
+
+      {/* Fravær — a request the owner approves (distinct from the soft calendar taps) */}
+      <AbsenceSection token={token} onChanged={loadAbsence} />
+
+      {/* Remove-weekly-rule scoped confirm (blast-radius honesty) */}
+      {confirmWeekday && (
+        <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true">
+          <button type="button" className="absolute inset-0 bg-black/40" onClick={() => setConfirmWeekday(null)} aria-label={t("portalCancel", "Cancel")} />
+          <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3">
+            <div className="text-base font-bold text-gray-900">{t("kanIkkeRemoveWeeklyTitle", "Remove this weekly rule?")}</div>
+            <p className="text-[13px] text-gray-600">{t("kanIkkeRemoveWeeklyBody", "This clears every {day}.").split("{day}").join(WD[confirmWeekday.wd])}</p>
+            <div className="flex gap-2 pt-1">
+              <button type="button" onClick={() => setConfirmWeekday(null)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition">{t("portalCancel", "Cancel")}</button>
+              <button type="button" onClick={() => removeWeekly(confirmWeekday.wd)} className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition">{t("kanIkkeRemove", "Remove")}</button>
+            </div>
           </div>
         </div>
       )}
@@ -4002,7 +4183,7 @@ export default function StaffPortalPage() {
             nonsense — the user IS in the app. Native push arrives with the
             APNs slice; until then the card simply doesn't render there. */}
         {tab === "schedule" && !isNativeApp() && <InstallNotifyCard token={token} />}
-        {tab === "availability" && <AvailabilityTab token={token} />}
+        {tab === "availability" && <AvailabilityTab token={token} shifts={shifts} />}
         {tab === "messages" && (
           <MessagesTab
             token={token}
