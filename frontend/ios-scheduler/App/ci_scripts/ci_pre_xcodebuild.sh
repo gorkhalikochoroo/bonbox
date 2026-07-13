@@ -115,3 +115,4 @@ echo "=========================================="
 # CI trigger: 2026-07-02 — design system (Amount/kr., Lucide, PageShell) + Vagtplan availability batch.
 # CI trigger 2: post-agreement re-fire.
 # CI trigger 3: 2026-07-13 — build 5: staff profile photo (#42) + portal scroll/wobble fix + profile bottom-sheet (#44).
+# CI trigger 4: 2026-07-14 — build 6: staff-portal "when I'm off" availability calendar + fravær clarity (#46).
