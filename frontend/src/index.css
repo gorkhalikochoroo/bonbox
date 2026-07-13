@@ -232,9 +232,14 @@ html {
   .full-height { height: -webkit-fill-available; }
 }
 
-/* iOS momentum scrolling for scroll containers */
+/* iOS momentum scrolling for scroll containers.
+   NOTE: `-webkit-overflow-scrolling: touch` is deliberately NOT set. It is
+   deprecated, and on iOS WKWebView it promotes the scroller to a separate async
+   scroll layer that desyncs `position: sticky` descendants (the header) → a
+   visible wobble/jitter during momentum scroll. Modern WKWebView (iOS 13+)
+   already momentum-scrolls `overflow: auto` by default, so we drop it and let
+   sticky track the main scroll smoothly. */
 .scrollable {
-  -webkit-overflow-scrolling: touch;
   overflow-y: auto;
   overscroll-behavior-y: contain;
 }
@@ -316,6 +321,20 @@ body.modal-open {
 .dark .glass { background: rgb(17 24 39 / 0.85); }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass { background: rgb(255 255 255 / 0.95); }
+}
+/* Same frosted look as .glass but WITHOUT translateZ. A transform on a
+   position:sticky element establishes a new containing block and desyncs the
+   sticky offset during momentum scroll on iOS WKWebView → the STICKY header
+   visibly wobbles. Sticky bars are in-flow (they don't repaint like fixed bars),
+   so they don't need the compositor hint — only the FIXED nav/toast keep .glass. */
+.glass-static {
+  background: rgb(255 255 255 / 0.85);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.dark .glass-static { background: rgb(17 24 39 / 0.85); }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-static { background: rgb(255 255 255 / 0.95); }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════

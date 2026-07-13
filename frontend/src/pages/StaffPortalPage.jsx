@@ -4,6 +4,7 @@
  * Route: /s/:token
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
 import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, CalendarOff, Plus } from "lucide-react";
 import portalApi, { storePinProof } from "../services/portalApi";
@@ -3727,8 +3728,10 @@ export default function StaffPortalPage() {
     // chat composer stay position:fixed (viewport-pinned) — .scrollable has no
     // transform, so it doesn't trap them.
     <div className="full-height scrollable bg-gray-50 text-gray-900 pb-24">
-      {/* Header — sticks to the top of the internal scroller. */}
-      <div className="sticky top-0 z-10 glass border-b border-gray-200/70 pt-[env(safe-area-inset-top)]">
+      {/* Header — sticks to the top of the internal scroller. Uses .glass-static
+          (no translateZ) so the sticky header doesn't wobble during momentum
+          scroll on iOS. */}
+      <div className="sticky top-0 z-10 glass-static border-b border-gray-200/70 pt-[env(safe-area-inset-top)]">
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-gray-900">
@@ -3794,10 +3797,32 @@ export default function StaffPortalPage() {
             </button>
           </div>
         </div>
-        {/* Email edit panel */}
-        {showEmailEdit && (
-          <div className="max-w-lg mx-auto px-4 pb-3">
-            <div className="rounded-xl bg-white border border-gray-200 p-3 space-y-3">
+        {/* Profile / contact edit — a bottom-sheet overlay portaled to <body>.
+            Previously it rendered INSIDE this sticky header, which made the
+            header taller than the viewport and made the schedule scroll oddly
+            behind it. As an overlay it has its own scroll + a tap-out backdrop
+            and never disturbs the main scroll. */}
+        {showEmailEdit && createPortal((
+          <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true">
+            <button
+              type="button"
+              aria-label={t("close", "Close")}
+              onClick={() => setShowEmailEdit(false)}
+              className="absolute inset-0 bg-black/40"
+            />
+            <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl shadow-soft-lg max-h-[90dvh] overflow-y-auto overscroll-contain">
+              <div className="sticky top-0 bg-white/95 flex items-center justify-between px-4 pt-4 pb-2 border-b border-gray-100">
+                <h2 className="text-base font-bold text-gray-900">{t("portalEditContact", "Edit profile")}</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowEmailEdit(false)}
+                  aria-label={t("close", "Close")}
+                  className="w-8 h-8 -mr-1 rounded-full inline-flex items-center justify-center text-gray-500 hover:bg-gray-100 active:scale-[0.98] transition"
+                >
+                  <X className="w-5 h-5" strokeWidth={2} aria-hidden />
+                </button>
+              </div>
+              <div className="px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3">
               {/* Profile photo — staff pick a photo; the owner sees it too. */}
               <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
                 <div className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center text-base font-bold text-gray-500 shrink-0">
@@ -3951,9 +3976,10 @@ export default function StaffPortalPage() {
                   {t("portalDisconnect", "Disconnect this phone from the schedule")}
                 </button>
               </div>
+              </div>
             </div>
           </div>
-        )}
+        ), document.body)}
       </div>
 
       {/* Content */}
