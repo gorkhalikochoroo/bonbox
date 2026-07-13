@@ -1143,7 +1143,13 @@ def get_current_pay_period(
         db.add(config)
         db.commit()
         db.refresh(config)
-    return _compute_pay_period(config, date.today())
+    # Include the frame fields alongside the computed window so the client can
+    # hydrate its picker + navigate prev/next on the correct frame from first
+    # load (without a second GET /pay-period). Back-compatible: purely additive.
+    result = _compute_pay_period(config, date.today())
+    result["period_type"] = config.period_type
+    result["custom_start_day"] = config.custom_start_day
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3098,6 +3104,294 @@ def hours_summary(
         })
 
     return summary
+
+
+@router.get("/hours/overview")
+def hours_overview(
+    from_date: date = Query(..., alias="from"),
+    to_date: date = Query(..., alias="to"),
+    compare: Optional[str] = Query(None, description="'prev' to include a prior equal-length period trend"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """One-glance owner overview: how staff hours are flowing this period and what
+    they cost — plus a deterministic, honest narrative (services/hours_narrative).
+
+    This is the aggregate behind the /staff/hours "Oversigt" surface. It COMPOSES
+    the same facts the desktop summary table already shows (it does NOT change
+    /hours/summary or /hours), adds the entry-method split (measured vs typed vs
+    schedule), the feriepenge-loaded cost estimate, labor% vs effective revenue,
+    and work-limit flags — then hands the numbers to a pure rule engine that
+    speaks plainly.
+
+    Honesty invariants (mirrored from the design synthesis):
+      • Cost is gross logged wages × 1.125 (feriepenge ESTIMATE) — ATP/pension/
+        skat excluded, same doctrine as /schedules/week-cost. Never exact payroll.
+      • labor.pct_* is NULL (never 0, never guessed) whenever revenue is 0/unknown.
+      • MEASURED ≠ PLANNED ≠ ESTIMATED: measured_share exposes the clocked share so
+        typed hours can't masquerade as measured.
+      • Trend only when the current period is COMPLETE and a prior equal-length
+        period has data (no partial-vs-full compare).
+      • Raw hourly_rate/base_rate NEVER crosses the wire — only computed
+        gross/loaded/pct, exactly like /schedules/week-cost.
+
+    Multi-barrier: L1 auth (get_current_user) · L2 date bounds (422, never 5xx) ·
+    L4 fail-soft (revenue sub-query failure → revenue null → pct null, never 500) ·
+    L5 tenant scope (user.id on every query). Owner + manager by construction: the
+    staff portal authenticates via token (portalApi), never get_current_user, so a
+    staffer's phone can't reach this. No audit row — read-only GET (Manoj's
+    convention, see /today above). No payroll fields (no CPR/konto/net-pay).
+    """
+    from app.services.revenue_resolver import effective_revenue_total
+    from app.services.hours_narrative import build_hours_narrative
+
+    FERIE_UPLIFT = 0.125  # feriepenge — same dominant per-shift on-cost as week-cost
+
+    # L2 — date bounds. Inverted or absurd ranges are a 422, never a 5xx.
+    if to_date < from_date:
+        raise HTTPException(422, "'to' must be on or after 'from'.")
+    if (to_date - from_date).days > 366:
+        raise HTTPException(422, "Range too large (max 366 days).")
+
+    def _sum_hours_by_method(f: date, t: date):
+        """Return (actual, gross, measured, typed, schedule, per_staff_actual{}).
+        One grouped query; fail-soft to zeros on schema drift."""
+        actual = gross = measured = typed = schedule_h = 0.0
+        per_staff: dict[str, float] = {}
+        try:
+            rows = (
+                db.query(
+                    HoursLogged.staff_id,
+                    HoursLogged.entry_method,
+                    func.sum(HoursLogged.total_hours).label("h"),
+                    func.sum(HoursLogged.earned).label("e"),
+                )
+                .filter(
+                    HoursLogged.user_id == user.id,
+                    HoursLogged.date >= f,
+                    HoursLogged.date <= t,
+                )
+                .group_by(HoursLogged.staff_id, HoursLogged.entry_method)
+                .all()
+            )
+        except Exception:
+            return 0.0, 0.0, 0.0, 0.0, 0.0, {}
+        for r in rows:
+            h = float(r.h or 0)
+            e = float(r.e or 0)
+            actual += h
+            gross += e
+            method = (r.entry_method or "quick").lower()
+            if method == "clock":
+                measured += h
+            elif method == "schedule":
+                schedule_h += h
+            else:
+                typed += h
+            sid = str(r.staff_id)
+            per_staff[sid] = per_staff.get(sid, 0.0) + h
+        return actual, gross, measured, typed, schedule_h, per_staff
+
+    (actual_total, gross, measured_hours, typed_hours,
+     schedule_hours, per_staff_actual) = _sum_hours_by_method(from_date, to_date)
+
+    # Overtime — independent + defensive (is_overtime may be absent on stale schema).
+    overtime_hours = 0.0
+    try:
+        ot = (
+            db.query(func.sum(HoursLogged.total_hours))
+            .filter(
+                HoursLogged.user_id == user.id,
+                HoursLogged.date >= from_date,
+                HoursLogged.date <= to_date,
+                HoursLogged.is_overtime.is_(True),
+            )
+            .scalar()
+        )
+        overtime_hours = float(ot or 0)
+    except Exception:
+        overtime_hours = 0.0
+
+    # Scheduled (rostered) hours — published/confirmed only, same rule as the
+    # summary table so Scheduled/Diff never disagree between surfaces.
+    def _shift_hours(start, end, brk):
+        try:
+            sh, sm = int(start[:2]), int(start[3:5])
+            eh, em = int(end[:2]), int(end[3:5])
+            mins = (eh * 60 + em) - (sh * 60 + sm)
+            if mins < 0:
+                mins += 24 * 60
+            mins -= int(brk or 0)
+            return max(0.0, mins / 60.0)
+        except Exception:
+            return 0.0
+
+    scheduled_total = 0.0
+    try:
+        for s in (
+            db.query(Schedule)
+            .filter(
+                Schedule.user_id == user.id,
+                Schedule.date >= from_date,
+                Schedule.date <= to_date,
+                Schedule.status.in_(("published", "confirmed")),
+            )
+            .all()
+        ):
+            scheduled_total += _shift_hours(s.start_time, s.end_time, s.break_minutes)
+    except Exception:
+        scheduled_total = 0.0
+
+    # Names + monthly limits for the flags. Wrapped — a corrupt row never 500s.
+    over_limit: list[dict] = []
+    near_limit: list[dict] = []
+    staff_ids = list(per_staff_actual.keys())
+    if staff_ids:
+        try:
+            for m in (
+                db.query(StaffMember)
+                .filter(
+                    StaffMember.id.in_(staff_ids),
+                    StaffMember.user_id == user.id,
+                )
+                .all()
+            ):
+                limit = float(m.max_hours_month) if m.max_hours_month is not None else None
+                if not limit or limit <= 0:
+                    continue  # no limit set for this staffer → never flagged
+                actual = round(per_staff_actual.get(str(m.id), 0.0), 1)
+                entry = {"staff_id": str(m.id), "name": m.name or "?",
+                         "actual": actual, "limit": round(limit, 1)}
+                if actual >= limit:
+                    over_limit.append(entry)
+                elif actual >= 0.95 * limit:
+                    near_limit.append(entry)
+        except Exception:
+            over_limit, near_limit = [], []
+
+    # Revenue — DailyClose-wins effective revenue. Fail-soft: any error → None so
+    # labor% degrades to "Afventer omsætning", never a 500 and never a fake 0%.
+    revenue: Optional[float] = None
+    try:
+        rev = effective_revenue_total(db, user.id, from_date, to_date)
+        revenue = float(rev) if rev and rev > 0 else None
+    except Exception:
+        revenue = None
+
+    # Target labor % (owner-editable) — same source + default as week-cost.
+    try:
+        profile = (
+            db.query(BusinessProfile)
+            .filter(BusinessProfile.user_id == user.id)
+            .first()
+        )
+        target_pct = float(getattr(profile, "target_labor_pct", None) or 0.30)
+    except Exception:
+        target_pct = 0.30
+
+    # No configured wage rate anywhere → gross=0 → cost + labor% are UNKNOWN, not
+    # zero. Serialize pct as null (never a reassuring 0%) and flag the missing
+    # basis so the UI shows a neutral "set wage rates" state.
+    has_cost_basis = gross > 0
+    loaded_est = gross * (1.0 + FERIE_UPLIFT)
+    pct_loaded = (loaded_est / revenue) if (revenue and has_cost_basis) else None
+    pct_gross = (gross / revenue) if (revenue and has_cost_basis) else None
+    measured_share = (measured_hours / actual_total) if actual_total > 0 else 0.0
+
+    # In-progress vs complete → drives the "Hidtil / so far" prefix + trend gate.
+    try:
+        today_local = business_today_local(user)
+    except Exception:
+        today_local = date.today()
+    is_complete = to_date < today_local
+    total_days = (to_date - from_date).days + 1
+    elapsed_days = max(0, min(total_days, (today_local - from_date).days + 1))
+
+    # Optional prior equal-length period (immediately preceding). We only treat it
+    # as comparable when the CURRENT period is complete — never compare a
+    # half-elapsed period to a full one.
+    compare_block = None
+    prev_actual = None
+    comparable = False
+    if (compare or "").lower() == "prev":
+        length = total_days
+        prev_to = from_date - timedelta(days=1)
+        prev_from = prev_to - timedelta(days=length - 1)
+        pa, *_ = _sum_hours_by_method(prev_from, prev_to)
+        prev_actual = round(pa, 1)
+        comparable = bool(is_complete)
+        compare_block = {
+            "prev_from": prev_from.isoformat(),
+            "prev_to": prev_to.isoformat(),
+            "prev_actual": prev_actual,
+            "comparable": comparable,
+        }
+
+    narrative_input = {
+        "actual_total": round(actual_total, 1),
+        "scheduled_total": round(scheduled_total, 1),
+        "gross": round(gross, 2),
+        "loaded_est": round(loaded_est, 2),
+        "revenue": (round(revenue, 2) if revenue is not None else None),
+        "pct_loaded": pct_loaded,
+        "target_pct": target_pct,
+        "measured_share": measured_share,
+        "typed_hours": round(typed_hours, 1),
+        "has_cost_basis": has_cost_basis,
+        "over_limit": over_limit,
+        "near_limit": near_limit,
+        "comparable": comparable,
+        "prev_actual": prev_actual,
+    }
+    narrative, banner_severity = build_hours_narrative(narrative_input)
+
+    return {
+        "period": {
+            "from": from_date.isoformat(),
+            "to": to_date.isoformat(),
+            "is_complete": is_complete,
+            "elapsed_days": elapsed_days,
+            "total_days": total_days,
+        },
+        "hours": {
+            "actual_total": round(actual_total, 1),
+            "scheduled_total": round(scheduled_total, 1),
+            "diff": round(actual_total - scheduled_total, 1),
+            "measured_hours": round(measured_hours, 1),
+            "typed_hours": round(typed_hours, 1),
+            "schedule_hours": round(schedule_hours, 1),
+            "measured_share": round(measured_share, 3),
+        },
+        "cost": {
+            "gross": round(gross, 2),
+            "ferie_uplift": FERIE_UPLIFT,
+            "loaded_est": round(loaded_est, 2),
+            "ferie_is_estimate": True,
+            "has_basis": has_cost_basis,
+            "currency": user.currency or "DKK",
+        },
+        "revenue": {
+            "effective_total": (round(revenue, 2) if revenue is not None else None),
+            "source": "effective_revenue (DailyClose-wins)",
+        },
+        "labor": {
+            "pct_loaded": (round(pct_loaded, 4) if pct_loaded is not None else None),
+            "pct_gross": (round(pct_gross, 4) if pct_gross is not None else None),
+            "target_pct": round(target_pct, 4),
+            "basis": "loaded",
+        },
+        "flags": {
+            "overtime_hours": round(overtime_hours, 1),
+            "over_limit": over_limit,
+            "near_limit": near_limit,
+            "follow_up_count": len(over_limit) + len(near_limit),
+        },
+        "compare": compare_block,
+        "narrative": narrative,
+        "banner_severity": banner_severity,
+        "staff_count": len(per_staff_actual),
+        "has_any_hours": actual_total > 0,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════

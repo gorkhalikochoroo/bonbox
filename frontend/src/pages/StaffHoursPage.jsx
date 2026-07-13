@@ -8,7 +8,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { errText } from "../utils/errText";
 import { FadeIn, TabContent, AnimatedList, AnimatedListItem, AnimatePresence } from "../components/AnimationKit";
-import { PageHeader, Button, TabPills, Icon } from "../components/ui";
+import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner } from "../components/ui";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
@@ -56,6 +56,31 @@ function today() {
   return isoDate(new Date());
 }
 
+// Client mirror of backend _compute_pay_period (staff.py) — used ONLY to
+// navigate prev/next for calendar-anchored frames so the window snaps to the
+// real 1st / 15th / custom-day boundary instead of drifting by a fixed day count.
+const CALENDAR_FRAMES = ["monthly_1st", "monthly_15th", "custom"];
+function computePayPeriod(type, startDay, refIso) {
+  const ref = new Date(refIso + "T00:00:00");
+  const y = ref.getFullYear();
+  const m = ref.getMonth();
+  const day = ref.getDate();
+  const isoOf = (yy, mm, dd) => isoDate(new Date(yy, mm, dd)); // JS Date normalizes over/underflow
+  if (type === "monthly_15th") {
+    if (day >= 15) return { from: isoOf(y, m, 15), to: isoOf(y, m + 1, 14) };
+    return { from: isoOf(y, m - 1, 15), to: isoOf(y, m, 14) };
+  }
+  if (type === "custom") {
+    const csd = Math.min(28, Math.max(1, parseInt(startDay, 10) || 1));
+    // to = the day before the next occurrence of csd (isoOf(y, m+1, csd-1) handles csd=1)
+    if (day >= csd) return { from: isoOf(y, m, csd), to: isoOf(y, m + 1, csd - 1) };
+    return { from: isoOf(y, m - 1, csd), to: isoOf(y, m, csd - 1) };
+  }
+  // monthly_1st + fallback
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  return { from: isoOf(y, m, 1), to: isoOf(y, m, lastDay) };
+}
+
 function calcHoursFromTimes(start, end, breakMin) {
   if (!start || !end) return 0;
   const [sh, sm] = start.split(":").map(Number);
@@ -66,11 +91,16 @@ function calcHoursFromTimes(start, end, breakMin) {
   return Math.max(0, +(totalMin / 60).toFixed(2));
 }
 
+// Entry-method chip — neutral gray + a Lucide icon encoding meaning (design
+// lock: no decorative blue/purple, no emoji). Clock = stemplet (measured),
+// FileText = tastet (typed), CalendarCheck = fra plan.
 const METHOD_BADGES = {
-  quick: { label: "Quick", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
-  clock: { label: "Clock", color: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" },
-  schedule: { label: "Schedule", color: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
+  quick: { icon: "FileText", labelKey: "hovMethodQuick" },
+  clock: { icon: "Clock", labelKey: "hovMethodClock" },
+  schedule: { icon: "CalendarCheck", labelKey: "hovMethodSchedule" },
 };
+const METHOD_CHIP =
+  "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300";
 
 /* ═══════════════════════════════════════════════════════════
    MAIN PAGE
@@ -94,6 +124,20 @@ export default function StaffHoursPage() {
   const [entriesLoading, setEntriesLoading] = useState(false);
   const [recentBeforeCount, setRecentBeforeCount] = useState(0);
 
+  // Overview payload (one-glance hero + genuine narrative). Own fetch so a
+  // slow summary/entries load never blocks the answer at the top.
+  const [overview, setOverview] = useState(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+
+  // Period-frame control — how the owner frames the period to extract hours
+  // (1st–end / 15th→14th / custom start-day / biweekly), plus an ad-hoc custom
+  // date range. period_type/custom_start_day mirror the shared pay-period
+  // config so Hours + Payroll always agree; "custom" range is a local override
+  // that does NOT persist to the config.
+  const [periodType, setPeriodType] = useState("monthly_1st");
+  const [customStartDay, setCustomStartDay] = useState(16);
+  const [frameMode, setFrameMode] = useState("recurring"); // "recurring" | "custom"
+
   // Fetch pay period config
   useEffect(() => {
     const fallbackPeriod = () => {
@@ -108,8 +152,10 @@ export default function StaffHoursPage() {
       .then(r => {
         const d = r.data;
         setPeriodConfig(d);
-        const start = d?.period_start || d?.start || d?.from;
-        const end = d?.period_end || d?.end || d?.to;
+        // Backend _compute_pay_period returns {start_date, end_date}; keep the
+        // legacy aliases as a fallback so any shape still resolves.
+        const start = d?.start_date || d?.period_start || d?.start || d?.from;
+        const end = d?.end_date || d?.period_end || d?.end || d?.to;
         if (start && end) {
           setPeriodFrom(start);
           setPeriodTo(end);
@@ -149,6 +195,36 @@ export default function StaffHoursPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Keep the frame picker in sync when the saved config lands.
+  useEffect(() => {
+    if (!periodConfig) return;
+    setPeriodType(periodConfig.period_type || "monthly_1st");
+    if (periodConfig.custom_start_day) setCustomStartDay(periodConfig.custom_start_day);
+  }, [periodConfig]);
+
+  // Overview — the hero + narrative. Own loading state; compare=prev so the
+  // narrative can (honestly) trend vs the prior equal-length period.
+  useEffect(() => {
+    if (!periodFrom || !periodTo) return;
+    let alive = true;
+    setOverviewLoading(true);
+    api.get("/staff/hours/overview", { params: { from: periodFrom, to: periodTo, compare: "prev" } })
+      .then((r) => { if (alive) setOverview(r.data || null); })
+      .catch(() => { if (alive) setOverview(null); })
+      .finally(() => { if (alive) setOverviewLoading(false); });
+    return () => { alive = false; };
+  }, [periodFrom, periodTo]);
+
+  // Re-pull the overview after a log/edit so the hero + narrative stay honest.
+  const refetchAll = useCallback(() => {
+    fetchData();
+    if (periodFrom && periodTo) {
+      api.get("/staff/hours/overview", { params: { from: periodFrom, to: periodTo, compare: "prev" } })
+        .then((r) => setOverview(r.data || null))
+        .catch(() => {});
+    }
+  }, [fetchData, periodFrom, periodTo]);
+
   // Does THIS period have any real clock punch? (Used to gate the boundary
   // nudge below so it only fires in the confusing "0 clocked this period" case.)
   const currentHasClock = useMemo(
@@ -183,26 +259,66 @@ export default function StaffHoursPage() {
 
   const goPrev = () => {
     if (!periodFrom || !periodTo) return;
+    // Calendar-anchored frames snap to the real boundary (1st / 15th / custom
+    // day) rather than drifting by a fixed day count; fixed-length frames
+    // (biweekly, ad-hoc range) shift by their span.
+    if (frameMode === "recurring" && CALENDAR_FRAMES.includes(periodType)) {
+      const p = computePayPeriod(periodType, customStartDay, addDays(periodFrom, -1));
+      setPeriodFrom(p.from); setPeriodTo(p.to);
+      return;
+    }
     setPeriodFrom(addDays(periodFrom, -periodLength));
     setPeriodTo(addDays(periodTo, -periodLength));
   };
 
   const goNext = () => {
     if (!periodFrom || !periodTo) return;
+    if (frameMode === "recurring" && CALENDAR_FRAMES.includes(periodType)) {
+      const p = computePayPeriod(periodType, customStartDay, addDays(periodTo, 1));
+      setPeriodFrom(p.from); setPeriodTo(p.to);
+      return;
+    }
     setPeriodFrom(addDays(periodFrom, periodLength));
     setPeriodTo(addDays(periodTo, periodLength));
   };
 
-  // Mobile-only sub-tab. Five stacked sections on a 390px phone forced
-  // ~3 screen-heights of scroll. On mobile we render ONE section at a
-  // time (default: Log — the primary action owners come to this page
-  // for) and use a tab-strip to switch. Desktop (sm+) keeps the full
-  // vertical layout per accountant convention.
-  const [mobileTab, setMobileTab] = useState("log"); // "summary" | "log" | "recent"
-  const mobileTabs = [
-    { id: "summary", label: t("hoursTabSummary", "Summary") },
-    { id: "log", label: t("hoursTabLog", "Log") },
-    { id: "recent", label: t("hoursTabRecent", "Recent"), count: entries?.length || undefined },
+  // Change the RECURRING frame (writes the shared pay-period config, so Hours +
+  // Payroll extract the same window), then re-anchor to the current period.
+  const selectFrame = async (type, day) => {
+    setFrameMode("recurring");
+    setPeriodType(type);
+    const csd = type === "custom" ? (parseInt(day, 10) || customStartDay || 1) : null;
+    if (csd) setCustomStartDay(csd);
+    try {
+      await api.post("/staff/pay-period", { period_type: type, custom_start_day: csd });
+      const r = await api.get("/staff/pay-period/current");
+      const d = r.data || {};
+      const start = d.start_date || d.period_start || d.start || d.from;
+      const end = d.end_date || d.period_end || d.end || d.to;
+      if (start && end) { setPeriodFrom(start); setPeriodTo(end); }
+      setPeriodConfig((c) => ({ ...(c || {}), period_type: type, custom_start_day: csd }));
+    } catch {
+      // Non-fatal: the picker still reflects the choice; a refresh reconciles.
+    }
+  };
+
+  // Ad-hoc custom range — a LOCAL override for a one-off extraction. Does not
+  // touch the saved config (so the recurring frame is preserved).
+  const applyCustomRange = (from, to) => {
+    if (!from || !to || to < from) return;
+    setFrameMode("custom");
+    setPeriodFrom(from);
+    setPeriodTo(to);
+  };
+
+  // Sub-tabs — the page now opens on the ANSWER (Oversigt), not the logging
+  // form. Same three destinations on every viewport (desktop parity); the
+  // logging block + the accountant detail are one tap away, never the landing.
+  const [subTab, setSubTab] = useState("overview"); // "overview" | "log" | "details"
+  const subTabs = [
+    { id: "overview", label: t("hovTabOverview", "Overview") },
+    { id: "log", label: t("hovTabLog", "Log") },
+    { id: "details", label: t("hovTabDetails", "Details"), count: entries?.length || undefined },
   ];
 
   return (
@@ -213,15 +329,20 @@ export default function StaffHoursPage() {
         subtitle={t("staffHoursSubtitle", "Track working hours, clock in/out, and confirm schedules.")}
       />
 
-      {/* Period Selector — always visible (the period scopes ALL three
-          mobile tabs, so it lives outside the tab strip). */}
+      {/* Period-frame control — scopes every tab, tile, and the narrative. The
+          owner frames the period (1st–end / 15th→14th / custom start-day /
+          biweekly) or picks an ad-hoc date range, right here. */}
       <FadeIn delay={0.05}>
-        <PeriodSelector
+        <PeriodControl
           from={periodFrom}
           to={periodTo}
           loading={periodLoading}
           onPrev={goPrev}
           onNext={goNext}
+          periodType={frameMode === "custom" ? "custom_range" : periodType}
+          customStartDay={customStartDay}
+          onSelectFrame={selectFrame}
+          onCustomRange={applyCustomRange}
         />
       </FadeIn>
 
@@ -244,109 +365,450 @@ export default function StaffHoursPage() {
         </button>
       )}
 
-      {/* Mobile-only tab strip. Hidden sm+ where the vertical layout
-          works fine on a wide screen. */}
-      <div className="sm:hidden">
-        <TabPills
-          tabs={mobileTabs}
-          activeId={mobileTab}
-          onChange={setMobileTab}
-          wrap={false}
-          ariaLabel={t("shpHoursViewAria", "Hours view")}
-        />
-      </div>
+      <TabPills
+        tabs={subTabs}
+        activeId={subTab}
+        onChange={setSubTab}
+        ariaLabel={t("staffBackOffice", "Staff back office")}
+      />
 
-      {/* Summary table — desktop: always shown; mobile: only when
-          summary tab is active. */}
-      <div className={mobileTab === "summary" ? "" : "hidden sm:block"}>
+      {/* OVERSIGT — the one-glance answer: narrative + 4 hero tiles. */}
+      {subTab === "overview" && (
         <FadeIn delay={0.1}>
-          <HoursSummaryTable
-            summary={summary}
-            loading={summaryLoading}
+          <HoursOverview
+            overview={overview}
+            loading={overviewLoading}
             currency={currency}
+            onGoLog={() => setSubTab("log")}
           />
         </FadeIn>
-      </div>
+      )}
 
-      {/* Log hours — desktop: always shown; mobile: default tab. */}
-      <div className={mobileTab === "log" ? "" : "hidden sm:block"}>
-        <FadeIn delay={0.15}>
+      {/* LOG — the existing 3-tab logging block, unchanged behavior. */}
+      {subTab === "log" && (
+        <FadeIn delay={0.1}>
           <LoggingSection
             staffList={staffList}
             currency={currency}
             periodFrom={periodFrom}
-            onLogged={fetchData}
+            onLogged={refetchAll}
           />
         </FadeIn>
-      </div>
+      )}
 
-      {/* Recent log — desktop: always shown; mobile: only when recent
-          tab is active. */}
-      <div className={mobileTab === "recent" ? "" : "hidden sm:block"}>
-        <FadeIn delay={0.2}>
-          <RecentHoursLog
-            entries={entries}
-            loading={entriesLoading}
-            currency={currency}
-            staffList={staffList}
-            onUpdated={fetchData}
-          />
-        </FadeIn>
-      </div>
+      {/* DETALJER — demoted accountant detail: full per-staff table (responsive)
+          + the recent-entries audit trail. Nothing removed, only lowered. */}
+      {subTab === "details" && (
+        <div className="space-y-4 sm:space-y-6">
+          <FadeIn delay={0.1}>
+            <HoursSummaryTable
+              summary={summary}
+              loading={summaryLoading}
+              currency={currency}
+            />
+          </FadeIn>
+          <FadeIn delay={0.15}>
+            <RecentHoursLog
+              entries={entries}
+              loading={entriesLoading}
+              currency={currency}
+              staffList={staffList}
+              onUpdated={refetchAll}
+            />
+          </FadeIn>
+        </div>
+      )}
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
-   PERIOD SELECTOR
+   MONEY + NARRATIVE HELPERS
    ═══════════════════════════════════════════════════════════ */
-function PeriodSelector({ from, to, loading, onPrev, onNext }) {
-  const { t } = useLanguage();
-  return (
-    // Mobile: arrows only + tight period label. Tablet+: full "Previous
-    // Period" / "Next Period" labels. Keeps a 320px viewport readable.
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-3 sm:p-4 flex items-center justify-between gap-2">
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={onPrev}
-        disabled={loading}
-        title={t("periodPrev", "Previous period")}
-        iconLeft={
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
-        }
-      >
-        <span className="hidden sm:inline">{t("periodPrev", "Previous period")}</span>
-        <span className="sm:hidden sr-only">{t("periodPrevShort", "Previous")}</span>
-      </Button>
+// da-DK grouped integer + a currency word. DKK shows "kr" (the DK convention);
+// other currencies show their code — we NEVER auto-convert across currencies.
+function fmtMoneyShort(n, currencyCode) {
+  const num = new Intl.NumberFormat("da-DK", { maximumFractionDigits: 0 }).format(
+    Math.round(Number(n) || 0),
+  );
+  const unit = !currencyCode || currencyCode === "DKK" ? "kr" : currencyCode;
+  return `${num} ${unit}`;
+}
 
-      <div className="text-center min-w-0 flex-1">
-        {loading ? (
-          <div className="h-5 w-40 mx-auto bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
-        ) : (
-          <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-gray-100 truncate block">
-            {fmtPeriod(from, to)}
-          </span>
-        )}
+// Narrative code → i18n key. The backend rule engine emits codes + params; the
+// wording lives here (real en+da) so it stays honest + translatable in one place.
+const NAR_KEY = {
+  zero: "hovNarZero",
+  labor_ok: "hovNarLaborOk",
+  labor_watch: "hovNarLaborWatch",
+  labor_over: "hovNarLaborOver",
+  labor_no_revenue: "hovNarLaborNoRevenue",
+  labor_no_rates: "hovNarNoRates",
+  limit_over: "hovNarLimitOver",
+  limit_over_multi: "hovNarLimitOverMulti",
+  limit_near: "hovNarLimitNear",
+  limit_near_multi: "hovNarLimitNearMulti",
+  plan_over: "hovNarPlanOver",
+  trend_more: "hovNarTrendMore",
+  trend_fewer: "hovNarTrendFewer",
+  trend_flat: "hovNarTrendFlat",
+  trust_caveat: "hovNarTrustCaveat",
+};
+
+function fillNarrative(t, currencyCode, line) {
+  const key = NAR_KEY[line?.code];
+  if (!key) return null;
+  let s = t(key, line.code);
+  const p = line.params || {};
+  Object.keys(p).forEach((k) => {
+    // Money params are formatted with the currency word; the rest are plain.
+    const v = k === "cost" || k === "gross" ? fmtMoneyShort(p[k], currencyCode) : String(p[k]);
+    s = s.split(`{${k}}`).join(v);
+  });
+  return s;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   PERIOD CONTROL — frame picker + prev/next + custom range
+   ═══════════════════════════════════════════════════════════ */
+// The owner frames the period however they run it (1st–end, 15th→14th, a custom
+// start day like the 16th, biweekly) or picks an ad-hoc date range. Recurring
+// frames write the SHARED /staff/pay-period config (so Hours + Payroll extract
+// the same window); the custom range is a local, non-persisted override.
+const FRAME_OPTIONS = [
+  { id: "monthly_1st", key: "hovFrameMonth1" },
+  { id: "monthly_15th", key: "hovFrameMonth15" },
+  { id: "custom", key: "hovFrameCustom" },
+  { id: "biweekly", key: "hovFrameBiweekly" },
+  { id: "custom_range", key: "hovFrameCustomRange" },
+];
+
+function PeriodControl({ from, to, loading, onPrev, onNext, periodType, customStartDay, onSelectFrame, onCustomRange }) {
+  const { t } = useLanguage();
+  const [open, setOpen] = useState(false);
+  // Which editor sub-panel is open. The two editor chips (custom start-day,
+  // ad-hoc range) don't change the active frame until confirmed, so they need
+  // their own local "which panel is expanded" state — the panels also stay open
+  // when the active periodType prop already is that frame.
+  const [editor, setEditor] = useState(null); // null | "custom" | "custom_range"
+  const [dayDraft, setDayDraft] = useState(customStartDay || 16);
+  const [rangeFrom, setRangeFrom] = useState(from || "");
+  const [rangeTo, setRangeTo] = useState(to || "");
+
+  useEffect(() => { if (customStartDay) setDayDraft(customStartDay); }, [customStartDay]);
+  useEffect(() => { if (from) setRangeFrom(from); if (to) setRangeTo(to); }, [from, to]);
+
+  const inputCls =
+    "border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-800 dark:text-white rounded-lg px-2.5 py-2 text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none";
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+      {/* Row: prev · period label (tap to reframe) · next */}
+      <div className="p-3 sm:p-4 flex items-center justify-between gap-2">
+        <Button
+          variant="ghost" size="sm" onClick={onPrev} disabled={loading}
+          title={t("periodPrev", "Previous period")}
+          iconLeft={
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          }
+        >
+          <span className="hidden sm:inline">{t("periodPrev", "Previous period")}</span>
+          <span className="sm:hidden sr-only">{t("periodPrevShort", "Previous")}</span>
+        </Button>
+
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="min-w-0 flex-1 mx-1 rounded-lg px-2 py-1 text-center hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+          title={t("hovFrameChange", "Change period")}
+        >
+          {loading ? (
+            <div className="h-5 w-40 mx-auto bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+          ) : (
+            <span className="inline-flex items-center gap-1.5 justify-center min-w-0">
+              <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                {fmtPeriod(from, to)}
+              </span>
+              <Icon name="CalendarClock" size={14} className="text-gray-400 shrink-0" />
+            </span>
+          )}
+        </button>
+
+        <Button
+          variant="ghost" size="sm" onClick={onNext} disabled={loading}
+          title={t("periodNext", "Next period")}
+          iconRight={
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          }
+        >
+          <span className="hidden sm:inline">{t("periodNext", "Next period")}</span>
+          <span className="sm:hidden sr-only">{t("periodNextShort", "Next")}</span>
+        </Button>
       </div>
 
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={onNext}
-        disabled={loading}
-        title={t("periodNext", "Next period")}
-        iconRight={
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-          </svg>
-        }
-      >
-        <span className="hidden sm:inline">{t("periodNext", "Next period")}</span>
-        <span className="sm:hidden sr-only">{t("periodNextShort", "Next")}</span>
-      </Button>
+      {/* Frame picker — one tap, no trip to Payroll settings. */}
+      {open && (
+        <div className="border-t border-gray-100 dark:border-gray-700 p-3 sm:p-4 space-y-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+            {t("hovFrameHeading", "How is the period framed?")}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {FRAME_OPTIONS.map((opt) => {
+              const selected = periodType === opt.id || editor === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    // The two editor chips reveal their sub-panel; a normal
+                    // recurring chip applies immediately and closes any editor.
+                    if (opt.id === "custom" || opt.id === "custom_range") {
+                      setEditor(opt.id);
+                      return;
+                    }
+                    setEditor(null);
+                    onSelectFrame(opt.id);
+                  }}
+                  aria-pressed={selected}
+                  className={
+                    "px-3 py-1.5 rounded-lg text-[13px] font-medium border transition " +
+                    (selected
+                      ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+                      : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600")
+                  }
+                >
+                  {t(opt.key, opt.id)}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Custom start day — e.g. the 16th → 15th */}
+          {(periodType === "custom" || editor === "custom") && (
+            <div className="flex items-end gap-2">
+              <div>
+                <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  {t("hovFrameStartDay", "Starts on day")}
+                </label>
+                <input
+                  type="number" min="1" max="28" value={dayDraft}
+                  onChange={(e) => setDayDraft(e.target.value)}
+                  className={inputCls + " w-20"}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => { setEditor(null); onSelectFrame("custom", dayDraft); }}
+                className="bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-4 py-2 rounded-lg transition"
+              >
+                {t("save", "Save")}
+              </button>
+            </div>
+          )}
+
+          {/* Ad-hoc custom date range — a one-off extraction, not saved. */}
+          {(periodType === "custom_range" || editor === "custom_range") && (
+            <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">{t("hovFrameFrom", "From")}</label>
+                <input type="date" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-1">{t("hovFrameTo", "To")}</label>
+                <input type="date" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} className={inputCls} />
+              </div>
+              <button
+                type="button"
+                onClick={() => { setEditor(null); onCustomRange(rangeFrom, rangeTo); }}
+                disabled={!rangeFrom || !rangeTo || rangeTo < rangeFrom}
+                className="bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-4 py-2 rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                {t("hovFrameApply", "Show these dates")}
+              </button>
+            </div>
+          )}
+
+          {periodType !== "custom_range" && editor !== "custom_range" && (
+            <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("hovFrameSavedNote", "Saved — used for Hours and Payroll.")}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   HOURS OVERVIEW — one-glance narrative + 4 hero tiles
+   ═══════════════════════════════════════════════════════════ */
+function NarrativeBanner({ lines, severity, currencyCode, inProgress = false }) {
+  const { t } = useLanguage();
+  if (!lines || lines.length === 0) return null;
+  const sevMap = { good: "success", watch: "warn", alert: "critical", info: "info" };
+  const iconMap = { success: "CheckCircle2", warn: "AlertTriangle", critical: "AlertTriangle", info: "Clock" };
+  const variant = sevMap[severity] || "info";
+  const rendered = lines.map((ln) => fillNarrative(t, currencyCode, ln)).filter(Boolean);
+  if (rendered.length === 0) return null;
+  const [head, ...rest] = rendered;
+  // When the period isn't over, close the banner with a muted honesty note so
+  // the headline labor % / cost never reads as a settled, final figure.
+  const note = inProgress ? t("hovInProgressNote", "Figures so far — the period isn't over yet.") : null;
+  return (
+    <SectionBanner severity={variant} icon={iconMap[variant]} title={head}>
+      {(rest.length > 0 || note) && (
+        <div className="space-y-0.5">
+          {rest.map((l, i) => (
+            <p key={i}>{l}</p>
+          ))}
+          {note && <p className="text-gray-500 dark:text-gray-400">{note}</p>}
+        </div>
+      )}
+    </SectionBanner>
+  );
+}
+
+function HoursOverview({ overview, loading, currency, onGoLog }) {
+  const { t } = useLanguage();
+
+  if (loading && !overview) {
+    return (
+      <div className="space-y-4">
+        <div className="h-20 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-20 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (!overview) return null;
+
+  // Empty period → ONE honest card, never four "0"-value tiles that read like a
+  // real slow week.
+  if (!overview.has_any_hours) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
+        <Icon name="Clock" size={28} className="text-gray-400 mx-auto mb-2" />
+        <p className="text-gray-800 dark:text-gray-100 font-medium">{t("hovEmptyTitle", "No hours logged yet for this period")}</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{t("hovEmptyBody", "Log hours or confirm the schedule to see cost and labor %.")}</p>
+        {onGoLog && (
+          <button
+            type="button"
+            onClick={onGoLog}
+            className="mt-4 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white font-medium text-sm px-4 py-2 rounded-lg transition"
+          >
+            {t("logHours", "Log hours")}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const hours = overview.hours || {};
+  const cost = overview.cost || {};
+  const labor = overview.labor || {};
+  const flags = overview.flags || {};
+  const period = overview.period || {};
+  const measuredPct = Math.round((hours.measured_share || 0) * 100);
+  // Older payloads lack has_basis → assume true (back-compat).
+  const hasCostBasis = cost.has_basis !== false;
+  // In-progress periods are labelled everywhere (not just the Hours tile) so no
+  // figure ever reads as a final total.
+  const soFar = period.is_complete ? "" : ` · ${t("hovSoFar", "so far")}`;
+
+  // Tile 1 — Timer (volume, never colored).
+  const hoursHelperBase =
+    hours.scheduled_total > 0
+      ? t("hovTileHoursSub", "{measured}% clocked · of {scheduled} t planned")
+          .split("{measured}").join(measuredPct)
+          .split("{scheduled}").join(hours.scheduled_total)
+      : t("hovTileHoursSubNoPlan", "{measured}% clocked").split("{measured}").join(measuredPct);
+  const hoursHelper = `${hoursHelperBase}${soFar}`;
+
+  // Tile 2 — Lønudgift. With no configured wage rate gross=0 → show a neutral
+  // "set wage rates" state instead of a misleading ~0 kr.
+  let costValue = `~${fmtMoneyShort(cost.loaded_est, currency)}`;
+  let costHelper = `${t("hovTileCostSub", "~ incl. feriepenge · estimate")}${soFar}`;
+  if (!hasCostBasis) {
+    costValue = "—";
+    costHelper = t("hovTileCostNoRates", "set wage rates");
+  }
+
+  // Tile 3 — Lønprocent (the one status-colored money tile).
+  const pct = labor.pct_loaded;
+  const target = labor.target_pct != null ? labor.target_pct : 0.30;
+  let pctValue = "—";
+  let pctAccent = "neutral";
+  // Two honest "no %" reasons: no wage rates configured vs no revenue yet.
+  let pctHelper = hasCostBasis
+    ? t("hovTileLaborPctNone", "Waiting for sales")
+    : t("hovTileLaborPctNoRates", "set wage rates");
+  if (pct != null) {
+    pctValue = `${Math.round(pct * 100)}%`;
+    pctHelper = `${t("hovTileLaborPctSub", "of revenue · target {target}%").split("{target}").join(Math.round(target * 100))}${soFar}`;
+    if (pct <= target) pctAccent = "success";
+    else if (pct <= target + 0.05) pctAccent = "warn";
+    else pctAccent = "critical";
+  }
+
+  // Tile 4 — Overarbejde & grænser.
+  const over = flags.over_limit || [];
+  const near = flags.near_limit || [];
+  const ot = flags.overtime_hours || 0;
+  let limVal = "0";
+  let limAccent = "neutral";
+  let limHelper = t("hovLimitsNone", "all under limit");
+  if (over.length > 0) {
+    limAccent = "critical";
+    limVal = String(over.length);
+    limHelper = over.length === 1 ? `${over[0].name} · ${over[0].actual}/${over[0].limit} t` : t("hovLimitsOver", "{n} over limit").split("{n}").join(over.length);
+  } else if (near.length > 0) {
+    limAccent = "warn";
+    limVal = String(near.length);
+    limHelper = near.length === 1 ? `${near[0].name} · ${near[0].actual}/${near[0].limit} t` : t("hovLimitsNear", "{n} near limit").split("{n}").join(near.length);
+  } else if (ot > 0) {
+    limAccent = "warn";
+    limVal = `${ot} t`;
+    limHelper = t("hovOvertimeHrs", "{n} t overtime").split("{n}").join(ot);
+  }
+
+  return (
+    <div className="space-y-4">
+      <NarrativeBanner lines={overview.narrative} severity={overview.banner_severity} currencyCode={currency} inProgress={!period.is_complete} />
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatCard
+          dense
+          label={t("hovTileHours", "Hours")}
+          value={`${hours.actual_total ?? 0} t`}
+          helper={hoursHelper}
+        />
+        <StatCard
+          dense
+          label={t("hovTileCost", "Labor cost")}
+          value={costValue}
+          helper={costHelper}
+        />
+        <StatCard
+          dense
+          label={t("hovTileLaborPct", "Labor %")}
+          value={pctValue}
+          accent={pctAccent}
+          helper={pctHelper}
+        />
+        <StatCard
+          dense
+          label={t("hovTileLimits", "Overtime & limits")}
+          value={limVal}
+          accent={limAccent}
+          helper={limHelper}
+        />
+      </div>
     </div>
   );
 }
@@ -962,7 +1424,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
   if (!entries || entries.length === 0) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-8 text-center">
-        <div className="text-3xl mb-2">&#128203;</div>
+        <Icon name="ClipboardList" size={28} className="text-gray-400 mx-auto mb-2" />
         <p className="text-gray-500 dark:text-gray-400 font-medium">{t("noHourEntries")}</p>
         <p className="text-gray-400 dark:text-gray-500 text-sm mt-1">{t("shpLogEmptyHint", "Logged entries will appear here with edit and delete options.")}</p>
       </div>
@@ -983,11 +1445,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
         {sorted.map(entry => {
           const staffName = entry.staff_name || nameMap[entry.staff_id] || t("shpUnknownStaff", "Unknown");
           const badge = METHOD_BADGES[entry.entry_method] || METHOD_BADGES.quick;
-          const badgeLabel = {
-            quick: t("shpBadgeQuick", "Quick"),
-            clock: t("shpBadgeClock", "Clock"),
-            schedule: t("shpBadgeSchedule", "Schedule"),
-          }[entry.entry_method] || badge.label;
+          const badgeLabel = t(badge.labelKey, entry.entry_method);
           const isEditing = editingId === entry.id;
           const isDeleting = deletingId === entry.id;
 
@@ -1003,7 +1461,8 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-800 dark:text-white text-sm truncate">{staffName}</span>
-                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${badge.color}`}>
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${METHOD_CHIP}`}>
+                      <Icon name={badge.icon} size={10} />
                       {badgeLabel}
                     </span>
                   </div>
@@ -1087,7 +1546,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                     <button
                       onClick={() => { setEditingId(entry.id); setEditHours(String(entry.total_hours || "")); }}
-                      className="p-1.5 text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                      className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition"
                       title={t("editHours", "Edit hours")}
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
