@@ -50,7 +50,7 @@ export default function JoinPage() {
         haptic.success();
         navigate(path, { replace: true });
       } else {
-        flagWrong(t("joinUnknownCode", "We couldn't find that code. Check it and try again."));
+        flagWrong(t("joinUnknownCode", "Wrong code — please check it."));
       }
     } catch (err) {
       const status = err?.response?.status;
@@ -61,7 +61,7 @@ export default function JoinPage() {
         // No HTTP response at all = offline or a cold-start timeout (the retry
         // interceptor has already tried twice). Show a calm, honest reason
         // instead of a raw "Network Error" — the server may just be waking up.
-        msg = t("joinNoConnection", "Couldn't reach the server — it may be waking up. Check your connection and tap Connect again.");
+        msg = t("joinNoConnection", "No connection — try again.");
       } else {
         msg = errText(err, t("joinError", "Something went wrong. Try again."));
       }
