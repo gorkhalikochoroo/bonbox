@@ -26,7 +26,13 @@ const config: CapacitorConfig = {
 
   ios: {
     path: isScheduler ? "ios-scheduler" : "ios",
-    contentInset: "automatic",
+    // Scheduler: the staff portal owns its safe areas in CSS (the header pads
+    // by env(safe-area-inset-top) + draws an opaque cap over the notch). With
+    // contentInset "automatic" WKWebView ALSO insets the scroll view for the
+    // status bar, so the two stack → a fat empty gap under the notch. "never"
+    // hands safe-area handling entirely to CSS (single, correct inset). The
+    // owner app keeps "automatic" (its chrome doesn't do CSS insets).
+    contentInset: isScheduler ? "never" : "automatic",
     allowsLinkPreview: false,
     backgroundColor: shellBg,
     // Do NOT set preferredContentMode: 'mobile' — breaks iPad responsive layout

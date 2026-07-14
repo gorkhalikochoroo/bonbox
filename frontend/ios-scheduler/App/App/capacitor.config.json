@@ -1,0 +1,50 @@
+{
+	"appId": "dk.bonbox.scheduler",
+	"appName": "BonBox Scheduler",
+	"webDir": "dist-scheduler",
+	"ios": {
+		"path": "ios-scheduler",
+		"contentInset": "never",
+		"allowsLinkPreview": false,
+		"backgroundColor": "#f9fafb",
+		"scrollEnabled": true
+	},
+	"android": {
+		"backgroundColor": "#f9fafb"
+	},
+	"plugins": {
+		"SplashScreen": {
+			"launchShowDuration": 2000,
+			"launchAutoHide": true,
+			"backgroundColor": "#0d1117",
+			"showSpinner": false
+		},
+		"StatusBar": {
+			"style": "LIGHT",
+			"backgroundColor": "#f9fafb"
+		},
+		"Keyboard": {
+			"resize": "body",
+			"resizeOnFullScreen": true
+		},
+		"PushNotifications": {
+			"presentationOptions": [
+				"badge",
+				"sound",
+				"alert"
+			]
+		}
+	},
+	"packageClassList": [
+		"AppPlugin",
+		"CAPBrowserPlugin",
+		"CAPCameraPlugin",
+		"HapticsPlugin",
+		"KeyboardPlugin",
+		"CAPNetworkPlugin",
+		"PreferencesPlugin",
+		"PushNotificationsPlugin",
+		"SplashScreenPlugin",
+		"StatusBarPlugin"
+	]
+}
