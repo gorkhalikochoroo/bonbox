@@ -116,3 +116,4 @@ echo "=========================================="
 # CI trigger 2: post-agreement re-fire.
 # CI trigger 3: 2026-07-13 — build 5: staff profile photo (#42) + portal scroll/wobble fix + profile bottom-sheet (#44).
 # CI trigger 4: 2026-07-14 — build 6: staff-portal "when I'm off" availability calendar + fravær clarity (#46).
+# CI trigger 5: 2026-07-14 — build 7: force a fresh archive. NOTE: no new staff-portal changes since build 6 (all recent work is owner-side), so the staff app is functionally identical to build 6 — this is just a fresh build number.
