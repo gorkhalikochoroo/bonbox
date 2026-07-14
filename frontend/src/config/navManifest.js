@@ -134,7 +134,11 @@ export const NAV_MANIFEST = [
     aliases: ["events", "tickets", "arrangement"],
   },
   {
-    // Reservations — Starter+ feature: stays VISIBLE-BUT-LOCKED for Free.
+    // Reservations — an ALL-TIER, usage-capped feature. billing.py sets the
+    // `reservations` flag ON for every plan ("the cap creates the upgrade
+    // moment, NOT a sidebar lock"): Free is cap-gated to 20 bookings/mo + 3
+    // tables, Starter+ is unlimited. So NO requiresFeature here — the page +
+    // the server cap do the limiting; we never tier-lock the sidebar item.
     // C5: also a 'bottomnav' surface so MobileBottomNav can resolve its
     // icon/label when it claims the contextual 4th slot for restaurant /
     // cafe / bar branches (see getTabsForType).
@@ -143,21 +147,21 @@ export const NAV_MANIFEST = [
     labelKey: "reservations",
     group: "core",
     pillar: "reservations",
-    requiresFeature: "reservations",
     frequency: "daily",
     surfaces: ["sidebar", "more", "search", "bottomnav"],
     aliases: ["reservations", "booking", "table", "bordbestilling"],
   },
   {
-    // Gavekort (gift cards) — Starter+ feature: stays VISIBLE-BUT-LOCKED for
-    // Free. Owner pillar (relevance-hideable). On More + ⌘K so it stays
-    // findable even when the pillar is toggled off.
+    // Gavekort (gift cards) — an ALL-TIER, usage-capped feature. billing.py
+    // sets the `gavekort` flag ON for every plan; the tier lever is the numeric
+    // gavekort_active_max cap, NOT a sidebar lock. So NO requiresFeature — the
+    // cap does the limiting. Owner pillar (relevance-hideable). On More + ⌘K so
+    // it stays findable even when the pillar is toggled off.
     to: "/gavekort",
     icon: "Gift",
     labelKey: "gavekort",
     group: "core",
     pillar: "gavekort",
-    requiresFeature: "gavekort",
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
     aliases: ["gavekort", "gift card", "giftcard", "voucher", "gift"],
