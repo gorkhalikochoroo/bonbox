@@ -4017,31 +4017,21 @@ export default function StaffPortalPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {/* DA / EN toggle — staff pick their language. Danish phones
-                already default to da via browser detection; this lets an
-                English-phone staffer at a DK workplace switch, and back. */}
-            {/* Per-button rounding (not container overflow-hidden) so the
-                invisible before: hit-halo isn't clipped — visual size is
-                unchanged, but the tap target clears ~44px vertically. */}
-            <div className="flex rounded-lg border border-gray-200 text-[11px] font-semibold" role="group" aria-label={t("portalLangLabel", "Language")}>
-              {["da", "en"].map((code) => (
-                <button
-                  key={code}
-                  type="button"
-                  onClick={() => setLang(code)}
-                  aria-pressed={lang === code}
-                  className={`relative px-2 py-1 transition active:scale-[0.98] before:absolute before:inset-x-0 before:-inset-y-2.5 before:content-[''] ${
-                    code === "da" ? "rounded-l-[7px]" : "rounded-r-[7px]"
-                  } ${
-                    lang === code
-                      ? "bg-gray-900 text-white"
-                      : "bg-white text-gray-500 hover:bg-gray-50"
-                  }`}
-                >
-                  {code.toUpperCase()}
-                </button>
-              ))}
-            </div>
+            {/* Alerts bell — replaces the Alerts nav tab (moved to the header
+                per the design). Language moved into the profile sheet below. */}
+            <button
+              type="button"
+              onClick={() => setTab("alerts")}
+              aria-label={t("navAlerts", "Alerts")}
+              aria-current={tab === "alerts" ? "page" : undefined}
+              className={`relative w-9 h-9 rounded-full border flex items-center justify-center transition active:scale-[0.98] before:absolute before:-inset-2 before:content-[''] ${
+                tab === "alerts"
+                  ? "bg-gray-900 border-gray-900 text-white"
+                  : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <Bell className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
+            </button>
             {/* Honest freshness pill — only shown once verified. Tap (when
                 online + stale) forces a refetch. */}
             {pinVerified && info && (
@@ -4188,6 +4178,27 @@ export default function StaffPortalPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Language — moved here from the header (design). Staff pick DA / EN. */}
+              <div className="pt-3 border-t border-gray-100">
+                <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-2">{t("portalLangSection", "Language")}</div>
+                <div className="flex w-full rounded-lg border border-gray-200 p-0.5 gap-0.5" role="group" aria-label={t("portalLangLabel", "Language")}>
+                  {["da", "en"].map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => setLang(code)}
+                      aria-pressed={lang === code}
+                      className={`flex-1 py-1.5 rounded-md text-[13px] font-semibold transition active:scale-[0.98] ${
+                        lang === code ? "bg-gray-900 text-white" : "bg-white text-gray-500 hover:bg-gray-50"
+                      }`}
+                    >
+                      {code === "da" ? "Dansk" : "English"}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-1.5 text-[10px] text-gray-400">{t("portalLangNote", "Only changes the app's language.")}</div>
+              </div>
               <button
                 onClick={handleContactSave}
                 disabled={emailSaving}
@@ -4291,7 +4302,9 @@ export default function StaffPortalPage() {
       <nav className="fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20">
         <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {TABS.filter(
-            (item) => item.key !== "tips" || (tipsData?.entries?.length || 0) > 0,
+            // Alerts moved to the header bell (design); Tips only when it has entries.
+            // Leaves 5 tabs: Schedule · Availability · Messages · Swaps · Hours.
+            (item) => item.key !== "alerts" && (item.key !== "tips" || (tipsData?.entries?.length || 0) > 0),
           ).map((item) => {
             const active = tab === item.key;
             return (
