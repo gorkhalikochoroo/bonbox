@@ -55,6 +55,13 @@ const config: CapacitorConfig = {
       // Capacitor naming: DARK = light text on dark bg, LIGHT = dark text.
       style: isScheduler ? "LIGHT" : "DARK",
       backgroundColor: shellBg,
+      // Scheduler: draw the webview UNDER the status bar so CSS owns the safe
+      // area (the portal header pads by env(safe-area-inset-top) + caps the
+      // notch). Without this, iOS ALSO offsets the webview below the status bar
+      // and the two stack into a fat gap — contentInset:"never" alone doesn't
+      // fix it because the offset is the frame, not the scroll inset. The owner
+      // app keeps the default (its chrome doesn't do CSS safe-area insets).
+      overlaysWebView: isScheduler,
     },
     Keyboard: {
       resize: "body",

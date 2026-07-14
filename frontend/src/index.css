@@ -48,6 +48,15 @@ body {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
+/* The staff portal renders a fixed full-viewport app-shell (.full-height) that
+   handles its own safe areas (sticky header caps the notch; bottom nav pads the
+   home-indicator). The body inset above would DOUBLE it → a fat gap under the
+   notch on the installed PWA / native app. Zero the top+bottom body inset while
+   the portal is mounted (toggled by StaffPortalPage); keep left/right. */
+body.portal-shell {
+  padding-top: 0;
+  padding-bottom: 0;
+}
 
 /* Marketing display headlines (Task #109 / Task #110 update).
    We tried Fraunces serif first — Manoj's call was that it skewed
