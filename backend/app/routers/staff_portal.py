@@ -811,6 +811,89 @@ def _elapsed_sec(created_at):
         return None
 
 
+def _shift_start_dt(hhmm, ref_dt, on_date):
+    """Stamp an 'HH:MM' shift time onto a SPECIFIC calendar date (the shift's own
+    Schedule.date), keeping ref_dt's tz. Anchoring on the shift's date — not
+    'now' — is what keeps the pre-06:00 window correct: between midnight and the
+    DK cutoff, business_today_local is yesterday, so stamping onto now's date
+    would place the shift a full day off and wrongly lock a mid-shift / overnight
+    / early-morning worker. None on bad input."""
+    try:
+        hh, mm = (int(x) for x in hhmm.split(":"))
+    except (ValueError, AttributeError):
+        return None
+    return ref_dt.replace(year=on_date.year, month=on_date.month, day=on_date.day,
+                          hour=hh, minute=mm, second=0, microsecond=0)
+
+
+def _clock_window(db: Session, owner) -> dict:
+    """Owner's clock-in TIME window: staff may clock in at most `minutes` before
+    their shift start. Shares clock_settings_json with the geofence. Disabled →
+    no time lock (open any time — back-compat with venues that never set it)."""
+    prof = (
+        db.query(BusinessProfile).filter(BusinessProfile.user_id == owner.id).first()
+        if owner else None
+    )
+    raw = getattr(prof, "clock_settings_json", None) if prof else None
+    try:
+        d = json.loads(raw) if raw else {}
+    except (ValueError, TypeError):
+        d = {}
+    minutes = int(d.get("window_minutes") or 0)
+    return {"enabled": bool(d.get("window_enabled")) and minutes > 0, "minutes": minutes}
+
+
+def _clock_window_status(db: Session, member, owner) -> dict:
+    """Is clock-in currently time-locked for this staffer, and when does it open?
+    Anchored to the first still-unfinished published shift TODAY (business day).
+    Never locks when the window is off or there is no upcoming shift, so an
+    unscheduled cover / walk-in is never stranded."""
+    win = _clock_window(db, owner)
+    off = {"locked": False, "opens_at": None, "shift_start": None,
+           "window_minutes": win["minutes"]}
+    if not win["enabled"]:
+        return off
+    now_dt = now_local(owner)
+    today = now_dt.date()
+    # Candidate shifts by CALENDAR date around now (±1 day) — cutoff-independent,
+    # so BOTH an overnight shift started yesterday and an early-morning shift
+    # dated today are considered. Each shift is anchored to its OWN date below,
+    # then compared by absolute time (never the business day, which drifts a day
+    # before the 06:00 cutoff and mis-locks overnight/opener staff).
+    rows = (
+        db.query(Schedule)
+        .filter(
+            Schedule.staff_id == member.id,
+            Schedule.user_id == member.user_id,
+            Schedule.date >= today - timedelta(days=1),
+            Schedule.date <= today + timedelta(days=1),
+            Schedule.status == "published",
+        )
+        .order_by(Schedule.date, Schedule.start_time)
+        .all()
+    )
+    target_start = None
+    for s in rows:
+        start_dt = _shift_start_dt(s.start_time, now_dt, s.date)
+        if start_dt is None:
+            continue
+        end_dt = _shift_start_dt(s.end_time, now_dt, s.date) or start_dt
+        if end_dt <= start_dt:  # end wraps past midnight (overnight shift)
+            end_dt += timedelta(days=1)
+        if end_dt >= now_dt:  # first shift (by absolute time) not yet finished
+            target_start = start_dt
+            break
+    if target_start is None:
+        return off
+    opens_dt = target_start - timedelta(minutes=win["minutes"])
+    return {
+        "locked": now_dt < opens_dt,
+        "opens_at": opens_dt.strftime("%H:%M"),
+        "shift_start": target_start.strftime("%H:%M"),
+        "window_minutes": win["minutes"],
+    }
+
+
 def _clock_status_dict(db: Session, member, owner) -> dict:
     now_dt = now_local(owner)
     bday = business_today_local(owner)
@@ -821,11 +904,14 @@ def _clock_status_dict(db: Session, member, owner) -> dict:
     )
     today_hours = round(sum(float(r.total_hours or 0) for r in today_rows), 2)
     geofence_on = _clock_geofence(db, owner)["enabled"]
+    win = _clock_window_status(db, member, owner)
     punch = _open_punch(db, member)
     if not punch:
         return {"clocked_in": False, "since": None, "elapsed_min": None,
                 "elapsed_sec": None, "today_hours": today_hours,
-                "geofence_on": geofence_on}
+                "geofence_on": geofence_on,
+                "locked": win["locked"], "opens_at": win["opens_at"],
+                "shift_start": win["shift_start"], "window_minutes": win["window_minutes"]}
     return {
         "clocked_in": True,
         "since": punch.start_time,
@@ -833,6 +919,9 @@ def _clock_status_dict(db: Session, member, owner) -> dict:
         "elapsed_sec": _elapsed_sec(punch.created_at),          # live-counter seed (seconds)
         "today_hours": today_hours,
         "geofence_on": geofence_on,
+        # Already clocked in → never "locked"; keep window context for the UI.
+        "locked": False, "opens_at": None,
+        "shift_start": win["shift_start"], "window_minutes": win["window_minutes"],
     }
 
 
@@ -860,6 +949,15 @@ def portal_clock_in(
     owner = db.query(User).filter(User.id == member.user_id).first()
     if _open_punch(db, member):
         return _clock_status_dict(db, member, owner)  # already clocked in — no dupe
+    # Time-window gate (owner-configured): a punch before the window opens is
+    # rejected server-side, so the lock can't be bypassed by a crafted request.
+    _win = _clock_window_status(db, member, owner)
+    if _win["locked"]:
+        raise HTTPException(status_code=403, detail={
+            "error": "too_early",
+            "opens_at": _win["opens_at"],
+            "shift_start": _win["shift_start"],
+        })
     geo_note = None
     cfg = _clock_geofence(db, owner)
     if cfg["enabled"]:

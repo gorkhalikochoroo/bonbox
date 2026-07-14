@@ -2733,19 +2733,29 @@ def _load_clock_settings(profile):
         d = json.loads(raw) if raw else {}
     except (ValueError, TypeError):
         d = {}
+    win_minutes = int(d.get("window_minutes") or 0)
     return {
         "enabled": bool(d.get("enabled")),
         "lat": d.get("lat"),
         "lng": d.get("lng"),
         "radius_m": int(d.get("radius_m") or 150),
+        # Clock-in TIME window (separate axis from the geofence LOCATION lock):
+        # staff can clock in at most `window_minutes` before their shift start.
+        # 0 / disabled → no time lock (clock-in open any time, as before).
+        "window_enabled": bool(d.get("window_enabled")) and win_minutes > 0,
+        "window_minutes": win_minutes,
     }
 
 
 class ClockGeofenceUpdate(BaseModel):
-    enabled: bool = False
+    # All optional so a partial save (e.g. just the window) never wipes the
+    # geofence half, and vice-versa — each field falls back to the stored value.
+    enabled: bool | None = None
     lat: float | None = None
     lng: float | None = None
     radius_m: int | None = None
+    window_enabled: bool | None = None
+    window_minutes: int | None = None
 
 
 @router.get("/clock-geofence")
@@ -2776,11 +2786,17 @@ def set_clock_geofence(
     if lng is not None and not (-180 <= float(lng) <= 180):
         lng = None
     radius = max(25, min(2000, int(payload.radius_m or cur["radius_m"] or 150)))
+    enabled = payload.enabled if payload.enabled is not None else cur["enabled"]
+    win_enabled = payload.window_enabled if payload.window_enabled is not None else cur["window_enabled"]
+    win_minutes = payload.window_minutes if payload.window_minutes is not None else cur["window_minutes"]
+    win_minutes = max(0, min(240, int(win_minutes or 0)))  # cap at 4h before start
     profile.clock_settings_json = json.dumps({
-        "enabled": bool(payload.enabled),
+        "enabled": bool(enabled),
         "lat": lat,
         "lng": lng,
         "radius_m": radius,
+        "window_enabled": bool(win_enabled) and win_minutes > 0,
+        "window_minutes": win_minutes,
     })
     db.commit()
     out = _load_clock_settings(profile)
