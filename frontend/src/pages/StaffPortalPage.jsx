@@ -197,6 +197,36 @@ function _icsEsc(v) {
     .replace(/\r?\n/g, "\\n");
 }
 
+// Google Calendar "create event" deep-link — opens the native add-event screen
+// prefilled. On Android / desktop / the native webview an .ics download just
+// lands in Files and never opens ("add to calendar not working"); this routes
+// straight to the add-event screen, one tap to save. Times are venue-local
+// wall-clock with ctz=Europe/Copenhagen (DK market).
+function buildGoogleCalendarUrl(shift, venueName, summary) {
+  const compact = (d, hhmm) => {
+    const [h, m] = (hhmm || "00:00").split(":");
+    return `${(d || "").replace(/-/g, "")}T${(h || "00").padStart(2, "0")}${(m || "00").padStart(2, "0")}00`;
+  };
+  let endDate = shift.date;
+  // Overnight shift (end <= start) → the end lands on the next calendar day.
+  // Parse + advance in UTC so a local-vs-UTC offset can't roll the date back
+  // a day (a Copenhagen local-midnight Date serializes to the prior UTC day).
+  if ((shift.end_time || "") <= (shift.start_time || "")) {
+    const dt = new Date(shift.date + "T00:00:00Z");
+    dt.setUTCDate(dt.getUTCDate() + 1);
+    endDate = dt.toISOString().slice(0, 10);
+  }
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: summary || "",
+    dates: `${compact(shift.date, shift.start_time)}/${compact(endDate, shift.end_time)}`,
+    ctz: "Europe/Copenhagen",
+  });
+  if (venueName) params.set("location", venueName);
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+
 function buildShiftIcs(shift, venueName, summary) {
   // Overnight edge: if the shift ends at/before it starts, the end is the next
   // calendar day so DTEND > DTSTART.
@@ -542,13 +572,18 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange }) {
   // labelled "Jeg har set det". The confirmed state still reads confirmed_at —
   // never an optimistic local flag.
   const needChangeLink = onNeedChange && (
-    <button
-      type="button"
-      onClick={onNeedChange}
-      className="mt-2 w-full text-center text-[12px] text-gray-500 hover:text-gray-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded-md py-1"
-    >
-      {t("portalNeedChange")}
-    </button>
+    // Real "request a change" affordance — a tappable pill (not a low-contrast
+    // text link), matching the design. Same behavior: reveals sick-call + swaps.
+    <div className="mt-2.5 flex justify-center">
+      <button
+        type="button"
+        onClick={onNeedChange}
+        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-gray-200 bg-white text-[13px] font-semibold text-gray-700 shadow-[0_1px_2px_rgba(16,24,40,0.04)] hover:bg-gray-50 active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
+      >
+        {t("portalNeedChange")}
+        <svg className="w-3.5 h-3.5 text-gray-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
+      </button>
+    </div>
   );
 
   if (allConfirmed) {
@@ -930,7 +965,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, onShiftsChanged, onNeedChange }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, onShiftsChanged, onNeedChange }) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -981,55 +1016,42 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
   // Date.now() read lives inside the pure helper, recomputed each 15s render.
   const countdownLabel = nextShiftCountdown(nextShift, t);
 
-  // Add-to-calendar (.ics) for the next shift — naive wall-clock + TZID, no UTC.
-  const addToCalendar = async () => {
+  // Venue location — the owner sets this on their business profile. Label is
+  // "Name, City"; the tap opens Maps for directions (address if the owner
+  // filled one, else name+city). Makes "where do I go" one tap for staff.
+  const venueLabel = restaurantName
+    ? [restaurantName, restaurantCity].filter(Boolean).join(", ")
+    : "";
+  const venueMapsQuery = restaurantAddress
+    ? [restaurantAddress, restaurantCity].filter(Boolean).join(", ")
+    : venueLabel;
+  const venueMapsUrl = venueMapsQuery
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(venueMapsQuery)}`
+    : null;
+
+  // Add-to-calendar — one tap straight into the native "add event" flow.
+  //  • Apple (iOS/iPadOS Safari + the native Scheduler webview): a data:URI
+  //    .ics opens Calendar's add-event sheet directly.
+  //  • Everyone else (Android, desktop): a Google Calendar "create event"
+  //    deep-link. An .ics *download* on Android just lands in Files and never
+  //    opens — that was the "not compatible to straight add" report; this
+  //    routes to the prefilled add-event screen, one tap to save.
+  const addToCalendar = () => {
     if (!nextShift) return;
     const summary = restaurantName
       ? t("portalIcsSummary", { venue: restaurantName })
       : t("portalIcsSummaryNoVenue");
-    const ics = buildShiftIcs(nextShift, restaurantName, summary);
-    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
-    const filename = `vagt-${nextShift.date}.ics`;
-    const file =
-      typeof File !== "undefined" ? new File([blob], filename, { type: "text/calendar" }) : null;
-
-    // 1) Web Share (best on mobile). try/catch so a REAL share failure falls
-    //    through to a download path instead of the button silently doing
-    //    nothing; a user-cancel (AbortError) just returns.
-    if (file && navigator.canShare?.({ files: [file] }) && navigator.share) {
-      try {
-        await navigator.share({ files: [file], title: summary });
-        return;
-      } catch (err) {
-        if (err?.name === "AbortError") return;
-        /* real share failure → fall through to the download paths below */
-      }
-    }
-
-    // 2) iOS Safari + in-app webviews (Instagram/Messenger magic-link opens)
-    //    IGNORE anchor `download` on a blob: URL — the tap was a SILENT no-op,
-    //    which is the "add to calendar not working" report. Navigating a data:
-    //    URL hands the .ics to the OS "Add event" sheet on those clients.
     const ua = navigator.userAgent || "";
-    const isIOS =
+    const isApple =
       /iP(hone|ad|od)/.test(navigator.platform || ua) ||
       (/Mac/.test(ua) && "ontouchend" in document);
-    const inAppWebview =
-      /(FBAN|FBAV|Instagram|Line|Messenger|LinkedInApp|Twitter|MicroMessenger)/i.test(ua);
-    if (isIOS || inAppWebview) {
+    if (isApple) {
+      const ics = buildShiftIcs(nextShift, restaurantName, summary);
       window.location.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(ics);
       return;
     }
-
-    // 3) Desktop + most Android: anchor download.
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    // Android / desktop → Google Calendar's add-event screen, prefilled.
+    window.open(buildGoogleCalendarUrl(nextShift, restaurantName, summary), "_blank", "noopener");
   };
 
   const weekDays = weekView === "this" ? thisWeek : nextWeek;
@@ -1141,23 +1163,40 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                 "Stempl kun ind ved <venue>" lock hint so the staffer knows the
                 clock-in is location-bound before they try it (the server's
                 too_far 403 is still the real gate). */}
-            {restaurantName && (
-              <div className="mt-2 flex items-center gap-1.5 text-[12px] text-gray-400">
-                {clock.st?.geofence_on ? (
-                  <>
+            {restaurantName &&
+              (venueMapsUrl ? (
+                <a
+                  href={venueMapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-gray-400 hover:text-gray-200 active:opacity-70 transition-colors"
+                  title={t("portalVenueDirections", "Get directions")}
+                >
+                  {clock.st?.geofence_on ? (
                     <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
-                    <span className="truncate">
-                      {t("portalClockOnlyAt", "Clock in only at {venue}", { venue: restaurantName })}
-                    </span>
-                  </>
-                ) : (
-                  <>
+                  ) : (
                     <MapPin className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
-                    <span className="truncate">{restaurantName}</span>
-                  </>
-                )}
-              </div>
-            )}
+                  )}
+                  <span className="truncate underline decoration-gray-600 underline-offset-2">
+                    {clock.st?.geofence_on
+                      ? t("portalClockOnlyAt", "Clock in only at {venue}", { venue: venueLabel })
+                      : venueLabel}
+                  </span>
+                </a>
+              ) : (
+                <div className="mt-2 flex items-center gap-1.5 text-[12px] text-gray-400">
+                  {clock.st?.geofence_on ? (
+                    <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                  ) : (
+                    <MapPin className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                  )}
+                  <span className="truncate">
+                    {clock.st?.geofence_on
+                      ? t("portalClockOnlyAt", "Clock in only at {venue}", { venue: venueLabel })
+                      : venueLabel}
+                  </span>
+                </div>
+              ))}
 
             {/* Live elapsed timer while clocked in (emerald ping, reused from
                 the old ClockCard). */}
@@ -1370,17 +1409,33 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
           </div>
         )}
 
-        {/* Muted summary line (replaces the old "This week hrs" KPI card). */}
-        {weekView === "this" && (
-          <div className="mt-2 text-[11px] text-gray-500">
-            {t("portalWeekStripHrs", {
-              h: thisWeekHours,
-              hrs: t("portalHrsShort"),
-              n: thisWeekShifts.length,
-              shifts: t("portalShiftsCount"),
-            })}
-          </div>
-        )}
+        {/* Selected-day detail + week total — the design's week footer. Left =
+            the tapped day (or today's shift by default) with a role-colored bar;
+            right = the week total. Connects the strip to a concrete shift. */}
+        {weekView === "this" && (() => {
+          const fs = expandedShift || nextShift;
+          return (
+            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
+              {fs ? (
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className={`w-1.5 h-8 rounded-full shrink-0 ${roleBarColor(fs.role_on_shift)}`} aria-hidden />
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-semibold text-gray-900 tabular-nums truncate">
+                      {new Date(fs.date + "T00:00:00").toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" })} · {fs.start_time}–{fs.end_time}
+                    </div>
+                    <div className="text-[11px] text-gray-500 truncate">
+                      {fs.role_on_shift ? `${fs.role_on_shift} · ` : ""}{fs.net_hours}{t("portalHrsShort")}
+                    </div>
+                  </div>
+                </div>
+              ) : <span aria-hidden />}
+              <div className="text-right shrink-0">
+                <div className="text-[15px] font-bold text-gray-900 tabular-nums leading-tight">{thisWeekHours} {t("portalHrsShort")}</div>
+                <div className="text-[11px] text-gray-400">{thisWeekShifts.length} {t("portalShiftsCount")}</div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Quiet pointer to shifts beyond next week. */}
         {weekView === "next" && hasLater && (
@@ -3996,31 +4051,21 @@ export default function StaffPortalPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            {/* DA / EN toggle — staff pick their language. Danish phones
-                already default to da via browser detection; this lets an
-                English-phone staffer at a DK workplace switch, and back. */}
-            {/* Per-button rounding (not container overflow-hidden) so the
-                invisible before: hit-halo isn't clipped — visual size is
-                unchanged, but the tap target clears ~44px vertically. */}
-            <div className="flex rounded-lg border border-gray-200 text-[11px] font-semibold" role="group" aria-label={t("portalLangLabel", "Language")}>
-              {["da", "en"].map((code) => (
-                <button
-                  key={code}
-                  type="button"
-                  onClick={() => setLang(code)}
-                  aria-pressed={lang === code}
-                  className={`relative px-2 py-1 transition active:scale-[0.98] before:absolute before:inset-x-0 before:-inset-y-2.5 before:content-[''] ${
-                    code === "da" ? "rounded-l-[7px]" : "rounded-r-[7px]"
-                  } ${
-                    lang === code
-                      ? "bg-gray-900 text-white"
-                      : "bg-white text-gray-500 hover:bg-gray-50"
-                  }`}
-                >
-                  {code.toUpperCase()}
-                </button>
-              ))}
-            </div>
+            {/* Alerts bell — replaces the Alerts nav tab (moved to the header
+                per the design). Language moved into the profile sheet below. */}
+            <button
+              type="button"
+              onClick={() => setTab("alerts")}
+              aria-label={t("navAlerts", "Alerts")}
+              aria-current={tab === "alerts" ? "page" : undefined}
+              className={`relative w-9 h-9 rounded-full border flex items-center justify-center transition active:scale-[0.98] before:absolute before:-inset-2 before:content-[''] ${
+                tab === "alerts"
+                  ? "bg-gray-900 border-gray-900 text-white"
+                  : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <Bell className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
+            </button>
             {/* Honest freshness pill — only shown once verified. Tap (when
                 online + stale) forces a refetch. */}
             {pinVerified && info && (
@@ -4167,6 +4212,27 @@ export default function StaffPortalPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Language — moved here from the header (design). Staff pick DA / EN. */}
+              <div className="pt-3 border-t border-gray-100">
+                <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-2">{t("portalLangSection", "Language")}</div>
+                <div className="flex w-full rounded-lg border border-gray-200 p-0.5 gap-0.5" role="group" aria-label={t("portalLangLabel", "Language")}>
+                  {["da", "en"].map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => setLang(code)}
+                      aria-pressed={lang === code}
+                      className={`flex-1 py-1.5 rounded-md text-[13px] font-semibold transition active:scale-[0.98] ${
+                        lang === code ? "bg-gray-900 text-white" : "bg-white text-gray-500 hover:bg-gray-50"
+                      }`}
+                    >
+                      {code === "da" ? "Dansk" : "English"}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-1.5 text-[10px] text-gray-400">{t("portalLangNote", "Only changes the app's language.")}</div>
+              </div>
               <button
                 onClick={handleContactSave}
                 disabled={emailSaving}
@@ -4240,6 +4306,8 @@ export default function StaffPortalPage() {
             staffName={info?.staff_name}
             token={token}
             restaurantName={info?.restaurant_name}
+            restaurantCity={info?.restaurant_city}
+            restaurantAddress={info?.restaurant_address}
             onShiftsChanged={loadData}
             onNeedChange={() => setTab("swaps")}
           />
@@ -4270,7 +4338,9 @@ export default function StaffPortalPage() {
       <nav className="fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20">
         <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {TABS.filter(
-            (item) => item.key !== "tips" || (tipsData?.entries?.length || 0) > 0,
+            // Alerts moved to the header bell (design); Tips only when it has entries.
+            // Leaves 5 tabs: Schedule · Availability · Messages · Swaps · Hours.
+            (item) => item.key !== "alerts" && (item.key !== "tips" || (tipsData?.entries?.length || 0) > 0),
           ).map((item) => {
             const active = tab === item.key;
             return (

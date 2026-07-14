@@ -134,6 +134,11 @@ class PortalInfo(BaseModel):
     profile_photo_at: datetime | None = None
     pin_ok: bool = False
     restaurant_name: str | None = None
+    # Venue location (the workplace) — NOT the staffer's home. Shown in the hero
+    # ("BonBox · København") and drives the tap-for-directions link. Not PII (a
+    # business's own address), so it's returned un-gated like the venue name.
+    restaurant_city: str | None = None
+    restaurant_address: str | None = None
     has_pin: bool = False
     max_hours_month: float | None = None
     max_hours_week: float | None = None
@@ -378,6 +383,10 @@ def get_portal_info(token: str, request: Request, db: Session = Depends(get_db))
         # avatar render once the PIN is proven. Gate it with the rest of the PII.
         profile_photo_at=member.profile_photo_at if pii_ok else None,
         restaurant_name=restaurant_name,
+        # Venue location (workplace, not PII) — owner sets it on their business
+        # profile; the staff hero shows it + offers tap-for-directions.
+        restaurant_city=(profile.city if profile else None),
+        restaurant_address=(profile.address if profile else None),
         has_pin=bool(link.pin_hash),
         pin_ok=pin_ok,
         max_hours_month=float(member.max_hours_month) if (pii_ok and member.max_hours_month) else None,
