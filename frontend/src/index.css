@@ -48,6 +48,15 @@ body {
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
 }
+/* The staff portal renders a fixed full-viewport app-shell (.full-height) that
+   handles its own safe areas (sticky header caps the notch; bottom nav pads the
+   home-indicator). The body inset above would DOUBLE it → a fat gap under the
+   notch on the installed PWA / native app. Zero the top+bottom body inset while
+   the portal is mounted (toggled by StaffPortalPage); keep left/right. */
+body.portal-shell {
+  padding-top: 0;
+  padding-bottom: 0;
+}
 
 /* Marketing display headlines (Task #109 / Task #110 update).
    We tried Fraunces serif first — Manoj's call was that it skewed
@@ -112,6 +121,18 @@ body {
 /* Pure opacity fade for scrims/backdrops — no transform, so it doesn't fight
    a panel that's sliding in on another axis (e.g. the reservation drawer). */
 @keyframes backdropFade { from { opacity: 0; } to { opacity: 1; } }
+
+/* Wrong-input shake — a short horizontal jitter for a rejected code / PIN,
+   paired with a haptic error buzz + red border so a bad entry FEELS wrong
+   (iOS-native "nope"), not like an app error. */
+@keyframes shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-5px); }
+  40%, 60% { transform: translateX(5px); }
+}
+.animate-shake { animation: shake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97) both; }
+@media (prefers-reduced-motion: reduce) { .animate-shake { animation: none; } }
 .animate-backdropFade { animation: backdropFade 0.2s ease-out; }
 .animate-scaleIn { animation: scaleIn 0.2s ease-out; }
 .animate-numberPulse { animation: numberPulse 0.6s ease-out; }
