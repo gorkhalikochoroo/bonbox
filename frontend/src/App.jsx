@@ -16,12 +16,17 @@ import { ConfirmProvider } from "./hooks/useConfirm";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 
 // ── Keep-alive: prevent Render cold starts ──
-// Pings health endpoint every 10 min while app is open
+// Pings health endpoint every 10 min while app is open. VITE_API_URL already
+// carries the /api suffix (e.g. https://api.bonbox.dk/api), so appending
+// "/api/health" double-prefixed it to /api/api/health — a 404 (it still woke
+// Render, but hit the wrong route and logged a 404 on every app open, incl. the
+// scheduler join screen). Normalise to exactly one /api/health (a real 200).
 const API_BASE = import.meta.env.VITE_API_URL || "";
+const HEALTH_URL = `${API_BASE.replace(/\/(api\/?)?$/, "")}/api/health`;
 function useKeepAlive() {
   useEffect(() => {
-    const ping = () => fetch(`${API_BASE}/api/health`, { method: "HEAD" }).catch(() => {});
-    ping(); // immediate ping on app load
+    const ping = () => fetch(HEALTH_URL, { method: "HEAD" }).catch(() => {});
+    ping(); // immediate ping on app load — warms Render before the first real call
     const id = setInterval(ping, 10 * 60 * 1000); // every 10 min
     return () => clearInterval(id);
   }, []);
