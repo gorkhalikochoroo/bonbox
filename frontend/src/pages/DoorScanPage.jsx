@@ -465,7 +465,17 @@ export default function DoorScanPage() {
   // Scan mode: 'ticket' (default event-ticket flow) or 'gavekort' (redeem a
   // gift-card QR with NO event — reachable from the no-event landing so a
   // salon/café that sells gavekort but runs no ticketed events can still scan).
-  const [scanMode, setScanMode] = useState("ticket");
+  // Deep-link: /scan?mode=gavekort lands straight in gavekort mode (the
+  // "Indløs gavekort" button on the Gavekort page uses it) — so a gavekort-
+  // only venue arrives on the "ready to redeem" screen, one tap from the
+  // camera, instead of the two-tile chooser. We land on the idle screen (not
+  // auto-firing the camera) because getUserMedia needs a real tap gesture,
+  // which the "Start scanner" button on that screen provides.
+  const [scanMode, setScanMode] = useState(() =>
+    new URLSearchParams(window.location.search).get("mode") === "gavekort"
+      ? "gavekort"
+      : "ticket",
+  );
   // Reveal for the event-picker on the no-event landing (behind "Scan billetter").
   const [ticketPickerOpen, setTicketPickerOpen] = useState(false);
 

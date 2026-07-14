@@ -1,8 +1,10 @@
 import { useState, useEffect, lazy, Suspense } from "react";
-import { ScanLine, ArrowRight } from "lucide-react";
+import { ScanLine, ArrowRight, QrCode } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import Modal from "./Modal";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { localIso } from "../utils/dateFormat";
 import { trackEvent } from "../hooks/useEventLog";
 import Chip from "./ui/Chip";
@@ -24,6 +26,8 @@ const PERSONAL_CATEGORIES = [
 
 export default function QuickAdd() {
   const { t } = useLanguage();
+  const navigate = useNavigate();
+  const { hasFeature, isReady } = useEntitlements();
   const [open, setOpen] = useState(false);
   // Smart Scan handoff — opening the smart-scan modal from inside
   // QuickAdd closes the quick-add Modal so the two don't stack. The
@@ -227,6 +231,33 @@ export default function QuickAdd() {
               </p>
               <p className="text-[11px] text-gray-700/80 dark:text-gray-300/80">
                 {t("smartScan.subtitle", "Tag ét billede — vi finder ud af resten")}
+              </p>
+            </div>
+            <ArrowRight className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
+          </button>
+        )}
+
+        {/* Indløs gavekort — jump to the door scanner in gavekort mode. Only
+            for owners entitled to gavekort (Starter+), so it's never a
+            dead-end; business mode only. Reuses existing i18n keys. */}
+        {mode !== "personal" && isReady && hasFeature("gavekort") && (
+          <button
+            onClick={() => {
+              trackEvent("gavekort_scan_quickadd_opened", "gavekort");
+              setOpen(false);
+              navigate("/scan?mode=gavekort");
+            }}
+            className="w-full mb-4 flex items-center gap-3 px-3 py-3 rounded-xl border border-gray-100 dark:border-gray-800/40 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+          >
+            <div className="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+              <QrCode size={18} strokeWidth={2} aria-hidden="true" />
+            </div>
+            <div className="min-w-0 flex-1 text-left">
+              <p className="text-sm font-semibold text-gray-900 dark:text-gray-200">
+                {t("gkScanEyebrow", "Indløs gavekort")}
+              </p>
+              <p className="text-[11px] text-gray-700/80 dark:text-gray-300/80">
+                {t("scanGavekortTileSub", "Scan et gavekort-QR")}
               </p>
             </div>
             <ArrowRight className="w-4 h-4 text-gray-400 shrink-0" aria-hidden="true" />
