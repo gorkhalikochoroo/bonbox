@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Disallow: /sales
+Disallow: /expenses
+Disallow: /inventory
+Disallow: /staffing
+Disallow: /waste
+Disallow: /cashbook
+Disallow: /profile
+Disallow: /recently-deleted
+
+Sitemap: https://bonbox.dk/sitemap.xml

@@ -1,9 +1,16 @@
 App/build
 App/Pods
 App/output
-App/App/public
 DerivedData
 xcuserdata
+
+# NOTE: App/App/public (the built staff web bundle) is intentionally COMMITTED.
+# The Scheduler app is archived LOCALLY in Xcode, and this folder is what ships
+# inside the .app. Keeping it gitignored meant a fresh clone / git pull never
+# carried the up-to-date bundle, so local archives silently shipped stale staff
+# screens (burned builds 6/7/8). Committing it means `git pull` → Archive always
+# ships current. Rebuild it with `npm run build:scheduler && BONBOX_TARGET=scheduler npx cap sync ios`
+# whenever the staff frontend changes, and commit the result.
 
 # Cordova plugins for Capacitor
 capacitor-cordova-ios-plugins

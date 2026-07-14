@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>BonBox App Icon Generator</title>
+<style>
+  body { background: #1a1a1a; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; font-family: -apple-system, sans-serif; color: white; gap: 20px; }
+  canvas { border-radius: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .info { text-align: center; color: #888; font-size: 14px; }
+  button { background: #22c55e; color: white; border: none; padding: 12px 32px; border-radius: 10px; font-size: 16px; font-weight: 600; cursor: pointer; }
+  button:hover { background: #16a34a; }
+  .row { display: flex; gap: 20px; align-items: end; }
+</style>
+</head>
+<body>
+
+<h2>BonBox App Icon</h2>
+
+<div class="row">
+  <div style="text-align:center">
+    <p class="info">1024x1024 (App Store)</p>
+    <canvas id="icon" width="1024" height="1024"></canvas>
+  </div>
+  <div style="text-align:center">
+    <p class="info">Preview (180x180)</p>
+    <canvas id="preview" width="180" height="180" style="border-radius:40px"></canvas>
+  </div>
+</div>
+
+<button onclick="download()">Download 1024x1024 PNG</button>
+<p class="info">Right-click the large icon to "Save Image As" or click the button</p>
+
+<script>
+function drawIcon(ctx, size) {
+  const s = size / 1024; // scale factor
+
+  // Background - rich green gradient
+  const bg = ctx.createLinearGradient(0, 0, size, size);
+  bg.addColorStop(0, '#16a34a');
+  bg.addColorStop(1, '#15803d');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, size, size);
+
+  // Subtle radial glow
+  const glow = ctx.createRadialGradient(size*0.4, size*0.35, 0, size*0.5, size*0.5, size*0.6);
+  glow.addColorStop(0, 'rgba(255,255,255,0.08)');
+  glow.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, size, size);
+
+  // Receipt/document shape - white, rounded
+  const rx = 180 * s, ry = 140 * s;
+  const rw = 664 * s, rh = 760 * s;
+  const rr = 48 * s;
+
+  ctx.beginPath();
+  ctx.moveTo(rx + rr, ry);
+  ctx.lineTo(rx + rw - rr, ry);
+  ctx.quadraticCurveTo(rx + rw, ry, rx + rw, ry + rr);
+  ctx.lineTo(rx + rw, ry + rh - rr);
+  ctx.quadraticCurveTo(rx + rw, ry + rh, rx + rw - rr, ry + rh);
+  ctx.lineTo(rx + rr, ry + rh);
+  ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rh - rr);
+  ctx.lineTo(rx, ry + rr);
+  ctx.quadraticCurveTo(rx, ry, rx + rr, ry);
+  ctx.closePath();
+
+  // Subtle shadow
+  ctx.shadowColor = 'rgba(0,0,0,0.25)';
+  ctx.shadowBlur = 40 * s;
+  ctx.shadowOffsetY = 12 * s;
+  ctx.fillStyle = 'white';
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+
+  // "B" lettermark - bold, modern
+  ctx.fillStyle = '#16a34a';
+  ctx.font = `900 ${420 * s}px -apple-system, "SF Pro Display", "Helvetica Neue", Arial, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('B', rx + rw/2, ry + rh * 0.44);
+
+  // Receipt lines at bottom (thin, decorative)
+  const lineY1 = ry + rh * 0.72;
+  const lineY2 = ry + rh * 0.80;
+  const lineY3 = ry + rh * 0.88;
+  const lineX = rx + 100 * s;
+  const lineW1 = rw - 200 * s;
+  const lineW2 = rw - 300 * s;
+  const lineW3 = rw - 260 * s;
+
+  ctx.fillStyle = '#e5e7eb';
+  roundRect(ctx, lineX, lineY1, lineW1, 12 * s, 6 * s);
+  roundRect(ctx, lineX, lineY2, lineW2, 12 * s, 6 * s);
+
+  // Accent line (gold/yellow) — like the BonBox brand highlight
+  ctx.fillStyle = '#facc15';
+  roundRect(ctx, lineX, lineY3, lineW3, 12 * s, 6 * s);
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// Draw both sizes
+const canvas = document.getElementById('icon');
+drawIcon(canvas.getContext('2d'), 1024);
+
+const preview = document.getElementById('preview');
+drawIcon(preview.getContext('2d'), 180);
+
+function download() {
+  const link = document.createElement('a');
+  link.download = 'AppIcon-1024x1024.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+}
+</script>
+</body>
+</html>
