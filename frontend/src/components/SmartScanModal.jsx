@@ -41,6 +41,7 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { resizeImageIfLarge } from "../utils/resizeImage";
+import { detectGavekortInImageFile } from "../utils/gavekortQr";
 import UpgradeNudge from "./ui/UpgradeNudge";
 
 // Auto-proceed window. 2 seconds is long enough to read the result and
@@ -204,6 +205,22 @@ export default function SmartScanModal({ open, onClose }) {
     setStage("scanning");
     setError("");
     setPreview(URL.createObjectURL(rawFile));
+    // Universal "snap anything": if the photo IS a gavekort QR, this isn't a
+    // document to OCR — hand the raw token to the door scanner's redeem flow
+    // (via router state, never the URL) and bail out of the classify pipeline.
+    // Detection is a client-side jsQR read that only matches BonBox gavekort
+    // (BB1.G.) envelopes, so a receipt / faktura / Z-report photo never trips it.
+    try {
+      const gkToken = await detectGavekortInImageFile(rawFile);
+      if (gkToken) {
+        trackEvent("smart_scan_gavekort_detected", "smart_scan");
+        onClose?.();
+        navigate("/scan?mode=gavekort", { state: { gavekortToken: gkToken } });
+        return;
+      }
+    } catch {
+      /* not a gavekort — fall through to the normal document classifier */
+    }
     try {
       // Same client-side resize the receipt + close-day scans use so we
       // stay under the backend's 12 MB cap.

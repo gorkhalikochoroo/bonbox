@@ -33,9 +33,10 @@
 // eyebrow, scanner copy stays Danish-first with EN fallbacks via t().
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Camera as CameraIcon, X, ArrowLeft, AlertTriangle, Check, Gift, Calendar, Ticket, QrCode } from "lucide-react";
 import jsQR from "jsqr";
+import { extractGavekortToken } from "../utils/gavekortQr";
 
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
@@ -289,26 +290,8 @@ function ScanFlashCard({ entry }) {
 
 // ── Main page ────────────────────────────────────────────────────────
 // ── Gavekort scan helpers ──────────────────────────────────────────────
-// A gavekort QR encodes the public URL ".../g/BB1.G.<jwt>". Pull the bare
-// envelope out of whatever the camera read (URL, raw envelope) so the door
-// scanner can route it to redeem instead of the ticket path. Tolerant — the
-// server re-verifies; this is just a client-side family hint.
-function extractGavekortToken(qrText) {
-  if (typeof qrText !== "string") return null;
-  const s = qrText.trim();
-  if (s.includes("/g/")) {
-    const tail = s.split("/g/").pop().split("?")[0].split("#")[0];
-    try {
-      const dec = decodeURIComponent(tail);
-      if (dec.startsWith("BB1.G.")) return dec;
-    } catch {
-      /* fall through */
-    }
-    if (tail.startsWith("BB1.G.")) return tail;
-  }
-  if (s.startsWith("BB1.G.")) return s;
-  return null;
-}
+// extractGavekortToken now lives in utils/gavekortQr.js — shared with Smart
+// Scan (still photo) so the "is this a gavekort QR" family test can never drift.
 
 function gkKr(minor) {
   if (minor == null || Number.isNaN(minor)) return "—";
@@ -457,6 +440,11 @@ function GavekortRedeemSheet({ t, card, onClose, onRedeemed }) {
 export default function DoorScanPage() {
   const { t } = useLanguage();
   const { user } = useAuth(); // eslint-disable-line no-unused-vars
+
+  // Deep-link + Smart-Scan hand-off (router state carries the gavekort token,
+  // never the URL — so it can't be logged).
+  const location = useLocation();
+  const navigate = useNavigate();
 
   // ── Event picker state ─────────────────────────────────────────────
   const [events, setEvents] = useState([]);
@@ -644,6 +632,21 @@ export default function DoorScanPage() {
       haptic.error();
     }
   }, [pushHistory, t]);
+
+  // Smart Scan hand-off: when a gavekort QR was found in a snapped photo,
+  // SmartScanModal navigates here with the raw token in router STATE (kept out
+  // of the URL). Resolve it through the SAME submitScan path a live scan uses,
+  // so the redeem sheet — and its deliberate second-tap debit — are identical;
+  // no re-scan. Consume the state once (ref-guarded) and clear it so a
+  // back/refresh can't silently re-resolve.
+  const handoffRef = useRef(false);
+  useEffect(() => {
+    const token = location.state?.gavekortToken;
+    if (!token || handoffRef.current) return;
+    handoffRef.current = true;
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: {} });
+    submitScan(token, null);
+  }, [location.state, location.pathname, location.search, navigate, submitScan]);
 
   // ── jsQR scan tick (runs each rAF while scanner is active) ─────────
   // The tick function is stored in a ref so rAF can self-recurse without
@@ -1007,6 +1010,18 @@ export default function DoorScanPage() {
       {scanMode === "gavekort" && !scanning && (
         <>
           {cameraErrorBanner}
+
+          {/* A Smart-Scan / deep-link hand-off resolves the gavekort with the
+              scanner IDLE, so surface any scan-resolve error (404/410/503)
+              here — the flash log is otherwise only rendered while the live
+              camera runs, which would leave a handoff failure invisible. */}
+          {history.length > 0 && (
+            <div className="space-y-2" aria-live="polite" aria-atomic="false">
+              {history.map((entry, i) => (
+                <ScanFlashCard key={`${entry.at}-${i}`} entry={entry} />
+              ))}
+            </div>
+          )}
 
           <Card>
             <div className="flex flex-col items-center text-center py-4 sm:py-6">
