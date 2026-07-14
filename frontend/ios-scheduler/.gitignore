@@ -16,5 +16,10 @@ xcuserdata
 capacitor-cordova-ios-plugins
 
 # Generated Config files
-App/App/capacitor.config.json
+# NOTE: capacitor.config.json is intentionally COMMITTED (not ignored). It
+# carries native plugin config the app reads at launch (StatusBar + the iOS
+# contentInset safe-area setting). Local Xcode archives don't run `cap sync`,
+# so gitignoring it would ship a stale config on the archive machine — the same
+# trap as the web bundle above. Regenerate + commit it when capacitor.config.ts
+# changes: `BONBOX_TARGET=scheduler npx cap sync ios`.
 App/App/config.xml
