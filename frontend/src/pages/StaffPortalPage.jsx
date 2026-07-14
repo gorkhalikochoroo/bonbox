@@ -3649,6 +3649,19 @@ function SyncPill({ isOnline, live, lastSynced, onRefresh, t }) {
 export default function StaffPortalPage() {
   const { token } = useParams();
   const { t, lang, setLang } = useLanguage();
+
+  // The portal is a fixed full-viewport app-shell that owns its OWN safe-area
+  // insets (the sticky header pads + caps the notch; the bottom nav pads for
+  // the home-indicator). The global `body { padding-top: env(safe-area-inset-*) }`
+  // in index.css would apply the SAME inset a second time → a fat empty gap
+  // under the notch (only visible where env() > 0: the installed PWA + the
+  // native Scheduler app; a normal browser has env()=0 so it never showed).
+  // Drop the body padding while the portal is mounted so the header's inset is
+  // the single source. Owner-app pages (body scroll) keep the body padding.
+  useEffect(() => {
+    document.body.classList.add("portal-shell");
+    return () => document.body.classList.remove("portal-shell");
+  }, []);
   const [tab, setTab] = useState(() => {
     // Honor ?tab= so the installed-app shortcuts (Schedule / Hours / Tips) and
     // any deep link open the right tab.
