@@ -13,6 +13,7 @@ import { ArrowRight, KeyRound, Inbox } from "lucide-react";
 import portalApi from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
+import { haptic } from "../utils/haptics"; // no-op on web; physical buzz in the iOS shell
 
 const CODE_LEN = 6;
 
@@ -22,9 +23,20 @@ export default function JoinPage() {
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [shake, setShake] = useState(false);
   const inputRef = useRef(null);
 
   const normalized = code.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, CODE_LEN);
+
+  // Rejected code → make it FEEL wrong: red border + a short shake + the iOS
+  // "error" haptic, and re-select the field so a retype replaces it in one go.
+  const flagWrong = (msg) => {
+    setError(msg);
+    haptic.error();
+    setShake(true);
+    setTimeout(() => setShake(false), 480);
+    try { inputRef.current?.focus(); inputRef.current?.select(); } catch { /* noop */ }
+  };
 
   const submit = async (e) => {
     e?.preventDefault?.();
@@ -35,12 +47,13 @@ export default function JoinPage() {
       const res = await portalApi.post("/portal/join", { code: normalized });
       const path = res.data?.path;
       if (path && path.startsWith("/s/")) {
+        haptic.success();
         navigate(path, { replace: true });
       } else {
-        setError(t("joinUnknownCode", "We couldn't find that code. Check it and try again."));
+        flagWrong(t("joinUnknownCode", "We couldn't find that code. Check it and try again."));
       }
     } catch (err) {
-      setError(
+      flagWrong(
         err?.response?.status === 404
           ? t("joinUnknownCode", "We couldn't find that code. Check it and try again.")
           : errText(err, t("joinError", "Something went wrong. Try again.")),
@@ -73,14 +86,15 @@ export default function JoinPage() {
           <input
             ref={inputRef}
             value={normalized}
-            onChange={(e) => setCode(e.target.value)}
+            onChange={(e) => { setCode(e.target.value); if (error) setError(""); }}
             inputMode="text"
             autoCapitalize="characters"
             autoComplete="one-time-code"
             spellCheck={false}
             placeholder="K7P2QM"
+            aria-invalid={!!error}
             aria-label={t("joinCodeLabel", "Join code")}
-            className="w-full text-center text-2xl font-bold tracking-[0.4em] uppercase px-3 py-3 rounded-xl bg-gray-50 border border-gray-300 text-gray-900 placeholder:text-gray-300 outline-none focus:border-gray-900/30"
+            className={`w-full text-center text-2xl font-bold tracking-[0.4em] uppercase px-3 py-3 rounded-xl bg-gray-50 border text-gray-900 placeholder:text-gray-300 outline-none transition-colors ${shake ? "animate-shake" : ""} ${error ? "border-red-400 bg-red-50/40 focus:border-red-500" : "border-gray-300 focus:border-gray-900/30"}`}
           />
           {error && (
             <div className="text-xs text-red-600 mt-2 flex items-center gap-1.5">
