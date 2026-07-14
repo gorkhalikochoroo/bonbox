@@ -34,7 +34,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Camera as CameraIcon, X, ArrowLeft, AlertTriangle, Check, Gift, Calendar } from "lucide-react";
+import { Camera as CameraIcon, X, ArrowLeft, AlertTriangle, Check, Gift, Calendar, Ticket, QrCode } from "lucide-react";
 import jsQR from "jsqr";
 
 import api from "../services/api";
@@ -462,6 +462,12 @@ export default function DoorScanPage() {
   const [events, setEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [selectedEvent, setSelectedEvent] = useState(null);
+  // Scan mode: 'ticket' (default event-ticket flow) or 'gavekort' (redeem a
+  // gift-card QR with NO event — reachable from the no-event landing so a
+  // salon/café that sells gavekort but runs no ticketed events can still scan).
+  const [scanMode, setScanMode] = useState("ticket");
+  // Reveal for the event-picker on the no-event landing (behind "Scan billetter").
+  const [ticketPickerOpen, setTicketPickerOpen] = useState(false);
 
   // ── Camera + scanner state ─────────────────────────────────────────
   const [scanning, setScanning] = useState(false);
@@ -678,9 +684,24 @@ export default function DoorScanPage() {
       }
       lastScanRef.current = { text: code.data, until: now + SCAN_DEBOUNCE_MS };
 
-      // Client-side wrong-event short-circuit (L4 optimization).
+      // Gavekort mode: only gavekort QRs are valid here. Reject anything else
+      // (e.g. an event ticket) instead of falling through to the ticket path —
+      // avoids an accidental door check-in while redeeming a gift card.
+      if (scanMode === "gavekort" && !extractGavekortToken(code.data)) {
+        pushHistory({
+          kind: "error",
+          title: t("gkScanNotGavekort", "Ikke et gavekort-QR"),
+          at: new Date().toISOString(),
+        });
+        if (audioRef.current) audioRef.current.failure();
+        haptic.error();
+        return;
+      }
+
+      // Client-side wrong-event short-circuit (L4 optimization). Never fires in
+      // gavekort mode — a gift-card scan carries no event id to match against.
       const parsed = decodeQrPayload(code.data);
-      if (parsed?.eid && selectedEvent?.id && String(parsed.eid) !== String(selectedEvent.id)) {
+      if (scanMode !== "gavekort" && parsed?.eid && selectedEvent?.id && String(parsed.eid) !== String(selectedEvent.id)) {
         pushHistory({
           kind: "error",
           title: t("scanWrongEvent", "Forkert arrangement"),
@@ -694,7 +715,7 @@ export default function DoorScanPage() {
 
       submitScan(code.data, parsed);
     };
-  }, [selectedEvent, submitScan, pushHistory, t]);
+  }, [selectedEvent, submitScan, pushHistory, t, scanMode]);
 
   // ── Camera lifecycle ───────────────────────────────────────────────
   const startScanner = useCallback(async () => {
@@ -764,6 +785,30 @@ export default function DoorScanPage() {
     frameCountRef.current = 0;
   }, []);
 
+  // ── Gavekort scan entry ────────────────────────────────────────────
+  // Opened from the no-event landing tile. No event needed — flip into
+  // gavekort mode and open the SAME camera loop; submitScan routes a gavekort
+  // QR straight to the redeem sheet (the scan only reads; the debit is the
+  // deliberate second tap inside the sheet).
+  const startGavekortScan = useCallback(() => {
+    setCameraError(null);
+    setHistory([]);
+    setScanMode("gavekort");
+    startScanner();
+  }, [startScanner]);
+
+  // Leave gavekort mode back to the ticket landing (idle "back" action).
+  const exitGavekort = useCallback(() => {
+    setScanMode("ticket");
+    setCameraError(null);
+  }, []);
+
+  // Stop the camera and always return to the ticket landing.
+  const handleStop = useCallback(() => {
+    stopScanner();
+    setScanMode("ticket");
+  }, [stopScanner]);
+
   // Cleanup on unmount — never leave a hot camera behind.
   useEffect(() => () => stopScanner(), [stopScanner]);
 
@@ -782,7 +827,7 @@ export default function DoorScanPage() {
   // ── Page header actions ────────────────────────────────────────────
   const headerActions = (
     <>
-      {selectedEvent && !scanning && (
+      {scanMode === "ticket" && selectedEvent && !scanning && (
         <Button
           variant="secondary"
           size="sm"
@@ -792,11 +837,21 @@ export default function DoorScanPage() {
           {t("scanChangeEvent", "Skift arrangement")}
         </Button>
       )}
+      {scanMode === "gavekort" && !scanning && (
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={exitGavekort}
+          iconLeft={<ArrowLeft size={14} />}
+        >
+          {t("scanBack", "Tilbage")}
+        </Button>
+      )}
       {scanning && (
         <Button
           variant="secondary"
           size="sm"
-          onClick={stopScanner}
+          onClick={handleStop}
           iconLeft={<X size={14} />}
         >
           {t("scanStop", "Stop scanner")}
@@ -805,68 +860,108 @@ export default function DoorScanPage() {
     </>
   );
 
+  // Camera-error banner — shared by the ticket-idle and gavekort-idle screens.
+  const cameraErrorBanner = cameraError ? (
+    <SectionBanner
+      severity="critical"
+      icon="AlertTriangle"
+      title={
+        cameraError.key === "scanCameraDenied"
+          ? t("scanCameraDeniedTitle", "Kamera-adgang nægtet")
+          : cameraError.key === "scanNoCamera"
+            ? t("scanNoCameraTitle", "Ingen kamera fundet")
+            : t("scanCameraErrorTitle", "Kunne ikke starte kameraet")
+      }
+    >
+      <p>{t(cameraError.key, cameraError.fallback)}</p>
+      {cameraError.key === "scanCameraDenied" && platform.isIOS && (
+        <p className="mt-2 text-[12px] text-gray-600 dark:text-gray-400">
+          {t(
+            "scanCameraDeniedIosHint",
+            "Gå til Indstillinger → BonBox → Kamera og slå adgang til.",
+          )}
+        </p>
+      )}
+    </SectionBanner>
+  ) : null;
+
   // ── Render ─────────────────────────────────────────────────────────
   return (
     <PageShell width="default">
       <PageHeader
         eyebrow={t("scanEyebrow", "DØR-SCAN")}
-        title={selectedEvent?.name || t("scanTitle", "Vælg arrangement")}
+        title={
+          scanMode === "gavekort"
+            ? t("gkScanEyebrow", "Indløs gavekort")
+            : selectedEvent?.name || t("scanTitle", "Vælg arrangement")
+        }
         subtitle={
-          selectedEvent
-            ? `${selectedEvent.event_date}${selectedEvent.venue ? " · " + selectedEvent.venue : ""}`
-            : t("scanTitleSubtitle", "Tjek gæster ind ved døren med en QR-scanning")
+          scanMode === "gavekort"
+            ? t("scanGavekortTileSub", "Scan et gavekort-QR")
+            : selectedEvent
+              ? `${selectedEvent.event_date}${selectedEvent.venue ? " · " + selectedEvent.venue : ""}`
+              : t("scanTitleSubtitle", "Tjek gæster ind ved døren med en QR-scanning")
         }
         actions={headerActions}
       />
 
-      {/* No event selected → show picker */}
-      {!selectedEvent && (
-        <>
-          <Card>
-            <Empty
-              icon={CameraIcon}
-              title={t("scanPickEventTitle", "Vælg det arrangement du står ved døren til")}
-              body={t(
-                "scanPickEventBody",
-                "Kun arrangementer der starter i dag eller i morgen vises her.",
-              )}
-            />
+      {/* No event selected, ticket mode → landing with two entry tiles */}
+      {scanMode === "ticket" && !selectedEvent && !scanning && (
+        <div className="space-y-3">
+          {/* Tile 1 — Scan billetter → reveal the event picker below. */}
+          <Card onClick={() => setTicketPickerOpen(true)}>
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                <Ticket size={20} strokeWidth={1.75} aria-hidden="true" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {t("scanTicketTileTitle", "Scan billetter")}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {t("scanTicketTileSub", "Vælg et arrangement")}
+                </p>
+              </div>
+            </div>
           </Card>
-          <UpcomingEventsList
-            events={events}
-            loading={eventsLoading}
-            onPick={setSelectedEvent}
-            t={t}
-          />
-        </>
+
+          {/* Tile 2 — Indløs gavekort → open the camera in gavekort mode with
+              NO event required. This is the fix: always reachable. */}
+          <Card onClick={startGavekortScan}>
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                <QrCode size={20} strokeWidth={1.75} aria-hidden="true" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {t("gkScanEyebrow", "Indløs gavekort")}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {t("scanGavekortTileSub", "Scan et gavekort-QR")}
+                </p>
+              </div>
+            </div>
+          </Card>
+
+          {/* Event picker: auto-revealed when events exist so a ticket
+              organizer keeps the one-tap flow (list already showing under the
+              tiles); a gavekort-only venue with no events sees just the tiles
+              until it taps "Scan billetter". */}
+          {(ticketPickerOpen || events?.length > 0) && (
+            <UpcomingEventsList
+              events={events}
+              loading={eventsLoading}
+              onPick={setSelectedEvent}
+              t={t}
+            />
+          )}
+        </div>
       )}
 
       {/* Event selected, scanner idle → big Start CTA */}
-      {selectedEvent && !scanning && (
+      {scanMode === "ticket" && selectedEvent && !scanning && (
         <>
-          {cameraError && (
-            <SectionBanner
-              severity="critical"
-              icon="AlertTriangle"
-              title={
-                cameraError.key === "scanCameraDenied"
-                  ? t("scanCameraDeniedTitle", "Kamera-adgang nægtet")
-                  : cameraError.key === "scanNoCamera"
-                    ? t("scanNoCameraTitle", "Ingen kamera fundet")
-                    : t("scanCameraErrorTitle", "Kunne ikke starte kameraet")
-              }
-            >
-              <p>{t(cameraError.key, cameraError.fallback)}</p>
-              {cameraError.key === "scanCameraDenied" && platform.isIOS && (
-                <p className="mt-2 text-[12px] text-gray-600 dark:text-gray-400">
-                  {t(
-                    "scanCameraDeniedIosHint",
-                    "Gå til Indstillinger → BonBox → Kamera og slå adgang til.",
-                  )}
-                </p>
-              )}
-            </SectionBanner>
-          )}
+          {cameraErrorBanner}
 
           <Card>
             <div className="flex flex-col items-center text-center py-4 sm:py-6">
@@ -896,15 +991,54 @@ export default function DoorScanPage() {
         </>
       )}
 
-      {/* Scanner active → camera + flashes */}
-      {selectedEvent && scanning && (
-        <div className="space-y-4">
-          {/* Stats bar */}
-          <Card variant="subtle">
-            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 text-center tabular-nums">
-              {progressLabel}
-            </p>
+      {/* Gavekort mode, scanner idle → start / retry / camera-error fallback.
+          The tile auto-opens the camera; this screen is the retry surface if
+          the camera failed to start (or isn't present on this device). */}
+      {scanMode === "gavekort" && !scanning && (
+        <>
+          {cameraErrorBanner}
+
+          <Card>
+            <div className="flex flex-col items-center text-center py-4 sm:py-6">
+              <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
+                <QrCode size={28} strokeWidth={1.75} className="text-gray-700 dark:text-gray-300" />
+              </div>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                {t("scanGavekortReadyTitle", "Klar til at indløse gavekort")}
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+                {t("scanGavekortTileSub", "Scan et gavekort-QR")}
+              </p>
+              {cameraSupported ? (
+                <Button
+                  variant="primary"
+                  size="lg"
+                  onClick={startScanner}
+                  iconLeft={<CameraIcon size={16} />}
+                >
+                  {t("scanStart", "Start scanner")}
+                </Button>
+              ) : (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {t("scanNoCamera", "Ingen kamera fundet på denne enhed.")}
+                </p>
+              )}
+            </div>
           </Card>
+        </>
+      )}
+
+      {/* Scanner active → camera + flashes */}
+      {scanning && (
+        <div className="space-y-4">
+          {/* Stats bar — ticket mode only (gavekort has no event capacity). */}
+          {scanMode !== "gavekort" && (
+            <Card variant="subtle">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 text-center tabular-nums">
+                {progressLabel}
+              </p>
+            </Card>
+          )}
 
           {/* Camera preview — the ONE place a dark surface is allowed (per doctrine spec) */}
           <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-black">
@@ -933,7 +1067,9 @@ export default function DoorScanPage() {
           )}
           {history.length === 0 && (
             <p className="text-center text-sm text-gray-500 dark:text-gray-400 py-3">
-              {t("scanWaitingFirst", "Hold en billet-QR foran kameraet for at starte.")}
+              {scanMode === "gavekort"
+                ? t("scanGavekortWaiting", "Hold et gavekort-QR foran kameraet.")
+                : t("scanWaitingFirst", "Hold en billet-QR foran kameraet for at starte.")}
             </p>
           )}
 
@@ -942,7 +1078,7 @@ export default function DoorScanPage() {
             <Button
               variant="secondary"
               size="lg"
-              onClick={stopScanner}
+              onClick={handleStop}
               className="w-full"
               iconLeft={<X size={16} />}
             >

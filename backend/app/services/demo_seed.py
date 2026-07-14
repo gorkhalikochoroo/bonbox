@@ -37,13 +37,17 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
+from app.models.bookable_resource import BookableResource
 from app.models.branch import Branch
 from app.models.business_profile import BusinessProfile
 from app.models.daily_close import DailyClose, encode_breakdown
 from app.models.expense import Expense, ExpenseCategory
 from app.models.inventory import InventoryItem
+from app.models.reservation import Reservation
+from app.models.reservation_occupancy import ReservationOccupancy
 from app.models.sale import Sale
 from app.models.user import User
+from app.services.tz_utils import business_today_local
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -587,6 +591,85 @@ def _count_non_demo_rows(db: Session, user_id) -> int:
     )
 
 
+def _seed_reservations(db: Session, user: User, mark_demo: bool = True) -> dict:
+    """Seed a believable *tonight's service* so the Reservations timeline
+    isn't a blank screen on a fresh/demo account.
+
+    Four tables + seven bookings on the owner's LOCAL business day, shaped so
+    every part of the host-stand view has something to render: a party already
+    **seated**, a later turn on the same 4-top, a **combinable** 6-top, one
+    **overlapping** pair on Bord 1 (so the timeline collision reads), and one
+    unassigned **walk-in** in 'requested' (so the Unassigned lane isn't empty).
+
+    Reservation.starts_at is stored as NAIVE business-local wall-clock (see
+    tz_utils.business_day_window_local), so we combine today's local date with
+    a wall-clock time directly — no UTC conversion.
+
+    Seeded as plain Reservation rows (no reservation_occupancy hold): they
+    populate the owner's timeline without touching the public availability
+    engine — a demo account takes no real public bookings, so a hold would be
+    pointless machinery. Demo markers (removed by clear_for_user):
+      • tables       → label carries the " · demo" suffix
+      • reservations → idempotency_key = "demo-<user>-<n>" (invisible, so the
+        guest names on the bars still read like a real service)
+    """
+    suffix = " · demo" if mark_demo else ""
+    today = business_today_local(user)
+
+    # (label, seats, zone, combinable)
+    table_specs = [
+        ("Bord 1", 2, "Indendørs", False),
+        ("Bord 2", 2, "Indendørs", False),
+        ("Bord 3", 4, "Indendørs", False),
+        ("Vindue 1", 6, "Vindue", True),
+    ]
+    tables: list[BookableResource] = []
+    for i, (label, seats, zone, comb) in enumerate(table_specs):
+        row = BookableResource(
+            user_id=user.id, kind="table", label=f"{label}{suffix}",
+            capacity_seats=seats, zone=zone, combinable=comb,
+            sort_order=i, is_active=True,
+        )
+        db.add(row)
+        db.flush()
+        tables.append(row)
+
+    def _at(hour: int, minute: int) -> datetime:
+        return datetime.combine(today, datetime.min.time()).replace(
+            hour=hour, minute=minute,
+        )
+
+    # (table_index | None, guest, party, (h, m), duration_min, status, source)
+    booking_specs = [
+        (0, "Anders Jensen", 2, (18, 0), 90, "seated", "manual"),
+        (1, "Sofie Holm", 2, (18, 30), 90, "confirmed", "public"),
+        (2, "Familien Berg", 4, (19, 0), 120, "confirmed", "public"),
+        (3, "Selskab Lund", 6, (19, 30), 150, "confirmed", "public"),
+        (0, "Line Krog", 2, (19, 15), 90, "confirmed", "public"),   # overlaps Bord 1 → collision
+        (2, "Mikkel Sø", 4, (21, 0), 120, "confirmed", "public"),   # later turn, same 4-top
+        (None, "Walk-in", 3, (20, 0), 90, "requested", "walk_in"),  # unassigned lane
+    ]
+    made = 0
+    for n, (ti, guest, party, (hh, mm), dur, status, source) in enumerate(booking_specs):
+        start = _at(hh, mm)
+        db.add(Reservation(
+            user_id=user.id,
+            resource_id=(tables[ti].id if ti is not None else None),
+            guest_name=guest,
+            party_size=party,
+            starts_at=start,
+            ends_at=start + timedelta(minutes=dur),
+            duration_min=dur,
+            status=status,
+            source=source,
+            seated_at=(utc_now() if status == "seated" else None),
+            idempotency_key=(f"demo-{user.id}-{n}" if mark_demo else None),
+        ))
+        made += 1
+
+    return {"tables": len(tables), "bookings": made}
+
+
 def seed_for_user(db: Session, user: User) -> dict:
     """Materialize sample data on the CURRENT user's account.
 
@@ -630,6 +713,7 @@ def seed_for_user(db: Session, user: User) -> dict:
     closes = _seed_daily_closes(db, user, branch_id, mark_demo=True)
     inventory = _seed_inventory(db, user, branch_id, mark_demo=True)
     expenses = _seed_expenses(db, user, branch_id, mark_demo=True)
+    reservations = _seed_reservations(db, user, mark_demo=True)
     db.commit()
 
     return {
@@ -637,6 +721,7 @@ def seed_for_user(db: Session, user: User) -> dict:
         "closes": closes,
         "inventory": inventory,
         "expenses": expenses,
+        "reservations": reservations,
     }
 
 
@@ -658,9 +743,47 @@ def clear_for_user(db: Session, user: User) -> dict:
         "expenses": 0,
         "closes": 0,
         "inventory": 0,
+        "reservations": 0,
+        "tables": 0,
         "expense_cats": 0,
         "business_profile_reset": 0,
     }
+
+    # Reservations (invisible "demo-<user>-<n>" idempotency-key marker) —
+    # deleted BEFORE the tables they point at (resource_id FK).
+    demo_reservations = (
+        db.query(Reservation)
+        .filter(Reservation.user_id == user.id,
+                Reservation.idempotency_key.like("demo-%"))
+        .all()
+    )
+    for r in demo_reservations:
+        db.delete(r)
+        deleted["reservations"] += 1
+
+    # Bookable resources (tables) — " · demo" label marker. A table the owner
+    # renamed/added by hand carries no suffix and is left untouched.
+    demo_tables = (
+        db.query(BookableResource)
+        .filter(BookableResource.user_id == user.id,
+                BookableResource.label.like("% · demo"))
+        .all()
+    )
+    for tbl in demo_tables:
+        # If a REAL (non-demo) booking was seated at this demo table, its
+        # reservation/occupancy FK would make the delete raise IntegrityError
+        # and abort the whole clear (500). Skip such a table so clear degrades
+        # gracefully — the owner can delete it by hand once it's freed.
+        still_referenced = (
+            db.query(Reservation.id)
+              .filter(Reservation.resource_id == tbl.id).first() is not None
+            or db.query(ReservationOccupancy.id)
+                 .filter(ReservationOccupancy.resource_id == tbl.id).first() is not None
+        )
+        if still_referenced:
+            continue
+        db.delete(tbl)
+        deleted["tables"] += 1
 
     # Expenses
     demo_expenses = (

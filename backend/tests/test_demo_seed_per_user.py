@@ -26,12 +26,15 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
+from app.models.bookable_resource import BookableResource
 from app.models.business_profile import BusinessProfile
 from app.models.daily_close import DailyClose, encode_breakdown
 from app.models.expense import Expense, ExpenseCategory
 from app.models.inventory import InventoryItem
+from app.models.reservation import Reservation
 from app.models.sale import Sale
 from app.models.user import User
+from app.services.tz_utils import business_today_local
 from app.utils.time import utc_now
 from app.services.demo_seed import (
     _count_non_demo_rows,
@@ -362,3 +365,90 @@ def test_seed_real_inventory_blocks(db, owner):
     result = seed_for_user(db, owner)
     assert result["ok"] is False
     assert result["reason"] == "user has real data"
+
+
+# ─── Reservations demo seed (#4 — the empty-timeline fix) ────────────
+
+def test_seed_creates_reservations_timeline(db, owner):
+    """Seed populates a believable tonight's service: 4 tables + 7 bookings,
+    with the shapes the host-stand timeline needs (a seated party, an
+    unassigned walk-in, a combinable 6-top) so a fresh account isn't a
+    blank screen."""
+    result = seed_for_user(db, owner)
+    assert result["ok"] is True
+    assert result["reservations"] == {"tables": 4, "bookings": 7}
+
+    tables = db.query(BookableResource).filter_by(user_id=owner.id).all()
+    assert len(tables) == 4
+    for t in tables:
+        assert t.label.endswith(" · demo")   # visible demo marker
+        assert t.kind == "table"
+    # A combinable 6-top exists (so the "combined tables" surface has data)
+    assert any(t.combinable and t.capacity_seats == 6 for t in tables)
+    # sort_order is sequential (0..3) — no "6,7,8,1,2" jumble on the demo floor
+    assert sorted(t.sort_order for t in tables) == [0, 1, 2, 3]
+
+    res = db.query(Reservation).filter_by(user_id=owner.id).all()
+    assert len(res) == 7
+    for r in res:
+        assert (r.idempotency_key or "").startswith("demo-")  # invisible marker
+    # Exactly one party already seated (with a seated_at stamp)
+    seated = [r for r in res if r.status == "seated"]
+    assert len(seated) == 1 and seated[0].seated_at is not None
+    # One unassigned walk-in (no table yet) in 'requested' → the Unassigned lane
+    assert any(r.resource_id is None and r.status == "requested" for r in res)
+    # Every booking lands on the owner's LOCAL business day (naive wall-clock)
+    today = business_today_local(owner)
+    assert all(r.starts_at.date() == today for r in res)
+
+
+def test_seed_reservations_have_a_collision(db, owner):
+    """A deliberate overlapping pair on one table so the timeline collision
+    actually renders (the whole point of seeding — show overlaps)."""
+    seed_for_user(db, owner)
+    from collections import defaultdict
+    by_table = defaultdict(list)
+    for r in db.query(Reservation).filter_by(user_id=owner.id).all():
+        if r.resource_id is not None:
+            by_table[r.resource_id].append((r.starts_at, r.ends_at))
+
+    def _overlaps(a, b):
+        return a[0] < b[1] and b[0] < a[1]
+
+    found = any(
+        _overlaps(w[i], w[j])
+        for w in by_table.values()
+        for i in range(len(w))
+        for j in range(i + 1, len(w))
+    )
+    assert found, "expected at least one overlapping pair on a table"
+
+
+def test_clear_removes_reservations_and_tables(db, owner):
+    seed_for_user(db, owner)
+    assert db.query(Reservation).filter_by(user_id=owner.id).count() == 7
+    assert db.query(BookableResource).filter_by(user_id=owner.id).count() == 4
+
+    result = clear_for_user(db, owner)
+    d = result["deleted"]
+    assert d["reservations"] == 7
+    assert d["tables"] == 4
+    assert db.query(Reservation).filter_by(user_id=owner.id).count() == 0
+    assert db.query(BookableResource).filter_by(user_id=owner.id).count() == 0
+
+
+def test_reservations_do_not_count_as_real(db, owner):
+    """Seeded reservations/tables must NOT trip the 'has real data' gate —
+    so they never look like real work and a re-seed after clear still runs."""
+    seed_for_user(db, owner)
+    assert _count_non_demo_rows(db, owner.id) == 0
+
+
+def test_clear_reservations_tenant_scoped(db, owner, other_owner):
+    """Owner A's clear never touches Owner B's demo reservations/tables."""
+    seed_for_user(db, owner)
+    seed_for_user(db, other_owner)
+    clear_for_user(db, owner)
+    assert db.query(Reservation).filter_by(user_id=owner.id).count() == 0
+    assert db.query(Reservation).filter_by(user_id=other_owner.id).count() == 7
+    assert db.query(BookableResource).filter_by(user_id=other_owner.id).count() == 4

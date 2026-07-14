@@ -28,7 +28,7 @@
 // `api` client + auth/CSRF path as EventsPage (no bespoke fetch wrapper).
 //
 // DK terminology lock: revisor / MOMS etc. stay Danish across locales.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarCheck,
   Plus,
@@ -55,6 +55,8 @@ import {
   Phone,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   BarChart3,
   Scissors,
   ExternalLink,
@@ -1597,7 +1599,23 @@ function blockTitle(r, labels, t) {
   return `${base}\n⚠ ${label}${detail ? ": " + detail : ""}`;
 }
 
-function TimelineView({ reservations, resources, day, t, onSelect }) {
+function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
+  // One-tap seat from a booking bar. `justSeatedId` drives THE single ceremonial
+  // beat (the ~500ms scale settle below); it self-clears so the bar returns to
+  // stillness and never re-fires on a later render. The colour flip to the
+  // inverted seated fill is the same optimistic status update the drawer uses.
+  const [justSeatedId, setJustSeatedId] = useState(null);
+  const seatFromBar = useCallback(
+    (r) => {
+      setJustSeatedId(r.id);
+      onStatus?.(r, "seated");
+      window.setTimeout(
+        () => setJustSeatedId((id) => (id === r.id ? null : id)),
+        550,
+      );
+    },
+    [onStatus],
+  );
   const tables = useMemo(
     () =>
       resources
@@ -1730,6 +1748,10 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-x-auto">
+      {/* THE ONE ceremonial beat for seating — a single ~500ms scale settle,
+          then stillness. The global prefers-reduced-motion rule (index.css)
+          already collapses this animation to ~0.01ms, so no local guard. */}
+      <style>{`@keyframes bbSeatSettle{from{transform:scale(1.015)}to{transform:scale(1)}}.bb-seat-settle{animation:bbSeatSettle 500ms cubic-bezier(0.22,1,0.36,1)}`}</style>
       <div className="relative" style={{ minWidth: RAIL_W + bodyW }}>
         {/* Time axis */}
         <div className="flex h-8 border-b border-gray-200 dark:border-gray-800 sticky top-0 bg-gray-50 dark:bg-gray-900/80 z-20">
@@ -1860,16 +1882,27 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
                   const width = Math.max(30, (Math.min(e, endMin) - Math.max(s, startMin)) * PX - 2);
                   const combined = (r.combined_resource_ids || []).length > 1;
                   const allergy = allergyLevel(r);
+                  // One-tap seat: only a CONFIRMED bar (a 'requested' booking is
+                  // acknowledged via the drawer's Confirm first — mirrors the
+                  // drawer state machine), and only when the bar is wide enough
+                  // that the 44px seat control still leaves ≥44px of body tap zone
+                  // for the drawer (88 − 44 = 44). Narrow bars keep drawer-only
+                  // seating — a graceful fallback, never a hidden dead-end.
+                  const showSeat =
+                    !!onStatus &&
+                    r.status === "confirmed" &&
+                    width >= 88;
                   return (
+                    <Fragment key={r.id + id}>
                     <button
-                      key={r.id + id}
                       type="button"
                       onClick={() => onSelect(r)}
                       title={blockTitle(r, labels, t)}
                       style={{ left, width, top: 5, height: ROW_H - 12 }}
                       className={
-                        "absolute rounded-md border px-1.5 overflow-hidden text-left flex flex-col justify-center " +
+                        "absolute rounded-md border px-1.5 overflow-hidden text-left flex flex-col justify-center transition-colors duration-500 " +
                         blockClass(r.status) +
+                        (justSeatedId === r.id ? " bb-seat-settle" : "") +
                         (allergy === "severe"
                           ? " ring-2 ring-inset ring-red-500 dark:ring-red-400"
                           : allergy
@@ -1891,6 +1924,24 @@ function TimelineView({ reservations, resources, day, t, onSelect }) {
                         {r.guest_name || t("rsvpGuest", "Guest")}
                       </span>
                     </button>
+                    {showSeat && (
+                      <button
+                        type="button"
+                        onClick={(ev) => {
+                          ev.stopPropagation();
+                          seatFromBar(r);
+                        }}
+                        title={t("rsvpSeatAction", "Seat")}
+                        aria-label={t("rsvpSeatNowAria", "Seat {name}", {
+                          name: r.guest_name || t("rsvpGuest", "Guest"),
+                        })}
+                        style={{ left: left + width - 44, width: 44, top: (ROW_H - 44) / 2, height: 44 }}
+                        className="absolute z-10 flex items-center justify-center rounded-r-md text-gray-500 hover:text-gray-900 hover:bg-gray-900/5 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-white/10 transition-colors"
+                      >
+                        <Armchair className="w-4 h-4 shrink-0" aria-hidden />
+                      </button>
+                    )}
+                    </Fragment>
                   );
                 })}
               </div>
@@ -2104,6 +2155,12 @@ function BookSection({ t, businessType, tableFloor = false }) {
   // once we KNOW there are no stations (never flashes for an established salon
   // while resources are still in flight).
   const [resourcesLoaded, setResourcesLoaded] = useState(false);
+  // The canonical venue seat capacity from GET /resources — active, non-deleted,
+  // non-provider tables only, the SAME number the booking engine allows against.
+  // The occupancy gauge divides by THIS (not a raw resources.reduce, which wrongly
+  // counted inactive/provider rows). Null until the first fetch → the gauge falls
+  // back to the reduce so an older API without the field never breaks.
+  const [venueSeats, setVenueSeats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actioningId, setActioningId] = useState(null);
@@ -2194,8 +2251,13 @@ function BookSection({ t, businessType, tableFloor = false }) {
     try {
       const res = await api.get("/reservations/resources");
       setResources(Array.isArray(res.data?.resources) ? res.data.resources : []);
+      // Prefer the backend's canonical seat total; keep null if an older API
+      // omits it so the gauge can fall back to the raw reduce.
+      const vs = res.data?.venue_seats_total;
+      setVenueSeats(Number.isFinite(vs) ? vs : null);
     } catch {
       setResources([]);
+      setVenueSeats(null);
     } finally {
       setResourcesLoaded(true);
     }
@@ -2689,9 +2751,14 @@ function BookSection({ t, businessType, tableFloor = false }) {
   // total seat capacity: a calm fill gauge, honest about turns (a multi-turn
   // service can read >100%, which is simply the truth, not an error).
   const isViewingToday = day === isoDay(new Date());
+  // One canonical seat count: the booking engine's own venue total. Fall back
+  // to the raw reduce ONLY when an older API doesn't return the field.
   const totalCapacity = useMemo(
-    () => resources.reduce((s, r) => s + (Number(r.capacity_seats) || 0), 0),
-    [resources],
+    () =>
+      venueSeats != null
+        ? venueSeats
+        : resources.reduce((s, r) => s + (Number(r.capacity_seats) || 0), 0),
+    [venueSeats, resources],
   );
   // Honest occupancy = PEAK CONCURRENT covers vs seats, not daily covers /
   // seats (204 covers over a whole day on 18 seats is several turns, not
@@ -3343,6 +3410,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
             day={day}
             t={t}
             onSelect={openDrawer}
+            onStatus={setStatus}
           />
         ))}
         </>
@@ -3813,6 +3881,54 @@ function FloorSection({ t, businessType }) {
     }
   };
 
+  // Rows in the SAME (sort_order, label) order GET /resources returns, so the
+  // list here mirrors what the booking engine and timeline show. Reorder is
+  // computed against this order (never the raw fetch order).
+  const sortedResources = useMemo(
+    () =>
+      [...resources].sort(
+        (a, b) =>
+          (a.sort_order || 0) - (b.sort_order || 0) ||
+          (a.label || "").localeCompare(b.label || ""),
+      ),
+    [resources],
+  );
+
+  // Owner fixes table order. We REINDEX by position (assign sort_order = list
+  // index), not swap raw values — because every legacy table ships with
+  // sort_order 0, so a 0↔0 value swap is a no-op and the arrows would look
+  // dead. Reindexing renumbers the shown list 0..n-1, guaranteeing distinct,
+  // monotonic order and unsticking all-zero floors on the very first tap.
+  // Optimistic; PATCH only the rows whose value actually changed; refetch on
+  // failure. Arrow-only by design; no drag-and-drop.
+  const moveResource = async (r, dir) => {
+    const list = sortedResources;
+    const idx = list.findIndex((x) => x.id === r.id);
+    const swapIdx = dir === "up" ? idx - 1 : idx + 1;
+    if (idx < 0 || swapIdx < 0 || swapIdx >= list.length) return;
+    const reordered = [...list];
+    [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
+    const nextOrder = new Map(reordered.map((x, i) => [x.id, i]));
+    const changed = reordered.filter((x, i) => (Number(x.sort_order) || 0) !== i);
+    // Optimistic: renumber the shown rows so they settle into place at once.
+    setResources((prev) =>
+      prev.map((x) =>
+        nextOrder.has(x.id) ? { ...x, sort_order: nextOrder.get(x.id) } : x,
+      ),
+    );
+    try {
+      await Promise.all(
+        changed.map((x) =>
+          api.patch(`/reservations/resources/${x.id}`, {
+            sort_order: nextOrder.get(x.id),
+          }),
+        ),
+      );
+    } catch {
+      fetchResources();
+    }
+  };
+
   return (
     <div className="space-y-4">
       {isProvider ? (
@@ -4219,12 +4335,34 @@ function FloorSection({ t, businessType }) {
         </ul>
       ) : (
         <ul className="space-y-2">
-          {resources.map((r) => (
+          {sortedResources.map((r, idx) => (
             <li
               key={r.id}
               className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center justify-between gap-3"
             >
-              <div className="min-w-0 flex items-center gap-2">
+              {/* Reorder — fixes an out-of-order table list (e.g. 6,7,8,1,2).
+                  Up/down each a full 44px tap target; disabled at the ends. */}
+              <div className="flex shrink-0 -ml-1">
+                <button
+                  type="button"
+                  onClick={() => moveResource(r, "up")}
+                  disabled={idx === 0}
+                  aria-label={t("rsvpMoveUpAria", "Move {label} up", { label: r.label })}
+                  className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                >
+                  <ChevronUp className="w-5 h-5" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => moveResource(r, "down")}
+                  disabled={idx === sortedResources.length - 1}
+                  aria-label={t("rsvpMoveDownAria", "Move {label} down", { label: r.label })}
+                  className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-30 disabled:pointer-events-none transition-colors"
+                >
+                  <ChevronDown className="w-5 h-5" aria-hidden />
+                </button>
+              </div>
+              <div className="min-w-0 flex items-center gap-2 flex-1">
                 <VenueIcon className="w-4 h-4 text-gray-400 shrink-0" aria-hidden />
                 {/* Inline rename — a visibly editable field (subtle border + fill +
                     pencil cue) so any owner can tell the name is renameable at a glance.

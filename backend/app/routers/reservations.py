@@ -44,7 +44,7 @@ from app.services.billing import (
 )
 from app.services import reservation_service as rsvc
 from app.services import reservation_occupancy_service as occ_service
-from app.services.tz_utils import now_local, business_day_window_local
+from app.services.tz_utils import now_local, business_today_local, business_day_window_local
 from app.services.sms_service import send_sms, sms_configured
 from sqlalchemy.exc import IntegrityError
 from app.utils.time import utc_now
@@ -100,7 +100,11 @@ class ResourceCreate(BaseModel):
     # Owner "self-chair": a kind='provider' resource with NO staff_id whose
     # availability follows the confirmed opening hours (salon solo owner).
     follows_opening_hours: bool = False
-    sort_order: int = 0
+    # None ⇒ append after the current-highest (max+1) so a single-added table
+    # lands at the END of the list instead of colliding at 0 and collapsing the
+    # whole floor to alphabetical label order ("Bord 1", "Bord 10", "Bord 2"…).
+    # An explicit value is still honored as-is.
+    sort_order: int | None = None
     # Optional floor-plan placement on create (the bulk layout PUT is the
     # primary path, but a single-add form may drop a table at a point too).
     # Clamped / normalised in the handler — see _clamp_pct / _norm_shape.
@@ -570,7 +574,14 @@ def list_resources(db: Session = Depends(get_db), user: User = Depends(get_curre
         .order_by(BookableResource.sort_order, BookableResource.label)
         .all()
     )
-    return {"resources": [_resource_dict(r) for r in rows]}
+    return {
+        "resources": [_resource_dict(r) for r in rows],
+        # The ONE canonical seat total (active, non-provider tables/rooms) —
+        # the SAME set the booking engine's room_full check counts, so the
+        # owner's capacity gauge can never disagree with what a guest can
+        # actually book. Inactive tables + provider chairs are excluded.
+        "venue_seats_total": _venue_seats_total(db, user),
+    }
 
 
 @router.post("/resources", status_code=201)
@@ -583,13 +594,26 @@ def create_resource(payload: ResourceCreate, request: Request,
         .count()
     )
     enforce_cap(user, "bookable_resources_max", int(current))
+    # Append a single-added table after the current-highest sort_order so it
+    # lands at the end of the list. Defaulting to 0 sorted every hand-added
+    # table before the bulk-created ones and produced the "6,7,8,1,2" jumble.
+    sort_order = payload.sort_order
+    if sort_order is None:
+        # coalesce(..., -1) already handles the empty floor (→ -1 → +1 = 0);
+        # a trailing `or -1` would wrongly fire on a real max of 0 and collide.
+        sort_order = int(
+            db.query(func.coalesce(func.max(BookableResource.sort_order), -1))
+            .filter(BookableResource.user_id == user.id,
+                    BookableResource.is_deleted.is_(False))
+            .scalar()
+        ) + 1
     r = BookableResource(
         user_id=user.id, kind=payload.kind, label=payload.label,
         capacity_seats=payload.capacity_seats, zone=payload.zone,
         combinable=bool(payload.combinable),
         staff_id=payload.staff_id,
         follows_opening_hours=bool(payload.follows_opening_hours),
-        sort_order=payload.sort_order,
+        sort_order=sort_order,
         pos_x=_clamp_pct(payload.pos_x), pos_y=_clamp_pct(payload.pos_y),
         # Only stamp a shape if the caller sent one; otherwise leave it to the
         # column's server_default ('round') so create and bulk-layout agree.
@@ -863,13 +887,15 @@ def reservation_book(
     db: Session = Depends(get_db), user: User = Depends(get_current_user),
 ):
     enforce_feature(user, "reservations")
-    # Default "today" to the owner's LOCAL calendar date (Europe/Copenhagen by
-    # default via User.timezone), NOT server-UTC. `date.today()` is UTC, so
-    # from 22:00–24:00 local the host stand would jump to TOMORROW's book and
-    # hide tonight's tables. `now_local(user).date()` matches how the public
-    # /availability side computes "today" (public_reservations._now_local), so
-    # owner + guest agree on which day they're looking at.
-    target = day or now_local(user).date()
+    # Default "today" to the owner's BUSINESS day (Europe/Copenhagen tz + the
+    # 06:00 cutoff), NOT the plain calendar date. `date.today()` is UTC, and even
+    # now_local(user).date() is midnight-to-midnight — so from 00:00–06:00 the
+    # host stand would jump to a NEW empty book and hide tonight's still-running
+    # service. business_today_local() applies the cutoff (pre-06:00 → yesterday),
+    # so it agrees with the window below AND with the insights service + demo
+    # seed — owner book, insights, and seeded data all bucket a booking into the
+    # identical business day.
+    target = day or business_today_local(user)
     # DK business day, not midnight-to-midnight: a 00:30 late seating belongs
     # to tonight's service (before the 06:00 cutoff), so it must show under
     # `target`, not tomorrow. starts_at is stored naive business-local, so we
@@ -936,11 +962,14 @@ def _assert_owned_resource(db: Session, user: User, resource_id: UUID) -> None:
         raise HTTPException(status_code=404, detail={"error": "resource_not_found"})
 
 
-def _room_full_detail(db: Session, user: User, party_size: int) -> dict:
-    """Cheap capacity context for the 409 room_full payload: how many seats
-    the room has in total (active, non-deleted tables/rooms — providers carry
-    appointment capacity, not covers). One aggregate query."""
-    total_seats = (
+def _venue_seats_total(db: Session, user: User) -> int:
+    """The ONE canonical 'how many seats does this venue have' number:
+    active, non-deleted tables/rooms only. Providers carry appointment
+    capacity (not covers) and inactive tables aren't bookable, so both are
+    excluded. Every seat-capacity read — the owner's floor gauge AND the
+    booking engine's room_full check — routes through here, so the number a
+    guest can book against can never disagree with the number the owner sees."""
+    return int(
         db.query(func.coalesce(func.sum(BookableResource.capacity_seats), 0))
         .filter(
             BookableResource.user_id == user.id,
@@ -949,8 +978,17 @@ def _room_full_detail(db: Session, user: User, party_size: int) -> dict:
             BookableResource.kind != "provider",
         )
         .scalar()
-    ) or 0
-    return {"error": "room_full", "requested": party_size, "total_seats": int(total_seats)}
+        or 0
+    )
+
+
+def _room_full_detail(db: Session, user: User, party_size: int) -> dict:
+    """Cheap capacity context for the 409 room_full payload — the canonical
+    venue seat total (see _venue_seats_total)."""
+    return {
+        "error": "room_full", "requested": party_size,
+        "total_seats": _venue_seats_total(db, user),
+    }
 
 
 def _create_provider_booking(db: Session, user: User, profile, payload: "ManualReservation") -> dict:
