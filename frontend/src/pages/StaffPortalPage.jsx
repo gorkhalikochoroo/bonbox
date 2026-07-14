@@ -710,6 +710,13 @@ function useClock(token) {
         // instead of a flat red line (being off-site isn't an error you caused).
         haptic.warning();
         setErr({ kind: "too_far", distance_m: det.distance_m, radius_m: det.radius_m });
+      } else if (det?.error === "too_early") {
+        // Server-side window gate (belt-and-braces behind the disabled button).
+        // Rendered CALM (not the red error style) — being early isn't a mistake
+        // the worker made, mirroring the too_far treatment. load() below refreshes
+        // st so the button reflects the lock.
+        haptic.warning();
+        setErr({ kind: "too_early", opens_at: det.opens_at });
       } else {
         haptic.error();
         setErr(
@@ -1041,6 +1048,20 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
     heroBeatPlayed = true;
   }, []);
 
+  // Clock-in is time-locked until the owner's window opens (server-authoritative
+  // via clock.st.locked/opens_at). Only meaningful before a punch.
+  const clockLocked = !!(clock?.st?.locked) && !clock?.st?.clocked_in;
+  const hUnit = t("portalHrsCompact", "h");
+  // Format decimal hours as "7t" / "6t 15m" (unit is locale "t"/"h").
+  const fmtHM = (h) => {
+    if (h == null) return "—";
+    const mm = Math.round(Number(h) * 60);
+    const H = Math.floor(mm / 60), M = mm % 60;
+    return M ? `${H}${hUnit} ${M}m` : `${H}${hUnit}`;
+  };
+  // Gross span = net (paid) + unpaid break — both come from the owner's roster.
+  const grossHrs = (s) => (Number(s?.net_hours) || 0) + (Number(s?.break_minutes) || 0) / 60;
+
   return (
     <div className="space-y-4">
       {/* HERO — dark gray-900 next-shift card with a 4px role-colored left-bar.
@@ -1087,10 +1108,33 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                 at headline-adjacent scale; date → time → meta, a true F-pattern.
                 (Was 13px gray — the payload rendered as a footnote.) */}
             <div className="mt-1 text-lg font-semibold text-white tabular-nums">
-              {nextShift.start_time}–{nextShift.end_time}{" "}
-              <span className="text-[13px] font-normal text-gray-400">· {nextShift.net_hours} {t("portalHrsShort")}</span>
+              {nextShift.start_time}–{nextShift.end_time}
             </div>
-            <div className="mt-1 text-[12px] text-gray-400">{nextShiftRole}</div>
+            {/* Hours clarity — gross span · unpaid break · net (paid). All three
+                derive from the owner's rostered shift (net_hours + break_minutes),
+                replacing the old ambiguous single "6.25 hrs" that read like a bug. */}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {nextShift.break_minutes > 0 ? (
+                // With a break, the split is meaningful: gross span · unpaid break · net.
+                <>
+                  <span className="rounded-md bg-white/[0.07] px-2 py-1 text-[12px] font-semibold text-gray-300 tabular-nums">
+                    {t("portalHoursGross", "{h} shift", { h: fmtHM(grossHrs(nextShift)) })}
+                  </span>
+                  <span className="rounded-md bg-white/[0.07] px-2 py-1 text-[12px] font-semibold text-gray-300 tabular-nums">
+                    {t("portalHoursBreak", "{m} min break", { m: nextShift.break_minutes })}
+                  </span>
+                  <span className="rounded-md bg-emerald-400/15 px-2 py-1 text-[12px] font-bold text-emerald-300 tabular-nums">
+                    {t("portalHoursNet", "{h} net", { h: fmtHM(nextShift.net_hours) })}
+                  </span>
+                </>
+              ) : (
+                // No break → gross == net, so ONE chip (avoids a redundant "8t shift · 8t net").
+                <span className="rounded-md bg-emerald-400/15 px-2 py-1 text-[12px] font-bold text-emerald-300 tabular-nums">
+                  {t("portalHoursGross", "{h} shift", { h: fmtHM(nextShift.net_hours) })}
+                </span>
+              )}
+            </div>
+            <div className="mt-1.5 text-[12px] text-gray-400">{nextShiftRole}</div>
 
             {/* Venue line — name ONLY (never a fabricated address). When the
                 owner has turned ON the clock-in geofence, this becomes an honest
@@ -1149,10 +1193,11 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                   {token && (
                     <button
                       type="button"
-                      disabled={clock.busy}
+                      disabled={clock.busy || clockLocked}
                       onClick={() => clock.act("in")}
-                      className="flex-1 inline-flex items-center justify-center min-h-[44px] px-4 rounded-xl bg-white text-gray-900 text-sm font-semibold shadow-[0_2px_8px_-2px_rgb(0_0_0/0.4)] hover:bg-gray-100 active:scale-[0.98] transition disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
+                      className="flex-1 inline-flex items-center justify-center gap-2 min-h-[44px] px-4 rounded-xl bg-white text-gray-900 text-sm font-semibold shadow-[0_2px_8px_-2px_rgb(0_0_0/0.4)] hover:bg-gray-100 active:scale-[0.98] transition disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
                     >
+                      {clockLocked && <Lock className="w-4 h-4 shrink-0" strokeWidth={2} aria-hidden />}
                       {t("portalClockInCta")}
                     </button>
                   )}
@@ -1167,6 +1212,14 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                 </div>
               )}
             </div>
+            {/* Låst — clock-in is time-locked until the owner's window opens.
+                Honest, specific: shows the exact open time from the server. */}
+            {clockLocked && clock.st?.opens_at && (
+              <div className="mt-2.5 flex items-center gap-1.5 text-[12px] text-gray-400">
+                <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                <span>{t("portalClockOpensAt", "Clock-in opens at {t}", { t: clock.st.opens_at })}</span>
+              </div>
+            )}
             {clock.err?.kind === "too_far" ? (
               /* Calm "almost there" — amber, not red. Being off-site isn't an
                  error the worker caused; show how far + what to do. Numbers are
@@ -1187,6 +1240,11 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                 <div className="mt-0.5 text-[12px] text-gray-300">
                   {t("portalClockTooFarDo", "Head over and try again when you're there.")}
                 </div>
+              </div>
+            ) : clock.err?.kind === "too_early" ? (
+              <div className="mt-2 flex items-center gap-1.5 text-[12px] text-gray-400">
+                <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                <span>{t("portalClockOpensAt", "Clock-in opens at {t}", { t: clock.err.opens_at || "—" })}</span>
               </div>
             ) : clock.err ? (
               <div className="mt-2 text-[12px] text-red-300">{clock.err}</div>
@@ -3913,6 +3971,15 @@ export default function StaffPortalPage() {
           (no translateZ) so the sticky header doesn't wobble during momentum
           scroll on iOS. */}
       <div className="sticky top-0 z-10 glass-static border-b border-gray-200/70 pt-[env(safe-area-inset-top)]">
+        {/* Opaque cap over the status-bar / notch inset. The header glass is
+            translucent (85%), so without this the content scrolling underneath
+            bleeds up into the status bar — this keeps the notch clean and the
+            scroll transition crisp. Theme-aware; sized to the safe-area inset. */}
+        <div
+          aria-hidden
+          className="absolute inset-x-0 top-0 bg-white/95 dark:bg-gray-900"
+          style={{ height: "env(safe-area-inset-top)" }}
+        />
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div>
             <h1 className="text-lg font-bold text-gray-900">
@@ -4050,7 +4117,7 @@ export default function StaffPortalPage() {
                 />
               </div>
               <div>
-                <label className="text-[10px] text-gray-500 mb-1 block">{t("portalContactPhoneLabel", "Phone (for WhatsApp)")}</label>
+                <label className="text-[10px] text-gray-500 mb-1 block">{t("portalContactPhoneLabel", "Phone (optional)")}</label>
                 <input
                   type="tel"
                   value={phoneInput}

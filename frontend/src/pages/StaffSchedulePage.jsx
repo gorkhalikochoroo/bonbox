@@ -570,6 +570,36 @@ function ClockGeofenceSettings() {
       >
         {cfg.has_location ? t("schedGeoReset", "Update location") : t("schedGeoUseHere", "Use my current location")}
       </button>
+      {/* Clock-in TIME window — a separate axis from the location lock. Staff
+          can't clock in earlier than N minutes before their shift starts; before
+          that the staff app shows a "Låst" state with the exact open time. */}
+      <div className="w-full border-t border-gray-100 dark:border-gray-700/60 pt-2.5 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!cfg.window_enabled}
+            disabled={busy}
+            onChange={(e) => save({ window_enabled: e.target.checked, window_minutes: cfg.window_minutes || 15 })}
+            className="h-4 w-4 rounded border-gray-300 text-gray-900 focus:ring-gray-900 disabled:opacity-50"
+          />
+          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {t("schedWindowTitle", "Only clock in near shift start")}
+          </span>
+        </label>
+        <label className="flex items-center gap-1.5 text-[12px] text-gray-500 dark:text-gray-400">
+          <span>{t("schedWindowOpensLabel", "Opens")}</span>
+          <select
+            value={cfg.window_minutes || 15}
+            disabled={busy || !cfg.window_enabled}
+            onChange={(e) => save({ window_enabled: true, window_minutes: Number(e.target.value) })}
+            className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-[12px] text-gray-900 dark:text-gray-100 disabled:opacity-50"
+          >
+            {[10, 15, 30, 45, 60].map((m) => (
+              <option key={m} value={m}>{t("schedWindowMinsBefore", "{m} min before", { m })}</option>
+            ))}
+          </select>
+        </label>
+      </div>
       {msg && <span className="w-full text-[12px] text-red-500 dark:text-red-400">{msg}</span>}
       {savedMsg && !msg && (
         <span className="w-full text-[12px] text-emerald-600 dark:text-emerald-400">{savedMsg}</span>
@@ -3517,22 +3547,9 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
               sender for all customers)
             • Customer-facing toggle just sets whatsapp_enabled flag
           */}
-      {!user?.is_admin && (
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 p-4 text-sm">
-          <div className="flex items-start gap-3">
-            <span className="text-2xl shrink-0">📱</span>
-            <div className="flex-1">
-              <p className="font-semibold text-gray-900 dark:text-gray-100">
-                {t("whatsappComingSoonTitle") || "WhatsApp shift updates — coming soon"}
-              </p>
-              <p className="text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
-                {t("whatsappComingSoonBody") ||
-                  "Add staff phone numbers below now. We'll send their first message the day this goes live — your numbers stay private until then."}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* The customer-facing "WhatsApp — coming soon" tile was removed: staff
+          alerts run on email + in-app + native push, so we don't tease a channel
+          that isn't live. The admin-only Twilio setup guide below stays. */}
       {user?.is_admin && (
       <details className="group">
         <summary className="flex items-center justify-between cursor-pointer py-3 px-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-800/30 text-sm font-medium text-gray-800 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition">
