@@ -54,6 +54,7 @@ import {
   Clock,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useStickyMethod } from "../hooks/useStickyMethod";
@@ -263,6 +264,7 @@ const GK_TABS = ["udsted", "oversigt", "bestillinger"];
 
 export default function GavekortPage() {
   const { t } = useLanguage();
+  const navigate = useNavigate();
   const { hasFeature, isReady } = useEntitlements();
   const [tab, setTab] = useState("udsted");
   const [pendingOrders, setPendingOrders] = useState(0);
@@ -306,6 +308,27 @@ export default function GavekortPage() {
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
       <PageTitle t={t} />
+      {/* Counter action: redeem a gavekort by scanning its QR. Deep-links the
+          door scanner straight into gavekort mode (/scan?mode=gavekort) so
+          staff can find scan-to-redeem — the page was previously only
+          reachable by typing the URL. */}
+      <button
+        type="button"
+        onClick={() => navigate("/scan?mode=gavekort")}
+        className="w-full flex items-center gap-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-3 text-left min-h-[44px] hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+          <QrCode size={20} strokeWidth={1.75} aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-gray-900 dark:text-gray-100">
+            {t("gkScanEyebrow", "Indløs gavekort")}
+          </span>
+          <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            {t("scanGavekortTileSub", "Scan et gavekort-QR")}
+          </span>
+        </span>
+      </button>
       <TabPills
         tabs={[
           { id: "udsted", label: t("gkTabIssue", "Udsted gavekort") },
