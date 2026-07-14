@@ -66,14 +66,29 @@ portalApi.interceptors.request.use((config) => {
   return config;
 });
 
-// Auto-retry on network error (max 2 retries)
+// Auto-retry retryable failures (no response / timeout / 5xx).
+//
+// A sleeping Render dyno takes 20-60s to wake, and its db-readiness gate
+// returns FAST 503s during DB init — so a fixed 2×1.5s budget can be exhausted
+// before the backend is ready, surfacing as a bare Connect failure (the exact
+// "Network Error" the App-Review reviewer could hit on a cold start). A GET or
+// the /join lookup is safe to repeat, so give those an exponential budget
+// (~1.5+3+6+10s ≈ 20s of backoff, on top of each attempt's own 30s timeout)
+// that spans the wake window. Other POSTs (clock-in, chat) keep the short 2-try
+// budget so a lost-response replay can't double-submit.
 portalApi.interceptors.response.use(null, async (err) => {
   const config = err.config;
-  if (!config || config._retryCount >= 2) return Promise.reject(err);
+  if (!config) return Promise.reject(err);
   const isRetryable = !err.response || err.code === "ECONNABORTED" || err.response?.status >= 500;
   if (!isRetryable) return Promise.reject(err);
-  config._retryCount = (config._retryCount || 0) + 1;
-  await new Promise((r) => setTimeout(r, 1500));
+  const method = (config.method || "get").toLowerCase();
+  const safeToRepeat = method === "get" || (config.url || "").includes("/portal/join");
+  const maxRetries = safeToRepeat ? 4 : 2;
+  const count = config._retryCount || 0;
+  if (count >= maxRetries) return Promise.reject(err);
+  config._retryCount = count + 1;
+  const delay = safeToRepeat ? Math.min(1500 * 2 ** count, 10000) : 1500;
+  await new Promise((r) => setTimeout(r, delay));
   return portalApi(config);
 });
 
