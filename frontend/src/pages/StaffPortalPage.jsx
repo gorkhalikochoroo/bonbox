@@ -197,6 +197,36 @@ function _icsEsc(v) {
     .replace(/\r?\n/g, "\\n");
 }
 
+// Google Calendar "create event" deep-link — opens the native add-event screen
+// prefilled. On Android / desktop / the native webview an .ics download just
+// lands in Files and never opens ("add to calendar not working"); this routes
+// straight to the add-event screen, one tap to save. Times are venue-local
+// wall-clock with ctz=Europe/Copenhagen (DK market).
+function buildGoogleCalendarUrl(shift, venueName, summary) {
+  const compact = (d, hhmm) => {
+    const [h, m] = (hhmm || "00:00").split(":");
+    return `${(d || "").replace(/-/g, "")}T${(h || "00").padStart(2, "0")}${(m || "00").padStart(2, "0")}00`;
+  };
+  let endDate = shift.date;
+  // Overnight shift (end <= start) → the end lands on the next calendar day.
+  // Parse + advance in UTC so a local-vs-UTC offset can't roll the date back
+  // a day (a Copenhagen local-midnight Date serializes to the prior UTC day).
+  if ((shift.end_time || "") <= (shift.start_time || "")) {
+    const dt = new Date(shift.date + "T00:00:00Z");
+    dt.setUTCDate(dt.getUTCDate() + 1);
+    endDate = dt.toISOString().slice(0, 10);
+  }
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: summary || "",
+    dates: `${compact(shift.date, shift.start_time)}/${compact(endDate, shift.end_time)}`,
+    ctz: "Europe/Copenhagen",
+  });
+  if (venueName) params.set("location", venueName);
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+
 function buildShiftIcs(shift, venueName, summary) {
   // Overnight edge: if the shift ends at/before it starts, the end is the next
   // calendar day so DTEND > DTSTART.
@@ -935,7 +965,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, onShiftsChanged, onNeedChange }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, onShiftsChanged, onNeedChange }) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -986,55 +1016,42 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
   // Date.now() read lives inside the pure helper, recomputed each 15s render.
   const countdownLabel = nextShiftCountdown(nextShift, t);
 
-  // Add-to-calendar (.ics) for the next shift — naive wall-clock + TZID, no UTC.
-  const addToCalendar = async () => {
+  // Venue location — the owner sets this on their business profile. Label is
+  // "Name, City"; the tap opens Maps for directions (address if the owner
+  // filled one, else name+city). Makes "where do I go" one tap for staff.
+  const venueLabel = restaurantName
+    ? [restaurantName, restaurantCity].filter(Boolean).join(", ")
+    : "";
+  const venueMapsQuery = restaurantAddress
+    ? [restaurantAddress, restaurantCity].filter(Boolean).join(", ")
+    : venueLabel;
+  const venueMapsUrl = venueMapsQuery
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(venueMapsQuery)}`
+    : null;
+
+  // Add-to-calendar — one tap straight into the native "add event" flow.
+  //  • Apple (iOS/iPadOS Safari + the native Scheduler webview): a data:URI
+  //    .ics opens Calendar's add-event sheet directly.
+  //  • Everyone else (Android, desktop): a Google Calendar "create event"
+  //    deep-link. An .ics *download* on Android just lands in Files and never
+  //    opens — that was the "not compatible to straight add" report; this
+  //    routes to the prefilled add-event screen, one tap to save.
+  const addToCalendar = () => {
     if (!nextShift) return;
     const summary = restaurantName
       ? t("portalIcsSummary", { venue: restaurantName })
       : t("portalIcsSummaryNoVenue");
-    const ics = buildShiftIcs(nextShift, restaurantName, summary);
-    const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
-    const filename = `vagt-${nextShift.date}.ics`;
-    const file =
-      typeof File !== "undefined" ? new File([blob], filename, { type: "text/calendar" }) : null;
-
-    // 1) Web Share (best on mobile). try/catch so a REAL share failure falls
-    //    through to a download path instead of the button silently doing
-    //    nothing; a user-cancel (AbortError) just returns.
-    if (file && navigator.canShare?.({ files: [file] }) && navigator.share) {
-      try {
-        await navigator.share({ files: [file], title: summary });
-        return;
-      } catch (err) {
-        if (err?.name === "AbortError") return;
-        /* real share failure → fall through to the download paths below */
-      }
-    }
-
-    // 2) iOS Safari + in-app webviews (Instagram/Messenger magic-link opens)
-    //    IGNORE anchor `download` on a blob: URL — the tap was a SILENT no-op,
-    //    which is the "add to calendar not working" report. Navigating a data:
-    //    URL hands the .ics to the OS "Add event" sheet on those clients.
     const ua = navigator.userAgent || "";
-    const isIOS =
+    const isApple =
       /iP(hone|ad|od)/.test(navigator.platform || ua) ||
       (/Mac/.test(ua) && "ontouchend" in document);
-    const inAppWebview =
-      /(FBAN|FBAV|Instagram|Line|Messenger|LinkedInApp|Twitter|MicroMessenger)/i.test(ua);
-    if (isIOS || inAppWebview) {
+    if (isApple) {
+      const ics = buildShiftIcs(nextShift, restaurantName, summary);
       window.location.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(ics);
       return;
     }
-
-    // 3) Desktop + most Android: anchor download.
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    // Android / desktop → Google Calendar's add-event screen, prefilled.
+    window.open(buildGoogleCalendarUrl(nextShift, restaurantName, summary), "_blank", "noopener");
   };
 
   const weekDays = weekView === "this" ? thisWeek : nextWeek;
@@ -1146,23 +1163,40 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                 "Stempl kun ind ved <venue>" lock hint so the staffer knows the
                 clock-in is location-bound before they try it (the server's
                 too_far 403 is still the real gate). */}
-            {restaurantName && (
-              <div className="mt-2 flex items-center gap-1.5 text-[12px] text-gray-400">
-                {clock.st?.geofence_on ? (
-                  <>
+            {restaurantName &&
+              (venueMapsUrl ? (
+                <a
+                  href={venueMapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-gray-400 hover:text-gray-200 active:opacity-70 transition-colors"
+                  title={t("portalVenueDirections", "Get directions")}
+                >
+                  {clock.st?.geofence_on ? (
                     <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
-                    <span className="truncate">
-                      {t("portalClockOnlyAt", "Clock in only at {venue}", { venue: restaurantName })}
-                    </span>
-                  </>
-                ) : (
-                  <>
+                  ) : (
                     <MapPin className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
-                    <span className="truncate">{restaurantName}</span>
-                  </>
-                )}
-              </div>
-            )}
+                  )}
+                  <span className="truncate underline decoration-gray-600 underline-offset-2">
+                    {clock.st?.geofence_on
+                      ? t("portalClockOnlyAt", "Clock in only at {venue}", { venue: venueLabel })
+                      : venueLabel}
+                  </span>
+                </a>
+              ) : (
+                <div className="mt-2 flex items-center gap-1.5 text-[12px] text-gray-400">
+                  {clock.st?.geofence_on ? (
+                    <Lock className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                  ) : (
+                    <MapPin className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                  )}
+                  <span className="truncate">
+                    {clock.st?.geofence_on
+                      ? t("portalClockOnlyAt", "Clock in only at {venue}", { venue: venueLabel })
+                      : venueLabel}
+                  </span>
+                </div>
+              ))}
 
             {/* Live elapsed timer while clocked in (emerald ping, reused from
                 the old ClockCard). */}
@@ -4272,6 +4306,8 @@ export default function StaffPortalPage() {
             staffName={info?.staff_name}
             token={token}
             restaurantName={info?.restaurant_name}
+            restaurantCity={info?.restaurant_city}
+            restaurantAddress={info?.restaurant_address}
             onShiftsChanged={loadData}
             onNeedChange={() => setTab("swaps")}
           />
