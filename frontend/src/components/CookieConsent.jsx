@@ -136,6 +136,13 @@ export default function CookieConsent() {
   });
 
   useEffect(() => {
+    // Scheduler (staff) app: it runs NO analytics/marketing scripts and stores
+    // only an essential session token — strictly-necessary, which ePrivacy /
+    // Datatilsynet exempt from consent. So there is nothing to ask about. We
+    // also don't want the banner covering the join-code form on first launch
+    // (it sits over the input). Never open the banner in this build.
+    if (import.meta.env.VITE_APP_MODE === "scheduler") return;
+
     // Multi-barrier defense: even if the user has DNT set, we still ask
     // (consent banners can't be skipped under EU rules) but pre-fill with
     // everything OFF so a default Accept-All click still respects DNT.
