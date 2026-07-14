@@ -542,13 +542,18 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange }) {
   // labelled "Jeg har set det". The confirmed state still reads confirmed_at —
   // never an optimistic local flag.
   const needChangeLink = onNeedChange && (
-    <button
-      type="button"
-      onClick={onNeedChange}
-      className="mt-2 w-full text-center text-[12px] text-gray-500 hover:text-gray-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded-md py-1"
-    >
-      {t("portalNeedChange")}
-    </button>
+    // Real "request a change" affordance — a tappable pill (not a low-contrast
+    // text link), matching the design. Same behavior: reveals sick-call + swaps.
+    <div className="mt-2.5 flex justify-center">
+      <button
+        type="button"
+        onClick={onNeedChange}
+        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-gray-200 bg-white text-[13px] font-semibold text-gray-700 shadow-[0_1px_2px_rgba(16,24,40,0.04)] hover:bg-gray-50 active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
+      >
+        {t("portalNeedChange")}
+        <svg className="w-3.5 h-3.5 text-gray-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
+      </button>
+    </div>
   );
 
   if (allConfirmed) {
@@ -1370,17 +1375,33 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
           </div>
         )}
 
-        {/* Muted summary line (replaces the old "This week hrs" KPI card). */}
-        {weekView === "this" && (
-          <div className="mt-2 text-[11px] text-gray-500">
-            {t("portalWeekStripHrs", {
-              h: thisWeekHours,
-              hrs: t("portalHrsShort"),
-              n: thisWeekShifts.length,
-              shifts: t("portalShiftsCount"),
-            })}
-          </div>
-        )}
+        {/* Selected-day detail + week total — the design's week footer. Left =
+            the tapped day (or today's shift by default) with a role-colored bar;
+            right = the week total. Connects the strip to a concrete shift. */}
+        {weekView === "this" && (() => {
+          const fs = expandedShift || nextShift;
+          return (
+            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
+              {fs ? (
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className={`w-1.5 h-8 rounded-full shrink-0 ${roleBarColor(fs.role_on_shift)}`} aria-hidden />
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-semibold text-gray-900 tabular-nums truncate">
+                      {new Date(fs.date + "T00:00:00").toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" })} · {fs.start_time}–{fs.end_time}
+                    </div>
+                    <div className="text-[11px] text-gray-500 truncate">
+                      {fs.role_on_shift ? `${fs.role_on_shift} · ` : ""}{fs.net_hours}{t("portalHrsShort")}
+                    </div>
+                  </div>
+                </div>
+              ) : <span aria-hidden />}
+              <div className="text-right shrink-0">
+                <div className="text-[15px] font-bold text-gray-900 tabular-nums leading-tight">{thisWeekHours} {t("portalHrsShort")}</div>
+                <div className="text-[11px] text-gray-400">{thisWeekShifts.length} {t("portalShiftsCount")}</div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Quiet pointer to shifts beyond next week. */}
         {weekView === "next" && hasLater && (
