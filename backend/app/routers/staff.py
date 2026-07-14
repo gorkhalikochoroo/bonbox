@@ -113,6 +113,22 @@ _limiter = Limiter(key_func=client_ip)
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+def _require_owner_actor(user: User) -> None:
+    """Owner-only gate for staff-CREDENTIAL surfaces (portal tokens + PINs).
+
+    A staff magic-link token / PIN is a *credential*: whoever holds it can open
+    the portal AS that staffer. It must never be readable or issuable by a
+    delegated non-owner seat (manager/cashier/viewer) or an accountant view —
+    otherwise a low-privilege seat could enumerate coworkers and harvest their
+    portal tokens to impersonate them. get_current_user resolves those seats to
+    the OWNER User for tenant reads, so the endpoints' own user.id filter does
+    NOT distinguish them; this explicit check (a second, independent layer on
+    top of the write-guard) is what draws the line. Real owner login only.
+    """
+    if getattr(user, "_is_member_view", False) or getattr(user, "_is_accountant_view", False):
+        raise HTTPException(status_code=403, detail="owner_only")
+
+
 def _parse_hhmm(t: str) -> float:
     """Parse 'HH:MM' into fractional hours from midnight."""
     parts = t.split(":")
@@ -382,7 +398,24 @@ def list_staff_members(
     )
     if not include_inactive:
         q = q.filter(StaffMember.active.is_(True))
-    return q.order_by(StaffMember.name).all()
+    members = q.order_by(StaffMember.name).all()
+
+    # Delegated non-owner seats (manager/cashier/viewer) get the roster for
+    # SCHEDULING (name / role / max-hours), but per-employee WAGES, TAX-CARD and
+    # home contact are owner-only HR + GDPR-personal data. Strip them so a low-
+    # privilege seat can never harvest coworkers' pay + home address. This is a
+    # second, field-level layer on top of member_read_guard; the real owner
+    # (no _is_member_view flag) sees everything.
+    if getattr(user, "_is_member_view", False):
+        redacted = []
+        for m in members:
+            r = StaffMemberResponse.model_validate(m)
+            r.base_rate = r.evening_rate = r.weekend_rate = r.holiday_rate = None
+            r.tax_card_type = r.tax_card_rate = None
+            r.phone = r.email = r.address = r.postal_code = r.city = None
+            redacted.append(r)
+        return redacted
+    return members
 
 
 @router.post("/members", response_model=StaffMemberResponse)
@@ -575,6 +608,7 @@ def generate_staff_link(
     token and revoke the old one (e.g. a link leaked); the DELETE endpoint still
     fully revokes.
     """
+    _require_owner_actor(user)  # minting a portal credential — owner-only
     member = db.query(StaffMember).filter(
         StaffMember.id == member_id,
         StaffMember.user_id == user.id,
@@ -643,6 +677,7 @@ def get_staff_link(
     user: User = Depends(get_current_user),
 ):
     """Get the active portal link for a staff member."""
+    _require_owner_actor(user)  # a coworker's portal token is a credential — owner-only
     link = db.query(StaffLink).filter(
         StaffLink.staff_id == member_id,
         StaffLink.user_id == user.id,
@@ -672,6 +707,7 @@ def deactivate_staff_link(
     user: User = Depends(get_current_user),
 ):
     """Deactivate all portal links for a staff member."""
+    _require_owner_actor(user)  # revoking a portal credential — owner-only
     db.query(StaffLink).filter(
         StaffLink.staff_id == member_id,
         StaffLink.user_id == user.id,
@@ -716,6 +752,7 @@ def set_staff_link_pin(
     staffer. Setting a new PIN clears any lockout and — because the L2 proof
     binds to pin_hash — signs out every device that was already in (staff
     re-enter the new PIN once). See [staff_portal multi-layer]."""
+    _require_owner_actor(user)  # setting a staff PIN — owner-only
     link = db.query(StaffLink).filter(
         StaffLink.staff_id == member_id,
         StaffLink.user_id == user.id,
@@ -750,6 +787,7 @@ def clear_staff_link_pin(
     user: User = Depends(get_current_user),
 ):
     """Turn OFF the PIN lock — the link works with no PIN again."""
+    _require_owner_actor(user)  # clearing a staff PIN — owner-only
     link = db.query(StaffLink).filter(
         StaffLink.staff_id == member_id,
         StaffLink.user_id == user.id,
@@ -783,6 +821,7 @@ def list_share_links(
     every link here on open. Reuses each staff's durable token via
     get-or-create — never rotates an existing link.
     """
+    _require_owner_actor(user)  # bulk portal credentials — owner-only
     members = (
         db.query(StaffMember)
         .filter(

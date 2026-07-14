@@ -27,6 +27,12 @@ MAX_CHAT_PHOTO_BYTES = 8_000_000  # 8 MB raw — phone photos fit comfortably
 MAX_OUTPUT_DIM = 1600             # plenty for receipts / schedules on a phone
 JPEG_QUALITY = 82
 
+# Decompression-bomb ceiling: max decoded pixels allowed BEFORE img.load() runs.
+# The byte caps above bound only the *compressed* size — a tiny highly-
+# compressible PNG can decode to 100M+ px (hundreds of MB of RGB). BOTH
+# sanitizers below MUST use this so they can never drift out of lock-step.
+_MAX_DECODED_PIXELS = 50_000_000  # ~7000x7000; a real phone photo is <=~50MP
+
 # Profile avatar: staff can pick a full-res iPhone/Android photo (up to 8 MB),
 # and we re-encode it down to a small square JPEG — light to store + serve, and
 # it always fills the circular avatar cleanly (center-crop, no letterboxing).
@@ -78,6 +84,17 @@ def sanitize_chat_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
     ImageFile.LOAD_TRUNCATED_IMAGES = False
     try:
         with Image.open(io.BytesIO(raw_bytes)) as img:
+            # Decompression-bomb guard — reject huge pixel dimensions BEFORE
+            # img.load() allocates the full RGB bitmap. A tiny highly-
+            # compressible PNG can decode to 100M+ px (~hundreds of MB each)
+            # and OOM the single-worker instance. Mirrors sanitize_profile_photo
+            # (they MUST stay in lock-step — the header size cap only bounds the
+            # *compressed* bytes, not the decoded surface).
+            if (img.width * img.height) > _MAX_DECODED_PIXELS:
+                raise HTTPException(
+                    http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    "Billedet har for mange pixels.",
+                )
             img.load()
             pillow_fmt = (img.format or "").lower()
             if inferred == "png" and pillow_fmt != "png":
@@ -148,7 +165,7 @@ def sanitize_profile_photo(raw_bytes: bytes) -> tuple[bytes, str, str]:
             # explode to hundreds of MB of bitmap on load(); reject absurd
             # dimensions first. 50 MP is orders of magnitude more than an avatar
             # needs (and below Pillow's own ~89 MP warn threshold).
-            if (img.width * img.height) > 50_000_000:
+            if (img.width * img.height) > _MAX_DECODED_PIXELS:
                 raise HTTPException(
                     http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                     "Billedet har for høj opløsning.",
