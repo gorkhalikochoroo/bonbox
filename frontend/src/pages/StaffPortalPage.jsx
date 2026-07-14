@@ -965,7 +965,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, onShiftsChanged, onNeedChange }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, onShiftsChanged, onNeedChange, onOpenAvailability }) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -982,6 +982,49 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
   // Local UI state: which week-strip is shown + which day is expanded.
   const [weekView, setWeekView] = useState("this"); // 'this' | 'next'
   const [expandedDate, setExpandedDate] = useState(null);
+
+  // Own "kan ikke arbejde" marks, so a free day in the strip is tappable to
+  // mark unavailable right from the schedule (same StaffAvailability rows the
+  // Availability tab writes — a strip mark shows there and vice-versa).
+  const [unavail, setUnavail] = useState([]);
+  const [savingDay, setSavingDay] = useState(null); // iso currently posting/deleting
+  const loadUnavail = async () => {
+    try {
+      const r = await portalApi.get(`/portal/${token}/availability`);
+      setUnavail(r.data?.availability || []);
+    } catch { /* non-fatal — the strip just won't show marks */ }
+  };
+  useEffect(() => { loadUnavail(); }, [token]);
+  const unavailByDate = useMemo(() => {
+    const m = {};
+    (unavail || []).forEach((a) => { if (a.kind === "unavailable" && a.date) m[a.date] = a.id; });
+    return m;
+  }, [unavail]);
+  const recurUnavailWeekdays = useMemo(() => {
+    const s = new Set();
+    (unavail || []).forEach((a) => { if (a.kind === "unavailable" && a.date == null && a.weekday != null) s.add(a.weekday); });
+    return s;
+  }, [unavail]);
+  // Monday-first weekday index (matches the Availability calendar convention).
+  const weekdayOfIso = (iso) => (new Date(iso + "T00:00:00").getDay() + 6) % 7;
+  const isUnavailDay = (iso) => !!unavailByDate[iso] || recurUnavailWeekdays.has(weekdayOfIso(iso));
+  const markUnavail = async (iso) => {
+    if (savingDay || unavailByDate[iso]) return;
+    setSavingDay(iso);
+    setUnavail((rows) => [...(rows || []), { id: "tmp-" + iso, kind: "unavailable", date: iso, weekday: null, start_time: null, end_time: null, note: null }]);
+    try { await portalApi.post(`/portal/${token}/availability`, { date: iso, kind: "unavailable" }); }
+    catch { /* revert-on-fail via refetch below */ }
+    finally { await loadUnavail(); setSavingDay(null); }
+  };
+  const removeUnavail = async (iso) => {
+    const id = unavailByDate[iso];
+    if (!id || savingDay) return;
+    setSavingDay(iso);
+    setUnavail((rows) => (rows || []).filter((r) => r.id !== id));
+    try { if (!String(id).startsWith("tmp-")) await portalApi.delete(`/portal/${token}/availability/${id}`); }
+    catch { /* revert-on-fail via refetch below */ }
+    finally { await loadUnavail(); setSavingDay(null); }
+  };
   // "Brug for en ændring?" reveals the sick-call form inline (and deep-links
   // Swaps via onNeedChange from the confirm strip).
   const [showSick, setShowSick] = useState(false);
@@ -1370,27 +1413,33 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
           {weekDays.map(({ date: d, shift }, i) => {
             const isTodayCell = isToday(d);
             const isExpanded = expandedDate === d;
+            const dayUnavail = isUnavailDay(d);
+            // Free FUTURE days are tappable too now — to mark "kan ikke arbejde".
+            // A shift day still expands its shift; a past free day stays inert.
+            const cellTappable = !!shift || !isPast(d);
             return (
               <button
                 key={d}
                 type="button"
-                onClick={() => setExpandedDate(isExpanded || !shift ? null : d)}
+                onClick={() => setExpandedDate(isExpanded || !cellTappable ? null : d)}
                 className={`flex flex-col items-center gap-1.5 rounded-lg py-2 min-h-[44px] transition active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${isExpanded ? "bg-gray-100" : isTodayCell ? "bg-gray-50" : "hover:bg-gray-50"}`}
-                aria-label={`${WD[i]} ${fmtShort(d, lang)}`}
+                aria-label={`${WD[i]} ${fmtShort(d, lang)}${dayUnavail && !shift ? " · " + t("portalUnavailBadge", "Can't work") : ""}`}
                 aria-current={isTodayCell ? "date" : undefined}
-                aria-expanded={shift ? isExpanded : undefined}
+                aria-expanded={cellTappable ? isExpanded : undefined}
               >
                 {/* TODAY = bold gray-900 label + soft cell fill (above). No ink
                     ring — a ring hugging a 4px bar rendered as a broken pill.
                     EXPANDED = a step darker (bg-gray-100) so "open" reads
                     distinctly from "today". */}
                 <span className={`text-[10px] ${isTodayCell ? "text-gray-900 font-semibold" : "text-gray-400"}`}>{WD[i]}</span>
-                <span className={`text-[10px] tabular-nums ${isTodayCell ? "text-gray-900 font-semibold" : "text-gray-400"}`}>{parseInt(d.slice(8), 10)}</span>
+                <span className={`text-[10px] tabular-nums ${isTodayCell ? "text-gray-900 font-semibold" : "text-gray-400"} ${dayUnavail && !shift ? "line-through decoration-amber-400" : ""}`}>{parseInt(d.slice(8), 10)}</span>
                 {shift ? (
                   <span
                     className={`block w-1.5 h-5 rounded-full ${roleBarColor(shift.role_on_shift)}`}
                     aria-hidden
                   />
+                ) : dayUnavail ? (
+                  <CalendarOff className="w-3.5 h-3.5 text-amber-500" strokeWidth={2.5} aria-hidden />
                 ) : (
                   <span
                     className={`block w-2 h-2 rounded-full ${isTodayCell ? "bg-gray-900" : "border border-gray-300"}`}
@@ -1408,6 +1457,61 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
             <ShiftRow date={expandedShift.date} shift={expandedShift} />
           </div>
         )}
+
+        {/* Tapped a FREE future day → mark / un-mark "kan ikke arbejde" right
+            here. Writes the same StaffAvailability rows the Availability tab
+            uses, so a strip mark shows on the calendar and vice-versa. */}
+        {!expandedShift && expandedDate && !isPast(expandedDate) && (() => {
+          const iso = expandedDate;
+          const marked = !!unavailByDate[iso];
+          const recurring = !marked && recurUnavailWeekdays.has(weekdayOfIso(iso));
+          const saving = savingDay === iso;
+          const dLabel = new Date(iso + "T00:00:00").toLocaleDateString(localeFor(lang), { weekday: "long", day: "numeric", month: "short" });
+          return (
+            <div className="mt-2 motion-safe:animate-scaleIn rounded-xl border border-gray-200 bg-white p-3">
+              {recurring ? (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Repeat className="w-4 h-4 text-gray-400 shrink-0" strokeWidth={2} aria-hidden />
+                    <span className="text-[13px] text-gray-600 truncate">{t("portalUnavailRecurring", "You're off this weekday")}</span>
+                  </div>
+                  {onOpenAvailability && (
+                    <button type="button" onClick={onOpenAvailability}
+                      className="text-[13px] font-semibold text-gray-900 underline decoration-gray-300 underline-offset-2 shrink-0">
+                      {t("portalUnavailOpen", "Manage")}
+                    </button>
+                  )}
+                </div>
+              ) : marked ? (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <CalendarOff className="w-4 h-4 text-amber-500 shrink-0" strokeWidth={2} aria-hidden />
+                    <span className="text-[13px] text-gray-700 truncate">{t("portalUnavailMarked", "Can't work {day}", { day: dLabel })}</span>
+                  </div>
+                  <button type="button" disabled={saving} onClick={() => removeUnavail(iso)}
+                    className="text-[13px] font-semibold text-gray-500 hover:text-gray-900 disabled:opacity-50 shrink-0">
+                    {t("portalUnavailRemove", "Undo")}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[13px] text-gray-500 min-w-0 truncate">{t("portalUnavailPrompt", "Can't work {day}?", { day: dLabel })}</span>
+                  <button type="button" disabled={saving} onClick={() => markUnavail(iso)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-[13px] font-semibold text-white active:scale-[0.98] disabled:opacity-50 shrink-0">
+                    <CalendarOff className="w-3.5 h-3.5" strokeWidth={2.5} aria-hidden />
+                    {t("portalUnavailMark", "Can't work")}
+                  </button>
+                </div>
+              )}
+              {onOpenAvailability && !recurring && (
+                <button type="button" onClick={onOpenAvailability}
+                  className="mt-2 block text-[11px] text-gray-400 hover:text-gray-600 underline decoration-gray-200 underline-offset-2">
+                  {t("portalUnavailMore", "Set a time or repeat weekly")}
+                </button>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Selected-day detail + week total — the design's week footer. Left =
             the tapped day (or today's shift by default) with a role-colored bar;
@@ -4310,6 +4414,7 @@ export default function StaffPortalPage() {
             restaurantAddress={info?.restaurant_address}
             onShiftsChanged={loadData}
             onNeedChange={() => setTab("swaps")}
+            onOpenAvailability={() => setTab("availability")}
           />
         )}
         {/* Install/push nudge — BELOW the shift so the schedule leads; a calm
