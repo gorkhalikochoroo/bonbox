@@ -585,7 +585,17 @@ export default function OnboardingPage() {
       const bt = data.business_type;
       // Only act on a usable response. If the contract isn't met we leave
       // the manual cards untouched — no error surfaced to the owner.
-      if (bt && typeof bt === "string") {
+      //
+      // A "low"-confidence answer is the server telling us it did NOT
+      // recognise the description — it returns the "other" catch-all that way
+      // on an off-list guess, an upstream error, or a missing API key. We
+      // used to act on it anyway: preselect "other", show a green tick
+      // claiming "Looks like a Other — we'll set things up for that", and
+      // then PATCH business_type to "other" on Next. That silently retyped
+      // real businesses (and wiped personal accounts, whose whole mode hangs
+      // off business_type). Not detecting is a fine outcome — the manual
+      // cards right below are the honest fallback. Just don't claim we did.
+      if (bt && typeof bt === "string" && data.confidence !== "low") {
         // Preselect the precise detected business_type. archetypeFor()
         // resolves it for the cutoff / panel / route even when it's not
         // one of the 6 cards; the card grid highlights by archetype.
@@ -595,6 +605,10 @@ export default function OnboardingPage() {
         // config (guaranteed to be in i18n) rather than trusting the
         // backend's summary.labelKey — so the line can never leak a raw key.
         setDetected({ id: localArch.id, labelKey: localArch.labelKey });
+      } else if (seq === detectSeq.current) {
+        // Nothing recognised — clear any earlier guess rather than leaving a
+        // stale tick on screen from a previous keystroke.
+        setDetected(null);
       }
     } catch {
       // Endpoint may not exist yet in this build, or upstream is down.

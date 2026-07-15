@@ -217,9 +217,19 @@ _KEYWORD_MAP: dict[str, str] = {
     "arrangør": "event_organizer",
     "eventbureau": "event_organizer",
     # ── personal finance ─────────────────────────────────────────────────────
-    "privat": "personal",
+    # FULL PHRASES ONLY. _keyword_match is a SUBSTRING test, so the bare stems
+    # "privat" and "personlig" used to swallow real businesses: "privat
+    # restaurant i Aarhus", "privatejet café" (privately owned) and "personlig
+    # træner med eget studie" all minted business_type="personal". That was
+    # already wrong; it is now load-bearing, because "personal" is what exempts
+    # an account from the onboarding wizard (App.jsx ProtectedRoute) and gates
+    # the whole personal app (lib/appMode.js). A 120-char free-text field must
+    # not be able to declare "you are not a business" by accident.
+    "privatøkonomi": "personal",
+    "privat økonomi": "personal",
+    "personlig økonomi": "personal",
     "personal finance": "personal",
-    "personlig": "personal",
+    "min egen økonomi": "personal",
 }
 
 # Pre-sort terms longest-first so the most specific match wins on substring.

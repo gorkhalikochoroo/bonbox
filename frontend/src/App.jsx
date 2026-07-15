@@ -2,6 +2,7 @@ import { Component, lazy, Suspense, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { reportClientError } from "./utils/reportClientError";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
+import { canUsePersonalMode, homeFor } from "./lib/appMode";
 import { isStaffMemberRole } from "./config/navManifest";
 import { DeviceShareProvider, useDeviceShare } from "./hooks/useDeviceShare";
 import DevicePinLockScreen from "./components/DevicePinLockScreen";
@@ -349,7 +350,14 @@ function ProtectedRoute({ children }) {
   const role = (user.role || "owner").toLowerCase();
   if (
     role === "owner" &&
-    user.onboarding_completed_at === null
+    user.onboarding_completed_at === null &&
+    // A personal account is not a brand-new business, and the wizard has no
+    // honest question for it: no branch tile fits (there is no personal
+    // tile), and it asks for a company name, a CVR, opening hours and a
+    // revisor. Worse, its own Next step PATCHes business_type to whatever
+    // tile is showing — which is how a personal signup silently became a
+    // café and lost personal mode for good. Send them to their own app.
+    !canUsePersonalMode(user)
   ) {
     return <Navigate to="/onboarding" replace />;
   }
@@ -434,7 +442,7 @@ function PublicOrDashboard() {
     return <Navigate to={savedPortal ? `/s/${savedPortal}` : "/join"} replace />;
   }
   if (loading) return <PageLoader />;
-  if (user) return <Navigate to="/dashboard" />;
+  if (user) return <Navigate to={homeFor(user)} />;
   // On native iOS, skip the marketing landing page (no third-party platform references, native feel)
   const isNative = typeof window !== "undefined" && window.Capacitor?.isNativePlatform?.();
   if (isNative) return <Navigate to="/login" />;
