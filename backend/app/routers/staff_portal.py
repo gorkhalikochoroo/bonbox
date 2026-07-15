@@ -218,9 +218,18 @@ def _get_staff_from_token(token: str, db: Session):
     if not link:
         raise HTTPException(status_code=404, detail="Link not found or inactive")
 
+    # `active` is the FIRED gate, `is_deleted` is the ERASED gate — both must
+    # close the link. DELETE /api/staff/members/{id} (the owner's "remove this
+    # employee" action) only sets member.active = False; it does NOT deactivate
+    # the StaffLink and does not drop future shifts. So without the active check
+    # a fired staffer's magic link kept working — schedule, team roster and
+    # hours, from a token still sitting in their phone's browser history.
+    # The link IS the credential, so ending employment must end access, and this
+    # is the one chokepoint every portal endpoint funnels through.
     member = db.query(StaffMember).filter(
         StaffMember.id == link.staff_id,
         StaffMember.is_deleted.isnot(True),
+        StaffMember.active.is_(True),
     ).first()
     if not member:
         raise HTTPException(status_code=404, detail="Staff member not found")
