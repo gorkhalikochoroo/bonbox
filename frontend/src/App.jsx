@@ -529,6 +529,23 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        {/* Same deal for the week grid: OUTSIDE <Layout /> so the schedule gets
+            the whole window. The grid is 7 day-columns wide and the sidebar
+            costs it ~250px of exactly the axis it needs most — this is the
+            planning canvas, and a wall screen showing only the week.
+            Same StaffSchedulePage (standalone detected from the /stand path),
+            same gates, and every provider lives above <Routes> so useBranch /
+            useAuth / useConfirm are all intact here. */}
+        <Route
+          path="/staff/schedule/stand"
+          element={
+            <ProtectedRoute>
+              <PillarGate pillar="staff">
+                <StaffSchedulePage />
+              </PillarGate>
+            </ProtectedRoute>
+          }
+        />
         <Route
           element={
             <ProtectedRoute>

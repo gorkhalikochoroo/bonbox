@@ -11,6 +11,7 @@ import { displayCurrency, formatKr } from "../utils/currency";
 import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
+import { useLocation } from "react-router-dom";
 import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPin, MapPinOff, CalendarOff, Lock, LockKeyholeOpen } from "lucide-react";
 import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
 // Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
@@ -606,6 +607,14 @@ export default function StaffSchedulePage() {
   const { t, lang } = useLanguage();
   const confirm = useConfirm();
   const { branchId } = useBranch();
+  // Are we the popped-out window? Derived from the PATH, never threaded down
+  // as a prop — the same call the reservations pop-out makes, and for the same
+  // reason: a prop that isn't passed to every consumer throws
+  // "standalone is not defined" and takes the whole page with it.
+  // The route (/staff/schedule/stand) renders this page OUTSIDE <Layout />, so
+  // "standalone" here means exactly one thing: no app chrome around us.
+  const location = useLocation();
+  const standalone = location.pathname.endsWith("/staff/schedule/stand");
   const currency = displayCurrency(user?.currency);
   // Vertical-aware shift-role list (salon → Frisør/…; else restaurant). Stable
   // module-array reference, so it's safe in hook dep arrays.
@@ -1787,6 +1796,26 @@ export default function StaffSchedulePage() {
                       <span className="sm:hidden">{t("scheduleEmailButtonShort", "Email")}</span>
                     </>)}
               </Button>
+              {/* Pop the week out to its own window — no sidebar, full width for
+                  a 7-column grid. Icon-only and last: it changes nothing, so it
+                  must not compete with the actions that do.
+                  Desktop only (sm+): on a phone there is no sidebar to escape,
+                  so the button would cost space and buy nothing.
+                  Hidden while already popped out — a control that re-opens the
+                  window you are standing in is a dead end. */}
+              {!standalone && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="hidden sm:inline-flex"
+                  onClick={() =>
+                    window.open("/staff/schedule/stand", "_blank", "noopener,noreferrer")
+                  }
+                  aria-label={t("schedOpenWindow", "Open schedule in its own window")}
+                  title={t("schedOpenWindow", "Open schedule in its own window")}
+                  iconLeft={<Icon name="ExternalLink" size={14} />}
+                />
+              )}
             </div>
           </div>
         </div>

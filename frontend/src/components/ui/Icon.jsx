@@ -71,6 +71,10 @@ import {
   // Receipt-forwarding inbox (v0.1) — Copy + AlertCircle pair with
   // the existing Mail icon on the InboxBanner / Connections card.
   Copy, AlertCircle,
+  // Pop-out affordance — the schedule's "own window" button. Same mark the
+  // reservations host-stand pop-out uses (it imports lucide directly), routed
+  // through here so the toolbar keeps ONE icon entry point.
+  ExternalLink,
   // DK i18n leak fix — Onboarding branch-type tiles + Team role badges.
   // Coffee/UtensilsCrossed/Beer replace the emoji-on-tile chooser; Crown +
   // Eye round out the role catalog (Crown=owner, ClipboardList=manager
@@ -149,6 +153,7 @@ const ICONS = {
   ThumbsUp, ThumbsDown,
   // Receipt-forwarding inbox (v0.1)
   Copy, AlertCircle,
+  ExternalLink,
   // DK i18n leak fix — Onboarding branch-type tiles + Team role badges
   Coffee, UtensilsCrossed, Beer, Crown, Eye,
   // POS terminal auto-detect chip (Commit 2)
