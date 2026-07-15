@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 import Modal from "./Modal";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useAuth } from "../hooks/useAuth";
+import { resolveMode } from "../lib/appMode";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { localIso } from "../utils/dateFormat";
 import { trackEvent } from "../hooks/useEventLog";
@@ -34,7 +36,14 @@ export default function QuickAdd() {
   // Smart Scan modal is mounted at the same component level so its
   // onClose can re-focus the FAB and the body-scroll lock stays sane.
   const [smartScanOpen, setSmartScanOpen] = useState(false);
-  const mode = localStorage.getItem("bonbox_mode") || "business";
+  // Same rule as the sidebar (lib/appMode.js). This used to read the raw
+  // localStorage key while Layout also consulted business_type, so the two
+  // could disagree: a personal account with no key got a personal sidebar
+  // beside a BUSINESS sheet, and forcing the sidebar to business would have
+  // left a PERSONAL sheet here — no Sale tab, no Expense tab, i.e. the
+  // owner's only money-entry path silently gone. One resolver, no drift.
+  const { user } = useAuth();
+  const mode = resolveMode(user);
   const [tab, setTab] = useState(mode === "personal" ? "personal_income" : "sale");
   const [categories, setCategories] = useState([]);
   const [success, setSuccess] = useState("");

@@ -50,6 +50,7 @@ import DeviceShareSettingsCard from "../components/DeviceShareSettingsCard";
 import { resetAllTips } from "../components/DismissibleTip";
 import { localIso } from "../utils/dateFormat";
 import { Button, Card, Icon, PageHeader } from "../components/ui";
+import { useAuth } from "../hooks/useAuth";
 import { venueProfile, bookingModeFor } from "../config/venueProfiles";
 import { cutoffHourFor } from "../config/archetypes";
 
@@ -123,6 +124,8 @@ export default function ProfilePage() {
     }
   };
   const [user, setUser] = useState(null);
+  // Only refreshUser — this page keeps its own `user` state above.
+  const { refreshUser } = useAuth();
   const [form, setForm] = useState({ business_name: "", business_type: "", currency: "", email: "" });
   // The SAVED business type — so the venue preview can be honest that a changed
   // selection is only a preview until the profile is actually saved. Set from
@@ -582,6 +585,13 @@ export default function ProfilePage() {
       const res = await api.patch("/auth/profile", form);
       setUser(res.data);
       setSavedBusinessType(form.business_type);
+      // Push it into the auth context too — `setUser` above is this page's
+      // own state, which the sidebar never sees. Business type now decides
+      // whether personal mode exists at all (lib/appMode.js), so without
+      // this the nav would not react until a cold reload: the control would
+      // report success and change nothing. On native there is no URL bar to
+      // reload with, so that dead end would be permanent.
+      await refreshUser();
       const stored = localStorage.getItem("bonbox_user");
       if (stored) {
         const parsed = JSON.parse(stored);

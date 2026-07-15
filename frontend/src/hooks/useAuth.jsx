@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import api from "../services/api";
 import { trackEvent } from "./useEventLog";
+import { clearStoredMode } from "../lib/appMode";
 
 const AuthContext = createContext(null);
 
@@ -171,6 +172,8 @@ export function AuthProvider({ children }) {
     // its own at ACCESS_TOKEN_EXPIRE_MINUTES.
     try { await api.post("/auth/logout"); } catch {}
     try { localStorage.removeItem("token"); } catch {}
+    // Shared device: the next account must not inherit this one's mode.
+    clearStoredMode();
     setUser(null);
   };
 
