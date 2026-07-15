@@ -117,17 +117,20 @@ function isPast(dateStr) {
 // across refetches. We compare date+start+end+status only (Phase 1 keeps the
 // diff generic; no per-field human diffs). Sorting makes it insensitive to
 // row ordering from the API.
-// { days: [{ business_date, covers }] } -> { "2026-07-17": 38 }.
+// { shifts: [{ shift_id, covers }] } -> { "<shift id>": 38 }.
 //
-// The server stamps each day with the DK business day it belongs to (06:00
-// cutoff, derived from the shift's start instant), and the card matches on that
-// stamp. The client must NEVER re-derive "tonight" from the device clock: at
-// 00:30 the device says tomorrow while the staffer is still on the floor, and
-// the card would show the wrong night's number as fact.
+// Keyed by SHIFT id — the identity /schedule already handed us — so the join
+// needs no date arithmetic on this side at all. We previously keyed by day,
+// which forced the client to match a server business_date against a raw
+// calendar date; those diverge for every pre-cutoff shift, so the number
+// silently vanished. The id cannot drift.
+//
+// Each count is scoped to that shift's own hours, so a lunch waiter is never
+// shown the dinner covers.
 function coversMapFrom(data) {
   const out = {};
-  for (const d of (data && data.days) || []) {
-    if (d && typeof d.covers === "number" && d.business_date) out[d.business_date] = d.covers;
+  for (const s of (data && data.shifts) || []) {
+    if (s && typeof s.covers === "number" && s.shift_id) out[s.shift_id] = s.covers;
   }
   return out;
 }
@@ -980,7 +983,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, coversByDate, onShiftsChanged, onNeedChange, onOpenAvailability }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, coversByShift, onShiftsChanged, onNeedChange, onOpenAvailability }) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -1227,17 +1230,18 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                 must never reach the guest list — and a control that opens nothing
                 is a dead end.
 
-                Matched on the SERVER's business_date stamp, never on the device
-                clock: at 00:30 the device says tomorrow while the staffer is
-                still on the floor.
+                Joined on the shift's own id, so the count belongs to THIS shift
+                and no date is re-derived here. The server scopes it to the
+                shift's hours: guests arriving while this staffer is on, not the
+                whole day's total.
 
                 "booket" is load-bearing — walk-ins never enter the book, so this
                 is guests BOOKED, never guests served. */}
-            {typeof coversByDate?.[nextShift.date] === "number" && (
+            {typeof coversByShift?.[nextShift.id] === "number" && (
               <div className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-gray-400">
                 <Users className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
                 <span className="tabular-nums">
-                  {t("portalCoversBooked", "{n} guests booked", { n: coversByDate[nextShift.date] })}
+                  {t("portalCoversBooked", "{n} guests booked", { n: coversByShift[nextShift.id] })}
                 </span>
               </div>
             )}
@@ -3730,7 +3734,7 @@ export default function StaffPortalPage() {
   const [openShifts, setOpenShifts] = useState([]);
   // business_date -> booked covers, for the days I'm rostered. Empty map = this
   // owner doesn't take reservations (or the book is untouched) -> render NOTHING.
-  const [coversByDate, setCoversByDate] = useState({});
+  const [coversByShift, setCoversByShift] = useState({});
   const [hoursData, setHoursData] = useState(null);
   const [tipsData, setTipsData] = useState(null);
   // Unread owner→staff chat messages — drives the "Beskeder" nav badge.
@@ -3911,7 +3915,7 @@ export default function StaffPortalPage() {
       // previous value. A stale-but-true "38 booket" beats a fabricated 0 —
       // and 0 would read as "quiet night" to someone about to walk into 38.
       if (covers.status === "fulfilled") {
-        setCoversByDate(coversMapFrom(covers.value.data));
+        setCoversByShift(coversMapFrom(covers.value.data));
       }
     });
 
@@ -4472,7 +4476,7 @@ export default function StaffPortalPage() {
         {tab === "schedule" && (
           <ScheduleTab
             shifts={shifts}
-            coversByDate={coversByDate}
+            coversByShift={coversByShift}
             teamShifts={teamShifts}
             openShifts={openShifts}
             staffName={info?.staff_name}

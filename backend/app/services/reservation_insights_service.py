@@ -641,6 +641,39 @@ def compute_insights(
 
 
 # ─── profile + cutoff helpers (kept tiny + defensive) ─────────────────────────
+def booked_covers_in_window(db: Session, user, lo: datetime, hi: datetime) -> int:
+    """Σ party_size for bookings ARRIVING in the naive-local window [lo, hi).
+
+    For a SHIFT, not a day: the window is the shift's own start/end instant, so
+    "how many guests arrive while I'm on" is answered directly and a lunch
+    waiter never sees the dinner covers. It also sidesteps the business-day
+    cutoff entirely — a 17:00-01:00 shift IS [Fri 17:00, Sat 01:00), so a 00:30
+    booking falls inside without any cutoff arithmetic.
+
+    ARRIVING, deliberately: counts bookings whose starts_at is in the window,
+    not ones merely overlapping it. That is the work the staffer picks up, it is
+    explainable in one sentence, and it never double-counts one party across two
+    shifts.
+
+    Caller must have already checked reservations_enabled — this returns a bare
+    int and cannot express "not a reservations venue". Raises nothing: on error
+    the caller decides, because a 0 here would be indistinguishable from an
+    honestly empty book.
+    """
+    rows = (
+        db.query(Reservation.party_size)
+        .filter(
+            Reservation.user_id == user.id,
+            Reservation.is_deleted.is_(False),
+            Reservation.status.in_(BOOKED_COVER_STATUSES),
+            Reservation.starts_at >= lo,
+            Reservation.starts_at < hi,
+        )
+        .all()
+    )
+    return sum(int(r[0] or 0) for r in rows)
+
+
 def booked_covers_by_business_day(
     db: Session, user, start_day: date, end_day: date
 ) -> dict[date, int] | None:

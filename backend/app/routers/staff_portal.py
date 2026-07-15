@@ -19,6 +19,7 @@ import hashlib
 import uuid
 import hmac
 import json
+import logging
 import os
 import secrets
 import time
@@ -35,6 +36,8 @@ from app.utils.client_ip import client_ip
 from passlib.context import CryptContext
 
 from app.database import get_db, SessionLocal
+logger = logging.getLogger(__name__)
+
 from app.models.staff import (
     StaffMember, StaffLink, Schedule, HoursLogged,
     Tip, TipDistribution, PayPeriodConfig, NotificationLog, OpenShift,
@@ -554,14 +557,18 @@ def portal_covers(
     welded to the number. `covers: null` for a day means "this owner doesn't
     take reservations" (render nothing) — never conflate that with 0.
 
-    Business day, not calendar day: the server stamps each shift with the DK
-    business day it belongs to (06:00 cutoff), derived from the shift's START
-    INSTANT — a 17:00-01:00 Friday shift and a 00:30 booking are both Friday.
-    The client must NOT re-derive "tonight" from the device clock.
+    Keyed per SHIFT, and counted within the shift's OWN window — not per day.
+    Two reasons:
+      • The client can only join on what /schedule gave it (the shift id). Keying
+        by business day forced it to join a business date against a raw calendar
+        date, which silently diverges for every pre-cutoff shift.
+      • A whole-day total under one shift's hours is a lie to a lunch waiter —
+        they would read the dinner covers as theirs.
+    A 17:00-01:00 shift IS [Fri 17:00, Sat 01:00), so a 00:30 booking falls in
+    naturally and no business-day cutoff arithmetic is needed here at all.
     """
     from app.models.user import User
-    from app.services.reservation_insights_service import booked_covers_by_business_day
-    from app.services.tz_utils import _user_cutoff_hour
+    from app.services.reservation_insights_service import booked_covers_in_window
 
     link, member = _get_staff_from_token(token, db)
 
@@ -571,66 +578,46 @@ def portal_covers(
         # fail closed rather than 500 or leak a bare aggregate.
         raise HTTPException(status_code=404, detail="Link not found or inactive")
 
-    # Hydrate the owner's cutoff BEFORE any bucketing. tz_utils._user_cutoff_hour
-    # reads `user.day_cutoff_hour`, which the User model does not carry — routers
-    # stash it per request (see dashboard.py::_resolve_user_cutoff). Without this
-    # the SHIFT bucketing below silently falls back to 06:00 while the helper
-    # (which hydrates internally) uses the owner's real cutoff — the two then
-    # disagree and a bakery's early shift reads the wrong night's number.
-    _profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == owner.id).first()
-    if _profile is not None and _profile.day_cutoff_hour is not None:
-        owner.day_cutoff_hour = _profile.day_cutoff_hour
+    # Report the flag from the PROFILE, never inferred from a helper returning
+    # None — that would turn "our query failed" into the affirmative claim
+    # "this venue takes no bookings".
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == owner.id).first()
+    enabled = bool(profile and profile.reservations_enabled)
+    if not enabled:
+        return {"reservations_enabled": False, "shifts": []}
 
-    # Only this member's PUBLISHED shifts — drafts are not the staffer's
-    # business and unpublished days must not become queryable dates.
-    today_local = business_today_local(owner)
+    today = business_today_local(owner)
     shifts = (
         db.query(Schedule)
         .filter(
             Schedule.user_id == link.user_id,
             Schedule.staff_id == member.id,
             Schedule.status == "published",
-            Schedule.date >= today_local - timedelta(days=1),
-            Schedule.date <= today_local + timedelta(days=21),
+            Schedule.date >= today - timedelta(days=1),
+            Schedule.date <= today + timedelta(days=21),
         )
         .all()
     )
-    if not shifts:
-        return {"days": []}
 
-    # Map each shift to its BUSINESS day via its start instant. Schedule.date is
-    # a plain calendar date and start_time is "HH:MM" wall-clock, so a pre-cutoff
-    # early shift (a bakery 04:00 on Saturday, cutoff 06:00) belongs to FRIDAY's
-    # business day — using Schedule.date raw would show that staffer the wrong
-    # day's number as fact.
-    cutoff = _user_cutoff_hour(owner)
-    biz_days: set = set()
+    out = []
     for s in shifts:
         try:
-            hh, mm = (s.start_time or "00:00").split(":")[:2]
-            start = datetime.min.time().replace(hour=int(hh), minute=int(mm))
-            local = datetime.combine(s.date, start)
-            biz_days.add((local - timedelta(hours=cutoff)).date())
+            sh, sm = (s.start_time or "").split(":")[:2]
+            eh, em = (s.end_time or "").split(":")[:2]
+            lo = datetime.combine(s.date, datetime.min.time().replace(hour=int(sh), minute=int(sm)))
+            hi = datetime.combine(s.date, datetime.min.time().replace(hour=int(eh), minute=int(em)))
+            if hi <= lo:
+                hi += timedelta(days=1)   # the shift crosses midnight
         except Exception:  # noqa: BLE001
-            # One malformed row must not sink the card.
+            # A malformed row must not sink the card — just omit that shift.
             continue
-    if not biz_days:
-        return {"days": []}
+        try:
+            out.append({"shift_id": str(s.id), "covers": booked_covers_in_window(db, owner, lo, hi)})
+        except Exception:  # noqa: BLE001
+            logger.warning("covers window query failed for shift %s", s.id, exc_info=True)
+            continue
 
-    lo, hi = min(biz_days), max(biz_days)
-    covers_by_day = booked_covers_by_business_day(db, owner, lo, hi)
-    if covers_by_day is None:
-        # Not a reservations venue — the client renders NOTHING. Distinct from
-        # an empty book (which yields 0 for the day).
-        return {"days": [], "reservations_enabled": False}
-
-    return {
-        "reservations_enabled": True,
-        "days": [
-            {"business_date": d.isoformat(), "covers": int(covers_by_day.get(d, 0))}
-            for d in sorted(biz_days)
-        ],
-    }
+    return {"reservations_enabled": True, "shifts": out}
 
 
 @router.get("/{token}/hours")

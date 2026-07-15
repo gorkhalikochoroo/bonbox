@@ -114,13 +114,19 @@ def _staff(db, owner, token, name="Agnes"):
     return m
 
 
-def _shift(db, owner, member, day, *, start="17:00", status="published"):
+def _shift(db, owner, member, day, *, start="17:00", end="23:00", status="published"):
     s = Schedule(
         id=uuid.uuid4(), user_id=owner.id, staff_id=member.id, date=day,
-        start_time=start, end_time="23:00", status=status, role_on_shift="server",
+        start_time=start, end_time=end, status=status, role_on_shift="server",
     )
-    db.add(s); db.commit()
+    db.add(s); db.commit(); db.refresh(s)
     return s
+
+
+def _covers(client, token="tokA"):
+    """{shift_id: covers} — the shape the card actually joins on."""
+    body = client.get(f"/api/portal/{token}/covers").json()
+    return {r["shift_id"]: r["covers"] for r in body["shifts"]}
 
 
 def _booking(db, owner, when: datetime, party, status="confirmed"):
@@ -149,11 +155,10 @@ def test_covers_returns_count_for_a_published_shift_day(client, db):
     _booking(db, o, datetime.combine(day, datetime.min.time().replace(hour=19)), 4)
     _booking(db, o, datetime.combine(day, datetime.min.time().replace(hour=20)), 2)
 
+    sh = _shift(db, o, m, day) if False else None  # shift created above
     r = client.get("/api/portal/tokA/covers")
     assert r.status_code == 200
-    body = r.json()
-    got = {d["business_date"]: d["covers"] for d in body["days"]}
-    assert got[day.isoformat()] == 6
+    assert list(_covers(client).values()) == [6]
 
 
 def test_covers_payload_carries_NO_guest_data_at_all(client, db):
@@ -177,9 +182,9 @@ def test_covers_payload_carries_NO_guest_data_at_all(client, db):
     for forbidden in ["kunde", "4512345678", "guest@example.com", "birthday",
                       "nuts", "peanut", "severe", "allerg", "occasion", "note"]:
         assert forbidden not in raw, f"{forbidden!r} leaked to the staff surface"
-    # And structurally: only the two allowed keys per day.
-    for d in client.get("/api/portal/tokA/covers").json()["days"]:
-        assert set(d.keys()) == {"business_date", "covers"}
+    # And structurally: only the two allowed keys per shift.
+    for d in client.get("/api/portal/tokA/covers").json()["shifts"]:
+        assert set(d.keys()) == {"shift_id", "covers"}
 
 
 # ── scope-binding + isolation ─────────────────────────────────────────────
@@ -191,7 +196,7 @@ def test_no_shift_means_no_covers(client, db):
     day = _tomorrow()
     _booking(db, o, datetime.combine(day, datetime.min.time().replace(hour=19)), 40)
 
-    assert client.get("/api/portal/tokA/covers").json()["days"] == []
+    assert client.get("/api/portal/tokA/covers").json()["shifts"] == []
 
 
 def test_draft_shift_does_not_expose_covers(client, db):
@@ -203,7 +208,7 @@ def test_draft_shift_does_not_expose_covers(client, db):
     _shift(db, o, m, day, status="draft")
     _booking(db, o, datetime.combine(day, datetime.min.time().replace(hour=19)), 40)
 
-    assert client.get("/api/portal/tokA/covers").json()["days"] == []
+    assert client.get("/api/portal/tokA/covers").json()["shifts"] == []
 
 
 def test_covers_are_tenant_scoped(client, db):
@@ -216,8 +221,7 @@ def test_covers_are_tenant_scoped(client, db):
     _booking(db, a, datetime.combine(day, datetime.min.time().replace(hour=19)), 4)
     _booking(db, b, datetime.combine(day, datetime.min.time().replace(hour=19)), 99)
 
-    got = {d["business_date"]: d["covers"] for d in client.get("/api/portal/tokA/covers").json()["days"]}
-    assert got[day.isoformat()] == 4, "another tenant's covers leaked"
+    assert list(_covers(client).values()) == [4], "another tenant's covers leaked"
 
 
 def test_peer_staff_cannot_read_via_another_token(client, db):
@@ -230,8 +234,8 @@ def test_peer_staff_cannot_read_via_another_token(client, db):
     _shift(db, o, a, day)
     _booking(db, o, datetime.combine(day, datetime.min.time().replace(hour=19)), 8)
 
-    assert client.get("/api/portal/tokB/covers").json()["days"] == []
-    assert client.get("/api/portal/tokA/covers").json()["days"][0]["covers"] == 8
+    assert client.get("/api/portal/tokB/covers").json()["shifts"] == []
+    assert list(_covers(client).values()) == [8]
 
 
 def test_dead_token_is_rejected(client, db):
@@ -251,7 +255,7 @@ def test_not_a_reservations_venue_is_not_zero(client, db):
 
     body = client.get("/api/portal/tokA/covers").json()
     assert body.get("reservations_enabled") is False
-    assert body["days"] == []
+    assert body["shifts"] == []
 
 
 def test_enabled_but_empty_book_is_zero_not_absent(client, db):
@@ -263,8 +267,7 @@ def test_enabled_but_empty_book_is_zero_not_absent(client, db):
 
     body = client.get("/api/portal/tokA/covers").json()
     assert body.get("reservations_enabled") is True
-    got = {d["business_date"]: d["covers"] for d in body["days"]}
-    assert got[day.isoformat()] == 0
+    assert list(_covers(client).values()) == [0]
 
 
 def test_cancelled_and_noshow_contribute_no_covers(client, db):
@@ -278,35 +281,100 @@ def test_cancelled_and_noshow_contribute_no_covers(client, db):
     _booking(db, o, at19, 7, status="no_show")
     _booking(db, o, at19, 5, status="requested")  # un-approved hold
 
-    got = {d["business_date"]: d["covers"] for d in client.get("/api/portal/tokA/covers").json()["days"]}
-    assert got[day.isoformat()] == 4
+    assert list(_covers(client).values()) == [4]
 
 
-# ── business day ──────────────────────────────────────────────────────────
+# ── the shift window ──────────────────────────────────────────────────────────
 
-def test_post_midnight_booking_counts_toward_the_evening_shift(client, db):
-    """A 17:00-01:00 Friday shift + a 00:30 Saturday booking = Friday's night.
-    The waiter is still on the floor; the number must not jump to tomorrow."""
+def test_midnight_crossing_shift_counts_the_0030_booking(client, db):
+    """A 17:00-01:00 shift IS [Fri 17:00, Sat 01:00) — the 00:30 guest arrives
+    while the waiter is still on the floor, so it is theirs. No cutoff needed:
+    the shift's own hours carry the night across midnight."""
     o = _owner(db)
     m = _staff(db, o, "tokA")
     friday = _tomorrow()
     saturday = friday + timedelta(days=1)
-    _shift(db, o, m, friday, start="17:00")
+    _shift(db, o, m, friday, start="17:00", end="01:00")
     _booking(db, o, datetime.combine(friday, datetime.min.time().replace(hour=20)), 4)
     _booking(db, o, datetime.combine(saturday, datetime.min.time().replace(hour=0, minute=30)), 2)
 
-    got = {d["business_date"]: d["covers"] for d in client.get("/api/portal/tokA/covers").json()["days"]}
-    assert got[friday.isoformat()] == 6, "the 00:30 booking belongs to Friday's service"
+    assert list(_covers(client).values()) == [6], "the 00:30 guest belongs to this shift"
 
 
-def test_pre_cutoff_early_shift_reads_the_previous_business_day(client, db):
-    """A bakery on a 04:00 cutoff: a 05:00 Saturday shift is SATURDAY's service
-    (05:00 >= 04:00). With the wrong 06:00 default it would read Friday's."""
-    o = _owner(db, cutoff=4)
+def test_shift_that_ends_before_midnight_does_NOT_get_the_0030_booking(client, db):
+    """The other half of the promise. A waiter off at 23:00 never serves the
+    00:30 party — showing it under their shift would be a lie. This is the
+    behaviour the old whole-business-DAY total got wrong."""
+    o = _owner(db)
     m = _staff(db, o, "tokA")
-    saturday = _tomorrow()
-    _shift(db, o, m, saturday, start="05:00")
-    _booking(db, o, datetime.combine(saturday, datetime.min.time().replace(hour=6)), 8)
+    friday = _tomorrow()
+    saturday = friday + timedelta(days=1)
+    _shift(db, o, m, friday, start="17:00", end="23:00")
+    _booking(db, o, datetime.combine(friday, datetime.min.time().replace(hour=20)), 4)
+    _booking(db, o, datetime.combine(saturday, datetime.min.time().replace(hour=0, minute=30)), 2)
 
-    got = {d["business_date"]: d["covers"] for d in client.get("/api/portal/tokA/covers").json()["days"]}
-    assert got.get(saturday.isoformat()) == 8
+    assert list(_covers(client).values()) == [4], "a guest arriving after the shift is not theirs"
+
+
+def test_lunch_waiter_is_not_shown_the_dinner_covers(client, db):
+    """THE regression. Two shifts, one day: the lunch waiter must read lunch's
+    number and the evening waiter evening's. A whole-day total would show both
+    of them 30 and be wrong for each."""
+    o = _owner(db)
+    lunch_staff = _staff(db, o, "tokA", name="Agnes")
+    eve_staff = _staff(db, o, "tokB", name="Bo")
+    day = _tomorrow()
+    lunch = _shift(db, o, lunch_staff, day, start="11:00", end="15:00")
+    eve = _shift(db, o, eve_staff, day, start="17:00", end="23:00")
+    at = lambda h: datetime.combine(day, datetime.min.time().replace(hour=h))
+    _booking(db, o, at(12), 6)   # lunch
+    _booking(db, o, at(13), 4)   # lunch
+    _booking(db, o, at(19), 12)  # dinner
+    _booking(db, o, at(20), 8)   # dinner
+
+    assert _covers(client, "tokA") == {str(lunch.id): 10}, "lunch waiter saw the dinner covers"
+    assert _covers(client, "tokB") == {str(eve.id): 20}, "evening waiter saw the lunch covers"
+
+
+# ── the join ──────────────────────────────────────────────────────────────
+
+def test_covers_key_matches_the_id_schedule_hands_the_client(client, db):
+    """THE test that would have caught the original bug end-to-end.
+
+    The card can only join on what /schedule gave it. Assert the two endpoints
+    agree on the key by driving BOTH, rather than trusting either in isolation:
+    the first version keyed covers by business_date while /schedule emitted a
+    raw calendar date, so the number silently vanished for pre-cutoff shifts and
+    every single-endpoint test still passed."""
+    o = _owner(db)
+    m = _staff(db, o, "tokA")
+    day = _tomorrow()
+    _shift(db, o, m, day, start="17:00", end="23:00")
+    _booking(db, o, datetime.combine(day, datetime.min.time().replace(hour=19)), 7)
+
+    sched = client.get("/api/portal/tokA/schedule").json()["shifts"]
+    covers = _covers(client)
+    assert sched, "fixture produced no schedule row"
+    for row in sched:
+        assert row["id"] in covers, f"shift {row['id']} has no covers key the card can join"
+    assert covers[sched[0]["id"]] == 7
+
+
+@pytest.mark.parametrize("cutoff", [0, 4, 6, 12])
+def test_the_join_holds_at_every_cutoff_including_pre_cutoff_shifts(client, db, cutoff):
+    """The cutoff bug bit three times because each test picked the ONE value
+    where business_date == calendar_date and hid the mismatch. Sweep the cutoff
+    AND use a pre-cutoff start (05:00 < 06:00), which is exactly the config the
+    original test avoided.
+
+    The count must be identical at every cutoff: this endpoint keys on the
+    shift's own hours, so the owner's day-boundary setting cannot touch it."""
+    o = _owner(db, email=f"c{cutoff}@bonbox.dk", cutoff=cutoff)
+    m = _staff(db, o, f"tok{cutoff}")
+    day = _tomorrow()
+    _shift(db, o, m, day, start="05:00", end="11:00")
+    _booking(db, o, datetime.combine(day, datetime.min.time().replace(hour=7)), 9)
+
+    sched = client.get(f"/api/portal/tok{cutoff}/schedule").json()["shifts"]
+    covers = _covers(client, f"tok{cutoff}")
+    assert covers.get(sched[0]["id"]) == 9, f"join broke at cutoff={cutoff}"
