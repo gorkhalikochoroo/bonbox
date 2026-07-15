@@ -121,31 +121,36 @@ export default function OutletPage() {
       {/* ─── BEST vs WEAKEST ─── */}
       {best_performer && weakest_performer && outlet_count >= 2 && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-5 text-white shadow-sm">
-            <p className="text-sm opacity-80">🏆 {t("outlTopPerformer", "Top Performer")}</p>
+          {/* Both cards were DARK panels (text-white + opacity-NN labels). db32753
+              swapped the background to light and left the light foreground, so in
+              light mode the outlet NAME, its REVENUE and its MARGIN all rendered
+              white on #f9fafb (~1.045:1) — the entire comparison was blank.
+              Foreground now flips with the background. */}
+          <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-5 text-gray-900 dark:text-white shadow-sm">
+            <p className="text-sm text-gray-500 dark:text-gray-400">{t("outlTopPerformer", "Top Performer")}</p>
             <p className="text-xl font-bold mt-1">{best_performer.name}</p>
             <div className="grid grid-cols-2 gap-3 mt-3">
               <div>
-                <p className="text-xs opacity-70">{t("revenue")}</p>
-                <p className="text-lg font-bold">{fmt(best_performer.revenue)} {currency}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t("revenue")}</p>
+                <p className="text-lg font-bold tabular-nums">{fmt(best_performer.revenue)} {currency}</p>
               </div>
               <div>
-                <p className="text-xs opacity-70">{t("margin")}</p>
-                <p className="text-lg font-bold">{best_performer.margin}%</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t("margin")}</p>
+                <p className="text-lg font-bold tabular-nums">{best_performer.margin}%</p>
               </div>
             </div>
           </div>
-          <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-5 text-white shadow-sm">
-            <p className="text-sm opacity-80">📈 {t("needsAttention", "Needs Attention")}</p>
+          <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-5 text-gray-900 dark:text-white shadow-sm">
+            <p className="text-sm text-gray-500 dark:text-gray-400">{t("needsAttention", "Needs Attention")}</p>
             <p className="text-xl font-bold mt-1">{weakest_performer.name}</p>
             <div className="grid grid-cols-2 gap-3 mt-3">
               <div>
-                <p className="text-xs opacity-70">{t("revenue")}</p>
-                <p className="text-lg font-bold">{fmt(weakest_performer.revenue)} {currency}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t("revenue")}</p>
+                <p className="text-lg font-bold tabular-nums">{fmt(weakest_performer.revenue)} {currency}</p>
               </div>
               <div>
-                <p className="text-xs opacity-70">{t("margin")}</p>
-                <p className="text-lg font-bold">{weakest_performer.margin}%</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t("margin")}</p>
+                <p className="text-lg font-bold tabular-nums">{weakest_performer.margin}%</p>
               </div>
             </div>
           </div>

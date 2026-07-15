@@ -8,11 +8,14 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 
 import { FadeIn } from "../components/AnimationKit";
-import { PageHeader, SectionBanner, TabPills, Button } from "../components/ui";
+import { PageHeader, SectionBanner, TabPills, Button, Icon } from "../components/ui";
 
+// Lucide names, not emoji. An emoji renders as a different vendor cartoon on
+// every OS, can't take a design-system colour, and was the loudest non-premium
+// tell on this page. These map 1:1 onto the backend's condition strings.
 const WEATHER_ICONS = {
-  clear: "☀️", cloudy: "⛅", rain: "🌧️", drizzle: "🌦️",
-  snow: "❄️", storm: "⛈️", fog: "🌫️", unknown: "🌡️",
+  clear: "Sun", cloudy: "CloudSun", rain: "CloudRain", drizzle: "CloudDrizzle",
+  snow: "Snowflake", storm: "CloudLightning", fog: "CloudFog", unknown: "Thermometer",
 };
 
 function formatTemp(t) {
@@ -145,7 +148,7 @@ export default function WeatherPage({ embedded = false }) {
     return (
       <div className={`${embedded ? "" : "p-4 md:p-8"} flex items-center justify-center min-h-[400px]`}>
         <div className="text-center">
-          <div className="text-4xl mb-3 animate-pulse">🌤️</div>
+          <div className="animate-spin rounded-full h-7 w-7 border-b-2 border-gray-900 dark:border-gray-100 mx-auto mb-3" />
           <p className="text-gray-500 dark:text-gray-400">{t("loadingWeather")}</p>
         </div>
       </div>
@@ -157,7 +160,7 @@ export default function WeatherPage({ embedded = false }) {
     return (
       <div className={`${embedded ? "" : "p-4 md:p-8"} max-w-lg mx-auto`}>
         <div className="bg-white dark:bg-gray-800 rounded-xl p-8 shadow-sm text-center">
-          <div className="text-6xl mb-4">🌦️</div>
+          <Icon name="CloudSun" size={44} strokeWidth={1.5} className="mx-auto mb-4 text-gray-400 dark:text-gray-500" aria-hidden="true" />
           <h1 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">{t("weatherSmart")}</h1>
           <p className="text-gray-500 dark:text-gray-400 mb-6">
             {t("weatherLocationDesc")}
@@ -257,28 +260,32 @@ export default function WeatherPage({ embedded = false }) {
       )}
 
       {/* ─── REVENUE PREDICTIONS (Hero Card) ─── */}
-      {preds.length > 0 && prediction?.available && (
-        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 text-white shadow-sm">
+              {/* Was a DARK panel: text-white, opacity-NN labels, and bg-white/15
+            "glass" sub-cards that only read over a dark backdrop. db32753 swapped
+            the background to light and kept all three, so in light mode every
+            predicted-revenue figure rendered white on #f9fafb (~1.045:1) — the
+            card was blank. Foreground and the sub-card fills now flip with it. */}
+{preds.length > 0 && prediction?.available && (
+        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 text-gray-900 dark:text-white shadow-sm">
           <h2 className="font-bold text-lg mb-4 flex items-center gap-2">
-            <span>🔮</span> {t("wxRevenuePredictions", "Revenue Predictions")}
+            {t("wxRevenuePredictions", "Revenue Predictions")}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {preds.map((p, i) => {
               const isUp = p.impact_pct >= 0;
               return (
-                <div key={i} className="bg-white/15 backdrop-blur-sm rounded-xl p-4">
+                <div key={i} className="bg-white dark:bg-white/15 border border-gray-100 dark:border-transparent backdrop-blur-sm rounded-xl p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium opacity-90">{p.day_label}</span>
-                    <span className="text-2xl">{p.emoji}</span>
+                    <span className="text-sm font-medium text-gray-500 dark:text-gray-300">{p.day_label}</span>
                   </div>
-                  <p className="text-3xl font-bold">{Math.round(p.predicted_revenue)} <span className="text-lg opacity-80">{currency}</span></p>
+                  <p className="text-3xl font-bold tabular-nums">{Math.round(p.predicted_revenue)} <span className="text-lg text-gray-500 dark:text-gray-300">{currency}</span></p>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className={`text-sm font-semibold px-2 py-0.5 rounded-full ${isUp ? "bg-emerald-500/15" : "bg-red-400/30"}`}>
+                    <span className={`text-sm font-semibold px-2 py-0.5 rounded-full tabular-nums ${isUp ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" : "bg-red-50 text-red-700 dark:bg-red-400/30 dark:text-red-200"}`}>
                       {isUp ? "▲" : "▼"} {Math.abs(p.impact_pct)}%
                     </span>
-                    <span className="text-xs opacity-70">vs avg {Math.round(p.overall_average)} {currency}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">vs avg {Math.round(p.overall_average)} {currency}</span>
                   </div>
-                  <div className="flex items-center gap-2 mt-2 text-xs opacity-70">
+                  <div className="flex items-center gap-2 mt-2 text-xs text-gray-500 dark:text-gray-400">
                     <span className="capitalize">{p.condition}</span>
                     <span>•</span>
                     <span>{formatTemp(p.temp_max)}</span>
@@ -286,10 +293,11 @@ export default function WeatherPage({ embedded = false }) {
                   </div>
                   <div className="mt-2">
                     <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-                      p.confidence === "high" ? "bg-emerald-500/15" :
-                      p.confidence === "medium" ? "bg-yellow-400/30" : "bg-gray-400/30"
+                      p.confidence === "high" ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" :
+                      p.confidence === "medium" ? "bg-amber-50 text-amber-700 dark:bg-amber-400/30 dark:text-amber-200" :
+                      "bg-gray-100 text-gray-600 dark:bg-gray-400/30 dark:text-gray-300"
                     }`}>
-                      {p.confidence === "high" ? "🎯" : p.confidence === "medium" ? "📊" : "🔄"} {p.confidence} {t("wxConfidence", "confidence")} ({p.sample_days} {t("wxDays", "days")})
+                      {p.confidence} {t("wxConfidence", "confidence")} ({p.sample_days} {t("wxDays", "days")})
                     </span>
                   </div>
                 </div>
@@ -304,7 +312,7 @@ export default function WeatherPage({ embedded = false }) {
         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-bold text-gray-800 dark:text-white flex items-center gap-2">
-              <span>📊</span> {t("wxIntelligenceProgress", "Intelligence Progress")}
+              {t("wxIntelligenceProgress", "Intelligence Progress")}
             </h2>
             <button
               onClick={syncWeather}
@@ -357,35 +365,46 @@ export default function WeatherPage({ embedded = false }) {
       )}
 
       {/* ─── TODAY'S WEATHER ─── */}
-      {(current || todayForecast) && (
-        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 text-white">
+              {/* THE bug Manoj felt as "not premium". This was a dark slate gradient
+            with text-white; db32753 swapped it to bg-gray-50 and left text-white,
+            so in light mode the TEMPERATURE (and humidity/wind/high-low) rendered
+            white on #f9fafb — ~1.045:1, i.e. a weather card with no temperature.
+            Labels were text-gray-300 (~1.4:1), also unreadable on light. */}
+{(current || todayForecast) && (
+        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 text-gray-900 dark:text-white">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-300">{t("rightNow")}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{t("rightNow")}</p>
               <div className="flex items-center gap-3 mt-1">
-                <span className="text-5xl">{WEATHER_ICONS[current?.condition || todayForecast?.condition] || "🌡️"}</span>
+                <Icon
+                  name={WEATHER_ICONS[current?.condition || todayForecast?.condition] || "Thermometer"}
+                  size={44}
+                  strokeWidth={1.5}
+                  className="shrink-0 text-gray-400 dark:text-gray-500"
+                  aria-hidden="true"
+                />
                 <div>
-                  <p className="text-3xl font-bold">{current ? formatTemp(current.temperature) : formatTemp(todayForecast?.temp_max)}</p>
+                  <p className="text-3xl font-bold tabular-nums">{current ? formatTemp(current.temperature) : formatTemp(todayForecast?.temp_max)}</p>
                   {current?.feels_like != null && (
-                    <p className="text-sm text-gray-400">{t("feelsLike")} {formatTemp(current.feels_like)}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 tabular-nums">{t("feelsLike")} {formatTemp(current.feels_like)}</p>
                   )}
-                  <p className="text-gray-400 capitalize">{current?.condition || todayForecast?.condition}</p>
+                  <p className="text-gray-500 dark:text-gray-400 capitalize">{current?.condition || todayForecast?.condition}</p>
                 </div>
               </div>
             </div>
             <div className="text-right space-y-1">
               {current?.humidity != null && (
                 <>
-                  <p className="text-sm text-gray-400">{t("humidity")}</p>
-                  <p className="text-lg font-semibold">{current.humidity}%</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t("humidity")}</p>
+                  <p className="text-lg font-semibold tabular-nums">{current.humidity}%</p>
                 </>
               )}
-              <p className="text-sm text-gray-400">{t("wind")}</p>
-              <p className="text-lg">{(current?.wind_speed || todayForecast?.wind_speed)?.toFixed(0) || 0} km/h</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{t("wind")}</p>
+              <p className="text-lg tabular-nums">{(current?.wind_speed || todayForecast?.wind_speed)?.toFixed(0) || 0} km/h</p>
               {todayForecast && (
                 <>
-                  <p className="text-sm text-gray-400">{t("highLow")}</p>
-                  <p className="text-sm">{formatTemp(todayForecast.temp_max)} / {formatTemp(todayForecast.temp_min)}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{t("highLow")}</p>
+                  <p className="text-sm tabular-nums">{formatTemp(todayForecast.temp_max)} / {formatTemp(todayForecast.temp_min)}</p>
                 </>
               )}
             </div>
@@ -403,7 +422,10 @@ export default function WeatherPage({ embedded = false }) {
               return (
                 <div key={i} className="py-3 rounded-xl bg-gray-50 dark:bg-gray-700/50">
                   <p className="text-xs text-gray-500 dark:text-gray-400">{i === 0 ? t("today") : dayName}</p>
-                  <p className="text-2xl my-1">{WEATHER_ICONS[d.condition] || "🌡️"}</p>
+                  <div className="flex justify-center my-1">
+                    <Icon name={WEATHER_ICONS[d.condition] || "Thermometer"} size={20} strokeWidth={1.5}
+                      className="text-gray-400 dark:text-gray-500" aria-hidden="true" />
+                  </div>
                   <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{formatTemp(d.temp_max)}</p>
                   <p className="text-xs text-gray-400">{formatTemp(d.temp_min)}</p>
                   {d.precipitation > 0 && (
@@ -452,7 +474,10 @@ export default function WeatherPage({ embedded = false }) {
                   const color = pct >= 0 ? "bg-emerald-500" : pct > -15 ? "bg-yellow-500" : "bg-red-500";
                   return (
                     <div key={i} className="flex items-center gap-3">
-                      <span className="text-2xl w-8">{WEATHER_ICONS[cond] || "🌡️"}</span>
+                      <span className="w-8 flex justify-center">
+                        <Icon name={WEATHER_ICONS[cond] || "Thermometer"} size={18} strokeWidth={1.5}
+                          className="text-gray-400 dark:text-gray-500" aria-hidden="true" />
+                      </span>
                       <div className="flex-1">
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-sm font-medium capitalize text-gray-700 dark:text-gray-300">{cond}</span>
@@ -493,7 +518,7 @@ export default function WeatherPage({ embedded = false }) {
                 const pct = avg ? Math.round((d.avg_revenue / avg - 1) * 100) : 0;
                 return (
                   <div key={key} className={`p-4 rounded-xl ${bg} text-center`}>
-                    <span className="text-3xl">{icon}</span>
+                    <Icon name={icon} size={22} strokeWidth={1.5} className="mx-auto text-gray-400 dark:text-gray-500" aria-hidden="true" />
                     <p className="text-sm font-medium mt-2 text-gray-700 dark:text-gray-300">{label}</p>
                     <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{Math.round(d.avg_revenue)} {currency}</p>
                     <p className={`text-sm font-semibold mt-1 ${pct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
@@ -513,9 +538,9 @@ export default function WeatherPage({ embedded = false }) {
           {intelTab === "rain" && correlation.rain_analysis && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {[
-                { key: "dry", label: t("wxRainDry", "Dry (<1mm)"), icon: "☀️", bg: "bg-gray-50 dark:bg-gray-800/50" },
-                { key: "light_rain", label: t("wxRainLight", "Light (1-5mm)"), icon: "🌦️", bg: "bg-yellow-50 dark:bg-yellow-900/20" },
-                { key: "heavy_rain", label: t("wxRainHeavy", "Heavy (>5mm)"), icon: "🌧️", bg: "bg-red-50 dark:bg-red-900/20" },
+                { key: "dry", label: t("wxRainDry", "Dry (<1mm)"), icon: "Sun", bg: "bg-gray-50 dark:bg-gray-800/50" },
+                { key: "light_rain", label: t("wxRainLight", "Light (1-5mm)"), icon: "CloudDrizzle", bg: "bg-gray-50 dark:bg-gray-800/50" },
+                { key: "heavy_rain", label: t("wxRainHeavy", "Heavy (>5mm)"), icon: "CloudRain", bg: "bg-gray-50 dark:bg-gray-800/50" },
               ].map(({ key, label, icon, bg }) => {
                 const d = correlation.rain_analysis[key];
                 if (!d) return null;
@@ -523,7 +548,7 @@ export default function WeatherPage({ embedded = false }) {
                 const pct = avg ? Math.round((d.avg_revenue / avg - 1) * 100) : 0;
                 return (
                   <div key={key} className={`p-4 rounded-xl ${bg} text-center`}>
-                    <span className="text-3xl">{icon}</span>
+                    <Icon name={icon} size={22} strokeWidth={1.5} className="mx-auto text-gray-400 dark:text-gray-500" aria-hidden="true" />
                     <p className="text-sm font-medium mt-2 text-gray-700 dark:text-gray-300">{label}</p>
                     <p className="text-2xl font-bold text-gray-800 dark:text-white mt-1">{Math.round(d.avg_revenue)} {currency}</p>
                     <p className={`text-sm font-semibold mt-1 ${pct >= 0 ? "text-emerald-600" : "text-red-600"}`}>
@@ -573,7 +598,10 @@ export default function WeatherPage({ embedded = false }) {
               const color = pct >= 0 ? "bg-emerald-500" : pct > -15 ? "bg-yellow-500" : "bg-red-500";
               return (
                 <div key={i} className="flex items-center gap-3">
-                  <span className="text-2xl w-8">{WEATHER_ICONS[c.condition] || "🌡️"}</span>
+                  <span className="w-8 flex justify-center">
+                    <Icon name={WEATHER_ICONS[c.condition] || "Thermometer"} size={18} strokeWidth={1.5}
+                      className="text-gray-400 dark:text-gray-500" aria-hidden="true" />
+                  </span>
                   <div className="flex-1">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm font-medium capitalize text-gray-700 dark:text-gray-300">{c.condition}</span>
