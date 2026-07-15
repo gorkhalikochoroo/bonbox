@@ -501,6 +501,129 @@ def confirm_schedule(token: str, request: Request, db: Session = Depends(get_db)
     }
 
 
+@router.get("/{token}/covers")
+@limiter.limit("30/minute")
+def portal_covers(
+    request: Request,
+    token: str,
+    db: Session = Depends(get_db),
+):
+    """Booked covers for the days THIS staffer is actually rostered.
+
+    Why it exists: BonBox holds both the reservation book and the roster, so a
+    waiter can walk in already knowing the night. "I aften · 38 gæster booket"
+    is the whole feature.
+
+    Privacy — this is the decisive constraint, read before extending:
+      • Returns ONLY an aggregate integer per date. NO guest names, NO phone,
+        NO email, NO notes, NO occasion, NO table/slot breakdown.
+      • **NO ALLERGIES — not the note, not the severity, NOT EVEN A COUNT.**
+        Allergies are GDPR Art.9 special-category health data. The owner's OWN
+        host stand already refuses to show them next to a name (see
+        reservations.py `_reservation_change_dict`) — and that is an
+        owner-authenticated, venue-owned iPad. THIS surface is strictly weaker:
+        the token sits in a URL, on a personal phone, and StaffLink.pin_hash is
+        NULLABLE (the PIN is opt-in), so a default link has the token as its
+        only credential. The portal can never receive more guest data than the
+        host stand gets. A count is not a safe middle ground: a waiter cannot
+        act on "2 allergies", so the only honest next tap is the detail — which
+        is exactly the payload that must not ship. Do not add it behind an owner
+        toggle either; Art.5(1)(c) minimisation is the controller's duty, not a
+        café owner's preference.
+      • Why the integer IS safe: the nightly GDPR purge nulls every guest field
+        but deliberately KEEPS party_size "for aggregate stats"
+        (jobs/reservation_jobs.py). A number computable from a fully erased row
+        is not personal data.
+      • Scope-bound: covers are returned ONLY for dates where this member has a
+        PUBLISHED shift. Without that, any token holder becomes a
+        covers-enumeration oracle over arbitrary dates — the same reason
+        portal_team_schedule caps days_ahead.
+      • Tenant-scoped: every query filters on the link's owner (link.user_id).
+
+    Honesty: `covers` is Σ party_size over BOOKED statuses — booked, NOT served.
+    Walk-ins never enter the book, so the client must keep the word "booket"
+    welded to the number. `covers: null` for a day means "this owner doesn't
+    take reservations" (render nothing) — never conflate that with 0.
+
+    Business day, not calendar day: the server stamps each shift with the DK
+    business day it belongs to (06:00 cutoff), derived from the shift's START
+    INSTANT — a 17:00-01:00 Friday shift and a 00:30 booking are both Friday.
+    The client must NOT re-derive "tonight" from the device clock.
+    """
+    from app.models.user import User
+    from app.services.reservation_insights_service import booked_covers_by_business_day
+    from app.services.tz_utils import _user_cutoff_hour
+
+    link, member = _get_staff_from_token(token, db)
+
+    owner = db.query(User).filter(User.id == link.user_id).first()
+    if not owner:
+        # Defensive: FK should guarantee this, but a hard-deleted owner must
+        # fail closed rather than 500 or leak a bare aggregate.
+        raise HTTPException(status_code=404, detail="Link not found or inactive")
+
+    # Hydrate the owner's cutoff BEFORE any bucketing. tz_utils._user_cutoff_hour
+    # reads `user.day_cutoff_hour`, which the User model does not carry — routers
+    # stash it per request (see dashboard.py::_resolve_user_cutoff). Without this
+    # the SHIFT bucketing below silently falls back to 06:00 while the helper
+    # (which hydrates internally) uses the owner's real cutoff — the two then
+    # disagree and a bakery's early shift reads the wrong night's number.
+    _profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == owner.id).first()
+    if _profile is not None and _profile.day_cutoff_hour is not None:
+        owner.day_cutoff_hour = _profile.day_cutoff_hour
+
+    # Only this member's PUBLISHED shifts — drafts are not the staffer's
+    # business and unpublished days must not become queryable dates.
+    today_local = business_today_local(owner)
+    shifts = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == link.user_id,
+            Schedule.staff_id == member.id,
+            Schedule.status == "published",
+            Schedule.date >= today_local - timedelta(days=1),
+            Schedule.date <= today_local + timedelta(days=21),
+        )
+        .all()
+    )
+    if not shifts:
+        return {"days": []}
+
+    # Map each shift to its BUSINESS day via its start instant. Schedule.date is
+    # a plain calendar date and start_time is "HH:MM" wall-clock, so a pre-cutoff
+    # early shift (a bakery 04:00 on Saturday, cutoff 06:00) belongs to FRIDAY's
+    # business day — using Schedule.date raw would show that staffer the wrong
+    # day's number as fact.
+    cutoff = _user_cutoff_hour(owner)
+    biz_days: set = set()
+    for s in shifts:
+        try:
+            hh, mm = (s.start_time or "00:00").split(":")[:2]
+            start = datetime.min.time().replace(hour=int(hh), minute=int(mm))
+            local = datetime.combine(s.date, start)
+            biz_days.add((local - timedelta(hours=cutoff)).date())
+        except Exception:  # noqa: BLE001
+            # One malformed row must not sink the card.
+            continue
+    if not biz_days:
+        return {"days": []}
+
+    lo, hi = min(biz_days), max(biz_days)
+    covers_by_day = booked_covers_by_business_day(db, owner, lo, hi)
+    if covers_by_day is None:
+        # Not a reservations venue — the client renders NOTHING. Distinct from
+        # an empty book (which yields 0 for the day).
+        return {"days": [], "reservations_enabled": False}
+
+    return {
+        "reservations_enabled": True,
+        "days": [
+            {"business_date": d.isoformat(), "covers": int(covers_by_day.get(d, 0))}
+            for d in sorted(biz_days)
+        ],
+    }
+
+
 @router.get("/{token}/hours")
 @limiter.limit("30/minute")
 def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)):
