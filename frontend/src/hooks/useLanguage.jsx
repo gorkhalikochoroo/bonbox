@@ -3930,6 +3930,11 @@ const translations = {
     schedLaborNoRev: "Add sales or a close for labor %",
     schedDayTotals: "Day totals",
     schedOnShift: "on shift",
+    // "booked" is load-bearing: walk-ins never enter the reservation book, so
+    // this is guests BOOKED, never guests served. Dropping the word would
+    // overclaim the night (for a café, walk-ins can be most of it).
+    schedCoversBooked: "booked",
+    schedCoversBookedAria: "{n} guests booked",
     schedToday: "Today",
     schedDraft: "Draft",
     schedOff: "OFF",
@@ -11005,6 +11010,11 @@ const translations = {
     schedLaborNoRev: "Tilføj salg eller kasseopgørelse for lønprocent",
     schedDayTotals: "Dagstotaler",
     schedOnShift: "på vagt",
+    // "booket" — what a DK restauratør actually says on a roster. NOT
+    // "dækninger" (false friend for covers), and not "couverts" (that reads on
+    // a table floor, not next to a vagtplan).
+    schedCoversBooked: "booket",
+    schedCoversBookedAria: "{n} gæster booket",
     schedToday: "I dag",
     schedDraft: "Kladde",
     schedOff: "FRI",

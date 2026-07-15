@@ -641,6 +641,85 @@ def compute_insights(
 
 
 # ─── profile + cutoff helpers (kept tiny + defensive) ─────────────────────────
+def booked_covers_by_business_day(
+    db: Session, user, start_day: date, end_day: date
+) -> dict[date, int] | None:
+    """Booked covers per BUSINESS day for [start_day, end_day] inclusive.
+
+    The one number the schedule grid needs: "how many guests are booked for the
+    night I'm rostering". MEASURED, not forecast — Σ party_size over
+    BOOKED_COVER_STATUSES. No confidence gate, no model.
+
+    THREE RETURN STATES, deliberately distinct — the caller must not collapse them:
+      • None      -> not a reservations venue (flag off). Render NOTHING.
+      • {} / no key for a day -> reservations venue, that day's book is empty.
+      • {d: n}    -> n covers booked for business day d.
+    `None` and `0` are different truths. A bakery that never turned reservations
+    on must never be shown "0 booked" — on a surface where zero is
+    indistinguishable from no-data, that is a fabricated fact.
+
+    HONESTY: walk-ins never enter the book, and for a café they are often MOST
+    of the night. So this is "booked", never "guests served". Callers MUST keep
+    the word "booked" attached to the number — a bare "38 covers" is a claim
+    about tonight that this function cannot support.
+
+    BUSINESS day, not calendar day (DK 06:00 cutoff): a 00:30 Saturday booking
+    is Friday's service. `Reservation.starts_at` is stored naive business-local,
+    so the bounds are naive-local too — pure wall-clock, DST-safe, no UTC
+    round-trip. Uses the same shift-back-by-cutoff bucketing as the heatmap.
+
+    Fail-soft: ANY error returns None (render nothing). The owner's schedule
+    grid must never 500 because the booking book hiccuped — it is a wage-cost
+    tool first, and covers are an additive courtesy on top.
+    """
+    try:
+        profile = rsvc_profile(db, user)
+        if not profile or not bool(getattr(profile, "reservations_enabled", False)):
+            return None
+
+        # Hydrate the owner's cutoff onto `user` BEFORE any bucketing.
+        # tz_utils._user_cutoff_hour reads `user.day_cutoff_hour` — a column the
+        # User model does NOT have; routers stash it per-request (see
+        # dashboard.py::_resolve_user_cutoff). schedule_week_cost never did, so
+        # without this every non-default cutoff silently fell back to 06:00: a
+        # bakery on a 04:00 cutoff had its 05:00 Saturday guests counted on
+        # FRIDAY, and the owner staffs the wrong morning. We already hold the
+        # profile, so hydrate here — the helper stays correct for ANY caller
+        # instead of depending on each one remembering.
+        if getattr(profile, "day_cutoff_hour", None) is not None:
+            user.day_cutoff_hour = profile.day_cutoff_hour
+
+        lo, _ = business_day_window_local(user, start_day)
+        _, hi = business_day_window_local(user, end_day)
+
+        rows = (
+            db.query(Reservation.starts_at, Reservation.party_size)
+            .filter(
+                Reservation.user_id == user.id,
+                Reservation.is_deleted.is_(False),
+                Reservation.status.in_(BOOKED_COVER_STATUSES),
+                Reservation.starts_at >= lo,
+                Reservation.starts_at < hi,
+            )
+            .all()
+        )
+
+        cutoff = _resolve_cutoff_hour(user)
+        out: dict[date, int] = {}
+        for starts_at, party_size in rows:
+            try:
+                local = _local_dt(user, starts_at)
+                biz_day = (local - timedelta(hours=cutoff)).date()
+                out[biz_day] = out.get(biz_day, 0) + int(party_size or 0)
+            except Exception:  # noqa: BLE001
+                # One malformed row must not sink the week.
+                continue
+        return out
+    except Exception:  # noqa: BLE001
+        logger.warning("booked_covers_by_business_day failed", exc_info=True)
+        return None
+
+
 def rsvc_profile(db: Session, user):
     """The user's BusinessProfile (or None). Tenant-scoped. Local import of the
     model keeps this module importable from non-DB contexts."""

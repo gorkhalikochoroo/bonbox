@@ -695,3 +695,132 @@ def test_endpoint_forecast_locked_flag_for_free(client, db):
         assert body["forecast_locked"] is True
     finally:
         _clear_user_override()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# booked_covers_by_business_day — the number the SCHEDULE grid renders.
+#
+# This is the honesty-critical helper: it puts a guest count next to the roster,
+# so if it buckets or filters wrong the owner staffs the wrong night. The three
+# ways it could silently lie, each pinned below:
+#   1. bucketing a post-midnight booking onto the WRONG business day
+#   2. counting statuses that never sat (cancelled / no_show / un-approved hold)
+#   3. returning 0 for a venue that doesn't do reservations at all (0 != None)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_booked_covers_buckets_by_business_day_and_filters_statuses(db):
+    owner, _profile = _owner(db)
+    friday = _recent_weekday(owner, 4, 1)        # Mon=0 … Fri=4
+    saturday = friday + timedelta(days=1)
+
+    # Friday evening service — plainly Friday.
+    _add_reservation(db, owner, biz_day=friday, hour=20, party=4)
+    # 00:30 SATURDAY on the clock, but it is still FRIDAY's service (06:00
+    # cutoff). This is the whole point of business-day bucketing.
+    _add_reservation(db, owner, biz_day=saturday, hour=0, minute=30, party=2)
+    # Never sat -> contributes no covers.
+    _add_reservation(db, owner, biz_day=friday, hour=19, party=6, status="cancelled")
+    _add_reservation(db, owner, biz_day=friday, hour=19, party=7, status="no_show")
+    # `requested` is an un-approved hold, not a booking.
+    _add_reservation(db, owner, biz_day=friday, hour=19, party=5, status="requested")
+    # A genuine Saturday-evening booking.
+    _add_reservation(db, owner, biz_day=saturday, hour=20, party=3)
+
+    covers = svc.booked_covers_by_business_day(db, owner, friday, saturday)
+
+    assert covers is not None
+    # 4 (Fri 20:00) + 2 (Sat 00:30 -> Friday). Cancelled/no_show/requested excluded.
+    assert covers.get(friday) == 6, "post-midnight booking must land on the previous business day"
+    assert covers.get(saturday) == 3
+
+
+def test_booked_covers_returns_none_when_reservations_disabled(db):
+    """None (= not a reservations venue) must NOT degrade to 0 (= empty book).
+
+    A bakery that never turned reservations on must render NOTHING, never
+    '0 booked' — on the grid, zero is indistinguishable from no-data, so
+    emitting 0 here would be a fabricated fact.
+    """
+    owner, profile = _owner(db)
+    profile.reservations_enabled = False
+    db.commit()
+    friday = _recent_weekday(owner, 4, 1)
+    _add_reservation(db, owner, biz_day=friday, hour=20, party=4)
+
+    covers = svc.booked_covers_by_business_day(db, owner, friday, friday)
+    assert covers is None
+
+
+def test_booked_covers_empty_book_is_zero_not_none(db):
+    """Reservations ON but nobody booked -> the day is absent/0, NOT None.
+
+    The mirror of the test above: this venue DOES take bookings, so an empty
+    Tuesday is a real, useful fact ('quiet night'), not missing data.
+    """
+    owner, _profile = _owner(db)
+    friday = _recent_weekday(owner, 4, 1)
+
+    covers = svc.booked_covers_by_business_day(db, owner, friday, friday)
+    assert covers is not None, "an enabled venue must not report None"
+    assert covers.get(friday, 0) == 0
+
+
+def test_booked_covers_is_tenant_scoped(db):
+    """Owner B's guests never appear in owner A's grid."""
+    owner_a, _pa = _owner(db)
+    owner_b, _pb = _owner(db)
+    friday = _recent_weekday(owner_a, 4, 1)
+
+    _add_reservation(db, owner_a, biz_day=friday, hour=20, party=4)
+    _add_reservation(db, owner_b, biz_day=friday, hour=20, party=99)
+
+    covers = svc.booked_covers_by_business_day(db, owner_a, friday, friday)
+    assert covers.get(friday) == 4, "another tenant's covers leaked into this grid"
+
+
+def test_probe_custom_cutoff(db):
+    """Owner configured day_cutoff_hour=4. A Sat 05:00 booking is SATURDAY's
+    service under their cutoff. Does the helper honour it?"""
+    from datetime import date as _date
+    owner, profile = _owner(db)
+    profile.day_cutoff_hour = 4
+    db.commit()
+    assert profile.day_cutoff_hour == 4
+
+    fri = _date(2026, 6, 5)
+    sat = _date(2026, 6, 6)
+    _add_reservation(db, owner, biz_day=sat, hour=5, party=8)
+
+    c = svc.booked_covers_by_business_day(db, owner, fri, sat)
+    print("\nconfigured cutoff=4 -> buckets:", sorted(c.items()))
+    print("resolved cutoff the helper used:", svc._resolve_cutoff_hour(owner))
+    assert c.get(sat) == 8, f"05:00 must be SATURDAY under a 04:00 cutoff, got {sorted(c.items())}"
+
+
+def test_booked_covers_honours_a_non_default_cutoff(db):
+    """The owner's OWN cutoff must drive bucketing — not the 06:00 default.
+
+    Regression: tz_utils._user_cutoff_hour reads user.day_cutoff_hour, which the
+    User model does not carry (routers stash it per-request). The helper is
+    called from schedule_week_cost, which never stashed it — so every non-default
+    cutoff silently fell back to 06:00 and put guests on the wrong business day.
+
+    A bakery on a 04:00 cutoff: 05:00 Saturday is SATURDAY's service (05:00 >=
+    04:00). At the wrong 06:00 default it would land on Friday.
+    """
+    owner, profile = _owner(db, hours_open="04:00-14:00")
+    profile.day_cutoff_hour = 4
+    db.commit()
+
+    friday = _recent_weekday(owner, 4, 1)
+    saturday = friday + timedelta(days=1)
+    _add_reservation(db, owner, biz_day=saturday, hour=5, party=8)
+
+    covers = svc.booked_covers_by_business_day(db, owner, friday, saturday)
+
+    assert covers is not None
+    assert covers.get(saturday) == 8, (
+        "05:00 with a 04:00 cutoff is SATURDAY's service — the owner's configured "
+        "cutoff was ignored and it fell back to the 06:00 default"
+    )
+    assert covers.get(friday, 0) == 0, "those 8 guests must NOT be on Friday"

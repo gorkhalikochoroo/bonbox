@@ -1286,6 +1286,7 @@ def schedule_week_cost(
         DEFAULT_HOURLY_RATE,
     )
     from app.services.revenue_resolver import effective_revenue_by_date
+    from app.services.reservation_insights_service import booked_covers_by_business_day
 
     FERIE_UPLIFT = 0.125  # feriepenge — the clean, dominant employer on-cost
 
@@ -1365,6 +1366,18 @@ def schedule_week_cost(
     except Exception:
         rev_by_date = {}
 
+    # Booked covers per day — the demand half of the grid. Already fail-soft
+    # internally (returns None on any error), so the wage-cost rollup can never
+    # 500 because the booking book hiccuped.
+    #
+    # NOTE on bucketing: covers are bucketed by BUSINESS day (DK 06:00 cutoff —
+    # a 00:30 Saturday booking is Friday's service), while hours/cost above are
+    # bucketed by Schedule.date, a plain CALENDAR day. They intentionally differ.
+    # "Tonight" for a restaurant means the business day, and re-bucketing cost to
+    # business day would move every labor% and wage number downstream. Do not
+    # "fix" this to match without pricing that change.
+    covers_by_date = booked_covers_by_business_day(db, user, week_start, week_end)
+
     daily = []
     week_hours = week_gross = week_loaded = week_rev = 0.0
     for i in range(7):
@@ -1384,6 +1397,11 @@ def schedule_week_cost(
             "revenue": round(rev, 2) if rev > 0 else None,
             "labor_pct_gross": round(da["cost_gross"] / rev, 4) if rev > 0 else None,
             "labor_pct_loaded": round(da["cost_loaded"] / rev, 4) if rev > 0 else None,
+            # null = not a reservations venue (render nothing) — NOT the same as
+            # 0 = reservations on, empty book. Never collapse the two.
+            "covers_booked": (
+                covers_by_date.get(d, 0) if covers_by_date is not None else None
+            ),
         })
 
     per_staff = sorted(

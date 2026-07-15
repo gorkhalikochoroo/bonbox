@@ -44,6 +44,10 @@ from app.services.billing import (
 )
 from app.services import reservation_service as rsvc
 from app.services import reservation_occupancy_service as occ_service
+# The ONE definition of "which statuses are booked covers". Imported, never
+# re-typed: the owner's book, the schedule grid and (later) the staff card must
+# all count the same night the same way, or the number silently lies.
+from app.services.reservation_insights_service import BOOKED_COVER_STATUSES
 from app.services.tz_utils import now_local, business_today_local, business_day_window_local
 from app.services.sms_service import send_sms, sms_configured
 from sqlalchemy.exc import IntegrityError
@@ -918,7 +922,7 @@ def reservation_book(
     covers = 0
     for r in rows:
         by_status[r.status] = by_status.get(r.status, 0) + 1
-        if r.status in ("confirmed", "seated", "completed"):
+        if r.status in BOOKED_COVER_STATUSES:
             covers += r.party_size or 0
 
     # id → label map so a combined seating can show "Bord 1 + Bord 2" in the
