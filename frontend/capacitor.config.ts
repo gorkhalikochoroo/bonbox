@@ -45,10 +45,18 @@ const config: CapacitorConfig = {
 
   plugins: {
     SplashScreen: {
-      launchShowDuration: 2000,
+      // ~One ceremonial beat, then stillness. This was 2000ms, which is 3-4x
+      // the beat and reads as a screen you sit through rather than a launch.
+      // launchAutoHide means this is the CEILING, not a floor — the splash
+      // goes the moment the web view paints.
+      launchShowDuration: 600,
       launchAutoHide: true,
-      // Splash art was drawn for the dark background — both targets keep it.
-      backgroundColor: "#0d1117",
+      // Matches the splash art (BonBox mark on white) AND the surface the app
+      // actually opens into, so launch has no colour flash. The old value was
+      // #0d1117 under a comment claiming the art was "drawn for the dark
+      // background" — the art was Capacitor's stock blue logo on white, so the
+      // comment described an asset that never existed here.
+      backgroundColor: "#FFFFFF",
       showSpinner: false,
     },
     StatusBar: {
