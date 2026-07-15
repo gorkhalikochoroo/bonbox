@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
+import { canUsePersonalMode, resolveMode, setStoredMode, clearStoredMode } from "../lib/appMode";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
@@ -311,15 +312,21 @@ export default function Layout() {
       window.removeEventListener("orientationchange", onResize);
     };
   }, []);
-  // Seed the app mode: an explicit prior choice (localStorage) always wins;
-  // otherwise a `personal` business_type lands the owner straight in personal-
-  // finance mode instead of the full business app. The Settings mode toggle
-  // (toggleMode) still overrides + persists either way.
-  const [mode, setMode] = useState(
-    () =>
-      localStorage.getItem("bonbox_mode") ||
-      (user?.business_type === "personal" ? "personal" : "business"),
-  );
+  // App mode is DERIVED from the account, never seeded from storage — see
+  // lib/appMode.js for why. A business account is always in business mode,
+  // whatever the stored key says, so no owner can be stranded in the 3-item
+  // personal nav by a button they tapped once. The switcher below is the
+  // only writer, and it only exists for personal accounts.
+  const canPersonal = canUsePersonalMode(user);
+  const [personalPref, setPersonalPref] = useState(() => resolveMode(user));
+  const mode = canPersonal ? personalPref : "business";
+
+  // Hygiene only — correctness never depends on this having run (resolveMode
+  // already ignores the key for these accounts). Kept out of resolveMode so
+  // that stays a pure read.
+  useEffect(() => {
+    if (user && !canPersonal) clearStoredMode();
+  }, [user, canPersonal]);
 
   // Owner's enabled vertical modules — drives sidebar gating for Bar,
   // Wine, Workshop, etc. Empty Set on first render = strict default
@@ -453,10 +460,13 @@ export default function Layout() {
     setOpenGroups((prev) => ({ ...prev, [gid]: !prev[gid] }));
   };
 
+  // Personal accounts only — the button is gated on canPersonal, so this is
+  // unreachable for a business owner. It writes the sub-preference, not the
+  // mode itself: what the account IS still comes from business_type.
   const toggleMode = () => {
     const next = mode === "business" ? "personal" : "business";
-    setMode(next);
-    localStorage.setItem("bonbox_mode", next);
+    setPersonalPref(next);
+    setStoredMode(next);
     navigate(next === "personal" ? "/personal" : "/dashboard");
     closeSidebar();
   };
@@ -633,33 +643,43 @@ export default function Layout() {
         </div>
 
         {/* Mode switcher — neutral pill with a tiny colored dot for the mode signal */}
-        <div className="px-3 py-2">
-          <button
-            onClick={toggleMode}
-            className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition
-              bg-gray-50 dark:bg-gray-700/60 text-gray-800 dark:text-gray-100
-              border border-gray-200 dark:border-gray-600
-              hover:bg-gray-100 dark:hover:bg-gray-700"
-          >
-            <span
-              className={`w-2 h-2 rounded-full shrink-0 ${
-                mode === "personal" ? "bg-purple-500" : "bg-blue-500"
-              }`}
-              aria-hidden="true"
-            />
-            <span>{mode === "personal" ? t("personalMode") : t("businessMode")}</span>
-            <svg className="w-3 h-3 ml-auto opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-            </svg>
-          </button>
-        </div>
+        {/* Mode switcher — personal ACCOUNTS only. A business owner knows
+            they are a business; the label told them nothing and the swap led
+            to a personal-finance app they never asked for. Hidden, not
+            disabled: a control that opens nothing is a dead end.
 
-        {/* Global search trigger — kept compact + visually quieter
-            than the business-mode toggle right above so the two
-            don't compete. Borderless, smaller padding + smaller
-            text, with just an icon + faded label. ⌘K hint on the
-            right hugs the edge so it reads as "shortcut for this
-            ambient action" rather than "primary CTA". */}
+            Personal accounts keep it — it is their only one-tap route into
+            the business app and back. */}
+        {canPersonal && (
+          <div className="px-3 py-2">
+            <button
+              onClick={toggleMode}
+              className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition
+                bg-gray-50 dark:bg-gray-700/60 text-gray-800 dark:text-gray-100
+                border border-gray-200 dark:border-gray-600
+                hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  mode === "personal" ? "bg-purple-500" : "bg-blue-500"
+                }`}
+                aria-hidden="true"
+              />
+              <span>{mode === "personal" ? t("personalMode") : t("businessMode")}</span>
+              <svg className="w-3 h-3 ml-auto opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+            </button>
+          </div>
+        )}
+
+        {/* Global search trigger — kept compact + visually quiet so it reads
+            as an ambient action rather than a primary CTA. Borderless,
+            smaller padding + smaller text, with just an icon + faded label,
+            and the ⌘K hint hugging the right edge. (It used to be tuned to
+            sit under the mode switcher without competing; that switcher is
+            now personal-only, so for a business owner this is simply the
+            first thing in the sidebar.) */}
         <div className="px-3 pb-1 flex items-center gap-1">
           <button
             onClick={() => setSearchOpen(true)}
