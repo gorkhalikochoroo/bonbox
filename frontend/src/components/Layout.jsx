@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { canUsePersonalMode, resolveMode, setStoredMode, clearStoredMode } from "../lib/appMode";
+import { personalNavFor } from "../config/personalNav";
 import { useDarkMode } from "../hooks/useDarkMode";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
@@ -155,11 +156,11 @@ function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasF
     .filter(Boolean);
 }
 
-const personalNav = [
-  { to: "/personal", icon: "User", labelKey: "dashboard" },
-  { to: "/loans", icon: "Banknote", labelKey: "loanTracker" },
-  { to: "/contact", icon: "MessageCircle", labelKey: "contact" },
-];
+// Personal-mode sidebar items now project from config/personalNav.js — the
+// same list the mobile bottom bar renders from. They used to be two
+// hand-maintained lists and they disagreed: this sidebar showed the personal
+// nav while the bar underneath showed Home/Sales/I dag.
+const personalNav = personalNavFor("sidebar");
 
 /* ─── Accountant-only sidebar (Task #49) ────────────────────────────
    Revisor sessions get a slimmed-down read-only nav: the reports +

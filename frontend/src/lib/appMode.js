@@ -40,6 +40,15 @@ export function resolveMode(user) {
   return localStorage.getItem(MODE_KEY) === "business" ? "business" : "personal";
 }
 
+/** Where "home" is for this account. A personal user's home is /personal —
+    /dashboard is the business dashboard and does no personal gating at all,
+    so sending them there hands them someone else's app. Uses resolveMode, not
+    canUsePersonalMode, so a personal user who has switched into business mode
+    still lands on /dashboard. */
+export function homeFor(user) {
+  return resolveMode(user) === "personal" ? "/personal" : "/dashboard";
+}
+
 export function setStoredMode(mode) {
   try { localStorage.setItem(MODE_KEY, mode); } catch { /* private mode / quota */ }
 }

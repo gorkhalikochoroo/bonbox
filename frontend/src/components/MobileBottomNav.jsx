@@ -1,6 +1,9 @@
 import { NavLink, useLocation } from "react-router-dom";
 import { useBranch } from "./BranchSelector";
 import { useLanguage } from "../hooks/useLanguage";
+import { useAuth } from "../hooks/useAuth";
+import { resolveMode } from "../lib/appMode";
+import { personalTabs } from "../config/personalNav";
 import { Icon } from "./ui";
 import { Plus, Menu } from "lucide-react";
 import { NAV_MANIFEST } from "../config/navManifest";
@@ -88,7 +91,19 @@ export default function MobileBottomNav() {
   const location = useLocation();
   const { branchType } = useBranch();
   const { t } = useLanguage();
-  const tabs = getTabsForType(branchType || "general");
+  // Mode comes from the ACCOUNT (lib/appMode.js) — the same resolver the
+  // sidebar and QuickAdd use. This bar used to ask useBranch() what vertical
+  // it was and never ask who the user was, so a personal account got a
+  // business bar (Home/Sales/I dag) sitting under its own personal sidebar.
+  //
+  // From useAuth, never useBranch: branchType is null until an owner picks a
+  // branch, so mode sourced there would be wrong for most accounts, not just
+  // briefly wrong. `user` is safe here — both Layout render sites are behind
+  // ProtectedRoute, which holds a loader until /auth/me resolves.
+  const { user } = useAuth();
+  const tabs = resolveMode(user) === "personal"
+    ? personalTabs()
+    : getTabsForType(branchType || "general");
 
   return (
     <nav
