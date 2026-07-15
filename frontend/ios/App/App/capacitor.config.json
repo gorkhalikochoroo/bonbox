@@ -3,6 +3,7 @@
 	"appName": "BonBox",
 	"webDir": "dist",
 	"ios": {
+		"path": "ios",
 		"contentInset": "automatic",
 		"allowsLinkPreview": false,
 		"backgroundColor": "#0d1117",
@@ -13,14 +14,15 @@
 	},
 	"plugins": {
 		"SplashScreen": {
-			"launchShowDuration": 2000,
+			"launchShowDuration": 600,
 			"launchAutoHide": true,
-			"backgroundColor": "#0d1117",
+			"backgroundColor": "#FFFFFF",
 			"showSpinner": false
 		},
 		"StatusBar": {
 			"style": "DARK",
-			"backgroundColor": "#0d1117"
+			"backgroundColor": "#0d1117",
+			"overlaysWebView": false
 		},
 		"Keyboard": {
 			"resize": "body",
