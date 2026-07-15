@@ -843,6 +843,15 @@ function staffInitials(name) {
     .toUpperCase() || "?";
 }
 
+/** First name only — what one colleague calls another, and short enough to sit
+    under an avatar without wrapping. Falls back to the whole string when the
+    owner stored a single word ("demo"), and to "" when there is no name at all
+    (the caller renders the avatar regardless, so this never leaves a gap). */
+function firstName(name) {
+  const first = (name || "").trim().split(/\s+/).filter(Boolean)[0] || "";
+  return first;
+}
+
 // ── "På arbejde med dig" — teammate avatar strip for the next shift's date.
 // PURE-PROPS: teamShifts is hoisted to the page-level loadData (fetched in the
 // same Promise.allSettled as the schedule) so this strip paints WITH the hero
@@ -886,20 +895,39 @@ function WhosOnStrip({ teamShifts, nextShift }) {
       <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
         {t("portalWhosOnTitle")}
       </div>
-      <div className="flex items-center gap-3 overflow-x-auto pb-1">
+      {/* Name under the avatar — an initial alone cannot answer the only
+          question this strip exists to answer ("who am I on with?"). "D" is
+          not an answer. First name only: it is what one colleague calls
+          another, and it keeps the row narrow enough to stay calm.
+          The avatar was aria-hidden with a title that repeated the initials,
+          so a screen-reader user got nothing at all and a hover told a
+          sighted user what they could already see. */}
+      <div className="flex items-start gap-3 overflow-x-auto pb-1">
         {shown.map((s, i) => (
           <div
             key={`${s.staff_id ?? s.staff_name}-${i}`}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-800 text-[12px] font-semibold text-white ring-2 ring-gray-900"
-            title={staffInitials(s.staff_name)}
-            aria-hidden
+            className="flex w-12 shrink-0 flex-col items-center gap-1"
           >
-            {staffInitials(s.staff_name)}
+            <div
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-800 text-[12px] font-semibold text-white ring-2 ring-gray-900"
+              aria-hidden
+            >
+              {staffInitials(s.staff_name)}
+            </div>
+            <span
+              className="max-w-full truncate text-[10px] font-medium text-gray-400"
+              title={s.staff_name || undefined}
+            >
+              {firstName(s.staff_name)}
+            </span>
           </div>
         ))}
         {overflow > 0 && (
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-[12px] font-semibold text-gray-300">
-            +{overflow}
+          <div className="flex w-12 shrink-0 flex-col items-center gap-1">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-[12px] font-semibold text-gray-300">
+              +{overflow}
+            </div>
+            <span className="text-[10px] font-medium text-transparent select-none" aria-hidden>·</span>
           </div>
         )}
       </div>

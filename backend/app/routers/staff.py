@@ -42,7 +42,7 @@ Endpoints:
 import uuid
 import secrets
 import calendar
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time as dtime, timedelta
 from io import BytesIO
 from typing import Optional
 
@@ -149,6 +149,28 @@ def _calc_shift_hours(start_time: str, end_time: str, break_minutes: int) -> flo
     # 1-decimal rounding systematically shaved minutes off staff pay vs the
     # exact preview shown in ShiftModal/PublishConfirm.
     return round(max(net, 0), 2)
+
+
+def _shift_end_dt(shift_date: date, start_time: str, end_time: str) -> datetime | None:
+    """The naive-local instant a shift actually ENDS, or None if unparseable.
+
+    Same overnight rule as _calc_shift_hours: an end strictly before the start
+    crosses midnight, so a Friday 17:00-01:00 shift ends 01:00 SATURDAY — the
+    thing a bare `date` comparison gets wrong. end == start is a zero-length
+    shift, so it ends when it starts (never +24h).
+
+    Callers use this to ask "has this shift finished?"; None means we cannot
+    tell, and every caller must treat that as NOT finished.
+    """
+    try:
+        s = _parse_hhmm(start_time)
+        e = _parse_hhmm(end_time)
+    except Exception:  # noqa: BLE001 — malformed row must not sink the request
+        return None
+    base = datetime.combine(shift_date, dtime(0, 0))
+    if e < s:
+        e += 24.0
+    return base + timedelta(hours=e)
 
 
 def _shifts_overlap(a_start: str, a_end: str, b_start: str, b_end: str) -> bool:
@@ -2867,7 +2889,21 @@ def confirm_schedule_hours(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Bulk-create hours entries from published schedule shifts for the week."""
+    """Bulk-create hours entries from published schedule shifts for the week.
+
+    This is the no-clock-in path, and it is a legitimate one: an owner who
+    doesn't run a punch clock shouldn't have to retype a whole roster to say
+    "the week happened". What it records is the OWNER'S assertion that the
+    rostered shifts were worked — which is why the rows carry
+    entry_method="schedule" rather than "clock".
+
+    But an assertion about the future isn't one. Shifts whose end time hasn't
+    passed yet are skipped: the staff portal reports these rows as "hours
+    worked", and nobody can truthfully say a 16:00-23:00 shift was worked at
+    08:22 that morning. (That is not hypothetical — it is what this endpoint
+    did before the guard.) The owner can confirm the same week again once the
+    shifts have actually ended; the dedupe below makes that safe to repeat.
+    """
     week_end = week_start + timedelta(days=6)
     published_shifts = (
         db.query(Schedule)
@@ -2881,6 +2917,23 @@ def confirm_schedule_hours(
     )
     if not published_shifts:
         raise HTTPException(status_code=404, detail="No published shifts for this week")
+
+    # Owner-local now — a Copenhagen owner confirming at 23:30 must not be
+    # judged against a UTC clock that already thinks it's tomorrow.
+    now = now_local(user).replace(tzinfo=None)
+    ended, not_ended_yet = [], 0
+    for s in published_shifts:
+        end_dt = _shift_end_dt(s.date, s.start_time, s.end_time)
+        if end_dt is None or end_dt > now:
+            not_ended_yet += 1
+            continue
+        ended.append(s)
+    if not ended:
+        raise HTTPException(
+            status_code=400,
+            detail="These shifts haven't finished yet — you can log them once they're over.",
+        )
+    published_shifts = ended
 
     # Pre-load staff members for rate lookup
     staff_ids = list({s.staff_id for s in published_shifts})
@@ -2926,7 +2979,13 @@ def confirm_schedule_hours(
         created += 1
 
     db.commit()
-    return {"created": created, "week_start": week_start.isoformat()}
+    # Report what we DIDN'T do, not just what we did — a bare "created: 3" on a
+    # 5-shift week reads as "all done" when two were deliberately left out.
+    return {
+        "created": created,
+        "skipped_not_ended": not_ended_yet,
+        "week_start": week_start.isoformat(),
+    }
 
 
 @router.put("/hours/{hours_id}", response_model=HoursLogResponse)
