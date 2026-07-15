@@ -19,6 +19,7 @@ import hashlib
 import uuid
 import hmac
 import json
+import logging
 import os
 import secrets
 import time
@@ -35,6 +36,8 @@ from app.utils.client_ip import client_ip
 from passlib.context import CryptContext
 
 from app.database import get_db, SessionLocal
+logger = logging.getLogger(__name__)
+
 from app.models.staff import (
     StaffMember, StaffLink, Schedule, HoursLogged,
     Tip, TipDistribution, PayPeriodConfig, NotificationLog, OpenShift,
@@ -508,6 +511,113 @@ def confirm_schedule(token: str, request: Request, db: Session = Depends(get_db)
         "confirmed_at": now.isoformat() if pending else None,
         "staff_name": member.name,
     }
+
+
+@router.get("/{token}/covers")
+@limiter.limit("30/minute")
+def portal_covers(
+    request: Request,
+    token: str,
+    db: Session = Depends(get_db),
+):
+    """Booked covers for the days THIS staffer is actually rostered.
+
+    Why it exists: BonBox holds both the reservation book and the roster, so a
+    waiter can walk in already knowing the night. "I aften · 38 gæster booket"
+    is the whole feature.
+
+    Privacy — this is the decisive constraint, read before extending:
+      • Returns ONLY an aggregate integer per date. NO guest names, NO phone,
+        NO email, NO notes, NO occasion, NO table/slot breakdown.
+      • **NO ALLERGIES — not the note, not the severity, NOT EVEN A COUNT.**
+        Allergies are GDPR Art.9 special-category health data. The owner's OWN
+        host stand already refuses to show them next to a name (see
+        reservations.py `_reservation_change_dict`) — and that is an
+        owner-authenticated, venue-owned iPad. THIS surface is strictly weaker:
+        the token sits in a URL, on a personal phone, and StaffLink.pin_hash is
+        NULLABLE (the PIN is opt-in), so a default link has the token as its
+        only credential. The portal can never receive more guest data than the
+        host stand gets. A count is not a safe middle ground: a waiter cannot
+        act on "2 allergies", so the only honest next tap is the detail — which
+        is exactly the payload that must not ship. Do not add it behind an owner
+        toggle either; Art.5(1)(c) minimisation is the controller's duty, not a
+        café owner's preference.
+      • Why the integer IS safe: the nightly GDPR purge nulls every guest field
+        but deliberately KEEPS party_size "for aggregate stats"
+        (jobs/reservation_jobs.py). A number computable from a fully erased row
+        is not personal data.
+      • Scope-bound: covers are returned ONLY for dates where this member has a
+        PUBLISHED shift. Without that, any token holder becomes a
+        covers-enumeration oracle over arbitrary dates — the same reason
+        portal_team_schedule caps days_ahead.
+      • Tenant-scoped: every query filters on the link's owner (link.user_id).
+
+    Honesty: `covers` is Σ party_size over BOOKED statuses — booked, NOT served.
+    Walk-ins never enter the book, so the client must keep the word "booket"
+    welded to the number. `covers: null` for a day means "this owner doesn't
+    take reservations" (render nothing) — never conflate that with 0.
+
+    Keyed per SHIFT, and counted within the shift's OWN window — not per day.
+    Two reasons:
+      • The client can only join on what /schedule gave it (the shift id). Keying
+        by business day forced it to join a business date against a raw calendar
+        date, which silently diverges for every pre-cutoff shift.
+      • A whole-day total under one shift's hours is a lie to a lunch waiter —
+        they would read the dinner covers as theirs.
+    A 17:00-01:00 shift IS [Fri 17:00, Sat 01:00), so a 00:30 booking falls in
+    naturally and no business-day cutoff arithmetic is needed here at all.
+    """
+    from app.models.user import User
+    from app.services.reservation_insights_service import booked_covers_in_window
+
+    link, member = _get_staff_from_token(token, db)
+
+    owner = db.query(User).filter(User.id == link.user_id).first()
+    if not owner:
+        # Defensive: FK should guarantee this, but a hard-deleted owner must
+        # fail closed rather than 500 or leak a bare aggregate.
+        raise HTTPException(status_code=404, detail="Link not found or inactive")
+
+    # Report the flag from the PROFILE, never inferred from a helper returning
+    # None — that would turn "our query failed" into the affirmative claim
+    # "this venue takes no bookings".
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == owner.id).first()
+    enabled = bool(profile and profile.reservations_enabled)
+    if not enabled:
+        return {"reservations_enabled": False, "shifts": []}
+
+    today = business_today_local(owner)
+    shifts = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == link.user_id,
+            Schedule.staff_id == member.id,
+            Schedule.status == "published",
+            Schedule.date >= today - timedelta(days=1),
+            Schedule.date <= today + timedelta(days=21),
+        )
+        .all()
+    )
+
+    out = []
+    for s in shifts:
+        try:
+            sh, sm = (s.start_time or "").split(":")[:2]
+            eh, em = (s.end_time or "").split(":")[:2]
+            lo = datetime.combine(s.date, datetime.min.time().replace(hour=int(sh), minute=int(sm)))
+            hi = datetime.combine(s.date, datetime.min.time().replace(hour=int(eh), minute=int(em)))
+            if hi <= lo:
+                hi += timedelta(days=1)   # the shift crosses midnight
+        except Exception:  # noqa: BLE001
+            # A malformed row must not sink the card — just omit that shift.
+            continue
+        try:
+            out.append({"shift_id": str(s.id), "covers": booked_covers_in_window(db, owner, lo, hi)})
+        except Exception:  # noqa: BLE001
+            logger.warning("covers window query failed for shift %s", s.id, exc_info=True)
+            continue
+
+    return {"reservations_enabled": True, "shifts": out}
 
 
 @router.get("/{token}/hours")

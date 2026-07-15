@@ -7038,6 +7038,10 @@ const translations = {
     portalHoursGross: '{h} shift',
     portalHoursBreak: '{m} min break',
     portalHoursNet: '{h} net',
+    // "booked" is load-bearing: walk-ins never enter the reservation book, so
+    // this is guests BOOKED for the shift, never guests served. A bare count
+    // would promise the staffer a night we cannot promise.
+    portalCoversBooked: '{n} guests booked',
     portalClockOpensAt: 'Clock-in opens at {t}',
     portalClockTooEarly: 'Clock-in opens at {t}.',
     staffInstallTitleSlim: 'Add to home screen + alerts',
@@ -13987,6 +13991,9 @@ const translations = {
     portalHoursGross: '{h} vagt',
     portalHoursBreak: '{m} min pause',
     portalHoursNet: '{h} effektiv',
+    // "booket" — hvad en tjener rent faktisk siger. IKKE "dækninger"
+    // (falsk ven for covers).
+    portalCoversBooked: '{n} gæster booket',
     portalClockOpensAt: 'Stempling åbner kl. {t}',
     portalClockTooEarly: 'Stempling åbner kl. {t}.',
     staffInstallTitleSlim: 'Føj til hjemmeskærm + notifikationer',
