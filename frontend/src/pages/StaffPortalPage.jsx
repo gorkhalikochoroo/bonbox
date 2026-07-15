@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus } from "lucide-react";
+import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users } from "lucide-react";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
@@ -117,6 +117,21 @@ function isPast(dateStr) {
 // across refetches. We compare date+start+end+status only (Phase 1 keeps the
 // diff generic; no per-field human diffs). Sorting makes it insensitive to
 // row ordering from the API.
+// { days: [{ business_date, covers }] } -> { "2026-07-17": 38 }.
+//
+// The server stamps each day with the DK business day it belongs to (06:00
+// cutoff, derived from the shift's start instant), and the card matches on that
+// stamp. The client must NEVER re-derive "tonight" from the device clock: at
+// 00:30 the device says tomorrow while the staffer is still on the floor, and
+// the card would show the wrong night's number as fact.
+function coversMapFrom(data) {
+  const out = {};
+  for (const d of (data && data.days) || []) {
+    if (d && typeof d.covers === "number" && d.business_date) out[d.business_date] = d.covers;
+  }
+  return out;
+}
+
 function publishedScheduleSignature(rawShifts) {
   return (rawShifts || [])
     .filter((s) => s && s.status === "published")
@@ -965,7 +980,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, onShiftsChanged, onNeedChange, onOpenAvailability }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, coversByDate, onShiftsChanged, onNeedChange, onOpenAvailability }) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -1200,6 +1215,32 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
               )}
             </div>
             <div className="mt-1.5 text-[12px] text-gray-400">{nextShiftRole}</div>
+
+            {/* Booked covers for this shift's night — the reason to hold both the
+                book and the roster. Count ONLY: the server sends one integer per
+                business date and nothing about the guests. No allergy signal, not
+                even a count — that is Art.9 health data and the owner's own host
+                stand already refuses to show it beside a name; this surface
+                (token-in-URL, personal phone, PIN opt-in) can never get more.
+
+                NOT tappable, deliberately: a tap has nowhere honest to go — staff
+                must never reach the guest list — and a control that opens nothing
+                is a dead end.
+
+                Matched on the SERVER's business_date stamp, never on the device
+                clock: at 00:30 the device says tomorrow while the staffer is
+                still on the floor.
+
+                "booket" is load-bearing — walk-ins never enter the book, so this
+                is guests BOOKED, never guests served. */}
+            {typeof coversByDate?.[nextShift.date] === "number" && (
+              <div className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-gray-400">
+                <Users className="w-3.5 h-3.5 shrink-0" strokeWidth={2} aria-hidden />
+                <span className="tabular-nums">
+                  {t("portalCoversBooked", "{n} guests booked", { n: coversByDate[nextShift.date] })}
+                </span>
+              </div>
+            )}
 
             {/* Venue line — name ONLY (never a fabricated address). When the
                 owner has turned ON the clock-in geofence, this becomes an honest
@@ -3687,6 +3728,9 @@ export default function StaffPortalPage() {
   // ONCE — no post-settle hero growth or card insertion (stillness doctrine).
   const [teamShifts, setTeamShifts] = useState([]);
   const [openShifts, setOpenShifts] = useState([]);
+  // business_date -> booked covers, for the days I'm rostered. Empty map = this
+  // owner doesn't take reservations (or the book is untouched) -> render NOTHING.
+  const [coversByDate, setCoversByDate] = useState({});
   const [hoursData, setHoursData] = useState(null);
   const [tipsData, setTipsData] = useState(null);
   // Unread owner→staff chat messages — drives the "Beskeder" nav badge.
@@ -3837,7 +3881,11 @@ export default function StaffPortalPage() {
       portalApi.get(`/portal/${token}/schedule`),
       portalApi.get(`/portal/${token}/team-schedule`),
       portalApi.get(`/portal/${token}/open-shifts`),
-    ]).then(([sched, team, open]) => {
+      // Booked covers for the days I'm rostered. Count only — the server
+      // returns an aggregate integer per business date and NOTHING about the
+      // guests (no names, no notes, and deliberately no allergy data: Art.9).
+      portalApi.get(`/portal/${token}/covers`),
+    ]).then(([sched, team, open, covers]) => {
       if (sched.status === "fulfilled") {
         const nextShifts = sched.value.data.shifts || [];
         const nextSig = publishedScheduleSignature(nextShifts);
@@ -3858,6 +3906,12 @@ export default function StaffPortalPage() {
       }
       if (open.status === "fulfilled") {
         setOpenShifts(Array.isArray(open.value.data) ? open.value.data : []);
+      }
+      // Same fail-honest rule as the schedule leg: on a failed fetch KEEP the
+      // previous value. A stale-but-true "38 booket" beats a fabricated 0 —
+      // and 0 would read as "quiet night" to someone about to walk into 38.
+      if (covers.status === "fulfilled") {
+        setCoversByDate(coversMapFrom(covers.value.data));
       }
     });
 
@@ -4418,6 +4472,7 @@ export default function StaffPortalPage() {
         {tab === "schedule" && (
           <ScheduleTab
             shifts={shifts}
+            coversByDate={coversByDate}
             teamShifts={teamShifts}
             openShifts={openShifts}
             staffName={info?.staff_name}
