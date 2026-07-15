@@ -3881,6 +3881,19 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, costForShift, showC
                 {t("schedToday")}
               </div>
             )}
+            {/* Booked covers — the demand this day's roster has to serve.
+                Lives in the day title (which has vertical room), NOT the stats
+                strip below: that strip is whitespace-nowrap and tuned to hold
+                one line at 320px, so a 5th token would break it.
+                Absent entirely when the owner doesn't take reservations. */}
+            {typeof serverDay?.covers_booked === "number" && (
+              <div
+                className="text-[10px] mt-0.5 whitespace-nowrap text-gray-500 dark:text-gray-400 tabular-nums"
+                aria-label={t("schedCoversBookedAria").replace("{n}", serverDay.covers_booked)}
+              >
+                {serverDay.covers_booked} {t("schedCoversBooked")}
+              </div>
+            )}
           </div>
           <button
             type="button"
@@ -4604,6 +4617,12 @@ function ScheduleGrid({
               </th>
               {weekDates.map((date, i) => {
                 const isToday = toISO(date) === toISO(new Date());
+                // Booked covers for this day — the DEMAND half of the grid.
+                // null/undefined = this owner doesn't take reservations, so the
+                // line is absent entirely. 0 is a real fact (quiet night) and
+                // DOES render — "no bookings" and "no booking system" are
+                // different truths and must look different.
+                const coversBooked = dailyByDate[toISO(date)]?.covers_booked;
                 return (
                   <th
                     key={i}
@@ -4617,6 +4636,29 @@ function ScheduleGrid({
                     <div className="font-normal text-[10px] mt-0.5 opacity-70">
                       {date.getDate()}/{date.getMonth() + 1}
                     </div>
+                    {/* Demand on top, roster in the middle, cost in the footer —
+                        the column reads top-to-bottom as one sentence. Kept
+                        deliberately quiet (10px, gray, normal weight): the
+                        footer's labor% is the column headline and stays it.
+                        The word "booked" is load-bearing — walk-ins never enter
+                        the book, so a bare count would overclaim the night. */}
+                    {typeof coversBooked === "number" && (
+                      // whitespace-nowrap is load-bearing (same reason as the
+                      // mobile stats strip): the day column is only ~58px of
+                      // content box at iPad landscape, so without it "38 booket"
+                      // wraps to two lines and this "quiet" line becomes the
+                      // TALLEST thing in the header — inverting the hierarchy it
+                      // is supposed to sit under. No icon here for the same
+                      // reason: icon+gap costs 14px the column does not have, and
+                      // it would push the table wide enough to start scrolling on
+                      // iPad. The word "booket" already says what the number is.
+                      <div
+                        className="font-normal normal-case tracking-normal text-[10px] mt-1 whitespace-nowrap text-gray-500 dark:text-gray-400 tabular-nums"
+                        aria-label={t("schedCoversBookedAria").replace("{n}", coversBooked)}
+                      >
+                        {coversBooked} {t("schedCoversBooked")}
+                      </div>
+                    )}
                   </th>
                 );
               })}

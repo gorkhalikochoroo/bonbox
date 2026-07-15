@@ -147,32 +147,37 @@ export default function MileagePage() {
       />
 
       {/* Year summary card */}
-      {summary && (
-        <div className="bg-gray-50 dark:bg-gray-800/50 text-white rounded-xl p-6 shadow-sm">
-          <p className="text-sm opacity-90 mb-1">
+              {/* Was a DARK panel (text-white + opacity-NN labels). db32753 swapped the
+            background to light and kept the light foreground, so in light mode the
+            whole kørselsgodtgørelse summary rendered white on #f9fafb (~1.045:1):
+            total km, the tax-deductible total and the rate were all invisible.
+            Foreground now flips with the background. */}
+{summary && (
+        <div className="bg-gray-50 dark:bg-gray-800/50 text-gray-900 dark:text-white rounded-xl p-6 shadow-sm">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
             {t("yearToDate") || "Year to date"} · {summary.year}
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-3">
             <div>
-              <p className="text-xs opacity-80 mb-0.5">{t("totalKm") || "Total km"}</p>
-              <p className="text-3xl font-bold">{Number(summary.total_km).toLocaleString("da-DK")} km</p>
-              <p className="text-xs opacity-70 mt-0.5">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t("totalKm") || "Total km"}</p>
+              <p className="text-3xl font-bold tabular-nums">{Number(summary.total_km).toLocaleString("da-DK")} km</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 {summary.entries_count} {t("trips") || "trips"}
               </p>
             </div>
             <div>
-              <p className="text-xs opacity-80 mb-0.5">{t("totalDeduction") || "Total deduction"}</p>
-              <p className="text-3xl font-bold">{fmtKr(summary.total_deduction)}</p>
-              <p className="text-xs opacity-70 mt-0.5">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t("totalDeduction") || "Total deduction"}</p>
+              <p className="text-3xl font-bold tabular-nums">{fmtKr(summary.total_deduction)}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 {t("taxDeductible") || "Tax-deductible"}
               </p>
             </div>
             <div>
-              <p className="text-xs opacity-80 mb-0.5">{t("currentRate") || "Current rate"}</p>
-              <p className="text-3xl font-bold">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-0.5">{t("currentRate") || "Current rate"}</p>
+              <p className="text-3xl font-bold tabular-nums">
                 {summary.rate_tier === "high" ? "2,23" : "3,79"} kr/km
               </p>
-              <p className="text-xs opacity-70 mt-0.5">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 {summary.rate_tier === "high"
                   ? (t("over20kKm") || "20.000+ km this year")
                   : (t("under20kKm") || "First 20.000 km this year")}

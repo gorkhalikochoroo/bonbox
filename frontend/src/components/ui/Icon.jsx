@@ -38,6 +38,8 @@ import {
   UsersRound, Calendar, Timer, Coins, FileSpreadsheet, Briefcase,
   // Intelligence
   Brain, CloudSun, CalendarClock, BadgePercent, Heart, Telescope,
+  // Weather conditions (WeatherPage) — replaced the emoji map.
+  CloudRain, CloudDrizzle, Snowflake, CloudLightning, CloudFog, Thermometer,
   // Workshop
   Wrench,
   // Manage
@@ -115,6 +117,8 @@ const ICONS = {
   UsersRound, Calendar, Timer, Coins, FileSpreadsheet, Briefcase,
   // Intelligence group
   Brain, CloudSun, CalendarClock, BadgePercent, Heart, Telescope,
+  // Weather conditions (WeatherPage) — replaced the emoji map.
+  CloudRain, CloudDrizzle, Snowflake, CloudLightning, CloudFog, Thermometer,
   // Workshop group
   Wrench,
   // Manage group

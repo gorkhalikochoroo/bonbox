@@ -189,29 +189,34 @@ export default function BranchPage() {
       )}
 
       {/* ─── CONSOLIDATED SUMMARY ─── */}
-      {summary?.has_branches && (
-        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 text-white shadow-sm">
-          <h2 className="font-bold text-lg mb-1">📊 Consolidated View — This Month</h2>
-          <p className="text-sm opacity-80 mb-4">{t("allBranchesCombined")}</p>
+              {/* This card was a DARK panel (text-white + opacity-NN labels + bg-white/10
+            glass). db32753 swapped the background to light and left the light
+            foreground behind, so in light mode every figure below rendered white
+            on #f9fafb (~1.045:1) — the consolidated revenue/expenses/profit were
+            all invisible. Foreground now flips with the background. */}
+{summary?.has_branches && (
+        <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-6 text-gray-900 dark:text-white shadow-sm">
+          <h2 className="font-bold text-lg mb-1">Consolidated View — This Month</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t("allBranchesCombined")}</p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-            <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
-              <p className="text-xs opacity-70">{t("totalRevenue")}</p>
-              <p className="text-xl sm:text-2xl font-bold mt-1">{fmt(summary.consolidated.month_revenue)}</p>
-              <p className="text-xs opacity-60">{currency}</p>
+            <div className="bg-white dark:bg-white/10 border border-gray-100 dark:border-transparent rounded-xl p-3 sm:p-4 text-center">
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t("totalRevenue")}</p>
+              <p className="text-xl sm:text-2xl font-bold mt-1 tabular-nums">{fmt(summary.consolidated.month_revenue)}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">{currency}</p>
             </div>
-            <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
-              <p className="text-xs opacity-70">{t("totalExpenses")}</p>
-              <p className="text-xl sm:text-2xl font-bold mt-1">{fmt(summary.consolidated.month_expenses)}</p>
-              <p className="text-xs opacity-60">{currency}</p>
+            <div className="bg-white dark:bg-white/10 border border-gray-100 dark:border-transparent rounded-xl p-3 sm:p-4 text-center">
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t("totalExpenses")}</p>
+              <p className="text-xl sm:text-2xl font-bold mt-1 tabular-nums">{fmt(summary.consolidated.month_expenses)}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">{currency}</p>
             </div>
-            <div className="bg-white/10 rounded-xl p-3 sm:p-4 text-center">
-              <p className="text-xs opacity-70">{t("totalProfit")}</p>
-              <p className="text-xl sm:text-2xl font-bold mt-1">{fmt(summary.consolidated.month_profit)}</p>
-              <p className="text-xs opacity-60">{currency}</p>
+            <div className="bg-white dark:bg-white/10 border border-gray-100 dark:border-transparent rounded-xl p-3 sm:p-4 text-center">
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t("totalProfit")}</p>
+              <p className="text-xl sm:text-2xl font-bold mt-1 tabular-nums">{fmt(summary.consolidated.month_profit)}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">{currency}</p>
             </div>
           </div>
           {summary.unassigned?.revenue > 0 && (
-            <p className="text-xs opacity-60 mt-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
               * Includes {fmt(summary.unassigned.revenue)} {currency} unassigned revenue not linked to any branch.
             </p>
           )}
