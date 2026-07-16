@@ -150,3 +150,43 @@ def test_forecast_returns_predictions_when_recent(db, owner):
 
 def test_forecast_empty_for_completely_empty_account(db, owner):
     assert forecast_next_days(db, owner.id, days=7) == []
+
+
+# ─── get_staffing_recommendations — honest headcount (no 2/3/5 fabrication) ──
+
+from app.models.staffing import StaffingRule  # noqa: E402
+from app.services.prediction import get_staffing_recommendations  # noqa: E402
+
+
+def _seed_recent_sales(db, owner, days=45, amount=10000):
+    for i in range(1, days + 1):
+        _sale(db, owner, date.today() - timedelta(days=i), amount)
+
+
+def test_staffing_no_rule_derives_estimate_not_fabrication(db, owner):
+    """No StaffingRule → headcount is DERIVED from the venue's own labor
+    economics (source='estimate'), never the old hardcoded 2/3/5. Every day
+    with predicted revenue carries a real number + a provenance tag; a day with
+    no basis is withheld (None), never fabricated."""
+    _seed_recent_sales(db, owner)
+    recs = get_staffing_recommendations(db, str(owner.id), 7)["recommendations"]
+    assert recs, "expected forecasts with recent sales"
+    for r in recs:
+        assert r["staff_source"] in ("estimate", None)  # provenance present
+        if r["staff_source"] == "estimate":
+            assert isinstance(r["recommended_staff"], int) and r["recommended_staff"] >= 1
+        else:
+            assert r["recommended_staff"] is None  # withheld, not fabricated
+        assert r["business_level"] in ("Slow", "Normal", "Busy")
+
+
+def test_staffing_rule_match_is_exact_not_estimate(db, owner):
+    _seed_recent_sales(db, owner, amount=10000)
+    db.add(StaffingRule(
+        user_id=owner.id, label="Custom",
+        revenue_min=0, revenue_max=1_000_000, recommended_staff=4,
+    ))
+    db.commit()
+    recs = get_staffing_recommendations(db, str(owner.id), 7)["recommendations"]
+    assert recs
+    assert all(r["staff_source"] == "rule" and r["recommended_staff"] == 4 for r in recs)

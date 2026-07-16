@@ -1103,16 +1103,26 @@ function RevenueForecastCard({ forecast, weather, staffing, currency }) {
           <div className="flex gap-1">
             {staffDays.slice(0, 7).map((s, i) => {
               const isActive = sel === i;
-              const headcount = s.recommended_staff || 3;
+              // May be null: withheld when there's no basis — never fabricated
+              // (the old `|| 3` invented a headcount from nothing). "~" marks a
+              // value derived from the venue's own economics (not an owner rule).
+              const headcount = s.recommended_staff;
+              const est = s.staff_source === "estimate";
               return (
                 <div key={i} onClick={() => setSel(isActive ? null : i)}
                   className={`flex-1 flex flex-col items-center gap-1 py-1.5 rounded-lg cursor-pointer transition ${isActive ? "bg-gray-100 dark:bg-gray-800/60" : ""}`}>
-                  <div className="flex flex-col items-center gap-0.5">
-                    {Array.from({ length: headcount }, (_, j) => (
-                      <div key={j} className="w-1.5 h-1.5 rounded-full" style={{ background: "#4B5563", opacity: 0.5 + (j / headcount) * 0.5 }} />
-                    ))}
-                  </div>
-                  <span className="text-[11px] font-bold tabular-nums text-gray-900 dark:text-gray-100">{headcount}</span>
+                  {headcount != null ? (
+                    <>
+                      <div className="flex flex-col items-center gap-0.5">
+                        {Array.from({ length: headcount }, (_, j) => (
+                          <div key={j} className="w-1.5 h-1.5 rounded-full" style={{ background: "#4B5563", opacity: 0.5 + (j / headcount) * 0.5 }} />
+                        ))}
+                      </div>
+                      <span className="text-[11px] font-bold tabular-nums text-gray-900 dark:text-gray-100">{est ? "~" : ""}{headcount}</span>
+                    </>
+                  ) : (
+                    <span className="text-[11px] font-bold text-gray-300 dark:text-gray-600 tabular-nums">—</span>
+                  )}
                 </div>
               );
             })}
@@ -1143,10 +1153,10 @@ function RevenueForecastCard({ forecast, weather, staffing, currency }) {
               <p className="text-[10px] text-gray-500 dark:text-gray-400">{t("revenue")}</p>
               <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100"><Amount value={selected.predicted_revenue} currency={currency} /></p>
             </div>
-            {selStaff && (
+            {selStaff && selStaff.recommended_staff != null && (
               <div>
                 <p className="text-[10px] text-gray-500 dark:text-gray-400">{t("staffShort")}</p>
-                <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">{selStaff.recommended_staff} {t("peopleAbbrev")}</p>
+                <p className="text-sm font-bold tabular-nums text-gray-900 dark:text-gray-100">{selStaff.staff_source === "estimate" ? "~" : ""}{selStaff.recommended_staff} {t("peopleAbbrev")}</p>
               </div>
             )}
             {selWeather && (
