@@ -695,6 +695,94 @@ def _last_week_cost(
 # ─── Public API ──────────────────────────────────────────────────────
 
 
+# ─── Per-vertical demand-signal strategy ──────────────────────────────
+#
+# A venue's demand is not always its sales. A SALON rings revenue on ring-up
+# day, not the booked slot, so a sales-weekday-mean forecast collapses a fully-
+# booked salon toward "~0 demand". Its true demand is APPOINTMENT DENSITY. This
+# strategy picks the honest signal per archetype and feeds it through the SAME
+# forecast seams (history samples + demand→hours), so _predict_revenue, weather
+# bucketing, and confidence grading are unchanged. Fail-closed: any vertical
+# with no signal falls back to the revenue path (byte-identical to before).
+
+DEFAULT_SALON_SLOT_HOURS = 0.75  # 45 min — a typical salon appointment, used
+# only when the venue has no booking history to take a real median from.
+
+
+def _median_slot_hours(db: Session, user: User) -> float:
+    """Median booked-appointment length (hours) — converts an appointment count
+    into booked provider-hours. Falls back to a documented default when there's
+    no booking history to measure."""
+    from statistics import median as _median
+
+    from app.models.reservation import Reservation
+
+    rows = (
+        db.query(Reservation.duration_min)
+        .filter(Reservation.user_id == user.id, Reservation.duration_min.isnot(None))
+        .limit(1000)
+        .all()
+    )
+    mins = [int(r[0]) for r in rows if r[0]]
+    if not mins:
+        return DEFAULT_SALON_SLOT_HOURS
+    return max(0.25, _median(mins) / 60.0)
+
+
+def _gather_appointment_history(
+    db: Session, user: User, week_start: date, branch_id: Optional[uuid.UUID]
+) -> Optional[dict[int, dict]]:
+    """Per-weekday APPOINTMENT-count stats (same shape as _gather_history) for
+    salons, where booked appointment density — not sales — is the demand.
+    Returns None when there's no booking signal (reservations off, or no bookings
+    in the window) so the caller falls back to the revenue path. Samples run only
+    from the FIRST booked day forward, so pre-adoption days never masquerade as
+    genuine zero-demand days (the None-vs-0 honesty rule applied over time)."""
+    from app.services.reservation_insights_service import booked_covers_by_business_day
+
+    history_start = week_start - timedelta(weeks=LOOKBACK_WEEKS)
+    history_end = week_start - timedelta(days=1)
+    covers = booked_covers_by_business_day(db, user, history_start, history_end)
+    if not covers:  # None (reservations off) OR {} (no bookings) → no signal
+        return None
+    hist: dict[int, dict] = {wd: {"samples": [], "by_bucket": {}} for wd in range(7)}
+    d = max(history_start, min(covers.keys()))
+    while d <= history_end:
+        hist[d.weekday()]["samples"].append(float(covers.get(d, 0)))
+        d += timedelta(days=1)
+    return hist
+
+
+def _resolve_demand_basis(
+    db: Session, user: User, week_start: date, branch_id: Optional[uuid.UUID]
+) -> tuple[str, Optional[dict[int, dict]], float]:
+    """Choose the per-vertical demand SIGNAL. Salon → booked appointment density
+    (fail-closed to revenue when it has no booking signal); everything else →
+    revenue. Returns (signal, appointment_history_or_None, slot_hours). Keyed on
+    the canonical archetype switchboard so it can't drift per surface."""
+    from app.services.archetype import archetype_id_for
+
+    if archetype_id_for(getattr(user, "business_type", None)) != "salon":
+        return ("revenue", None, 0.0)
+    appt_history = _gather_appointment_history(db, user, week_start, branch_id)
+    if appt_history is None or not any(appt_history[i]["samples"] for i in range(7)):
+        return ("revenue", None, 0.0)
+    return ("appointments", appt_history, _median_slot_hours(db, user))
+
+
+def _demand_hours(
+    signal: str, predicted: float, *, target_pct: float, avg_rate: float, slot_hours: float
+) -> float:
+    """Convert a predicted signal value into demand person-hours — the ONE
+    converter both the forecast and the roster call. Appointments → count × slot
+    hours (booked provider-time); revenue → revenue × labor-% ÷ avg wage."""
+    if signal == "appointments":
+        return max(0.0, predicted * slot_hours)
+    if avg_rate > 0:
+        return max(0.0, (predicted * target_pct) / avg_rate)
+    return 0.0
+
+
 def forecast_week_demand(
     db: Session,
     *,
@@ -727,7 +815,12 @@ def forecast_week_demand(
         .all()
     )
     avg_rate = _avg_hourly_rate(staff_list)
-    history = _gather_history(db, user, monday, branch_id)
+
+    # Per-vertical demand signal: salon → booked appointment density; every other
+    # vertical → revenue (byte-identical to before). Fail-closed to revenue when
+    # a salon has no booking signal.
+    signal, appt_history, slot_hours = _resolve_demand_basis(db, user, monday, branch_id)
+    history = appt_history if signal == "appointments" else _gather_history(db, user, monday, branch_id)
 
     sample_counts = [len(history[i]["samples"]) for i in range(7)]
     min_samples = min(sample_counts) if sample_counts else 0
@@ -740,31 +833,36 @@ def forecast_week_demand(
         confidence = "low"
 
     forecast = _fetch_forecast(user, monday)
-    weather_used = bool(forecast)
+    # Weather shapes the REVENUE signal only — appointment demand is booked, not
+    # weather-driven — so we don't weather-bucket the appointment path.
+    weather_used = bool(forecast) and signal == "revenue"
 
     days: list[dict] = []
     for i in range(7):
         d = monday + timedelta(days=i)
         wd = d.weekday()
-        weather = forecast.get(d, {})
+        weather = forecast.get(d, {}) if signal == "revenue" else {}
         bucket = weather.get("bucket") if weather else None
-        predicted_rev, sample_basis = _predict_revenue(wd, bucket, history)
-        demand_hours = (
-            max(0.0, (predicted_rev * target_pct) / avg_rate) if avg_rate > 0 else 0.0
+        predicted, sample_basis = _predict_revenue(wd, bucket, history)
+        demand_hours = _demand_hours(
+            signal, predicted, target_pct=target_pct, avg_rate=avg_rate, slot_hours=slot_hours
         )
         days.append({
             "date": d.isoformat(),
             "weekday": wd,
-            "predicted_revenue": round(predicted_rev, 2),
+            "predicted_revenue": round(predicted, 2) if signal == "revenue" else 0.0,
+            "predicted_appointments": round(predicted, 1) if signal == "appointments" else None,
             "predicted_demand_hours": round(demand_hours, 2),
             "sample_count": len(history[wd]["samples"]),
-            "sample_basis": sample_basis,  # "weather" | "weekday" | "default"
+            # names the signal so each demand number stays traceable
+            "sample_basis": "appointments" if signal == "appointments" else sample_basis,
             "weather_summary": weather.get("summary") if weather else None,
         })
 
     return {
         "week_start": monday.isoformat(),
         "branch_id": str(branch_id) if branch_id else None,
+        "signal": signal,  # "revenue" | "appointments" — the per-vertical demand basis
         "confidence": confidence,
         "avg_rate": round(avg_rate, 2),
         "target_labor_pct": round(target_pct, 3),
@@ -812,17 +910,19 @@ def suggest_week_schedule(
     # a day/time they said they can't work — makes "respects availability" true.
     unavailable_by_staff = _load_unavailability(db, user)
 
-    # History (no writes)
-    history = _gather_history(db, user, monday, branch_id)
+    # History + per-vertical demand signal (salon → booked appointments; every
+    # other vertical → revenue). Fail-closed to revenue when there's no signal.
+    signal, appt_history, slot_hours = _resolve_demand_basis(db, user, monday, branch_id)
+    history = appt_history if signal == "appointments" else _gather_history(db, user, monday, branch_id)
 
     # Sample counts → confidence
     sample_counts = [len(history[i]["samples"]) for i in range(7)]
     min_samples = min(sample_counts) if sample_counts else 0
     avg_samples = mean(sample_counts) if sample_counts else 0
 
-    # Forecast — best effort
+    # Forecast — best effort (weather shapes the revenue signal only)
     forecast = _fetch_forecast(user, monday)
-    weather_used = bool(forecast)
+    weather_used = bool(forecast) and signal == "revenue"
 
     if avg_samples >= MIN_SAMPLES_HIGH_CONFIDENCE:
         confidence = "high"
@@ -840,19 +940,17 @@ def suggest_week_schedule(
     for i in range(7):
         d = monday + timedelta(days=i)
         wd = d.weekday()
-        weather = forecast.get(d, {})
+        weather = forecast.get(d, {}) if signal == "revenue" else {}
         bucket = weather.get("bucket") if weather else None
-        predicted_rev, _ = _predict_revenue(wd, bucket, history)
+        predicted, _ = _predict_revenue(wd, bucket, history)
+        # For a salon `predicted` is an appointment COUNT, not revenue — so the
+        # day's displayed predicted_revenue is 0 (we don't forecast salon
+        # revenue), while demand_hours comes from booked provider-time.
+        predicted_rev = predicted if signal == "revenue" else 0.0
 
-        # Demand hours: revenue × labor pct ÷ avg rate
-        if avg_rate > 0:
-            demand_hours = (predicted_rev * target_pct) / avg_rate
-        else:
-            demand_hours = 0.0
-
-        # Floor at zero so we don't propose negative hours when history
-        # has no data for this weekday.
-        demand_hours = max(0.0, demand_hours)
+        demand_hours = _demand_hours(
+            signal, predicted, target_pct=target_pct, avg_rate=avg_rate, slot_hours=slot_hours
+        )
 
         day_shifts = _assign_shifts_for_day(
             target_date=d,
