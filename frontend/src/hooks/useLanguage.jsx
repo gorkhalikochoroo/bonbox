@@ -3957,6 +3957,7 @@ const translations = {
     schedHoursUnit: "h",
     schedForecastDemand: "demand",
     schedForecastBasis: "Estimated from {n} recent same-weekday sales",
+    schedForecastBasisAppts: "Estimated from {n} recent same-weekday bookings",
     schedOvertimeTip: "Over weekly hours",
     // Saved shift presets (templates)
     schedTemplates: "Templates",
@@ -11050,6 +11051,7 @@ const translations = {
     schedHoursUnit: "t",
     schedForecastDemand: "behov",
     schedForecastBasis: "Estimeret ud fra {n} seneste salg på samme ugedag",
+    schedForecastBasisAppts: "Estimeret ud fra {n} seneste bookinger på samme ugedag",
     schedOvertimeTip: "Over ugentlige timer",
     // Gemte vagt-skabeloner
     schedTemplates: "Skabeloner",

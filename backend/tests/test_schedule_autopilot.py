@@ -371,6 +371,72 @@ def test_forecast_with_history_reflects_weekday_spread(client, db):
     assert sat["sample_count"] >= 6
 
 
+# ─── per-vertical: SALON demand = booked appointment density, not sales ──
+
+
+def test_forecast_salon_uses_appointment_density(client, db, monkeypatch):
+    """A salon forecasts off its APPOINTMENT book, not sales (salon revenue
+    rings on ring-up day, not the booked slot). With appointments booked, it
+    gets predicted_demand_hours > 0 even with NO sales history — the revenue
+    path would have collapsed to ~0."""
+    owner = _owner(db, plan="pro")
+    owner.business_type = "salon"
+    db.commit()
+    _staff(db, owner, name="Marie", rate=180.0)
+    target_monday = _next_monday()
+    # 8 same-weekday history: Mondays busy (8 appts), Saturdays lighter (3).
+    appts = {}
+    for w in range(1, 9):
+        appts[target_monday - timedelta(weeks=w)] = 8
+        appts[target_monday - timedelta(weeks=w) + timedelta(days=5)] = 3
+    monkeypatch.setattr(
+        "app.services.reservation_insights_service.booked_covers_by_business_day",
+        lambda *a, **k: appts,
+    )
+    _override_user(owner)
+    res = client.get(f"/api/staff/schedules/forecast?week_start={target_monday.isoformat()}")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["signal"] == "appointments"
+    mon = next(d for d in body["days"] if d["weekday"] == 0)
+    sat = next(d for d in body["days"] if d["weekday"] == 5)
+    assert mon["sample_basis"] == "appointments"
+    assert mon["predicted_appointments"] is not None
+    assert mon["predicted_demand_hours"] > sat["predicted_demand_hours"] > 0  # busier Monday
+    assert mon["predicted_revenue"] == 0  # salon has no revenue forecast
+
+
+def test_forecast_salon_without_bookings_falls_back_to_revenue(db, monkeypatch):
+    """Salon with reservations OFF (helper returns None) → honest revenue
+    fallback; never a fabricated appointment demand."""
+    from app.services import schedule_autopilot as sa
+    owner = _owner(db, plan="pro")
+    owner.business_type = "salon"
+    db.commit()
+    monkeypatch.setattr(
+        "app.services.reservation_insights_service.booked_covers_by_business_day",
+        lambda *a, **k: None,
+    )
+    out = sa.forecast_week_demand(db, user=owner, week_start=_next_monday())
+    assert out["signal"] == "revenue"
+
+
+def test_forecast_non_salon_unchanged_revenue_signal(client, db):
+    """Regression: a café (non-salon) still uses the revenue signal untouched."""
+    owner = _owner(db, plan="pro")
+    owner.business_type = "cafe"
+    db.commit()
+    _staff(db, owner, name="Marie", rate=180.0)
+    tm = _next_monday()
+    for w in range(1, 9):
+        for dow in range(7):
+            _sale(db, owner, tm - timedelta(weeks=w) + timedelta(days=dow), 3000.0)
+    _override_user(owner)
+    body = client.get(f"/api/staff/schedules/forecast?week_start={tm.isoformat()}").json()
+    assert body["signal"] == "revenue"
+    assert all(d["predicted_appointments"] is None for d in body["days"])
+
+
 # ─── 6. Weather correlation — rainy reduces demand ─────────────────────
 
 

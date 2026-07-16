@@ -4975,9 +4975,13 @@ function ScheduleGrid({
                         const shortBy = demand - hrs;
                         const isShort = shortBy > Math.max(1, demand * 0.15);
                         const unit = t("schedHoursUnit", "h");
+                        // Basis names the real signal — "bookings" for a salon
+                        // (appointment density), "sales" for revenue verticals.
                         const tip =
-                          (t("schedForecastBasis", "Estimated from {n} recent same-weekday sales") || "")
-                            .replace("{n}", String(fc.sample_count)) +
+                          (fc.sample_basis === "appointments"
+                            ? (t("schedForecastBasisAppts", "Estimated from {n} recent same-weekday bookings") || "")
+                            : (t("schedForecastBasis", "Estimated from {n} recent same-weekday sales") || "")
+                          ).replace("{n}", String(fc.sample_count)) +
                           (fc.weather_summary ? ` · ${fc.weather_summary}` : "");
                         return (
                           <div className="mt-1 text-[10px] leading-tight tabular-nums" title={tip}>
