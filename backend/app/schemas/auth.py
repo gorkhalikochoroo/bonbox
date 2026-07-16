@@ -46,6 +46,16 @@ class UserResponse(BaseModel):
     timezone: str = "Europe/Copenhagen"
     plan: str = "free"
     trial_ends_at: datetime | None = None
+    # Raw Stripe subscription state — surfaced so the frontend can render an
+    # honest billing banner AND so the effective-plan resolver below can gate
+    # a paid `plan` on a genuinely-alive subscription (same rule as backend).
+    subscription_status: str | None = None
+    subscription_period_end: datetime | None = None
+    # Populated from the ORM so the resolver can tell a Stripe-billed sub (held
+    # to the pay/lapse lifecycle) from a non-Stripe comp grant. exclude=True →
+    # available to the validator but never serialized into the response (the
+    # frontend has no use for the raw Stripe id).
+    stripe_subscription_id: str | None = Field(default=None, exclude=True)
     created_at: datetime | None = None
     # Tax preferences — null tax_filing_frequency means "use currency default"
     tax_filing_frequency: str | None = None
@@ -79,12 +89,23 @@ class UserResponse(BaseModel):
         Mileage, etc.) thinks the user isn't entitled — even though
         trial_ends_at is days away.
 
-        Mirrors `app.services.billing.effective_plan`; duplicated here
-        (rather than imported) so the schema stays import-cycle-free.
+        Mirrors `app.services.billing.effective_plan`. The subscription
+        liveness check reuses the SAME predicate (subscription_entitles),
+        imported lazily at call time so this schema stays import-cycle-free
+        at module load — this guarantees /auth/me and the backend gates can
+        never disagree about whether a paid subscription is still alive.
         """
-        if self.plan == "business":
-            self.plan = "pro"
-            return self
+        # A paid plan is honored only while the subscription is genuinely
+        # alive; a lapsed/expired/cancelled paid plan drops to free (and a
+        # live trial below may still lift it to "trial"). Without this,
+        # /auth/me hands the frontend plan="pro" for a lapsed sub while every
+        # backend gate denies it — the exact divergence we must avoid.
+        if self.plan in ("starter", "pro", "business"):
+            from app.services.billing import subscription_entitles
+            if subscription_entitles(self):
+                self.plan = "pro" if self.plan == "business" else self.plan
+                return self
+            self.plan = "free"
         if self.plan == "free" and self.trial_ends_at:
             # Normalize naive datetimes to UTC for comparison — DB columns
             # are stored as UTC but may come back without tzinfo depending
