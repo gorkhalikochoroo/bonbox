@@ -70,7 +70,7 @@ A user editing their browser cache to "is_paid": true does not gain a
 single byte of paid functionality.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.models.user import User
@@ -947,10 +947,84 @@ PLAN_FEATURES: dict[str, dict[str, bool]] = {
 PLAN_ORDER: list[str] = ["free", "starter", "pro"]
 
 
+# ─── Read-time entitlement safety net (genuine downgrade) ──────────────
+#
+# The `plan` column is written once (at checkout / by a webhook) and, in
+# prod, was then NEVER updated again because the Stripe webhook has never
+# fired — leaving two accounts stuck at plan="pro" two full months past
+# their subscription's paid-through date. Trusting `plan` verbatim means a
+# lapsed / cancelled / expired-trial subscription keeps paid features
+# forever. That is the opposite of "no pay → downgrade".
+#
+# The fix: derive entitlement at READ time. A paid `plan` backed by a Stripe
+# subscription is honored ONLY while that subscription is genuinely alive
+# (below); a non-Stripe grant is honored as a deliberate comp. This makes
+# downgrade correct even if no webhook and no reconciliation sweep ever runs —
+# the webhook/sweep become a fast-path that keeps the columns fresh, not the
+# sole thing standing between a lapsed payer and free Pro.
+
+# Keep access a few days past the paid-through date so a transient card
+# decline (Stripe dunning retries) doesn't yank a good customer's access
+# mid-cycle. Manoj-confirmed policy (16 Jul 2026): 3-day dunning grace.
+# One knob — raise/lower here to make downgrade stricter/looser.
+PAID_SUBSCRIPTION_GRACE = timedelta(days=3)
+
+# Statuses that never grant paid access regardless of any period window —
+# the subscription either never became a paying one (incomplete*) or has
+# exhausted all dunning retries (unpaid). "canceled" is deliberately NOT
+# here: a user who cancels but already paid through the period keeps access
+# until their paid-through date (honest — they paid for it).
+_DEAD_SUBSCRIPTION_STATUSES = frozenset({"incomplete", "incomplete_expired", "unpaid"})
+
+
+def subscription_entitles(user: object) -> bool:
+    """Should this user's paid `plan` be honored RIGHT NOW? Duck-typed (reads
+    stripe_subscription_id / subscription_status / subscription_period_end via
+    getattr) so it works on a User ORM row or the /auth/me schema alike — the
+    SINGLE source of truth both call, so backend gates and /auth/me can never
+    disagree.
+
+    Scope — the genuine PAY/LAPSE lifecycle applies to STRIPE-BILLED
+    subscriptions only:
+      • No stripe_subscription_id on record → this paid plan is a NON-Stripe
+        grant (admin comp / seed / manual / pilot). The Stripe lifecycle does
+        not apply and BonBox deliberately granted it, so honor it. (Every
+        genuine Stripe payer always carries a stripe_subscription_id — it is
+        written together with plan/status/period_end by _apply_subscription_state
+        — so this branch never lets a real lapsed payer through.)
+      • A Stripe subscription IS on record → hold it to the genuine lifecycle:
+          – incomplete / incomplete_expired / unpaid → never entitled.
+          – a recorded paid-through date → entitled only while now < date+grace
+            (this is what drops a lapsed/expired-trial sub even with no webhook).
+          – no paid-through date → trust only a live active/trialing status as a
+            stopgap until the next sync writes a date.
+    """
+    # Non-Stripe grant → outside the pay/lapse lifecycle; honor it.
+    if not getattr(user, "stripe_subscription_id", None):
+        return True
+    status = (getattr(user, "subscription_status", None) or "").lower()
+    if status in _DEAD_SUBSCRIPTION_STATUSES:
+        return False
+    period_end = getattr(user, "subscription_period_end", None)
+    if period_end is not None:
+        # utc_now() is naive UTC (matches the DB columns). Normalize an aware
+        # datetime (the /auth/me schema may hand us one) so the comparison
+        # never raises a naive-vs-aware TypeError.
+        if getattr(period_end, "tzinfo", None) is not None:
+            period_end = period_end.astimezone(timezone.utc).replace(tzinfo=None)
+        return utc_now() < period_end + PAID_SUBSCRIPTION_GRACE
+    return status in ("active", "trialing")
+
+
 def effective_plan(user: User) -> str:
     """
     Returns the plan the UI should treat the user as having.
     'free' | 'trial' | 'starter' | 'pro'
+
+    A paid `plan` column is honored only while the subscription is genuinely
+    alive (subscription_entitles) — a lapsed/cancelled/expired sub falls
+    through to trial/free, so entitlement drops the moment the paid-through
+    date passes even if no webhook ever writes plan="free".
 
     Defensive legacy mapping: a User with plan="business" (from earlier
     scaffolding when Business was a tier) resolves to "pro" — we never
@@ -967,13 +1041,15 @@ def effective_plan(user: User) -> str:
         return "pro"
 
     plan = (getattr(user, "plan", None) or "free").lower()
-    if plan in ("starter", "pro"):
-        return plan
-    if plan == "business":
-        # Legacy — pre-3-tier Stripe webhook may have stamped this.
-        # Treat as Pro so the user keeps top-tier entitlements.
-        return "pro"
-    # Plan is "free" or unset — but a live trial overrides
+    if plan in ("starter", "pro", "business"):
+        # Read-time entitlement gate — only honor the paid tier while the
+        # subscription is alive; otherwise fall through to trial/free.
+        if subscription_entitles(user):
+            # Legacy "business" resolves to top-tier Pro; never silently
+            # downgrade a genuinely-paying user.
+            return "pro" if plan == "business" else plan
+    # Plan is "free"/unset, OR a paid plan whose subscription has lapsed —
+    # a live trial still overrides to "trial".
     if getattr(user, "trial_ends_at", None) and user.trial_ends_at > utc_now():
         return "trial"
     return "free"

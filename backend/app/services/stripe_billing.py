@@ -526,6 +526,14 @@ def sync_user_subscription_from_stripe(user: User, db: Session, force: bool = Fa
                 user.stripe_customer_id = None
                 user.stripe_subscription_id = None
                 user.subscription_status = None
+                user.subscription_period_end = None
+                # Drop any Stripe-derived paid plan too — with the customer gone
+                # there is no live subscription, and once we null the
+                # subscription id the read-time guard would otherwise treat the
+                # stale paid plan as a (honored) non-Stripe grant. Trials keep
+                # their trial_ends_at; effective_plan re-derives 'trial'/'free'.
+                if (user.plan or "free") in ("starter", "pro", "business"):
+                    user.plan = "free"
                 db.commit()
             except Exception:
                 db.rollback()

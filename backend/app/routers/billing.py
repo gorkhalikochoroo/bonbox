@@ -88,11 +88,18 @@ def my_billing(
     from Stripe before responding. The sync is rate-limited per-user (30s
     cooldown) and wrapped in try/except so it can't crash this endpoint.
     """
-    # Auto-sync: trigger when subscription_status is null. The sync function
-    # will recover an orphaned customer by metadata search if user.stripe_customer_id
-    # is null too. The 30s per-user cooldown inside sync_user_subscription_from_stripe
-    # caps Stripe API hits at ~2/min/user even if /billing/me is hammered.
-    if not user.subscription_status and stripe_billing.is_configured():
+    # Auto-sync (lazy read-time reconciliation). Trigger when we have no
+    # subscription state recorded, OR when the recorded paid-through date has
+    # already passed. The old null-only guard NEVER reconciled a stale non-null
+    # status — which is exactly how two accounts sat at 'trialing' two months
+    # past their period_end. Syncing on a lapsed period_end self-heals them.
+    # The sync recovers an orphaned customer by metadata search if
+    # stripe_customer_id is null too; the 30s per-user cooldown inside
+    # sync_user_subscription_from_stripe caps Stripe hits at ~2/min/user even
+    # if /billing/me is hammered.
+    _period_end = user.subscription_period_end
+    _sub_lapsed = _period_end is not None and _period_end < utc_now()
+    if (not user.subscription_status or _sub_lapsed) and stripe_billing.is_configured():
         try:
             stripe_billing.sync_user_subscription_from_stripe(user, db)
         except Exception:

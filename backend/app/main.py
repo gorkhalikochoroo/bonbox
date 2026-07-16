@@ -4563,6 +4563,7 @@ try:
     from app.jobs.daily_brief_push_job import send_daily_brief_pushes
     from app.jobs.expiry_scanner_job import run_expiry_scan
     from app.jobs.frontend_monitor_job import run_frontend_monitor_tick
+    from app.jobs.subscription_reconcile_job import run_subscription_reconcile
     from app.jobs.public_surface_monitor_job import run_public_surface_monitor_tick
     from app.jobs.reservation_jobs import (
         send_reservation_reminders, purge_expired_reservations,
@@ -4574,6 +4575,20 @@ try:
         trigger=IntervalTrigger(hours=6),
         id="payment_autosync",
         name="Auto-sync payment providers",
+        replace_existing=True,
+    )
+    # Stripe subscription reconciliation — the downgrade backstop. Every 6h,
+    # reconciles the plan COLUMN for any paid-plan owner whose subscription is
+    # no longer alive (webhook missed / never fired). Entitlement is already
+    # correct via the read-time guard; this keeps the raw column + founding
+    # counter honest and audits the downgrade. Never touches a live sub or a
+    # super_admin; defers on a transient Stripe outage. See
+    # jobs/subscription_reconcile_job.py.
+    _scheduler.add_job(
+        run_subscription_reconcile,
+        trigger=IntervalTrigger(hours=6),
+        id="subscription_reconcile",
+        name="Stripe subscription reconciliation (downgrade backstop)",
         replace_existing=True,
     )
     # Nightly: GDPR purge old events + expire stale patterns + run detectors.
