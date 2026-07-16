@@ -38,6 +38,7 @@ import {
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { useLanguage } from "../../hooks/useLanguage";
 import { formatKr } from "../../utils/currency";
+import { UpgradeNudge } from "../ui";
 
 // Full readable date with weekday for the tooltip — "lør 14. jun" / "Sat 14 Jun".
 function fmtTrendDate(label, lang) {
@@ -89,6 +90,46 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
 
   const cardCls =
     "rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition";
+  const staticCardCls =
+    "rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6";
+
+  // Honest tier-gate: `days` is the tier-capped window (Free = 7, paid = 90),
+  // but ctx.dailyRevData is the FULL rolling series. So we can tell apart
+  // "no data" from "you HAVE a trend, it's just outside your window." Only the
+  // second case earns an upgrade prompt — and it shows the real count of days
+  // with sales, so it can never over-promise. This is the exact dead-end an
+  // owner hits when a trial lapses: the chart silently emptied instead of
+  // saying why. `days < 90` == on the capped (Free) window.
+  const fullSoldCount = (ctx?.dailyRevData || []).filter((d) => (d.amount || 0) > 0).length;
+  const windowHidesTrend =
+    days < 90 && fullSoldCount >= 3 && soldDays.length < 3;
+
+  if (windowHidesTrend) {
+    return (
+      <div className={staticCardCls} data-zone="2" data-component="RevenueTrendChart">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">
+          {t("revenueTrend", "Revenue trend")}
+        </h3>
+        {monthRev > 0 && (
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
+            {t("revenueTrendMonthSoFar", "This month so far: {amt}").replace(
+              "{amt}", formatKr(monthRev, { decimals: 0 }))}
+          </p>
+        )}
+        <UpgradeNudge
+          intent="inline"
+          tier="starter"
+          iconName="LineChart"
+          benefit={t(
+            "revenueTrendUnlockBenefit",
+            "See your full 90-day trend — you have sales on {n} days",
+          ).replace("{n}", String(fullSoldCount))}
+          ctaLabel={t("revenueTrendUnlockCta", "See plans")}
+          cta="/subscription"
+        />
+      </div>
+    );
+  }
 
   if (!data.length || soldDays.length === 0) {
     return (
