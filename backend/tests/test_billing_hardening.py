@@ -303,8 +303,9 @@ def test_c_webhook_dedup_runs_handler_once(db_session):
          patch.object(settings, "STRIPE_WEBHOOK_SECRET", "whsec_test"), \
          patch.object(sb, "_handle_subscription_changed") as spy_handler:
 
-        r1 = sb.handle_webhook(b"{}", "sig", db_session)
-        r2 = sb.handle_webhook(b"{}", "sig", db_session)
+        payload = json.dumps(event).encode()  # event now comes from the raw body, not the mock
+        r1 = sb.handle_webhook(payload, "sig", db_session)
+        r2 = sb.handle_webhook(payload, "sig", db_session)
 
     # Handler dispatched exactly once across the two identical deliveries.
     assert spy_handler.call_count == 1
@@ -335,8 +336,8 @@ def test_c_distinct_events_both_process(db_session):
          patch.object(settings, "STRIPE_WEBHOOK_SECRET", "whsec_test"), \
          patch.object(sb, "_handle_subscription_changed") as spy_handler:
         mock_stripe.Webhook.construct_event.side_effect = [_mk("evt_a"), _mk("evt_b")]
-        sb.handle_webhook(b"{}", "sig", db_session)
-        sb.handle_webhook(b"{}", "sig", db_session)
+        sb.handle_webhook(json.dumps(_mk("evt_a")).encode(), "sig", db_session)
+        sb.handle_webhook(json.dumps(_mk("evt_b")).encode(), "sig", db_session)
 
     assert spy_handler.call_count == 2
 

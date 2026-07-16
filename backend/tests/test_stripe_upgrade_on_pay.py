@@ -7,6 +7,7 @@ read-time entitlement guard (PR A) doesn't drop a customer who keeps paying.
 """
 from __future__ import annotations
 
+import json
 import time
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
@@ -100,13 +101,13 @@ def test_async_payment_succeeded_activates_via_webhook(db):
     """The allowlist must route checkout.session.async_payment_succeeded to the
     activation handler — otherwise a settled DK payment never grants Pro."""
     u = _user(db, email="c@x.dk", stripe_customer_id="cus_1")
+    evt = _checkout_evt("paid", etype="checkout.session.async_payment_succeeded")
     mock = MagicMock()
     mock.Subscription.retrieve.return_value = _sub(status="active")
-    mock.Webhook.construct_event.return_value = _checkout_evt(
-        "paid", etype="checkout.session.async_payment_succeeded")
+    mock.Webhook.construct_event.return_value = evt
     with patch.object(sb, "_stripe", return_value=mock), \
          patch.object(settings, "STRIPE_WEBHOOK_SECRET", "whsec_test"):
-        r = sb.handle_webhook(b"{}", "sig", db)
+        r = sb.handle_webhook(json.dumps(evt).encode(), "sig", db)
     assert r["status"] == "ok"
     db.refresh(u)
     assert u.plan == "pro"
@@ -127,12 +128,12 @@ def test_async_success_activates_even_if_snapshot_unpaid(db):
 
 def test_async_payment_failed_does_not_activate(db):
     u = _user(db, email="d@x.dk", plan="free", stripe_customer_id="cus_1")
+    evt = _checkout_evt("unpaid", etype="checkout.session.async_payment_failed")
     mock = MagicMock()
-    mock.Webhook.construct_event.return_value = _checkout_evt(
-        "unpaid", etype="checkout.session.async_payment_failed")
+    mock.Webhook.construct_event.return_value = evt
     with patch.object(sb, "_stripe", return_value=mock), \
          patch.object(settings, "STRIPE_WEBHOOK_SECRET", "whsec_test"):
-        r = sb.handle_webhook(b"{}", "sig", db)
+        r = sb.handle_webhook(json.dumps(evt).encode(), "sig", db)
     assert r["status"] == "ok"
     db.refresh(u)
     assert u.plan == "free"
@@ -169,6 +170,45 @@ def test_invoice_paid_ignores_non_subscription_invoice(db):
     mock.Subscription.retrieve.assert_not_called()
     db.refresh(u)
     assert u.plan == "free"
+
+
+# ─── Stripe SDK v15 typed-object regression (the prod webhook crash) ───
+
+def test_webhook_processes_real_v15_objects(db):
+    """Stripe SDK v15+ Event/Subscription are NOT dict subclasses, so
+    event.get() and dict(sub) raise AttributeError/KeyError — which crashed
+    EVERY real webhook in prod (tests used plain-dict fixtures and missed it).
+    handle_webhook must process a real JSON payload + a real v15 Subscription
+    (from retrieve) without crashing, write the webhook_events row, and apply
+    the plan."""
+    import stripe
+    from app.models.webhook_event import WebhookEvent
+
+    u = _user(db, email="v15@x.dk", stripe_customer_id="cus_v15")
+    payload = {"id": "evt_v15", "type": "customer.subscription.created",
+               "data": {"object": {"id": "sub_v15", "status": "active", "customer": "cus_v15"}}}
+    ts = int(time.time()) + 30 * 86400
+    # REAL v15 typed object (construct_from) — NOT a dict, the whole point.
+    real_sub = stripe.Subscription.construct_from({
+        "id": "sub_v15", "status": "active", "current_period_end": ts,
+        "items": {"object": "list", "data": [
+            {"id": "si_1", "price": {"id": "price_pro"}, "current_period_end": ts}]},
+        "latest_invoice": {"status": "paid", "paid": True},
+    }, "sk_x")
+    assert not isinstance(real_sub, dict)  # sanity: this is a v15 typed object
+
+    mock = MagicMock()
+    mock.Webhook.construct_event.return_value = stripe.Event.construct_from(payload, "sk_x")
+    mock.Subscription.retrieve.return_value = real_sub
+    with patch.object(sb, "_stripe", return_value=mock), \
+         patch.object(settings, "STRIPE_WEBHOOK_SECRET", "whsec_test"):
+        result = sb.handle_webhook(json.dumps(payload).encode(), "t=1,v1=x", db)
+
+    assert result.get("status") == "ok", result                 # NOT router_crash
+    assert db.query(WebhookEvent).filter(
+        WebhookEvent.event_id == "evt_v15").count() == 1          # row written
+    db.refresh(u)
+    assert u.plan == "pro" and u.subscription_status == "active"
 
 
 # ─── SEPA optimistic-activation: no Pro until the money settles ────────
