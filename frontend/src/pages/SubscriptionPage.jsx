@@ -4,6 +4,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
 import { trackEvent } from "../hooks/useEventLog";
 import useFounderRateStatus from "../hooks/useFounderRateStatus";
+import { useEntitlements } from "../hooks/useEntitlements";
 import api from "../services/api";
 import { safeExternalUrl } from "../utils/safeUrl";
 import { errText } from "../utils/errText";
@@ -273,13 +274,16 @@ function renderStarterAcctTagline(t, acctSavings) {
 }
 
 export default function SubscriptionPage() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { t } = useLanguage();
+  const { refresh: refreshEntitlements } = useEntitlements();
   const [annual, setAnnual] = useState(false);
   const [billing, setBilling] = useState(null);
   const [joined, setJoined] = useState(new Set());
   const [pending, setPending] = useState(null);
   const [msg, setMsg] = useState("");
+  // Post-payment acknowledgment: null | "syncing" | "confirmed" | "processing".
+  const [paymentAck, setPaymentAck] = useState(null);
   // Founder-rate live status (Task #89 P2-2). Same endpoint the
   // FounderRatePill uses on the landing page — factored into the
   // shared useFounderRateStatus hook. `valid === false` means we
@@ -316,6 +320,57 @@ export default function SubscriptionPage() {
       setAcctSavings(s.data);
     });
   }, [user]);
+
+  // Post-payment return handler. Stripe redirects to
+  //   /subscription?success=1&session_id=...
+  // but nothing read it before — a genuinely-completed checkout could leave the
+  // owner staring at the pre-payment "Upgrade" CTA and conclude it failed. Read
+  // it, force-reconcile directly from Stripe (so we don't depend on the webhook
+  // having fired), refresh global entitlements + the /auth/me user so gates and
+  // chrome update without a hard reload, then acknowledge what genuinely
+  // happened with their money — never over-promising an unsettled async payment.
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("success") !== "1") return;
+    // Strip the query immediately so a refresh / back can't re-run this.
+    window.history.replaceState({}, "", window.location.pathname);
+    setPaymentAck("syncing");
+    let cancelled = false;
+    (async () => {
+      // Force a direct Stripe reconcile so /billing/me reflects the completed
+      // checkout even if the webhook is lagging/misconfigured. Best-effort.
+      try { await api.post("/billing/stripe/sync", {}); } catch { /* ignore */ }
+      let fresh = null;
+      try {
+        const b = await api.get("/billing/me").catch(() => ({ data: null }));
+        fresh = b?.data || null;
+        if (!cancelled && fresh) setBilling(fresh);
+      } catch { /* ignore */ }
+      // Update global entitlements + user.plan so feature gates + chrome reflect
+      // the new plan without a full reload.
+      try { await refreshEntitlements?.(); } catch { /* ignore */ }
+      try { await refreshUser?.(); } catch { /* ignore */ }
+      if (cancelled) return;
+      // Honest ack: only claim "unlocked" if the plan actually resolved to a
+      // paid tier. An async method (SEPA/MobilePay) can be 'active' but still
+      // settling — say "processing" instead of over-promising.
+      const paidNow = ["starter", "pro"].includes(fresh?.plan);
+      const stillSettling = !paidNow && fresh?.subscription_status === "active";
+      setPaymentAck(stillSettling ? "processing" : "confirmed");
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // A confirmed ack is a transient celebration — auto-dismiss so the persistent
+  // locked-in banner below carries the ongoing state. "processing" persists
+  // (the owner needs to keep seeing that it's still clearing).
+  useEffect(() => {
+    if (paymentAck !== "confirmed") return;
+    const id = setTimeout(() => setPaymentAck(null), 8000);
+    return () => clearTimeout(id);
+  }, [paymentAck]);
 
   const trialDaysLeft = billing?.trial_active ? billing.trial_days_remaining : null;
   const currentPlan = billing?.plan || "free";
@@ -505,6 +560,32 @@ export default function SubscriptionPage() {
 
   return (
     <div className="px-4 sm:px-6 py-6 sm:py-10 pb-32 sm:pb-16 max-w-6xl mx-auto">
+      {/* Post-payment acknowledgment — shown on the Stripe success return */}
+      {paymentAck && (
+        <Card variant="emphasis" className="mb-6">
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="w-10 h-10 rounded-full bg-gray-50 dark:bg-gray-800 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 text-lg">
+              {paymentAck === "syncing" ? "…" : paymentAck === "processing" ? "⏳" : "🎉"}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {paymentAck === "syncing"
+                  ? (t("pricingPaymentConfirming") || "Confirming your payment…")
+                  : paymentAck === "processing"
+                    ? (t("pricingPaymentProcessing") || "Payment received — it's still clearing")
+                    : (t("pricingPaymentConfirmed") || "Payment confirmed — your plan is unlocked 🎉")}
+              </div>
+              {paymentAck === "processing" && (
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  {t("pricingPaymentProcessingSub") ||
+                    "Bank debits (MobilePay/SEPA) can take a few days to clear. We'll unlock your plan the moment it does — no need to pay again."}
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Locked-in banner — for users with a real Stripe sub */}
       {hasStripeSub ? (
         <Card variant="emphasis" className="mb-6">
@@ -524,7 +605,9 @@ export default function SubscriptionPage() {
                         : (t("pricingLockedTrialingSoon") || "soon")
                     )
                   : billing?.subscription_status === "active"
-                    ? (t("pricingLockedActive") || "Subscription active — billed monthly at your founding rate")
+                    ? (["starter", "pro"].includes(billing?.plan)
+                        ? (t("pricingLockedActive") || "Subscription active — billed monthly at your founding rate")
+                        : (t("pricingLockedProcessing") || "Payment processing — your plan unlocks as soon as it clears"))
                     : billing?.subscription_status === "past_due"
                       ? (t("pricingLockedPastDue") || "Payment failed — please update your card to keep your plan")
                       : (t("pricingLockedGeneric") || "Subscription active")}
