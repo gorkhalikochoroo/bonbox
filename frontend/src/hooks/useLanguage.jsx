@@ -3958,6 +3958,7 @@ const translations = {
     schedForecastDemand: "demand",
     schedForecastBasis: "Estimated from {n} recent same-weekday sales",
     schedForecastBasisAppts: "Estimated from {n} recent same-weekday bookings",
+    schedForecastCoversBooked: "{n} guests booked",
     schedOvertimeTip: "Over weekly hours",
     // Saved shift presets (templates)
     schedTemplates: "Templates",
@@ -11066,6 +11067,7 @@ const translations = {
     schedForecastDemand: "behov",
     schedForecastBasis: "Estimeret ud fra {n} seneste salg på samme ugedag",
     schedForecastBasisAppts: "Estimeret ud fra {n} seneste bookinger på samme ugedag",
+    schedForecastCoversBooked: "{n} gæster booket",
     schedOvertimeTip: "Over ugentlige timer",
     // Gemte vagt-skabeloner
     schedTemplates: "Skabeloner",

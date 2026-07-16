@@ -4970,10 +4970,21 @@ function ScheduleGrid({
                           basis ("from N recent sales" + weather) is on hover. */}
                       {(() => {
                         const fc = forecastByDate?.[iso];
-                        if (!fc || fc.predicted_demand_hours < 1 || (fc.sample_count || 0) < 3) return null;
+                        if (!fc) return null;
                         const demand = fc.predicted_demand_hours;
+                        // Demand line: only when a real same-weekday history backs it.
+                        const showDemand = demand >= 1 && (fc.sample_count || 0) >= 3;
+                        // Booked-covers CONTEXT: forward reservations for this day.
+                        // Honest — the booked number, never a demand claim. The
+                        // backend only sets it on the revenue path for food venues
+                        // with an actual book, so a salon (appointment demand) and
+                        // reservations-off venues send null. Shows even when the
+                        // demand forecast is too thin, so a booked-solid restaurant
+                        // with sparse sales history still sees its book.
+                        const covers = fc.booked_covers > 0 ? fc.booked_covers : 0;
+                        if (!showDemand && !covers) return null;
                         const shortBy = demand - hrs;
-                        const isShort = shortBy > Math.max(1, demand * 0.15);
+                        const isShort = showDemand && shortBy > Math.max(1, demand * 0.15);
                         const unit = t("schedHoursUnit", "h");
                         // Basis names the real signal — "bookings" for a salon
                         // (appointment density), "sales" for revenue verticals.
@@ -4984,14 +4995,23 @@ function ScheduleGrid({
                           ).replace("{n}", String(fc.sample_count)) +
                           (fc.weather_summary ? ` · ${fc.weather_summary}` : "");
                         return (
-                          <div className="mt-1 text-[10px] leading-tight tabular-nums" title={tip}>
-                            <span className="text-gray-400 dark:text-gray-500">
-                              {t("schedForecastDemand", "demand")} ~{Math.round(demand)}{unit}
-                            </span>
-                            {isShort && (
-                              <span className="text-amber-600 dark:text-amber-400 font-semibold ml-1">
-                                −{Math.round(shortBy)}{unit}
-                              </span>
+                          <div className="mt-1 text-[10px] leading-tight tabular-nums">
+                            {showDemand && (
+                              <div title={tip}>
+                                <span className="text-gray-400 dark:text-gray-500">
+                                  {t("schedForecastDemand", "demand")} ~{Math.round(demand)}{unit}
+                                </span>
+                                {isShort && (
+                                  <span className="text-amber-600 dark:text-amber-400 font-semibold ml-1">
+                                    −{Math.round(shortBy)}{unit}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                            {covers > 0 && (
+                              <div className="text-gray-400 dark:text-gray-500">
+                                {(t("schedForecastCoversBooked", "{n} guests booked") || "").replace("{n}", String(covers))}
+                              </div>
                             )}
                           </div>
                         );
