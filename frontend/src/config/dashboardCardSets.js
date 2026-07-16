@@ -425,8 +425,14 @@ export const DASHBOARD_CARD_SET = {
       renderIf: (ctx) => ctx?.entReady !== false && ctx?.plan === "free",
       props: {
         intent: "card",
+        // Deliberately does NOT mention the revenue trend: RevenueTrendChart now
+        // makes its own EARNED trend pitch (windowHidesTrend, only when the
+        // owner has hidden sold days). Naming "trend" here too asked a Free
+        // owner for the same feature twice in one zone — a mini upsell-wall.
+        // This card stays the ONE general growth-slot nudge; it just no longer
+        // echoes the trend.
         tier: "starter",
-        benefit: "Unlock 30-day trend, top sellers, and growth signals",
+        benefit: "Unlock top sellers, growth signals, and accountant tools",
         ctaLabel: "Try Starter free for 14 days",
         cta: "/subscription?plan=starter&source=dashboard",
       },
