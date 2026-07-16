@@ -678,6 +678,45 @@ def _g(obj, key, default=None):
     return getattr(obj, key, default)
 
 
+def _latest_invoice_settled(sub_obj) -> Optional[bool]:
+    """Has the subscription's latest invoice actually been PAID?
+
+    Returns True (paid / no charge due), False (open / processing / void /
+    uncollectible — e.g. a SEPA Direct Debit still settling or failed), or None
+    when it can't be determined (no invoice reference, or the lookup failed).
+    Callers treat None as "don't block", so synchronous card + trial flows are
+    unaffected.
+
+    Why this exists: Stripe OPTIMISTICALLY marks an async-payment subscription
+    (SEPA / MobilePay) 'active' while the first debit is still processing, so
+    the subscription's status alone is NOT proof the money arrived. This checks
+    the money itself. (Adversarial review, 16 Jul 2026.)
+    """
+    inv = _g(sub_obj, "latest_invoice")
+    if inv is None:
+        return None
+    if not isinstance(inv, str):
+        # Expanded invoice object embedded on the subscription.
+        st = (_g(inv, "status") or "").lower()
+        if st:
+            return st == "paid"
+        paid = _g(inv, "paid")
+        return bool(paid) if paid is not None else None
+    # It's an invoice id → retrieve it to read its status.
+    s = _stripe()
+    if not s:
+        return None
+    try:
+        inv_obj = s.Invoice.retrieve(inv)
+        st = (_g(inv_obj, "status") or "").lower()
+        if st:
+            return st == "paid"
+        return bool(_g(inv_obj, "paid"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("Could not retrieve invoice %s to confirm settlement: %s", inv, e)
+        return None
+
+
 def _apply_subscription_state(
     user: User, sub_obj, db: Session, *, event_id: str = "", event_type: str = "",
 ) -> None:
@@ -736,14 +775,33 @@ def _apply_subscription_state(
             # "business" string into the plan column.
             business_price_id = getattr(settings, "STRIPE_PRICE_ID_BUSINESS", None)
             if business_price_id and price_id == business_price_id:
-                new_plan = "pro"
+                mapped_plan = "pro"
             elif price_id in starter_prices:
-                new_plan = "starter"
+                mapped_plan = "starter"
             else:
-                new_plan = "pro"
-        elif status in ("canceled", "unpaid", "incomplete_expired"):
-            # Subscription ended — drop back to free. Trial_ends_at is preserved
-            # for analytics / re-engagement campaigns.
+                mapped_plan = "pro"
+
+            if status == "active" and _latest_invoice_settled(sub_obj) is False:
+                # Async payment (SEPA Direct Debit / MobilePay) not yet settled.
+                # Stripe optimistically marks the subscription 'active' while the
+                # debit is still processing, so 'active' alone is NOT proof the
+                # money arrived. Do NOT grant the paid tier on unsettled money —
+                # the invoice.paid webhook re-applies this state once the debit
+                # settles (and if it never settles, the tier is never granted).
+                # Card subscriptions have an already-paid latest invoice here, so
+                # they still activate immediately; trials ('trialing') never hit
+                # this gate. Fixes the SEPA optimistic-activation free-Pro window.
+                log.info(
+                    "subscription %s active but latest invoice not settled — "
+                    "deferring paid-tier grant for user=%s until invoice.paid",
+                    _g(sub_obj, "id"), user.id,
+                )
+                new_plan = old_plan
+            else:
+                new_plan = mapped_plan
+        elif status in ("canceled", "unpaid", "incomplete_expired", "paused"):
+            # Subscription ended or billing paused — drop back to free.
+            # Trial_ends_at is preserved for analytics / re-engagement.
             new_plan = "free"
         elif status == "past_due":
             # Don't auto-downgrade on past_due — Stripe is still trying to charge.
@@ -1009,9 +1067,20 @@ def handle_webhook(
     # L2 — Event type allowlist
     handlers = {
         "checkout.session.completed": _handle_checkout_completed,
+        # DK async payment methods (MobilePay / SEPA Direct Debit) settle AFTER
+        # checkout — the money-confirmed event is async_payment_succeeded, whose
+        # session carries payment_status='paid'. Without this, a real Danish
+        # payment would never activate the plan.
+        "checkout.session.async_payment_succeeded": _handle_checkout_completed,
+        "checkout.session.async_payment_failed": _handle_async_payment_failed,
         "customer.subscription.created": _handle_subscription_changed,
         "customer.subscription.updated": _handle_subscription_changed,
         "customer.subscription.deleted": _handle_subscription_deleted,
+        # Each successful (initial or renewal) invoice advances the paid-through
+        # date so the read-time entitlement guard keeps a renewing payer
+        # entitled instead of dropping them after the first period + grace.
+        "invoice.paid": _handle_invoice_paid,
+        "invoice.payment_succeeded": _handle_invoice_paid,
         "invoice.payment_failed": _handle_payment_failed,
     }
     handler = handlers.get(event_type)
@@ -1059,20 +1128,54 @@ def handle_webhook(
 
 
 def _handle_checkout_completed(event: dict, db: Session) -> None:
-    """Initial checkout — link the user to the new subscription."""
+    """Checkout completed — activate the plan on CONFIRMED money only.
+
+    Also the handler for checkout.session.async_payment_succeeded (DK
+    MobilePay / SEPA): that event fires once an async payment settles and its
+    session carries payment_status='paid'.
+
+    A plain checkout.session.completed for an async method carries
+    payment_status='unpaid' — we persist the customer/subscription linkage but
+    do NOT activate the plan, and wait for the money-confirmed event
+    (async_payment_succeeded, or the subscription.updated that flips
+    incomplete→active). Never grant Pro on an unpaid checkout — that would be
+    showing premium the user hasn't paid for.
+    """
     obj = (event.get("data") or {}).get("object") or {}
     user = _find_user_for_event(db, {"object": obj})
     if not user:
-        log.warning("checkout.session.completed: user not found for event %s", event.get("id"))
+        log.warning("%s: user not found for event %s",
+                    event.get("type", "checkout.session"), event.get("id"))
         return
 
-    # The checkout session has subscription ID we need to fetch full state
+    # The checkout session has the subscription ID we need to fetch full state.
     sub_id = obj.get("subscription")
     if not sub_id:
         return
     user.stripe_subscription_id = sub_id
+    if obj.get("customer") and not user.stripe_customer_id:
+        user.stripe_customer_id = obj["customer"]
 
-    # Pull the subscription detail to get current status
+    # Confirmed-paid gate. 'unpaid' = an async method (MobilePay/SEPA) still
+    # settling → link only, wait for the money-confirmed event. 'paid' and
+    # 'no_payment_required' (e.g. a trial with no upfront charge) proceed.
+    # async_payment_succeeded is ITSELF the money-confirmed signal, so trust the
+    # event type even if the session snapshot still reads 'unpaid'.
+    payment_status = (obj.get("payment_status") or "").lower()
+    is_async_success = event.get("type") == "checkout.session.async_payment_succeeded"
+    if payment_status == "unpaid" and not is_async_success:
+        log.info(
+            "checkout %s payment_status=unpaid (async pending) user=%s — "
+            "linked subscription, NOT activating until payment confirmed",
+            obj.get("id"), user.id,
+        )
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+        return
+
+    # Pull the subscription detail to get current status and apply it.
     s = _stripe()
     try:
         sub = s.Subscription.retrieve(sub_id)
@@ -1082,14 +1185,81 @@ def _handle_checkout_completed(event: dict, db: Session) -> None:
         )
     except Exception as e:
         log.warning("Could not retrieve subscription %s: %s", sub_id, e)
-        # At least save the customer link
-        if obj.get("customer") and not user.stripe_customer_id:
-            user.stripe_customer_id = obj["customer"]
-        db.commit()
+        # At least persist the customer/subscription linkage saved above.
+        try:
+            db.commit()
+        except Exception:  # noqa: BLE001
+            db.rollback()
+
+
+def _handle_async_payment_failed(event: dict, db: Session) -> None:
+    """A DK async payment (MobilePay / SEPA) failed to settle after checkout.
+
+    Do NOT activate — the subscription stays incomplete and the read-time
+    entitlement guard denies paid access. Log for observability so a stuck
+    async payment is visible rather than silent.
+    """
+    obj = (event.get("data") or {}).get("object") or {}
+    log.info(
+        "checkout async payment FAILED session=%s customer=%s subscription=%s "
+        "— not activating",
+        obj.get("id"), obj.get("customer"), obj.get("subscription"),
+    )
+
+
+def _handle_invoice_paid(event: dict, db: Session) -> None:
+    """A subscription invoice was paid (initial OR renewal) — re-sync the
+    subscription so subscription_period_end advances to the new paid-through
+    date.
+
+    This is what keeps a renewing payer entitled: the read-time guard expires a
+    sub once period_end passes (+grace), so without advancing period_end on each
+    paid cycle a genuinely-paying customer would be dropped after their first
+    period. Idempotent — re-applying an unchanged state writes no audit row.
+    """
+    obj = (event.get("data") or {}).get("object") or {}
+    # Only subscription invoices carry a subscription id; one-off invoices skip.
+    # The 2025-03 "basil" API moved the reference under parent.subscription_details
+    # (the same API version whose item-level current_period_end _apply_subscription_state
+    # already accommodates), so fall back there before giving up.
+    sub_id = obj.get("subscription")
+    if not sub_id:
+        parent = obj.get("parent") or {}
+        sub_id = (parent.get("subscription_details") or {}).get("subscription")
+    if not sub_id:
+        return
+    customer_id = obj.get("customer")
+    user = None
+    if customer_id:
+        user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+    if not user:
+        user = db.query(User).filter(User.stripe_subscription_id == sub_id).first()
+    if not user:
+        log.warning("invoice.paid: user not found (sub=%s customer=%s)", sub_id, customer_id)
+        return
+
+    s = _stripe()
+    try:
+        sub = s.Subscription.retrieve(sub_id)
+        _apply_subscription_state(
+            user, dict(sub), db,
+            event_id=event.get("id", ""), event_type=event.get("type", ""),
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("invoice.paid: could not retrieve/apply subscription %s: %s", sub_id, e)
 
 
 def _handle_subscription_changed(event: dict, db: Session) -> None:
-    """customer.subscription.created / updated — refresh plan + status."""
+    """customer.subscription.created / updated — refresh plan + status.
+
+    Re-retrieves the LIVE subscription instead of trusting the event's embedded
+    snapshot. Stripe delivers at-least-once and can redeliver OUT OF ORDER, so a
+    stale 'active' updated arriving after a cancel would otherwise resurrect a
+    canceled subscription to paid Pro (the snapshot has no recency guard). Re-
+    fetching converges to current truth — the same pattern the checkout and
+    invoice handlers already use. Falls back to the embedded snapshot only if
+    the fetch fails. (Adversarial review, 16 Jul 2026.)
+    """
     obj = (event.get("data") or {}).get("object") or {}
     user = _find_user_for_event(db, {"object": obj})
     if not user:
@@ -1098,8 +1268,20 @@ def _handle_subscription_changed(event: dict, db: Session) -> None:
             event.get("type", "?"), obj.get("id"), obj.get("customer"),
         )
         return
+    sub_obj = obj
+    sub_id = obj.get("id")
+    s = _stripe()
+    if s and sub_id:
+        try:
+            sub_obj = dict(s.Subscription.retrieve(sub_id))
+        except Exception as e:  # noqa: BLE001
+            log.warning(
+                "subscription.%s: retrieve %s failed, using event snapshot: %s",
+                event.get("type", "?"), sub_id, e,
+            )
+            sub_obj = obj
     _apply_subscription_state(
-        user, obj, db,
+        user, sub_obj, db,
         event_id=event.get("id", ""), event_type=event.get("type", ""),
     )
 

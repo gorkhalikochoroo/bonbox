@@ -970,11 +970,12 @@ PLAN_ORDER: list[str] = ["free", "starter", "pro"]
 PAID_SUBSCRIPTION_GRACE = timedelta(days=3)
 
 # Statuses that never grant paid access regardless of any period window —
-# the subscription either never became a paying one (incomplete*) or has
-# exhausted all dunning retries (unpaid). "canceled" is deliberately NOT
-# here: a user who cancels but already paid through the period keeps access
-# until their paid-through date (honest — they paid for it).
-_DEAD_SUBSCRIPTION_STATUSES = frozenset({"incomplete", "incomplete_expired", "unpaid"})
+# the subscription either never became a paying one (incomplete*), exhausted
+# all dunning retries (unpaid), or had billing paused (paused → collection
+# stopped, so access stops). "canceled" is deliberately NOT here: a user who
+# cancels but already paid through the period keeps access until their
+# paid-through date (honest — they paid for it).
+_DEAD_SUBSCRIPTION_STATUSES = frozenset({"incomplete", "incomplete_expired", "unpaid", "paused"})
 
 
 def subscription_entitles(user: object) -> bool:
