@@ -437,6 +437,82 @@ def test_forecast_non_salon_unchanged_revenue_signal(client, db):
     assert all(d["predicted_appointments"] is None for d in body["days"])
 
 
+# ─── forward booked-covers CONTEXT (display only, never demand) ─────────
+
+
+def test_forecast_restaurant_surfaces_booked_covers(client, db, monkeypatch):
+    """A restaurant sees THIS week's actual reservations per day beside the demand
+    forecast — the honest booked number, per-day, None on days with no book."""
+    owner = _owner(db, plan="pro")
+    owner.business_type = "restaurant"
+    db.commit()
+    _staff(db, owner, name="Marie", rate=180.0)
+    tm = _next_monday()
+    fwd = {tm: 40, tm + timedelta(days=5): 88}  # Monday + Saturday booked
+    monkeypatch.setattr(
+        "app.services.reservation_insights_service.booked_covers_by_business_day",
+        lambda *a, **k: fwd,
+    )
+    _override_user(owner)
+    body = client.get(f"/api/staff/schedules/forecast?week_start={tm.isoformat()}").json()
+    assert body["signal"] == "revenue"
+    by_wd = {d["weekday"]: d for d in body["days"]}
+    assert by_wd[0]["booked_covers"] == 40   # Monday
+    assert by_wd[5]["booked_covers"] == 88   # Saturday
+    assert by_wd[1]["booked_covers"] is None  # Tuesday — no book, None not 0
+
+
+def test_forecast_salon_has_no_covers_context(client, db, monkeypatch):
+    """Salon demand is ALREADY appointments — don't double-surface a covers line."""
+    owner = _owner(db, plan="pro")
+    owner.business_type = "salon"
+    db.commit()
+    _staff(db, owner, name="Marie", rate=180.0)
+    tm = _next_monday()
+    appts = {tm - timedelta(weeks=w): 6 for w in range(1, 9)}
+    monkeypatch.setattr(
+        "app.services.reservation_insights_service.booked_covers_by_business_day",
+        lambda *a, **k: appts,
+    )
+    _override_user(owner)
+    body = client.get(f"/api/staff/schedules/forecast?week_start={tm.isoformat()}").json()
+    assert body["signal"] == "appointments"
+    assert all(d["booked_covers"] is None for d in body["days"])
+
+
+def test_forecast_restaurant_reservations_off_no_covers(client, db, monkeypatch):
+    """Reservations off (helper → None) → no covers context; None never becomes 0."""
+    owner = _owner(db, plan="pro")
+    owner.business_type = "restaurant"
+    db.commit()
+    _staff(db, owner, name="Marie", rate=180.0)
+    tm = _next_monday()
+    monkeypatch.setattr(
+        "app.services.reservation_insights_service.booked_covers_by_business_day",
+        lambda *a, **k: None,
+    )
+    _override_user(owner)
+    body = client.get(f"/api/staff/schedules/forecast?week_start={tm.isoformat()}").json()
+    assert all(d["booked_covers"] is None for d in body["days"])
+
+
+def test_forecast_non_food_vertical_no_covers_context(client, db, monkeypatch):
+    """A retail shop that takes bookings is NOT a covers venue — the context is
+    food-service only, so it never surfaces even if the book is non-empty."""
+    owner = _owner(db, plan="pro")
+    owner.business_type = "retail"
+    db.commit()
+    _staff(db, owner, name="Marie", rate=180.0)
+    tm = _next_monday()
+    monkeypatch.setattr(
+        "app.services.reservation_insights_service.booked_covers_by_business_day",
+        lambda *a, **k: {tm: 12},
+    )
+    _override_user(owner)
+    body = client.get(f"/api/staff/schedules/forecast?week_start={tm.isoformat()}").json()
+    assert all(d["booked_covers"] is None for d in body["days"])
+
+
 # ─── 6. Weather correlation — rainy reduces demand ─────────────────────
 
 

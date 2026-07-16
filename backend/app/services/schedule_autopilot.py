@@ -837,6 +837,24 @@ def forecast_week_demand(
     # weather-driven — so we don't weather-bucket the appointment path.
     weather_used = bool(forecast) and signal == "revenue"
 
+    # Forward booked-covers CONTEXT (display only, NEVER demand): a food venue on
+    # the revenue path sees THIS week's actual reservations per business day while
+    # it rosters. It stays the honest booked number — kept labelled "booked", never
+    # converted to demand hours (walk-ins never enter the book, so covers can't be a
+    # total-demand claim; and there is no served-guest denominator to derive
+    # per-cover hours from honestly). Salon is excluded because its appointments are
+    # ALREADY the demand signal (signal=="revenue" gates it out); reservations-off
+    # and non-food venues fall through to booked_covers=None (tri-state: None≠0).
+    from app.services.archetype import archetype_id_for
+
+    covers_ctx: dict[date, int] = {}
+    if signal == "revenue" and archetype_id_for(getattr(user, "business_type", None)) == "food_service":
+        from app.services.reservation_insights_service import booked_covers_by_business_day
+
+        _fwd = booked_covers_by_business_day(db, user, monday, monday + timedelta(days=6))
+        if _fwd:
+            covers_ctx = _fwd
+
     days: list[dict] = []
     for i in range(7):
         d = monday + timedelta(days=i)
@@ -853,6 +871,9 @@ def forecast_week_demand(
             "predicted_revenue": round(predicted, 2) if signal == "revenue" else 0.0,
             "predicted_appointments": round(predicted, 1) if signal == "appointments" else None,
             "predicted_demand_hours": round(demand_hours, 2),
+            # forward reservations for this day, or None (never 0) when there's no
+            # book — context beside the demand, not a demand claim.
+            "booked_covers": covers_ctx.get(d),
             "sample_count": len(history[wd]["samples"]),
             # names the signal so each demand number stays traceable
             "sample_basis": "appointments" if signal == "appointments" else sample_basis,
