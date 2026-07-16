@@ -3955,6 +3955,8 @@ const translations = {
     // Timer column (weekly hours)
     schedTimerCol: "Hours",
     schedHoursUnit: "h",
+    schedForecastDemand: "demand",
+    schedForecastBasis: "Estimated from {n} recent same-weekday sales",
     schedOvertimeTip: "Over weekly hours",
     // Saved shift presets (templates)
     schedTemplates: "Templates",
@@ -11046,6 +11048,8 @@ const translations = {
     // Timer-kolonne (ugentlige timer)
     schedTimerCol: "Timer",
     schedHoursUnit: "t",
+    schedForecastDemand: "behov",
+    schedForecastBasis: "Estimeret ud fra {n} seneste salg på samme ugedag",
     schedOvertimeTip: "Over ugentlige timer",
     // Gemte vagt-skabeloner
     schedTemplates: "Skabeloner",
