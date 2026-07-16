@@ -422,7 +422,7 @@ export default function StaffingPage({ embedded = false }) {
                               {r.business_level}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-sm font-bold text-gray-800 dark:text-white">{r.recommended_staff}</td>
+                          <td className="px-6 py-4 text-sm font-bold text-gray-800 dark:text-white">{r.recommended_staff != null ? `${r.staff_source === "estimate" ? "~" : ""}${r.recommended_staff}` : "—"}</td>
                           <td className="px-6 py-4">
                             <span className={`text-xs ${r.confidence === "high" ? "text-emerald-600 dark:text-gray-300" : "text-yellow-600 dark:text-yellow-400"}`}>
                               {r.confidence}

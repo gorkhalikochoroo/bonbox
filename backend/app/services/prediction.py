@@ -9,6 +9,13 @@ from app.models.staffing import StaffingRule
 
 WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
+# A standard DK working shift (~37h/week over 5 days, incl. break) — used ONLY
+# to convert an honestly-computed demand in person-hours into an estimated
+# per-day headcount. It's a stated modeling constant, not a fabricated output:
+# the person-hours it divides come entirely from the venue's own revenue,
+# labor-% target, and wage rates.
+STAFF_SHIFT_HOURS = 7.5
+
 
 def has_recent_activity(db: Session, user_id, within_days: int = 14) -> bool:
     """True iff the user has at least one non-deleted sale within the
@@ -159,6 +166,31 @@ def get_staffing_recommendations(db: Session, user_id, days: int = 14):
 
     patterns = get_sales_patterns(db, user_id)
 
+    # Venue-own labor economics for the ZERO-SETUP derived estimate (owners
+    # won't set staffing rules — so when there's no rule we compute the
+    # headcount from THEIR OWN numbers instead of inventing one). Reuse the
+    # SAME helpers the Schedule Autopilot uses so the two never diverge.
+    from app.models.staff import StaffMember
+    from app.models.user import User
+    from app.services.schedule_autopilot import (
+        _avg_hourly_rate,
+        _resolve_target_labor_pct,
+    )
+
+    _user = db.query(User).filter(User.id == user_id).first()
+    _staff = (
+        db.query(StaffMember)
+        .filter(
+            StaffMember.user_id == user_id,
+            StaffMember.is_deleted.isnot(True),
+            StaffMember.active.is_(True),
+        )
+        .all()
+    )
+    target_pct = _resolve_target_labor_pct(db, _user) if _user else 0.0
+    avg_rate = _avg_hourly_rate(_staff)
+    overall_avg = patterns["overall_avg"] if patterns else 0
+
     recommendations = []
     for fc in forecasts:
         rev = fc["predicted_revenue"]
@@ -169,18 +201,27 @@ def get_staffing_recommendations(db: Session, user_id, days: int = 14):
                 break
 
         if matched_rule:
+            # Owner's own rule — exact, their mapping.
             level = matched_rule.label
             staff = matched_rule.recommended_staff
+            staff_source = "rule"
         else:
-            # Default: estimate based on revenue relative to average
-            avg = patterns["overall_avg"] if patterns else 1
-            ratio = rev / avg if avg > 0 else 1
-            if ratio < 0.7:
-                level, staff = "Slow", 2
-            elif ratio < 1.1:
-                level, staff = "Normal", 3
+            # Business level — a genuine RELATIVE label vs the venue's own
+            # average. Honest with or without a headcount.
+            ratio = rev / overall_avg if overall_avg > 0 else 1
+            level = "Slow" if ratio < 0.7 else ("Normal" if ratio < 1.1 else "Busy")
+            # Headcount — DERIVED from the venue's own economics, no setup:
+            #   predicted revenue × labor-% target ÷ avg wage = demand hours,
+            #   ÷ a standard shift = an estimated headcount. Traceable, real.
+            # Withheld (None) only when there's no basis (no staffed rates or
+            # no predicted revenue) — we never fabricate a number.
+            if avg_rate > 0 and target_pct > 0 and rev > 0:
+                demand_hours = (rev * target_pct) / avg_rate
+                staff = max(1, round(demand_hours / STAFF_SHIFT_HOURS))
+                staff_source = "estimate"
             else:
-                level, staff = "Busy", 5
+                staff = None
+                staff_source = None
 
         recommendations.append({
             "date": fc["date"],
@@ -189,6 +230,8 @@ def get_staffing_recommendations(db: Session, user_id, days: int = 14):
             "confidence": fc["confidence"],
             "business_level": level,
             "recommended_staff": staff,
+            # "rule" (exact) | "estimate" (derived from own economics) | None
+            "staff_source": staff_source,
         })
 
     return {
