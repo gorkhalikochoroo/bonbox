@@ -809,6 +809,69 @@ function HoursOverview({ overview, loading, currency, onGoLog }) {
           helper={limHelper}
         />
       </div>
+
+      {overview.labor_split && <LaborSplitCard split={overview.labor_split} currency={currency} />}
+    </div>
+  );
+}
+
+/* Department cost split — reuses the shift-planner's per-vertical role categories
+   so "kitchen" means the same thing on both surfaces. Labels adapt to the vertical
+   (a salon shows "Stylists", not "Specialists"). */
+const _DEPT_LABEL = {
+  front_of_house: ["laborCatFront", "Front of house"],
+  kitchen: ["laborCatKitchen", "Kitchen"],
+  support: ["laborCatSupport", "Support"],
+  specialist: ["laborCatSpecialist", "Specialists"],
+  unassigned: ["laborCatUnassigned", "Unassigned"],
+};
+const _DEPT_LABEL_OVERRIDE = {
+  salon: { front_of_house: ["laborCatReception", "Reception"], specialist: ["laborCatStylists", "Stylists"] },
+  retail: { front_of_house: ["laborCatSalesFloor", "Sales floor"], specialist: ["laborCatManagement", "Management"] },
+  grocery: { front_of_house: ["laborCatSalesFloor", "Sales floor"], specialist: ["laborCatManagement", "Management"] },
+  workshop: { front_of_house: ["laborCatServiceDesk", "Service desk"], specialist: ["laborCatWorkshop", "Workshop"] },
+};
+function deptLabel(vertical, category, t) {
+  const ov = _DEPT_LABEL_OVERRIDE[vertical] && _DEPT_LABEL_OVERRIDE[vertical][category];
+  const pair = ov || _DEPT_LABEL[category];
+  return pair ? t(pair[0], pair[1]) : category;
+}
+
+function LaborSplitCard({ split, currency }) {
+  const { t } = useLanguage();
+  // Backend only sends this when cost genuinely splits across ≥2 departments;
+  // guard anyway so a stale/partial payload can never render a lone bar.
+  if (!split || !Array.isArray(split.categories) || split.categories.length < 2) return null;
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+      <div className="flex items-baseline justify-between mb-3">
+        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          {t("laborSplitTitle", "Where the payroll goes")}
+        </h3>
+        {/* honest caption: primary-role attribution + feriepenge estimate */}
+        <span className="text-[11px] text-gray-400 dark:text-gray-500">
+          {t("laborSplitBasis", "by primary role · estimate")}
+        </span>
+      </div>
+      <div className="space-y-2.5">
+        {split.categories.map((c) => {
+          const pct = Math.round((c.pct_of_cost || 0) * 100);
+          return (
+            <div key={c.category}>
+              <div className="flex items-baseline justify-between text-sm mb-1">
+                <span className="text-gray-700 dark:text-gray-200">{deptLabel(split.vertical, c.category, t)}</span>
+                <span className="tabular-nums">
+                  <span className="text-gray-900 dark:text-gray-100 font-medium">~{fmtMoneyShort(c.loaded, currency)}</span>
+                  <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">{pct}%</span>
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                <div className="h-full rounded-full bg-gray-800 dark:bg-gray-300" style={{ width: `${Math.max(2, pct)}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

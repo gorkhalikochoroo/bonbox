@@ -180,6 +180,29 @@ _ALL_ROLE_IDS: frozenset[str] = frozenset(
 )
 
 
+# role → category, flattened across every vertical. A role's category is stable
+# wherever it appears ("server" is always front_of_house, "manager" always
+# specialist), so a single global map is safe and lets us bucket a StaffMember's
+# free-text role regardless of which vertical the owner runs. The four coarse
+# buckets are the same ones the shift PLANNER groups by (front_of_house |
+# kitchen | support | specialist).
+_ROLE_CATEGORY: dict[str, str] = {
+    r["role"]: r["category"]
+    for roles in ROLE_CATALOG_BY_VERTICAL.values()
+    for r in roles
+}
+
+
+def role_category(role: Optional[str]) -> Optional[str]:
+    """Coarse department bucket for a staff role, or None for an unknown/custom
+    role (caller buckets those as "unassigned" — never silently misfiled). Kept
+    here next to the catalog so the cost split and the planner can never drift
+    apart on what counts as kitchen vs front-of-house."""
+    if not role:
+        return None
+    return _ROLE_CATEGORY.get(role.strip().lower())
+
+
 # ─── Validators ───────────────────────────────────────────────────────
 
 
