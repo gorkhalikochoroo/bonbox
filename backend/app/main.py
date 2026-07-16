@@ -4761,9 +4761,18 @@ def root():
     return {"status": "ok", "service": "bonbox-api"}
 
 
+# Deployed commit — Render injects RENDER_GIT_COMMIT (full SHA) at build time;
+# we surface the short form on /api/health so "is the latest deployed?" is a
+# one-line public check (curl api.bonbox.dk/api/health) instead of guesswork.
+# Falls back to a generic marker locally where the env var is unset. Not a
+# secret: a commit hash reveals nothing about the private source, and exposing
+# a build id on a health endpoint is standard ops practice.
+_BUILD_COMMIT = (os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or "").strip()[:12] or "dev"
+
+
 @app.api_route("/api/health", methods=["GET", "HEAD"])
 def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "commit": _BUILD_COMMIT}
 
 
 @app.api_route("/api/keepalive", methods=["GET", "HEAD"])
