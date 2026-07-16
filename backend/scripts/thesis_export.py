@@ -79,6 +79,11 @@ HUMAN_ACTIONS: frozenset[str] = frozenset({
     "sale_logged", "cash_transaction", "receipt_scanned", "waste_logged",
     "smart_scan_fab_opened", "smart_scan_quickadd_opened", "smart_scan_manual_pick",
     "smart_scan_override_opened", "gavekort_scan_quickadd_opened",
+    # cross-pillar value-moments — one per pillar. daily_close_* pre-existed
+    # (via a ternary, so an earlier literal grep missed them); the other five
+    # were added to the app 16 Jul 2026.
+    "daily_close_completed", "daily_close_draft_saved", "reservation_created",
+    "schedule_published", "inventory_adjusted", "faktura_created", "gavekort_issued",
     # revisor handoff — a real value moment
     "bookkeeping_export", "bookkeeping_export_send",
     # RQ2 GOLD: the signal->decision events. insight_acted = a signal BECAME a

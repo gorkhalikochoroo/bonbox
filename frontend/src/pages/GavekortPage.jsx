@@ -57,6 +57,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { trackEvent } from "../hooks/useEventLog";
 import { useStickyMethod } from "../hooks/useStickyMethod";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useAuth } from "../hooks/useAuth";
@@ -427,6 +428,8 @@ function IssueSection({ t, onIssued }) {
       const res = await api.post("/gavekort/issue", body);
       commitMethod(tender); // remember card/mobilepay; cash no-ops (invariant)
       setResult(res.data);
+      // product analytics — a gavekort was issued (opt-out respected server-side)
+      trackEvent("gavekort_issued", "gavekort");
     } catch (e) {
       setError(gkErrText(e, t));
     } finally {
