@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
 import { useBranch } from "../components/BranchSelector";
 import { displayCurrency, formatKr } from "../utils/currency";
@@ -1093,6 +1094,7 @@ export default function StaffSchedulePage() {
       const params = { week_start: toISO(weekStart) };
       if (branchId) params.branch_id = branchId;
       const res = await api.post("/staff/schedules/publish", null, { params });
+      trackEvent("schedule_published", "schedule");  // product analytics
       await fetchShifts();
       const d = res.data || {};
       // Keep the sheet OPEN and flip it to a success state built from the

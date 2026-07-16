@@ -67,6 +67,7 @@ import { Link, useLocation, useNavigate, useSearchParams } from "react-router-do
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
 import Button from "../components/ui/Button";
@@ -2538,6 +2539,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
             ...(allowOverflow ? { allow_overflow: true } : {}),
           };
       await api.post("/reservations/book", payload);
+      trackEvent("reservation_created", "reservations");  // product analytics
       setNewOpen(false);
       setRoomFull(null);
       // Jump the book to the booked date so the new booking is visible.

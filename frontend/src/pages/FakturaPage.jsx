@@ -7,6 +7,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
+import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
 import api from "../services/api";
 import HowItWorksCard from "../components/HowItWorksCard";
@@ -1119,6 +1120,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
         return;
       }
       await api.post("/invoices", payload);
+      trackEvent("faktura_created", "faktura");  // product analytics
       onCreated();
     } catch (err) {
       const detail = err?.response?.data?.detail;
