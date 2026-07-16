@@ -30,6 +30,7 @@ Test mode:
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -1060,6 +1061,14 @@ def handle_webhook(
             "_http": 400,
         }
 
+    # Stripe SDK v15+ returns a TYPED Event that is NOT a dict subclass, so
+    # event.get(...) raises AttributeError('get') and the handler crashes on
+    # every real webhook (older SDKs were dict-based, and our tests used plain
+    # dicts — so this only bit in prod). The signature is already verified
+    # against the raw bytes above, so re-parse those exact bytes into a plain
+    # dict: SDK-version-proof, and all downstream .get() access just works.
+    event = json.loads(payload_body)
+
     event_type = event.get("type", "")
     event_id = event.get("id", "")
     log.info("Stripe webhook received: type=%s id=%s", event_type, event_id)
@@ -1180,7 +1189,7 @@ def _handle_checkout_completed(event: dict, db: Session) -> None:
     try:
         sub = s.Subscription.retrieve(sub_id)
         _apply_subscription_state(
-            user, dict(sub), db,
+            user, sub, db,  # raw v15 object — dict(sub) raises KeyError; _g() reads it via getattr
             event_id=event.get("id", ""), event_type=event.get("type", ""),
         )
     except Exception as e:
@@ -1242,7 +1251,7 @@ def _handle_invoice_paid(event: dict, db: Session) -> None:
     try:
         sub = s.Subscription.retrieve(sub_id)
         _apply_subscription_state(
-            user, dict(sub), db,
+            user, sub, db,  # raw v15 object — dict(sub) raises KeyError; _g() reads it via getattr
             event_id=event.get("id", ""), event_type=event.get("type", ""),
         )
     except Exception as e:  # noqa: BLE001
@@ -1273,7 +1282,7 @@ def _handle_subscription_changed(event: dict, db: Session) -> None:
     s = _stripe()
     if s and sub_id:
         try:
-            sub_obj = dict(s.Subscription.retrieve(sub_id))
+            sub_obj = s.Subscription.retrieve(sub_id)  # raw v15 object; _g() reads it, dict() would KeyError
         except Exception as e:  # noqa: BLE001
             log.warning(
                 "subscription.%s: retrieve %s failed, using event snapshot: %s",
