@@ -39,6 +39,18 @@ router = APIRouter()
 log = logging.getLogger("bonbox.billing")
 limiter = Limiter(key_func=client_ip)
 
+
+def _has_live_subscription(user) -> bool:
+    """True when the user already has a Stripe subscription live enough that
+    starting a new checkout would create a SECOND concurrent (double-billing)
+    subscription. Covers active/trialing/past_due — a trialing user (whose plan
+    already resolves to pro) and a card-declined past_due user should manage
+    their existing sub in the portal, not buy a duplicate. A canceled/dead sub
+    is intentionally NOT live, so a churned user can genuinely re-subscribe."""
+    return (getattr(user, "subscription_status", None) or "").lower() in (
+        "active", "trialing", "past_due",
+    )
+
 # ── Per-user checkout-session rate limit (FIX 5) ──────────────────────
 # The slowapi @limiter.limit on /checkout-session is per-IP (10/min) — it
 # does NOT stop one authenticated user from spamming Stripe checkout-session
@@ -267,11 +279,11 @@ def create_checkout(
             },
         )
 
-    # Already paid? Redirect to portal instead of creating a new sub.
-    # Includes legacy "business" defensively — if any pre-3-tier user
-    # somehow has plan="business" we still send them to the portal
-    # rather than letting them buy a duplicate sub.
-    if user.plan in ("starter", "pro", "business") and user.subscription_status == "active":
+    # Already have a live subscription? Send them to the portal to MANAGE it
+    # instead of creating a SECOND concurrent subscription (which would
+    # double-bill once both cycles renew). A canceled/dead sub is NOT blocked
+    # here so the user can genuinely re-subscribe. Includes legacy "business".
+    if user.plan in ("starter", "pro", "business") and _has_live_subscription(user):
         portal = stripe_billing.create_billing_portal_session(user, db)
         if portal:
             return {"url": portal["url"], "already_subscribed": True}
