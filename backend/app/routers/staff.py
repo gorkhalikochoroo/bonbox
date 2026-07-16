@@ -2187,6 +2187,35 @@ def schedule_autopilot_suggest(
     return payload
 
 
+@router.get("/schedules/forecast")
+def schedule_demand_forecast(
+    week_start: date = Query(..., description="Monday of the target week (YYYY-MM-DD)"),
+    branch_id: Optional[uuid.UUID] = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Forecast-only demand for one week — powers the PERSISTENT "predicted
+    demand vs your roster" chip on the schedule grid. Read-only, no roster
+    build (cheap enough to fetch on every week navigation), never writes. It
+    lets the owner FEEL the forecast at the point of decision instead of only
+    in the one-shot Autopilot card. Tier-gated Pro+ (same feature as
+    autopilot — it is the autopilot's forecasting brain).
+    """
+    _enforce_autopilot_tier(user)
+
+    today = date.today()
+    if week_start < today - timedelta(days=60):
+        raise HTTPException(status_code=422, detail="week_start is more than 60 days in the past")
+    if week_start > today + timedelta(days=365):
+        raise HTTPException(status_code=422, detail="week_start is more than a year in the future")
+
+    from app.services import schedule_autopilot
+
+    return schedule_autopilot.forecast_week_demand(
+        db, user=user, week_start=week_start, branch_id=branch_id,
+    )
+
+
 @router.post("/schedules/autopilot/apply")
 def schedule_autopilot_apply(
     body: AutopilotApplyBody,

@@ -320,6 +320,57 @@ def test_pro_user_with_full_history_returns_high_confidence(client, db):
     assert sat["predicted_demand_hours"] > mon["predicted_demand_hours"]
 
 
+# ─── forecast_week_demand — the persistent demand-vs-roster chip ───────
+
+
+def test_forecast_free_user_blocked(client, db):
+    owner = _owner(db, plan="free")
+    _override_user(owner)
+    res = client.get(
+        f"/api/staff/schedules/forecast?week_start={_next_monday().isoformat()}")
+    assert res.status_code == 402, res.text
+    assert res.json()["detail"]["feature"] == "schedule_autopilot"
+
+
+def test_forecast_no_history_fails_closed(client, db):
+    """No sales → no fabricated demand: confidence low, every day's demand 0,
+    basis 'default'. Honesty doctrine — never invent a number."""
+    owner = _owner(db, plan="pro")
+    _staff(db, owner, name="Marie", rate=180.0)
+    _override_user(owner)
+    res = client.get(
+        f"/api/staff/schedules/forecast?week_start={_next_monday().isoformat()}")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["confidence"] == "low"
+    assert body["basis"]["weeks_of_data"] == 0
+    assert len(body["days"]) == 7
+    assert all(d["predicted_demand_hours"] == 0 for d in body["days"])
+    assert all(d["sample_basis"] == "default" for d in body["days"])
+    # Forecast-only: the expensive roster is NOT built.
+    assert "shifts" not in body["days"][0]
+
+
+def test_forecast_with_history_reflects_weekday_spread(client, db):
+    owner = _owner(db, plan="pro")
+    _staff(db, owner, name="Marie", rate=180.0)
+    target_monday = _next_monday()
+    for w in range(1, 9):
+        for dow in range(7):
+            d = target_monday - timedelta(weeks=w) + timedelta(days=dow)
+            _sale(db, owner, d, 5000.0 if dow == 5 else 2500.0)  # Saturday bigger
+    _override_user(owner)
+    res = client.get(
+        f"/api/staff/schedules/forecast?week_start={target_monday.isoformat()}")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["confidence"] == "high"
+    sat = next(d for d in body["days"] if d["weekday"] == 5)   # Saturday
+    mon = next(d for d in body["days"] if d["weekday"] == 0)   # Monday
+    assert sat["predicted_demand_hours"] > mon["predicted_demand_hours"] > 0
+    assert sat["sample_count"] >= 6
+
+
 # ─── 6. Weather correlation — rainy reduces demand ─────────────────────
 
 

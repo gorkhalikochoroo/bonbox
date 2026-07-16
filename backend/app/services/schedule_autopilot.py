@@ -695,6 +695,88 @@ def _last_week_cost(
 # ─── Public API ──────────────────────────────────────────────────────
 
 
+def forecast_week_demand(
+    db: Session,
+    *,
+    user: User,
+    week_start: date,
+    branch_id: Optional[uuid.UUID] = None,
+) -> dict:
+    """Forecast-ONLY: per-day predicted revenue + demand-hours + confidence for
+    the target week, WITHOUT building a roster (skips the expensive
+    _assign_shifts pass). Powers a PERSISTENT "predicted demand vs your roster"
+    overlay on the schedule grid — the owner feels the forecast while hand-
+    building shifts, instead of it living in a one-shot Apply card.
+
+    Read-only, idempotent. HONEST by construction: same math + confidence
+    grading as suggest_week_schedule (shares the helpers), fails closed to
+    demand 0 on a weekday with no history, and carries per-day sample_count +
+    basis so every number is traceable ("based on N same-weekdays"), never
+    fabricated. Weather is best-effort; weather_used says whether it applied.
+    """
+    monday = _ensure_monday(week_start)
+    target_pct = _resolve_target_labor_pct(db, user)
+
+    staff_list = (
+        db.query(StaffMember)
+        .filter(
+            StaffMember.user_id == user.id,
+            StaffMember.is_deleted.isnot(True),
+            StaffMember.active.is_(True),
+        )
+        .all()
+    )
+    avg_rate = _avg_hourly_rate(staff_list)
+    history = _gather_history(db, user, monday, branch_id)
+
+    sample_counts = [len(history[i]["samples"]) for i in range(7)]
+    min_samples = min(sample_counts) if sample_counts else 0
+    avg_samples = mean(sample_counts) if sample_counts else 0
+    if avg_samples >= MIN_SAMPLES_HIGH_CONFIDENCE:
+        confidence = "high"
+    elif avg_samples >= MIN_SAMPLES_MEDIUM_CONFIDENCE:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    forecast = _fetch_forecast(user, monday)
+    weather_used = bool(forecast)
+
+    days: list[dict] = []
+    for i in range(7):
+        d = monday + timedelta(days=i)
+        wd = d.weekday()
+        weather = forecast.get(d, {})
+        bucket = weather.get("bucket") if weather else None
+        predicted_rev, sample_basis = _predict_revenue(wd, bucket, history)
+        demand_hours = (
+            max(0.0, (predicted_rev * target_pct) / avg_rate) if avg_rate > 0 else 0.0
+        )
+        days.append({
+            "date": d.isoformat(),
+            "weekday": wd,
+            "predicted_revenue": round(predicted_rev, 2),
+            "predicted_demand_hours": round(demand_hours, 2),
+            "sample_count": len(history[wd]["samples"]),
+            "sample_basis": sample_basis,  # "weather" | "weekday" | "default"
+            "weather_summary": weather.get("summary") if weather else None,
+        })
+
+    return {
+        "week_start": monday.isoformat(),
+        "branch_id": str(branch_id) if branch_id else None,
+        "confidence": confidence,
+        "avg_rate": round(avg_rate, 2),
+        "target_labor_pct": round(target_pct, 3),
+        "weather_used": weather_used,
+        "basis": {
+            "weeks_of_data": int(min_samples),
+            "avg_weekday_samples": round(avg_samples, 1),
+        },
+        "days": days,
+    }
+
+
 def suggest_week_schedule(
     db: Session,
     *,

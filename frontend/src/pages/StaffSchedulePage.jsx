@@ -638,6 +638,17 @@ export default function StaffSchedulePage() {
   // memo so the grid + summary still render. Never blocks shift rendering.
   const [weekCost, setWeekCost] = useState(null);
 
+  // Predicted demand (forecast-only, no roster build) — powers the persistent
+  // "demand vs your roster" chip in the per-day footer so the owner FEELS the
+  // forecast while hand-building shifts, not only in the one-shot Autopilot
+  // card. Null for non-Pro (endpoint 402s) or on error → no chip, never blocks.
+  const [forecast, setForecast] = useState(null);
+  const forecastByDate = useMemo(() => {
+    const m = {};
+    for (const d of forecast?.days || []) m[d.date] = d;
+    return m;
+  }, [forecast]);
+
   // Owner display prefs (persisted so the choice sticks across sessions):
   //   showCost  — show per-shift lønkroner in grid/mobile cells (default on)
   //   costBasis — 'gross' (Løn) vs 'loaded' (Inkl. feriepenge) for all costs
@@ -772,6 +783,16 @@ export default function StaffSchedulePage() {
       setWeekCost(costRes.data || null);
     } catch {
       setWeekCost(null);
+    }
+    // Predicted demand for this week (Pro-gated). Fail-soft: 402 for non-Pro or
+    // any error just null it out → no forecast chip, grid unaffected.
+    try {
+      const fcRes = await api.get("/staff/schedules/forecast", {
+        params, _noRetry: true,
+      });
+      setForecast(fcRes.data || null);
+    } catch {
+      setForecast(null);
     }
     // Standing "kan ikke" availability — painted as calm red cells on the grid
     // so the owner spots conflicts at a glance (at 15-30 rows especially). Not
@@ -2003,6 +2024,8 @@ export default function StaffSchedulePage() {
                 showCost={showCost}
                 currency={currency}
                 dailyCost={weekCost?.daily || null}
+                forecast={forecast}
+                forecastByDate={forecastByDate}
                 costBasis={costBasis}
                 targetPct={targetPct}
                 t={t}
@@ -4586,6 +4609,8 @@ function ScheduleGrid({
   costForShift,
   showCost,
   dailyCost,
+  forecast,
+  forecastByDate,
   costBasis,
   targetPct,
   t,
@@ -4936,6 +4961,37 @@ function ScheduleGrid({
                           <span className="text-sm font-bold text-gray-300 dark:text-gray-600 tabular-nums">—</span>
                         )}
                       </div>
+                      {/* Predicted demand vs rostered hours — the persistent
+                          forecast overlay so the owner feels it while building
+                          shifts. HONEST: only shown when a real same-weekday
+                          history backs it (>=3 samples) and demand is
+                          meaningful; the amber "short" delta is the actionable
+                          bit (owners care most about being understaffed). The
+                          basis ("from N recent sales" + weather) is on hover. */}
+                      {(() => {
+                        const fc = forecastByDate?.[iso];
+                        if (!fc || fc.predicted_demand_hours < 1 || (fc.sample_count || 0) < 3) return null;
+                        const demand = fc.predicted_demand_hours;
+                        const shortBy = demand - hrs;
+                        const isShort = shortBy > Math.max(1, demand * 0.15);
+                        const unit = t("schedHoursUnit", "h");
+                        const tip =
+                          (t("schedForecastBasis", "Estimated from {n} recent same-weekday sales") || "")
+                            .replace("{n}", String(fc.sample_count)) +
+                          (fc.weather_summary ? ` · ${fc.weather_summary}` : "");
+                        return (
+                          <div className="mt-1 text-[10px] leading-tight tabular-nums" title={tip}>
+                            <span className="text-gray-400 dark:text-gray-500">
+                              {t("schedForecastDemand", "demand")} ~{Math.round(demand)}{unit}
+                            </span>
+                            {isShort && (
+                              <span className="text-amber-600 dark:text-amber-400 font-semibold ml-1">
+                                −{Math.round(shortBy)}{unit}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </td>
                   );
                 })}
