@@ -958,6 +958,14 @@ def effective_plan(user: User) -> str:
     plan="business" today; this guard exists so a stale dev DB or
     re-seeded test fixture can't lock someone out of paid features.
     """
+    # Super-admins (BonBox staff) get full entitlements regardless of plan —
+    # they demo and support the product and must see every feature. role is
+    # DB-only (never settable via API — admin_security.py), so this can't be
+    # self-granted. Entitlements only; it does not touch billing/Stripe, and
+    # the thesis export excludes these accounts anyway (they aren't adopters).
+    if getattr(user, "role", None) == "super_admin":
+        return "pro"
+
     plan = (getattr(user, "plan", None) or "free").lower()
     if plan in ("starter", "pro"):
         return plan
