@@ -299,3 +299,58 @@ def test_pay_period_current_exposes_frame_fields(client, db):
     body = r.json()
     assert "start_date" in body and "end_date" in body
     assert "period_type" in body and "custom_start_day" in body
+
+
+# ── Labour cost split by department (front of house / kitchen / …) ────────────
+
+def _seed_multi_dept(db):
+    """A restaurant with a server (FOH) and a chef (kitchen), both paid + logged."""
+    u = User(
+        email="split@bonbox.dk", password_hash=hash_password("x"),
+        business_name="Split", business_type="restaurant", currency="DKK",
+        role="owner", timezone="Europe/Copenhagen",
+    )
+    db.add(u); db.commit(); db.refresh(u)
+    server = StaffMember(id=uuid.uuid4(), user_id=u.id, name="Sara",
+                         role="server", base_rate=150, max_hours_month=160)
+    chef = StaffMember(id=uuid.uuid4(), user_id=u.id, name="Kai",
+                       role="head_chef", base_rate=200, max_hours_month=160)
+    db.add_all([server, chef]); db.commit()
+    d = date(2026, 6, 10)
+    db.add(HoursLogged(id=uuid.uuid4(), user_id=u.id, staff_id=server.id, date=d,
+                       total_hours=10, earned=1500, entry_method="clock"))
+    db.add(HoursLogged(id=uuid.uuid4(), user_id=u.id, staff_id=chef.id, date=d,
+                       total_hours=10, earned=2000, entry_method="clock"))
+    db.commit()
+    return u
+
+
+def test_overview_labor_split_by_department(client, db):
+    u = _seed_multi_dept(db)
+    _auth_as(db, u)
+    r = client.get("/api/staff/hours/overview",
+                   params={"from": "2026-06-01", "to": "2026-06-30"})
+    assert r.status_code == 200, r.text
+    split = r.json()["labor_split"]
+    assert split is not None
+    assert split["basis"] == "primary_role"
+    assert split["vertical"] == "restaurant"
+    cats = {c["category"]: c for c in split["categories"]}
+    assert set(cats) == {"front_of_house", "kitchen"}
+    assert cats["front_of_house"]["gross"] == 1500.0
+    assert cats["kitchen"]["gross"] == 2000.0
+    # loaded = gross × 1.125 (same feriepenge estimate as the cost tile)
+    assert cats["kitchen"]["loaded"] == 2250.0
+    # kitchen carries more cost → sorted first
+    assert split["categories"][0]["category"] == "kitchen"
+
+
+def test_overview_labor_split_hidden_when_single_department(client, db):
+    """The default _seed() has one server only → one department → no honest split
+    (never a misleading '100% front of house')."""
+    u, _ = _seed(db, with_revenue=True)
+    _auth_as(db, u)
+    r = client.get("/api/staff/hours/overview",
+                   params={"from": "2026-06-01", "to": "2026-06-30"})
+    assert r.status_code == 200, r.text
+    assert r.json()["labor_split"] is None

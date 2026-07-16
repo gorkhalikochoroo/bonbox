@@ -3315,10 +3315,11 @@ def hours_overview(
         raise HTTPException(422, "Range too large (max 366 days).")
 
     def _sum_hours_by_method(f: date, t: date):
-        """Return (actual, gross, measured, typed, schedule, per_staff_actual{}).
-        One grouped query; fail-soft to zeros on schema drift."""
+        """Return (actual, gross, measured, typed, schedule, per_staff_actual{},
+        per_staff_gross{}). One grouped query; fail-soft to zeros on schema drift."""
         actual = gross = measured = typed = schedule_h = 0.0
         per_staff: dict[str, float] = {}
+        per_staff_g: dict[str, float] = {}
         try:
             rows = (
                 db.query(
@@ -3336,7 +3337,7 @@ def hours_overview(
                 .all()
             )
         except Exception:
-            return 0.0, 0.0, 0.0, 0.0, 0.0, {}
+            return 0.0, 0.0, 0.0, 0.0, 0.0, {}, {}
         for r in rows:
             h = float(r.h or 0)
             e = float(r.e or 0)
@@ -3351,10 +3352,11 @@ def hours_overview(
                 typed += h
             sid = str(r.staff_id)
             per_staff[sid] = per_staff.get(sid, 0.0) + h
-        return actual, gross, measured, typed, schedule_h, per_staff
+            per_staff_g[sid] = per_staff_g.get(sid, 0.0) + e
+        return actual, gross, measured, typed, schedule_h, per_staff, per_staff_g
 
     (actual_total, gross, measured_hours, typed_hours,
-     schedule_hours, per_staff_actual) = _sum_hours_by_method(from_date, to_date)
+     schedule_hours, per_staff_actual, per_staff_gross) = _sum_hours_by_method(from_date, to_date)
 
     # Overtime — independent + defensive (is_overtime may be absent on stale schema).
     overtime_hours = 0.0
@@ -3506,6 +3508,31 @@ def hours_overview(
     }
     narrative, banner_severity = build_hours_narrative(narrative_input)
 
+    # Labour COST split by department (front of house / kitchen / support /
+    # specialist). Honest: by PRIMARY role, same feriepenge estimate as the cost
+    # tile, and self-hidden unless cost genuinely splits across ≥2 departments
+    # (services/labor_split enforces the gate). Fail-soft — an additive courtesy
+    # on top of the numbers, must never 500 the overview.
+    labor_split = None
+    try:
+        from app.services.labor_split import build_labor_split
+
+        role_rows = (
+            db.query(StaffMember.id, StaffMember.role)
+            .filter(StaffMember.user_id == user.id)
+            .all()
+        )
+        staff_roles = {str(rid): role for rid, role in role_rows}
+        labor_split = build_labor_split(
+            staff_roles=staff_roles,
+            per_staff_hours=per_staff_actual,
+            per_staff_gross=per_staff_gross,
+            vertical=(getattr(user, "business_type", None) or None),
+            ferie_uplift=FERIE_UPLIFT,
+        )
+    except Exception:
+        labor_split = None
+
     return {
         "period": {
             "from": from_date.isoformat(),
@@ -3550,6 +3577,7 @@ def hours_overview(
         "compare": compare_block,
         "narrative": narrative,
         "banner_severity": banner_severity,
+        "labor_split": labor_split,
         "staff_count": len(per_staff_actual),
         "has_any_hours": actual_total > 0,
     }
