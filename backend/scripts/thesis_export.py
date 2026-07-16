@@ -61,13 +61,38 @@ EXCLUDED_ACCOUNTS: dict[str, str] = {
 }
 
 # ── HUMAN_ACTIONS — the allow-list. Only these count as a real person acting.
-# Anything not here (daily_brief.email_sent, expiry cron rows, healthchecks) is
-# treated as system noise and NEVER counted as activity. Extend deliberately.
+# DERIVED FROM THE REAL trackEvent VOCABULARY (grep of frontend/src, 16 Jul
+# 2026) — NOT guessed. An allow-list is deliberate: it can only UNDER-count
+# (miss a new human event) — the safe direction for an "is anyone really active"
+# claim. A deny-list would OVER-count (miss a new cron event) — which is exactly
+# how "70 of 71 active" happened. When the app adds a new human event, add it
+# here; a system/cron/error event stays out.
+#
+# Excluded on purpose: onboarding_welcome_shown (system shows it, not a human
+# act), logout, and every *_error / *_failed / *_cap_hit / permission_denied
+# (failures are not activity), and daily_brief.email_sent (the cron).
 HUMAN_ACTIONS: frozenset[str] = frozenset({
-    "page_view", "sale_logged", "receipt_scanned", "expense_added",
-    "daily_close_saved", "faktura_created", "gavekort_created",
-    "reservation_created", "inventory_counted", "ai_question_asked",
-    "schedule_published", "staff_added", "report_exported", "login_success",
+    # adoption funnel
+    "signup_completed", "login_success", "onboarding_started",
+    "onboarding_step_completed", "onboarding_dismissed", "onboarding_welcome_skipped",
+    # core money actions (first + repeat value)
+    "sale_logged", "cash_transaction", "receipt_scanned", "waste_logged",
+    "smart_scan_fab_opened", "smart_scan_quickadd_opened", "smart_scan_manual_pick",
+    "smart_scan_override_opened", "gavekort_scan_quickadd_opened",
+    # revisor handoff — a real value moment
+    "bookkeeping_export", "bookkeeping_export_send",
+    # RQ2 GOLD: the signal->decision events. insight_acted = a signal BECAME a
+    # decision; insight_dismissed = it did NOT. This is the decision-episode
+    # instrument, already instrumented in the product.
+    "insight_acted", "insight_dismissed", "insight_feedback", "insights_refreshed",
+    # AI assistant use
+    "ai_question_asked", "ai_voice_input_started",
+    # explicit intent / conversion
+    "pricing_cta_clicked", "stripe_checkout_started", "stripe_portal_opened",
+    "waitlist_joined",
+    # a plain human view (weakest signal — kept, but see note: an "active =
+    # >=1 NON-page_view action" variant is the stricter reading to report too)
+    "page_view",
 })
 
 
