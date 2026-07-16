@@ -165,9 +165,13 @@ export default function BonBoxAgent() {
     async (overrideText) => {
       const userMsg = (overrideText || input).trim();
       if (!userMsg || isStreaming) return;
-      // Track AI question for thesis RQ1 + future per-owner pattern engine.
-      // Truncate to 200 chars to bound storage and avoid logging long prompts.
-      trackEvent("ai_question_asked", "agent", userMsg.slice(0, 200));
+      // Record THAT a question was asked — never WHAT. The raw prompt is the
+      // owner's free text (business details, numbers, whatever they type) and
+      // was being persisted to event_logs.detail with no mention in the privacy
+      // policy. That is un-consented free-text collection; the event count is
+      // enough for adoption analysis, and the content only returns behind real
+      // consent (see docs/thesis/disclosure-decisions.md).
+      trackEvent("ai_question_asked", "agent", null);
       setInput("");
       setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
       setIsStreaming(true);
