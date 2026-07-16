@@ -15,6 +15,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { displayCurrency, formatOwnerMoney } from "../utils/currency";
@@ -266,6 +267,7 @@ export default function InventoryPage() {
     if (!qty) return;
     try {
       await api.post("/inventory/logs", { item_id: itemId, change_qty: qty, date: localIso() });
+      trackEvent("inventory_adjusted", "inventory");  // product analytics
       setAdjustId(null);
       setAdjustQty("");
       fetchData();
