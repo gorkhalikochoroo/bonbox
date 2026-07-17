@@ -473,6 +473,7 @@ def create_staff_member(
         holiday_rate=data.holiday_rate,
         max_hours_month=data.max_hours_month,
         max_hours_week=data.max_hours_week,
+        hour_limit_warn=data.hour_limit_warn if data.hour_limit_warn is not None else True,
         tax_card_type=_validate_tax_card_type(data.tax_card_type),
         tax_card_rate=_validate_tax_card_rate(data.tax_card_rate),
     )
@@ -1506,8 +1507,17 @@ def schedule_week_load(
     )
 
     week_end = week_start + timedelta(days=6)
-    lo = week_start - timedelta(days=1)
-    hi = week_end + timedelta(days=1)
+    # ±1 day margin for the rest checks; widened to the full calendar
+    # month(s) the week touches so the 90 t-md monthly load is computable
+    # from the same query (one round-trip, no second fetch).
+    import calendar as _cal
+
+    month_lo = week_start.replace(day=1)
+    month_hi = week_end.replace(
+        day=_cal.monthrange(week_end.year, week_end.month)[1]
+    )
+    lo = min(week_start - timedelta(days=1), month_lo)
+    hi = max(week_end + timedelta(days=1), month_hi)
 
     shifts = (
         db.query(Schedule)
@@ -1574,13 +1584,48 @@ def schedule_week_load(
                 })
 
         cap = float(member.max_hours_week) if member.max_hours_week else None
+
+        # Monthly load — hours in the calendar month(s) this week touches
+        # (a week can straddle two; report the highest-loaded one so the
+        # warning fires as soon as EITHER month is at risk). Effective cap:
+        # explicit max_hours_month wins; else part-time/student contracts
+        # default to the 90 t-md limit (the SIRI student-work ceiling —
+        # widely applicable in DK hospitality and visa-serious to breach).
+        # Owner can adjust or toggle off per staff.
+        months = {(week_start.year, week_start.month), (week_end.year, week_end.month)}
+        month_hours = 0.0
+        for (my, mm) in months:
+            mh = sum(
+                _shift_hours(s.start_time, s.end_time, s.break_minutes or 0)
+                for s in rows
+                if s.date.year == my and s.date.month == mm
+            )
+            month_hours = max(month_hours, mh)
+        month_hours = round(month_hours, 2)
+
+        if member.max_hours_month:
+            month_cap, month_cap_source = float(member.max_hours_month), "explicit"
+        elif (member.contract_type or "") in ("part", "student"):
+            month_cap, month_cap_source = 90.0, "default90"
+        else:
+            month_cap, month_cap_source = None, None
+
+        # The toggle silences hour-LIMIT warnings only. Rest warnings
+        # (11-timers reglen) always report — hviletid is safety law.
+        warn = member.hour_limit_warn is not False
+
         out.append({
             "staff_id": str(sid),
             "name": member.name,
             "hours": hours,
             "cap": cap,
-            "over_cap": bool(cap is not None and hours > cap + 0.01),
-            "over_dk48": bool(hours > DK_MAX_HOURS_PER_WEEK + 0.01),
+            "warn_enabled": warn,
+            "over_cap": bool(warn and cap is not None and hours > cap + 0.01),
+            "over_dk48": bool(warn and hours > DK_MAX_HOURS_PER_WEEK + 0.01),
+            "month_hours": month_hours,
+            "month_cap": month_cap,
+            "month_cap_source": month_cap_source,
+            "over_month": bool(warn and month_cap is not None and month_hours > month_cap + 0.01),
             "rest_warnings": rest_warnings,
         })
 

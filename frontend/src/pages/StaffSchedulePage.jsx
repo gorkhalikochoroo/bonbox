@@ -1132,6 +1132,9 @@ export default function StaffSchedulePage() {
         } else if (e.over_cap) {
           shield.push({ kind: "cap", name: e.name, hours: e.hours, cap: e.cap });
         }
+        if (e.over_month) {
+          shield.push({ kind: "month", name: e.name, hours: e.month_hours, cap: e.month_cap });
+        }
         for (const r of e.rest_warnings || []) {
           shield.push({ kind: "rest", name: e.name, gap: r.gap_hours });
         }
@@ -3015,6 +3018,27 @@ function StaffDetailModal({
                   <option key={ct.value} value={ct.value}>{ct.label}</option>
                 ))}
               </select>
+              {/* Vagtplan Shield toggle — hour-LIMIT warnings only (contract
+                  cap / 48h / 90t-md); the 11-timers rest warning is safety
+                  law and never toggleable. Default ON; part/student contracts
+                  with no explicit monthly cap warn at the 90 t-md default. */}
+              <label className="mt-2 flex items-start gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={(editForm.hour_limit_warn ?? member.hour_limit_warn) !== false}
+                  onChange={(e) => setEditForm({ ...editForm, hour_limit_warn: e.target.checked })}
+                  className="mt-0.5 w-4 h-4 rounded accent-gray-900 dark:accent-gray-100"
+                />
+                <span className="text-xs text-gray-600 dark:text-gray-300 leading-snug">
+                  {t("staffHourLimitToggle", "Warn on hour limits")}
+                  <span className="block text-[11px] text-gray-400 dark:text-gray-500">
+                    {(editForm.contract_type || member.contract_type) === "part" ||
+                     (editForm.contract_type || member.contract_type) === "student"
+                      ? t("staffHourLimitHintPart", "Part-time/student: warns at 90 h/month unless you set a custom limit — typical international-student ceiling.")
+                      : t("staffHourLimitHint", "Warns at the contract cap and the DK 48h week. Rest warnings (11h rule) always stay on.")}
+                  </span>
+                </span>
+              </label>
             </div>
             {/* Email */}
             <div>
@@ -3400,6 +3424,9 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
         tax_card_rate: editForm.tax_card_rate
           ? parseFloat(editForm.tax_card_rate) / 100  // UI shows %, backend stores decimal
           : null,
+        // Vagtplan Shield toggle — only sent when the owner touched it
+        // (undefined = omitted, server keeps the stored value).
+        hour_limit_warn: editForm.hour_limit_warn,
       });
       setEditForm({});
       onRefresh();
@@ -4853,7 +4880,7 @@ function ScheduleGrid({
                             const e = (weekLoad?.staff || []).find((x) => x.staff_id === member.id);
                             if (!e || !(e.hours > 0)) return null;
                             const hasRest = (e.rest_warnings || []).length > 0;
-                            const cls = e.over_dk48 || hasRest
+                            const cls = e.over_dk48 || e.over_month || hasRest
                               ? "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
                               : e.over_cap
                                 ? "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400"
@@ -4864,7 +4891,10 @@ function ScheduleGrid({
                             const title = [
                               e.over_cap ? t("shieldOverCapTitle", "Over the contract cap ({cap}t/week)").replace("{cap}", e.cap) : "",
                               e.over_dk48 ? t("shieldOver48Title", "Over the DK 48h weekly ceiling") : "",
+                              e.over_month ? t("shieldOverMonthTitle", "Month: {h}t of {cap}t — over the monthly limit").replace("{h}", e.month_hours).replace("{cap}", e.month_cap) : "",
                               hasRest ? t("shieldRestTitle", "Under 11 hours' rest between shifts") : "",
+                              !e.over_month && e.month_cap != null ? t("shieldMonthInfoTitle", "Month: {h}t of {cap}t").replace("{h}", e.month_hours).replace("{cap}", e.month_cap) : "",
+                              e.warn_enabled === false ? t("shieldWarnOffTitle", "Hour-limit warnings are off for this staffer") : "",
                             ].filter(Boolean).join(" · ");
                             return (
                               <span
@@ -5310,6 +5340,9 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
                     {w.kind === "dk48" &&
                       t("shieldWarnDk48", "{name}: {hours}h — over the 48h weekly ceiling")
                         .replace("{name}", w.name).replace("{hours}", w.hours)}
+                    {w.kind === "month" &&
+                      t("shieldWarnMonth", "{name}: {hours}h this month — over the monthly limit of {cap}h")
+                        .replace("{name}", w.name).replace("{hours}", w.hours).replace("{cap}", w.cap)}
                     {w.kind === "rest" &&
                       t("shieldWarnRest", "{name}: only {gap}h rest between two shifts (11h rule)")
                         .replace("{name}", w.name).replace("{gap}", w.gap)}

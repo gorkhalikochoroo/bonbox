@@ -67,6 +67,7 @@ class StaffMemberCreate(BaseModel):
     holiday_rate: float | None = None
     max_hours_month: float | None = None
     max_hours_week: float | None = None
+    hour_limit_warn: bool | None = None
     tax_card_type: str | None = None
     tax_card_rate: float | None = None
 
@@ -86,6 +87,7 @@ class StaffMemberUpdate(BaseModel):
     holiday_rate: float | None = None
     max_hours_month: float | None = None
     max_hours_week: float | None = None
+    hour_limit_warn: bool | None = None
     tax_card_type: str | None = None
     tax_card_rate: float | None = None
     active: bool | None = None
@@ -112,6 +114,7 @@ class StaffMemberResponse(BaseModel):
     holiday_rate: float | None = None
     max_hours_month: float | None = None
     max_hours_week: float | None = None
+    hour_limit_warn: bool | None = None
     tax_card_type: str | None = None
     tax_card_rate: float | None = None
     active: bool = True

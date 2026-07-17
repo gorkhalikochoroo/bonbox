@@ -193,3 +193,70 @@ def test_tenant_scoped(db, client):
 
     body = _load(client, owner_a)
     assert body["staff"] == []
+
+
+# ── Monthly limits + toggle (S1.5) ─────────────────────────────────────
+
+def _staff2(db, owner, name, contract_type="full", max_hours_month=None,
+            hour_limit_warn=True):
+    s = StaffMember(user_id=owner.id, name=name, role="server",
+                    contract_type=contract_type,
+                    max_hours_month=max_hours_month,
+                    hour_limit_warn=hour_limit_warn)
+    db.add(s)
+    db.commit()
+    db.refresh(s)
+    return s
+
+
+def test_parttimer_defaults_to_90_month_limit(db, client):
+    owner = _owner(db, "m90")
+    s = _staff2(db, owner, "Student", contract_type="student")
+    # 10 × 10h across July (same month as MONDAY) = 100h > 90 default.
+    for i in range(10):
+        _shift(db, owner, s, MONDAY - timedelta(days=i), "08:00", "18:00")
+    e = _entry(_load(client, owner), s)
+    assert e["month_cap"] == 90.0
+    assert e["month_cap_source"] == "default90"
+    assert e["month_hours"] == 100.0
+    assert e["over_month"] is True
+
+
+def test_fulltimer_has_no_default_month_limit(db, client):
+    owner = _owner(db, "mfull")
+    s = _staff2(db, owner, "Fuldtid", contract_type="full")
+    for i in range(10):
+        _shift(db, owner, s, MONDAY - timedelta(days=i), "08:00", "18:00")
+    e = _entry(_load(client, owner), s)
+    assert e["month_cap"] is None
+    assert e["over_month"] is False
+
+
+def test_explicit_month_cap_beats_default(db, client):
+    owner = _owner(db, "mexp")
+    s = _staff2(db, owner, "Egen", contract_type="part", max_hours_month=60)
+    for i in range(7):
+        _shift(db, owner, s, MONDAY - timedelta(days=i), "08:00", "18:00")  # 70h
+    e = _entry(_load(client, owner), s)
+    assert e["month_cap"] == 60.0
+    assert e["month_cap_source"] == "explicit"
+    assert e["over_month"] is True
+
+
+def test_toggle_off_silences_limits_but_not_rest(db, client):
+    owner = _owner(db, "moff")
+    s = _staff2(db, owner, "Fravalgt", contract_type="student",
+                hour_limit_warn=False)
+    # Over the 90h month default AND an 8.5h rest gap.
+    for i in range(2, 12):
+        _shift(db, owner, s, MONDAY - timedelta(days=i), "08:00", "18:00")
+    _shift(db, owner, s, MONDAY, "15:00", "23:30")
+    _shift(db, owner, s, MONDAY + timedelta(days=1), "08:00", "16:00")
+    e = _entry(_load(client, owner), s)
+    assert e["warn_enabled"] is False
+    # Hour-limit warnings silenced…
+    assert e["over_month"] is False
+    assert e["over_cap"] is False
+    assert e["over_dk48"] is False
+    # …but hviletid is safety law — never silenced.
+    assert len(e["rest_warnings"]) == 1
