@@ -1157,6 +1157,9 @@ export default function StaffSchedulePage() {
   const [pinHas, setPinHas] = useState({});       // staffId -> bool: link requires a PIN
   const [pinReveal, setPinReveal] = useState({}); // staffId -> the 4-digit PIN, shown ONCE after generating
   const [pinBusy, setPinBusy] = useState(null);   // staffId whose PIN toggle is in flight
+  // Extra-PIN controls are hidden by default (off + out of sight) — the
+  // everyday share flow is just login code + copy. Owners opt in per sheet.
+  const [showPinControls, setShowPinControls] = useState(false);
   // UpgradeNudge state — bulk-staff-email is Pro+. Free/Starter
   // users still get the PDF download for printing/WhatsApp share.
   const [upgradeNudge, setUpgradeNudge] = useState(null);
@@ -1482,6 +1485,7 @@ export default function StaffSchedulePage() {
     setShareCopiedN(0);
     setShareRowCopied(null);
     setPinReveal({}); // never carry a shown-once PIN across opens
+    setShowPinControls(false); // extra-PIN section starts collapsed each open
     setShareSheet(true);
     // Pre-fetch every link in ONE call so "Copy links" is instant and runs
     // inside the click gesture (no per-staff POST storm). mintLinkFor reads
@@ -2327,10 +2331,6 @@ export default function StaffSchedulePage() {
               <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
                 {t("shareJoinCodeHint", "No link? Staff can type their code at bonbox.dk/join.")}
               </p>
-              <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 flex items-center gap-1">
-                <Lock className="w-3 h-3 shrink-0" strokeWidth={2} aria-hidden />
-                {t("pinHint", "Tap PIN to add a 4-digit code — then only someone who knows it can open the link.")}
-              </p>
               <label className="flex items-center gap-2 mt-3 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -2379,8 +2379,10 @@ export default function StaffSchedulePage() {
                         )}
                       </div>
                     </div>
-                    {/* Extra PIN lock (multi-layer link protection). One tap:
-                        on generates + reveals the code, off removes it. */}
+                    {/* Extra PIN lock — hidden unless the owner opened the
+                        "Extra security" section, OR this link already has a
+                        PIN (an active lock stays visible + manageable). */}
+                    {(showPinControls || pinOn) && (
                     <button
                       type="button"
                       onClick={(e) => { e.preventDefault(); toggleLinkPin(s); }}
@@ -2400,6 +2402,7 @@ export default function StaffSchedulePage() {
                           : <LockKeyholeOpen className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />}
                       <span>{t("pinLabel", "PIN")}</span>
                     </button>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => { e.preventDefault(); copyOneLink(s); }}
@@ -2447,6 +2450,26 @@ export default function StaffSchedulePage() {
               <p className="text-[11px] text-gray-400 dark:text-gray-600 text-center">
                 {t("shareFootNote", "Paste copied links into WhatsApp or SMS — works for staff without email.")}
               </p>
+              {/* Extra security (PIN) — collapsed by default so the everyday
+                  flow stays just login code + copy. Opting in reveals the
+                  per-row PIN control; a link that already has a PIN shows it
+                  regardless. Most owners never need this. */}
+              <button
+                type="button"
+                onClick={() => setShowPinControls((v) => !v)}
+                className="w-full flex items-center justify-center gap-1.5 text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition"
+                aria-expanded={showPinControls}
+              >
+                <Lock className="w-3 h-3 shrink-0" strokeWidth={2} aria-hidden />
+                {showPinControls
+                  ? t("pinDisclosureHide", "Hide extra security")
+                  : t("pinDisclosureShow", "Extra security · require a PIN")}
+              </button>
+              {showPinControls && (
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 text-center leading-relaxed">
+                  {t("pinHint", "PIN is a separate, optional lock — tap a staffer's PIN to also require a 4-digit PIN (handy for a shared phone). Most staff don't need one.")}
+                </p>
+              )}
             </div>
           </div>
         </div>
