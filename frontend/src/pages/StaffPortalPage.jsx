@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users } from "lucide-react";
+import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
@@ -3344,12 +3344,26 @@ function InstallNotifyCard({ token }) {
             </button>
           )}
 
-          {/* iOS Safari — guide the Share → Add to Home Screen flow */}
+          {/* iOS — the native BonBox Scheduler app is the best path now that
+              it's on the App Store (push, offline, proper app). The old
+              Share → Add to Home Screen route stays as a lightweight fallback. */}
           {!installed && !installPrompt && isIOS && (
-            <div className="mt-2.5 flex items-center gap-1.5 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[12px] text-gray-600">
-              <span>{t("staffInstallIosA", "Tap")}</span>
-              <Share className="w-4 h-4 text-gray-900 shrink-0" strokeWidth={2} aria-hidden />
-              <span>{t("staffInstallIosB", 'then "Add to Home Screen"')}</span>
+            <div className="mt-2.5 space-y-2">
+              <a
+                href="https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold bg-gray-900 text-white hover:bg-gray-700 transition"
+              >
+                <Apple className="w-4 h-4" strokeWidth={2} aria-hidden />
+                {t("staffGetSchedulerApp", "Get the BonBox Scheduler app")}
+              </a>
+              <div className="flex items-center gap-1.5 rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-[12px] text-gray-500">
+                <span>{t("staffInstallIosOr", "Or add to home screen:")}</span>
+                <span>{t("staffInstallIosA", "Tap")}</span>
+                <Share className="w-4 h-4 text-gray-700 shrink-0" strokeWidth={2} aria-hidden />
+                <span>{t("staffInstallIosB", 'then "Add to Home Screen"')}</span>
+              </div>
             </div>
           )}
 

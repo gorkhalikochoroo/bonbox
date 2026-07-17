@@ -293,6 +293,9 @@ export default function TeamPage() {
                 <p className="text-xs text-green-700/70 dark:text-green-300/70">
                   {t("teamInvitationSecurity")}
                 </p>
+                <p className="text-xs text-green-700/70 dark:text-green-300/70">
+                  {t("teamInvitationAppTip", "Tip: tell them to get the free BonBox Scheduler app — they'll see their shifts and get alerts the moment you change them.")}
+                </p>
                 <button onClick={resetInvite} className="mt-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition">
                   {t("teamInviteDone")}
                 </button>
