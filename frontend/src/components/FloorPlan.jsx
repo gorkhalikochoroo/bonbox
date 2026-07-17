@@ -1130,19 +1130,26 @@ export default function FloorPlan({
                   onPointerDownDrag={onPointerDownDrag}
                   onToggleShape={toggleShape}
                 />
-                {/* "Your next booking" accent ring */}
-                {isNext && (
-                  <span
-                    className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-gray-900/60 dark:ring-gray-100/60 ring-offset-2 ring-offset-transparent pointer-events-none animate-pulse"
-                    style={{
-                      left: `${pos.pos_x}%`,
-                      top: `${pos.pos_y}%`,
-                      width: tableSizePx(c.res.capacity_seats) + 6,
-                      height: tableSizePx(c.res.capacity_seats) + 6,
-                    }}
-                    aria-hidden
-                  />
-                )}
+                {/* "Your next booking" accent ring — track the DRAWN footprint so
+                    it keeps hugging a scaled table (same size_scale the body uses). */}
+                {isNext && (() => {
+                  const nextScale =
+                    pos.size_scale != null ? pos.size_scale : c.res.size_scale || 1;
+                  const ringPx =
+                    Math.round(tableSizePx(c.res.capacity_seats) * nextScale) + 6;
+                  return (
+                    <span
+                      className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-gray-900/60 dark:ring-gray-100/60 ring-offset-2 ring-offset-transparent pointer-events-none animate-pulse"
+                      style={{
+                        left: `${pos.pos_x}%`,
+                        top: `${pos.pos_y}%`,
+                        width: ringPx,
+                        height: ringPx,
+                      }}
+                      aria-hidden
+                    />
+                  );
+                })()}
               </div>
             );
           })}
