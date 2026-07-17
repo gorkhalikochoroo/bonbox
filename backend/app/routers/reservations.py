@@ -1360,6 +1360,110 @@ def assign_table(reservation_id: UUID, payload: TableAssign, request: Request,
     return _reservation_dict(r)
 
 
+class ReservationEdit(BaseModel):
+    # Edit an existing booking honestly — "move us to 20:00 / we're 6 not 4" —
+    # instead of cancel (which falsely notifies the guest "aflyst") + re-create.
+    # All optional; only sent fields change.
+    starts_at: datetime | None = None
+    party_size: int | None = Field(default=None, ge=1, le=100)
+    guest_name: str | None = Field(default=None, max_length=160)
+    guest_phone: str | None = Field(default=None, max_length=40)
+    guest_email: str | None = Field(default=None, max_length=255)
+    guest_notes: str | None = Field(default=None, max_length=2000)
+
+
+@router.patch("/reservations/{reservation_id}")
+def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Request,
+                     db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Edit a live booking. Time/party changes re-check the held table(s) for
+    the NEW window through the same occupancy machinery as create/assign
+    (honest 409 slot_unavailable — never a silent double-book). The guest is
+    NEVER sent a cancellation for a mere change. Multi-barrier: auth · tenant
+    scope on the row · Pydantic bounds · status gate · occupancy re-check ·
+    audit with before/after."""
+    enforce_feature(user, "reservations")
+    r = (
+        db.query(Reservation)
+        .filter(Reservation.id == reservation_id, Reservation.user_id == user.id,
+                Reservation.is_deleted.is_(False))
+        .first()
+    )
+    if r is None:
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+    time_or_party = payload.starts_at is not None or payload.party_size is not None
+    # Time/party edits only make sense on a booking that hasn't started/ended:
+    # requested or confirmed. Guest-detail fixes are allowed on any live row.
+    if time_or_party and r.status not in ("requested", "confirmed"):
+        raise HTTPException(status_code=409, detail={"error": "not_editable"})
+
+    before = {"starts_at": r.starts_at.isoformat() if r.starts_at else None,
+              "party_size": r.party_size}
+
+    for f in ("guest_name", "guest_phone", "guest_email", "guest_notes"):
+        v = getattr(payload, f)
+        if v is not None:
+            setattr(r, f, v)
+
+    if time_or_party:
+        profile = _profile(db, user)
+        new_start = payload.starts_at or r.starts_at
+        new_party = payload.party_size or r.party_size
+        # Keep an explicit per-booking duration; else re-resolve for the party.
+        duration = int(r.duration_min) if r.duration_min else rsvc.resolve_duration(profile, new_party, None)
+        new_end = new_start + timedelta(minutes=duration)
+
+        held_ids = [x for x in (r.combined_resource_ids or ([r.resource_id] if r.resource_id else [])) if x]
+        if held_ids:
+            # Same app-level clash guard as assign_table, for the NEW window
+            # (Postgres exclusion constraint is the backstop on commit).
+            clash = (
+                db.query(ReservationOccupancy.id)
+                .filter(
+                    ReservationOccupancy.user_id == user.id,
+                    ReservationOccupancy.resource_id.in_(held_ids),
+                    ReservationOccupancy.reservation_id != r.id,
+                    ReservationOccupancy.active.is_(True),
+                    ReservationOccupancy.starts_at < new_end,
+                    ReservationOccupancy.ends_at > new_start,
+                )
+                .first()
+            )
+            if clash is not None:
+                raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+
+        r.starts_at = new_start
+        r.ends_at = new_end
+        r.party_size = new_party
+        r.duration_min = duration
+        settings = rsvc.load_settings(profile)
+        r.purge_after = new_start + timedelta(days=int(settings.get("retention_days", 90)))
+        try:
+            # Re-anchor the hold(s) to the new window.
+            occ_service.release_occupancy(db, r.id)
+            if held_ids and r.status in occ_service.HOLDING_STATUSES:
+                if len(held_ids) > 1:
+                    occ_service.add_occupancy_rows(db, r, held_ids, active=True)
+                else:
+                    occ_service.add_occupancy_row(db, r, active=True)
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+
+    audit_service.record(
+        db, user, "reservation.edited", "reservation", r.id,
+        before=before,
+        after={"starts_at": r.starts_at.isoformat() if r.starts_at else None,
+               "party_size": r.party_size},
+    )
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={"error": "slot_unavailable"})
+    return _reservation_dict(r)
+
+
 @router.patch("/reservations/{reservation_id}/status")
 def update_status(reservation_id: UUID, payload: StatusUpdate, request: Request,
                   db: Session = Depends(get_db), user: User = Depends(get_current_user)):
