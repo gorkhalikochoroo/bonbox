@@ -97,6 +97,8 @@ import {
   // LockOpen=unlock, RefreshCw=auto-detect refresh.
   Hammer, Truck, RotateCcw, ShoppingCart, Ticket, Leaf, Smartphone, Gift,
   FolderOpen, LockOpen, RefreshCw,
+  // Audit-Tryg (2026-07) — ShieldCheck = compliance/procedurebeskrivelse.
+  ShieldCheck,
   // Per-vertical adaptation (Phase A, 2026-06) — Onboarding branch tiles +
   // venueProfiles glance icons. Scissors=salon, Croissant=bakery.
   Scissors, Croissant,
@@ -165,6 +167,7 @@ const ICONS = {
   // Daily Close de-emoji sweep (feel PR cont., 2026-06-21)
   Hammer, Truck, RotateCcw, ShoppingCart, Ticket, Leaf, Smartphone, Gift,
   FolderOpen, LockOpen, RefreshCw,
+  ShieldCheck,
   // Per-vertical adaptation (Phase A) — salon + bakery onboarding tiles
   Scissors, Croissant,
   // Utility

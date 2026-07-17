@@ -9,6 +9,7 @@ import { sendBundleToAccountant } from "../utils/shareDailyCloseRange";
 import { localIso } from "../utils/dateFormat";
 import { PageHeader, Button, SectionBanner, Icon, UpgradeNudge } from "../components/ui";
 import RevisorSection from "../components/RevisorSection";
+import ProcedureCard from "../components/ProcedureCard";
 import { useLanguage } from "../hooks/useLanguage";
 
 /**
@@ -230,6 +231,10 @@ export default function BookkeepingExportPage() {
           benefit={t("bkeUpgradeBenefit", "Export to Dinero / Billy / e-conomic / generic CSV — your accountant imports without re-typing a number.")}
           ctaLabel={t("seePlans", "See plans")}
         />
+        {/* Legal-duty document — deliberately NOT tier-gated (accountant-grade
+            artifacts are the same quality for every tier), so it renders on
+            the free branch too. */}
+        <ProcedureCard />
       </div>
     );
   }
@@ -400,6 +405,10 @@ export default function BookkeepingExportPage() {
           <SectionBanner severity="critical" title={err} />
         )}
       </div>
+
+      {/* Lovpligtig procedurebeskrivelse (§ 6) — pre-filled from observed
+          data, owner approves, PDF stores with the regnskabsmateriale. */}
+      <ProcedureCard />
 
       {/* The better path: their own free read-only login. This is the
           discoverable home for the invite — owners searching "revisor" (Cmd-K +
