@@ -99,6 +99,10 @@ from app.models.reservation_occupancy import ReservationOccupancy
 # never hold a resource or leak into the availability engine. user_id FK puts
 # it in the metadata-driven GDPR delete_account sweep automatically.
 from app.models.reservation_waitlist import ReservationWaitlistEntry
+# GDPR erasure tombstone — lets the retention sweep find (and finally delete)
+# an ERASED account's legally-retained accounting blobs after the 5y+1 window.
+# No users-FK on purpose: the user row is gone by design.
+from app.models.erasure_tombstone import ErasureTombstone
 # S2 — salon service (Behandlinger) catalog. A per-salon list of services
 # with a duration + optional DISPLAY-ONLY price. Owner CRUD via the
 # reservations router; gated behind the "reservations" feature flag. See

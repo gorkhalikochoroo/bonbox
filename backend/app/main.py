@@ -2168,6 +2168,19 @@ _migrations = [
     "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS allergy_ai_matched JSONB",
     "ALTER TABLE reservations ADD COLUMN IF NOT EXISTS note_intent VARCHAR(40)",
     "CREATE INDEX IF NOT EXISTS ix_reservations_note_intent ON reservations (user_id, note_intent)",
+    # ── Migration 061 (2026-07-17): erasure_tombstones (GDPR "then deleted") ──
+    # delete_account promises accounting source docs are "kept 5 years, then
+    # deleted" — but the pointer rows die at erasure, so nothing could ever
+    # find the retained blobs again to delete them. One row per erased account
+    # (written in the same commit as the user delete) lets the nightly
+    # retention sweep purge the four retained storage prefixes after the legal
+    # window, then drop the tombstone. NO users-FK on purpose: the user row is
+    # gone by design. VARCHAR(36) like Migration 057 (GUID() is String(36)).
+    # Mirrors app/models/erasure_tombstone.py.
+    """CREATE TABLE IF NOT EXISTS erasure_tombstones (
+        user_id VARCHAR(36) PRIMARY KEY,
+        erased_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
 ]
 
 
@@ -4839,6 +4852,15 @@ def health_db():
         return JSONResponse(status_code=503, content={"status": "error", "database": "unreachable"})
 
 
+# Cached live-DB probe for /api/health/ready. The boot flag `_db_ready` is
+# set once and never cleared, so without a runtime probe a DB that dies AFTER
+# startup (or an exhausted pool) still read as healthy and Render kept routing
+# traffic to a dead app. The probe is cached ~15s so Render's frequent polling
+# costs at most one pool checkout per window, in either state.
+_READY_PROBE_TTL_S = 15.0
+_ready_probe = {"ts": 0.0, "ok": True}
+
+
 @app.api_route("/api/health/ready", methods=["GET", "HEAD"])
 def health_ready():
     """Readiness probe — this is what render.yaml's healthCheckPath points at.
@@ -4855,11 +4877,35 @@ def health_ready():
     Pointing the health check here makes a bad migration FAIL its probe, so
     Render aborts the cutover and the previous healthy deploy stays live —
     the behaviour the drift guard's own comments already promise.
+
+    After boot, a cached SELECT 1 keeps the answer honest at runtime: if the
+    DB dies or the pool is exhausted, this goes 503 "degraded" so Render acts,
+    instead of green-lighting a dead app. TimeoutError (pool exhausted) is
+    exactly the outage case, so the bare except is deliberate. During a pure
+    external-DB outage Render may restart the service repeatedly — preferable
+    to routing traffic into guaranteed 500s; pool_pre_ping recovers stale
+    connections once the DB returns.
     """
     if not _db_ready.is_set():
         return JSONResponse(
             status_code=503,
             content={"status": "starting", "db_ready": False},
             headers={"Retry-After": "3"},
+        )
+    import time as _t
+    now = _t.monotonic()
+    if now - _ready_probe["ts"] > _READY_PROBE_TTL_S:
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            _ready_probe["ok"] = True
+        except Exception:
+            _ready_probe["ok"] = False
+        _ready_probe["ts"] = now
+    if not _ready_probe["ok"]:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "db_ready": True, "db": "unreachable"},
+            headers={"Retry-After": "5"},
         )
     return {"status": "ok", "db_ready": True}

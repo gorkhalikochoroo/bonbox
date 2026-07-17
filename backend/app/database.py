@@ -29,7 +29,15 @@ if "sqlite" in settings.DATABASE_URL:
     connect_args = {"check_same_thread": False}
     engine = create_engine(settings.DATABASE_URL, connect_args=connect_args)
 else:
-    engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
+    # connect_timeout bounds how long a NEW connection attempt can hang when
+    # the DB is down/unreachable (default is OS-level, effectively minutes).
+    # Without it the readiness probe — and any real request needing a fresh
+    # connection during an outage — blocks instead of failing fast.
+    engine = create_engine(
+        settings.DATABASE_URL,
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": 5},
+    )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
