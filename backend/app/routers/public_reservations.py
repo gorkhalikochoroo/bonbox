@@ -195,6 +195,7 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         "allergen_set": allergen_set_for(btype),
         "max_party_size": settings.get("max_party_size"),
         "group_request_threshold": settings.get("group_request_threshold"),
+        "guest_can_pick_table": bool(settings.get("guest_can_pick_table")),
         "max_advance_days": settings.get("max_advance_days"),
         "lead_time_min": settings.get("lead_time_min"),
         # Best-effort default UI language for this venue's public page (see above).

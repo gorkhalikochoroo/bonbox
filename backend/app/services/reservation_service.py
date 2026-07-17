@@ -55,6 +55,10 @@ DEFAULT_SETTINGS: dict = {
     # behaves exactly as before. max_combo_size caps tables per seating.
     "combine_enabled": True,
     "max_combo_size": 3,
+    # Guest self-select their table on the public widget. OFF by default — the
+    # owner keeps seating control (auto-assign picks the best free table), which
+    # matches OpenTable/Resy norm; owners who want the transparency turn it on.
+    "guest_can_pick_table": False,
     "retention_days": 90,            # GDPR purge window after service date
     # Appointment vertical default service length when none specified.
     "default_service_duration_min": 60,
