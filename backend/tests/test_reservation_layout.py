@@ -332,25 +332,6 @@ def test_resource_dict_size_defaults_one_and_seats_unchanged(client, db):
     assert db.get(BookableResource, r0.id).capacity_seats == 4  # seats untouched
 
 
-def test_floor_background_get_none_then_delete_clears(client, db):
-    """Room-photo endpoints: GET is null with no photo; DELETE clears the stored
-    key (owner-only, tenant-scoped through get_current_user + the profile query)."""
-    from app.models.business_profile import BusinessProfile
-    u, _ = _restaurant(db, tables=1)
-    _override_user(u)
-    assert client.get("/api/reservations/floor-background").json()["floor_bg_url"] is None
-    # simulate an uploaded photo (bypass the multipart/storage path), then DELETE.
-    prof = db.query(BusinessProfile).filter(BusinessProfile.user_id == u.id).first()
-    prof.reservation_floor_bg_key = f"{u.id}/floor_background/{'a' * 64}.jpg"
-    db.commit()
-    resp = client.delete("/api/reservations/floor-background")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["floor_bg_url"] is None
-    db.expire_all()
-    got = db.query(BusinessProfile).filter(BusinessProfile.user_id == u.id).first()
-    assert got.reservation_floor_bg_key is None
-
-
 def test_create_and_patch_accept_layout_fields(client, db):
     u, _ = _restaurant(db, tables=0)
     _override_user(u)

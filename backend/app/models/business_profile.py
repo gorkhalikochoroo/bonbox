@@ -185,10 +185,12 @@ class BusinessProfile(Base):
     # request threshold, booking lead time / advance window, GDPR
     # retention_days). JSON so config evolves without a migration.
     reservation_settings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Storage KEY (never a URL) of the owner's optional room-plan background photo —
-    # a picture of the real premises they drag their tables onto. OWNER-ONLY (never
-    # sent to the public booker). Personal data: purged on GDPR erasure (storage
-    # kind "floor_background" ∈ ERASURE_PURGE_KINDS). NULL = no photo.
+    # RETIRED: room-plan background photo (owner traced tables onto a picture of the
+    # real premises). Removed — owners know their own room, so it earned nothing for
+    # a personal-data + upload surface. The column stays NULLABLE + unused rather
+    # than taking a destructive migration; any key written while the feature was
+    # live still resolves to a blob that GDPR erasure purges (kind
+    # "floor_background" is retained in storage.ERASURE_PURGE_KINDS for exactly that).
     reservation_floor_bg_key: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ── Gavekort online orders (Migration 029) ─────────────────────────
