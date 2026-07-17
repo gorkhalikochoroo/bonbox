@@ -89,6 +89,19 @@ def _clamp_deg(v) -> float | None:
         return None
 
 
+def _clamp_scale(v) -> float | None:
+    """Clamp a drawn-size multiplier to a sane band (0.5–2.5): small enough that
+    the seat chip stays legible, large enough for a real communal table, never so
+    large one table swallows the room. None → None (read as 1.0 on render).
+    Clamp-don't-reject so a flaky drag never fails the whole save."""
+    try:
+        if v is None:
+            return None
+        return max(0.5, min(2.5, float(v)))
+    except (TypeError, ValueError):
+        return None
+
+
 def _norm_shape(v) -> str:
     """Normalise a shape to the allowed set; default 'round' on anything
     unrecognised (case-insensitive)."""
@@ -141,6 +154,7 @@ class ResourceUpdate(BaseModel):
     pos_y: float | None = None
     shape: str | None = None
     rotation_deg: float | None = None
+    size_scale: float | None = None
 
 
 class BulkResourceSpec(BaseModel):
@@ -172,6 +186,8 @@ class LayoutItem(BaseModel):
     shape: str | None = None
     # Orientation, degrees. Optional + cosmetic; normalised 0–360 in the handler.
     rotation_deg: float | None = None
+    # Drawn-size multiplier. Optional + cosmetic; clamped 0.5–2.5 in the handler.
+    size_scale: float | None = None
     # Seat count — the ONLY booking-authoritative capacity. Optional so a
     # position/shape-only save never touches it; clamped (not rejected) 1–100
     # in the handler, like the other floor fields. Riding the atomic layout
@@ -322,6 +338,10 @@ def _resource_dict(r: BookableResource) -> dict:
         # 0° for legacy/unrotated rows — never null (the render composes it into
         # a CSS transform; a null there would break the whole table).
         "rotation_deg": float(getattr(r, "rotation_deg", None) or 0.0),
+        # Drawn-size multiplier (owner-only). 1.0 for legacy/unscaled rows. Sent to
+        # the OWNER map only — the public serializer omits it (size never implies
+        # capacity to a guest).
+        "size_scale": float(getattr(r, "size_scale", None) or 1.0),
     }
 
 
@@ -857,6 +877,8 @@ def save_layout(payload: LayoutUpdate, request: Request,
             r.shape = _norm_shape(item.shape)
         if item.rotation_deg is not None:
             r.rotation_deg = _clamp_deg(item.rotation_deg)
+        if item.size_scale is not None:
+            r.size_scale = _clamp_scale(item.size_scale)
         # Seats: booking-authoritative, so clamp (never reject) to 1–100 and
         # only touch when actually sent AND actually different — a position-only
         # save must not re-capacity every table or spam the seats audit.
@@ -907,6 +929,8 @@ def update_resource(resource_id: UUID, payload: ResourceUpdate,
         r.shape = _norm_shape(payload.shape)
     if payload.rotation_deg is not None:
         r.rotation_deg = _clamp_deg(payload.rotation_deg)
+    if payload.size_scale is not None:
+        r.size_scale = _clamp_scale(payload.size_scale)
     db.commit()
     return _resource_dict(r)
 

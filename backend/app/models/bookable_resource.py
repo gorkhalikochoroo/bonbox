@@ -115,6 +115,14 @@ class BookableResource(Base):
     # geometry is resolution-independent on the fixed 16:10 canvas.
     rotation_deg: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Drawn size multiplier on the floor map (1.0 = the seat-derived default).
+    # COSMETIC ONLY — never affects seating or the availability engine. Nullable
+    # with NO default: NULL is read as 1.0 everywhere, so legacy rows keep their
+    # seat-derived footprint. Deliberately NOT sent to the public booker — the
+    # guest map re-derives footprint from capacity_seats, so drawn size can never
+    # imply capacity. capacity_seats stays the SOLE booking-authoritative number.
+    size_scale: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     # Active = bookable. Inactive resources stay in history but the engine
     # skips them (e.g. a table pulled for renovation).
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
