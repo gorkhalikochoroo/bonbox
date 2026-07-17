@@ -59,6 +59,7 @@ import {
   ChevronDown,
   BarChart3,
   Scissors,
+  SlidersHorizontal,
   ExternalLink,
   HelpCircle,
   Pencil,
@@ -2918,6 +2919,10 @@ function BookSection({ t, businessType, tableFloor = false }) {
 
   const filtersOn =
     q.trim() !== "" || statusFilter !== "all" || zoneFilter !== "all" || noteTypeFilter !== "all";
+  // Phone: the FilterBar's stacked full-width controls cost ~a screen of
+  // chrome above the first booking — collapse behind a chip (open when a
+  // filter is already active so state is never hidden). Desktop unchanged.
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const resetFilters = () => {
     setQ("");
     setStatusFilter("all");
@@ -3100,6 +3105,92 @@ function BookSection({ t, businessType, tableFloor = false }) {
       out.push({ id: "completed", label: t("rsvpCompleteAction", "Complete"), text: true, icon: <CheckCircle2 className="w-4 h-4" />, onClick: () => setStatus(r, "completed"), disabled: busy });
     }
     return out;
+  };
+
+  // Phone-only compact booking row (DataTable mobileRow): tonight's book scans
+  // like a paper book — time down the left edge (late guests amber), name +
+  // party + allergy flag, status pill, ONE state-matched primary action.
+  // Whole row opens the drawer; destructive flips stay in the drawer behind
+  // useConfirm. Replaces the generic ~200px label:value card dump per booking.
+  const compactRow = (r) => {
+    const startMs = r.starts_at ? new Date(r.starts_at).getTime() : 0;
+    const lateMin =
+      isViewingToday && r.status === "confirmed" && startMs
+        ? Math.floor((nowTs - startMs) / 60000)
+        : 0;
+    const hasAllergy =
+      (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
+      r.allergy_note ||
+      r.allergy_severity;
+    let primary = null;
+    if (r.status === "requested")
+      primary = { label: t("rsvpConfirmAction", "Confirm"), to: "confirmed" };
+    else if (r.status === "confirmed")
+      primary = { label: t("rsvpSeatAction", "Seat"), to: "seated" };
+    else if (r.status === "seated")
+      primary = { label: t("rsvpCompleteAction", "Complete"), to: "completed" };
+    const busy = actioningId === r.id;
+    return (
+      <div
+        className="flex items-center gap-3 cursor-pointer"
+        onClick={() => openDrawer(r)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openDrawer(r);
+          }
+        }}
+        role="button"
+        tabIndex={0}
+      >
+        <div className="w-14 shrink-0 leading-tight">
+          <div className="text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+            {fmtTime(r.starts_at)}
+          </div>
+          {lateMin >= 5 && (
+            <div className="inline-flex items-center gap-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400 tabular-nums">
+              <Clock className="w-3 h-3 shrink-0" aria-hidden />
+              +{lateMin}m
+            </div>
+          )}
+        </div>
+        <div className="min-w-0 flex-1 leading-tight">
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+            {r.guest_name || "—"}
+            {hasAllergy && (
+              <AlertTriangle
+                className={
+                  "inline w-3.5 h-3.5 ml-1 -mt-0.5 " +
+                  (r.allergy_severity === "severe" ? "text-red-500" : "text-amber-500")
+                }
+                aria-label={t("rsvpAllergyFlag", "Allergy")}
+              />
+            )}
+          </div>
+          <div className="inline-flex items-center gap-1 text-[12px] text-gray-500 dark:text-gray-400 tabular-nums max-w-full">
+            <Users className="w-3 h-3 shrink-0" aria-hidden />
+            {r.party_size}
+            {isProvider && r.service_name && (
+              <span className="truncate">· {r.service_name}</span>
+            )}
+          </div>
+        </div>
+        <StatusPill status={r.status} label={labels[r.status] || r.status} />
+        {primary && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={(e) => {
+              e.stopPropagation();
+              setStatus(r, primary.to);
+            }}
+            className="h-11 px-3 shrink-0 rounded-lg bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 text-xs font-semibold disabled:opacity-50 active:scale-95 transition"
+          >
+            {primary.label}
+          </button>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -3374,6 +3465,18 @@ function BookSection({ t, businessType, tableFloor = false }) {
       {/* ── Liste (the polished data-table) ── */}
       {view === "liste" && (
         <>
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen((v) => !v)}
+            className="sm:hidden inline-flex items-center gap-1.5 h-10 px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-300"
+          >
+            <SlidersHorizontal className="w-4 h-4" aria-hidden />
+            {t("rsvpFilterChip", "Filter")}
+            {filtersOn && (
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" aria-hidden />
+            )}
+          </button>
+          <div className={mobileFiltersOpen || filtersOn ? "" : "hidden sm:block"}>
           <FilterBar>
             <FilterBar.Search
               value={q}
@@ -3415,6 +3518,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
             )}
             {filtersOn && <FilterBar.Reset onClick={resetFilters} label={t("reset", "Reset")} />}
           </FilterBar>
+          </div>
 
           <DataTable
             columns={columns}
@@ -3424,6 +3528,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
             rowActions={rowActions}
             onRowClick={openDrawer}
             mobileBreakpoint="md"
+            mobileRow={compactRow}
             empty={
               <Empty
                 icon={CalendarCheck}
