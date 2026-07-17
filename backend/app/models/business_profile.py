@@ -185,6 +185,11 @@ class BusinessProfile(Base):
     # request threshold, booking lead time / advance window, GDPR
     # retention_days). JSON so config evolves without a migration.
     reservation_settings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Storage KEY (never a URL) of the owner's optional room-plan background photo —
+    # a picture of the real premises they drag their tables onto. OWNER-ONLY (never
+    # sent to the public booker). Personal data: purged on GDPR erasure (storage
+    # kind "floor_background" ∈ ERASURE_PURGE_KINDS). NULL = no photo.
+    reservation_floor_bg_key: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ── Gavekort online orders (Migration 029) ─────────────────────────
     # Public buy-page handle: bonbox.dk/g/buy/<gavekort_slug>. A customer

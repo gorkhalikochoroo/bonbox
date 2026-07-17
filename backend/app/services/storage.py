@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # attacker who somehow forges a kind to a closed enum.
 ALLOWED_KINDS = {
     "kasserapport", "inventory_import", "expense", "sale", "business_logo",
-    "staff_chat", "staff_avatar",
+    "staff_chat", "staff_avatar", "floor_background",
 }
 
 
@@ -360,7 +360,12 @@ def reset_storage_for_tests() -> None:
 # retained for 5 years under Bogføringsloven §10, then deleted. Keep this
 # in sync with the retention disclosure in the delete-account response +
 # PrivacyPolicyPage.
-ERASURE_PURGE_KINDS = frozenset({"staff_chat", "staff_avatar", "business_logo"})
+ERASURE_PURGE_KINDS = frozenset({
+    "staff_chat", "staff_avatar", "business_logo",
+    # A photo of the owner's real premises (possibly staff/guests in frame) with no
+    # accounting-retention basis — purged on GDPR Art.17 erasure like the logo.
+    "floor_background",
+})
 
 
 def purge_user_blobs(user_id, kinds=ERASURE_PURGE_KINDS) -> int:

@@ -38,6 +38,8 @@ import {
   LayoutGrid,
   Plus,
   Minus,
+  ImagePlus,
+  Trash2,
   AlertTriangle,
 } from "lucide-react";
 import api from "../services/api";
@@ -582,9 +584,13 @@ export default function FloorPlan({
   const [addSeats, setAddSeats] = useState("4");
   const [addBusy, setAddBusy] = useState(false);
   const [addError, setAddError] = useState("");
+  // Optional room background photo (owner-only). Signed URL (1h TTL) fetched once.
+  const [floorBgUrl, setFloorBgUrl] = useState(null);
+  const [bgBusy, setBgBusy] = useState(false);
 
   const canvasRef = useRef(null);
   const dragRef = useRef(null); // {id, pointerId}
+  const bgInputRef = useRef(null); // hidden file input for the room photo
 
   // Freshest known server-truth layout (post-save override wins over the
   // memoized base until the parent re-derives cells).
@@ -677,6 +683,49 @@ export default function FloorPlan({
       return next;
     });
   }, [cells, currentLayout]);
+
+  // ── Room background photo (owner-only) ────────────────────────────────
+  // Fetch the current photo's signed URL once. Best-effort — the floor works
+  // fine with no photo, so a fetch failure just leaves it blank.
+  useEffect(() => {
+    let alive = true;
+    api
+      .get("/reservations/floor-background")
+      .then((r) => { if (alive) setFloorBgUrl(r.data?.floor_bg_url || null); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const onBgFile = useCallback(async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // let the owner re-pick the same file after a failure
+    if (!file) return;
+    setBgBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await api.post("/reservations/floor-background", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setFloorBgUrl(r.data?.floor_bg_url || null);
+    } catch {
+      /* server rejected (too large / not PNG-JPEG) — keep the old photo */
+    } finally {
+      setBgBusy(false);
+    }
+  }, []);
+
+  const removeBg = useCallback(async () => {
+    setBgBusy(true);
+    try {
+      await api.delete("/reservations/floor-background");
+      setFloorBgUrl(null);
+    } catch {
+      /* ignore — a stale photo is harmless; owner can retry */
+    } finally {
+      setBgBusy(false);
+    }
+  }, []);
 
   // Cycle a table through the preset design library (the order in SHAPES).
   const toggleShape = useCallback((id) => {
@@ -986,6 +1035,28 @@ export default function FloorPlan({
               </button>
               <button
                 type="button"
+                onClick={() => bgInputRef.current?.click()}
+                disabled={bgBusy}
+                title={t("rsvpPlanRoomPhotoHint", "Add a photo of your real room to drag tables onto")}
+                className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
+              >
+                <ImagePlus className="w-4 h-4" aria-hidden />
+                {t("rsvpPlanRoomPhoto", "Room photo")}
+              </button>
+              {floorBgUrl && (
+                <button
+                  type="button"
+                  onClick={removeBg}
+                  disabled={bgBusy}
+                  aria-label={t("rsvpPlanRoomPhotoRemove", "Remove room photo")}
+                  title={t("rsvpPlanRoomPhotoRemove", "Remove room photo")}
+                  className="inline-flex items-center justify-center min-h-[40px] w-10 rounded-lg text-sm font-medium text-gray-400 hover:text-red-600 hover:bg-gray-100 dark:hover:text-red-400 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" aria-hidden />
+                </button>
+              )}
+              <button
+                type="button"
                 onClick={resetDraft}
                 className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
               >
@@ -1023,6 +1094,16 @@ export default function FloorPlan({
           )}
         </div>
       </div>
+
+      {/* Hidden picker for the room photo — PNG/JPEG only; the server strips
+          EXIF/GPS + re-encodes, so the raw file never lands in storage. */}
+      <input
+        ref={bgInputRef}
+        type="file"
+        accept="image/png,image/jpeg"
+        className="hidden"
+        onChange={onBgFile}
+      />
 
       {saveError && (
         <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-2.5 rounded-xl text-sm">
@@ -1078,6 +1159,18 @@ export default function FloorPlan({
           }
           style={{ aspectRatio: "16 / 10" }}
         >
+          {/* Optional room photo — a dimmed backdrop the owner arranges tables
+              onto. Behind everything (tables are z-10+), decorative + never
+              interactive. Owner-only; guests never see it. */}
+          {floorBgUrl && (
+            <img
+              src={floorBgUrl}
+              alt=""
+              aria-hidden
+              draggable={false}
+              className="absolute inset-0 w-full h-full object-cover opacity-30 dark:opacity-25 pointer-events-none select-none"
+            />
+          )}
           {/* Soft zone bands + labels behind the tables */}
           {zoneBands.length > 1 &&
             zoneBands.map((z, i) => {
