@@ -1847,6 +1847,10 @@ _migrations = [
     "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS pos_x DOUBLE PRECISION",
     "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS pos_y DOUBLE PRECISION",
     "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS shape VARCHAR(12) DEFAULT 'round'",
+    # rotation_deg — table orientation (cosmetic). Nullable, no default = NULL
+    # read as 0° everywhere; additive + non-locking. Required by the schema-drift
+    # self-test now that the model declares it.
+    "ALTER TABLE bookable_resources ADD COLUMN IF NOT EXISTS rotation_deg DOUBLE PRECISION",
     # Salon first-booking unlock: owner "self-chair" whose availability follows
     # the confirmed weekly opening hours (booking_hours) instead of a StaffMember's
     # published shifts — lets a solo salon take appointments with zero payroll surface.

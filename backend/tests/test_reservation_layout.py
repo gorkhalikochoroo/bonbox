@@ -254,6 +254,52 @@ def test_layout_save_seats_only_is_non_destructive(client, db):
     assert (g0.pos_x, g0.pos_y, g0.shape) == (33.0, 44.0, "square")  # untouched
 
 
+def test_layout_save_sets_and_clamps_rotation(client, db):
+    """Rotation is stored, normalised into [0,360), and only touched when sent."""
+    u, resources = _restaurant(db, tables=2)
+    r0, r1 = resources
+    _override_user(u)
+    body = {"layout": [
+        {"id": str(r0.id), "rotation_deg": 400.0},   # → 40
+        {"id": str(r1.id), "rotation_deg": -30.0},    # → 330
+    ]}
+    resp = client.put("/api/reservations/resources/layout", json=body)
+    assert resp.status_code == 200, resp.text
+    db.expire_all()
+    assert db.get(BookableResource, r0.id).rotation_deg == 40.0
+    assert db.get(BookableResource, r1.id).rotation_deg == 330.0
+
+
+def test_resource_dict_rotation_defaults_zero(client, db):
+    """A fresh table serialises rotation_deg as 0.0 — never null (the render
+    composes it into a CSS transform; null would break the whole table)."""
+    u, _ = _restaurant(db, tables=1)
+    _override_user(u)
+    res = client.get("/api/reservations/resources").json()["resources"][0]
+    assert res["rotation_deg"] == 0.0
+
+
+def test_public_floor_emits_rotation_but_never_drawn_size(client, db):
+    """HONESTY: the public floor carries orientation (0 for null) but NEVER a
+    drawn size — a guest cannot infer capacity from how big the owner drew it."""
+    from datetime import datetime
+    from app.models.business_profile import BusinessProfile
+    from app.services import reservation_service
+    u, resources = _restaurant(db, tables=1)
+    r0 = resources[0]
+    r0.rotation_deg = 45.0
+    db.commit()
+    profile = db.query(BusinessProfile).filter(BusinessProfile.user_id == u.id).first()
+    rows = reservation_service.public_floor(
+        db, profile=profile, user_id=u.id,
+        start=datetime(2026, 7, 20, 19, 0), party_size=2,
+    )
+    row = next(x for x in rows if x["id"] == str(r0.id))
+    assert row["rotation_deg"] == 45.0
+    assert "width_pct" not in row and "height_pct" not in row  # size stays owner-only
+    assert row["capacity_seats"] == 4  # capacity is the sole authoritative signal
+
+
 def test_create_and_patch_accept_layout_fields(client, db):
     u, _ = _restaurant(db, tables=0)
     _override_user(u)

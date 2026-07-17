@@ -899,10 +899,13 @@ def test_public_floor_free_taken_and_no_pii(client, db, engine_and_session):
     assert body["tables_total"] == 1 and body["free_total"] == 1
     tb = body["tables"][0]
     assert tb["status"] == "free"
-    # PII-safe: exactly the layout keys, nothing about who is seated.
+    # PII-safe: exactly the layout keys, nothing about who is seated. rotation_deg
+    # is orientation only; drawn size (width/height) is deliberately NOT here.
     assert set(tb.keys()) == {
-        "id", "label", "capacity_seats", "zone", "shape", "pos_x", "pos_y", "status",
+        "id", "label", "capacity_seats", "zone", "shape", "pos_x", "pos_y",
+        "rotation_deg", "status",
     }
+    assert "width_pct" not in tb and "height_pct" not in tb
 
     # Book it (90-min turn → busy 19:00–20:30, guest "Sita").
     assert _post_public(client, slug, time="19:00", party=2).status_code == 200

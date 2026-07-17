@@ -123,11 +123,15 @@ export default function PublicFloorMap({ tables = [], selectedId = null, onSelec
             const chairs = archetypeChairs(lay.shape, tb.capacity_seats, dims.w, dims.h);
             const stool = chairIsStool(lay.shape);
             const clickable = isFree || isSelected;
+            // Orientation only. Drawn SIZE is deliberately NOT sent to guests —
+            // the body is sized from capacity_seats (tableDims above), so a guest
+            // can never read capacity off how big the owner drew a table.
+            const rot = Number(tb.rotation_deg) || 0;
             return (
               <div
                 key={id}
                 className="absolute"
-                style={{ left: `${lay.pos_x}%`, top: `${lay.pos_y}%`, transform: "translate(-50%, -50%)" }}
+                style={{ left: `${lay.pos_x}%`, top: `${lay.pos_y}%`, transform: `translate(-50%, -50%) rotate(${rot}deg)` }}
               >
                 <div className="relative" style={{ width: dims.w, height: dims.h }}>
                   {chairs.map((c, i) => (
@@ -154,13 +158,21 @@ export default function PublicFloorMap({ tables = [], selectedId = null, onSelec
                     } ${isSelected ? "ring-[3px]" : ""}`}
                   >
                     <TableMark shape={lay.shape} w={dims.w} h={dims.h} benchClass={token.chair} ringClass={token.stool} />
-                    <span className="px-1 text-[10px] font-semibold leading-none truncate max-w-full">
-                      {tb.label}
-                    </span>
-                    <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] leading-none opacity-90">
-                      <Users size={9} strokeWidth={2} aria-hidden="true" />
-                      {tb.capacity_seats}
-                    </span>
+                    {/* Counter-rotated so the label + seat count read upright on a
+                        turned table. The seat number is the guest's only capacity
+                        signal and never tilts. */}
+                    <div
+                      className="relative flex flex-col items-center max-w-full"
+                      style={{ transform: rot ? `rotate(${-rot}deg)` : undefined }}
+                    >
+                      <span className="px-1 text-[10px] font-semibold leading-none truncate max-w-full">
+                        {tb.label}
+                      </span>
+                      <span className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] leading-none opacity-90">
+                        <Users size={9} strokeWidth={2} aria-hidden="true" />
+                        {tb.capacity_seats}
+                      </span>
+                    </div>
                   </button>
                   {isSelected && (
                     <span className="absolute -top-1 -right-1 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-gray-900 text-white ring-2 ring-white dark:ring-gray-900">

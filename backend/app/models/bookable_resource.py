@@ -108,6 +108,13 @@ class BookableResource(Base):
         String(12), nullable=True, server_default="round", default="round",
     )
 
+    # Table orientation on the floor map, degrees clockwise. COSMETIC ONLY —
+    # does not affect seating or the availability engine (like `shape`). Nullable
+    # with NO server default: NULL is read as 0° (unrotated) everywhere, so legacy
+    # rows and fresh tables render upright and nothing regresses. Percent/degree
+    # geometry is resolution-independent on the fixed 16:10 canvas.
+    rotation_deg: Mapped[float | None] = mapped_column(Float, nullable=True)
+
     # Active = bookable. Inactive resources stay in history but the engine
     # skips them (e.g. a table pulled for renovation).
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

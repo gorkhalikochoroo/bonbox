@@ -34,6 +34,7 @@ import {
   X,
   Move,
   RotateCcw,
+  RotateCw,
   LayoutGrid,
   Plus,
   Minus,
@@ -252,6 +253,11 @@ function TableNode({
   // the count so the table visibly grows/shrinks as you step seats — while
   // capacity_seats stays the sole booking-authoritative number.
   const seats = pos.capacity != null ? pos.capacity : res.capacity_seats;
+  // Orientation (draft edit wins over saved; 0 = upright). Cosmetic — never
+  // affects seating. The body + chairs rotate with it; the label/seat chip
+  // counter-rotate to stay upright + legible.
+  const rotation =
+    pos.rotation_deg != null ? pos.rotation_deg : res.rotation_deg || 0;
   const sizePx = tableSizePx(seats);
   // Chairs scale with the table so big tables get chunky seats, not tiny dots.
   const chairW = Math.max(9, Math.min(15, Math.round(sizePx * 0.17)));
@@ -314,12 +320,14 @@ function TableNode({
 
   return (
     <div
-      className="absolute -translate-x-1/2 -translate-y-1/2 select-none"
+      className="absolute select-none"
       style={{
         left: `${pos.pos_x}%`,
         top: `${pos.pos_y}%`,
         width: dims.w,
         height: dims.h,
+        // Centering translate composed with the table's orientation.
+        transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
         zIndex: selected ? 30 : status === "overdue" ? 20 : 10,
         touchAction: editing ? "none" : "auto",
       }}
@@ -431,47 +439,56 @@ function TableNode({
           className={"absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1/2 h-1/2 opacity-[0.06] pointer-events-none " + style.text}
           aria-hidden
         />
-        <span
-          className={
-            "relative font-semibold leading-none truncate max-w-full " +
-            style.text +
-            " " +
-            (sizePx >= 80 ? "text-sm" : "text-xs")
-          }
+        {/* Label + seat chip + detail — counter-rotated so they stay upright and
+            legible no matter how the table is turned. The seat number here is the
+            honesty anchor: it never tilts, and (once free-resize lands) never
+            scales — capacity reads the same on a huge angled table as a small one. */}
+        <div
+          className="relative flex flex-col items-center gap-0.5 max-w-full"
+          style={{ transform: rotation ? `rotate(${-rotation}deg)` : undefined }}
         >
-          {res.label}
-        </span>
-        <span
-          className={"relative inline-flex items-center gap-0.5 leading-none " + style.text}
-        >
-          {stationLike ? (
-            <>
-              <User className="w-3 h-3 opacity-70" aria-hidden />
-              <span className="text-[10px]">{t(profile.unitKey, "per chair")}</span>
-            </>
-          ) : (
-            <>
-              <Users className="w-3 h-3 opacity-70" aria-hidden />
-              <span className="text-[11px] tabular-nums">
-                {status !== "free" && partySize != null
-                  ? `${partySize}/${seats}`
-                  : seats}
-              </span>
-            </>
-          )}
-        </span>
-        {sub && sizePx >= 72 && (
           <span
             className={
-              "text-[10px] leading-tight truncate max-w-full tabular-nums " +
+              "font-semibold leading-none truncate max-w-full " +
               style.text +
               " " +
-              (status === "overdue" ? "font-bold" : "opacity-90")
+              (sizePx >= 80 ? "text-sm" : "text-xs")
             }
           >
-            {sub}
+            {res.label}
           </span>
-        )}
+          <span
+            className={"inline-flex items-center gap-0.5 leading-none " + style.text}
+          >
+            {stationLike ? (
+              <>
+                <User className="w-3 h-3 opacity-70" aria-hidden />
+                <span className="text-[10px]">{t(profile.unitKey, "per chair")}</span>
+              </>
+            ) : (
+              <>
+                <Users className="w-3 h-3 opacity-70" aria-hidden />
+                <span className="text-[11px] tabular-nums">
+                  {status !== "free" && partySize != null
+                    ? `${partySize}/${seats}`
+                    : seats}
+                </span>
+              </>
+            )}
+          </span>
+          {sub && sizePx >= 72 && (
+            <span
+              className={
+                "text-[10px] leading-tight truncate max-w-full tabular-nums " +
+                style.text +
+                " " +
+                (status === "overdue" ? "font-bold" : "opacity-90")
+              }
+            >
+              {sub}
+            </span>
+          )}
+        </div>
       </button>
 
       {/* Edit affordance: tap to cycle the table through the preset design
@@ -584,6 +601,9 @@ export default function FloorPlan({
   const selectedSeats = selectedCell
     ? draft?.[selectedId]?.capacity ?? selectedCell.res.capacity_seats
     : 0;
+  const selectedRotation = selectedCell
+    ? Math.round(draft?.[selectedId]?.rotation_deg ?? selectedCell.res.rotation_deg ?? 0)
+    : 0;
 
   // Zone bands — soft labels behind the room so tables read as clusters.
   const zoneBands = useMemo(() => {
@@ -668,6 +688,18 @@ export default function FloorPlan({
       const key = String(id);
       const cur = prev[key] || {};
       return { ...prev, [key]: { ...cur, capacity: cap } };
+    });
+  }, []);
+
+  // Rotate stepper (Arrange mode). Writes rotation_deg into the DRAFT, normalised
+  // to [0,360); cosmetic, reverts with Cancel. 0 = upright.
+  const setRotation = useCallback((id, nextDeg) => {
+    const deg = ((Math.round(nextDeg) % 360) + 360) % 360;
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const key = String(id);
+      const cur = prev[key] || {};
+      return { ...prev, [key]: { ...cur, rotation_deg: deg } };
     });
   }, []);
 
@@ -759,9 +791,10 @@ export default function FloorPlan({
           pos_x: Math.round((l?.pos_x ?? 50) * 10) / 10,
           pos_y: Math.round((l?.pos_y ?? 50) * 10) / 10,
           shape: normalizeShape(l?.shape),
-          // Only send seats when the owner actually stepped them — a
-          // position-only save must not re-capacity every table.
+          // Only send seats/rotation when the owner actually changed them — a
+          // position-only save must not re-capacity or re-orient every table.
           ...(l?.capacity != null ? { capacity: l.capacity } : {}),
+          ...(l?.rotation_deg != null ? { rotation_deg: l.rotation_deg } : {}),
         };
       }),
     };
@@ -779,6 +812,7 @@ export default function FloorPlan({
           c.res.pos_y = l.pos_y;
           c.res.shape = l.shape;
           if (l.capacity != null) c.res.capacity_seats = l.capacity;
+          if (l.rotation_deg != null) c.res.rotation_deg = l.rotation_deg;
         }
       });
       setSavedLayout(draft);
@@ -1104,47 +1138,77 @@ export default function FloorPlan({
           .glass-static = frosted panel with NO transform (iOS-wobble-safe). */}
       {selectedCell && (
         <div className="fixed inset-x-0 bottom-0 z-50 glass-static border-t border-gray-200 dark:border-gray-700 rounded-t-2xl shadow-2xl px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+14px)]">
-          <div className="mx-auto max-w-md flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
-                {selectedCell.res.label}
+          <div className="mx-auto max-w-md space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                  {selectedCell.res.label}
+                </div>
+                <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                  {t("rsvpPlanInspSeatsHint", "Booking capacity")}
+                </div>
               </div>
-              <div className="text-[11px] text-gray-500 dark:text-gray-400">
-                {t("rsvpPlanInspSeatsHint", "Booking capacity")}
-              </div>
-            </div>
-            <div className="flex items-center gap-2.5 shrink-0">
-              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                {t("rsvpPlanInspSeats", "Seats")}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSeats(selectedId, selectedSeats - 1)}
-                disabled={selectedSeats <= 1}
-                aria-label={t("rsvpPlanSeatMinus", "Fewer seats")}
-                className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 active:scale-95 transition"
-              >
-                <Minus className="w-4 h-4" aria-hidden />
-              </button>
-              <span className="w-7 text-center text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">
-                {selectedSeats}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSeats(selectedId, selectedSeats + 1)}
-                disabled={selectedSeats >= 30}
-                aria-label={t("rsvpPlanSeatPlus", "More seats")}
-                className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 active:scale-95 transition"
-              >
-                <Plus className="w-4 h-4" aria-hidden />
-              </button>
               <button
                 type="button"
                 onClick={() => setSelectedId(null)}
-                className="h-10 px-4 inline-flex items-center rounded-full bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 text-sm font-medium active:scale-95 transition"
+                className="h-10 px-4 inline-flex items-center rounded-full bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 text-sm font-medium active:scale-95 transition shrink-0"
               >
                 {t("rsvpPlanInspDone", "Done")}
               </button>
+            </div>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              {/* Seats — the booking-authoritative number */}
+              <div className="flex items-center gap-2">
+                <span className="w-14 text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {t("rsvpPlanInspSeats", "Seats")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSeats(selectedId, selectedSeats - 1)}
+                  disabled={selectedSeats <= 1}
+                  aria-label={t("rsvpPlanSeatMinus", "Fewer seats")}
+                  className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 active:scale-95 transition"
+                >
+                  <Minus className="w-4 h-4" aria-hidden />
+                </button>
+                <span className="w-7 text-center text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                  {selectedSeats}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSeats(selectedId, selectedSeats + 1)}
+                  disabled={selectedSeats >= 30}
+                  aria-label={t("rsvpPlanSeatPlus", "More seats")}
+                  className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 active:scale-95 transition"
+                >
+                  <Plus className="w-4 h-4" aria-hidden />
+                </button>
+              </div>
+              {/* Rotate — cosmetic orientation, 15° steps */}
+              <div className="flex items-center gap-2">
+                <span className="w-14 text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {t("rsvpPlanInspRotate", "Rotate")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRotation(selectedId, selectedRotation - 15)}
+                  aria-label={t("rsvpPlanRotateLeft", "Rotate left")}
+                  className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 active:scale-95 transition"
+                >
+                  <RotateCcw className="w-4 h-4" aria-hidden />
+                </button>
+                <span className="w-9 text-center text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                  {selectedRotation}°
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRotation(selectedId, selectedRotation + 15)}
+                  aria-label={t("rsvpPlanRotateRight", "Rotate right")}
+                  className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 active:scale-95 transition"
+                >
+                  <RotateCw className="w-4 h-4" aria-hidden />
+                </button>
+              </div>
             </div>
           </div>
         </div>
