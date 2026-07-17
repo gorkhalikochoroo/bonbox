@@ -296,8 +296,40 @@ def test_public_floor_emits_rotation_but_never_drawn_size(client, db):
     )
     row = next(x for x in rows if x["id"] == str(r0.id))
     assert row["rotation_deg"] == 45.0
-    assert "width_pct" not in row and "height_pct" not in row  # size stays owner-only
+    # drawn size stays owner-only — neither the legacy names nor size_scale leak
+    assert "width_pct" not in row and "height_pct" not in row
+    assert "size_scale" not in row
     assert row["capacity_seats"] == 4  # capacity is the sole authoritative signal
+
+
+def test_layout_save_sets_and_clamps_size(client, db):
+    """Drawn-size scale stored, clamped to 0.5–2.5, only touched when sent."""
+    u, resources = _restaurant(db, tables=2)
+    r0, r1 = resources
+    _override_user(u)
+    body = {"layout": [
+        {"id": str(r0.id), "size_scale": 3.0},   # → 2.5
+        {"id": str(r1.id), "size_scale": 0.2},    # → 0.5
+    ]}
+    resp = client.put("/api/reservations/resources/layout", json=body)
+    assert resp.status_code == 200, resp.text
+    db.expire_all()
+    assert db.get(BookableResource, r0.id).size_scale == 2.5
+    assert db.get(BookableResource, r1.id).size_scale == 0.5
+
+
+def test_resource_dict_size_defaults_one_and_seats_unchanged(client, db):
+    """A fresh table serialises size_scale as 1.0; scaling never alters seats."""
+    u, resources = _restaurant(db, tables=1)
+    r0 = resources[0]
+    _override_user(u)
+    res = client.get("/api/reservations/resources").json()["resources"][0]
+    assert res["size_scale"] == 1.0
+    # HONESTY: drawing a table huge does not change its booking capacity.
+    client.put("/api/reservations/resources/layout",
+               json={"layout": [{"id": str(r0.id), "size_scale": 2.5}]})
+    db.expire_all()
+    assert db.get(BookableResource, r0.id).capacity_seats == 4  # seats untouched
 
 
 def test_create_and_patch_accept_layout_fields(client, db):

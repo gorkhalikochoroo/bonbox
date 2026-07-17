@@ -258,15 +258,25 @@ function TableNode({
   // counter-rotate to stay upright + legible.
   const rotation =
     pos.rotation_deg != null ? pos.rotation_deg : res.rotation_deg || 0;
+  // Drawn-size multiplier (draft edit wins; 1 = seat-derived default). Scales the
+  // whole FOOTPRINT — body + chairs — but NOT the label/seat chip (fixed font
+  // below), so the seat number reads the same on a huge table as a small one.
+  const sizeScale = pos.size_scale != null ? pos.size_scale : res.size_scale || 1;
   const sizePx = tableSizePx(seats);
   // Chairs scale with the table so big tables get chunky seats, not tiny dots.
-  const chairW = Math.max(9, Math.min(15, Math.round(sizePx * 0.17)));
+  const chairW = Math.round(
+    Math.max(9, Math.min(15, Math.round(sizePx * 0.17))) * sizeScale,
+  );
   const shape = pos.shape;
   // Footprint + seat layout come from the shared archetype library, so a
   // Langbord / Bås / Barplads / Højbord is drawn identically here and on the
   // public booker map. round/square keep the legacy square footprint (dims.w
   // === dims.h === sizePx) so existing rooms don't shift.
-  const dims = tableDims(shape, seats);
+  const baseDims = tableDims(shape, seats);
+  const dims = {
+    w: Math.round(baseDims.w * sizeScale),
+    h: Math.round(baseDims.h * sizeScale),
+  };
   const isStool = chairIsStool(shape);
   // Station-like resources (salon archetype, or any kind === "provider") read
   // as a single person at a chair — one marker, not a ring of N chair dots.
@@ -604,6 +614,9 @@ export default function FloorPlan({
   const selectedRotation = selectedCell
     ? Math.round(draft?.[selectedId]?.rotation_deg ?? selectedCell.res.rotation_deg ?? 0)
     : 0;
+  const selectedSize = selectedCell
+    ? draft?.[selectedId]?.size_scale ?? selectedCell.res.size_scale ?? 1
+    : 1;
 
   // Zone bands — soft labels behind the room so tables read as clusters.
   const zoneBands = useMemo(() => {
@@ -703,6 +716,19 @@ export default function FloorPlan({
     });
   }, []);
 
+  // Size stepper (Arrange mode). Writes size_scale into the DRAFT; cosmetic,
+  // clamped 0.5–2.5, reverts with Cancel. Scales the drawn footprint only —
+  // seats stay the authoritative capacity.
+  const setSize = useCallback((id, nextScale) => {
+    const scale = Math.max(0.5, Math.min(2.5, Math.round(nextScale * 20) / 20));
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const key = String(id);
+      const cur = prev[key] || {};
+      return { ...prev, [key]: { ...cur, size_scale: scale } };
+    });
+  }, []);
+
   // ── Drag (pointer + touch via Pointer Events) ─────────────────────────
   const onPointerDownDrag = useCallback(
     (e, id) => {
@@ -795,6 +821,7 @@ export default function FloorPlan({
           // position-only save must not re-capacity or re-orient every table.
           ...(l?.capacity != null ? { capacity: l.capacity } : {}),
           ...(l?.rotation_deg != null ? { rotation_deg: l.rotation_deg } : {}),
+          ...(l?.size_scale != null ? { size_scale: l.size_scale } : {}),
         };
       }),
     };
@@ -813,6 +840,7 @@ export default function FloorPlan({
           c.res.shape = l.shape;
           if (l.capacity != null) c.res.capacity_seats = l.capacity;
           if (l.rotation_deg != null) c.res.rotation_deg = l.rotation_deg;
+          if (l.size_scale != null) c.res.size_scale = l.size_scale;
         }
       });
       setSavedLayout(draft);
@@ -1207,6 +1235,33 @@ export default function FloorPlan({
                   className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 active:scale-95 transition"
                 >
                   <RotateCw className="w-4 h-4" aria-hidden />
+                </button>
+              </div>
+              {/* Size — cosmetic drawn-size scale (bigger / smaller) */}
+              <div className="flex items-center gap-2">
+                <span className="w-14 text-xs font-medium text-gray-500 dark:text-gray-400">
+                  {t("rsvpPlanInspSize", "Size")}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSize(selectedId, selectedSize - 0.25)}
+                  disabled={selectedSize <= 0.5}
+                  aria-label={t("rsvpPlanSizeMinus", "Smaller")}
+                  className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 active:scale-95 transition"
+                >
+                  <Minus className="w-4 h-4" aria-hidden />
+                </button>
+                <span className="w-10 text-center text-sm font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                  {Math.round(selectedSize * 100)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSize(selectedId, selectedSize + 0.25)}
+                  disabled={selectedSize >= 2.5}
+                  aria-label={t("rsvpPlanSizePlus", "Bigger")}
+                  className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 active:scale-95 transition"
+                >
+                  <Plus className="w-4 h-4" aria-hidden />
                 </button>
               </div>
             </div>
