@@ -587,6 +587,7 @@ export default function FloorPlan({
   // Optional room background photo (owner-only). Signed URL (1h TTL) fetched once.
   const [floorBgUrl, setFloorBgUrl] = useState(null);
   const [bgBusy, setBgBusy] = useState(false);
+  const [bgError, setBgError] = useState("");
 
   const canvasRef = useRef(null);
   const dragRef = useRef(null); // {id, pointerId}
@@ -701,6 +702,7 @@ export default function FloorPlan({
     e.target.value = ""; // let the owner re-pick the same file after a failure
     if (!file) return;
     setBgBusy(true);
+    setBgError("");
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -708,12 +710,20 @@ export default function FloorPlan({
         headers: { "Content-Type": "multipart/form-data" },
       });
       setFloorBgUrl(r.data?.floor_bg_url || null);
-    } catch {
-      /* server rejected (too large / not PNG-JPEG) — keep the old photo */
+    } catch (err) {
+      // Tell the owner WHY (too large / not PNG-JPEG) — never a silent no-op.
+      // The backend sends a plain-string detail for 413/415; other paths send an
+      // object ({error: ...}) → fall back to a generic message.
+      const d = err?.response?.data?.detail;
+      setBgError(
+        typeof d === "string" && d
+          ? d
+          : t("rsvpPlanRoomPhotoError", "Couldn't upload — use a PNG or JPEG under 2.5 MB."),
+      );
     } finally {
       setBgBusy(false);
     }
-  }, []);
+  }, [t]);
 
   const removeBg = useCallback(async () => {
     setBgBusy(true);
@@ -1108,6 +1118,12 @@ export default function FloorPlan({
       {saveError && (
         <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-2.5 rounded-xl text-sm">
           {saveError}
+        </div>
+      )}
+
+      {bgError && (
+        <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-2.5 rounded-xl text-sm">
+          {bgError}
         </div>
       )}
 

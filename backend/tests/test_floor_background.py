@@ -70,6 +70,22 @@ def test_rejects_svg_gif_heic():
         _verify_magic_bytes(b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00")
 
 
+def test_rejects_decompression_bomb(monkeypatch):
+    """An image whose decoded canvas exceeds the pixel ceiling is rejected (415),
+    never decoded into a huge allocation. (Tiny ceiling so the test stays cheap.)"""
+    import app.services.floor_background_service as fbs
+    from PIL import Image as _Image
+    monkeypatch.setattr(fbs, "MAX_DECODE_PIXELS", 100)  # 200x200 = 40k px >> 100
+    img = _Image.new("RGB", (200, 200), (0, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+    with pytest.raises(HTTPException) as e:
+        fbs._strip_and_optimize(buf.getvalue(), "jpeg")
+    assert e.value.status_code == 415
+    # the global ceiling is restored (no side-effect on other Pillow callers)
+    assert _Image.MAX_IMAGE_PIXELS != 100
+
+
 def test_rejects_polyglot_png_magic_but_jpeg_body():
     """Magic bytes say PNG but Pillow decodes JPEG → polyglot, rejected."""
     img = Image.new("RGB", (32, 32), (10, 10, 10))

@@ -38,6 +38,11 @@ logger = logging.getLogger(__name__)
 # payload/OOM attempt cheaply.
 MAX_FLOOR_BG_BYTES = 2_500_000  # 2.5 MB
 MAX_OUTPUT_DIM = 1600  # px (vs the logo's 800 — a room needs to stay legible)
+# Decode-pixel ceiling — a decompression-bomb defence. A tiny highly-compressed
+# file can still decode to a huge canvas (169M px in ~0.5 MB), forcing a ~0.5 GB
+# in-memory RGB allocation. A room photo never needs more than this, so anything
+# larger raises DecompressionBombError and becomes a clean 415, not an OOM risk.
+MAX_DECODE_PIXELS = 40_000_000
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 _JPEG_MAGIC_PREFIX = b"\xff\xd8\xff"
@@ -77,9 +82,14 @@ def _strip_and_optimize(raw: bytes, inferred_fmt: str) -> bytes:
         ) from e
 
     ImageFile.LOAD_TRUNCATED_IMAGES = False
+    # Cap the decode canvas (restored after) so a decompression bomb raises rather
+    # than allocating half a gigabyte. Save/restore keeps this local — no global
+    # Pillow side-effect on other callers (logo, kasserapport).
+    _prev_max = Image.MAX_IMAGE_PIXELS
+    Image.MAX_IMAGE_PIXELS = MAX_DECODE_PIXELS
     try:
         with Image.open(io.BytesIO(raw)) as img:
-            img.load()  # force full decode now so malformed bytes throw here
+            img.load()  # force full decode now so malformed/oversized bytes throw here
             pillow_fmt = (img.format or "").lower()
             if inferred_fmt == "png" and pillow_fmt != "png":
                 raise HTTPException(
@@ -102,11 +112,14 @@ def _strip_and_optimize(raw: bytes, inferred_fmt: str) -> bytes:
     except HTTPException:
         raise
     except Exception as e:
+        # DecompressionBombError (oversized canvas) lands here too → a clean 415.
         logger.warning("Floor background re-encode failed: %s", e)
         raise HTTPException(
             http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            "Image file is corrupt or unreadable",
+            "Image file is corrupt, unreadable, or too large to process",
         ) from e
+    finally:
+        Image.MAX_IMAGE_PIXELS = _prev_max
 
 
 def upload_floor_background(user_id: UUID | str, raw_bytes: bytes) -> Tuple[str, int]:
