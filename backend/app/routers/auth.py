@@ -1878,6 +1878,13 @@ def delete_account(
         logger.warning("delete_account: storage blob purge failed (non-fatal)", exc_info=True)
 
     # --- Finally, delete the user ---
+    # Tombstone FIRST, same commit: it is the ONLY remaining pointer to the
+    # legally-retained accounting blobs (kasserapport/expense/sale/
+    # inventory_import) once the user row dies. The nightly retention sweep
+    # uses it to honour the "kept 5 years, then deleted" promise below, then
+    # drops it. merge() keeps a double-delete idempotent.
+    from app.models.erasure_tombstone import ErasureTombstone
+    db.merge(ErasureTombstone(user_id=uid))
     db.delete(current_user)
     db.commit()
 

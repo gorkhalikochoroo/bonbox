@@ -191,6 +191,48 @@ def run_retention_sweep_for_user(db: Session, user: User) -> dict:
     return counts
 
 
+def _purge_erased_account_blobs(db: Session) -> int:
+    """Honour the erasure promise: delete_account tells departing owners their
+    accounting source docs are "kept for 5 years, then deleted". The pointer
+    rows die at erasure, so erasure_tombstones (written in the delete_account
+    commit) is the only way to find those blobs again. For each tombstone
+    older than the legal floor + 1y buffer (matches the 6y sweep default;
+    every retained doc is necessarily ≥5y old by then), purge the retained
+    storage prefixes and drop the tombstone. Returns tombstones completed."""
+    from app.models.erasure_tombstone import ErasureTombstone
+    from app.services.storage import ACCOUNTING_RETENTION_KINDS, get_storage
+
+    cutoff = utc_now() - timedelta(days=(MIN_RETENTION_YEARS + 1) * 366)
+    done = 0
+    rows = (
+        db.query(ErasureTombstone)
+        .filter(ErasureTombstone.erased_at < cutoff)
+        .limit(50)  # bounded per pass; the nightly cadence drains any backlog
+        .all()
+    )
+    backend = get_storage()
+    for row in rows:
+        # Per-kind, tracking failures ourselves (purge_user_blobs swallows
+        # them): the tombstone is dropped ONLY after a fully clean pass, so a
+        # transient storage error means retry next night — never a silently
+        # orphaned remainder.
+        uid = str(row.user_id)
+        clean = True
+        for kind in ACCOUNTING_RETENTION_KINDS:
+            try:
+                backend.delete_prefix(f"{uid}/{kind}")
+            except Exception:  # noqa: BLE001 — keep tombstone, retry next sweep
+                clean = False
+                logger.warning(
+                    "erased-account blob purge failed uid=%s kind=%s", uid, kind,
+                    exc_info=True,
+                )
+        if clean:
+            db.delete(row)
+            done += 1
+    return done
+
+
 def run_retention_sweep() -> dict:
     """Top-level entry: sweep every user. Used by the daily cron.
 
@@ -222,6 +264,20 @@ def run_retention_sweep() -> dict:
                 db.rollback()
             except Exception:
                 pass
+
+    # Erased accounts have no User row, so they're invisible to the per-user
+    # loop above — their retained accounting blobs are found via
+    # erasure_tombstones instead (the "kept 5 years, THEN DELETED" promise).
+    try:
+        summary["erased_accounts_purged"] = _purge_erased_account_blobs(db)
+        db.commit()
+    except Exception as e:
+        logger.exception("erased-account purge step failed: %s", e)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
     db.close()
     logger.info("retention sweep complete: %s", summary)
     return summary

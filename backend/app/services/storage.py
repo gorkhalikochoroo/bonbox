@@ -357,9 +357,10 @@ def reset_storage_for_tests() -> None:
 # Storage kinds with NO legal retention basis — purged on account erasure
 # (GDPR Art.17). The accounting source-document kinds (kasserapport /
 # expense / sale / inventory_import) are deliberately EXCLUDED: they are
-# retained for 5 years under Bogføringsloven §10, then deleted. Keep this
-# in sync with the retention disclosure in the delete-account response +
-# PrivacyPolicyPage.
+# retained for 5 years under Bogføringsloven §10, then deleted — the "then
+# deleted" half runs via erasure_tombstones in the nightly retention sweep
+# (accounting_retention._purge_erased_account_blobs). Keep this in sync with
+# the retention disclosure in the delete-account response + PrivacyPolicyPage.
 ERASURE_PURGE_KINDS = frozenset({
     "staff_chat", "staff_avatar", "business_logo",
     # RETIRED FEATURE (reservation room-plan background photo — removed as unused).
@@ -369,6 +370,14 @@ ERASURE_PURGE_KINDS = frozenset({
     # live. Inert config that guarantees GDPR Art.17 still cleans those up.
     "floor_background",
 })
+
+
+# The complement: kinds RETAINED at erasure under Bogføringsloven §10 and
+# purged only after the legal window by the retention sweep (via
+# erasure_tombstones). Derived, not hand-listed, so a new kind added to
+# ALLOWED_KINDS but forgotten in ERASURE_PURGE_KINDS is still deleted
+# eventually rather than orphaned forever.
+ACCOUNTING_RETENTION_KINDS = frozenset(ALLOWED_KINDS) - ERASURE_PURGE_KINDS
 
 
 def purge_user_blobs(user_id, kinds=ERASURE_PURGE_KINDS) -> int:
