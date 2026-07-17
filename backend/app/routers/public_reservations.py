@@ -31,6 +31,7 @@ from app.utils.client_ip import client_ip
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
+from app.config import settings as app_config  # `settings` is a local dict in handlers
 from app.database import SessionLocal, get_db
 from app.models.behandling import Behandling
 from app.models.bookable_resource import BookableResource
@@ -500,14 +501,23 @@ def _notify_owner_email(owner: User, profile: BusinessProfile, r: Reservation) -
         if r.allergen_tags or r.allergy_note:
             tags = _html.escape(", ".join(r.allergen_tags or []))
             allergy_line = f"<p><strong>Allergi:</strong> {tags} {_html.escape(r.allergy_note or '')}</p>"
+        # Deep link straight to this booking (the ?booking= consumer opens the
+        # drawer on the right day; dead links get an honest note). One tap from
+        # the email to Confirm, instead of "open the app and find it".
+        _day = r.starts_at.date().isoformat() if r.starts_at else ""
+        booking_url = (
+            f"{app_config.FRONTEND_URL.rstrip('/')}/reservations?booking={r.id}"
+            + (f"&date={_day}" if _day else "")
+        )
+        cta_text = "Åbn og bekræft" if is_request else "Åbn reservationen"
         html = (
             f"<p><strong>{head} via din bookingside</strong></p>"
             f"<p><strong>{_html.escape(r.guest_name or 'Gæst')}</strong> · {r.party_size} personer<br>"
             f"{when}<br>{contact_line}</p>"
             f"{notes_line}{allergy_line}"
-            f"<p>Åbn reservationsbogen i BonBox for detaljer"
-            + (" og for at bekræfte." if is_request else ".")
-            + "</p>"
+            f'<p><a href="{booking_url}" style="display:inline-block;background:#111827;'
+            f'color:#ffffff;padding:10px 18px;border-radius:10px;text-decoration:none;'
+            f'font-weight:600">{cta_text}</a></p>'
         )
         send_email(
             to=owner_email,
