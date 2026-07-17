@@ -1841,6 +1841,23 @@ export default function StaffSchedulePage() {
               )}
             </div>
           </div>
+          {/* Small identifier so the owner recognises the app their team
+              uses — deliberately NOT a download button (owners run the main
+              BonBox app, not this one). It just names BonBox Scheduler and
+              links the store page so the owner can point staff to it. */}
+          <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-gray-400 dark:text-gray-500">
+            <Icon name="Smartphone" size={12} />
+            <span>{t("scheduleStaffAppHint", "Your team sees these shifts in the BonBox Scheduler app")}</span>
+            <span aria-hidden="true">·</span>
+            <a
+              href="https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+            >
+              {t("appStore", "App Store")}
+            </a>
+          </div>
         </div>
       </FadeIn>
 

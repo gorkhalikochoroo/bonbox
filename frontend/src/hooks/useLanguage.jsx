@@ -3600,6 +3600,7 @@ const translations = {
     // owners.  All keys ALSO defined in the `da` block below per
     // CLAUDE.md i18n discipline (no fallback-prayer pattern).
     scheduleShareButton: "Share with staff",
+    scheduleStaffAppHint: "Your team sees these shifts in the BonBox Scheduler app",
     scheduleShareButtonShort: "Share",  // mobile-narrow label
     scheduleEmailButtonShort: "Email",  // mobile-narrow label
     scheduleShareSending: "Sharing…",
@@ -10739,6 +10740,7 @@ const translations = {
     // DK-først: bruger låste branchetermer (Vagtplan, medarbejdere,
     // Aktivér, Notifikationer) per konventionen i CLAUDE.md.
     scheduleShareButton: "Del med medarbejdere",
+    scheduleStaffAppHint: "Dit team ser vagterne i BonBox Scheduler-appen",
     scheduleShareButtonShort: "Del",  // mobil-smalt label
     scheduleEmailButtonShort: "E-mail",  // mobil-smalt label
     scheduleShareSending: "Sender…",
