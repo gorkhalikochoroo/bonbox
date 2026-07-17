@@ -10,6 +10,7 @@ import { usePillars } from "../hooks/usePillars";
 import { useActivation } from "../hooks/useActivation";
 import { getVatTerms } from "../utils/currency";
 import { isNativeApp } from "../utils/platform";
+import { syncStatusBar } from "../utils/statusBar";
 import { NAV_MANIFEST, NAV_GROUPS, filterDestinations, PILLAR_DISPLAY_BY_ID, isStaffMemberRole } from "../config/navManifest";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { usePageTracking } from "../hooks/useEventLog";
@@ -485,6 +486,11 @@ export default function Layout() {
 
   const vatTerms = getVatTerms(user?.currency);
   const [dark, toggleDark] = useDarkMode();
+  // Native shell: keep the iOS/Android status bar in step with the theme
+  // (light text on dark, dark text on light). No-op on web.
+  useEffect(() => {
+    syncStatusBar(dark);
+  }, [dark]);
   usePageTracking();
 
   const handleLogout = () => {

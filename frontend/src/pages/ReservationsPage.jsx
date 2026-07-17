@@ -66,6 +66,7 @@ import {
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
+import { haptic } from "../utils/haptics";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
@@ -2572,6 +2573,11 @@ function BookSection({ t, businessType, tableFloor = false }) {
       }
     }
     setActioningId(r.id);
+    // Physical feedback at the moment of decision (no-op on web): success on
+    // the money moment (completed), a firm tick otherwise.
+    if (status === "completed") haptic.success();
+    else if (status === "cancelled" || status === "no_show") haptic.warning();
+    else haptic.medium();
     // Optimistic flip so the chip updates instantly.
     setData((prev) =>
       prev
@@ -2621,6 +2627,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
         source: "walk_in",
         status: "seated",
       });
+      haptic.success();
       setSeatTarget(null);
       // The walk-in is seated NOW (today) — jump to today if viewing another
       // day so it's visible; otherwise refetch in place.
@@ -2809,10 +2816,12 @@ function BookSection({ t, businessType, tableFloor = false }) {
     setEditError("");
     try {
       await api.patch(`/reservations/reservations/${editRes.id}`, fields);
+      haptic.success();
       setEditRes(null);
       setSelected(null);
       fetchBook(day);
     } catch (e) {
+      haptic.error();
       const code = e?.response?.data?.detail?.error;
       setEditError(
         code === "slot_unavailable"
