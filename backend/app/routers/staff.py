@@ -1466,6 +1466,132 @@ def schedule_week_cost(
     }
 
 
+@router.get("/schedules/week-load")
+def schedule_week_load(
+    week_start: date = Query(..., description="Monday of the target week (YYYY-MM-DD)"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Vagtplan Shield — per-staff weekly load + DK labour-law signals for the
+    owner grid and the pre-publish check.
+
+    The Autopilot already enforces the contract cap + the DK ceilings when IT
+    proposes a week, but the MANUAL path (Add Shift / drag / copy-week) had no
+    surfacing at all — an owner could publish 41 hours onto a 25-hour
+    part-timer without ever seeing a number. This returns, per staff member
+    with any shift in the window:
+
+      hours          — scheduled hours inside the week (draft + published;
+                       the owner is planning, so drafts count)
+      cap            — their contract max_hours_week (null when unset)
+      over_cap       — hours exceed the contract cap
+      over_dk48      — hours exceed the DK 48h weekly ceiling
+      rest_warnings  — 11-timers reglen: consecutive shifts with under
+                       DK_MIN_DAILY_REST_HOURS between end and next start
+                       (arbejdsmiljøloven). Shifts are scanned with a ±1 day
+                       margin so a Sunday→Monday violation across the week
+                       boundary is still caught; only pairs touching the
+                       requested week are reported.
+
+    Signals only — publishing is NEVER blocked (proposes-never-decides
+    doctrine; §-checks are the owner's call, we just make them visible).
+    Owner-scoped like week-cost: every query filters user.id; the staff
+    portal never calls this."""
+    from datetime import datetime as _dt, timedelta as _td
+
+    from app.services.schedule_autopilot import (
+        _shift_hours,
+        DK_MAX_HOURS_PER_WEEK,
+        DK_MIN_DAILY_REST_HOURS,
+    )
+
+    week_end = week_start + timedelta(days=6)
+    lo = week_start - timedelta(days=1)
+    hi = week_end + timedelta(days=1)
+
+    shifts = (
+        db.query(Schedule)
+        .filter(
+            Schedule.user_id == user.id,
+            Schedule.date >= lo,
+            Schedule.date <= hi,
+        )
+        .all()
+    )
+    staff_rows = (
+        db.query(StaffMember)
+        .filter(StaffMember.user_id == user.id)
+        .all()
+    )
+    staff_by_id = {s.id: s for s in staff_rows}
+
+    def _parse_hhmm(v: str):
+        try:
+            h, m = (v or "0:0").split(":")
+            return int(h), int(m)
+        except Exception:  # noqa: BLE001 — malformed time reads as midnight
+            return 0, 0
+
+    def _bounds(s: Schedule):
+        sh, sm = _parse_hhmm(s.start_time)
+        eh, em = _parse_hhmm(s.end_time)
+        start_dt = _dt(s.date.year, s.date.month, s.date.day, sh, sm)
+        end_dt = _dt(s.date.year, s.date.month, s.date.day, eh, em)
+        if end_dt < start_dt:  # overnight — mirrors _shift_hours's strict `<`
+            end_dt += _td(days=1)
+        return start_dt, end_dt
+
+    by_staff: dict = {}
+    for s in shifts:
+        by_staff.setdefault(s.staff_id, []).append(s)
+
+    out = []
+    for sid, rows in by_staff.items():
+        member = staff_by_id.get(sid)
+        if member is None:
+            continue
+
+        hours = sum(
+            _shift_hours(s.start_time, s.end_time, s.break_minutes or 0)
+            for s in rows
+            if week_start <= s.date <= week_end
+        )
+        hours = round(hours, 2)
+
+        rest_warnings = []
+        ordered = sorted(rows, key=lambda s: _bounds(s)[0])
+        for prev, nxt in zip(ordered, ordered[1:]):
+            # Only report pairs that touch the requested week — the margin
+            # days exist to catch boundary gaps, not to police other weeks.
+            if not (week_start <= prev.date <= week_end or week_start <= nxt.date <= week_end):
+                continue
+            gap_h = (_bounds(nxt)[0] - _bounds(prev)[1]).total_seconds() / 3600.0
+            if gap_h < DK_MIN_DAILY_REST_HOURS:
+                rest_warnings.append({
+                    "prev_date": prev.date.isoformat(),
+                    "next_date": nxt.date.isoformat(),
+                    "gap_hours": round(gap_h, 1),
+                })
+
+        cap = float(member.max_hours_week) if member.max_hours_week else None
+        out.append({
+            "staff_id": str(sid),
+            "name": member.name,
+            "hours": hours,
+            "cap": cap,
+            "over_cap": bool(cap is not None and hours > cap + 0.01),
+            "over_dk48": bool(hours > DK_MAX_HOURS_PER_WEEK + 0.01),
+            "rest_warnings": rest_warnings,
+        })
+
+    return {
+        "week_start": week_start.isoformat(),
+        "dk_max_week": DK_MAX_HOURS_PER_WEEK,
+        "dk_min_rest": DK_MIN_DAILY_REST_HOURS,
+        "staff": out,
+    }
+
+
 @router.post("/schedules", response_model=ScheduleResponse)
 def create_schedule(
     data: ScheduleCreate,
