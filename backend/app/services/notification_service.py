@@ -698,11 +698,18 @@ def notify_owner_new_reservation(db: Session, owner, reservation, *, cancelled: 
         if is_request:
             body_text += " — afventer svar"
     tag = f"bonbox-reservation-{reservation.id}"
+    # Deep link straight to THIS booking: the frontend consumer
+    # (?booking=<id>&date=) re-derives the row from a fresh fetch, opens the
+    # drawer with the state-matched action at thumb height, and shows an honest
+    # "no longer exists" note for dead links. A bare /reservations landed the
+    # owner on today's book and made them step days from memory.
+    _day = reservation.starts_at.date().isoformat() if reservation.starts_at else ""
+    deep_url = f"/reservations?booking={reservation.id}" + (f"&date={_day}" if _day else "")
     payload = {
         "title": title,
         "body": body_text,
         "tag": tag,
-        "data": {"url": "/reservations"},
+        "data": {"url": deep_url},
     }
 
     for sub in subs:

@@ -28,7 +28,7 @@
 // `api` client + auth/CSRF path as EventsPage (no bespoke fetch wrapper).
 //
 // DK terminology lock: revisor / MOMS etc. stay Danish across locales.
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarCheck,
   Plus,
@@ -1198,13 +1198,16 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
 }
 
 // ─── New booking (owner takes a phone booking for a future slot) ──────
-// 15-minute slot options for the time select, 12:00–23:45 — matches the
-// public widget's granularity without pretending to be the availability
-// engine (the backend's auto-assign is the source of truth on submit).
+// 15-minute slot options for the time select, 06:00–23:45 — the full business
+// day (06:00 is the app-wide business-day cutoff). The old 12:00 floor made
+// half a salon/bakery morning unbookable from the owner's own sheet ("book me
+// for 09:15" was literally impossible). 15-min granularity matches the public
+// widget without pretending to be the availability engine (the backend's
+// auto-assign stays the source of truth on submit).
 const QUARTER_TIMES = (() => {
   const out = [];
   const pad = (n) => String(n).padStart(2, "0");
-  for (let m = 12 * 60; m <= 23 * 60 + 45; m += 15) {
+  for (let m = 6 * 60; m <= 23 * 60 + 45; m += 15) {
     out.push(`${pad(Math.floor(m / 60))}:${pad(m % 60)}`);
   }
   return out;
@@ -1220,9 +1223,10 @@ function defaultBookingTime(forDay) {
     const now = new Date();
     m = Math.ceil((now.getHours() * 60 + now.getMinutes()) / 15) * 15;
   }
-  // Clamp into the QUARTER_TIMES range (12:00–23:45) so the default always
-  // maps to a real <option> — before noon we floor to the first slot.
-  if (m < 12 * 60) m = 12 * 60;
+  // Clamp into the QUARTER_TIMES range (06:00–23:45) so the default always
+  // maps to a real <option>. Future days keep the 18:00 evening default
+  // (restaurants' expectation); today's floor is simply the first real slot.
+  if (m < 6 * 60) m = 6 * 60;
   if (m > 23 * 60 + 45) m = 23 * 60 + 45;
   const pad = (n) => String(n).padStart(2, "0");
   return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
@@ -2271,6 +2275,49 @@ function BookSection({ t, businessType, tableFloor = false }) {
     fetchResources();
   }, [fetchResources]);
 
+  // Live book — the screen the owner stares at MID-SERVICE must not go stale.
+  // Without this, a public booking, a cancellation, or a host-stand flip made
+  // on another device stays invisible until someone hunts for the manual
+  // refresh button. Two honest signals, no websockets (single-worker backend):
+  //   1. Refetch the moment the screen wakes / tab refocuses (the phone was in
+  //      a pocket for 20 minutes — same pattern as the timeline's now-line).
+  //   2. A gentle 75s poll, TODAY only (a past/future day's book doesn't drift
+  //      mid-service) and only while visible (don't drain the host-stand).
+  // SILENT: no setLoading, so the list never flashes or jumps under the thumb;
+  // an in-flight ref stops overlapping fetches from racing each other.
+  const liveRefreshInFlight = useRef(false);
+  const refreshBookSilently = useCallback(async () => {
+    if (liveRefreshInFlight.current) return;
+    liveRefreshInFlight.current = true;
+    try {
+      const res = await api.get("/reservations/book", { params: { day } });
+      setData(res.data || null);
+      setBookTick((n) => n + 1); // Venteliste resyncs against the fresh book
+    } catch {
+      /* silent — the manual refresh + the next wake/poll still exist */
+    } finally {
+      liveRefreshInFlight.current = false;
+    }
+  }, [day]);
+  useEffect(() => {
+    const onWake = () => {
+      if (document.visibilityState === "visible") refreshBookSilently();
+    };
+    document.addEventListener("visibilitychange", onWake);
+    window.addEventListener("focus", onWake);
+    let pollId;
+    if (day === isoDay(new Date())) {
+      pollId = setInterval(() => {
+        if (document.visibilityState === "visible") refreshBookSilently();
+      }, 75000);
+    }
+    return () => {
+      document.removeEventListener("visibilitychange", onWake);
+      window.removeEventListener("focus", onWake);
+      if (pollId) clearInterval(pollId);
+    };
+  }, [day, refreshBookSilently]);
+
   // Provider venues only — load the active behandlinger catalog the New-
   // booking sheet offers. Soft-fail: no catalog → the sheet shows the
   // "add a behandling first" guidance and stays closed-friendly. Exposed as a
@@ -2828,6 +2875,18 @@ function BookSection({ t, businessType, tableFloor = false }) {
     pickView("liste");
     setStatusFilter(status);
   };
+  // Click the waitlist tile → jump to the Venteliste (it renders below the
+  // whole booking list). Every other cockpit tile navigates; this one was the
+  // app's only dead-end stat. The tiny delay lets the liste view (and the
+  // section) mount when we're switching from plan/tidslinje.
+  const focusWaitlist = () => {
+    pickView("liste");
+    setTimeout(() => {
+      document
+        .getElementById("rsvp-venteliste")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  };
 
   const filtered = useMemo(() => {
     let out = reservations;
@@ -3174,7 +3233,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
               }
               aria-label={t("rsvpOpenStand", "Open host-stand view")}
               title={t("rsvpOpenStand", "Open host-stand view")}
-              className="hidden sm:inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
+              className="inline-flex items-center justify-center h-11 w-11 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-1"
             >
               <ExternalLink className="w-5 h-5" />
             </button>
@@ -3278,6 +3337,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
           value={waitlistCount}
           accent={waitlistCount > 0 ? "warn" : "neutral"}
           helper={t("rsvpWlWaiting", "Waiting")}
+          onClick={focusWaitlist}
         />
       </div>
 
@@ -3374,14 +3434,17 @@ function BookSection({ t, businessType, tableFloor = false }) {
           />
 
           {/* Venteliste — parties we couldn't seat. A cancel/no-show above
-              hands us the fitting matches (spotMatches) to highlight. */}
-          <WaitlistSection
-            day={day}
-            spotMatches={spotMatches}
-            refreshTick={bookTick}
-            onCountChange={setWaitlistCount}
-            onConverted={() => fetchBook(day)}
-          />
+              hands us the fitting matches (spotMatches) to highlight. The id
+              is the scroll target for the cockpit's waitlist tile. */}
+          <div id="rsvp-venteliste" className="scroll-mt-4">
+            <WaitlistSection
+              day={day}
+              spotMatches={spotMatches}
+              refreshTick={bookTick}
+              onCountChange={setWaitlistCount}
+              onConverted={() => fetchBook(day)}
+            />
+          </div>
         </>
       )}
 

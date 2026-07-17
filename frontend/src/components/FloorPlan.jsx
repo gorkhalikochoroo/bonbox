@@ -1178,7 +1178,10 @@ export default function FloorPlan({
         // The card itself floats (rounded on all sides) with the frosted .glass
         // finish, so the room reads through it. .glass (not .glass-static) is the
         // house convention for FIXED bars — it carries the compositor hint.
-        <div className="fixed inset-x-0 bottom-0 z-50 flex justify-center px-3 pb-[calc(env(safe-area-inset-bottom)+12px)] pointer-events-none">
+        // z-[60] + phone clearance: the app's mobile bottom nav is fixed z-50,
+        // 56px tall and md:hidden — without these the nav covers the stepper
+        // row. Below md the card floats above the nav; ≥md it hugs the edge.
+        <div className="fixed inset-x-0 bottom-0 z-[60] flex justify-center px-3 pb-[calc(env(safe-area-inset-bottom)+68px)] md:pb-[calc(env(safe-area-inset-bottom)+12px)] pointer-events-none">
           <div className="pointer-events-auto w-full max-w-md glass rounded-2xl border border-gray-200/70 dark:border-gray-700/70 shadow-2xl px-4 py-3 space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -1284,7 +1287,7 @@ export default function FloorPlan({
 
       {/* Saved toast */}
       {savedAt > 0 && (
-        <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 shadow-lg text-sm font-medium">
+        <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+72px)] md:bottom-5 left-1/2 -translate-x-1/2 z-[60] inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 shadow-lg text-sm font-medium">
           <Check className="w-4 h-4" aria-hidden />
           {t("rsvpPlanSaved", "Layout saved")}
         </div>
