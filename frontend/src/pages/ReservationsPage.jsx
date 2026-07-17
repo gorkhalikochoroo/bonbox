@@ -5057,6 +5057,7 @@ function SettingsSection({ t }) {
     pacing_max_per_slot: "",
     default_duration_min: "",
     combine_enabled: true,
+    guest_can_pick_table: false,
     max_combo_size: "",
     contact_phone: "",
   });
@@ -5087,6 +5088,7 @@ function SettingsSection({ t }) {
       // combine_enabled defaults on (matches the backend); only flips off if
       // the owner explicitly disabled combining.
       combine_enabled: s.combine_enabled !== false,
+      guest_can_pick_table: !!s.guest_can_pick_table,
       max_combo_size: s.max_combo_size ?? "",
       contact_phone: s.contact_phone ?? "",
     });
@@ -5218,6 +5220,7 @@ function SettingsSection({ t }) {
     // Table combining: always send the on/off flag; cap is clamped to 2–6
     // (blank leaves the backend default of 3).
     settings.combine_enabled = !!form.combine_enabled;
+    settings.guest_can_pick_table = !!form.guest_can_pick_table;
     if (toInt(form.max_combo_size) !== undefined) {
       settings.max_combo_size = Math.max(2, Math.min(6, toInt(form.max_combo_size)));
     }
@@ -5617,6 +5620,25 @@ function SettingsSection({ t }) {
               />
             </div>
           )}
+        </div>
+        {/* Guest table-choice — when off (default), the public widget hides the
+            floor picker and auto-assigns the best free table (owner keeps
+            seating control). */}
+        <div className="pt-3 border-t border-gray-100 dark:border-gray-800">
+          <label className="flex items-start gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!form.guest_can_pick_table}
+              onChange={(e) => setForm((f) => ({ ...f, guest_can_pick_table: e.target.checked }))}
+              className="mt-0.5 w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-gray-400"
+            />
+            <span className="text-sm text-gray-700 dark:text-gray-300 leading-snug">
+              {t("rsvpGuestPickSetting", "Let guests choose their table")}
+              <span className="block text-xs text-gray-400 dark:text-gray-500">
+                {t("rsvpGuestPickSettingHint", "Off: the booking page auto-assigns the best free table (you keep seating control). On: guests can tap a specific table on the floor map.")}
+              </span>
+            </span>
+          </label>
         </div>
         <div className="flex items-center justify-end gap-3">
           {formSaved && (

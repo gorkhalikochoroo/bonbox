@@ -1518,7 +1518,7 @@ export default function ReservationPublicPage() {
                 likewise shows nothing. A venue that ALREADY has a real table plan
                 renders it because free tables actually came back (floor.length > 0).
             */}
-            {(usesTableFloor(page.business_type) || floor.length > 0) && !groupRequest && slot && (floorLoading || floor.length > 0) && (
+            {page.guest_can_pick_table && (usesTableFloor(page.business_type) || floor.length > 0) && !groupRequest && slot && (floorLoading || floor.length > 0) && (
               <div>
                 <p className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   {t("rsvpFloorPickTitle", "Vælg dit bord")}
