@@ -70,7 +70,10 @@ export default function Sheet({
       aria-label={ariaLabel}
     >
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
-      <div className={`${structure} ${panelClassName}`}>
+      <div
+        className={`${structure} ${panelClassName}`}
+        style={{ paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}
+      >
         {/* Grab bar — phone-only affordance that this is a sheet (dismiss via
             tap-out / the close button / Esc; no gesture engine by doctrine). */}
         <div className="sm:hidden pt-2.5 pb-1 flex justify-center shrink-0" aria-hidden>

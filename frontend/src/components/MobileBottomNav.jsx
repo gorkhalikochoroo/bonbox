@@ -110,7 +110,7 @@ export default function MobileBottomNav() {
       aria-label={t("bottomNav") || "Primary"}
       className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800
         border-t border-gray-200 dark:border-gray-700 z-50 md:hidden"
-      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}
     >
       <div className="flex justify-around items-center h-14">
         {tabs.map((tab, i) => {

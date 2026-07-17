@@ -1092,7 +1092,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
       <div
         className="relative w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-gray-800 shadow-2xl p-5 space-y-4 animate-fadeIn"
-        style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
+        style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))", paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -1318,7 +1318,7 @@ function NewBookingSheet({
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
       <div
         className="relative w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-gray-800 shadow-2xl p-5 space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto"
-        style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
+        style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))", paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
       >
         <div className="flex items-start justify-between gap-3">
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
