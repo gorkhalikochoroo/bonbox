@@ -637,6 +637,9 @@ export default function StaffSchedulePage() {
   // Null when the endpoint fails — the UI falls back to the client `stats`
   // memo so the grid + summary still render. Never blocks shift rendering.
   const [weekCost, setWeekCost] = useState(null);
+  // Vagtplan Shield — /schedules/week-load payload (per-staff hours, caps,
+  // 11-timers rest warnings). null = unavailable (fail-soft, chip hidden).
+  const [weekLoad, setWeekLoad] = useState(null);
 
   // Predicted demand (forecast-only, no roster build) — powers the persistent
   // "demand vs your roster" chip in the per-day footer so the owner FEELS the
@@ -783,6 +786,17 @@ export default function StaffSchedulePage() {
       setWeekCost(costRes.data || null);
     } catch {
       setWeekCost(null);
+    }
+    // Vagtplan Shield — per-staff weekly load + DK labour signals (contract
+    // cap, 48h ceiling, 11-timers reglen). Drives the hours chip on each grid
+    // row + the pre-publish warnings. Fail-soft: never blocks the grid.
+    try {
+      const loadRes = await api.get("/staff/schedules/week-load", {
+        params: { week_start: params.week_start },
+      });
+      setWeekLoad(loadRes.data || null);
+    } catch {
+      setWeekLoad(null);
     }
     // Predicted demand for this week (Pro-gated). Fail-soft: 402 for non-Pro or
     // any error just null it out → no forecast chip, grid unaffected.
@@ -1100,10 +1114,32 @@ export default function StaffSchedulePage() {
   );
 
   // Step 1 — open the confirm sheet (the deliberate gate before going live).
-  const requestPublish = () => {
+  const requestPublish = async () => {
     setError("");
     setPublishResult(null);
-    setPublishConfirm(computePublishSummary());
+    const summary = computePublishSummary();
+    // Vagtplan Shield — refetch week-load at the publish moment (the state
+    // copy can be stale if shifts were just added) and attach warnings.
+    // Fail-soft: a fetch error publishes without warnings, never blocks.
+    let shield = [];
+    try {
+      const res = await api.get("/staff/schedules/week-load", {
+        params: { week_start: toISO(weekDates[0]) },
+      });
+      for (const e of res.data?.staff || []) {
+        if (e.over_dk48) {
+          shield.push({ kind: "dk48", name: e.name, hours: e.hours });
+        } else if (e.over_cap) {
+          shield.push({ kind: "cap", name: e.name, hours: e.hours, cap: e.cap });
+        }
+        for (const r of e.rest_warnings || []) {
+          shield.push({ kind: "rest", name: e.name, gap: r.gap_hours });
+        }
+      }
+    } catch {
+      /* warnings unavailable — publish flow unchanged */
+    }
+    setPublishConfirm({ ...summary, shield });
   };
 
   // Step 2 — actually publish (called from the confirm sheet's CTA), then show
@@ -2056,6 +2092,7 @@ export default function StaffSchedulePage() {
                 forecastByDate={forecastByDate}
                 costBasis={costBasis}
                 targetPct={targetPct}
+                weekLoad={weekLoad}
                 t={t}
                 onMoveShift={moveShift}
                 onCellClick={(staffId, date, existingShift) =>
@@ -4660,6 +4697,7 @@ function ScheduleGrid({
   forecastByDate,
   costBasis,
   targetPct,
+  weekLoad,
   t,
 }) {
   // Map server `daily` entries by date for O(1) footer lookups.
@@ -4804,7 +4842,40 @@ function ScheduleGrid({
                             );
                           })()}
                         </div>
-                        <div className="text-[10px] text-gray-400 dark:text-gray-500">{member.role}</div>
+                        <div className="text-[10px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+                          <span>{member.role}</span>
+                          {/* Vagtplan Shield hours chip — "34/37t". Amber past
+                              the contract cap, red past DK 48h or with an
+                              11-timers rest conflict; calm gray otherwise.
+                              Hidden when week-load is unavailable (fail-soft)
+                              or the staffer has no shifts this week. */}
+                          {(() => {
+                            const e = (weekLoad?.staff || []).find((x) => x.staff_id === member.id);
+                            if (!e || !(e.hours > 0)) return null;
+                            const hasRest = (e.rest_warnings || []).length > 0;
+                            const cls = e.over_dk48 || hasRest
+                              ? "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
+                              : e.over_cap
+                                ? "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                                : "bg-gray-100 dark:bg-gray-700/60 text-gray-500 dark:text-gray-400";
+                            const label = e.cap != null
+                              ? `${e.hours}/${e.cap}t`
+                              : `${e.hours}t`;
+                            const title = [
+                              e.over_cap ? t("shieldOverCapTitle", "Over the contract cap ({cap}t/week)").replace("{cap}", e.cap) : "",
+                              e.over_dk48 ? t("shieldOver48Title", "Over the DK 48h weekly ceiling") : "",
+                              hasRest ? t("shieldRestTitle", "Under 11 hours' rest between shifts") : "",
+                            ].filter(Boolean).join(" · ");
+                            return (
+                              <span
+                                title={title || t("shieldHoursTitle", "Scheduled hours this week")}
+                                className={`px-1 py-px rounded font-medium tabular-nums ${cls}`}
+                              >
+                                {label}
+                              </span>
+                            );
+                          })()}
+                        </div>
                       </div>
                     </div>
                   </td>
@@ -5221,6 +5292,36 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
                 />
               )}
             </div>
+
+            {/* Vagtplan Shield — labour-law signals for THIS week. Warns,
+                never blocks: the owner always decides (the §-rules are their
+                call; we make the numbers visible at the moment that counts). */}
+            {(summary.shield || []).length > 0 && (
+              <div className="rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-3 py-2.5 space-y-1">
+                <div className="flex items-center gap-1.5 text-[12px] font-semibold text-amber-800 dark:text-amber-300">
+                  <Icon name="AlertTriangle" size={13} />
+                  {t("shieldPublishHeading", "Check before you publish")}
+                </div>
+                {summary.shield.slice(0, 6).map((w, i) => (
+                  <p key={i} className="text-[12px] text-amber-800 dark:text-amber-300 leading-snug">
+                    {w.kind === "cap" &&
+                      t("shieldWarnCap", "{name}: {hours}h — over the contract cap of {cap}h/week")
+                        .replace("{name}", w.name).replace("{hours}", w.hours).replace("{cap}", w.cap)}
+                    {w.kind === "dk48" &&
+                      t("shieldWarnDk48", "{name}: {hours}h — over the 48h weekly ceiling")
+                        .replace("{name}", w.name).replace("{hours}", w.hours)}
+                    {w.kind === "rest" &&
+                      t("shieldWarnRest", "{name}: only {gap}h rest between two shifts (11h rule)")
+                        .replace("{name}", w.name).replace("{gap}", w.gap)}
+                  </p>
+                ))}
+                {summary.shield.length > 6 && (
+                  <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                    +{summary.shield.length - 6} {t("shieldWarnMore", "more — see the hour chips on the grid")}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Honest notify note — no count promised here; the success
                 banner reports the server's real number after publish. */}
