@@ -1678,8 +1678,10 @@ _migrations = [
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_business_reservation_slug ON business_profiles (reservation_slug)",
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS reservations_enabled BOOLEAN DEFAULT FALSE",
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS reservation_settings_json TEXT",
-    # reservation_floor_bg_key — storage key of the owner's optional room-plan
-    # background photo (owner-only, GDPR-purged). Nullable TEXT, additive + non-locking.
+    # reservation_floor_bg_key — RETIRED room-plan background photo. The feature is
+    # gone but the ALTER stays: the model still declares the column, and the strict
+    # schema-drift check holds readiness at 503 if a declared column is missing.
+    # Nullable TEXT, additive + non-locking; unused.
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS reservation_floor_bg_key TEXT",
     # ── Migration 055 (2026-05-30): Reservation integrity backbone (P0) ──
     # The DB-enforced "no double-booking, ever" guarantee. See §2 of

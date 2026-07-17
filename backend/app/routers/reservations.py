@@ -19,12 +19,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from uuid import UUID
 
-from typing import Annotated
-
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
-from slowapi import Limiter
-
-from app.utils.client_ip import client_ip
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -38,12 +33,6 @@ from app.models.reservation_occupancy import ReservationOccupancy
 from app.models.reservation_waitlist import ReservationWaitlistEntry
 from app.models.user import User
 from app.services import audit_service
-from app.services.floor_background_service import (
-    MAX_FLOOR_BG_BYTES,
-    delete_floor_background,
-    floor_background_signed_url,
-    upload_floor_background,
-)
 from app.services.allergens import allergen_set_for, SEVERITY_LEVELS
 from app.services.auth import get_current_user
 from app.services.billing import (
@@ -65,10 +54,6 @@ from sqlalchemy.exc import IntegrityError
 from app.utils.time import utc_now
 
 router = APIRouter()
-
-# Per-IP limiter for the room-background upload (an image endpoint — bound the
-# abuse surface). Same pattern as business_profile.py's logo upload.
-_limiter = Limiter(key_func=client_ip)
 
 _VALID_STATUS = ("requested", "confirmed", "seated", "completed", "no_show", "cancelled")
 
@@ -917,77 +902,6 @@ def save_layout(payload: LayoutUpdate, request: Request,
             )
         db.commit()
     return {"updated": updated, "seats_changed": seats_changed}
-
-
-# ─── Room-plan BACKGROUND photo (owner-only) ──────────────────────────
-#
-# An optional photo of the owner's REAL premises to drag tables onto. OWNER-ONLY:
-# the public booker never receives it — a real-interior photo would leak premises/
-# staff/guest PII and let a guest infer capacity from chairs in the picture. It is
-# personal data: EXIF/GPS is stripped on upload (floor_background_service) and the
-# blob is purged on GDPR erasure (storage kind "floor_background").
-
-class _FloorBgResponse(BaseModel):
-    floor_bg_url: str | None = None  # signed URL (1h TTL), NEVER the storage key
-
-
-@router.get("/floor-background", response_model=_FloorBgResponse)
-def get_floor_background(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    enforce_feature(user, "reservations")
-    prof = _profile(db, user)
-    key = getattr(prof, "reservation_floor_bg_key", None) if prof else None
-    return _FloorBgResponse(floor_bg_url=floor_background_signed_url(key) if key else None)
-
-
-@router.post("/floor-background", response_model=_FloorBgResponse)
-@_limiter.limit("10/hour")
-async def upload_floor_background_endpoint(
-    request: Request,
-    file: Annotated[UploadFile, File(...)],
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    """Upload the room background photo (PNG/JPEG, ≤2.5 MB). EXIF/GPS stripped, the
-    old photo cleaned up after commit. Stores the KEY (not a URL) on the profile."""
-    enforce_feature(user, "reservations")
-    raw = await file.read(MAX_FLOOR_BG_BYTES + 1)
-    if len(raw) > MAX_FLOOR_BG_BYTES:
-        raise HTTPException(413, f"Room photo too large (max {MAX_FLOOR_BG_BYTES // 1_000_000} MB)")
-    prof = _profile(db, user)
-    if prof is None:
-        raise HTTPException(400, detail={"error": "reservations_not_set_up"})
-    old_key = prof.reservation_floor_bg_key
-    key, out_bytes = upload_floor_background(user.id, raw)
-    prof.reservation_floor_bg_key = key
-    audit_service.record(
-        db, user, "reservation.floor_bg_upload", "business_profile", prof.id,
-        after={"size_bytes": out_bytes},
-        ip_address=getattr(request.client, "host", None),
-    )
-    db.commit()
-    if old_key and old_key != key:
-        delete_floor_background(old_key)  # after commit — the new photo is already saved
-    return _FloorBgResponse(floor_bg_url=floor_background_signed_url(key))
-
-
-@router.delete("/floor-background", response_model=_FloorBgResponse)
-def delete_floor_background_endpoint(
-    request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user),
-):
-    enforce_feature(user, "reservations")
-    prof = _profile(db, user)
-    old_key = getattr(prof, "reservation_floor_bg_key", None) if prof else None
-    if prof is not None:
-        prof.reservation_floor_bg_key = None
-        audit_service.record(
-            db, user, "reservation.floor_bg_delete", "business_profile", prof.id,
-            before={"had_photo": bool(old_key)},
-            ip_address=getattr(request.client, "host", None),
-        )
-        db.commit()
-    if old_key:
-        delete_floor_background(old_key)
-    return _FloorBgResponse(floor_bg_url=None)
 
 
 @router.patch("/resources/{resource_id}")

@@ -362,8 +362,11 @@ def reset_storage_for_tests() -> None:
 # PrivacyPolicyPage.
 ERASURE_PURGE_KINDS = frozenset({
     "staff_chat", "staff_avatar", "business_logo",
-    # A photo of the owner's real premises (possibly staff/guests in frame) with no
-    # accounting-retention basis — purged on GDPR Art.17 erasure like the logo.
+    # RETIRED FEATURE (reservation room-plan background photo — removed as unused).
+    # Nothing writes this kind any more, but the entry is kept in BOTH lists on
+    # purpose: purge_user_blobs skips kinds absent from ALLOWED_KINDS, so dropping
+    # it would silently orphan any premises photo uploaded while the feature was
+    # live. Inert config that guarantees GDPR Art.17 still cleans those up.
     "floor_background",
 })
 
