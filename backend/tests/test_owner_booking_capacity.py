@@ -453,3 +453,51 @@ def test_cannot_assign_another_users_table(client, db, engine_and_session):
         assert _active_occ(db, r.id) == []
     finally:
         _clear_user_override()
+
+
+# ─── Edit booking (PATCH /reservations/{id}) ──────────────────────────
+
+def test_edit_moves_time_and_reanchors_occupancy(client, db):
+    u, _, resources = _restaurant(db, tables=1)
+    _override_user(u)
+    rid = _book(client, time="2027-03-05T18:00:00", resource_id=str(resources[0].id)).json()["id"]
+    resp = client.patch(f"/api/reservations/reservations/{rid}",
+                        json={"starts_at": "2027-03-05T20:00:00", "party_size": 6})
+    assert resp.status_code == 200, resp.text
+    out = resp.json()
+    assert out["starts_at"].startswith("2027-03-05T20:00") and out["party_size"] == 6
+    occ = _active_occ(db, rid)
+    assert len(occ) == 1 and occ[0].starts_at.hour == 20  # hold re-anchored
+
+
+def test_edit_into_occupied_window_409(client, db):
+    u, _, resources = _restaurant(db, tables=1)
+    _override_user(u)
+    tid = str(resources[0].id)
+    _book(client, time="2027-03-05T20:00:00", resource_id=tid)  # blocker
+    rid = _book(client, time="2027-03-05T17:00:00", resource_id=tid).json()["id"]
+    resp = client.patch(f"/api/reservations/reservations/{rid}", json={"starts_at": "2027-03-05T20:30:00"})
+    assert resp.status_code == 409 and resp.json()["detail"]["error"] == "slot_unavailable"
+    db.expire_all()
+    occ = _active_occ(db, rid)
+    assert occ and occ[0].starts_at.hour == 17  # unchanged
+
+
+def test_edit_time_gated_on_status_but_guest_fields_open(client, db):
+    u, _, resources = _restaurant(db, tables=1)
+    _override_user(u)
+    rid = _book(client, time="2027-03-05T18:00:00", status="seated",
+                resource_id=str(resources[0].id)).json()["id"]
+    assert client.patch(f"/api/reservations/reservations/{rid}",
+                        json={"starts_at": "2027-03-05T20:00:00"}).status_code == 409
+    ok = client.patch(f"/api/reservations/reservations/{rid}", json={"guest_name": "Ny Navn"})
+    assert ok.status_code == 200 and ok.json()["guest_name"] == "Ny Navn"
+
+
+def test_edit_tenant_scoped_404(client, db):
+    u1, _, res1 = _restaurant(db, tables=1)
+    u2, _, _ = _restaurant(db, tables=1)
+    _override_user(u1)
+    rid = _book(client, time="2027-03-05T18:00:00", resource_id=str(res1[0].id)).json()["id"]
+    _override_user(u2)
+    assert client.patch(f"/api/reservations/reservations/{rid}", json={"party_size": 3}).status_code == 404

@@ -770,6 +770,7 @@ function ReservationDrawer({
   busy,
   onStatus,
   onClose,
+  onEdit = null,
   tableLabel = null,
   tables = [],
   onAssign = null,
@@ -1032,8 +1033,18 @@ function ReservationDrawer({
                 {primary.label}
               </Button>
             )}
-            {secondary.length > 0 && (
+            {(secondary.length > 0 || (onEdit && (r.status === "requested" || r.status === "confirmed"))) && (
               <div className="flex items-center justify-center gap-3">
+                {onEdit && (r.status === "requested" || r.status === "confirmed") && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => onEdit(r)}
+                    className="text-sm font-medium px-2 py-1.5 rounded-md text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors disabled:opacity-50"
+                  >
+                    {t("rsvpEditAction", "Edit")}
+                  </button>
+                )}
                 {secondary.map((a) => (
                   <button
                     key={a.id}
@@ -1241,6 +1252,88 @@ function defaultBookingTime(forDay) {
 // party, name, optional phone. Submits through the page-level handler so
 // the 409 room_full warning ("honest pushback") can keep the sheet open
 // and offer "book anyway (no table)" vs "pick another time".
+// ─── Edit booking — "move us to 20:00 / we're 6 not 4" without the dishonest
+// cancel-and-recreate (which falsely notified the guest "aflyst"). PATCHes the
+// booking through the same occupancy machinery; a taken slot is an honest 409.
+function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose }) {
+  const r = reservation;
+  const [date, setDate] = useState(r.starts_at ? r.starts_at.slice(0, 10) : "");
+  const [time, setTime] = useState(r.starts_at ? r.starts_at.slice(11, 16) : "18:00");
+  const [party, setParty] = useState(String(r.party_size || 2));
+  const [name, setName] = useState(r.guest_name || "");
+  const [phone, setPhone] = useState(r.guest_phone || "");
+  const sizes = [1, 2, 3, 4, 5, 6, 8];
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
+      <div
+        className="relative w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-gray-800 shadow-2xl p-5 space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto"
+        style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))", paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+            {t("rsvpEditTitle", "Edit booking")}
+          </h3>
+          <button type="button" onClick={onClose} aria-label={t("close", "Close")}
+            className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("rsvpEditDate", "Date")}</label>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+              className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("rsvpEditTime", "Time")}</label>
+            <select value={time} onChange={(e) => setTime(e.target.value)}
+              className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100 tabular-nums">
+              {QUARTER_TIMES.map((q) => <option key={q} value={q}>{q}</option>)}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("rsvpColParty", "Party")}</label>
+          <div className="flex flex-wrap gap-2 mt-1.5">
+            {sizes.map((n) => (
+              <button key={n} type="button" onClick={() => setParty(String(n))}
+                className={"h-11 min-w-[44px] px-3 rounded-lg border text-sm font-medium tabular-nums " +
+                  (String(n) === party
+                    ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+                    : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600")}>
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("rsvpNbGuestName", "Guest name")}</label>
+          <input value={name} onChange={(e) => setName(e.target.value)}
+            className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("rsvpEditPhone", "Phone")}</label>
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel"
+            className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
+        </div>
+        {error && (
+          <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-3 py-2 rounded-lg text-sm">{error}</div>
+        )}
+        <Button variant="primary" size="lg" busy={busy} className="w-full justify-center"
+          onClick={() => onSubmit({
+            starts_at: `${date}T${time}:00`,
+            party_size: Math.max(1, Math.min(100, parseInt(party, 10) || r.party_size)),
+            guest_name: name.trim() || null,
+            guest_phone: phone.trim() || null,
+          })}>
+          {t("rsvpEditSave", "Save changes")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function NewBookingSheet({
   day,
   t,
@@ -2706,6 +2799,31 @@ function BookSection({ t, businessType, tableFloor = false }) {
     }
   };
 
+  // Edit-booking sheet state (opened from the drawer's Edit row).
+  const [editRes, setEditRes] = useState(null);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState("");
+  const submitEdit = async (fields) => {
+    if (!editRes) return;
+    setEditBusy(true);
+    setEditError("");
+    try {
+      await api.patch(`/reservations/reservations/${editRes.id}`, fields);
+      setEditRes(null);
+      setSelected(null);
+      fetchBook(day);
+    } catch (e) {
+      const code = e?.response?.data?.detail?.error;
+      setEditError(
+        code === "slot_unavailable"
+          ? t("rsvpEditSlotTaken", "The table isn't free at that time — pick another time, or move the table first.")
+          : t("rsvpEditError", "Couldn't save the changes. Please try again."),
+      );
+    } finally {
+      setEditBusy(false);
+    }
+  };
+
   // Open the detail drawer with a clean assign-error slate.
   const openDrawer = (r) => {
     setAssignError("");
@@ -3607,6 +3725,7 @@ function BookSection({ t, businessType, tableFloor = false }) {
           assignBusy={assigning}
           assignError={assignError}
           highlight={deepLinkPulse}
+          onEdit={(r) => { setEditError(""); setEditRes(r); }}
           onAllergyAction={(action) => actionAllergy(selected, action)}
           allergyActionBusy={allergyBusy}
           onStatus={(r, to) => {
@@ -3618,6 +3737,17 @@ function BookSection({ t, businessType, tableFloor = false }) {
             setAssignError("");
             setDeepLinkPulse(false);
           }}
+        />
+      )}
+
+      {editRes && (
+        <EditBookingSheet
+          reservation={editRes}
+          t={t}
+          busy={editBusy}
+          error={editError}
+          onSubmit={submitEdit}
+          onClose={() => setEditRes(null)}
         />
       )}
 
