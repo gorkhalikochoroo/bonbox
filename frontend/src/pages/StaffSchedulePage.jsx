@@ -1550,7 +1550,11 @@ export default function StaffSchedulePage() {
   const copyOneLink = async (member) => {
     try {
       const url = await mintLinkFor(member);
-      await _writeClipboard(url);
+      // Carry the app along with the link — so the staffer's WhatsApp/SMS
+      // names the free BonBox Scheduler app + store link, the moment they
+      // actually decide to install it. The link stays first (the main thing).
+      const appLine = `${t("shareCopyAppLine", "Or get the free BonBox Scheduler app")}: https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793`;
+      await _writeClipboard(`${url}\n\n${appLine}`);
       setShareRowCopied(member.id);
       setTimeout(() => setShareRowCopied(null), 2000);
     } catch (err) {
@@ -1604,7 +1608,10 @@ export default function StaffSchedulePage() {
       );
       const lines = results.filter(Boolean);
       if (lines.length) {
-        await _writeClipboard(lines.join("\n"));
+        // One app line at the foot of the block — everyone who gets a link
+        // also learns the free BonBox Scheduler app + store link.
+        const appLine = `${t("shareCopyAppLine", "Or get the free BonBox Scheduler app")}: https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793`;
+        await _writeClipboard(`${lines.join("\n")}\n\n${appLine}`);
         setShareCopiedN(lines.length);
         setTimeout(() => setShareCopiedN(0), 4000);
       }
