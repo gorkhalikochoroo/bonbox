@@ -36,6 +36,7 @@ import {
   RotateCcw,
   LayoutGrid,
   Plus,
+  Minus,
   AlertTriangle,
 } from "lucide-react";
 import api from "../services/api";
@@ -246,7 +247,12 @@ function TableNode({
   const { res } = cell;
   const status = visualStatus(cell, nowMs);
   const style = STATUS_STYLE[status] || STATUS_STYLE.free;
-  const sizePx = tableSizePx(res.capacity_seats);
+  // Effective seats: the DRAFT capacity (a live seat-stepper edit in Arrange
+  // mode) when present, else the saved capacity_seats. Drives size + chairs +
+  // the count so the table visibly grows/shrinks as you step seats — while
+  // capacity_seats stays the sole booking-authoritative number.
+  const seats = pos.capacity != null ? pos.capacity : res.capacity_seats;
+  const sizePx = tableSizePx(seats);
   // Chairs scale with the table so big tables get chunky seats, not tiny dots.
   const chairW = Math.max(9, Math.min(15, Math.round(sizePx * 0.17)));
   const shape = pos.shape;
@@ -254,15 +260,15 @@ function TableNode({
   // Langbord / Bås / Barplads / Højbord is drawn identically here and on the
   // public booker map. round/square keep the legacy square footprint (dims.w
   // === dims.h === sizePx) so existing rooms don't shift.
-  const dims = tableDims(shape, res.capacity_seats);
+  const dims = tableDims(shape, seats);
   const isStool = chairIsStool(shape);
   // Station-like resources (salon archetype, or any kind === "provider") read
   // as a single person at a chair — one marker, not a ring of N chair dots.
   // Everything else keeps the chair ring sized by capacity.
   const stationLike = profile.stationLike;
   const chairs = useMemo(
-    () => (stationLike ? [] : archetypeChairs(shape, res.capacity_seats, dims.w, dims.h, chairW)),
-    [res.capacity_seats, dims.w, dims.h, shape, stationLike, chairW],
+    () => (stationLike ? [] : archetypeChairs(shape, seats, dims.w, dims.h, chairW)),
+    [seats, dims.w, dims.h, shape, stationLike, chairW],
   );
   const combined = cell.combined;
   const booking = cell.booking;
@@ -362,7 +368,7 @@ function TableNode({
         aria-label={
           res.label +
           " · " +
-          res.capacity_seats +
+          seats +
           (sub ? " · " + sub : "")
         }
         className={
@@ -448,8 +454,8 @@ function TableNode({
               <Users className="w-3 h-3 opacity-70" aria-hidden />
               <span className="text-[11px] tabular-nums">
                 {status !== "free" && partySize != null
-                  ? `${partySize}/${res.capacity_seats}`
-                  : res.capacity_seats}
+                  ? `${partySize}/${seats}`
+                  : seats}
               </span>
             </>
           )}
@@ -537,6 +543,7 @@ export default function FloorPlan({
   const [savedAt, setSavedAt] = useState(0); // toast trigger
   const [saveError, setSaveError] = useState("");
   const [activeId, setActiveId] = useState(null); // table being dragged
+  const [selectedId, setSelectedId] = useState(null); // table tapped in Arrange mode → Inspector
   // Layout we just PUT to the server. baseLayout is memoized on `cells`
   // identity, so until the parent hands us fresh resources it still returns
   // the PRE-drag positions — rendering from it after save makes every table
@@ -564,7 +571,19 @@ export default function FloorPlan({
   // carries the saved positions).
   useEffect(() => {
     setSavedLayout(null);
+    setSelectedId(null); // a re-derive may drop the selected table
   }, [cells]);
+
+  // The table open in the Inspector (Arrange mode only), and its effective
+  // seats (draft edit wins over saved). Booking-authoritative capacity_seats
+  // is the fallback, never overwritten until Save.
+  const selectedCell =
+    editing && selectedId
+      ? cells.find((c) => String(c.res.id) === selectedId) || null
+      : null;
+  const selectedSeats = selectedCell
+    ? draft?.[selectedId]?.capacity ?? selectedCell.res.capacity_seats
+    : 0;
 
   // Zone bands — soft labels behind the room so tables read as clusters.
   const zoneBands = useMemo(() => {
@@ -594,6 +613,7 @@ export default function FloorPlan({
   // ── Edit lifecycle ───────────────────────────────────────────────────
   const enterEdit = useCallback(() => {
     setDraft(JSON.parse(JSON.stringify(currentLayout)));
+    setSelectedId(null);
     setSaveError("");
     setEditing(true);
   }, [currentLayout]);
@@ -602,6 +622,7 @@ export default function FloorPlan({
   const cancelEdit = useCallback(() => {
     setDraft(null);
     setActiveId(null);
+    setSelectedId(null);
     setEditing(false);
     setSaveError("");
   }, []);
@@ -637,13 +658,32 @@ export default function FloorPlan({
     });
   }, []);
 
+  // Seat stepper (Arrange mode). Writes capacity into the DRAFT so a seat edit
+  // reverts with Cancel alongside placement. Clamped 1–30 in the UI (the
+  // backend re-clamps 1–100); capacity_seats stays the authoritative number.
+  const setSeats = useCallback((id, nextCap) => {
+    const cap = Math.max(1, Math.min(30, Math.round(nextCap)));
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const key = String(id);
+      const cur = prev[key] || {};
+      return { ...prev, [key]: { ...cur, capacity: cap } };
+    });
+  }, []);
+
   // ── Drag (pointer + touch via Pointer Events) ─────────────────────────
   const onPointerDownDrag = useCallback(
     (e, id) => {
       if (!editing) return;
       e.preventDefault();
       e.stopPropagation();
-      dragRef.current = { id: String(id), pointerId: e.pointerId };
+      dragRef.current = {
+        id: String(id),
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false,
+      };
       setActiveId(String(id));
       try {
         e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -660,7 +700,13 @@ export default function FloorPlan({
     if (!editing) return;
     const onMove = (e) => {
       const drag = dragRef.current;
-      if (!drag) return;
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      // Tap-vs-drag: ignore sub-threshold jitter so a TAP (which selects the
+      // table) never nudges it, and only real movement counts as a drag.
+      if (!drag.moved) {
+        if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 6) return;
+        drag.moved = true;
+      }
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
@@ -677,11 +723,17 @@ export default function FloorPlan({
         };
       });
     };
-    const onUp = () => {
-      if (dragRef.current) {
-        dragRef.current = null;
-        setActiveId(null);
+    const onUp = (e) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      if (e && e.pointerId != null && e.pointerId !== drag.pointerId) return;
+      // A tap that never crossed the drag threshold selects the table (opens
+      // the Inspector). A real drag just drops; a pointercancel never selects.
+      if (e && e.type === "pointerup" && !drag.moved) {
+        setSelectedId(drag.id);
       }
+      dragRef.current = null;
+      setActiveId(null);
     };
     window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onUp);
@@ -707,6 +759,9 @@ export default function FloorPlan({
           pos_x: Math.round((l?.pos_x ?? 50) * 10) / 10,
           pos_y: Math.round((l?.pos_y ?? 50) * 10) / 10,
           shape: normalizeShape(l?.shape),
+          // Only send seats when the owner actually stepped them — a
+          // position-only save must not re-capacity every table.
+          ...(l?.capacity != null ? { capacity: l.capacity } : {}),
         };
       }),
     };
@@ -723,6 +778,7 @@ export default function FloorPlan({
           c.res.pos_x = l.pos_x;
           c.res.pos_y = l.pos_y;
           c.res.shape = l.shape;
+          if (l.capacity != null) c.res.capacity_seats = l.capacity;
         }
       });
       setSavedLayout(draft);
@@ -948,6 +1004,7 @@ export default function FloorPlan({
       <div className="overflow-x-auto rounded-2xl">
         <div
           ref={canvasRef}
+          onPointerDown={editing ? () => setSelectedId(null) : undefined}
           className={
             "relative w-full min-w-[560px] rounded-2xl border overflow-hidden " +
             // Calm, near-flat surface so the status-coloured tables pop — a
@@ -1006,7 +1063,7 @@ export default function FloorPlan({
                   t={t}
                   profile={cellProfile}
                   editing={editing}
-                  selected={isNext || activeId === id}
+                  selected={isNext || activeId === id || (editing && selectedId === id)}
                   onTap={handleTap}
                   onPointerDownDrag={onPointerDownDrag}
                   onToggleShape={toggleShape}
@@ -1040,6 +1097,58 @@ export default function FloorPlan({
           <LegendItem dotCls="bg-transparent ring-2 ring-gray-900 dark:ring-gray-100" label={t("rsvpPlanNext", "Your next booking")} />
         )}
       </div>
+
+      {/* Inspector — tap a table in Arrange mode to edit it. A bottom sheet
+          keeps the controls under the thumb (never behind a finger on the
+          canvas) and sidesteps tiny on-tile hit targets on small tables.
+          .glass-static = frosted panel with NO transform (iOS-wobble-safe). */}
+      {selectedCell && (
+        <div className="fixed inset-x-0 bottom-0 z-50 glass-static border-t border-gray-200 dark:border-gray-700 rounded-t-2xl shadow-2xl px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+14px)]">
+          <div className="mx-auto max-w-md flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                {selectedCell.res.label}
+              </div>
+              <div className="text-[11px] text-gray-500 dark:text-gray-400">
+                {t("rsvpPlanInspSeatsHint", "Booking capacity")}
+              </div>
+            </div>
+            <div className="flex items-center gap-2.5 shrink-0">
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                {t("rsvpPlanInspSeats", "Seats")}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSeats(selectedId, selectedSeats - 1)}
+                disabled={selectedSeats <= 1}
+                aria-label={t("rsvpPlanSeatMinus", "Fewer seats")}
+                className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 active:scale-95 transition"
+              >
+                <Minus className="w-4 h-4" aria-hidden />
+              </button>
+              <span className="w-7 text-center text-lg font-semibold tabular-nums text-gray-900 dark:text-gray-100">
+                {selectedSeats}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSeats(selectedId, selectedSeats + 1)}
+                disabled={selectedSeats >= 30}
+                aria-label={t("rsvpPlanSeatPlus", "More seats")}
+                className="h-10 w-10 inline-flex items-center justify-center rounded-full border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 disabled:opacity-40 active:scale-95 transition"
+              >
+                <Plus className="w-4 h-4" aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedId(null)}
+                className="h-10 px-4 inline-flex items-center rounded-full bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 text-sm font-medium active:scale-95 transition"
+              >
+                {t("rsvpPlanInspDone", "Done")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Saved toast */}
       {savedAt > 0 && (
