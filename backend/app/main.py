@@ -2181,6 +2181,13 @@ _migrations = [
         user_id VARCHAR(36) PRIMARY KEY,
         erased_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     )""",
+    # ── Migration 062 (2026-07-17): procedurebeskrivelse answers ─────────
+    # Bogføringslovens § 6 written procedure description. Owner-confirmed
+    # answers per skabelon point (JSON-as-text, same pattern as the other
+    # *_json settings columns). The PDF regenerates from these on demand —
+    # no stored blob, no new storage kind (avoids the ALLOWED_KINDS/
+    # ERASURE_PURGE_KINDS pairing). See services/procedure_service.py.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS procedure_json TEXT",
 ]
 
 
@@ -4172,6 +4179,10 @@ app.include_router(sales.router, prefix="/api/sales", tags=["Sales"])
 app.include_router(expenses.router, prefix="/api/expenses", tags=["Expenses"])
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
+# Procedurebeskrivelse (Bogføringsloven § 6) — same /api/reports posture so
+# the member-seat read deny prefix covers it like every revisor artifact.
+from app.routers import procedure as _procedure_router
+app.include_router(_procedure_router.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(staffing.router, prefix="/api/staffing", tags=["Staffing"])
 app.include_router(waste.router, prefix="/api/waste", tags=["Waste"])
