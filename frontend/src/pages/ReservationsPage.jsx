@@ -71,6 +71,7 @@ import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
 import Button from "../components/ui/Button";
+import Sheet from "../components/ui/Sheet";
 import TabPills from "../components/ui/TabPills";
 import UpgradeNudge from "../components/ui/UpgradeNudge";
 import DataTable from "../components/ui/DataTable";
@@ -812,14 +813,18 @@ function ReservationDrawer({
   const PrimaryIcon = primary?.icon || null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
-      <div
-        className={
-          "relative ml-auto w-full max-w-md h-full bg-white dark:bg-gray-900 shadow-2xl border-l border-gray-200 dark:border-gray-800 flex flex-col animate-slideIn transition-shadow duration-700 " +
-          (highlight ? "ring-2 ring-inset ring-gray-900 dark:ring-gray-100" : "")
-        }
-      >
+    // Phone: a real bottom sheet — backdrop stays visible above it, so tap-out
+    // finally works one-handed (the old full-screen right panel's only dismiss
+    // was a 36px X in the far corner). Desktop (≥sm): the exact right slide-in
+    // panel as before, pixel-identical. Scroll lock + Esc come with the Sheet.
+    <Sheet
+      onClose={onClose}
+      desktop="right"
+      panelClassName={
+        "bg-white dark:bg-gray-900 shadow-2xl border-t sm:border-t-0 sm:border-l border-gray-200 dark:border-gray-800 transition-shadow duration-700 " +
+        (highlight ? "ring-2 ring-inset ring-gray-900 dark:ring-gray-100" : "")
+      }
+    >
         {/* Scrollable detail — the action bar below stays pinned. */}
         <div className="flex-1 overflow-auto p-5 space-y-4">
           <div className="flex items-start justify-between gap-3">
@@ -1043,8 +1048,7 @@ function ReservationDrawer({
             )}
           </div>
         )}
-      </div>
-    </div>
+    </Sheet>
   );
 }
 

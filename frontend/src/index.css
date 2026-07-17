@@ -97,6 +97,14 @@ body.portal-shell {
   to { opacity: 1; transform: scale(1); }
 }
 
+/* slideUp — the bottom-sheet entrance (ui/Sheet.jsx): rises from the bottom
+   edge like a native iOS sheet. Covered by the global prefers-reduced-motion
+   collapse below, and used via motion-safe: so it never fights that rule. */
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(28px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @keyframes cardEnter {
   from { opacity: 0; transform: translateY(16px); }
   to { opacity: 1; transform: translateY(0); }
@@ -110,6 +118,18 @@ body.portal-shell {
 
 .animate-fadeIn { animation: fadeIn 0.4s ease-out; }
 .animate-slideIn { animation: slideIn 0.3s ease-out; }
+.animate-slideUp { animation: slideUp 0.25s ease-out; }
+
+/* Sheet (ui/Sheet.jsx) entrance — hand-rolled media query because these
+   animate-* classes are plain CSS, so Tailwind responsive variants
+   (sm:animate-…) cannot target them. Phone: the sheet rises from the bottom.
+   Desktop: the right-panel slides in / the centered card scales in. */
+.sheet-enter-right { animation: slideUp 0.25s ease-out; }
+.sheet-enter-center { animation: slideUp 0.25s ease-out; }
+@media (min-width: 640px) {
+  .sheet-enter-right { animation: slideIn 0.3s ease-out; }
+  .sheet-enter-center { animation: scaleIn 0.2s ease-out; }
+}
 /* heroSettle — the staff portal's ONE ceremonial beat: the dark hero card
    settles into place once per page load (~500ms), then stillness. Covered by
    the global prefers-reduced-motion rule below (collapses to ~0.01ms). */
