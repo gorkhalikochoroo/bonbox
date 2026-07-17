@@ -247,7 +247,7 @@ def _get_staff_from_token(token: str, db: Session):
     if link.pin_hash and os.getenv("PORTAL_PIN_ENFORCE", "1") == "1":
         req = _portal_request.get()
         path = (req.url.path if req is not None else "").rstrip("/")
-        exempt = path.endswith(f"/{token}") or path.endswith("/manifest.webmanifest") or path.endswith("/stream")
+        exempt = path.endswith(f"/{token}") or path.endswith("/manifest.webmanifest") or path.endswith("/stream") or path.endswith("/schedule.ics")
         if not exempt:
             proof = req.headers.get("x-bonbox-pin") if req is not None else None
             if not _pin_proof_valid(link, proof):
@@ -403,6 +403,105 @@ def get_portal_info(token: str, request: Request, db: Session = Depends(get_db))
         pin_ok=pin_ok,
         max_hours_month=float(member.max_hours_month) if (pii_ok and member.max_hours_month) else None,
         max_hours_week=float(member.max_hours_week) if (pii_ok and member.max_hours_week) else None,
+    )
+
+
+# ─── Subscribed calendar feed (webcal) ────────────────────────────────
+# One-tap "sync my shifts to my phone's calendar": the staffer subscribes to
+# this URL once (webcal://) and iOS/Google RE-POLL it, so a published or
+# changed shift appears automatically — no per-event "add to calendar" that
+# iOS drops into Files and never opens. Read-only, shifts-only. Auth is the
+# portal token (the staffer's own credential; the feed exposes only their own
+# shift times/venue — strictly less than the portal itself). Header-less
+# fetchers (Apple's calendar servers) are exempt from the PIN gate, like the
+# SSE stream. Stable per-shift UID ⇒ an update REPLACES the event, never dupes.
+
+# Fixed Europe/Copenhagen VTIMEZONE so naive wall-clock lands correctly on any
+# client without ever UTC-converting (the naive-UTC bug class we avoid app-wide).
+_CPH_VTIMEZONE = (
+    "BEGIN:VTIMEZONE", "TZID:Europe/Copenhagen",
+    "BEGIN:DAYLIGHT", "TZOFFSETFROM:+0100", "TZOFFSETTO:+0200",
+    "TZNAME:CEST", "DTSTART:19700329T020000",
+    "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU", "END:DAYLIGHT",
+    "BEGIN:STANDARD", "TZOFFSETFROM:+0200", "TZOFFSETTO:+0100",
+    "TZNAME:CET", "DTSTART:19701025T030000",
+    "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU", "END:STANDARD",
+    "END:VTIMEZONE",
+)
+
+
+def _ics_esc(v) -> str:
+    return (
+        str(v or "")
+        .replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
+        .replace("\r\n", "\\n").replace("\n", "\\n")
+    )
+
+
+def _ics_local(date_str: str, hhmm: str) -> str:
+    # "2026-06-22" + "16:00" → "20260622T160000" (local wall-clock digits, no Z)
+    return f"{date_str.replace('-', '')}T{(hhmm or '00:00').replace(':', '')}00"
+
+
+def _build_schedule_ics(member_name, venue, shifts) -> str:
+    dtstamp = utc_now().strftime("%Y%m%dT%H%M%SZ")
+    out = [
+        "BEGIN:VCALENDAR", "VERSION:2.0",
+        "PRODID:-//BonBox//Schedule//DA", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+        f"X-WR-CALNAME:{_ics_esc((venue or 'BonBox') + ' — vagter')}",
+        "X-WR-TIMEZONE:Europe/Copenhagen",
+        # Refresh hints so subscribed clients re-poll ~hourly (Apple/Google honour these).
+        "REFRESH-INTERVAL;VALUE=DURATION:PT1H", "X-PUBLISHED-TTL:PT1H",
+        *_CPH_VTIMEZONE,
+    ]
+    for s in shifts:
+        end_date = s.date.isoformat()
+        if s.end_time and s.start_time and s.end_time <= s.start_time:
+            end_date = (s.date + timedelta(days=1)).isoformat()  # overnight
+        role = getattr(s, "role_on_shift", None)
+        summary = " · ".join([x for x in [role, venue] if x]) or "Vagt"
+        out += [
+            "BEGIN:VEVENT",
+            f"UID:bonbox-shift-{s.id}@bonbox.dk",
+            f"DTSTAMP:{dtstamp}",
+            f"DTSTART;TZID=Europe/Copenhagen:{_ics_local(s.date.isoformat(), s.start_time)}",
+            f"DTEND;TZID=Europe/Copenhagen:{_ics_local(end_date, s.end_time)}",
+            f"SUMMARY:{_ics_esc(summary)}",
+        ]
+        if getattr(s, "notes", None):
+            out.append(f"DESCRIPTION:{_ics_esc(s.notes)}")
+        if venue:
+            out.append(f"LOCATION:{_ics_esc(venue)}")
+        out.append("END:VEVENT")
+    out.append("END:VCALENDAR")
+    return "\r\n".join(out) + "\r\n"
+
+
+@router.get("/{token}/schedule.ics")
+@limiter.limit("60/minute")
+def get_portal_schedule_ics(token: str, request: Request, db: Session = Depends(get_db)):
+    """Subscribable calendar feed of the staffer's published shifts (this week
+    → +8 weeks). text/calendar; re-polled by the client for auto-sync."""
+    link, member = _get_staff_from_token(token, db)
+    owner = db.query(User).filter(User.id == link.user_id).first()
+    venue = getattr(owner, "business_name", None) if owner else None
+    today = date.today()
+    week_start = _get_week_start(today)
+    shifts = db.query(Schedule).filter(
+        Schedule.staff_id == member.id,
+        Schedule.user_id == link.user_id,
+        Schedule.date >= week_start,
+        Schedule.date <= week_start + timedelta(days=56),
+        Schedule.status == "published",
+    ).order_by(Schedule.date, Schedule.start_time).all()
+    body = _build_schedule_ics(member.name, venue, shifts)
+    return Response(
+        content=body,
+        media_type="text/calendar; charset=utf-8",
+        headers={
+            "Content-Disposition": 'inline; filename="bonbox-vagter.ics"',
+            "Cache-Control": "max-age=1800",
+        },
     )
 
 

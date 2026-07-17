@@ -1118,29 +1118,16 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(venueMapsQuery)}`
     : null;
 
-  // Add-to-calendar — one tap straight into the native "add event" flow.
-  //  • Apple (iOS/iPadOS Safari + the native Scheduler webview): a data:URI
-  //    .ics opens Calendar's add-event sheet directly.
-  //  • Everyone else (Android, desktop): a Google Calendar "create event"
-  //    deep-link. An .ics *download* on Android just lands in Files and never
-  //    opens — that was the "not compatible to straight add" report; this
-  //    routes to the prefilled add-event screen, one tap to save.
-  const addToCalendar = () => {
-    if (!nextShift) return;
-    const summary = restaurantName
-      ? t("portalIcsSummary", { venue: restaurantName })
-      : t("portalIcsSummaryNoVenue");
-    const ua = navigator.userAgent || "";
-    const isApple =
-      /iP(hone|ad|od)/.test(navigator.platform || ua) ||
-      (/Mac/.test(ua) && "ontouchend" in document);
-    if (isApple) {
-      const ics = buildShiftIcs(nextShift, restaurantName, summary);
-      window.location.href = "data:text/calendar;charset=utf-8," + encodeURIComponent(ics);
-      return;
-    }
-    // Android / desktop → Google Calendar's add-event screen, prefilled.
-    window.open(buildGoogleCalendarUrl(nextShift, restaurantName, summary), "_blank", "noopener");
+  // Subscribe ALL shifts as an auto-updating calendar feed (webcal://). One
+  // tap on iOS opens the native "Subscribe to Calendar" dialog; the phone then
+  // re-polls the feed, so a newly published or changed shift appears on its
+  // own — no per-event add that iOS drops into Files. Falls back to https for
+  // a manual add on clients without webcal.
+  const subscribeCalendar = () => {
+    if (!token) return;
+    const base = (portalApi.defaults.baseURL || "https://api.bonbox.dk/api").replace(/\/+$/, "");
+    const url = `${base}/portal/${token}/schedule.ics`;
+    window.open(url.replace(/^https?:/, "webcal:"), "_blank", "noopener");
   };
 
   const weekDays = weekView === "this" ? thisWeek : nextWeek;
@@ -1358,11 +1345,12 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                   )}
                   <button
                     type="button"
-                    onClick={addToCalendar}
+                    onClick={subscribeCalendar}
+                    title={t("portalSyncCalendarHint", "Subscribe once — your calendar updates itself when shifts change")}
                     className="shrink-0 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-xl bg-white/10 ring-1 ring-white/15 text-gray-200 text-sm font-medium hover:bg-white/20 active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
                   >
                     <CalendarPlus className="w-4 h-4 shrink-0" strokeWidth={2} aria-hidden />
-                    <span>{t("portalAddToCalendar")}</span>
+                    <span>{t("portalSyncCalendar", "Sync shifts")}</span>
                   </button>
                 </div>
               )}
