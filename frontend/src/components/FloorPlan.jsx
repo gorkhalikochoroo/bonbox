@@ -1212,7 +1212,7 @@ export default function FloorPlan({
         // z-[60] + phone clearance: the app's mobile bottom nav is fixed z-50,
         // 56px tall and md:hidden — without these the nav covers the stepper
         // row. Below md the card floats above the nav; ≥md it hugs the edge.
-        <div className="fixed inset-x-0 bottom-0 z-[60] flex justify-center px-3 pb-[calc(env(safe-area-inset-bottom)+68px)] md:pb-[calc(env(safe-area-inset-bottom)+12px)] pointer-events-none">
+        <div className="fixed inset-x-0 bottom-0 z-[60] flex justify-center px-3 pb-[calc(env(safe-area-inset-bottom)+68px)] md:pb-[calc(env(safe-area-inset-bottom)+12px)] pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.75rem,env(safe-area-inset-right))] pointer-events-none">
           <div className="pointer-events-auto w-full max-w-md glass rounded-2xl border border-gray-200/70 dark:border-gray-700/70 shadow-2xl px-4 py-3 space-y-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
