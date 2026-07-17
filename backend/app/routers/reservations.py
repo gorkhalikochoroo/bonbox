@@ -157,6 +157,11 @@ class LayoutItem(BaseModel):
     pos_x: float | None = None
     pos_y: float | None = None
     shape: str | None = None
+    # Seat count — the ONLY booking-authoritative capacity. Optional so a
+    # position/shape-only save never touches it; clamped (not rejected) 1–100
+    # in the handler, like the other floor fields. Riding the atomic layout
+    # save keeps a seat edit revertible with Cancel alongside the placement.
+    capacity: int | None = None
 
 
 class LayoutUpdate(BaseModel):
@@ -819,6 +824,7 @@ def save_layout(payload: LayoutUpdate, request: Request,
     )
 
     updated = 0
+    seats_changed = 0
     for r in owned:
         item = items_by_id.get(str(r.id))
         if item is None:
@@ -831,14 +837,29 @@ def save_layout(payload: LayoutUpdate, request: Request,
             r.pos_y = _clamp_pct(item.pos_y)
         if item.shape is not None:
             r.shape = _norm_shape(item.shape)
+        # Seats: booking-authoritative, so clamp (never reject) to 1–100 and
+        # only touch when actually sent AND actually different — a position-only
+        # save must not re-capacity every table or spam the seats audit.
+        if item.capacity is not None:
+            new_cap = max(1, min(100, int(item.capacity)))
+            if new_cap != r.capacity_seats:
+                r.capacity_seats = new_cap
+                seats_changed += 1
         updated += 1
 
     if updated:
         audit_service.record(
             db, user, "reservation.layout_saved", "bookable_resource", user.id,
         )
+        if seats_changed:
+            # Distinct event: capacity is booking-authoritative (unlike cosmetic
+            # pos/shape), so a seat change is worth its own audit trail even
+            # though it rides the same atomic layout save.
+            audit_service.record(
+                db, user, "reservation.seats_changed", "bookable_resource", user.id,
+            )
         db.commit()
-    return {"updated": updated}
+    return {"updated": updated, "seats_changed": seats_changed}
 
 
 @router.patch("/resources/{resource_id}")

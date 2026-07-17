@@ -142,7 +142,7 @@ def test_layout_save_persists_clamps_and_normalises(client, db):
     ]}
     resp = client.put("/api/reservations/resources/layout", json=body)
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"updated": 3}
+    assert resp.json() == {"updated": 3, "seats_changed": 0}
 
     db.expire_all()
     g0 = db.get(BookableResource, r0.id)
@@ -168,7 +168,7 @@ def test_layout_save_is_tenant_scoped(client, db):
     resp = client.put("/api/reservations/resources/layout", json=body)
     assert resp.status_code == 200, resp.text
     # Only the caller's own row counts.
-    assert resp.json() == {"updated": 1}
+    assert resp.json() == {"updated": 1, "seats_changed": 0}
 
     db.expire_all()
     assert db.get(BookableResource, mine.id).pos_x == 10.0
@@ -186,7 +186,72 @@ def test_layout_save_unknown_id_ignored(client, db):
     ]}
     resp = client.put("/api/reservations/resources/layout", json=body)
     assert resp.status_code == 200, resp.text
-    assert resp.json() == {"updated": 1}
+    assert resp.json() == {"updated": 1, "seats_changed": 0}
+
+
+def test_layout_save_updates_seats_when_sent(client, db):
+    """The layout save can now edit a table's seats atomically with placement —
+    seats are the booking-authoritative capacity, so a change is counted."""
+    u, resources = _restaurant(db, tables=2)
+    r0, r1 = resources  # both seed at capacity_seats=4
+    _override_user(u)
+    body = {"layout": [
+        {"id": str(r0.id), "pos_x": 20.0, "pos_y": 20.0, "capacity": 6},
+        {"id": str(r1.id), "pos_x": 40.0, "pos_y": 40.0},  # no capacity → untouched
+    ]}
+    resp = client.put("/api/reservations/resources/layout", json=body)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"updated": 2, "seats_changed": 1}
+    db.expire_all()
+    assert db.get(BookableResource, r0.id).capacity_seats == 6
+    assert db.get(BookableResource, r1.id).capacity_seats == 4  # non-destructive
+
+
+def test_layout_save_clamps_seats_not_rejects(client, db):
+    """Out-of-band seat values clamp to 1–100 rather than 422 the whole save."""
+    u, resources = _restaurant(db, tables=2)
+    r0, r1 = resources
+    _override_user(u)
+    body = {"layout": [
+        {"id": str(r0.id), "capacity": 999},   # → 100
+        {"id": str(r1.id), "capacity": 0},      # → 1
+    ]}
+    resp = client.put("/api/reservations/resources/layout", json=body)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"updated": 2, "seats_changed": 2}
+    db.expire_all()
+    assert db.get(BookableResource, r0.id).capacity_seats == 100
+    assert db.get(BookableResource, r1.id).capacity_seats == 1
+
+
+def test_layout_save_same_seats_no_change(client, db):
+    """Sending the current seat count is a no-op — no spurious seats_changed."""
+    u, resources = _restaurant(db, tables=1)
+    r0 = resources[0]  # capacity_seats=4
+    _override_user(u)
+    body = {"layout": [{"id": str(r0.id), "pos_x": 5.0, "pos_y": 5.0, "capacity": 4}]}
+    resp = client.put("/api/reservations/resources/layout", json=body)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"updated": 1, "seats_changed": 0}
+
+
+def test_layout_save_seats_only_is_non_destructive(client, db):
+    """A seats-only item leaves pos_x/pos_y/shape untouched."""
+    u, resources = _restaurant(db, tables=1)
+    r0 = resources[0]
+    _override_user(u)
+    # place it first
+    client.put("/api/reservations/resources/layout",
+               json={"layout": [{"id": str(r0.id), "pos_x": 33.0, "pos_y": 44.0, "shape": "square"}]})
+    # now a seats-only edit
+    resp = client.put("/api/reservations/resources/layout",
+                      json={"layout": [{"id": str(r0.id), "capacity": 8}]})
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"updated": 1, "seats_changed": 1}
+    db.expire_all()
+    g0 = db.get(BookableResource, r0.id)
+    assert g0.capacity_seats == 8
+    assert (g0.pos_x, g0.pos_y, g0.shape) == (33.0, 44.0, "square")  # untouched
 
 
 def test_create_and_patch_accept_layout_fields(client, db):
