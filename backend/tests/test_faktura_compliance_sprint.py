@@ -530,6 +530,29 @@ def test_logo_service_rejects_svg_and_gif():
         logo_service.upload_logo(uuid.uuid4(), empty)
 
 
+def test_logo_service_rejects_decompression_bomb(monkeypatch):
+    """A logo whose decoded canvas exceeds the pixel ceiling is rejected (415),
+    never decoded into a huge allocation. (Tiny ceiling so the test stays cheap.)"""
+    import io
+
+    from fastapi import HTTPException
+    from PIL import Image as _Image
+
+    from app.services import logo_service
+
+    before = _Image.MAX_IMAGE_PIXELS
+    monkeypatch.setattr(logo_service, "MAX_DECODE_PIXELS", 100)  # 200x200 = 40k px >> 100
+    img = _Image.new("RGB", (200, 200), (0, 0, 0))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+
+    with pytest.raises(HTTPException) as e:
+        logo_service._strip_and_optimize(buf.getvalue(), "jpeg")
+    assert e.value.status_code == 415
+    # the global ceiling is restored (no side-effect on other Pillow callers)
+    assert _Image.MAX_IMAGE_PIXELS == before
+
+
 # ─── Test 6: Retention sweep ─────────────────────────────────────
 
 

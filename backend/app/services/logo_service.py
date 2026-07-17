@@ -44,6 +44,15 @@ MAX_LOGO_BYTES = 1_000_000  # 1 MB
 # preserves aspect ratio via thumbnail().
 MAX_OUTPUT_DIM = 800
 
+# Decode-pixel ceiling — a decompression-bomb defence. The 1 MB size cap
+# above bounds the file on disk, not the canvas it decodes to: a tiny
+# highly-compressed file can still declare a 169M px image and force a
+# ~0.5 GB in-memory RGB allocation. Pillow's own default only trips above
+# ~178M px, which is far too generous. A logo never needs more than a few
+# M px, so anything larger raises DecompressionBombError and becomes a
+# clean 415 instead of an OOM risk.
+MAX_DECODE_PIXELS = 16_000_000
+
 # Magic bytes — checked against the raw file head before Pillow ever
 # touches it. PNG and JPEG only.
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -101,10 +110,15 @@ def _strip_and_optimize(raw: bytes, inferred_fmt: str) -> bytes:
     # rather reject than store half a file.
     ImageFile.LOAD_TRUNCATED_IMAGES = False
 
+    # Cap the decode canvas (restored below) so a decompression bomb raises
+    # rather than allocating half a gigabyte. Save/restore keeps this local —
+    # no global Pillow side-effect on other callers (floor plan, kasserapport).
+    _prev_max = Image.MAX_IMAGE_PIXELS
+    Image.MAX_IMAGE_PIXELS = MAX_DECODE_PIXELS
     try:
         with Image.open(io.BytesIO(raw)) as img:
-            # Lazy-load: img.load() forces full decoding so any malformed
-            # bytes throw NOW, not later when we serialize.
+            # Lazy-load: img.load() forces full decoding so any malformed or
+            # oversized bytes throw NOW, not later when we serialize.
             img.load()
 
             # Validate format against magic-byte inference. If the magic
@@ -141,11 +155,14 @@ def _strip_and_optimize(raw: bytes, inferred_fmt: str) -> bytes:
     except HTTPException:
         raise
     except Exception as e:
+        # DecompressionBombError (oversized canvas) lands here too → a clean 415.
         logger.warning("Logo re-encode failed: %s", e)
         raise HTTPException(
             http_status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            "Logo file is corrupt or unreadable",
+            "Logo file is corrupt, unreadable, or too large to process",
         ) from e
+    finally:
+        Image.MAX_IMAGE_PIXELS = _prev_max
 
 
 def upload_logo(user_id: UUID | str, raw_bytes: bytes) -> Tuple[str, int]:
