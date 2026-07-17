@@ -4512,7 +4512,11 @@ function FloorSection({ t, businessType }) {
           {sortedResources.map((r, idx) => (
             <li
               key={r.id}
-              className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center justify-between gap-3"
+              // flex-wrap below sm: ~340px of fixed-width controls in a 343px
+              // viewport collapsed the flex-1 rename input to 0px. Phone now
+              // wraps to two lines (name full-width, controls beneath);
+              // desktop (sm:nowrap) is pixel-identical.
+              className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3"
             >
               {/* Reorder — fixes an out-of-order table list (e.g. 6,7,8,1,2).
                   Up/down each a full 44px tap target; disabled at the ends. */}
@@ -4536,7 +4540,7 @@ function FloorSection({ t, businessType }) {
                   <ChevronDown className="w-5 h-5" aria-hidden />
                 </button>
               </div>
-              <div className="min-w-0 flex items-center gap-2 flex-1">
+              <div className="min-w-0 flex items-center gap-2 flex-1 basis-full sm:basis-auto order-first sm:order-none">
                 <VenueIcon className="w-4 h-4 text-gray-400 shrink-0" aria-hidden />
                 {/* Inline rename — a visibly editable field (subtle border + fill +
                     pencil cue) so any owner can tell the name is renameable at a glance.

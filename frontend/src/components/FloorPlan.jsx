@@ -586,6 +586,28 @@ export default function FloorPlan({
   const canvasRef = useRef(null);
   const dragRef = useRef(null); // {id, pointerId}
 
+  // Fit-to-width (phone): below the 560px logical floor the canvas used to
+  // pan horizontally — an overdue red table could sit in an invisible
+  // off-screen strip with zero scroll affordance. Now the whole room
+  // CSS-scales to the viewport. Drag math is unaffected (the % conversion
+  // uses getBoundingClientRect, which reflects the SCALED rect, and pointer
+  // coords are visual). scale === 1 on desktop → no transform at all, and the
+  // canvas is never sticky, so the iOS sticky-transform doctrine holds.
+  const fitRef = useRef(null);
+  const [fitScale, setFitScale] = useState(1);
+  useEffect(() => {
+    const el = fitRef.current;
+    if (!el) return undefined;
+    const measure = () => {
+      const w = el.clientWidth;
+      setFitScale(w > 0 && w < 560 ? w / 560 : 1);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Freshest known server-truth layout (post-save override wins over the
   // memoized base until the parent re-derives cells).
   const currentLayout = savedLayout || baseLayout;
@@ -1062,9 +1084,14 @@ export default function FloorPlan({
         </div>
       )}
 
-      {/* The room. Horizontal scroll on narrow screens keeps a big room
-          usable on a phone / host stand (min-width floor → pan). */}
-      <div className="overflow-x-auto rounded-2xl">
+      {/* The room. Below 560px the whole floor scales to fit (no hidden
+          off-screen strip); at ≥560px it renders 1:1 as before. The wrapper
+          height pins to the scaled canvas so no dead space follows it. */}
+      <div
+        ref={fitRef}
+        className={(fitScale < 1 ? "" : "overflow-x-auto ") + "rounded-2xl"}
+        style={fitScale < 1 ? { height: 350 * fitScale } : undefined}
+      >
         <div
           ref={canvasRef}
           onPointerDown={editing ? () => setSelectedId(null) : undefined}
@@ -1077,7 +1104,11 @@ export default function FloorPlan({
               ? "border-gray-300 dark:border-gray-600 ring-2 ring-gray-900/5 dark:ring-gray-100/5"
               : "border-gray-200 dark:border-gray-800")
           }
-          style={{ aspectRatio: "16 / 10" }}
+          style={
+            fitScale < 1
+              ? { width: 560, aspectRatio: "16 / 10", transform: `scale(${fitScale})`, transformOrigin: "top left" }
+              : { aspectRatio: "16 / 10" }
+          }
         >
           {/* Soft zone bands + labels behind the tables */}
           {zoneBands.length > 1 &&
