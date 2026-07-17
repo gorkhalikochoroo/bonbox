@@ -584,7 +584,7 @@ function DayTimeline({ nodes }) {
 // Flat CARD (no SHADOW_FLOAT) + hover:border-gray-300. Lucide glyph in a
 // rounded-xl gray-50 tile; H3 title; one-line save-promise; an optional
 // gray-900-fill tier Chip; and the verbatim honesty micro-footnote.
-function PillarCard({ icon, title, promise, foot, tier, tap, className = "" }) {
+function PillarCard({ icon, title, promise, foot, tier, tap, appLink, className = "" }) {
   return (
     <div
       className={`bg-white border border-gray-200 rounded-xl p-6 hover:border-gray-300 transition-colors flex flex-col ${className}`}
@@ -613,6 +613,17 @@ function PillarCard({ icon, title, promise, foot, tier, tap, className = "" }) {
       </p>
       {foot && (
         <p className="mt-3 text-[13px] text-gray-400 leading-[1.5]">{foot}</p>
+      )}
+      {appLink && (
+        <a
+          href={appLink.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-medium text-gray-500 hover:text-gray-900 transition-colors"
+        >
+          <Apple size={14} strokeWidth={STROKE} aria-hidden="true" />
+          {appLink.label}
+        </a>
       )}
     </div>
   );
@@ -832,6 +843,10 @@ export default function LandingPage() {
       promise: tx_("landingPillarStaffPromise", "Next week's Vagtplan proposed in one tap — sized to your revenue, the weather and DK labour law, at your target labour %."),
       foot: tx_("landingPillarStaffFoot", "Proposes — never auto-publishes. You publish."),
       tier: tx_("pricingTierPro", "Pro"),
+      appLink: {
+        href: "https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793",
+        label: tx_("landingStaffAppLink", "Your team gets their own free app"),
+      },
     },
     {
       key: "reservations",
@@ -1352,6 +1367,7 @@ export default function LandingPage() {
               promise={p.promise}
               foot={p.foot}
               tier={p.tier}
+              appLink={p.appLink}
               tap={tx_("landingPillarsTap", "one tap")}
               className={p.span ? "lg:col-span-2 reveal" : "reveal"}
             />
