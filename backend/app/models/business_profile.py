@@ -211,6 +211,10 @@ class BusinessProfile(Base):
     # of the venue. Location is checked at the INSTANT of clock-in only — never
     # stored or tracked (GDPR). NULL = off (the default).
     clock_settings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # procedure_json — owner-confirmed answers for the Bogføringsloven § 6
+    # procedurebeskrivelse, keyed by skabelon point (see procedure_service.
+    # PROCEDURE_POINTS) + saved_at. The PDF regenerates from these on demand.
+    procedure_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
