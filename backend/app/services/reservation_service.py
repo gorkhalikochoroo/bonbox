@@ -464,6 +464,11 @@ def public_floor(db: Session, *, profile: BusinessProfile, user_id,
                 "round", "square", "rect", "booth", "bar", "hightop") else None,
             "pos_x": float(r.pos_x) if r.pos_x is not None else None,
             "pos_y": float(r.pos_y) if r.pos_y is not None else None,
+            # Orientation only — 0° for null so the CSS transform never breaks.
+            # Drawn SIZE is deliberately NOT emitted (width/height stay owner-only);
+            # the guest map re-derives footprint from capacity_seats, so a guest
+            # can never infer capacity from an owner-drawn size.
+            "rotation_deg": float(r.rotation_deg) if r.rotation_deg is not None else 0.0,
             "status": status,
         })
     return out

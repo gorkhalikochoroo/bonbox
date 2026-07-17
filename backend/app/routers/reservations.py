@@ -77,6 +77,18 @@ def _clamp_pct(v) -> float | None:
         return None
 
 
+def _clamp_deg(v) -> float | None:
+    """Normalize a table rotation into [0, 360). Returns None for None/non-numeric
+    so a rotation-less table stays unrotated (read as 0° on render). Clamp-don't-
+    reject, like the coordinates — a flaky drag value never 422s the whole save."""
+    try:
+        if v is None:
+            return None
+        return float(v) % 360.0
+    except (TypeError, ValueError):
+        return None
+
+
 def _norm_shape(v) -> str:
     """Normalise a shape to the allowed set; default 'round' on anything
     unrecognised (case-insensitive)."""
@@ -128,6 +140,7 @@ class ResourceUpdate(BaseModel):
     pos_x: float | None = None
     pos_y: float | None = None
     shape: str | None = None
+    rotation_deg: float | None = None
 
 
 class BulkResourceSpec(BaseModel):
@@ -157,6 +170,8 @@ class LayoutItem(BaseModel):
     pos_x: float | None = None
     pos_y: float | None = None
     shape: str | None = None
+    # Orientation, degrees. Optional + cosmetic; normalised 0–360 in the handler.
+    rotation_deg: float | None = None
     # Seat count — the ONLY booking-authoritative capacity. Optional so a
     # position/shape-only save never touches it; clamped (not rejected) 1–100
     # in the handler, like the other floor fields. Riding the atomic layout
@@ -304,6 +319,9 @@ def _resource_dict(r: BookableResource) -> dict:
         "pos_x": getattr(r, "pos_x", None),
         "pos_y": getattr(r, "pos_y", None),
         "shape": getattr(r, "shape", None) or "round",
+        # 0° for legacy/unrotated rows — never null (the render composes it into
+        # a CSS transform; a null there would break the whole table).
+        "rotation_deg": float(getattr(r, "rotation_deg", None) or 0.0),
     }
 
 
@@ -837,6 +855,8 @@ def save_layout(payload: LayoutUpdate, request: Request,
             r.pos_y = _clamp_pct(item.pos_y)
         if item.shape is not None:
             r.shape = _norm_shape(item.shape)
+        if item.rotation_deg is not None:
+            r.rotation_deg = _clamp_deg(item.rotation_deg)
         # Seats: booking-authoritative, so clamp (never reject) to 1–100 and
         # only touch when actually sent AND actually different — a position-only
         # save must not re-capacity every table or spam the seats audit.
@@ -885,6 +905,8 @@ def update_resource(resource_id: UUID, payload: ResourceUpdate,
         r.pos_y = _clamp_pct(payload.pos_y)
     if payload.shape is not None:
         r.shape = _norm_shape(payload.shape)
+    if payload.rotation_deg is not None:
+        r.rotation_deg = _clamp_deg(payload.rotation_deg)
     db.commit()
     return _resource_dict(r)
 
