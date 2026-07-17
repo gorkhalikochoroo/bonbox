@@ -41,6 +41,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import api from "../services/api";
+import { haptic } from "../utils/haptics";
 import Button from "./ui/Button";
 import { venueProfile } from "../config/venueProfiles";
 import {
@@ -865,6 +866,7 @@ export default function FloorPlan({
           if (l.size_scale != null) c.res.size_scale = l.size_scale;
         }
       });
+      haptic.success();
       setSavedLayout(draft);
       setSavedAt(Date.now());
       setEditing(false);
