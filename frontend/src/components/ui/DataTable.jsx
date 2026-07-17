@@ -141,6 +141,11 @@ export default function DataTable({
   onToggleSelect = null,
   onToggleAll = null,
   mobileBreakpoint = "md",
+  // Optional phone-card override: when provided, each mobile card renders
+  // mobileRow(row) instead of the generic label:value list + action strip —
+  // for surfaces where the generic dump is too tall to scan (the caller owns
+  // row tap + actions inside its renderer). Desktop table is unaffected.
+  mobileRow,
   className = "",
   // Optional: make each row/card clickable (e.g. open a detail drawer).
   // Row-action buttons already stopPropagation, so they won't double-fire.
@@ -371,6 +376,18 @@ export default function DataTable({
         rows.map((row, idx) => {
           const key = resolveKey(row, rowKey, idx);
           const isSelected = selectedSet ? selectedSet.has(key) : false;
+          if (typeof mobileRow === "function") {
+            return (
+              <Card
+                key={key}
+                className={
+                  isSelected ? "ring-1 ring-gray-900 dark:ring-gray-100" : ""
+                }
+              >
+                {mobileRow(row)}
+              </Card>
+            );
+          }
           return (
             <Card
               key={key}
