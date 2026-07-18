@@ -1980,6 +1980,7 @@ def _serialize_open_shift(o: OpenShift, name_by_id: dict | None = None) -> OpenS
         role_on_shift=o.role_on_shift,
         notes=o.notes,
         status=o.status,
+        branch_id=o.branch_id,
         claimed_by_staff_id=o.claimed_by_staff_id,
         claimed_by_name=name,
         claimed_at=o.claimed_at,
@@ -2046,6 +2047,7 @@ def create_open_shift(
         role_on_shift=data.role_on_shift,
         notes=data.notes,
         status="open",
+        branch_id=_validated_branch_id(db, user, data.branch_id),
     )
     db.add(o)
     db.commit()

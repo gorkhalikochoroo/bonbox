@@ -204,3 +204,58 @@ def test_today_endpoint_carries_branch_name(db, client):
     assert r.status_code == 200, r.text
     rows = r.json()["shifts"]
     assert rows and rows[0]["branch_name"] == "Østerbro"
+
+
+def test_open_shift_branch_flows_to_portal_and_claim(db, client):
+    """S5: the open shift carries WHERE the hole is; the portal shows it;
+    the claim materializes a Schedule that INHERITS the branch."""
+    owner = _owner(db, "os")
+    b = _branch(db, owner, "Frederiksberg")
+    staff = _staff(db, owner, "Clara")
+    app.dependency_overrides[get_current_user] = lambda: owner
+
+    r = client.post("/api/staff/open-shifts", json={
+        "date": MONDAY.isoformat(), "start_time": "17:00", "end_time": "22:00",
+        "branch_id": str(b.id),
+    })
+    assert r.status_code == 200, r.text
+    os_id = r.json()["id"]
+    assert r.json()["branch_id"] == str(b.id)
+
+    link = StaffLink(staff_id=staff.id, user_id=owner.id,
+                     token="tok-openshift-br-123456789012", active=True)
+    db.add(link); db.commit()
+
+    pool = client.get(f"/api/portal/{link.token}/open-shifts").json()
+    assert pool and pool[0]["branch_name"] == "Frederiksberg"
+
+    rc = client.post(f"/api/portal/{link.token}/open-shifts/{os_id}/claim")
+    assert rc.status_code == 200, rc.text
+    sched = db.query(Schedule).filter(
+        Schedule.id == rc.json()["schedule_id"]).first()
+    assert str(sched.branch_id) == str(b.id)  # inherited
+
+
+def test_giveaway_pool_row_carries_branch_name(db, client):
+    owner = _owner(db, "gab")
+    b = _branch(db, owner, "Kastrup")
+    mette = _staff(db, owner, "Mette")
+    jonas = _staff(db, owner, "Jonas")
+    app.dependency_overrides[get_current_user] = lambda: owner
+    sr = client.post("/api/staff/schedules", json={
+        "staff_id": str(mette.id), "date": MONDAY.isoformat(),
+        "start_time": "10:00", "end_time": "16:00",
+        "status": "published", "branch_id": str(b.id),
+    })
+    for s, tok in ((mette, "tok-ga-branch-m-123456789012"),
+                   (jonas, "tok-ga-branch-j-123456789012")):
+        db.add(StaffLink(staff_id=s.id, user_id=owner.id, token=tok, active=True))
+    db.commit()
+
+    ro = client.post("/api/portal/tok-ga-branch-m-123456789012/give-aways",
+                     json={"shift_id": sr.json()["id"]})
+    assert ro.status_code == 200, ro.text
+    assert ro.json()["from_branch_name"] == "Kastrup"
+
+    pool = client.get("/api/portal/tok-ga-branch-j-123456789012/give-aways").json()
+    assert pool and pool[0]["from_branch_name"] == "Kastrup"

@@ -1001,6 +1001,11 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
               </div>
               <div className="text-[13px] text-gray-500 tabular-nums mt-0.5">
                 {o.start_time}–{o.end_time}
+                {/* Multi-location S5: WHERE the hole is — a colleague sees
+                    the venue before taking a cross-location shift. */}
+                {o.branch_name && (
+                  <span className="text-gray-400"> · {o.branch_name}</span>
+                )}
               </div>
             </div>
             <button
@@ -2000,6 +2005,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
                 </div>
                 <div className="text-[11px] text-gray-500 truncate">
                   {t("portalGaFrom", "From")} {g.from_staff_name}
+                  {g.from_branch_name ? ` · ${g.from_branch_name}` : ""}
                   {g.reason ? ` — “${g.reason}”` : ""}
                 </div>
               </div>
