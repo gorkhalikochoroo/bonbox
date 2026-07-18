@@ -2188,6 +2188,11 @@ _migrations = [
     # no stored blob, no new storage kind (avoids the ALLOWED_KINDS/
     # ERASURE_PURGE_KINDS pairing). See services/procedure_service.py.
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS procedure_json TEXT",
+    # ── Migration 063 (2026-07-18): Vagtplan Shield hour-limit toggle ────
+    # Per-staff on/off for hour-limit warnings (contract cap / 48h / the
+    # 90 t-md student default). Default TRUE = warn. Rest warnings (11-timers
+    # reglen) are deliberately NOT toggleable — safety law, not preference.
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS hour_limit_warn BOOLEAN DEFAULT TRUE",
 ]
 
 
