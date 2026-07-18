@@ -458,3 +458,214 @@ def list_pending_for_owner(
         .order_by(ShiftSwapRequest.responded_at.desc())
         .all()
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  GIVE-AWAY ("Sæt vagt til salg") — Phase 2 v2, the mode the model was
+#  built for (to_staff_id / to_shift_id nullable).
+#
+#  Flow: offerer posts their shift to the pool (status `proposed`,
+#  to_staff NULL) → any eligible colleague claims → EXECUTES immediately
+#  (Schedule.staff_id reassigns, status `done`) per the same
+#  auto-execute-on-mutual-handshake doctrine as respond_to_swap — the
+#  offerer offered, the claimer claimed; the owner is notified, not a
+#  gate. withdraw_swap already covers pulling an unclaimed offer.
+#
+#  Claims get two guards trades don't need (a claim ADDS hours):
+#    • overlap  — refuse if the claimer already works overlapping times
+#                 that day (overnight-aware, same math as the schedule
+#                 overlap barrier)
+#    • hour cap — refuse if the claim pushes the claimer past their
+#                 contract max_hours_week (else the DK 48h ceiling).
+#                 Respects the staffer's hour_limit_warn toggle — an
+#                 owner who switched warnings off accepted overload for
+#                 that person. Refusal, not warning: the pool must never
+#                 silently create the exact breach the Shield exists to
+#                 surface; the owner can always assign manually.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _hhmm_min(v: str) -> int:
+    try:
+        h, m = (v or "0:0").split(":")
+        return int(h) * 60 + int(m)
+    except Exception:  # noqa: BLE001 — malformed time reads as midnight
+        return 0
+
+
+def _spans(sched: Schedule) -> tuple[int, int]:
+    """Minutes-from-day-start span; overnight end rolls past 24h (strict <,
+    mirrors autopilot _shift_hours)."""
+    s = _hhmm_min(sched.start_time)
+    e = _hhmm_min(sched.end_time)
+    if e < s:
+        e += 24 * 60
+    return s, e
+
+
+def offer_giveaway(
+    db: Session,
+    *,
+    owner_id: uuid.UUID,
+    from_staff_id: uuid.UUID,
+    from_shift_id: uuid.UUID,
+    reason: Optional[str] = None,
+) -> ShiftSwapRequest:
+    """Staffer puts their own future shift up for grabs."""
+    sched = _shift_belongs_to(
+        db, shift_id=from_shift_id, owner_id=owner_id, staff_id=from_staff_id,
+    )
+    if sched.date < date_cls.today():
+        raise ShiftSwapError("Can't give away a shift that's already in the past.")
+
+    # Idempotency — one open offer per shift.
+    existing = db.query(ShiftSwapRequest).filter(
+        ShiftSwapRequest.user_id == owner_id,
+        ShiftSwapRequest.from_shift_id == from_shift_id,
+        ShiftSwapRequest.to_shift_id.is_(None),
+        ShiftSwapRequest.status == "proposed",
+    ).first()
+    if existing:
+        return existing
+
+    swap = ShiftSwapRequest(
+        user_id=owner_id,
+        from_staff_id=from_staff_id,
+        from_shift_id=from_shift_id,
+        to_staff_id=None,
+        to_shift_id=None,
+        status="proposed",
+        reason=_scrub(reason),
+    )
+    db.add(swap)
+    db.commit()
+    db.refresh(swap)
+    log.info("[give_away] offered shift=%s by staff=%s", from_shift_id, from_staff_id)
+    return swap
+
+
+def list_open_giveaways(
+    db: Session,
+    *,
+    owner_id: uuid.UUID,
+    exclude_staff_id: Optional[uuid.UUID] = None,
+) -> list[ShiftSwapRequest]:
+    """Open (unclaimed, future) give-away offers — colleagues' pool view."""
+    q = (
+        db.query(ShiftSwapRequest)
+        .join(Schedule, Schedule.id == ShiftSwapRequest.from_shift_id)
+        .filter(
+            ShiftSwapRequest.user_id == owner_id,
+            ShiftSwapRequest.to_shift_id.is_(None),
+            ShiftSwapRequest.status == "proposed",
+            Schedule.date >= date_cls.today(),
+        )
+        .order_by(Schedule.date)
+    )
+    if exclude_staff_id is not None:
+        q = q.filter(ShiftSwapRequest.from_staff_id != exclude_staff_id)
+    return q.all()
+
+
+def claim_giveaway(
+    db: Session,
+    *,
+    owner_id: uuid.UUID,
+    swap_id: uuid.UUID,
+    claimer_staff_id: uuid.UUID,
+) -> ShiftSwapRequest:
+    """Colleague takes an open give-away — executes immediately (atomic)."""
+    from app.services.schedule_autopilot import (
+        _shift_hours,
+        DK_MAX_HOURS_PER_WEEK,
+    )
+    from datetime import timedelta
+
+    swap = db.query(ShiftSwapRequest).filter(
+        ShiftSwapRequest.id == swap_id,
+        ShiftSwapRequest.user_id == owner_id,
+    ).first()
+    if not swap or swap.to_shift_id is not None:
+        raise ShiftSwapError("Give-away not found.")
+    if swap.status != "proposed":
+        raise ShiftSwapError("This shift has already been taken.")
+    if swap.from_staff_id == claimer_staff_id:
+        raise ShiftSwapError("You can't take your own shift — withdraw it instead.")
+
+    claimer = db.query(StaffMember).filter(
+        StaffMember.id == claimer_staff_id,
+        StaffMember.user_id == owner_id,
+        StaffMember.is_deleted.isnot(True),
+        StaffMember.active.is_(True),
+    ).first()
+    if not claimer:
+        raise ShiftSwapError("Staff not found.")
+
+    # Re-validate the shift still belongs to the offerer + is future.
+    sched = db.query(Schedule).filter(
+        Schedule.id == swap.from_shift_id,
+        Schedule.user_id == owner_id,
+        Schedule.staff_id == swap.from_staff_id,
+    ).first()
+    if not sched:
+        swap.status = "withdrawn"
+        db.commit()
+        raise ShiftSwapError(
+            "The shift has changed since it was offered; ask them to re-offer."
+        )
+    if sched.date < date_cls.today():
+        raise ShiftSwapError("This shift is already in the past.")
+
+    # Guard 1 — overlap with the claimer's existing shifts that day.
+    day_shifts = db.query(Schedule).filter(
+        Schedule.user_id == owner_id,
+        Schedule.staff_id == claimer_staff_id,
+        Schedule.date == sched.date,
+    ).all()
+    cs, ce = _spans(sched)
+    for other in day_shifts:
+        os_, oe = _spans(other)
+        if cs < oe and os_ < ce:
+            raise ShiftSwapError(
+                "You already work an overlapping shift that day."
+            )
+
+    # Guard 2 — hour cap (contract max_hours_week, else DK 48h), unless the
+    # owner switched hour-limit warnings off for this staffer.
+    if claimer.hour_limit_warn is not False:
+        monday = sched.date - timedelta(days=sched.date.weekday())
+        week_shifts = db.query(Schedule).filter(
+            Schedule.user_id == owner_id,
+            Schedule.staff_id == claimer_staff_id,
+            Schedule.date >= monday,
+            Schedule.date <= monday + timedelta(days=6),
+        ).all()
+        week_hours = sum(
+            _shift_hours(s.start_time, s.end_time, s.break_minutes or 0)
+            for s in week_shifts
+        ) + _shift_hours(sched.start_time, sched.end_time, sched.break_minutes or 0)
+        cap = float(claimer.max_hours_week) if claimer.max_hours_week else DK_MAX_HOURS_PER_WEEK
+        if week_hours > cap + 0.01:
+            raise ShiftSwapError(
+                f"Taking this shift would put you over your weekly limit "
+                f"({week_hours:.1f} of {cap:.0f} hours)."
+            )
+
+    # Execute — atomic reassignment.
+    now = utc_now()
+    sched.staff_id = claimer_staff_id
+    swap.to_staff_id = claimer_staff_id
+    swap.status = "done"
+    swap.responded_at = now
+    swap.decided_at = now
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(swap)
+    log.info(
+        "[give_away] CLAIMED swap=%s shift=%s %s→%s",
+        swap_id, swap.from_shift_id, swap.from_staff_id, claimer_staff_id,
+    )
+    return swap

@@ -2303,6 +2303,117 @@ def portal_claim_open_shift(
     }
 
 
+class GiveawayOfferBody(BaseModel):
+    shift_id: str
+    reason: str | None = None
+
+
+@router.post("/{token}/give-aways", response_model=SwapPortalResponse)
+@limiter.limit("6/minute")
+def portal_offer_giveaway(
+    token: str,
+    body: GiveawayOfferBody,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Staffer puts their own shift up for grabs ("Sæt vagt til salg").
+    staff_id is bound by the magic-link token, never the body."""
+    import uuid as _uuid
+    from app.services.shift_swap_service import offer_giveaway, ShiftSwapError
+
+    _link, member = _get_staff_from_token(token, db)
+    try:
+        shift_id = _uuid.UUID(body.shift_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid id")
+    try:
+        swap = offer_giveaway(
+            db, owner_id=member.user_id, from_staff_id=member.id,
+            from_shift_id=shift_id, reason=body.reason,
+        )
+    except ShiftSwapError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _hydrate_swap(swap, db, viewer_staff_id=member.id)
+
+
+@router.get("/{token}/give-aways", response_model=list[SwapPortalResponse])
+@limiter.limit("30/minute")
+def portal_list_giveaways(
+    token: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Open give-aways from COLLEAGUES (the claimable pool). The viewer's own
+    offers already appear in their swap-requests list (same table)."""
+    from app.services.shift_swap_service import list_open_giveaways
+
+    _link, member = _get_staff_from_token(token, db)
+    rows = list_open_giveaways(
+        db, owner_id=member.user_id, exclude_staff_id=member.id,
+    )
+    return [_hydrate_swap(s, db, viewer_staff_id=member.id) for s in rows]
+
+
+@router.post("/{token}/give-aways/{giveaway_id}/claim", response_model=SwapPortalResponse)
+@limiter.limit("10/minute")
+def portal_claim_giveaway(
+    token: str,
+    giveaway_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Colleague takes an open give-away — executes immediately (the shift
+    reassigns), per the auto-execute-on-mutual-handshake swap doctrine.
+    Owner is notified, not gated."""
+    import uuid as _uuid
+    from app.services.shift_swap_service import claim_giveaway, ShiftSwapError
+
+    _link, member = _get_staff_from_token(token, db)
+    try:
+        ga_uuid = _uuid.UUID(giveaway_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid id")
+    try:
+        swap = claim_giveaway(
+            db, owner_id=member.user_id, swap_id=ga_uuid,
+            claimer_staff_id=member.id,
+        )
+    except ShiftSwapError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    # Owner awareness + live grid/portal refresh — both best-effort.
+    sched = db.query(Schedule).filter(Schedule.id == swap.from_shift_id).first()
+    offerer = db.query(StaffMember).filter(
+        StaffMember.id == swap.from_staff_id
+    ).first()
+    if sched is not None:
+        try:
+            owner = db.query(User).filter(User.id == member.user_id).first()
+            if owner:
+                from app.services.notification_service import notify_owner_shift_claimed
+                notify_owner_shift_claimed(
+                    db, owner=owner,
+                    staff_name=(
+                        f"{member.name} (overtog {offerer.name}s vagt)"
+                        if offerer else member.name
+                    ),
+                    shift_date=sched.date,
+                    start_time=sched.start_time, end_time=sched.end_time,
+                )
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            _monday = sched.date - timedelta(days=sched.date.weekday())
+            portal_events.publish(
+                str(member.user_id),
+                {"type": "schedule_published", "week_start": _monday.isoformat()},
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    return _hydrate_swap(swap, db, viewer_staff_id=member.id)
+
+
 @router.post("/{token}/swap-requests", response_model=SwapPortalResponse)
 @limiter.limit("6/minute")
 def portal_propose_swap(
