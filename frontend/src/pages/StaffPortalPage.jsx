@@ -1882,17 +1882,21 @@ function TipsTab({ data }) {
  *   • Server scrubs reason text + caps to 500 chars
  */
 function SwapTab({ token, ownShifts, onChanged }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [inbox, setInbox] = useState(null);
+  const [pool, setPool] = useState([]); // colleagues' open give-aways
   const [showPropose, setShowPropose] = useState(false);
+  const [showSell, setShowSell] = useState(false);
+  const [claimBusy, setClaimBusy] = useState(null);
+  const [claimErr, setClaimErr] = useState("");
 
   const fetchInbox = async () => {
-    try {
-      const res = await portalApi.get(`/portal/${token}/swap-requests`);
-      setInbox(res.data || []);
-    } catch {
-      setInbox([]);
-    }
+    const [inboxRes, poolRes] = await Promise.allSettled([
+      portalApi.get(`/portal/${token}/swap-requests`),
+      portalApi.get(`/portal/${token}/give-aways`),
+    ]);
+    setInbox(inboxRes.status === "fulfilled" ? (inboxRes.value.data || []) : []);
+    setPool(poolRes.status === "fulfilled" ? (poolRes.value.data || []) : []);
   };
 
   useEffect(() => { fetchInbox(); }, [token]);
@@ -1902,17 +1906,42 @@ function SwapTab({ token, ownShifts, onChanged }) {
     onChanged?.();
   };
 
+  const claimGiveaway = async (id) => {
+    setClaimBusy(id);
+    setClaimErr("");
+    try {
+      await portalApi.post(`/portal/${token}/give-aways/${id}/claim`);
+      haptic.success(); // you just picked up a shift — a real moment
+      reload();
+    } catch (err) {
+      haptic.warning();
+      setClaimErr(errText(err, t("portalGaClaimFailed", "Couldn't take the shift. Try again.")));
+      fetchInbox(); // it may have just been taken — refresh the pool
+    } finally {
+      setClaimBusy(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      {/* Propose CTA */}
-      {!showPropose && (
-        <button
-          onClick={() => setShowPropose(true)}
-          className="w-full px-4 py-3 rounded-xl bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold transition flex items-center justify-center gap-2"
-        >
-          <ArrowLeftRight className="w-4 h-4" strokeWidth={2} aria-hidden />
-          {t("portalOfferSwapLong", "Offer to swap a shift")}
-        </button>
+      {/* Actions — trade (targeted) or sell (open pool) */}
+      {!showPropose && !showSell && (
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setShowPropose(true)}
+            className="px-3 py-3 rounded-xl bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold transition flex items-center justify-center gap-1.5"
+          >
+            <ArrowLeftRight className="w-4 h-4" strokeWidth={2} aria-hidden />
+            {t("portalOfferSwapShort", "Swap")}
+          </button>
+          <button
+            onClick={() => setShowSell(true)}
+            className="px-3 py-3 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 text-gray-900 text-sm font-semibold transition flex items-center justify-center gap-1.5"
+          >
+            <Send className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />
+            {t("portalGaSellCta", "Give away a shift")}
+          </button>
+        </div>
       )}
       {showPropose && (
         <SwapProposeModal
@@ -1921,6 +1950,47 @@ function SwapTab({ token, ownShifts, onChanged }) {
           onClose={() => setShowPropose(false)}
           onProposed={() => { setShowPropose(false); reload(); }}
         />
+      )}
+      {showSell && (
+        <GiveawaySellModal
+          token={token}
+          ownShifts={ownShifts}
+          onClose={() => setShowSell(false)}
+          onOffered={() => { setShowSell(false); reload(); }}
+        />
+      )}
+
+      {/* Colleagues' open give-aways — first qualified taker wins. */}
+      {pool.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[10px] uppercase tracking-wide font-medium text-gray-500">
+            {t("portalGaPoolHeading", "Shifts up for grabs")}
+          </div>
+          {claimErr && (
+            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">{claimErr}</div>
+          )}
+          {pool.map((g) => (
+            <div key={g.id} className="rounded-xl bg-white border border-gray-200 p-3 flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm text-gray-900">
+                  <span className="font-semibold">{fmtSwapDay(g.from_shift_date, lang)}</span>
+                  <span className="text-gray-500"> · {g.from_shift_time}</span>
+                </div>
+                <div className="text-[11px] text-gray-500 truncate">
+                  {t("portalGaFrom", "From")} {g.from_staff_name}
+                  {g.reason ? ` — “${g.reason}”` : ""}
+                </div>
+              </div>
+              <button
+                onClick={() => claimGiveaway(g.id)}
+                disabled={claimBusy === g.id}
+                className="shrink-0 text-xs font-semibold px-3 py-2 rounded-lg bg-gray-900 hover:bg-gray-700 text-white disabled:opacity-50"
+              >
+                {claimBusy === g.id ? "…" : t("portalGaTake", "Take it")}
+              </button>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Inbox */}
@@ -1995,12 +2065,16 @@ function SwapRow({ swap, token, onChanged }) {
         ? "bg-gray-100 border border-gray-200 text-gray-700"
         : "bg-gray-100 border border-gray-200 text-gray-500";
 
+  // Give-away = no counter-shift (to_shift_id null). Same state machine,
+  // different words: the row reads "up for grabs / taken", never "swap".
+  const isGiveaway = !swap.to_shift_id;
+
   // Localized status word for the pill. "Byttet" (swapped/done) stays
   // Danish across all UI languages per the DK terminology lock.
   const statusLabel = swap.status === "proposed"
-    ? t("portalSwapStatusProposed", "Pending")
+    ? (isGiveaway ? t("portalGaStatusOpen", "Up for grabs") : t("portalSwapStatusProposed", "Pending"))
     : swap.status === "done"
-      ? t("portalSwapStatusDone", "Byttet")
+      ? (isGiveaway ? t("portalGaStatusTaken", "Taken") : t("portalSwapStatusDone", "Byttet"))
       : swap.status === "declined"
         ? t("portalSwapStatusDeclined", "Declined")
         : swap.status === "withdrawn"
@@ -2019,20 +2093,37 @@ function SwapRow({ swap, token, onChanged }) {
       </div>
       <div className="text-sm text-gray-900">
         <span className="font-semibold">{swap.from_staff_name}</span>
-        <span className="text-gray-500"> → </span>
-        <span className="font-semibold">{swap.to_staff_name}</span>
+        {isGiveaway ? (
+          swap.status === "done" && swap.to_staff_name ? (
+            <>
+              <span className="text-gray-500"> → </span>
+              <span className="font-semibold">{swap.to_staff_name}</span>
+            </>
+          ) : (
+            <span className="text-gray-500"> · {t("portalGaOnBoard", "on the board")}</span>
+          )
+        ) : (
+          <>
+            <span className="text-gray-500"> → </span>
+            <span className="font-semibold">{swap.to_staff_name}</span>
+          </>
+        )}
       </div>
-      <div className="grid grid-cols-2 gap-2 text-[11px]">
+      <div className={`grid gap-2 text-[11px] ${isGiveaway ? "grid-cols-1" : "grid-cols-2"}`}>
         <div className="bg-gray-50 rounded p-1.5">
-          <div className="text-[10px] text-gray-500">{t("portalSwapGives", "Gives")}</div>
+          <div className="text-[10px] text-gray-500">
+            {isGiveaway ? t("portalGaShiftLabel", "Shift") : t("portalSwapGives", "Gives")}
+          </div>
           <div className="text-gray-900">{fmtSwapDay(swap.from_shift_date, lang)}</div>
           <div className="text-gray-500">{swap.from_shift_time}</div>
         </div>
-        <div className="bg-gray-50 rounded p-1.5">
-          <div className="text-[10px] text-gray-500">{t("portalSwapGets", "Gets")}</div>
-          <div className="text-gray-900">{fmtSwapDay(swap.to_shift_date, lang)}</div>
-          <div className="text-gray-500">{swap.to_shift_time}</div>
-        </div>
+        {!isGiveaway && (
+          <div className="bg-gray-50 rounded p-1.5">
+            <div className="text-[10px] text-gray-500">{t("portalSwapGets", "Gets")}</div>
+            <div className="text-gray-900">{fmtSwapDay(swap.to_shift_date, lang)}</div>
+            <div className="text-gray-500">{swap.to_shift_time}</div>
+          </div>
+        )}
       </div>
       {swap.reason && (
         <div className="text-[11px] text-gray-500 italic">"{swap.reason}"</div>
@@ -2097,6 +2188,91 @@ function SwapRow({ swap, token, onChanged }) {
 
 /** Modal for proposing a new swap. Pulls the team's upcoming shifts
  * via /portal/{token}/team-schedule and the staff's own from a prop. */
+/** GiveawaySellModal — "Sæt en vagt til salg": pick one of your own future
+ * shifts, optional reason, post it to the colleague pool. First qualified
+ * taker gets it (auto-execute, same doctrine as swaps); withdraw anytime
+ * before it's taken via the request row in the inbox below. */
+function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
+  const { t, lang } = useLanguage();
+  const [shiftId, setShiftId] = useState("");
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const upcomingOwn = (ownShifts || []).filter((s) => (s.date || "") >= todayIso);
+
+  const submit = async () => {
+    if (!shiftId) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      await portalApi.post(`/portal/${token}/give-aways`, {
+        shift_id: shiftId,
+        reason: reason.trim() || null,
+      });
+      haptic.light();
+      onOffered?.();
+    } catch (err) {
+      setError(errText(err, t("portalGaOfferFailed", "Couldn't post the shift. Try again.")));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="font-semibold text-gray-900 text-sm flex items-center gap-1.5">
+          <Send className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />
+          {t("portalGaSellCta", "Give away a shift")}
+        </div>
+        <button
+          onClick={onClose}
+          className="text-gray-500 hover:text-gray-700 text-lg w-6 h-6 flex items-center justify-center"
+          aria-label={t("close", "Close")}
+        >
+          ×
+        </button>
+      </div>
+      <p className="text-[11px] text-gray-500 leading-snug">
+        {t("portalGaSellHint", "Your shift goes on the board for colleagues. You keep it until someone takes it — first to take it, gets it.")}
+      </p>
+      <select
+        value={shiftId}
+        onChange={(e) => setShiftId(e.target.value)}
+        className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-800"
+      >
+        <option value="">{t("portalGaPickShift", "Pick your shift…")}</option>
+        {upcomingOwn.map((s) => (
+          <option key={s.id} value={s.id}>
+            {fmtSwapDay(s.date, lang)} · {s.start_time}–{s.end_time}
+          </option>
+        ))}
+      </select>
+      <input
+        type="text"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        maxLength={200}
+        placeholder={t("portalGaReasonPh", "Reason (optional — colleagues see it)")}
+        className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-800"
+      />
+      {error && (
+        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">{error}</div>
+      )}
+      <button
+        onClick={submit}
+        disabled={!shiftId || submitting}
+        className="w-full px-4 py-2.5 rounded-xl bg-gray-900 hover:bg-gray-800 text-white text-sm font-semibold transition disabled:opacity-50"
+      >
+        {submitting ? "…" : t("portalGaSellSubmit", "Put it up for grabs")}
+      </button>
+    </div>
+  );
+}
+
+
 function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
   const { t } = useLanguage();
   const [teamShifts, setTeamShifts] = useState([]);
