@@ -266,6 +266,10 @@ export default function ReservationPublicPage() {
   const [day, setDay] = useState("");
   const [party, setParty] = useState(2);
   const [slot, setSlot] = useState("");
+  // The one-tap date strip is the primary picker; the native date field is a
+  // quiet escape hatch for a far-out date, revealed on demand so it never
+  // clutters the default view (premium via subtraction).
+  const [showDateInput, setShowDateInput] = useState(false);
 
   // Availability for the current day+party.
   const [slots, setSlots] = useState([]);
@@ -1329,28 +1333,39 @@ export default function ReservationPublicPage() {
             )}
             {/* Date */}
             <div>
-              <label
-                htmlFor="rsvp-day"
-                className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
-              >
-                {t("rsvpPickDate", "Vælg dato")}
-              </label>
-              {/* One-tap date strip (closed days disabled) — the primary picker.
-                  The native input below stays as an escape hatch for a specific
-                  far-out date. */}
-              <DateStrip today={today} dayMap={dayMap} value={day} onPick={setDay} t={t} />
-              <div className="mt-2">
-                <Input
-                  id="rsvp-day"
-                  type="date"
-                  size="lg"
-                  value={day}
-                  min={today}
-                  max={latestDay}
-                  onChange={(e) => setDay(e.target.value)}
-                  prefix={<Calendar size={16} strokeWidth={1.75} />}
-                />
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                  {t("rsvpPickDate", "Vælg dato")}
+                </p>
+                {/* Quiet escape hatch for a far-out date, revealed on demand so
+                    the native field never clutters the default clean strip. */}
+                <button
+                  type="button"
+                  onClick={() => setShowDateInput((v) => !v)}
+                  aria-expanded={showDateInput}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 transition-colors"
+                >
+                  <Calendar size={13} strokeWidth={1.75} aria-hidden="true" />
+                  {t("rsvpOtherDate", "Anden dato")}
+                </button>
               </div>
+              {/* One-tap date strip (closed days disabled) — the primary picker. */}
+              <DateStrip today={today} dayMap={dayMap} value={day} onPick={setDay} t={t} />
+              {showDateInput && (
+                <div className="mt-2">
+                  <Input
+                    id="rsvp-day"
+                    type="date"
+                    size="lg"
+                    value={day}
+                    min={today}
+                    max={latestDay}
+                    onChange={(e) => setDay(e.target.value)}
+                    aria-label={t("rsvpPickDate", "Vælg dato")}
+                    prefix={<Calendar size={16} strokeWidth={1.75} />}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Party size — TABLE venues only. A salon tidsbestilling is one
@@ -1360,7 +1375,7 @@ export default function ReservationPublicPage() {
                 <p className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   {t("rsvpPartySize", "Antal gæster")}
                 </p>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="grid grid-cols-5 gap-1.5">
                   {partyOptions.map((n) => (
                     <Chip
                       key={n}
@@ -1368,6 +1383,7 @@ export default function ReservationPublicPage() {
                       selected={party === n}
                       onClick={() => setParty(n)}
                       aria-label={t("rsvpPartyN", "{n} guests", { n })}
+                      className="w-full h-11"
                     >
                       {n}
                     </Chip>
