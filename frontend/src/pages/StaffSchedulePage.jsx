@@ -4488,6 +4488,9 @@ function OpenShiftChip({ row, t, onCancel }) {
 }
 
 function OpenShiftCreateModal({ weekDates, t, onClose, onCreated }) {
+  // Multi-location S5: the open shift is posted AT the currently-viewed
+  // location (same context rule as shift create) — no extra picker.
+  const { branchId: _openShiftBranchId } = useBranch();
   const [dateIso, setDateIso] = useState(toISO(weekDates[0]));
   const [startH, setStartH] = useState("16");
   const [startM, setStartM] = useState("00");
@@ -4506,6 +4509,7 @@ function OpenShiftCreateModal({ weekDates, t, onClose, onCreated }) {
         start_time: `${startH}:${startM}`,
         end_time: `${endH}:${endM}`,
         role_on_shift: role,
+        branch_id: _openShiftBranchId || undefined,
       });
       onCreated();
     } catch (e) {

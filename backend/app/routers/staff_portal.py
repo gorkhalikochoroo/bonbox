@@ -2015,6 +2015,9 @@ class SwapPortalResponse(BaseModel):
     from_shift_id: str
     from_shift_date: date | None
     from_shift_time: str | None
+    # Location of the offered shift (multi-location S5) — pool rows show
+    # WHERE the shift is so a colleague knows before taking it. Name only.
+    from_branch_name: str | None = None
     to_staff_id: str | None
     to_staff_name: str | None
     to_shift_id: str | None
@@ -2044,6 +2047,11 @@ def _hydrate_swap(swap, db, *, viewer_staff_id) -> SwapPortalResponse:
         db.query(Schedule).filter(Schedule.id == swap.to_shift_id).first()
         if swap.to_shift_id else None
     )
+    from_branch_name = None
+    if from_sched is not None and from_sched.branch_id:
+        from app.models.branch import Branch
+        _b = db.query(Branch).filter(Branch.id == from_sched.branch_id).first()
+        from_branch_name = _b.name if _b else None
     direction = "outgoing" if swap.from_staff_id == viewer_staff_id else "incoming"
     return SwapPortalResponse(
         id=str(swap.id),
@@ -2057,6 +2065,7 @@ def _hydrate_swap(swap, db, *, viewer_staff_id) -> SwapPortalResponse:
             f"{from_sched.start_time}–{from_sched.end_time}"
             if from_sched else None
         ),
+        from_branch_name=from_branch_name,
         to_staff_id=str(swap.to_staff_id) if swap.to_staff_id else None,
         to_staff_name=to_staff.name if to_staff else None,
         to_shift_id=str(swap.to_shift_id) if swap.to_shift_id else None,
@@ -2176,6 +2185,9 @@ class PortalOpenShift(BaseModel):
     end_time: str
     role: str | None
     break_minutes: int = 0
+    # Where the hole is (multi-location S5). Name only, same privacy rule
+    # as the who's-on strip.
+    branch_name: str | None = None
 
 
 @router.get("/{token}/open-shifts", response_model=list[PortalOpenShift])
@@ -2198,11 +2210,19 @@ def portal_open_shifts(token: str, request: Request, db: Session = Depends(get_d
         .order_by(OpenShift.date.asc(), OpenShift.start_time.asc())
         .all()
     )
+    _b_ids = {o.branch_id for o in rows if o.branch_id}
+    _b_names = {}
+    if _b_ids:
+        from app.models.branch import Branch
+        for b in db.query(Branch).filter(Branch.id.in_(_b_ids)).all():
+            _b_names[b.id] = b.name
+
     return [
         PortalOpenShift(
             id=str(o.id), date=o.date, start_time=o.start_time,
             end_time=o.end_time, role=o.role_on_shift,
             break_minutes=o.break_minutes or 0,
+            branch_name=_b_names.get(o.branch_id),
         )
         for o in rows
     ]
@@ -2295,6 +2315,7 @@ def portal_claim_open_shift(
         break_minutes=o.break_minutes or 0,
         role_on_shift=o.role_on_shift,
         status="published",
+        branch_id=o.branch_id,  # the claim inherits WHERE the hole was (S5)
     )
     db.add(shift)
     db.commit()

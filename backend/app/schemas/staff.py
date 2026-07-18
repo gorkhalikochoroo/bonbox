@@ -208,6 +208,8 @@ class OpenShiftCreate(BaseModel):
     break_minutes: int = 0
     role_on_shift: str | None = None
     notes: str | None = None
+    # Where the hole is (multi-location S5) — validated at the router.
+    branch_id: uuid.UUID | None = None
 
     @field_validator("start_time", "end_time")
     @classmethod
@@ -231,6 +233,7 @@ class OpenShiftResponse(BaseModel):
     end_time: str
     break_minutes: int = 0
     role_on_shift: str | None = None
+    branch_id: uuid.UUID | None = None
     notes: str | None = None
     status: str
     claimed_by_staff_id: uuid.UUID | None = None

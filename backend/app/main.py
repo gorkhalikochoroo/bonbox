@@ -2201,6 +2201,11 @@ _migrations = [
     # dropped it until now. VARCHAR(36) like the other GUID FKs.
     "ALTER TABLE schedules ADD COLUMN IF NOT EXISTS branch_id VARCHAR(36) REFERENCES branches(id)",
     "CREATE INDEX IF NOT EXISTS ix_schedules_user_branch ON schedules (user_id, branch_id)",
+    # ── Migration 065 (2026-07-18): open-shift location (multi-location S5) ──
+    # Cross-location cover: an open shift carries WHERE the hole is, the
+    # portal pool shows it, and a claim materializes a Schedule row that
+    # INHERITS the branch. NULL = unassigned/main, as everywhere else.
+    "ALTER TABLE open_shifts ADD COLUMN IF NOT EXISTS branch_id VARCHAR(36) REFERENCES branches(id)",
 ]
 
 

@@ -280,6 +280,11 @@ class OpenShift(Base):
     role_on_shift: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="open")
+    # Where the hole is (multi-location S5). Claim inherits this onto the
+    # materialized Schedule row. NULL = unassigned/main.
+    branch_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID(), ForeignKey("branches.id"), nullable=True,
+    )
     # Filled-in only once a staffer claims it. claimed_schedule_id ties the
     # OpenShift to the Schedule row it spawned (so cancelling a filled slot can
     # find + remove that shift, if we ever allow it).
