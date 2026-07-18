@@ -5032,6 +5032,103 @@ function BehandlingerSection({ t }) {
 }
 
 // ─── Settings + share ─────────────────────────────────────────────────
+// EmbedOnWebsite — "Sæt på din hjemmeside": the two copy-paste ways an owner
+// puts BonBox booking where guests actually start. A styled BUTTON (an <a>
+// link — works on any site, zero risk, opens the BonBox page) and an inline
+// IFRAME (the widget lives in-page; needs the /r/ frame-ancestors CSP). Both
+// snippets use inline styles so they render correctly without the host site's
+// CSS. Plus a one-liner for the two link-only channels (Google Maps profile,
+// Instagram bio) — no build, just their existing link.
+function EmbedOnWebsite({ publicUrl, venueName, t }) {
+  const [copied, setCopied] = useState(""); // "" | "button" | "iframe"
+
+  const label = t("rsvpEmbedButtonLabel", "Book bord");
+  const safeName = (venueName || "BonBox").replace(/"/g, "&quot;");
+  // The iframe MUST load the /r/ form: only that route carries the
+  // frame-ancestors CSP that lets a third-party site embed it (the bare
+  // /{slug} route inherits the site-wide frame-ancestors 'none'). Same page,
+  // embeddable headers. The button is a full-page link, so bare slug is fine.
+  const embedSrc = publicUrl.replace(/\/([^/]+)\/?$/, "/r/$1");
+  const buttonSnippet =
+    `<a href="${publicUrl}" target="_blank" rel="noopener"\n` +
+    `  style="display:inline-flex;align-items:center;gap:8px;padding:12px 22px;` +
+    `border-radius:12px;background:#111827;color:#fff;font:600 15px/1 system-ui,` +
+    `sans-serif;text-decoration:none">${label}</a>`;
+  const iframeSnippet =
+    `<iframe src="${embedSrc}?embed=1" title="${label} — ${safeName}"\n` +
+    `  width="100%" height="720" loading="lazy"\n` +
+    `  style="border:0;max-width:460px;border-radius:16px"></iframe>`;
+
+  const copy = async (key, text) => {
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+      else {
+        const ta = document.createElement("textarea");
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        document.execCommand("copy"); ta.remove();
+      }
+      setCopied(key);
+      setTimeout(() => setCopied((c) => (c === key ? "" : c)), 2500);
+    } catch { /* clipboard blocked — the owner can still select the text */ }
+  };
+
+  const Snippet = ({ k, code, heading, sub }) => (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-gray-700 dark:text-gray-300">{heading}</p>
+          <p className="text-[11px] text-gray-500 dark:text-gray-400">{sub}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => copy(k, code)}
+          className="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+        >
+          {copied === k ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+          {copied === k ? t("rsvpCopied", "Copied") : t("rsvpEmbedCopyCode", "Copy code")}
+        </button>
+      </div>
+      <pre className="overflow-x-auto rounded-lg bg-gray-50 dark:bg-gray-950 border border-gray-100 dark:border-gray-800 p-2.5 text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 font-mono whitespace-pre">{code}</pre>
+    </div>
+  );
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+          <Globe className="w-4 h-4 text-gray-400" aria-hidden />
+          {t("rsvpEmbedTitle", "Add to your website")}
+        </h2>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          {t("rsvpEmbedSub", "Paste one of these into your website. No developer needed.")}
+        </p>
+      </div>
+
+      <Snippet
+        k="button"
+        code={buttonSnippet}
+        heading={t("rsvpEmbedButtonHeading", "A “Book bord” button")}
+        sub={t("rsvpEmbedButtonSub", "Works on any site. Opens your booking page.")}
+      />
+      <Snippet
+        k="iframe"
+        code={iframeSnippet}
+        heading={t("rsvpEmbedIframeHeading", "Or embed it in the page")}
+        sub={t("rsvpEmbedIframeSub", "The booking form appears inside your page.")}
+      />
+
+      {/* Link-only channels — no code, just the existing link. */}
+      <div className="rounded-lg bg-gray-50 dark:bg-gray-950/60 border border-gray-100 dark:border-gray-800 px-3 py-2.5">
+        <p className="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed">
+          <Link2 className="w-3.5 h-3.5 inline -mt-0.5 mr-1 text-gray-400" />
+          {t("rsvpEmbedLinkChannels", "Google Maps & Instagram: paste the link above into your Google Business Profile’s reservations link and your Instagram bio.")}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+
 function SettingsSection({ t }) {
   // SettingsSection only mounts after the parent's `if (!isReady) return null`
   // gate, so entitlements are already settled here — reading hasFeature is
@@ -5473,6 +5570,11 @@ function SettingsSection({ t }) {
             )}
           </form>
         </div>
+      )}
+
+      {/* Add to your website — button + iframe snippets, once the page is live. */}
+      {enabled && publicUrl && (
+        <EmbedOnWebsite publicUrl={publicUrl} venueName={data?.business_name} t={t} />
       )}
 
       {/* Opening / booking hours — the hours each weekday a guest can book.
