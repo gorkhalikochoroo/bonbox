@@ -385,6 +385,15 @@ def list_shifts_today(
         .all()
     )
 
+    # Branch names for the per-location grouping on the Today card (S4) —
+    # one batch query, only when any shift carries a branch.
+    _b_ids = {sh.branch_id for sh, _ in shifts if sh.branch_id}
+    _b_names = {}
+    if _b_ids:
+        from app.models.branch import Branch
+        for b in db.query(Branch).filter(Branch.id.in_(_b_ids)).all():
+            _b_names[b.id] = b.name
+
     payload = []
     for shift, staff in shifts:
         payload.append(
@@ -397,6 +406,7 @@ def list_shifts_today(
                 "end_time": shift.end_time,
                 "status": shift.status,
                 "confirmed_at": shift.confirmed_at.isoformat() if shift.confirmed_at else None,
+                "branch_name": _b_names.get(shift.branch_id),
             }
         )
 

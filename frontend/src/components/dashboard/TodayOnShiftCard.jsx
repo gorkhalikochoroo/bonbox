@@ -111,8 +111,19 @@ export default function TodayOnShiftCard() {
       </div>
 
       {hasShifts ? (
-        <ul className="space-y-1.5">
-          {shifts.map((s) => (
+        /* Multi-location (S4): group by location ONLY when today's shifts
+           actually span more than one distinct place — a single-venue owner
+           (or a day where everyone works the same place) keeps the flat
+           list. Unassigned shifts group under no header. */
+        (() => {
+          const groups = new Map();
+          for (const s of shifts) {
+            const k = s.branch_name || "";
+            if (!groups.has(k)) groups.set(k, []);
+            groups.get(k).push(s);
+          }
+          const grouped = groups.size > 1;
+          const row = (s) => (
             <li
               key={s.id}
               className="flex items-baseline gap-2 text-sm text-gray-700 dark:text-gray-200"
@@ -137,8 +148,23 @@ export default function TodayOnShiftCard() {
                 {s.start_time}–{s.end_time}
               </span>
             </li>
-          ))}
-        </ul>
+          );
+          if (!grouped) return <ul className="space-y-1.5">{shifts.map(row)}</ul>;
+          return (
+            <div className="space-y-2.5">
+              {[...groups.entries()].map(([branch, rows]) => (
+                <div key={branch || "-"}>
+                  {branch && (
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">
+                      {branch}
+                    </div>
+                  )}
+                  <ul className="space-y-1.5">{rows.map(row)}</ul>
+                </div>
+              ))}
+            </div>
+          );
+        })()
       ) : (
         <div className="text-sm text-gray-500 dark:text-gray-400">
           {t("todayOnShiftEmpty") ||

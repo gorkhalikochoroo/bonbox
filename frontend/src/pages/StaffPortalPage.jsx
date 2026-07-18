@@ -866,10 +866,16 @@ function WhosOnStrip({ teamShifts, nextShift }) {
 
   // Same date only; exclude YOUR OWN row structurally (no staff_id on the
   // client) by matching start/end/role; dedupe by staff_id.
+  // Multi-location (S4): when MY shift has a location, "who am I on with?"
+  // means MY floor — scope to teammates at the same location (or with no
+  // location, which belongs everywhere). A shift with no location keeps the
+  // whole-team view, so single-venue tenants see zero change.
+  const myBranch = nextShift.branch_name || null;
   const seen = new Set();
   const mates = [];
   for (const s of teamShifts) {
     if (s.date !== nextShift.date) continue;
+    if (myBranch && s.branch_name && s.branch_name !== myBranch) continue;
     const isMine =
       s.start_time === nextShift.start_time &&
       s.end_time === nextShift.end_time &&
@@ -894,6 +900,7 @@ function WhosOnStrip({ teamShifts, nextShift }) {
     <div className="mt-4 pt-4 border-t border-white/10">
       <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
         {t("portalWhosOnTitle")}
+        {myBranch && <span className="normal-case tracking-normal text-gray-500"> · {myBranch}</span>}
       </div>
       {/* Name under the avatar — an initial alone cannot answer the only
           question this strip exists to answer ("who am I on with?"). "D" is
