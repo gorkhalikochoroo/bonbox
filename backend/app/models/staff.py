@@ -102,6 +102,11 @@ class Schedule(Base):
     role_on_shift: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Optional location (multi-location S3). NULL = unassigned/main — the
+    # single-location owner's schedule never carries or shows a branch.
+    branch_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID(), ForeignKey("branches.id"), nullable=True,
+    )
     # Bidirectional notification loop (May 2026): when staff opens the
     # schedule via their portal link and taps "I've got it", we stamp
     # confirmed_at. The owner's dashboard shows "N of M confirmed for
