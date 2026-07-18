@@ -260,3 +260,75 @@ def test_toggle_off_silences_limits_but_not_rest(db, client):
     assert e["over_dk48"] is False
     # …but hviletid is safety law — never silenced.
     assert len(e["rest_warnings"]) == 1
+
+
+# ── Period-aware counting windows (owner's payroll cut) ────────────────
+
+from app.models.staff import PayPeriodConfig
+
+
+def _period_cfg(db, owner, period_type, custom_start_day=None):
+    cfg = PayPeriodConfig(user_id=owner.id, period_type=period_type,
+                          custom_start_day=custom_start_day)
+    db.add(cfg)
+    db.commit()
+    return cfg
+
+
+def test_monthly_15th_window_counts_across_calendar_months(db, client):
+    """15.–14. workplace: hours from 15 Jun–14 Jul belong to ONE window even
+    though they span two calendar months."""
+    owner = _owner(db, "p15")
+    _period_cfg(db, owner, "monthly_15th")
+    s = _staff2(db, owner, "Cut15", contract_type="student")
+    week = date(2026, 7, 6)  # Monday inside the 15.6–14.7 window
+    # 5 × 10h late June + 5 × 10h early July = 100h in the SAME 15.–14. window.
+    for d in range(25, 30):
+        _shift(db, owner, s, date(2026, 6, d), "08:00", "18:00")
+    for d in range(6, 11):
+        _shift(db, owner, s, date(2026, 7, d), "08:00", "18:00")
+    e = _entry(_load(client, owner, week_start=week), s)
+    assert e["month_hours"] == 100.0
+    assert e["over_month"] is True          # > 90 default
+    assert e["period_label"] == "15.6.–14.7."
+
+
+def test_monthly_15th_boundary_splits_windows(db, client):
+    """Shifts on the 14th vs the 15th land in DIFFERENT counting windows."""
+    owner = _owner(db, "psplit")
+    _period_cfg(db, owner, "monthly_15th")
+    s = _staff2(db, owner, "Grænse", contract_type="student")
+    week = date(2026, 7, 13)  # Mon 13 Jul — week straddles the 14/15 cut
+    _shift(db, owner, s, date(2026, 7, 14), "08:00", "18:00")  # old window
+    _shift(db, owner, s, date(2026, 7, 15), "08:00", "18:00")  # new window
+    e = _entry(_load(client, owner, week_start=week), s)
+    # Neither window holds more than 10h — max window reported, no warning.
+    assert e["month_hours"] == 10.0
+    assert e["over_month"] is False
+
+
+def test_custom_start_day_16_window(db, client):
+    owner = _owner(db, "p16")
+    _period_cfg(db, owner, "custom", custom_start_day=16)
+    s = _staff2(db, owner, "Seksten", contract_type="part")
+    week = date(2026, 7, 20)  # inside the 16.7–15.8 window
+    for i in range(10):  # 100h, all on/after 16 Jul
+        _shift(db, owner, s, date(2026, 7, 16 + i), "08:00", "18:00")
+    e = _entry(_load(client, owner, week_start=week), s)
+    assert e["period_label"] == "16.7.–15.8."
+    assert e["month_hours"] == 100.0
+    assert e["over_month"] is True
+
+
+def test_biweekly_payroll_falls_back_to_calendar_month(db, client):
+    """A 14-day pay period is not a monthly window — comparing a per-month cap
+    against 14 days would under-warn. Falls back to the calendar month."""
+    owner = _owner(db, "pbi")
+    _period_cfg(db, owner, "biweekly")
+    s = _staff2(db, owner, "Biuge", contract_type="student")
+    for i in range(10):  # 100h across July
+        _shift(db, owner, s, MONDAY - timedelta(days=i), "08:00", "18:00")
+    e = _entry(_load(client, owner), s)
+    assert e["period_label"] == "1.7.–31.7."
+    assert e["month_hours"] == 100.0
+    assert e["over_month"] is True

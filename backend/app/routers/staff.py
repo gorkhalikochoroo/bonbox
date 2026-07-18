@@ -1507,17 +1507,36 @@ def schedule_week_load(
     )
 
     week_end = week_start + timedelta(days=6)
-    # ±1 day margin for the rest checks; widened to the full calendar
-    # month(s) the week touches so the 90 t-md monthly load is computable
-    # from the same query (one round-trip, no second fetch).
+    # Monthly counting window = the tenant's OWN counting period when a
+    # PayPeriodConfig exists (1.–31., 15.–14., custom start day like 16.–15.)
+    # — workplaces count "the month" from their payroll cut, so a 90 t-md
+    # limit must follow the same window or the number the owner sees here
+    # disagrees with the number on the lønseddel. Fallbacks: no config →
+    # calendar month; biweekly payroll → ALSO calendar month (a 14-day pay
+    # period is not a monthly window; comparing a per-month cap against 14
+    # days would systematically under-warn).
     import calendar as _cal
 
-    month_lo = week_start.replace(day=1)
-    month_hi = week_end.replace(
-        day=_cal.monthrange(week_end.year, week_end.month)[1]
+    _cfg = (
+        db.query(PayPeriodConfig)
+        .filter(PayPeriodConfig.user_id == user.id)
+        .first()
     )
-    lo = min(week_start - timedelta(days=1), month_lo)
-    hi = max(week_end + timedelta(days=1), month_hi)
+
+    def _month_window(ref: date) -> tuple[date, date]:
+        if _cfg is not None and _cfg.period_type != "biweekly":
+            # _compute_pay_period returns isoformat STRINGS (API-facing).
+            p = _compute_pay_period(_cfg, ref)
+            return date.fromisoformat(p["start_date"]), date.fromisoformat(p["end_date"])
+        return (
+            ref.replace(day=1),
+            ref.replace(day=_cal.monthrange(ref.year, ref.month)[1]),
+        )
+
+    # A week can straddle a period boundary — evaluate both windows.
+    _windows = {_month_window(week_start), _month_window(week_end)}
+    lo = min([week_start - timedelta(days=1)] + [w[0] for w in _windows])
+    hi = max([week_end + timedelta(days=1)] + [w[1] for w in _windows])
 
     shifts = (
         db.query(Schedule)
@@ -1585,23 +1604,30 @@ def schedule_week_load(
 
         cap = float(member.max_hours_week) if member.max_hours_week else None
 
-        # Monthly load — hours in the calendar month(s) this week touches
-        # (a week can straddle two; report the highest-loaded one so the
-        # warning fires as soon as EITHER month is at risk). Effective cap:
+        # Monthly load — hours inside the counting window(s) this week
+        # touches (see _month_window above; report the highest-loaded one so
+        # the warning fires as soon as EITHER is at risk). Effective cap:
         # explicit max_hours_month wins; else part-time/student contracts
         # default to the 90 t-md limit (the SIRI student-work ceiling —
         # widely applicable in DK hospitality and visa-serious to breach).
         # Owner can adjust or toggle off per staff.
-        months = {(week_start.year, week_start.month), (week_end.year, week_end.month)}
         month_hours = 0.0
-        for (my, mm) in months:
+        month_window = None
+        for (ws, we) in sorted(_windows):  # deterministic label on ties
             mh = sum(
                 _shift_hours(s.start_time, s.end_time, s.break_minutes or 0)
                 for s in rows
-                if s.date.year == my and s.date.month == mm
+                if ws <= s.date <= we
             )
-            month_hours = max(month_hours, mh)
+            if mh > month_hours or month_window is None:
+                month_hours = mh
+                month_window = (ws, we)
         month_hours = round(month_hours, 2)
+        period_label = (
+            f"{month_window[0].day}.{month_window[0].month}.–"
+            f"{month_window[1].day}.{month_window[1].month}."
+            if month_window else None
+        )
 
         if member.max_hours_month:
             month_cap, month_cap_source = float(member.max_hours_month), "explicit"
@@ -1625,6 +1651,7 @@ def schedule_week_load(
             "month_hours": month_hours,
             "month_cap": month_cap,
             "month_cap_source": month_cap_source,
+            "period_label": period_label,
             "over_month": bool(warn and month_cap is not None and month_hours > month_cap + 0.01),
             "rest_warnings": rest_warnings,
         })

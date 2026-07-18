@@ -1133,7 +1133,7 @@ export default function StaffSchedulePage() {
           shield.push({ kind: "cap", name: e.name, hours: e.hours, cap: e.cap });
         }
         if (e.over_month) {
-          shield.push({ kind: "month", name: e.name, hours: e.month_hours, cap: e.month_cap });
+          shield.push({ kind: "month", name: e.name, hours: e.month_hours, cap: e.month_cap, period: e.period_label });
         }
         for (const r of e.rest_warnings || []) {
           shield.push({ kind: "rest", name: e.name, gap: r.gap_hours });
@@ -4891,9 +4891,9 @@ function ScheduleGrid({
                             const title = [
                               e.over_cap ? t("shieldOverCapTitle", "Over the contract cap ({cap}t/week)").replace("{cap}", e.cap) : "",
                               e.over_dk48 ? t("shieldOver48Title", "Over the DK 48h weekly ceiling") : "",
-                              e.over_month ? t("shieldOverMonthTitle", "Month: {h}t of {cap}t — over the monthly limit").replace("{h}", e.month_hours).replace("{cap}", e.month_cap) : "",
+                              e.over_month ? t("shieldOverMonthTitle", "{period}: {h}t of {cap}t — over the monthly limit").replace("{period}", e.period_label || t("shieldMonthWord", "Month")).replace("{h}", e.month_hours).replace("{cap}", e.month_cap) : "",
                               hasRest ? t("shieldRestTitle", "Under 11 hours' rest between shifts") : "",
-                              !e.over_month && e.month_cap != null ? t("shieldMonthInfoTitle", "Month: {h}t of {cap}t").replace("{h}", e.month_hours).replace("{cap}", e.month_cap) : "",
+                              !e.over_month && e.month_cap != null ? t("shieldMonthInfoTitle", "{period}: {h}t of {cap}t").replace("{period}", e.period_label || t("shieldMonthWord", "Month")).replace("{h}", e.month_hours).replace("{cap}", e.month_cap) : "",
                               e.warn_enabled === false ? t("shieldWarnOffTitle", "Hour-limit warnings are off for this staffer") : "",
                             ].filter(Boolean).join(" · ");
                             return (
@@ -5341,8 +5341,9 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
                       t("shieldWarnDk48", "{name}: {hours}h — over the 48h weekly ceiling")
                         .replace("{name}", w.name).replace("{hours}", w.hours)}
                     {w.kind === "month" &&
-                      t("shieldWarnMonth", "{name}: {hours}h this month — over the monthly limit of {cap}h")
-                        .replace("{name}", w.name).replace("{hours}", w.hours).replace("{cap}", w.cap)}
+                      t("shieldWarnMonth", "{name}: {hours}h in {period} — over the monthly limit of {cap}h")
+                        .replace("{name}", w.name).replace("{hours}", w.hours)
+                        .replace("{period}", w.period || t("shieldMonthWord", "Month")).replace("{cap}", w.cap)}
                     {w.kind === "rest" &&
                       t("shieldWarnRest", "{name}: only {gap}h rest between two shifts (11h rule)")
                         .replace("{name}", w.name).replace("{gap}", w.gap)}
