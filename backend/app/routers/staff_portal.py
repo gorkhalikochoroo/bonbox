@@ -2084,6 +2084,10 @@ class TeamShift(BaseModel):
     start_time: str
     end_time: str
     role: str | None
+    # Multi-location S4 — lets the who's-on strip scope to the viewer's
+    # floor. Name only (no address): a teammate's location is coordination
+    # info, their venue address is not the viewer's business.
+    branch_name: str | None = None
 
 
 @router.get("/{token}/team-schedule", response_model=list[TeamShift])
@@ -2136,6 +2140,15 @@ def portal_team_schedule(
         .all()
     )
 
+    # Branch names for location-scoped who's-on (S4) — one batch query,
+    # only when any shift actually carries a branch.
+    _b_ids = {s.branch_id for s, _ in shifts if s.branch_id}
+    _b_names = {}
+    if _b_ids:
+        from app.models.branch import Branch
+        for b in db.query(Branch).filter(Branch.id.in_(_b_ids)).all():
+            _b_names[b.id] = b.name
+
     return [
         TeamShift(
             shift_id=str(s.id),
@@ -2145,6 +2158,7 @@ def portal_team_schedule(
             start_time=s.start_time,
             end_time=s.end_time,
             role=s.role_on_shift,
+            branch_name=_b_names.get(s.branch_id),
         )
         for s, staff in shifts
     ]

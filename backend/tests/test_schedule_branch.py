@@ -165,3 +165,42 @@ def test_portal_shift_carries_branch(db, client):
     sh = r.json()["shifts"][0]
     assert sh["branch_name"] == "Amager"
     assert "Amagergade" in (sh["branch_address"] or "")
+
+
+def test_team_schedule_carries_branch_name(db, client):
+    owner = _owner(db, "ts")
+    b = _branch(db, owner, "Valby")
+    mette = _staff(db, owner, "Mette")
+    jonas = _staff(db, owner, "Jonas")
+    app.dependency_overrides[get_current_user] = lambda: owner
+    for staff, branch in ((mette, b.id), (jonas, None)):
+        body = {"staff_id": str(staff.id), "date": MONDAY.isoformat(),
+                "start_time": "10:00", "end_time": "16:00", "status": "published"}
+        if branch:
+            body["branch_id"] = str(branch)
+        client.post("/api/staff/schedules", json=body)
+    link = StaffLink(staff_id=mette.id, user_id=owner.id,
+                     token="tok-team-branch-1234567890ab", active=True)
+    db.add(link); db.commit()
+
+    r = client.get(f"/api/portal/{link.token}/team-schedule")
+    assert r.status_code == 200, r.text
+    by_staff = {row["staff_name"]: row["branch_name"] for row in r.json()}
+    assert by_staff["Mette"] == "Valby"
+    assert by_staff["Jonas"] is None
+
+
+def test_today_endpoint_carries_branch_name(db, client):
+    owner = _owner(db, "today")
+    b = _branch(db, owner, "Østerbro")
+    staff = _staff(db, owner, "Anna")
+    app.dependency_overrides[get_current_user] = lambda: owner
+    client.post("/api/staff/schedules", json={
+        "staff_id": str(staff.id), "date": date.today().isoformat(),
+        "start_time": "10:00", "end_time": "16:00", "status": "published",
+        "branch_id": str(b.id),
+    })
+    r = client.get("/api/staff/today")
+    assert r.status_code == 200, r.text
+    rows = r.json()["shifts"]
+    assert rows and rows[0]["branch_name"] == "Østerbro"
