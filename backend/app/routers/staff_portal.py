@@ -528,6 +528,17 @@ def get_portal_schedule(token: str, request: Request, db: Session = Depends(get_
         Schedule.status == "published",
     ).order_by(Schedule.date, Schedule.start_time).all()
 
+    # Location names/addresses for multi-location shifts — one query for the
+    # whole page, only when any shift actually carries a branch. Kills the
+    # "which restaurant am I at today?" confusion; single-location tenants
+    # send nothing extra.
+    branch_ids = {s.branch_id for s in shifts if s.branch_id}
+    branches = {}
+    if branch_ids:
+        from app.models.branch import Branch
+        for b in db.query(Branch).filter(Branch.id.in_(branch_ids)).all():
+            branches[b.id] = b
+
     return {
         "staff_name": member.name,
         "week_start": week_start.isoformat(),
@@ -547,6 +558,8 @@ def get_portal_schedule(token: str, request: Request, db: Session = Depends(get_
                 # Bidirectional confirmation signal — UI lights the
                 # "I've got it" button green if already confirmed.
                 "confirmed_at": s.confirmed_at.isoformat() if s.confirmed_at else None,
+                "branch_name": branches[s.branch_id].name if s.branch_id in branches else None,
+                "branch_address": branches[s.branch_id].address if s.branch_id in branches else None,
             }
             for s in shifts
         ],

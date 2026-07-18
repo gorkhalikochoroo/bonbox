@@ -1261,21 +1261,46 @@ def owner_list_availability(
 @router.get("/schedules", response_model=list[ScheduleResponse])
 def list_schedules(
     week_start: date = Query(..., description="Monday of the target week (YYYY-MM-DD)"),
+    branch_id: str | None = Query(None, description="Filter to one location (multi-location S3)"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     week_end = week_start + timedelta(days=6)
-    shifts = (
+    q = (
         db.query(Schedule)
         .filter(
             Schedule.user_id == user.id,
             Schedule.date >= week_start,
             Schedule.date <= week_end,
         )
-        .order_by(Schedule.date, Schedule.start_time)
-        .all()
     )
-    return shifts
+    # Location lens — ONE roster, filtered; never separate rosters. The
+    # branch view includes UNASSIGNED shifts (branch_id NULL): they belong
+    # everywhere, and hiding them would make a shift silently vanish the
+    # moment the owner switches location.
+    if branch_id:
+        from sqlalchemy import or_
+        q = q.filter(or_(Schedule.branch_id == branch_id, Schedule.branch_id.is_(None)))
+    return q.order_by(Schedule.date, Schedule.start_time).all()
+
+
+def _validated_branch_id(db: Session, user: User, branch_id):
+    """None-safe gate: a shift's branch must be one of the OWNER's active
+    branches — a bogus/foreign id degrades to None (unassigned) rather than
+    422 so a stale branch picker never blocks shift creation."""
+    if not branch_id:
+        return None
+    from app.models.branch import Branch
+    b = (
+        db.query(Branch)
+        .filter(
+            Branch.id == branch_id,
+            Branch.user_id == user.id,
+            Branch.is_active.is_(True),
+        )
+        .first()
+    )
+    return b.id if b else None
 
 
 @router.get("/schedules/week-cost")
@@ -1722,6 +1747,7 @@ def create_schedule(
         role_on_shift=data.role_on_shift,
         status=data.status,
         notes=data.notes,
+        branch_id=_validated_branch_id(db, user, data.branch_id),
     )
     db.add(shift)
     db.commit()
@@ -1801,6 +1827,7 @@ def update_schedule(
     shift.role_on_shift = data.role_on_shift
     shift.status = data.status
     shift.notes = data.notes
+    shift.branch_id = _validated_branch_id(db, user, data.branch_id)
     db.commit()
     db.refresh(shift)
 

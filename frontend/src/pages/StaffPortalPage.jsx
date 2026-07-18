@@ -1642,6 +1642,21 @@ function ShiftRow({ date: d, shift }) {
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold text-gray-900">{shift.start_time} – {shift.end_time}</div>
         <div className="text-[11px] text-gray-500">{shift.role_on_shift || t("portalRoleStaff", "Staff")}</div>
+        {/* Multi-location: WHERE this shift is. Kills the "which restaurant
+            am I at today?" confusion — tap opens maps. Only renders when the
+            shift actually carries a location (single-venue staff never see it). */}
+        {shift.branch_name && (
+          <a
+            href={`https://maps.apple.com/?q=${encodeURIComponent([shift.branch_name, shift.branch_address].filter(Boolean).join(", "))}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="mt-1 flex items-start gap-1 text-[12px] text-gray-600 font-medium hover:text-gray-900"
+          >
+            <MapPin className="w-3 h-3 mt-[2px] shrink-0 text-gray-400" strokeWidth={2} aria-hidden />
+            <span className="min-w-0 break-words underline-offset-2 hover:underline">{shift.branch_name}</span>
+          </a>
+        )}
         {/* Owner's per-shift note — a quiet line so the time/role stay the
             focus. Only renders when the owner actually left a note. */}
         {shift.notes && (

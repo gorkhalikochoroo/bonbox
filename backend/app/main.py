@@ -2193,6 +2193,14 @@ _migrations = [
     # 90 t-md student default). Default TRUE = warn. Rest warnings (11-timers
     # reglen) are deliberately NOT toggleable — safety law, not preference.
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS hour_limit_warn BOOLEAN DEFAULT TRUE",
+    # ── Migration 064 (2026-07-18): shift location (multi-location S3) ───
+    # Optional branch on a shift — ONE roster with a location lens, never
+    # separate rosters (the anti-Planday design). NULL = unassigned/main;
+    # single-location owners never see the field. The frontend has sent
+    # branch_id on create since the branch switcher shipped — the backend
+    # dropped it until now. VARCHAR(36) like the other GUID FKs.
+    "ALTER TABLE schedules ADD COLUMN IF NOT EXISTS branch_id VARCHAR(36) REFERENCES branches(id)",
+    "CREATE INDEX IF NOT EXISTS ix_schedules_user_branch ON schedules (user_id, branch_id)",
 ]
 
 

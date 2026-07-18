@@ -155,6 +155,9 @@ class ScheduleCreate(BaseModel):
     role_on_shift: str | None = None
     status: str = "draft"
     notes: str | None = None
+    # Optional location (multi-location S3) — validated against the owner's
+    # active branches at the router. None = unassigned/main.
+    branch_id: uuid.UUID | None = None
 
     @field_validator("start_time", "end_time")
     @classmethod
@@ -185,6 +188,7 @@ class ScheduleResponse(BaseModel):
     role_on_shift: str | None = None
     status: str
     notes: str | None = None
+    branch_id: uuid.UUID | None = None
     created_at: datetime.datetime | None = None
     # Staff-side "Jeg har set det" acknowledgement — surfaced as the owner-grid
     # confirmation badge. None = published-but-unconfirmed.
