@@ -253,6 +253,13 @@ export default function ReservationPublicPage() {
   const [searchParams] = useSearchParams();
   const { t, setLang } = useLanguage();
 
+  // Embedded in an owner's website (iframe, ?embed=1): drop the forced
+  // min-h-screen so the widget sizes to its content inside the frame instead
+  // of padding out a full viewport of whitespace. Everything else is
+  // identical — the flow is the same, just framed.
+  const isEmbed = searchParams.get("embed") === "1";
+  const rootMinH = isEmbed ? "" : "min-h-screen";
+
   // ── Page data (GET /public/reservations/{slug}) ──────────────────
   const [page, setPage] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1195,7 +1202,7 @@ export default function ReservationPublicPage() {
 
   // ── Main wizard ────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-950 pb-32">
+    <div className={`${rootMinH} bg-white dark:bg-gray-950 pb-32`}>
       <div className="max-w-md mx-auto px-4 sm:px-6 pt-8 sm:pt-10 space-y-6">
         {/* ── Venue identity (brand logo or typographic monogram) ──
             Identity tile + eyebrow + venue name H1 + location row with a

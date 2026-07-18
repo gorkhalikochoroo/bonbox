@@ -511,6 +511,9 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
         "reservations_enabled": bool(getattr(profile, "reservations_enabled", False)) if profile else False,
         "reservation_slug": slug,
         "public_url": _public_reservation_url(slug),
+        # Venue name — used by the settings "Add to your website" embed to label
+        # the iframe title accurately (falls back to "BonBox" in the UI if null).
+        "business_name": (getattr(user, "business_name", None) or "").strip() or None,
         "settings": settings,
         "allergen_set": allergen_set_for(btype),
         "severity_levels": list(SEVERITY_LEVELS),
