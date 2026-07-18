@@ -143,6 +143,18 @@ export default function CookieConsent() {
     // (it sits over the input). Never open the banner in this build.
     if (import.meta.env.VITE_APP_MODE === "scheduler") return;
 
+    // Embedded booking widget (an owner's own website — <iframe …?embed=1>):
+    // never show the consent banner inside a third-party frame. There, BonBox's
+    // cookies are partitioned/blocked by the browser, the booking guest signs in
+    // to nothing (only strictly-necessary, consent-exempt), and the host site
+    // owns its own consent — a banner here would just cover the booking form.
+    // Same reasoning as the scheduler skip above (don't cover a form).
+    let framed = false;
+    try { framed = window.self !== window.top; } catch { framed = true; }
+    let embedParam = false;
+    try { embedParam = new URLSearchParams(window.location.search).get("embed") === "1"; } catch { /* noop */ }
+    if (framed || embedParam) return;
+
     // Multi-barrier defense: even if the user has DNT set, we still ask
     // (consent banners can't be skipped under EU rules) but pre-fill with
     // everything OFF so a default Accept-All click still respects DNT.

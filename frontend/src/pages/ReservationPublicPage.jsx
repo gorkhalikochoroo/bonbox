@@ -915,7 +915,7 @@ export default function ReservationPublicPage() {
   // ── Renders ───────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="min-h-screen bg-white dark:bg-gray-950 px-4 py-12">
+      <div className={`${rootMinH} bg-white dark:bg-gray-950 px-4 py-12`}>
         <div className="max-w-md mx-auto space-y-4">
           <div className="animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800 h-8 w-2/3" />
           <div className="animate-pulse rounded-xl bg-gray-100 dark:bg-gray-800 h-32" />
@@ -932,13 +932,14 @@ export default function ReservationPublicPage() {
       <ClosedScreen
         t={t}
         name={page?.business_name}
+        rootMinH={rootMinH}
       />
     );
   }
 
   if (loadError || !page) {
     return (
-      <div className="min-h-screen bg-white dark:bg-gray-950 px-4 py-16">
+      <div className={`${rootMinH} bg-white dark:bg-gray-950 px-4 py-16`}>
         <div className="max-w-md mx-auto text-center">
           <AlertCircle
             size={40}
@@ -1017,7 +1018,7 @@ export default function ReservationPublicPage() {
     const emailGiven = guestEmail.trim().length > 0;
 
     return (
-      <div className="min-h-screen bg-white dark:bg-gray-950 px-4 py-12">
+      <div className={`${rootMinH} bg-white dark:bg-gray-950 px-4 py-12`}>
         <div className="max-w-md mx-auto space-y-6 text-center">
           <div
             className={
@@ -1206,7 +1207,7 @@ export default function ReservationPublicPage() {
 
   // ── Main wizard ────────────────────────────────────────────────────
   return (
-    <div className={`${rootMinH} bg-white dark:bg-gray-950 pb-32`}>
+    <div className={`${rootMinH} bg-white dark:bg-gray-950 ${isEmbed ? "" : "pb-32"}`}>
       <div className="max-w-md mx-auto px-4 sm:px-6 pt-8 sm:pt-10 space-y-6">
         {/* ── Venue identity (brand logo or typographic monogram) ──
             Identity tile + eyebrow + venue name H1 + location row with a
@@ -1898,9 +1899,13 @@ export default function ReservationPublicPage() {
         )}
       </div>
 
-      {/* ── Sticky bottom CTA ───────────────────────────────────────── */}
+      {/* ── Sticky bottom CTA ─────────────────────────────────────────
+          Standalone page: `fixed` to the viewport (root reserves pb-32).
+          Embedded (?embed=1): `sticky` so it flows with the content-sized
+          widget — it settles under the form in a short frame and pins to the
+          frame bottom while scrolling a tall one, never detaching. */}
       <div
-        className="fixed bottom-0 inset-x-0 z-40 bg-white dark:bg-gray-950 border-t border-gray-200 dark:border-gray-800"
+        className={`${isEmbed ? "sticky" : "fixed"} bottom-0 inset-x-0 z-40 bg-white dark:bg-gray-950 border-t border-gray-200 dark:border-gray-800`}
         style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0px)" }}
       >
         <div className="max-w-md mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
@@ -2002,9 +2007,9 @@ function SummaryRow({ icon, label, value }) {
   );
 }
 
-function ClosedScreen({ t, name }) {
+function ClosedScreen({ t, name, rootMinH = "min-h-screen" }) {
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-950 px-4 py-16">
+    <div className={`${rootMinH} bg-white dark:bg-gray-950 px-4 py-16`}>
       <div className="max-w-md mx-auto text-center">
         <Calendar
           size={40}
