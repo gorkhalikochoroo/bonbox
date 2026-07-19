@@ -95,6 +95,7 @@ def _make_user(
     plan="free",
     brief_enabled=True,
     is_locked=False,
+    active=True,
 ):
     u = User(
         email=email,
@@ -110,6 +111,18 @@ def _make_user(
     db.add(u)
     db.commit()
     db.refresh(u)
+    # Sign of life. The cron only briefs accounts that have actually used
+    # BonBox in the window (see daily_brief_email_job._eligible_users), so a
+    # user with no business data would be correctly suppressed. Default the
+    # helper to "real, in-use account"; pass active=False for a dormant one.
+    if active:
+        from datetime import date as _date
+
+        from app.models.sale import Sale
+        db.add(Sale(
+            user_id=u.id, date=_date.today(), amount=250, payment_method="card",
+        ))
+        db.commit()
     return u
 
 
@@ -352,6 +365,112 @@ def test_cron_iterates_eligible_users(db_session, monkeypatch):
     assert summary["attempted"] == 1  # SQL pre-filtered the other two
     # Make sure unused locals don't trigger lint
     _ = (yes, no, locked)
+
+
+# ─── Sign-of-life gate — don't email accounts that never used BonBox ─────
+
+
+def test_cron_skips_accounts_with_no_sign_of_life(db_session, monkeypatch):
+    """Measured in production 2026-07-19: 2,323 of 4,088 briefs had gone to
+    40 accounts that never entered a single row of data. An account with no
+    data can only receive an empty brief — so the cron must not email it."""
+    _patch_brief_pipeline(monkeypatch)
+    sent_to = []
+    monkeypatch.setattr(
+        dbe, "send_email",
+        lambda to, *a, **kw: sent_to.append(to) or True,
+    )
+
+    live = _make_user(db_session, email="live@example.com", active=True)
+    dormant = _make_user(db_session, email="dormant@example.com", active=False)
+
+    from app.jobs.daily_brief_email_job import send_daily_brief_emails
+
+    SessionLocal = sessionmaker(bind=db_session.bind, autoflush=False, autocommit=False)
+    summary = send_daily_brief_emails(db_factory=lambda: SessionLocal())
+
+    assert "live@example.com" in sent_to
+    assert "dormant@example.com" not in sent_to, "never-active account must not be emailed"
+    assert summary["sent"] == 1
+    assert summary["suppressed_dormant"] == 1, "the gate must stay observable"
+    _ = (live, dormant)
+
+
+def test_sign_of_life_accepts_any_business_signal(db_session, monkeypatch):
+    """The signal set is deliberately wide and fails toward SENDING — a venue
+    that never records a sale but does close its day, or only books tables,
+    still gets its brief. (Invoices are in the same OR clause.)"""
+    from datetime import date as _date
+
+    from app.jobs.daily_brief_email_job import _eligible_users
+    from app.models.daily_close import DailyClose
+    from app.models.expense import Expense, ExpenseCategory
+
+    only_expense = _make_user(db_session, email="exp@example.com", active=False)
+    cat = ExpenseCategory(user_id=only_expense.id, name="Andet")
+    db_session.add(cat)
+    db_session.flush()
+    db_session.add(Expense(
+        user_id=only_expense.id, category_id=cat.id, date=_date.today(),
+        amount=99, description="Rengøring",
+    ))
+    only_close = _make_user(db_session, email="close@example.com", active=False)
+    db_session.add(DailyClose(user_id=only_close.id, date=_date.today()))
+    nothing = _make_user(db_session, email="none@example.com", active=False)
+    db_session.commit()
+
+    users, suppressed = _eligible_users(db_session)
+    emails = {u.email for u in users}
+
+    assert "exp@example.com" in emails, "expense-only account must still be briefed"
+    assert "close@example.com" in emails, "close-only account must still be briefed"
+    assert "none@example.com" not in emails
+    assert suppressed == 1
+    _ = nothing
+
+
+def test_sign_of_life_window_excludes_long_dormant(db_session, monkeypatch):
+    """Activity older than the window stops the brief — but the window is
+    generous (60 days) so a seasonal closure never cuts a real venue off."""
+    from datetime import date as _date, timedelta
+
+    from app.jobs.daily_brief_email_job import (
+        BRIEF_ACTIVITY_WINDOW_DAYS,
+        _eligible_users,
+    )
+    from app.models.sale import Sale
+
+    stale = _make_user(db_session, email="stale@example.com", active=False)
+    old = Sale(user_id=stale.id, date=_date.today(), amount=100, payment_method="card")
+    old.created_at = utc_now() - timedelta(days=BRIEF_ACTIVITY_WINDOW_DAYS + 5)
+    db_session.add(old)
+
+    recent = _make_user(db_session, email="recent@example.com", active=False)
+    fresh = Sale(user_id=recent.id, date=_date.today(), amount=100, payment_method="card")
+    fresh.created_at = utc_now() - timedelta(days=BRIEF_ACTIVITY_WINDOW_DAYS - 5)
+    db_session.add(fresh)
+    db_session.commit()
+
+    emails = {u.email for u in _eligible_users(db_session)[0]}
+    assert "recent@example.com" in emails
+    assert "stale@example.com" not in emails
+
+
+def test_manual_send_is_never_gated(db_session, monkeypatch):
+    """The owner asking for their brief is not spam. The /send-now path calls
+    send_brief_to_user(force=True) directly and must bypass the cron gate."""
+    _patch_brief_pipeline(monkeypatch)
+    sent_to = []
+    monkeypatch.setattr(
+        dbe, "send_email",
+        lambda to, *a, **kw: sent_to.append(to) or True,
+    )
+
+    dormant = _make_user(db_session, email="asked@example.com", active=False)
+    result = dbe.send_brief_to_user(db_session, dormant, force=True)
+
+    assert result.get("ok"), result
+    assert "asked@example.com" in sent_to
 
 
 def test_cron_skips_already_sent_today(db_session, monkeypatch):
