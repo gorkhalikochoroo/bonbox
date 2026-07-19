@@ -955,6 +955,100 @@ def delete_resource(resource_id: UUID, db: Session = Depends(get_db), user: User
 
 
 # ─── reservation book ────────────────────────────────────────────────
+@router.get("/month-load")
+def reservation_month_load(
+    month: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}$"),
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """Per-day covers for a month, plus how many staff are rostered each day.
+
+    Feeds the desktop day rail. Two things the owner can't get from the
+    single-day book: which days ahead are heavy, and — because BonBox holds
+    the ROSTER as well as the book — whether those heavy days are actually
+    staffed. A booking tool on its own can answer the first half only.
+
+    Business-day bucketing matches /book exactly (DK 06:00 cutoff): a 00:30
+    seating belongs to the previous evening's service, so it lands on the same
+    day the book shows it under. We fetch the whole month in ONE query and
+    bucket in Python — 31 windowed queries would be the obvious way and the
+    wrong one.
+
+    Covers use BOOKED_COVER_STATUSES (the same set the cockpit counts), so the
+    rail can never disagree with the number on the day you open.
+    """
+    enforce_feature(user, "reservations")
+    from calendar import monthrange
+
+    from app.models.staff import Schedule
+    from app.services.reservation_insights_service import BOOKED_COVER_STATUSES
+    from app.services.tz_utils import _user_cutoff_hour
+
+    today = business_today_local(user)
+    if month:
+        y, m = int(month[:4]), int(month[5:7])
+        if not 1 <= m <= 12:
+            raise HTTPException(status_code=422, detail="Invalid month")
+    else:
+        y, m = today.year, today.month
+
+    last_day = monthrange(y, m)[1]
+    first = date(y, m, 1)
+    last = date(y, m, last_day)
+
+    # Business day D spans [D cutoff, D+1 cutoff) — so the month's full span
+    # runs from day 1's cutoff to the day AFTER the last day's cutoff.
+    lo, _ = business_day_window_local(user, first)
+    _, hi = business_day_window_local(user, last)
+    cutoff = _user_cutoff_hour(user)
+
+    rows = (
+        db.query(Reservation)
+        .filter(
+            Reservation.user_id == user.id,
+            Reservation.is_deleted.is_(False),
+            Reservation.starts_at >= lo,
+            Reservation.starts_at < hi,
+        )
+        .all()
+    )
+
+    days: dict[str, dict] = {}
+    for r in rows:
+        # Same shift the window applies, in reverse: subtract the cutoff and
+        # the calendar date that falls out IS the business day.
+        bday = (r.starts_at - timedelta(hours=cutoff)).date()
+        if bday < first or bday > last:
+            continue
+        slot = days.setdefault(bday.isoformat(), {"covers": 0, "bookings": 0, "staff_on": 0})
+        slot["bookings"] += 1
+        if r.status in BOOKED_COVER_STATUSES:
+            slot["covers"] += (r.party_size or 0)
+
+    # Rostered headcount per day — distinct staff, so a split shift counts the
+    # person once. Drafts count: this is the owner's own plan, and "I haven't
+    # published Saturday yet" is exactly when the warning is most useful.
+    sched = (
+        db.query(Schedule.date, Schedule.staff_id)
+        .filter(
+            Schedule.user_id == user.id,
+            Schedule.date >= first,
+            Schedule.date <= last,
+        )
+        .distinct()
+        .all()
+    )
+    for d, _staff in sched:
+        key = d.isoformat() if hasattr(d, "isoformat") else str(d)
+        slot = days.setdefault(key, {"covers": 0, "bookings": 0, "staff_on": 0})
+        slot["staff_on"] += 1
+
+    return {
+        "month": f"{y:04d}-{m:02d}",
+        "today": today.isoformat(),
+        "days": [{"date": k, **v} for k, v in sorted(days.items())],
+    }
+
+
 @router.get("/book")
 def reservation_book(
     day: date | None = Query(default=None),
