@@ -63,6 +63,7 @@ import {
   ExternalLink,
   HelpCircle,
   Pencil,
+  Mail,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
@@ -5059,6 +5060,20 @@ function EmbedOnWebsite({ publicUrl, venueName, t }) {
     `  width="100%" height="720" loading="lazy"\n` +
     `  style="border:0;max-width:460px;border-radius:16px"></iframe>`;
 
+  // Hand-off email. A mailto: only OPENS the owner's mail app pre-filled —
+  // we never send anything on their behalf.
+  const mailtoHref =
+    "mailto:?subject=" +
+    encodeURIComponent(t("rsvpEmbedMailSubject", "Booking on our website")) +
+    "&body=" +
+    encodeURIComponent(
+      t(
+        "rsvpEmbedMailBody",
+        "Hi — could you add table booking to our website?\n\nEither this button, anywhere on the site:\n\n{button}\n\nOr the whole booking form inside a page:\n\n{iframe}\n\nBoth are plain copy-paste HTML.\n\nThanks!",
+        { button: buttonSnippet, iframe: iframeSnippet },
+      ),
+    );
+
   const copy = async (key, text) => {
     try {
       if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
@@ -5100,7 +5115,10 @@ function EmbedOnWebsite({ publicUrl, venueName, t }) {
           {t("rsvpEmbedTitle", "Add to your website")}
         </h2>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-          {t("rsvpEmbedSub", "Paste one of these into your website. No developer needed.")}
+          {t(
+            "rsvpEmbedSub",
+            "Two ways to put booking on your own site — or send them to whoever looks after it.",
+          )}
         </p>
       </div>
 
@@ -5110,20 +5128,34 @@ function EmbedOnWebsite({ publicUrl, venueName, t }) {
         heading={t("rsvpEmbedButtonHeading", "A “Book bord” button")}
         sub={t("rsvpEmbedButtonSub", "Works on any site. Opens your booking page.")}
       />
-      <Snippet
-        k="iframe"
-        code={iframeSnippet}
-        heading={t("rsvpEmbedIframeHeading", "Or embed it in the page")}
-        sub={t("rsvpEmbedIframeSub", "The booking form appears inside your page.")}
-      />
-
-      {/* Link-only channels — no code, just the existing link. */}
-      <div className="rounded-lg bg-gray-50 dark:bg-gray-950/60 border border-gray-100 dark:border-gray-800 px-3 py-2.5">
-        <p className="text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed">
-          <Link2 className="w-3.5 h-3.5 inline -mt-0.5 mr-1 text-gray-400" />
-          {t("rsvpEmbedLinkChannels", "Google Maps & Instagram: paste the link above into your Google Business Profile’s reservations link and your Instagram bio.")}
+      <div className="space-y-1.5">
+        <Snippet
+          k="iframe"
+          code={iframeSnippet}
+          heading={t("rsvpEmbedIframeHeading", "Or embed it in the page")}
+          sub={t("rsvpEmbedIframeSub", "The booking form appears inside your page.")}
+        />
+        {/* The one genuinely missing step: WHERE this goes. Pasting HTML is
+            only obvious if you already know your site builder has a block
+            for it. */}
+        <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+          {t(
+            "rsvpEmbedIframeWhere",
+            "In WordPress, Wix or Squarespace: add an “Embed HTML” block, then paste.",
+          )}
         </p>
       </div>
+
+      {/* Most owners don't edit their own site — hand the whole thing to
+          whoever does, in one tap. Opens THEIR mail app pre-filled; nothing
+          is sent on their behalf. */}
+      <a
+        href={mailtoHref}
+        className="inline-flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
+      >
+        <Mail className="w-3.5 h-3.5" aria-hidden="true" />
+        {t("rsvpEmbedSendDev", "Send to whoever runs my site")}
+      </a>
     </div>
   );
 }
