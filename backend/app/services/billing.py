@@ -128,16 +128,23 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
         # (matches the /staff/members list filter exactly — gate and UI can
         # never disagree about the number).
         #
-        # Ladder is sized off the ICP (owner-operated, 5-12 staff):
-        #   Free    3  — a real taste: solo owner + 2 helpers can run a whole
-        #                week of Vagtplan before the wall. Any genuine venue
-        #                outgrows this immediately → clean upgrade signal.
-        #   Starter 10 — covers most of the ICP band.
-        #   Pro     25 — comfortably covers a 3-branch operation (Pro sells 3
-        #                locations). Deliberately a NUMBER, not "unlimited":
-        #                every tier stays a measurable promise we can defend
-        #                (same reasoning that moved the OCR caps off
-        #                "unlimited" above).
+        # FREE 3 is the only tier where this cap is a PRODUCT decision — the
+        # lock Manoj asked for. Sized off the ICP (owner-operated, 5-12 staff):
+        # solo owner + 2 helpers can run a whole week of Vagtplan before the
+        # wall, and any genuine venue outgrows it immediately → clean upgrade
+        # signal.
+        #
+        # Starter 50 / Pro 200 exist for a DIFFERENT reason: they are ABUSE
+        # CEILINGS, not upsell walls. get_cap() fails CLOSED — a plan with no
+        # `staff_members` entry inherits FREE's number — so omitting them here
+        # would silently cap paying customers at 3 (exactly the "Starter-tier
+        # leak" this consolidated PLAN_CAPS was built to kill). They're set far
+        # above anything a real DK small business reaches, so a paying customer
+        # never meets a wall, while a runaway script still hits a bound.
+        #
+        # Still deliberate NUMBERS, never "unlimited" (Manoj) — every tier stays
+        # a measurable promise we can defend, same reasoning that moved the OCR
+        # caps off "unlimited" above.
         #
         # Enforced at the single creation choke point (staff.py
         # create_staff_member) via enforce_cap → 402 + upgrade payload.
@@ -265,7 +272,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
     "starter": {
         "branches": 1,
         "team_users": 3,
-        "staff_members": 10,  # Vagtplan roster — covers most of the 5-12 ICP band
+        "staff_members": 50,  # Vagtplan roster — abuse ceiling, not an upsell wall
         "modules": 1,
         "smart_imports_per_day": 15,
         "daily_close_export_days": 31,
@@ -335,7 +342,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
     "trial": {  # = full Pro for 14 days
         "branches": 3,
         "team_users": 5,
-        "staff_members": 25,  # = Pro (trial is full Pro for 14 days)
+        "staff_members": 200,  # = Pro (trial is full Pro for 14 days)
         "modules": -1,
         "smart_imports_per_day": 50,
         "daily_close_export_days": 366,
@@ -370,9 +377,9 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
     "pro": {
         "branches": 3,
         "team_users": 5,
-        # Vagtplan roster — comfortably covers a 3-branch operation. A real
-        # number, not "unlimited": every tier stays a promise we can defend.
-        "staff_members": 25,
+        # Vagtplan roster — abuse ceiling only; no real DK small business
+        # reaches this. A real number, not "unlimited" (Manoj).
+        "staff_members": 200,
         "modules": -1,
         "smart_imports_per_day": 50,
         "daily_close_export_days": 366,
