@@ -7,6 +7,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
+import { useEntitlements } from "../hooks/useEntitlements";
 import { useBranch } from "../components/BranchSelector";
 import { displayCurrency, formatKr } from "../utils/currency";
 import { errText } from "../utils/errText";
@@ -3301,6 +3302,23 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
   // panel with `ReferenceError: user is not defined` and bounced the
   // whole /staff/schedule page through the global error boundary.
   const { user } = useAuth();
+  // Vagtplan roster cap (Free 3 / Starter 10 / Pro 25). `staff` is the active,
+  // non-deleted tenant roster (GET /staff/members filters exactly that and
+  // ignores branch_id), so its length IS the seat count the server gates on —
+  // UI and gate read the same number. Tri-state on isReady so the lock never
+  // flashes for a paying user while entitlements load (tier-flicker doctrine).
+  const { isAtCap, cap, isReady, plan, data: entData } = useEntitlements();
+  const seatsUsed = staff.length;
+  const seatCap = cap("staff_members");
+  const atSeatCap = isReady && isAtCap("staff_members", seatsUsed);
+  // Next tier + its seat count come from the SERVER's own plans matrix, never
+  // hardcoded here — so the number in the CTA can't drift from billing.py.
+  // Pro is the top tier: no next tier ⇒ no upgrade CTA (a nudge that leads
+  // nowhere is a dead end, so we show the seat line alone instead).
+  const nextTier = plan === "free" ? "starter" : plan === "starter" ? "pro" : null;
+  const nextSeats = nextTier
+    ? entData?.plans?.[nextTier]?.caps?.staff_members ?? null
+    : null;
   const roles = rolesFor(user?.business_type);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -3372,6 +3390,10 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
 
   const handleAdd = async () => {
     if (!name.trim()) return;
+    // Client-side mirror of the server gate. The 402 is the real barrier —
+    // this just avoids a pointless round-trip and a red error where the
+    // honest answer is "you're out of seats, here's the upgrade".
+    if (atSeatCap) return;
     setSaving(true);
     setPanelError("");
     try {
@@ -3563,12 +3585,40 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
           />
           <button
             onClick={handleAdd}
-            disabled={saving || !name.trim()}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
+            disabled={saving || !name.trim() || atSeatCap}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50 inline-flex items-center gap-1.5"
           >
+            {atSeatCap && <Lock className="w-3.5 h-3.5" aria-hidden="true" />}
             {saving ? t("schedAdding", "Adding...") : t("schedAddShort", "Add")}
           </button>
         </div>
+
+        {/* Roster seats are used up — say so plainly and offer the one real
+            way forward. Existing staff are untouched (grandfathered); this
+            only blocks the next add, so the copy must never imply data loss. */}
+        {atSeatCap && (
+          <div className="mt-3 space-y-2">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              {t("schedSeatsUsed", "{used} of {cap} staff seats used", {
+                used: seatsUsed,
+                cap: seatCap,
+              })}
+            </p>
+            {nextTier && nextSeats ? (
+              <UpgradeNudge
+                intent="inline"
+                tier={nextTier}
+                iconName="Users"
+                benefit={t(
+                  "schedSeatsBenefit",
+                  "Room for {n} people on the schedule — your current team stays exactly as it is.",
+                  { n: nextSeats },
+                )}
+                ctaLabel={t("nudgeSeePlans", "See plans")}
+              />
+            ) : null}
+          </div>
+        )}
       </div>
 
       {panelError && (

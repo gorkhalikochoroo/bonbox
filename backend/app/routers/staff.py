@@ -456,6 +456,28 @@ def create_staff_member(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    # ── L6 tier gate — Vagtplan roster size (Free 3 / Starter 10 / Pro 25) ──
+    # This is the ONLY place a StaffMember row is born, so it's the only gate
+    # needed. A seat = active AND NOT is_deleted — the exact filter GET
+    # /members uses, so the gate and the roster the owner sees can never
+    # disagree, and offboarding a leaver frees a seat.
+    #
+    # Counted fresh on every add (not cached) so the gate can't drift.
+    # GRANDFATHERED by construction: an account already over its cap keeps
+    # every staffer and every shift — this refuses only the NEXT add, with
+    # the canonical 402 upgrade payload. It never deletes or hides anyone.
+    from app.services.billing import enforce_cap
+    current_staff = (
+        db.query(StaffMember)
+        .filter(
+            StaffMember.user_id == user.id,
+            StaffMember.is_deleted.isnot(True),
+            StaffMember.active.is_(True),
+        )
+        .count()
+    )
+    enforce_cap(user, "staff_members", current_staff)
+
     # Defense-in-depth: re-run the schema validators at the boundary even
     # though Pydantic already coerced. Catches malformed clients sending
     # raw strings/etc bypassing the Pydantic model.
@@ -533,6 +555,26 @@ def update_staff_member(
                 _addr_changed = True
     if _addr_changed:
         member.address_updated_at = utc_now()
+
+    # ── L6 tier gate — reactivation claims a seat, so it gates like an add ──
+    # Deactivating frees a seat, so turning one back ON must pass the same cap
+    # check; otherwise deactivate → add → reactivate walks straight past the
+    # limit. Fires only on a real False → True flip (re-saving an already-active
+    # member is untouched). The member being reactivated is excluded from the
+    # count because it isn't holding a seat yet.
+    if updates.get("active") is True and not member.active:
+        from app.services.billing import enforce_cap
+        active_others = (
+            db.query(StaffMember)
+            .filter(
+                StaffMember.user_id == user.id,
+                StaffMember.id != member.id,
+                StaffMember.is_deleted.isnot(True),
+                StaffMember.active.is_(True),
+            )
+            .count()
+        )
+        enforce_cap(user, "staff_members", active_others)
 
     for field, value in updates.items():
         setattr(member, field, value)

@@ -119,6 +119,32 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
     "free": {
         "branches": 1,
         "team_users": 1,
+        # 2026-07-19 — Vagtplan roster size (StaffMember rows), Manoj-set.
+        # DISTINCT from `team_users`: that counts LOGIN seats (people who sign
+        # in and get a role); this counts SCHEDULED EMPLOYEES on the roster,
+        # who normally never log into the owner app at all.
+        #
+        # A seat = active AND NOT is_deleted, so offboarding a leaver frees it
+        # (matches the /staff/members list filter exactly — gate and UI can
+        # never disagree about the number).
+        #
+        # Ladder is sized off the ICP (owner-operated, 5-12 staff):
+        #   Free    3  — a real taste: solo owner + 2 helpers can run a whole
+        #                week of Vagtplan before the wall. Any genuine venue
+        #                outgrows this immediately → clean upgrade signal.
+        #   Starter 10 — covers most of the ICP band.
+        #   Pro     25 — comfortably covers a 3-branch operation (Pro sells 3
+        #                locations). Deliberately a NUMBER, not "unlimited":
+        #                every tier stays a measurable promise we can defend
+        #                (same reasoning that moved the OCR caps off
+        #                "unlimited" above).
+        #
+        # Enforced at the single creation choke point (staff.py
+        # create_staff_member) via enforce_cap → 402 + upgrade payload.
+        # Existing over-cap rosters are GRANDFATHERED by construction: the
+        # gate blocks the NEXT add, it never deletes or hides a staffer
+        # someone's schedule depends on.
+        "staff_members": 3,
         "modules": 1,
         "smart_imports_per_day": 3,
         "daily_close_export_days": 7,
@@ -239,6 +265,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
     "starter": {
         "branches": 1,
         "team_users": 3,
+        "staff_members": 10,  # Vagtplan roster — covers most of the 5-12 ICP band
         "modules": 1,
         "smart_imports_per_day": 15,
         "daily_close_export_days": 31,
@@ -308,6 +335,7 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
     "trial": {  # = full Pro for 14 days
         "branches": 3,
         "team_users": 5,
+        "staff_members": 25,  # = Pro (trial is full Pro for 14 days)
         "modules": -1,
         "smart_imports_per_day": 50,
         "daily_close_export_days": 366,
@@ -342,6 +370,9 @@ PLAN_CAPS: dict[str, dict[str, int]] = {
     "pro": {
         "branches": 3,
         "team_users": 5,
+        # Vagtplan roster — comfortably covers a 3-branch operation. A real
+        # number, not "unlimited": every tier stays a promise we can defend.
+        "staff_members": 25,
         "modules": -1,
         "smart_imports_per_day": 50,
         "daily_close_export_days": 366,
