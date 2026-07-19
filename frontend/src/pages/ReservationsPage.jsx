@@ -3750,6 +3750,11 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           dense
           label={t("rsvpSeatedNow", "Seated now")}
           value={seatedCount}
+          // The one LIVE number on the page — guests physically in the room
+          // right now. Emerald only while that's true; the moment the room is
+          // empty it falls back to neutral so the colour always means
+          // "something is happening", never decoration.
+          accent={seatedCount > 0 ? "success" : "neutral"}
           helper={t("rsvpSeatedHelper", "in the room")}
           onClick={() => focusStatus("seated")}
           selected={view === "liste" && statusFilter === "seated"}
@@ -3774,6 +3779,17 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           dense
           label={t("rsvpUtilization", "Occupancy")}
           value={peakPct == null ? "—" : `${peakPct}%`}
+          // Over 100% means more covers than seats at the peak — a real
+          // problem the owner should see before service, not a neutral fact.
+          // It was rendering 192% in plain gray. 85%+ is "nearly full" (amber:
+          // worth knowing), past 100% is red. Unknown capacity stays neutral —
+          // with no seat count there's no honest claim to make.
+          accent={
+            peakPct == null ? "neutral"
+              : peakPct > 100 ? "critical"
+                : peakPct >= 85 ? "warn"
+                  : "neutral"
+          }
           helper={
             totalCapacity <= 0
               ? t("rsvpUtilNoSeats", "set table seats")
