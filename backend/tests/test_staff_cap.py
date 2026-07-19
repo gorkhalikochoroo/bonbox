@@ -112,23 +112,37 @@ def _add(client, name="Ny Medarbejder"):
 
 # ─── The ladder itself ───────────────────────────────────────────────
 def test_ladder_values_are_the_agreed_numbers():
-    """Free 3 / Starter 10 / Pro 25, and trial == Pro. Deliberately real
-    numbers — no tier is sold as 'unlimited'."""
+    """Free 3 is the product lock. Starter 50 / Pro 200 are abuse ceilings —
+    they exist so paid tiers don't inherit Free's 3 (get_cap fails closed).
+    Deliberately real numbers — no tier is sold as 'unlimited'."""
     assert PLAN_CAPS["free"]["staff_members"] == 3
-    assert PLAN_CAPS["starter"]["staff_members"] == 10
-    assert PLAN_CAPS["pro"]["staff_members"] == 25
-    assert PLAN_CAPS["trial"]["staff_members"] == 25
+    assert PLAN_CAPS["starter"]["staff_members"] == 50
+    assert PLAN_CAPS["pro"]["staff_members"] == 200
+    assert PLAN_CAPS["trial"]["staff_members"] == 200
     # No tier may claim unlimited (-1) — every tier is a defensible promise.
     for plan in ("free", "starter", "trial", "pro"):
         assert PLAN_CAPS[plan]["staff_members"] > 0
+    # Paid ceilings must clear the ICP band (5-12 staff) with real headroom,
+    # so a paying customer never meets a wall.
+    assert PLAN_CAPS["starter"]["staff_members"] > 12
+    assert PLAN_CAPS["pro"]["staff_members"] > PLAN_CAPS["starter"]["staff_members"]
+
+
+def test_every_plan_defines_the_cap_so_none_inherits_free(db):
+    """The regression this ladder exists to prevent: get_cap() falls back to
+    FREE's number for a missing key, so a paid plan without an explicit
+    staff_members entry would silently cap paying customers at 3."""
+    for plan in ("starter", "trial", "pro"):
+        assert "staff_members" in PLAN_CAPS[plan], f"{plan} would inherit free's 3"
+        assert PLAN_CAPS[plan]["staff_members"] != PLAN_CAPS["free"]["staff_members"]
 
 
 def test_get_cap_resolves_per_plan(db):
     assert get_cap(_owner(db, plan="free"), "staff_members") == 3
-    assert get_cap(_owner(db, plan="starter"), "staff_members") == 10
-    assert get_cap(_owner(db, plan="pro"), "staff_members") == 25
+    assert get_cap(_owner(db, plan="starter"), "staff_members") == 50
+    assert get_cap(_owner(db, plan="pro"), "staff_members") == 200
     # Trial is full Pro for 14 days.
-    assert get_cap(_owner(db, plan="free", trial=True), "staff_members") == 25
+    assert get_cap(_owner(db, plan="free", trial=True), "staff_members") == 200
 
 
 # ─── Creation gate ───────────────────────────────────────────────────
@@ -148,20 +162,29 @@ def test_free_allows_three_then_402s(client, db):
     assert db.query(StaffMember).filter(StaffMember.user_id == u.id).count() == 3
 
 
-def test_starter_gets_ten(client, db):
+def test_starter_ceiling_is_fifty(client, db):
     u = _owner(db, plan="starter")
     _override_user(u)
-    _seed_staff(db, u, 9)
-    assert _add(client, "Nr 10").status_code in (200, 201)
-    assert _add(client, "Nr 11").status_code == 402
+    _seed_staff(db, u, 49)
+    assert _add(client, "Nr 50").status_code in (200, 201)
+    assert _add(client, "Nr 51").status_code == 402
 
 
-def test_pro_gets_twenty_five(client, db):
+def test_pro_ceiling_is_two_hundred(client, db):
     u = _owner(db, plan="pro")
     _override_user(u)
-    _seed_staff(db, u, 24)
-    assert _add(client, "Nr 25").status_code in (200, 201)
-    assert _add(client, "Nr 26").status_code == 402
+    _seed_staff(db, u, 199)
+    assert _add(client, "Nr 200").status_code in (200, 201)
+    assert _add(client, "Nr 201").status_code == 402
+
+
+def test_a_real_sized_team_never_hits_a_paid_wall(client, db):
+    """The point of the paid ceilings: a 12-person venue (top of the ICP band)
+    sails past on Starter. Only Free feels the lock."""
+    u = _owner(db, plan="starter")
+    _override_user(u)
+    for i in range(12):
+        assert _add(client, f"Medarbejder {i+1}").status_code in (200, 201)
 
 
 # ─── What does NOT consume a seat ────────────────────────────────────
