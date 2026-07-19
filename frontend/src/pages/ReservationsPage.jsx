@@ -353,6 +353,12 @@ export default function ReservationsPage() {
   // provider station, so the engine would never return slots.
   const showFloor = tablePlan || isProvider;
 
+  // The book's date lives HERE, not inside BookSection, so the desktop day
+  // rail and the book are driven by one value and can never disagree about
+  // which day is open. BookSection stays uncontrolled everywhere else (host
+  // stand, tests) — see its `day`/`onDayChange` props.
+  const [bookDay, setBookDay] = useState(() => isoDay(new Date()));
+
   // The active tab is DERIVED from the URL (?tab=), so the query string is the
   // single source of truth — a deep-link (e.g. the Insights "Turn on SMS
   // reminders" action → ?tab=settings) and the browser back/forward button are
@@ -435,7 +441,11 @@ export default function ReservationsPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6">
+    // max-w-5xl (1024px) was capping this page on every screen, so hiding the
+    // sidebar freed pixels the page then refused to use — ~400 dead on a 1440
+    // display. The cap only lifts at xl, exactly where the day rail appears;
+    // below that the single column is still the right shape.
+    <div className="p-4 md:p-8 max-w-5xl xl:max-w-[1400px] mx-auto space-y-6">
       <PageTitle t={t} isProvider={isProvider} />
       <TabPills
         tabs={[
@@ -469,7 +479,26 @@ export default function ReservationsPage() {
         size="lg"
       />
 
-      {tab === "book" && <BookSection t={t} businessType={user?.business_type} tableFloor={tablePlan} />}
+      {/* Two columns from xl (1280px) up — the rail is additive, so below that
+          breakpoint this collapses to exactly the single column shipped
+          before. min-w-0 on the book so a wide timeline scrolls inside its
+          own column instead of pushing the grid open. */}
+      {tab === "book" && (
+        <div className="xl:grid xl:grid-cols-[300px_minmax(0,1fr)] xl:gap-6 xl:items-start">
+          <div className="hidden xl:block xl:sticky xl:top-6">
+            <DayRail day={bookDay} onPick={setBookDay} t={t} />
+          </div>
+          <div className="min-w-0">
+            <BookSection
+              t={t}
+              businessType={user?.business_type}
+              tableFloor={tablePlan}
+              day={bookDay}
+              onDayChange={setBookDay}
+            />
+          </div>
+        </div>
+      )}
       {tab === "floor" && showFloor && <FloorSection t={t} businessType={user?.business_type} />}
       {tab === "behandlinger" && isProvider && <BehandlingerSection t={t} />}
       {/* Insights mounts lazily (only when its tab is open) so it never blocks
@@ -2207,7 +2236,204 @@ function SalonFirstRunCard({
   );
 }
 
-function BookSection({ t, businessType, tableFloor = false }) {
+/* ─── DayRail — the desktop day rail (≥1280px only) ────────────────────
+   The single-day book can't answer "how's Saturday looking", and on a wide
+   screen the page was leaving ~400px of dead pixels (it was capped at
+   max-w-5xl). This fills that space with the two questions an owner actually
+   has: WHICH DAY, and AM I COVERED.
+
+   The second half is the part a booking tool can't do. BonBox holds the
+   roster as well as the book, so the rail can say "48 covers · 3 on shift"
+   and flag the mismatch. DinnerBooking knows the covers; Planday knows the
+   roster; only this knows both.
+
+   Density comes from the page's EXISTING type scale (10/11/12/13px — no new
+   sizes), tabular numerals so the counts line up in a column, and tight
+   leading so a whole month plus a per-day count fits in 300px. Days with
+   nothing booked render blank, not "0" — 31 zeros is noise.
+
+   Colour stays meaningful: gray-900 for the selected day, amber ONLY where
+   covers outrun the roster. No heatmap — a rainbow month would look like a
+   dashboard and say less than one amber Saturday does. */
+function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
+  const { lang } = useLanguage();
+  const [month, setMonth] = useState(() => (day || isoDay(new Date())).slice(0, 7));
+  const [load, setLoad] = useState({});
+  const [loading, setLoading] = useState(true);
+
+  // Follow the book when the owner jumps to a date in another month (arrows,
+  // date picker, deep link) so the rail never shows a different month than
+  // the day that's open.
+  useEffect(() => {
+    if (day && day.slice(0, 7) !== month) setMonth(day.slice(0, 7));
+  }, [day]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    api
+      .get("/reservations/month-load", { params: { month } })
+      .then((res) => {
+        if (!alive) return;
+        const map = {};
+        (res.data?.days || []).forEach((d) => { map[d.date] = d; });
+        setLoad(map);
+      })
+      .catch(() => { if (alive) setLoad({}); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [month]);
+
+  const [y, m] = month.split("-").map(Number);
+  const first = new Date(y, m - 1, 1);
+  // Monday-first, matching the Danish week (getDay() is Sunday-first).
+  const lead = (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(y, m, 0).getDate();
+  // The APP's language, not the browser's — a Danish owner on an English-locale
+  // laptop must still read "juli 2026". Same convention the date stepper uses.
+  const monthLabel = first.toLocaleDateString(lang, { month: "long", year: "numeric" });
+
+  const shiftMonth = (delta) => {
+    const d = new Date(y, m - 1 + delta, 1);
+    setMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  };
+
+  const sel = load[day] || null;
+  // "Heavy" = more covers than the roster can plausibly carry. 12 covers per
+  // person on shift is a deliberately forgiving rule of thumb — it should fire
+  // on the obvious Saturday, not nag on an ordinary Tuesday. Never fires when
+  // no roster exists (nothing to compare against ⇒ no honest claim to make).
+  const isHeavy = (d) => d && d.staff_on > 0 && d.covers > d.staff_on * 12;
+
+  return (
+    <aside
+      className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3 tabular-nums"
+      aria-label={t("rsvpRailAria", "Day overview")}
+    >
+      <div className="flex items-center justify-between mb-2.5">
+        <span className="text-[11px] uppercase tracking-[0.06em] text-gray-400 dark:text-gray-500">
+          {monthLabel}
+        </span>
+        <span className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => shiftMonth(-1)}
+            aria-label={t("rsvpRailPrevMonth", "Previous month")}
+            className="w-6 h-6 inline-flex items-center justify-center rounded text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => shiftMonth(1)}
+            aria-label={t("rsvpRailNextMonth", "Next month")}
+            className="w-6 h-6 inline-flex items-center justify-center rounded text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-800"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+        </span>
+      </div>
+
+      <div className="grid grid-cols-7 gap-0.5 text-[10px] text-gray-400 dark:text-gray-500 text-center mb-1">
+        {(t("rsvpRailWeekdays", "M,T,O,T,F,L,S") || "M,T,O,T,F,L,S")
+          .split(",")
+          .map((w, i) => <div key={i}>{w}</div>)}
+      </div>
+
+      <div className="grid grid-cols-7 gap-0.5 text-center">
+        {Array.from({ length: lead }).map((_, i) => <div key={`p${i}`} />)}
+        {Array.from({ length: daysInMonth }).map((_, i) => {
+          const dnum = i + 1;
+          const iso = `${month}-${String(dnum).padStart(2, "0")}`;
+          const info = load[iso];
+          const selected = iso === day;
+          const heavy = isHeavy(info);
+          return (
+            <button
+              key={iso}
+              type="button"
+              onClick={() => onPick(iso)}
+              aria-label={`${iso}${info?.covers ? ` — ${info.covers}` : ""}`}
+              aria-current={selected ? "date" : undefined}
+              className={
+                "rounded-md py-1 leading-[1.1] transition-colors " +
+                (selected
+                  ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
+                  : heavy
+                    ? "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                    : "text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800")
+              }
+            >
+              <span className="block text-[11px]">{dnum}</span>
+              <span
+                className={
+                  "block text-[10px] " +
+                  (selected
+                    ? "text-white/70 dark:text-gray-900/70"
+                    : heavy
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-gray-400 dark:text-gray-500")
+                }
+              >
+                {info?.covers ? info.covers : " "}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Selected day — covers vs roster, the answer the book alone can't give */}
+      <div className="mt-3 pt-2.5 border-t border-gray-100 dark:border-gray-800">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[13px] font-medium text-gray-900 dark:text-gray-100 truncate">
+            {relativeDayLabel(day, t, lang)}
+          </span>
+          <span className="text-[13px] text-gray-900 dark:text-gray-100">
+            {loading ? "" : sel?.covers || 0}
+          </span>
+        </div>
+        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+          {t("rsvpRailDayLine", "{covers} guests · {staff} on shift", {
+            covers: sel?.covers || 0,
+            staff: sel?.staff_on || 0,
+          })}
+        </p>
+        {isHeavy(sel) && (
+          <div className="mt-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 px-2.5 py-1.5 flex items-start gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-px" aria-hidden />
+            <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-snug">
+              {t("rsvpRailHeavy", "Busy day for this roster — check staffing.")}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Venteliste lives here on desktop: you act on it DURING service, while
+          looking at the book — not from the bottom of the page. */}
+      {waitlistCount > 0 && (
+        <button
+          type="button"
+          onClick={onOpenWaitlist}
+          className="mt-3 pt-2.5 border-t border-gray-100 dark:border-gray-800 w-full text-left group"
+        >
+          <span className="text-[11px] uppercase tracking-[0.06em] text-gray-400 dark:text-gray-500">
+            {t("rsvpWaitlistTitle", "Venteliste")} · {waitlistCount}
+          </span>
+          <span className="block text-[11px] text-gray-500 dark:text-gray-400 mt-0.5 group-hover:text-gray-900 dark:group-hover:text-gray-100">
+            {t("rsvpRailWaitlistJump", "Show the waiting parties")}
+          </span>
+        </button>
+      )}
+    </aside>
+  );
+}
+
+// `day`/`onDayChange` are OPTIONAL — pass them and the book becomes a
+// controlled component so the desktop DayRail beside it can drive the date;
+// omit them (host-stand pop-out, tests) and it keeps its own state exactly as
+// before. Every internal setDay call passes a plain value, never a functional
+// updater, so the alias below is a faithful swap.
+function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayChange }) {
   const { lang } = useLanguage();
   const confirm = useConfirm();
   // Host-stand pop-out chrome lives in THIS component's return (the top bar +
@@ -2227,7 +2453,9 @@ function BookSection({ t, businessType, tableFloor = false }) {
   // → dato → tid) instead of a table booking — an ADDITIVE branch; the table
   // flow is left byte-identical.
   const isProvider = bookingModeFor(businessType) === "provider";
-  const [day, setDay] = useState(() => isoDay(new Date()));
+  const [dayLocal, setDayLocal] = useState(() => isoDay(new Date()));
+  const day = dayProp ?? dayLocal;
+  const setDay = onDayChange ?? setDayLocal;
   // Live minute tick so a confirmed booking that's past its time surfaces as
   // "forsinket" (late) in the list as service runs — the Floor/Timeline had a
   // now-line, the list (the screen owners stare at) didn't. Cheap 60s re-render.
