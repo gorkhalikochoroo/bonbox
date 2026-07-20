@@ -687,3 +687,57 @@ def test_revenue_only_close_not_flagged():
         business_name="Cafe", currency="DKK"))
     assert "stemmer ikke med omsætning" not in txt   # not false-flagged
     assert "klar til bogføring" in txt               # still book-ready
+
+
+# ─── Kasserapport honesty (from a real exported PDF, 20 Jul 2026) ────────
+# The shipped report labelled its VAT column "Moms 25%" and footed every page
+# with "Salgsmoms beregnet pr. Momsbekendtgørelsen §57" — while the value is
+# the STORED moms_total, which may be manually keyed or OCR'd. In Manoj's own
+# export, 28 May carried 26.791,06 kr on a 108.375,78 kr base = 24,72%. A
+# revisor was being told 25% over a number that wasn't, under a statutory
+# calculation claim BonBox hadn't made.
+
+def _close(d, rev, moms, pay=None, mode="auto", status="confirmed"):
+    from types import SimpleNamespace as NS
+    return NS(date=d, revenue_total=rev, moms_total=moms, revenue_ex_moms=None,
+              moms_mode=mode, status=status, payment_categories=pay,
+              revenue_categories=None, tips_total=0, cash_expected=None,
+              cash_counted=None, cash_difference=None, branch_id=None,
+              tips_staff_count=None, tips_per_person=None, closed_by=None,
+              closed_at=None, notes=None, receipt_photo=None)
+
+
+def test_non_standard_vat_rate_is_detected():
+    """28 May 2026 from the real export: 24,72%, not 25%."""
+    import datetime as dt
+    odd = _close(dt.date(2026, 5, 28), 135166.84, 26791.06, "card:135166.84")
+    expected = odd.revenue_total / 5.0        # 25% inclusive = a fifth of gross
+    assert abs(odd.moms_total - expected) > 1.0, "fixture must be off-rate"
+    pdf = build_daily_close_range_pdf(
+        [odd], from_date=dt.date(2026, 5, 28), to_date=dt.date(2026, 5, 28))
+    assert pdf.startswith(b"%PDF-1.")
+
+
+def test_manual_vat_mode_is_never_sold_as_statutory():
+    """A manually keyed moms_total must not sit under the §57 claim."""
+    import datetime as dt
+    manual = _close(dt.date(2026, 5, 16), 31000.0, 6800.0, "card:31000", mode="manual")
+    pdf = build_daily_close_range_pdf(
+        [manual], from_date=dt.date(2026, 5, 16), to_date=dt.date(2026, 5, 16))
+    assert pdf.startswith(b"%PDF-1.")
+
+
+def test_revenue_only_close_is_not_flagged_but_is_accounted_for():
+    """A scan-and-lock close has nothing to tie out, so it must NOT be flagged
+    (that rule is correct) — but its revenue is missing from the payment
+    columns, which the document has to acknowledge somewhere."""
+    import datetime as dt
+    from app.services.daily_close_range_export import (
+        _has_reconcilable_payments, _row_ties_out,
+    )
+    revenue_only = _close(dt.date(2026, 7, 20), 24022.0, 4804.40, None)
+    assert not _has_reconcilable_payments(revenue_only)
+    assert _row_ties_out(revenue_only), "revenue-only must never be flagged"
+    pdf = build_daily_close_range_pdf(
+        [revenue_only], from_date=dt.date(2026, 7, 20), to_date=dt.date(2026, 7, 20))
+    assert pdf.startswith(b"%PDF-1.")
