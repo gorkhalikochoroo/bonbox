@@ -741,3 +741,27 @@ def test_revenue_only_close_is_not_flagged_but_is_accounted_for():
     pdf = build_daily_close_range_pdf(
         [revenue_only], from_date=dt.date(2026, 7, 20), to_date=dt.date(2026, 7, 20))
     assert pdf.startswith(b"%PDF-1.")
+
+
+def test_long_voucher_range_wraps_instead_of_overlapping_the_amount():
+    """Regression: a full bilag RANGE ("S-2026-0002 → S-2026-0004") is wider
+    than the 25 mm Bilag column. As a raw string ReportLab does not wrap it —
+    it printed straight over the Omsætning figure, smearing both into an
+    unreadable token on a document a revisor signs. The cell is a Paragraph
+    now, so it wraps inside its column and the amount stays legible."""
+    import datetime as dt
+    from io import BytesIO
+    from unittest.mock import patch
+    from pypdf import PdfReader
+
+    row = _close(dt.date(2026, 5, 24), 5000.0, 1000.0, "cash:5000")
+    with patch(
+        "app.services.daily_close_range_export._voucher_ranges",
+        return_value=("S-2026-0002 → S-2026-0004", ""),
+    ):
+        pdf = build_daily_close_range_pdf(
+            [row], from_date=dt.date(2026, 5, 24), to_date=dt.date(2026, 5, 24))
+
+    text = PdfReader(BytesIO(pdf)).pages[0].extract_text()
+    assert "S-2026-0002" in text and "S-2026-0004" in text, "voucher range lost"
+    assert "5.000,00 kr." in text, "amount was overwritten by the voucher"

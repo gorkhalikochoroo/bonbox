@@ -482,6 +482,17 @@ def build_daily_close_range_pdf(
                                   textColor=INK, fontName="Helvetica",
                                   leading=10, alignment=1)  # 1 = TA_CENTER
 
+    # Bilag cell. A raw string in a ReportLab table cell does NOT wrap — it
+    # overruns into the neighbouring column, which is exactly what a full
+    # voucher RANGE did: "S-2026-0002 → S-2026-0004" is far wider than the
+    # 25 mm Bilag column, so it printed straight over the Omsætning figure and
+    # the two became an unreadable smear on a document a revisor signs. A
+    # Paragraph wraps inside the cell instead. Slightly smaller + tighter
+    # leading so a wrapped two-line bilag doesn't inflate every row height.
+    bilag_style = ParagraphStyle("Bilag", parent=styles["Normal"], fontSize=6.8,
+                                 textColor=INK, fontName="Helvetica",
+                                 leading=8, alignment=0)  # 0 = TA_LEFT
+
     def _make_story():
         # Returns a FRESH list of flowables each call — render_with_doc_hash
         # invokes this once per pass (reportlab mutates flowables in-place, so
@@ -692,7 +703,7 @@ def build_daily_close_range_pdf(
                 status_cell = status_label
             table_data.append([
                 _date_short(c.date),
-                vsales or "—",
+                Paragraph(vsales, bilag_style) if vsales else "—",
                 _fmt(revenue),
                 _fmt(moms) if moms is not None else "—",
                 _fmt(net),
