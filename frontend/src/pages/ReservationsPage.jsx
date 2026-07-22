@@ -714,6 +714,16 @@ function deriveFloorState(reservations, resources, nowMs) {
           name: current.guest_name,
           time: fmtTime(current.starts_at),
           eta,
+          // When an OCCUPIED table frees — the number a host seating walk-ins
+          // actually decides on. Only for seated tables (an upcoming table
+          // isn't holding a seat yet); the floor tile + the "next free" readout
+          // both read these. freesInMin goes negative once it runs over (the
+          // visual status flips to "overdue" and shows "+Nm over" instead).
+          freesAt: seated && current.ends_at ? fmtTime(current.ends_at) : null,
+          freesInMin:
+            seated && current.ends_at
+              ? Math.round((new Date(current.ends_at).getTime() - nowMs) / 60000)
+              : null,
           reservation: current,
         },
       };
