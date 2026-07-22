@@ -6497,6 +6497,9 @@ const translations = {
     fromDate: "From",
     toDate: "To",
     expenseAddedFromReceipt: "Expense added from receipt",
+    expenseSaveFailed: "Couldn't save the expense — nothing was added. Try again.",
+    paymentMethodFromReceipt: "Read from the receipt",
+    paymentMethodAsk: "The receipt doesn't say how it was paid — pick one",
     // Tier 4 v2 Dashboard restructure — new card-set composition.
     // DK terminology lock: `faktura`, `fakturaer`, `MOMS`, `revisor`,
     // `kvartalsregnskab`, `lønseddel`, `årsregnskab` stay Danish even
@@ -13610,6 +13613,9 @@ const translations = {
     fromDate: "Fra",
     toDate: "Til",
     expenseAddedFromReceipt: "Udgift tilføjet fra kvittering",
+    expenseSaveFailed: "Udgiften kunne ikke gemmes — intet blev tilføjet. Prøv igen.",
+    paymentMethodFromReceipt: "Aflæst på kvitteringen",
+    paymentMethodAsk: "Kvitteringen viser ikke betalingsmåden — vælg en",
     // Tier 4 v2 Dashboard restructure — danske tekster. `faktura`,
     // `fakturaer`, `MOMS`, `revisor`, `kvartalsregnskab`, `lønseddel`,
     // `årsregnskab` står på dansk (DK terminology lock).

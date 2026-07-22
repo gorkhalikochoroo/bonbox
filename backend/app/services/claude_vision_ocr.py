@@ -62,6 +62,10 @@ _call_counter = {"n": 0}
 _PRICE_INPUT_PER_MTOK = 3.0
 _PRICE_OUTPUT_PER_MTOK = 15.0
 
+# Payment methods we accept from the vision extractor. Must stay in sync
+# with the Expense model's payment_method values and the frontend picker.
+_ALLOWED_PAYMENT_METHODS = {"cash", "card", "mobilepay"}
+
 
 def _estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:
     """Best-effort cost estimate in USD for a single extraction call.
@@ -123,6 +127,18 @@ _EXTRACTION_TOOL = {
                     "default when the receipt doesn't print a currency symbol."
                 ),
             },
+            "payment_method": {
+                "type": ["string", "null"],
+                "description": (
+                    "How the receipt was PAID, read off the receipt itself. "
+                    "One of: 'cash', 'card', 'mobilepay'. Danish receipts "
+                    "print this explicitly near the total — 'Kontant' or "
+                    "'Kontantbetaling' = cash; 'Dankort', 'Visa', 'Mastercard', "
+                    "'Kortbetaling', 'Kort', 'Terminal', 'Kontaktløs' = card; "
+                    "'MobilePay' = mobilepay. Return null when the receipt "
+                    "does not state it — do NOT guess."
+                ),
+            },
             "vat_amount": {
                 "type": ["number", "null"],
                 "description": "VAT / MOMS amount in the same currency. Null if not shown.",
@@ -162,6 +178,7 @@ _EXTRACTION_TOOL = {
                     "date": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                     "total": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                     "vat_amount": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                    "payment_method": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                     "overall": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                 },
             },
@@ -198,6 +215,13 @@ def _build_system_prompt(currency_hint: str) -> str:
         "DD-MM-YYYY or DD/MM/YYYY — translate before returning.\n"
         "Total is the FINAL amount paid (gross, including VAT/MOMS). "
         "Look for 'Total', 'I alt', 'At betale', 'SUM', 'Grand total'.\n"
+        "Payment method: read it OFF the receipt, never infer it. Danish "
+        "receipts print it by the total — 'Kontant' = cash, 'Dankort' / "
+        "'Visa' / 'Mastercard' / 'Kortbetaling' / 'Kontaktløs' = card, "
+        "'MobilePay' = mobilepay. If the receipt does not say, return null "
+        "and set its confidence to 0 — a wrong method silently mis-states "
+        "the owner's cash position, so 'I don't know' is the correct "
+        "answer whenever the paper doesn't say.\n"
         "Number format: Danish receipts use period as thousands separator "
         "and comma as decimal ('1.234,56' = 1234.56). Return numerics, "
         "not strings.\n"
@@ -296,6 +320,13 @@ def _validate_extraction(data: Any) -> dict | None:
     else:
         out["currency"] = "DKK"
 
+    # Payment method — strict allow-list. Anything the model returns that
+    # isn't one of the three known values becomes None so the UI asks the
+    # owner rather than silently booking a cash purchase as a card one.
+    pm_raw = data.get("payment_method")
+    pm = pm_raw.strip().lower() if isinstance(pm_raw, str) else ""
+    out["payment_method"] = pm if pm in _ALLOWED_PAYMENT_METHODS else None
+
     # VAT amount + rate — optional numerics
     vat_amount = data.get("vat_amount")
     out["vat_amount"] = float(vat_amount) if isinstance(vat_amount, (int, float)) and vat_amount > 0 else None
@@ -327,7 +358,7 @@ def _validate_extraction(data: Any) -> dict | None:
     if not isinstance(conf_raw, dict):
         return None  # Without confidence, this response is useless
     conf: dict[str, float] = {}
-    for key in ("vendor", "date", "total", "vat_amount", "overall"):
+    for key in ("vendor", "date", "total", "vat_amount", "payment_method", "overall"):
         v = conf_raw.get(key)
         if isinstance(v, (int, float)):
             conf[key] = max(0.0, min(1.0, float(v)))
