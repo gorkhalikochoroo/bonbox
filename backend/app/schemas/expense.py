@@ -17,7 +17,12 @@ class ExpenseCategoryResponse(BaseModel):
 
 
 class ExpenseCreate(BaseModel):
-    category_id: uuid.UUID
+    # Optional on purpose. The receipt-scan flow only knows a category
+    # when the vendor→category guess hits; when it misses, the owner
+    # still has a real amount + date + photo in front of them and the
+    # expense MUST save. The router files an uncategorised scan under
+    # the "Andet" fallback rather than 422-ing the save away.
+    category_id: uuid.UUID | None = None
     date: datetime.date
     amount: float
     description: str

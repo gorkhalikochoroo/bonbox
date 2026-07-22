@@ -496,6 +496,40 @@ def create_expense(
 ):
     payload = data.model_dump()
 
+    # ── L2 — Category resolution + tenant check ───────────────────────
+    # A submitted category must belong to THIS user — an id from another
+    # tenant would otherwise be persisted verbatim and leak that tenant's
+    # category name into this owner's reports.
+    #
+    # An OMITTED category is not an error: the receipt-scan flow can't
+    # always guess one, and losing a scanned expense (real amount, real
+    # photo, real MOMS) because the guess missed is the worse outcome.
+    # Those land in "Andet" (get-or-create), visible and re-categorisable
+    # from the list.
+    cat_id = payload.get("category_id")
+    if cat_id is not None:
+        owned = (
+            db.query(ExpenseCategory)
+            .filter(ExpenseCategory.id == cat_id, ExpenseCategory.user_id == user.id)
+            .first()
+        )
+        if not owned:
+            raise HTTPException(status_code=404, detail="Expense category not found")
+    else:
+        fallback = (
+            db.query(ExpenseCategory)
+            .filter(
+                ExpenseCategory.user_id == user.id,
+                ExpenseCategory.name == "Andet",
+            )
+            .first()
+        )
+        if not fallback:
+            fallback = ExpenseCategory(user_id=user.id, name="Andet")
+            db.add(fallback)
+            db.flush()
+        payload["category_id"] = fallback.id
+
     # ── L2 — Foreign-currency validation (Bogføringsloven §10) ─────────
     # `amount` is the DKK-equivalent (account currency) figure that all
     # downstream MOMS / dashboard / bilag logic consumes — keeping it
@@ -1055,6 +1089,10 @@ async def upload_expense_receipt(
         "vat_amount": parsed.get("vat_amount"),
         "vat_rate": parsed.get("vat_rate"),
         "line_items": parsed.get("line_items") or [],
+        # "cash" | "card" | "mobilepay", or None when the receipt didn't
+        # say. None means ASK — the form must not pre-pick a method the
+        # paper doesn't support, or cash purchases book as card.
+        "suggested_payment_method": parsed.get("payment_method"),
         "usage": {
             "used_this_month": _count_receipt_scans_this_month(db, user.id),
             "monthly_cap": cap,

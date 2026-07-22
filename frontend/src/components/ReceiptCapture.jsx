@@ -26,12 +26,24 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState(null);
   const [amount, setAmount] = useState("");
-  const [method, setMethod] = useState(isExpense ? "card" : "mixed");
+  // Expense mode starts UNSET — the receipt tells us how it was paid, and
+  // when it doesn't, the owner does. It used to default to "card", which
+  // silently booked every cash purchase as a card one.
+  const [method, setMethod] = useState(isExpense ? "" : "mixed");
   // Payment picker stays collapsed on the OCR confirm — after the scan the
   // amount + confirm are what matter; method is almost always card. One tap
   // expands the chips. (design critique: don't make the owner scan 6 equal
   // options before the one thing that matters.)
   const [methodOpen, setMethodOpen] = useState(false);
+  // True only when the METHOD CAME OFF THE RECEIPT, so the confirm screen
+  // can say "read from the receipt" rather than implying we verified a
+  // default we actually guessed.
+  const [methodRead, setMethodRead] = useState(false);
+  // Save failed — shown inline above the confirm button. Before this,
+  // a rejected POST /expenses left the modal sitting there looking fine
+  // with nothing saved.
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [preview, setPreview] = useState(null);
   const [success, setSuccess] = useState("");
   const [desc, setDesc] = useState("");
@@ -87,6 +99,18 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
         if (res.data.suggested_category?.category_id) {
           setParsedCategoryId(res.data.suggested_category.category_id);
         }
+        // Payment method READ OFF the receipt ("Kontant" / "Dankort" /
+        // "MobilePay"). Null when the paper doesn't say — then we leave
+        // the picker unset and open, so the owner tells us instead of us
+        // booking a cash purchase as card and quietly breaking their
+        // cash position.
+        if (res.data.suggested_payment_method) {
+          setMethod(res.data.suggested_payment_method);
+          setMethodRead(true);
+        } else {
+          setMethod("");
+          setMethodOpen(true);
+        }
       }
     } catch (err) {
       // Tier-cap 402 returns structured detail — surface it to the user
@@ -139,10 +163,28 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
       // the Expenses list.
       receipt_photo: result?.filepath || null,
     };
+    // Only sent when the vendor→category guess actually hit. When it
+    // misses we omit it and the server files the expense under "Andet"
+    // — the scan must never be lost because a guess didn't land.
     if (parsedCategoryId) {
       payload.category_id = parsedCategoryId;
     }
-    await api.post("/expenses", payload);
+    setSaving(true);
+    setSaveError("");
+    try {
+      await api.post("/expenses", payload);
+    } catch (err) {
+      // Previously unhandled: the promise rejected, the modal kept
+      // showing the scanned receipt, and nothing was saved.
+      const detail = err?.response?.data?.detail;
+      setSaveError(
+        (typeof detail === "string" && detail) || t("expenseSaveFailed"),
+      );
+      trackEvent("receipt_expense_save_error", mode, err.message);
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
     setSuccess(t("expenseAddedFromReceipt"));
     onSaved?.();
     setTimeout(() => { setSuccess(""); closeModal(); }, 2000);
@@ -157,6 +199,11 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     setParsedDate("");
     setParsedCategoryId("");
     setCapError(null);
+    setMethod(isExpense ? "" : "mixed");
+    setMethodRead(false);
+    setMethodOpen(false);
+    setSaveError("");
+    setSaving(false);
     onClose?.();
   };
 
@@ -499,7 +546,11 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                 )}
 
                 <div className="mb-4">
-                  {!methodOpen ? (
+                  {/* Collapse to the one-line summary only when we HAVE a
+                      method. Unset (OCR couldn't read it, or the upload
+                      failed) always shows the chips — there is nothing
+                      honest to collapse into. */}
+                  {!methodOpen && method ? (
                     <button
                       type="button"
                       onClick={() => setMethodOpen(true)}
@@ -516,18 +567,40 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                           key={m}
                           size="sm"
                           selected={method === m}
-                          onClick={() => { setMethod(m); setMethodOpen(false); }}
+                          onClick={() => { setMethod(m); setMethodOpen(false); setMethodRead(false); }}
                         >
                           {t(m)}
                         </Chip>
                       ))}
                     </div>
                   )}
+                  {/* Two honest states, never a silent default:
+                      • read off the receipt → say so
+                      • not printed on the receipt → ask, don't guess */}
+                  {isExpense && methodRead && (
+                    <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">
+                      {t("paymentMethodFromReceipt", "Read from the receipt")}
+                    </p>
+                  )}
+                  {isExpense && !method && (
+                    <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {t("paymentMethodAsk", "The receipt doesn't say how it was paid — pick one")}
+                    </p>
+                  )}
                 </div>
+
+                {saveError && (
+                  <div
+                    role="alert"
+                    className="mb-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 px-3 py-2 text-sm text-red-700 dark:text-red-300"
+                  >
+                    {saveError}
+                  </div>
+                )}
 
                 <button
                   onClick={isExpense ? confirmExpense : confirmSale}
-                  disabled={!amount}
+                  disabled={!amount || saving || (isExpense && !method)}
                   className="w-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 py-3.5 rounded-xl hover:bg-gray-700 dark:hover:bg-white transition font-semibold disabled:opacity-40"
                 >
                   {isExpense ? t("addExpense") : t("confirmLog")}

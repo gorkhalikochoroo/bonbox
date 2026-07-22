@@ -934,6 +934,40 @@ def _extract_vendor(text: str) -> str | None:
     return None
 
 
+# Danish receipts print how they were paid, in words, right by the total.
+# Ordered most-specific first: "MobilePay" must win before the bare "kort"
+# in "kortbetaling", and a Dankort line must not be read as cash just
+# because the receipt also prints "kontantsalg" elsewhere.
+_PAYMENT_METHOD_MARKERS: list[tuple[str, tuple[str, ...]]] = [
+    ("mobilepay", ("mobilepay", "mobile pay", "mobilbetaling")),
+    ("card", (
+        "dankort", "visa", "mastercard", "maestro", "amex",
+        "american express", "kortbetaling", "kortkøb", "betalingskort",
+        "kontaktløs", "contactless", "terminal", "nets", "credit card",
+        "debit card", "kort ", "card ",
+    )),
+    ("cash", ("kontant", "kontanter", "cash", "kontantbetaling", "kontantsalg")),
+]
+
+
+def _detect_payment_method(text: str) -> str | None:
+    """Read the payment method off raw receipt text.
+
+    Returns "cash" | "card" | "mobilepay", or None when the receipt
+    doesn't say — never a guess. Danish receipts print the word next to
+    the total, so a keyword read is high-precision here; the cost of a
+    wrong answer (an owner's cash position quietly off) is much higher
+    than the cost of asking them to tap once.
+    """
+    if not text:
+        return None
+    low = text.lower()
+    for method, markers in _PAYMENT_METHOD_MARKERS:
+        if any(m in low for m in markers):
+            return method
+    return None
+
+
 def parse_expense_receipt(image_path: str) -> dict:
     """Parse a supplier/expense receipt photo into structured fields.
 
@@ -986,6 +1020,10 @@ def parse_expense_receipt(image_path: str) -> dict:
             "vat_amount": structured.get("vat_amount"),
             "vat_rate": structured.get("vat_rate"),
             "line_items": structured.get("line_items") or [],
+            # None when the provider couldn't read it (Mindee's Receipt v5
+            # doesn't expose it at all). The frontend must then ASK rather
+            # than default — a wrong method silently mis-states cash on hand.
+            "payment_method": structured.get("payment_method"),
             "_provider": structured.get("_provider"),
         }
 
@@ -1003,6 +1041,7 @@ def parse_expense_receipt(image_path: str) -> dict:
             "raw_text": "",
             "ocr_available": False,
             "confidence": "none",
+            "payment_method": None,
         }
 
     # Use the existing amount extractor — it's already tuned for Danish
@@ -1046,6 +1085,7 @@ def parse_expense_receipt(image_path: str) -> dict:
         "raw_text": raw_text[:1000],
         "ocr_available": True,
         "confidence": confidence,
+        "payment_method": _detect_payment_method(raw_text),
     }
 
 
