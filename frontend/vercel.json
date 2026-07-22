@@ -39,5 +39,6 @@
         }
       ]
     }
-  ]
+  ],
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':(exclude)ios' ':(exclude)ios-scheduler'"
 }
