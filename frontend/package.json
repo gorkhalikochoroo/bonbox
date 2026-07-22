@@ -39,6 +39,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@fontsource/inter": "^5.2.8",
     "@react-oauth/google": "^0.13.4",
+    "@sentry/react": "^10.67.0",
     "axios": "^1.13.6",
     "framer-motion": "^12.38.0",
     "jsqr": "^1.4.0",
