@@ -26,6 +26,7 @@
 // real EN + DA entry in useLanguage.jsx (rsvpPlan* / rsvpArrange* keys).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Clock,
   Users,
   User,
   Link2,
@@ -325,9 +326,16 @@ function TableNode({
         ? t("rsvpOverBy", "+{n}m over", { n: overMin ?? 0 })
         : status === "upcoming" && booking?.eta != null
           ? t("rsvpEtaIn", "in {n}m", { n: booking.eta })
-          : booking
-            ? `${booking.time}${booking.name ? " · " + booking.name : ""}`
-            : null;
+          : // Seated: lead with WHEN it frees — the host's decision number when a
+            // walk-in arrives. Counts down inside 20 min, else the clock time.
+            // The guest's name stays one tap away in the drawer.
+            status === "seated" && booking?.freesAt
+            ? booking.freesInMin != null && booking.freesInMin <= 20
+              ? t("rsvpFreesInM", "free ~{n}m", { n: Math.max(0, booking.freesInMin) })
+              : t("rsvpFreesAt", "free {time}", { time: booking.freesAt })
+            : booking
+              ? `${booking.time}${booking.name ? " · " + booking.name : ""}`
+              : null;
 
   return (
     <div
@@ -665,6 +673,34 @@ export default function FloorPlan({
     );
     return { tables: active.length, seats };
   }, [cells]);
+
+  // ── "Next free" — the run-the-room readout ───────────────────────────
+  // A walk-in venue's constant question is "can I seat this party, and if not
+  // how long?". We answer it at a glance, no input: how many tables are free
+  // NOW, and when the soonest-occupied one frees. Recomputes with nowMs so it
+  // stays live mid-service. Overdue tables (running past their end) count as
+  // freeing "now" — their negative freesInMin sorts first.
+  const turn = useMemo(() => {
+    let freeNow = 0;
+    let occupied = 0;
+    let nextAt = null;
+    let nextIn = null;
+    for (const c of cells) {
+      const vs = visualStatus(c, nowMs);
+      if (vs === "free") { freeNow += 1; continue; }
+      if (vs === "seated" || vs === "overdue") {
+        occupied += 1;
+        const b = c.booking;
+        if (b?.freesAt && b.freesInMin != null) {
+          if (nextIn == null || b.freesInMin < nextIn) {
+            nextIn = b.freesInMin;
+            nextAt = b.freesAt;
+          }
+        }
+      }
+    }
+    return { freeNow, occupied, nextAt, nextIn };
+  }, [cells, nowMs]);
 
   // ── Edit lifecycle ───────────────────────────────────────────────────
   const enterEdit = useCallback(() => {
@@ -1047,6 +1083,54 @@ export default function FloorPlan({
           )}
         </div>
       </div>
+
+      {/* "Next free" — the one line a host reads when a walk-in comes in.
+          Calm when tables are open; amber when the room's full and the answer
+          is "wait for HH:MM". Live (ticks with nowMs). Hidden while arranging
+          and on an empty/unstarted room (nothing to say). */}
+      {!editing && (turn.freeNow > 0 || turn.occupied > 0) && (
+        <div
+          className={
+            "flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm " +
+            (turn.freeNow > 0
+              ? "bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200"
+              : "bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-200")
+          }
+          role="status"
+          aria-live="polite"
+        >
+          {turn.freeNow > 0 ? (
+            <>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" aria-hidden />
+              <span className="font-medium">
+                {t("rsvpTurnFreeNow", "{n} free now", { n: turn.freeNow })}
+              </span>
+              {turn.nextAt && (
+                <span className="text-gray-400 dark:text-gray-500 truncate">
+                  · {t("rsvpTurnNextFrees", "next frees {time}", { time: turn.nextAt })}
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <Clock className="w-4 h-4 shrink-0" aria-hidden />
+              <span className="font-medium">
+                {t("rsvpTurnAllBusy", "All tables occupied")}
+              </span>
+              {turn.nextAt && (
+                <span className="truncate">
+                  · {t("rsvpTurnNextFrees", "next frees {time}", { time: turn.nextAt })}
+                  {turn.nextIn != null && turn.nextIn <= 0
+                    ? " " + t("rsvpTurnNow", "(now)")
+                    : turn.nextIn != null && turn.nextIn <= 30
+                      ? " " + t("rsvpTurnInMin", "(~{n} min)", { n: turn.nextIn })
+                      : ""}
+                </span>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {saveError && (
         <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-2.5 rounded-xl text-sm">
