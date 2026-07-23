@@ -8,6 +8,8 @@ import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { localIso } from "../utils/dateFormat";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
+import { useAuth } from "../hooks/useAuth";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
 /**
@@ -21,6 +23,7 @@ import { canPurchaseInApp, isNativeApp } from "../utils/platform";
  */
 export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, onSaved }) {
   const { t } = useLanguage();
+  const { user } = useAuth();
   const isExpense = mode === "expense";
   const [open, setOpen] = useState(isExpense); // auto-open in expense mode
   const [uploading, setUploading] = useState(false);
@@ -56,6 +59,12 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   // before saving — we never silently book OCR guesses.
   const [parsedDate, setParsedDate] = useState("");
   const [parsedCategoryId, setParsedCategoryId] = useState("");
+  // Currency the OCR read off the receipt. When it isn't the account
+  // currency, the amount on the paper is NOT the amount we can book —
+  // the face value used to be dropped and written straight into the
+  // books as kroner, so a 100 EUR invoice became 100 kr.
+  const [scanCurrency, setScanCurrency] = useState("");
+  const [fxRate, setFxRate] = useState("");
   // Tier-cap error surfaced from /upload-receipt 402 response. When set,
   // we hide the file picker and show an UpgradeNudge-style block.
   const [capError, setCapError] = useState(null);
@@ -65,6 +74,41 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   // with detected amounts highlighted before they confirm.
   const [reviewOpen, setReviewOpen] = useState(false);
   const fileRef = useRef();
+
+  // ── Foreign-currency rail ─────────────────────────────────────────
+  // `amount` holds what the RECEIPT says. When that is a foreign
+  // currency, it is not what we may book: create_expense stores `amount`
+  // in the account currency and keeps the trio (currency, fx_rate,
+  // original_amount) as the §10 cross-border audit trail. Until the
+  // owner supplies a rate we have no account-currency figure at all —
+  // so we ask, rather than booking the face value as kroner.
+  const accountCcy = displayCurrency(user?.currency);
+  const isForeign = Boolean(
+    isExpense && scanCurrency && scanCurrency !== String(accountCcy).toUpperCase(),
+  );
+  // parseFloat, NOT parseLocaleAmount. Both of these come from
+  // <input type="number">, whose .value the browser has already
+  // normalised to canonical dot-decimal regardless of the user's locale.
+  // Re-reading that through the Danish text parser is actively wrong: it
+  // treats a 3-digit tail as a thousands group, so an FX rate of "0.134"
+  // parses as 134 and a 745,50 receipt books as 99.897 instead of 99,90.
+  // parseLocaleAmount is for HUMAN text — speech transcripts, free-text
+  // fields — where "1.234" really might mean one thousand.
+  const fxRateNum = parseFloat(fxRate);
+  const originalAmountNum = parseFloat(amount);
+  // Rounded to the øre HERE, so the figure on screen is byte-for-byte
+  // the figure we post. Showing 99,897 while booking 99,90 is a small
+  // lie, and "99.897" also reads as ninety-nine thousand under Danish
+  // grouping — the owner must be able to check what we stored.
+  const fxConverted =
+    isForeign && Number.isFinite(fxRateNum) && fxRateNum > 0
+      && Number.isFinite(originalAmountNum) && originalAmountNum > 0
+      ? Number((originalAmountNum * fxRateNum).toFixed(2))
+      : null;
+  // A foreign receipt with no rate has no bookable amount. A receipt
+  // whose date we could not read has no MOMS period and no voucher year.
+  const fxBlocked = isForeign && (fxConverted == null);
+  const dateMissing = Boolean(isExpense && !parsedDate);
 
   const uploadEndpoint = isExpense ? "/expenses/upload-receipt" : "/sales/upload-receipt";
 
@@ -84,6 +128,9 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     setLearnedMethod(null);
     setMethodRead(false);
     setSaveError("");
+    setScanCurrency("");
+    setFxRate("");
+    setParsedDate("");
     const file = await resizeImageIfLarge(rawFile);
 
     const formData = new FormData();
@@ -104,8 +151,16 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
         if (res.data.suggested_vendor && !desc) {
           setDesc(res.data.suggested_vendor);
         }
+        // No silent today(). An unreadable date used to become today on
+        // save, which is the wrong MOMS period AND the wrong voucher year
+        // (allocate_voucher keys on expense.date.year). Left empty, it
+        // becomes a visible question below instead.
         if (res.data.suggested_date) {
           setParsedDate(res.data.suggested_date);
+        }
+        // The receipt's own currency, if it printed one.
+        if (res.data.suggested_currency) {
+          setScanCurrency(String(res.data.suggested_currency).toUpperCase());
         }
         // Only PREFILL-band memory preselects the category. A
         // cold-start keyword guess (band "suggest", evidence_n 0) is
@@ -184,9 +239,14 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     if (!amount) return;
     // Use OCR-parsed date when available, else today. Owner sees the
     // date field rendered below before confirming so they can override.
-    const expenseDate = parsedDate || localIso();
+    // No fallback to today: an unreadable date is a question we asked
+    // above, and the save button is disabled until it's answered.
+    if (!parsedDate) return;
+    const expenseDate = parsedDate;
     const payload = {
-      amount: parseFloat(amount),
+      // Always the ACCOUNT-currency figure — that is what every MOMS,
+      // dashboard and bilag path downstream consumes.
+      amount: isForeign ? fxConverted : parseFloat(amount),
       description: desc || t("receiptScanDefaultDesc"),
       date: expenseDate,
       payment_method: method,
@@ -205,8 +265,19 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     // The OCR's raw vendor line, kept separate from `description` because
     // description is owner-editable — keying memory on it is what made
     // the old learn/suggest loop write and read different names.
-    if (result?.suggested_vendor) {
-      payload.vendor_hint = result.suggested_vendor;
+    // Always send the key explicitly on the scan path — including as an
+    // empty string when there is nothing to key on. Otherwise the server
+    // falls back to `description`, which here is the generic "Receipt
+    // scan" placeholder, and every unidentified receipt would pool its
+    // habits into one bucket and start pre-filling from it.
+    const typedVendor = desc && desc !== t("receiptScanDefaultDesc") ? desc : "";
+    payload.vendor_hint = result?.suggested_vendor || typedVendor || "";
+    // Bogføringsloven §10 cross-border trail. create_expense enforces
+    // all-or-nothing, so these three travel together or not at all.
+    if (isForeign) {
+      payload.currency = scanCurrency;
+      payload.fx_rate = Number(fxRateNum.toFixed(6));
+      payload.original_amount = Number(originalAmountNum.toFixed(2));
     }
     // What we PROPOSED before the owner touched anything. The server
     // compares this to what actually got saved: a different value is a
@@ -251,6 +322,8 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     setDesc("");
     setParsedDate("");
     setParsedCategoryId("");
+    setScanCurrency("");
+    setFxRate("");
     setCapError(null);
     setMethod(isExpense ? "" : "mixed");
     setMethodRead(false);
@@ -511,6 +584,52 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   autoFocus
                 />
 
+                {/* Foreign-currency rail. The face value on a EUR receipt
+                    is not a kroner amount, and booking it as one was the
+                    sharpest silent hole in the scan flow — a 100 EUR
+                    invoice became 100 kr. We do NOT auto-fetch a rate:
+                    a bilag needs the rate on the RECEIPT's date, and
+                    today's rate for a three-week-old receipt is just a
+                    confident wrong number. So we ask. */}
+                {isForeign && (
+                  <div className="mb-3 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/60 dark:bg-amber-900/10 p-3 space-y-2">
+                    <p className="text-sm text-amber-900 dark:text-amber-200">
+                      {t("fxReceiptIsForeign", "This receipt is in {ccy}. BonBox books in {acct} — enter the rate.")
+                        .replace("{ccy}", scanCurrency)
+                        .replace("{acct}", accountCcy)}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-600 dark:text-gray-300 shrink-0">
+                        {t("fxRateLabel", "Rate")} 1 {scanCurrency} =
+                      </span>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        inputMode="decimal"
+                        value={fxRate}
+                        onChange={(e) => setFxRate(e.target.value)}
+                        placeholder="7,46"
+                        className="w-28 px-3 py-2 border border-amber-300 dark:border-amber-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                      <span className="text-xs text-gray-600 dark:text-gray-300">{accountCcy}</span>
+                    </div>
+                    {fxConverted != null ? (
+                      <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                        {originalAmountNum.toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{" "}
+                        {scanCurrency} ={" "}
+                        {/* decimals: 2 — this is a ledger-exact surface.
+                            The default whole-unit format showed "100 EUR"
+                            for the 99,90 we would actually book. */}
+                        {formatOwnerMoney(fxConverted, accountCcy, { decimals: 2 })}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-amber-800 dark:text-amber-300">
+                        {t("fxRateNeeded", "Enter the rate from the receipt's date to save.")}
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {/* Description (pre-filled with OCR vendor) — expense mode */}
                 {isExpense && (() => {
                   const conf = result?.confidence_per_field?.vendor;
@@ -566,6 +685,25 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                           </span>
                         )}
                       </div>
+                      {/* An unreadable date used to become today() on save,
+                          silently. That is the wrong MOMS period and the
+                          wrong voucher year (allocate_voucher keys on
+                          expense.date.year). Now it is a question with a
+                          one-tap answer, and Save waits for it. */}
+                      {dateMissing && (
+                        <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                          <span className="text-xs text-amber-800 dark:text-amber-300">
+                            {t("dateUnreadable", "Couldn't read the date — is it today?")}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setParsedDate(localIso())}
+                            className="px-2.5 py-1 rounded-lg border border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+                          >
+                            {t("dateUseToday", "Today")}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -694,7 +832,11 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
 
                   <button
                     onClick={isExpense ? confirmExpense : confirmSale}
-                    disabled={!amount || saving || (isExpense && !method)}
+                    disabled={
+                      !amount || saving
+                      || (isExpense && !method)
+                      || fxBlocked || dateMissing
+                    }
                     className="w-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 py-3.5 rounded-xl hover:bg-gray-700 dark:hover:bg-white transition font-semibold disabled:opacity-40"
                   >
                     {isExpense ? t("addExpense") : t("confirmLog")}

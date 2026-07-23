@@ -69,7 +69,6 @@ import Button from "./Button";
 import Chip from "./Chip";
 import Input from "./Input";
 import { useLanguage } from "../../hooks/useLanguage";
-import { parseLocaleAmount } from "../../utils/currency";
 
 function formatPreset(v) {
   // Presets come in as numbers (500, 1000, 2500). We format with
@@ -129,9 +128,11 @@ export default function EntryCard({
   const parsed = (() => {
     if (amount === "" || amount === null || amount === undefined) return NaN;
     if (typeof amount === "number") return amount;
-    // Was: .replace(",", ".") — which turned the DK "1.234,56" this
-    // comment claims to support into "1.234.56" → parseFloat → 1.234.
-    const n = parseLocaleAmount(amount);
+    // The Input above is type="number", so .value is already canonical
+    // dot-decimal — parseFloat is the correct reader. Do NOT route it
+    // through parseLocaleAmount: that parser exists for human text and
+    // would read "1.234" as 1234 under Danish grouping rules.
+    const n = parseFloat(String(amount).trim().replace(/\s/g, ""));
     return Number.isFinite(n) ? n : NaN;
   })();
   const canSubmit = !disabled && !busy && parsed > 0;

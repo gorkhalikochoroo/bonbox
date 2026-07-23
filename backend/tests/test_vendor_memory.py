@@ -675,3 +675,84 @@ def test_evidence_count_is_the_consecutive_streak_not_lifetime(scan_client, db, 
                         raising=False)
     lp = _upload(scan_client).json()["learned_payment_method"]
     assert lp["evidence_n"] == 4, "must quote the consecutive run the copy claims"
+
+
+def test_scan_with_no_vendor_never_pools_under_a_placeholder(client, db):
+    """When OCR identifies no supplier, the scan sends vendor_hint="".
+
+    Falling back to `description` there means the generic "Receipt scan"
+    placeholder becomes the key, so every unidentified receipt pools its
+    habits into one bucket — and then memory starts pre-filling from a
+    "vendor" that is really just 'we couldn't read this one'.
+    """
+    u = _owner(db)
+    c = _cat(db, u, "Vareforbrug")
+    app.dependency_overrides[get_current_user] = lambda: u
+    for _ in range(3):
+        r = client.post("/api/expenses", json={
+            "amount": 99.0, "description": "Receipt scan", "vendor_hint": "",
+            "date": date.today().isoformat(), "payment_method": "card",
+            "category_id": str(c.id),
+        })
+        assert r.status_code in (200, 201), r.text
+
+    assert db.query(VendorProfile).filter(VendorProfile.user_id == u.id).count() == 0
+    rows = db.query(Expense).filter(Expense.user_id == u.id).all()
+    assert all(e.vendor_key is None for e in rows)
+
+
+def test_typed_expense_still_keys_off_its_description(client, db):
+    """The manual path sends no vendor_hint at all, and there the
+    description IS the owner's own name for the supplier."""
+    u = _owner(db)
+    c = _cat(db, u, "Vareforbrug")
+    app.dependency_overrides[get_current_user] = lambda: u
+    r = client.post("/api/expenses", json={
+        "amount": 45.0, "description": "Netto", "date": date.today().isoformat(),
+        "payment_method": "cash", "category_id": str(c.id),
+    })
+    assert r.status_code in (200, 201), r.text
+    assert db.query(Expense).filter(Expense.user_id == u.id).one().vendor_key == "netto"
+    assert _row(db, u, "netto", "payment_method", "cash").agree_count == 1
+
+
+# ── Phase 0(c)/(d): the scan's foreign-currency and date rails ───────
+
+def test_scan_can_post_the_full_fx_trio(client, db):
+    """The scan path now sends currency + fx_rate + original_amount, and
+    `amount` is the ACCOUNT-currency figure. Before, the detected
+    currency was dropped and the face value was booked as kroner — a
+    100 EUR invoice became 100 kr."""
+    u = _owner(db)
+    c = _cat(db, u, "Vareforbrug")
+    app.dependency_overrides[get_current_user] = lambda: u
+    r = client.post("/api/expenses", json={
+        "amount": 746.00,            # account currency (DKK)
+        "original_amount": 100.00,   # what the paper says
+        "currency": "EUR",
+        "fx_rate": 7.46,
+        "description": "Grossist", "vendor_hint": "Grossist GmbH",
+        "date": "2026-07-20", "payment_method": "card",
+        "category_id": str(c.id),
+    })
+    assert r.status_code in (200, 201), r.text
+    row = db.query(Expense).filter(Expense.user_id == u.id).one()
+    assert float(row.amount) == 746.00
+    assert row.currency == "EUR"
+    assert float(row.fx_rate) == 7.46
+    assert float(row.original_amount) == 100.00
+
+
+def test_partial_fx_is_still_rejected(client, db):
+    """The all-or-nothing §10 rule must survive the new rail: a currency
+    with no rate would leave a row the revisor cannot reconcile."""
+    u = _owner(db)
+    c = _cat(db, u, "Vareforbrug")
+    app.dependency_overrides[get_current_user] = lambda: u
+    r = client.post("/api/expenses", json={
+        "amount": 100.00, "currency": "EUR",
+        "description": "Grossist", "date": "2026-07-20",
+        "payment_method": "card", "category_id": str(c.id),
+    })
+    assert r.status_code == 422, r.text
+    assert db.query(Expense).filter(Expense.user_id == u.id).count() == 0

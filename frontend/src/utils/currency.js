@@ -539,6 +539,14 @@ export function getVatTerms(currencyCode) {
  *
  * Returns NaN for anything that isn't a number, so callers can refuse
  * rather than book a guess.
+ *
+ * DO NOT use this on an <input type="number"> value. The browser already
+ * normalises those to canonical dot-decimal whatever the user's locale,
+ * so "0.134" IS zero-point-one-three-four — but the ambiguity rule above
+ * would read its 3-digit tail as a thousands group and return 134. Use
+ * parseFloat there. This function is for HUMAN text: speech transcripts,
+ * free-text fields, pasted values — anywhere "1.234" might really mean
+ * one thousand.
  * ──────────────────────────────────────────────────────────────────────── */
 
 // Locales that use "," as the decimal separator (i.e. "." groups).

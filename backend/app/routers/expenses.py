@@ -575,7 +575,11 @@ def create_expense(
     # later description edit can't silently re-point the row at a different
     # vendor. `vendor_hint` is the OCR's raw vendor line when the row came
     # from a scan; typed rows fall back to the description.
-    vendor_raw = payload.pop("vendor_hint", None) or payload.get("description")
+    # An explicitly-sent vendor_hint is authoritative — including "" for
+    # "this scan identified no supplier". Only the manual/typed path,
+    # which sends no hint at all, falls back to the description.
+    hint = payload.pop("vendor_hint", None)
+    vendor_raw = hint if "vendor_hint" in data.model_fields_set else (hint or payload.get("description"))
     payload.pop("autofill", None)  # client-side provenance, not a column
     vendor_key = canonical_vendor_key(vendor_raw)
     vendor_display = display_name_for(vendor_raw, vendor_key)
