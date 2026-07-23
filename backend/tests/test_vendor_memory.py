@@ -470,8 +470,8 @@ def _fake_parse(**over):
 def scan_client(client, monkeypatch):
     import app.routers.expenses as exp_router
     monkeypatch.setattr(
-        exp_router, "save_receipt_photo",
-        lambda *a, **k: "uploads/receipts/x.jpg", raising=False,
+        exp_router, "save_receipt_photo_ex",
+        lambda *a, **k: ("uploads/receipts/x.jpg", "uploads/receipts/x.jpg"), raising=False,
     )
     return client
 
@@ -496,7 +496,9 @@ def test_upload_returns_learned_payment_when_receipt_is_silent(scan_client, db, 
     db.commit()
 
     monkeypatch.setattr(ocr, "parse_expense_receipt", lambda p: _fake_parse(), raising=False)
-    monkeypatch.setattr(ocr, "save_receipt_photo", lambda *a, **k: "uploads/receipts/x.jpg", raising=False)
+    monkeypatch.setattr(ocr, "save_receipt_photo_ex",
+                        lambda *a, **k: ("uploads/receipts/x.jpg", "uploads/receipts/x.jpg"),
+                        raising=False)
 
     r = _upload(scan_client)
     assert r.status_code == 200, r.text
@@ -528,7 +530,9 @@ def test_paper_beats_memory(scan_client, db, monkeypatch):
         ocr, "parse_expense_receipt",
         lambda p: _fake_parse(payment_method="cash"), raising=False,
     )
-    monkeypatch.setattr(ocr, "save_receipt_photo", lambda *a, **k: "uploads/receipts/x.jpg", raising=False)
+    monkeypatch.setattr(ocr, "save_receipt_photo_ex",
+                        lambda *a, **k: ("uploads/receipts/x.jpg", "uploads/receipts/x.jpg"),
+                        raising=False)
 
     body = _upload(scan_client).json()
     assert body["suggested_payment_method"] == "cash"
@@ -545,7 +549,9 @@ def test_legacy_keyword_suggestion_can_never_prefill(scan_client, db, monkeypatc
 
     monkeypatch.setattr(ocr, "parse_expense_receipt",
                         lambda p: _fake_parse(vendor="Netto"), raising=False)
-    monkeypatch.setattr(ocr, "save_receipt_photo", lambda *a, **k: "uploads/receipts/x.jpg", raising=False)
+    monkeypatch.setattr(ocr, "save_receipt_photo_ex",
+                        lambda *a, **k: ("uploads/receipts/x.jpg", "uploads/receipts/x.jpg"),
+                        raising=False)
 
     sc = _upload(scan_client).json()["suggested_category"]
     assert sc is not None
@@ -565,7 +571,9 @@ def test_two_sightings_only_suggests(scan_client, db, monkeypatch):
     db.commit()
 
     monkeypatch.setattr(ocr, "parse_expense_receipt", lambda p: _fake_parse(), raising=False)
-    monkeypatch.setattr(ocr, "save_receipt_photo", lambda *a, **k: "uploads/receipts/x.jpg", raising=False)
+    monkeypatch.setattr(ocr, "save_receipt_photo_ex",
+                        lambda *a, **k: ("uploads/receipts/x.jpg", "uploads/receipts/x.jpg"),
+                        raising=False)
 
     lp = _upload(scan_client).json()["learned_payment_method"]
     assert lp["band"] == "suggest", "two sightings is a hint, not a habit"
@@ -662,6 +670,8 @@ def test_evidence_count_is_the_consecutive_streak_not_lifetime(scan_client, db, 
     assert row.agree_count == 9 and row.streak == 4, "setup: lifetime != consecutive"
 
     monkeypatch.setattr(ocr, "parse_expense_receipt", lambda p: _fake_parse(), raising=False)
-    monkeypatch.setattr(ocr, "save_receipt_photo", lambda *a, **k: "uploads/receipts/x.jpg", raising=False)
+    monkeypatch.setattr(ocr, "save_receipt_photo_ex",
+                        lambda *a, **k: ("uploads/receipts/x.jpg", "uploads/receipts/x.jpg"),
+                        raising=False)
     lp = _upload(scan_client).json()["learned_payment_method"]
     assert lp["evidence_n"] == 4, "must quote the consecutive run the copy claims"

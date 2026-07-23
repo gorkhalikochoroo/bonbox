@@ -23,7 +23,7 @@ from app.models.inventory import InventoryItem, InventoryLog
 log = logging.getLogger("bonbox.sales")
 from app.schemas.sale import SaleCreate, SaleUpdate, SaleResponse, SaleReturnRequest
 from app.services.auth import get_current_user
-from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo
+from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo_ex
 from app.services.cash_sync import sync_cash_in_for_sale, delete_cash_entry_by_ref, update_cash_entry_for_ref
 from app.utils.time import utc_now
 
@@ -979,14 +979,13 @@ async def upload_receipt(
     # save_receipt_photo validates the content with PIL.verify(); on a
     # spoofed-header non-image upload it raises ValueError → 400 here.
     try:
-        stored_path = save_receipt_photo(content, file.filename, str(user.id), kind="sale")
+        stored_path, local_path = save_receipt_photo_ex(content, file.filename, str(user.id), kind="sale")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # OCR needs local file — find it in uploads dir
-    import glob
-    local_files = sorted(glob.glob(f"uploads/receipts/{user.id}_*"), key=os.path.getmtime, reverse=True)
-    local_path = local_files[0] if local_files else stored_path
+    # OCR the local copy we just wrote — NOT the newest file in the user's
+    # upload dir. Two receipts in flight and that glob hands us somebody
+    # else's image, whose amount we then log as this sale.
 
     result = extract_amount_from_image(local_path)
     # Convert local path to full URL so frontend can display it
