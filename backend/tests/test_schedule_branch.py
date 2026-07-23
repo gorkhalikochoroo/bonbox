@@ -32,6 +32,41 @@ _db_ready.set()
 
 MONDAY = date.today() + timedelta(days=(7 - date.today().weekday()))
 
+# The day GET /api/staff/today is pinned to by the `business_today` fixture.
+# Deliberately NOT `date.today()` (it's 1–7 days out) so an endpoint that
+# regressed to the calendar date can't accidentally match it.
+BUSINESS_TODAY = MONDAY
+
+
+@pytest.fixture
+def business_today(monkeypatch):
+    """Freeze what `/api/staff/today` considers "today".
+
+    That endpoint filters on `business_today_local(user)` — Europe/Copenhagen
+    with the 06:00 DK cutoff — so between midnight and 06:00 local its "today"
+    is the PREVIOUS calendar date. Seeding on `date.today()` therefore passed
+    in the afternoon and failed after midnight; at one instant (00:28 CEST)
+    the same test passed under TZ=UTC and failed under TZ=Europe/Copenhagen.
+
+    Pinning the helper makes the day a constant on both sides, so the test
+    asserts branch_name propagation and never the wall clock. It still holds
+    the endpoint to the convention: the frozen day is never `date.today()`, so
+    an endpoint that dropped the business-day helper would find no shift.
+
+    Patched on the router (which did `from ... import business_today_local`,
+    so it holds its own reference) AND on the tz_utils source, per the pattern
+    in tests/test_reservation_insights.py.
+    """
+    import app.routers.staff as staff_router
+    import app.services.tz_utils as tz_utils
+
+    def _frozen(_user):  # signature matches business_today_local(user)
+        return BUSINESS_TODAY
+
+    monkeypatch.setattr(tz_utils, "business_today_local", _frozen)
+    monkeypatch.setattr(staff_router, "business_today_local", _frozen)
+    return BUSINESS_TODAY
+
 
 @pytest.fixture
 def engine_and_session():
@@ -190,18 +225,21 @@ def test_team_schedule_carries_branch_name(db, client):
     assert by_staff["Jonas"] is None
 
 
-def test_today_endpoint_carries_branch_name(db, client):
+def test_today_endpoint_carries_branch_name(db, client, business_today):
     owner = _owner(db, "today")
     b = _branch(db, owner, "Østerbro")
     staff = _staff(db, owner, "Anna")
     app.dependency_overrides[get_current_user] = lambda: owner
-    client.post("/api/staff/schedules", json={
-        "staff_id": str(staff.id), "date": date.today().isoformat(),
+    # Seed on the BUSINESS day the endpoint queries, not the calendar day.
+    cr = client.post("/api/staff/schedules", json={
+        "staff_id": str(staff.id), "date": business_today.isoformat(),
         "start_time": "10:00", "end_time": "16:00", "status": "published",
         "branch_id": str(b.id),
     })
+    assert cr.status_code == 200, cr.text  # else the empty list below lies
     r = client.get("/api/staff/today")
     assert r.status_code == 200, r.text
+    assert r.json()["date"] == business_today.isoformat()
     rows = r.json()["shifts"]
     assert rows and rows[0]["branch_name"] == "Østerbro"
 
