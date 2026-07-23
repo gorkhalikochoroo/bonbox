@@ -615,14 +615,16 @@ def create_expense(
     # tells us what we proposed via `autofill`, and recording an override
     # as agreement is precisely how a streak gets poisoned into
     # auto-filling a value the owner keeps changing.
-    # Only ASSERTED values are evidence. A field the client never sent —
-    # ExpenseCreate.payment_method defaults to "card", and QuickAdd's
-    # expense tab has no method picker at all — is a schema default, not
-    # a decision. Counting it would let the app later say "kort — som de
-    # sidste 3 gange hos Netto" about a choice the owner never made, and
-    # accepting that prefill on a cash receipt skips the cash-out sync
-    # and overstates kassebeholdning. Same for the "Andet" category: we
-    # pick that so a scan isn't lost, so it is our fallback, not a habit.
+    # Only ASSERTED values are evidence. A field the client never sent is
+    # not a decision — ExpenseCreate.payment_method no longer defaults to
+    # "card" precisely so an unsent method also isn't STORED as one, but
+    # the assertion check stays: a caller may send a method it inferred
+    # rather than asked for. Counting that would let the app later say
+    # "kort — som de sidste 3 gange hos Netto" about a choice the owner
+    # never made, and accepting that prefill on a cash receipt skips the
+    # cash-out sync and overstates kassebeholdning. Same for the "Andet"
+    # category: we pick that so a scan isn't lost, so it is our fallback,
+    # not a habit.
     if expense.vendor_key:
         proposed = data.autofill or {}
         method_asserted = "payment_method" in data.model_fields_set
