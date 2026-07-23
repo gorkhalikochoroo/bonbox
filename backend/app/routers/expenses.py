@@ -25,6 +25,7 @@ from app.models.user import User
 from app.models.expense import Expense, ExpenseCategory
 from app.services.vendor_identity import canonical_vendor_key, display_name_for
 from app.services.vendor_memory import recall as vendor_recall, record_signal
+from app.services.category_match import resolve_category, preferred_name_for
 from app.models.category_mapping import CategoryMapping
 from app.schemas.expense import (
     ExpenseCreate, ExpenseUpdate, ExpenseResponse,
@@ -187,20 +188,25 @@ def suggest_category(
         return {"suggestion": None}
     result = suggest_category_for(q, user.id, db)
     if result:
-        # Find the category ID for this user
-        cat = db.query(ExpenseCategory).filter(
-            ExpenseCategory.user_id == user.id,
-            ExpenseCategory.name == result["category_name"],
-        ).first()
+        cat = resolve_category(result["category_name"], user.id, db)
         if cat:
             return {
                 "suggestion": {
                     "category_id": str(cat.id),
-                    "category_name": result["category_name"],
+                    "category_name": cat.name,
                     "confidence": result["confidence"],
                     "source": result["source"],
                 }
             }
+        return {
+            "suggestion": {
+                "category_id": None,
+                "category_name": preferred_name_for(result["category_name"]),
+                "confidence": result["confidence"],
+                "source": result["source"],
+                "needs_create": True,
+            }
+        }
     return {"suggestion": None}
 
 
@@ -469,19 +475,19 @@ async def parse_receipt(
     if result.get("vendor"):
         cat_hit = suggest_category_for(result["vendor"], user.id, db)
         if cat_hit:
-            cat = (
-                db.query(ExpenseCategory)
-                .filter(
-                    ExpenseCategory.user_id == user.id,
-                    ExpenseCategory.name == cat_hit["category_name"],
-                )
-                .first()
-            )
+            cat = resolve_category(cat_hit["category_name"], user.id, db)
             if cat:
                 suggested_category = {
                     "category_id": str(cat.id),
-                    "category_name": cat_hit["category_name"],
+                    "category_name": cat.name,
                     "confidence": cat_hit["confidence"],
+                }
+            else:
+                suggested_category = {
+                    "category_id": None,
+                    "category_name": preferred_name_for(cat_hit["category_name"]),
+                    "confidence": cat_hit["confidence"],
+                    "needs_create": True,
                 }
 
     return {
@@ -1040,11 +1046,7 @@ async def burst_scan(
         if vendor:
             hit = suggest_category_for(vendor, user.id, db)
             if hit:
-                c = (
-                    db.query(ExpenseCategory)
-                    .filter(ExpenseCategory.user_id == user.id, ExpenseCategory.name == hit["category_name"])
-                    .first()
-                )
+                c = resolve_category(hit["category_name"], user.id, db)
                 if c:
                     cat_id = c.id
         if cat_id is None:
@@ -1232,21 +1234,32 @@ async def upload_expense_receipt(
                 "band": "suggest",
             }
     if cat_hit:
-        cat = (
-            db.query(ExpenseCategory)
-            .filter(
-                ExpenseCategory.user_id == user.id,
-                ExpenseCategory.name == cat_hit["category_name"],
-            )
-            .first()
-        )
+        # Exact-name lookup used to be the whole of this step, which meant
+        # an English concept from DEFAULT_KEYWORDS ("Ingredients") never
+        # matched the Danish buckets onboarding seeds (Vareforbrug), and
+        # the suggestion was thrown away on every scan for every DK
+        # account. resolve_category maps the concept onto a category the
+        # owner actually has.
+        cat = resolve_category(cat_hit["category_name"], user.id, db)
         if cat:
             suggested_category = {
                 "category_id": str(cat.id),
-                "category_name": cat_hit["category_name"],
+                "category_name": cat.name,
                 "source": cat_hit["source"],
                 "evidence_n": cat_hit["evidence_n"],
                 "band": cat_hit["band"],
+            }
+        else:
+            # Still nothing? Say so rather than dropping a correct guess —
+            # the owner can create it in one tap. No category_id, so
+            # nothing can be preselected from this.
+            suggested_category = {
+                "category_id": None,
+                "category_name": preferred_name_for(cat_hit["category_name"]),
+                "source": cat_hit["source"],
+                "evidence_n": cat_hit["evidence_n"],
+                "band": "suggest",
+                "needs_create": True,
             }
     try:
         db.commit()  # persist demotion decrements consumed by recall()
