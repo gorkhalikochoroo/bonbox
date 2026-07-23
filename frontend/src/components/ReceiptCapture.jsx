@@ -589,22 +589,32 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   )}
                 </div>
 
-                {saveError && (
-                  <div
-                    role="alert"
-                    className="mb-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 px-3 py-2 text-sm text-red-700 dark:text-red-300"
-                  >
-                    {saveError}
-                  </div>
-                )}
+                {/* Pinned action footer. Modal is max-h-[90vh] with a
+                    scrolling body, so on a phone the confirm button used
+                    to sit below the fold under the preview + fields +
+                    payment chips — the primary action, invisible, with
+                    nothing hinting you had to scroll for it. Sticky keeps
+                    it on screen while the rest scrolls under it.
+                    No transform here on purpose (transform on a sticky
+                    child inside a touch scroller causes the iOS wobble). */}
+                <div className="sticky bottom-0 -mx-1 px-1 pt-2 pb-1 bg-white dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700">
+                  {saveError && (
+                    <div
+                      role="alert"
+                      className="mb-2 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800/40 px-3 py-2 text-sm text-red-700 dark:text-red-300"
+                    >
+                      {saveError}
+                    </div>
+                  )}
 
-                <button
-                  onClick={isExpense ? confirmExpense : confirmSale}
-                  disabled={!amount || saving || (isExpense && !method)}
-                  className="w-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 py-3.5 rounded-xl hover:bg-gray-700 dark:hover:bg-white transition font-semibold disabled:opacity-40"
-                >
-                  {isExpense ? t("addExpense") : t("confirmLog")}
-                </button>
+                  <button
+                    onClick={isExpense ? confirmExpense : confirmSale}
+                    disabled={!amount || saving || (isExpense && !method)}
+                    className="w-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 py-3.5 rounded-xl hover:bg-gray-700 dark:hover:bg-white transition font-semibold disabled:opacity-40"
+                  >
+                    {isExpense ? t("addExpense") : t("confirmLog")}
+                  </button>
+                </div>
               </div>
             )}
           </div>
