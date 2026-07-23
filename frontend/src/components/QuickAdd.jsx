@@ -60,16 +60,45 @@ export default function QuickAdd() {
   const [expCatId, setExpCatId] = useState("");
   const [expDesc, setExpDesc] = useState("");
   const [expDate, setExpDate] = useState(localIso());
+  // Payment method on the expense tab. Deliberately NOT sticky and NOT
+  // pre-selected, unlike the sale tab above.
+  //
+  // This tab had no picker at all, so every quick expense posted without a
+  // method and the server's old "card" default filled one in. Since
+  // sync_cash_out_for_expense only fires on "cash", a cash purchase added
+  // here never left the drawer in the books — kassebeholdning drifted up by
+  // the amount of every cash purchase ever quick-added. Same class of bug
+  // the single scan (#139) and the pile (#146) already refuse to have.
+  //
+  // A remembered default would reintroduce it: the owner would be
+  // confirming a value the app picked, which is the thing that goes wrong.
+  // So: no default, and Tilføj stays disabled until one is tapped.
+  const [expMethod, setExpMethod] = useState(null);
 
   // Personal mode
   const [pAmount, setPAmount] = useState("");
   const [pCatId, setPCatId] = useState("");
   const [pNotes, setPNotes] = useState("");
   const [pDate, setPDate] = useState(localIso());
+  // Personal entries hardcoded payment_method:"cash" with no UI. Personal
+  // rows are excluded from the cashbook sync (`not expense.is_personal`),
+  // so this never moved kassebeholdning — but it still wrote a method
+  // nobody chose into a column PersonalPage displays. Offered here, not
+  // required: with no cashbook consequence, a mandatory tap on a 3-tap
+  // flow buys nothing. Unpicked stays NULL (renders "—") rather than
+  // becoming a fabricated "cash".
+  const [pMethod, setPMethod] = useState(null);
 
   const salePresets = [500, 1000, 2500, 5000, 10000];
   const expPresets = [100, 500, 1000, 2500];
   const personalPresets = [100, 500, 1000, 5000, 10000];
+
+  // Same set the full expense form and the receipt review offer, so a
+  // method picked here reads identically everywhere it's shown later.
+  const expMethods = ["cash", "card", "mobilepay", "online", "mixed", "dankort"];
+  // Personal mirrors PersonalPage's picker — cash / card / bank transfer.
+  const personalMethods = ["cash", "card", "bankTransfer"];
+  const methodValue = (m) => (m === "bankTransfer" ? "bank_transfer" : m);
 
   useEffect(() => {
     if (open) {
@@ -124,7 +153,9 @@ export default function QuickAdd() {
   };
 
   const submitExpense = async () => {
-    if (!expAmount || !expCatId || !expDesc) return;
+    // expMethod is part of the guard, not an optional extra — a business
+    // expense posted without one is exactly the cash-drift bug.
+    if (!expAmount || !expCatId || !expDesc || !expMethod) return;
     try {
       await api.post("/expenses", {
         category_id: expCatId,
@@ -132,10 +163,12 @@ export default function QuickAdd() {
         amount: parseFloat(expAmount),
         description: expDesc,
         is_recurring: false,
+        payment_method: expMethod,
       });
       setExpAmount("");
       setExpDesc("");
       setExpCatId("");
+      setExpMethod(null);
       setExpDate(localIso());
       showSuccess(t("expenseAdded"));
       window.dispatchEvent(new Event("bonbox-data-changed"));
@@ -154,13 +187,19 @@ export default function QuickAdd() {
         amount: parseFloat(pAmount),
         description: cat?.name || t("entry"),
         is_recurring: false,
-        payment_method: "cash",
+        // Omitted entirely when unpicked — the server stores NULL rather
+        // than inventing a method (ExpenseCreate.payment_method has no
+        // default). Sending null explicitly would also store NULL, but
+        // omitting keeps the field out of `model_fields_set` so vendor
+        // memory can't read a non-answer as one.
+        ...(pMethod ? { payment_method: pMethod } : {}),
         notes: pNotes || null,
         is_personal: true,
       });
       setPAmount("");
       setPCatId("");
       setPNotes("");
+      setPMethod(null);
       setPDate(localIso());
       showSuccess(INCOME_CATS.includes(cat?.name) ? t("incomeLogged") : t("expenseLogged"));
       window.dispatchEvent(new Event("bonbox-data-changed"));
@@ -171,6 +210,29 @@ export default function QuickAdd() {
 
   const incomeCats = categories.filter((c) => INCOME_CATS.includes(c.name));
   const spendCats = categories.filter((c) => !INCOME_CATS.includes(c.name));
+
+  // Both personal tabs post through submitPersonal, so they share one picker.
+  // A plain render helper, not a nested component — a component declared in
+  // the body gets a new identity every render and would remount its chips.
+  const renderPersonalMethods = () => (
+    <div>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+        {t("paymentMethod")} <span className="text-gray-400 dark:text-gray-500">({t("optional", "optional")})</span>
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {personalMethods.map((m) => (
+          <Chip
+            key={m}
+            size="sm"
+            selected={pMethod === methodValue(m)}
+            onClick={() => setPMethod(pMethod === methodValue(m) ? null : methodValue(m))}
+          >
+            {t(m)}
+          </Chip>
+        ))}
+      </div>
+    </div>
+  );
 
   // Open the QuickAdd sheet, resetting to the default tab for the mode. Shared
   // by the visible desktop FAB AND the hidden external trigger below (the
@@ -421,6 +483,22 @@ export default function QuickAdd() {
               className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
 
+            <div>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{t("paymentMethod")}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {expMethods.map((m) => (
+                  <Chip
+                    key={m}
+                    size="sm"
+                    selected={expMethod === m}
+                    onClick={() => setExpMethod(m)}
+                  >
+                    {t(m)}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+
             <div className="flex items-center gap-3">
               <label className="text-xs text-gray-500 dark:text-gray-400">{t("date")}:</label>
               <input
@@ -434,7 +512,7 @@ export default function QuickAdd() {
 
             <button
               onClick={submitExpense}
-              disabled={!expAmount || !expCatId || !expDesc}
+              disabled={!expAmount || !expCatId || !expDesc || !expMethod}
               className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("addExpense")}
@@ -495,6 +573,8 @@ export default function QuickAdd() {
               placeholder={t("notesOptional")}
               className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
+
+            {renderPersonalMethods()}
 
             <div className="flex items-center gap-3">
               <label className="text-xs text-gray-500 dark:text-gray-400">{t("date")}:</label>
@@ -570,6 +650,8 @@ export default function QuickAdd() {
               placeholder={t("notesOptional")}
               className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
+
+            {renderPersonalMethods()}
 
             <div className="flex items-center gap-3">
               <label className="text-xs text-gray-500 dark:text-gray-400">{t("date")}:</label>

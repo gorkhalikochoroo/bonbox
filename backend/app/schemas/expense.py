@@ -32,7 +32,17 @@ class ExpenseCreate(BaseModel):
     amount: float
     description: str
     is_recurring: bool = False
-    payment_method: str = "card"
+    # No default. This used to be "card", which meant every caller that
+    # didn't ask the owner how a purchase was paid booked it as card —
+    # and sync_cash_out_for_expense only fires on "cash", so a cash
+    # purchase never left the drawer in the books and kassebeholdning
+    # drifted up by its amount. A method nobody chose is not data; the
+    # honest value is NULL, exactly as the scan paths already store it
+    # when the receipt doesn't say (#139, #146). Every UI that posts an
+    # expense asks for the method; the ones that legitimately can't
+    # (personal quick entries) leave it unknown rather than inventing
+    # one. ExpenseResponse and the DB column have always been nullable.
+    payment_method: str | None = None
     notes: str | None = None
     is_personal: bool = False
     is_tax_exempt: bool = False
