@@ -240,3 +240,66 @@ def test_structured_layer_without_payment_method_stays_none(monkeypatch):
     })
     out = parse_expense_receipt("/tmp/does-not-matter.jpg")
     assert out["payment_method"] is None
+
+
+# ── The scanned receipt that could not be saved ──────────────────────
+#
+# Reported from prod with a real MENY receipt: the scan worked, the photo
+# and the 52,05 total were on screen, and Save returned "couldn't save".
+#
+# Cause: storage moved to a private bucket in 2026-05 and now returns a
+# 1-year SIGNED URL carrying a JWT. Every one measures 597 chars, and
+# ExpenseCreate.cap_receipt_photo_length rejected anything over 500 — a
+# limit copied from a VARCHAR(500) that no longer exists (the production
+# column is TEXT). So the validator rejected EVERY scanned receipt.
+#
+# It stayed invisible because a 422 `detail` is a list, not a string, so
+# the client's error path fell through to a generic message.
+
+def _signed_url(n: int = 597) -> str:
+    """Shaped like the real thing: /object/sign/ + a long ?token= JWT."""
+    base = (
+        "https://ahlqhztujpeccmaivkhr.supabase.co/storage/v1/object/sign/"
+        "receipts/6f2a1c88-1111-2222-3333-444455556666/expense/"
+        "0123456789abcdef0123456789abcdef0123456789abcdef.jpg?token="
+    )
+    return base + "e" * (n - len(base))
+
+
+def test_scanned_receipt_with_a_signed_url_saves(client, db):
+    """The exact prod failure: a 597-char signed URL must not be rejected."""
+    user = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: user
+    url = _signed_url(597)
+    assert len(url) == 597
+
+    r = client.post("/api/expenses", json=_scan_payload(
+        amount=52.05, description="MENY", payment_method="cash",
+        receipt_photo=url, date="2026-07-17",
+    ))
+    assert r.status_code in (200, 201), r.text
+    row = db.query(Expense).filter(Expense.user_id == user.id).one()
+    assert row.receipt_photo == url, "the full signed URL must round-trip intact"
+    assert float(row.amount) == 52.05
+    assert row.payment_method == "cash"
+
+
+def test_absurdly_long_receipt_photo_is_still_refused(client, db):
+    """Still bounded — this is request input, not trusted storage output."""
+    user = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: user
+    r = client.post("/api/expenses", json=_scan_payload(receipt_photo="x" * 5000))
+    assert r.status_code == 422, r.text
+    assert db.query(Expense).filter(Expense.user_id == user.id).count() == 0
+
+
+def test_kontant_normalises_to_cash():
+    """The MENY receipt prints 'KONTANT'. The schema already folds it, and
+    it must keep doing so — 'kontant' would never match the cash-sync
+    branch, so the drawer would silently not move."""
+    from app.schemas.expense import ExpenseCreate
+    m = ExpenseCreate(
+        amount=52.05, description="MENY", date=date(2026, 7, 17),
+        payment_method="Kontant",
+    )
+    assert m.payment_method == "cash"

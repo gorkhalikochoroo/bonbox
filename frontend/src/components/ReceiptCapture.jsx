@@ -300,10 +300,27 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     } catch (err) {
       // Previously unhandled: the promise rejected, the modal kept
       // showing the scanned receipt, and nothing was saved.
+      // FastAPI returns `detail` as a STRING for HTTPException but as a
+      // LIST of {loc, msg} for a 422 validation error. Only handling the
+      // string case is how a hard validation failure showed up as a
+      // generic "couldn't save" with nothing to act on — the scanned
+      // receipt was rejected on every attempt and the message never said
+      // which field or why.
       const detail = err?.response?.data?.detail;
-      setSaveError(
-        (typeof detail === "string" && detail) || t("expenseSaveFailed"),
-      );
+      let message = "";
+      if (typeof detail === "string") {
+        message = detail;
+      } else if (Array.isArray(detail) && detail.length) {
+        message = detail
+          .map((d) => {
+            const field = Array.isArray(d?.loc) ? d.loc[d.loc.length - 1] : null;
+            const msg = d?.msg || "";
+            return field ? `${field}: ${msg}` : msg;
+          })
+          .filter(Boolean)
+          .join(" · ");
+      }
+      setSaveError(message || t("expenseSaveFailed"));
       trackEvent("receipt_expense_save_error", mode, err.message);
       setSaving(false);
       return;
