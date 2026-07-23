@@ -37,9 +37,27 @@ export default function GodkendKo({ getCatName, currency = "kr.", onApproved, on
   useEffect(() => { load(); }, [load, refreshToken]);
 
   const hasAmount = (d) => parseFloat(d.amount) > 0;
+  // A draft with no payment method can't be approved: the server would
+  // fall back to the column default and skip the cash-out sync, so a
+  // cash purchase would leave the drawer without the books noticing.
+  const hasMethod = (d) => Boolean(d.payment_method);
   const isKlar = (d) =>
-    hasAmount(d) && !!d.receipt_photo && getCatName(d.category_id) !== "Ukategoriseret";
+    hasAmount(d) && hasMethod(d) && !!d.receipt_photo
+    && getCatName(d.category_id) !== "Ukategoriseret";
   const klarIds = drafts.filter(isKlar).map((d) => d.id);
+  const missingAmountCount = drafts.filter((d) => !hasAmount(d)).length;
+  const missingMethodCount = drafts.filter((d) => hasAmount(d) && !hasMethod(d)).length;
+
+  // One tap on the row sets the method — the owner is looking straight at
+  // the receipt thumbnail, so sending them into an edit modal to answer
+  // one question would be the wrong trade.
+  const setMethod = async (id, method) => {
+    setBusy(true);
+    try {
+      await api.put(`/expenses/${id}`, { payment_method: method });
+      await load();
+    } finally { setBusy(false); }
+  };
 
   const approveOne = async (id) => {
     setBusy(true);
@@ -72,6 +90,16 @@ export default function GodkendKo({ getCatName, currency = "kr.", onApproved, on
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
             {t("koSub", "Not in your MOMS yet — nothing is booked until you approve")}
           </p>
+          {/* Say what the pile actually contains. "Approve all ready"
+              silently doing less than the count implies is how an owner
+              ends up believing a receipt was booked when it wasn't. */}
+          {(missingMethodCount > 0 || missingAmountCount > 0) && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 tabular-nums">
+              {klarIds.length} {t("koStatReady", "ready")}
+              {missingMethodCount > 0 && ` · ${missingMethodCount} ${t("koStatNoMethod", "missing payment")}`}
+              {missingAmountCount > 0 && ` · ${missingAmountCount} ${t("koStatNoAmount", "missing amount")}`}
+            </p>
+          )}
         </div>
         {klarIds.length > 0 && (
           <button
@@ -89,6 +117,7 @@ export default function GodkendKo({ getCatName, currency = "kr.", onApproved, on
       <div className="space-y-2.5">
         {drafts.map((d) => {
           const noAmount = !hasAmount(d);
+          const noMethod = !noAmount && !hasMethod(d);
           const klar = isKlar(d);
           const catName = getCatName(d.category_id);
           const pct = fradragPct(catName);
@@ -121,6 +150,10 @@ export default function GodkendKo({ getCatName, currency = "kr.", onApproved, on
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300">
                         <AlertTriangle size={12} strokeWidth={1.75} aria-hidden="true" />{t("koMissingAmount", "Missing amount")}
                       </span>
+                    ) : noMethod ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300">
+                        <AlertTriangle size={12} strokeWidth={1.75} aria-hidden="true" />{t("koMissingMethod", "Missing payment method")}
+                      </span>
                     ) : klar ? (
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300">
                         <CircleCheck size={12} strokeWidth={1.75} aria-hidden="true" />{t("koReady", "Ready")}
@@ -132,6 +165,20 @@ export default function GodkendKo({ getCatName, currency = "kr.", onApproved, on
                       <button type="button" onClick={() => onEdit?.(d)} className="ml-auto text-sm font-medium px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition">
                         {t("koFix", "Fix")}
                       </button>
+                    ) : noMethod ? (
+                      <span className="ml-auto inline-flex items-center gap-1.5" role="group" aria-label={t("paymentMethod", "Payment method")}>
+                        {["cash", "card", "mobilepay"].map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            disabled={busy}
+                            onClick={() => setMethod(d.id, m)}
+                            className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition disabled:opacity-40"
+                          >
+                            {t(m)}
+                          </button>
+                        ))}
+                      </span>
                     ) : (
                       <button type="button" onClick={() => approveOne(d.id)} disabled={busy} className="ml-auto text-sm font-medium px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition disabled:opacity-40">
                         {t("koApprove", "Approve")}

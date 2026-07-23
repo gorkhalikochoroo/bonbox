@@ -127,3 +127,98 @@ def test_burst_stops_at_free_cap(client, db):
     body = r.json()
     assert body["created"] == 10
     assert body["cap_reached"] is True
+
+
+# ── The pile must not guess how a receipt was paid ────────────────────
+#
+# burst_scan hardcoded payment_method="card". A pile of cash purchases
+# therefore booked as card, and sync_cash_out_for_expense — which only
+# fires on payment_method == "cash" — never ran. Cash left the drawer and
+# the books never saw it, so kassebeholdning drifted up by the amount of
+# every cash receipt ever scanned in a pile.
+#
+# The single-scan path has refused to guess this since #139. These pin
+# the pile to the same rule.
+
+def test_burst_draft_has_no_method_when_the_receipt_is_silent(client, db, monkeypatch):
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "Netto", "amount": 120.0,
+                                      "date": None, "payment_method": None})
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    r = client.post("/api/expenses/burst-scan", files=_files(2))
+    assert r.status_code == 200, r.text
+    drafts = db.query(Expense).filter(Expense.user_id == u.id).all()
+    assert len(drafts) == 2
+    assert all(d.payment_method is None for d in drafts), \
+        "an unread payment method must stay unknown, not become 'card'"
+
+
+def test_burst_draft_keeps_the_method_the_receipt_printed(client, db, monkeypatch):
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "Netto", "amount": 120.0,
+                                      "date": None, "payment_method": "cash"})
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    assert client.post("/api/expenses/burst-scan", files=_files(1)).status_code == 200
+    assert db.query(Expense).filter(Expense.user_id == u.id).one().payment_method == "cash"
+
+
+def test_draft_without_a_method_cannot_be_approved(client, db, monkeypatch):
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "Netto", "amount": 120.0,
+                                      "date": None, "payment_method": None})
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    client.post("/api/expenses/burst-scan", files=_files(1))
+    d = db.query(Expense).filter(Expense.user_id == u.id).one()
+
+    r = client.post(f"/api/expenses/{d.id}/approve")
+    assert r.status_code == 422, r.text
+    assert "betalingsmåde" in r.json()["detail"]
+    db.refresh(d)
+    assert d.status == "pending", "a refused approval must not book the row"
+
+
+def test_approve_batch_skips_methodless_drafts_and_says_so(client, db, monkeypatch):
+    """'Godkend alle' silently doing less than its count implies is how an
+    owner ends up believing a receipt was booked when it wasn't."""
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "Netto", "amount": 120.0,
+                                      "date": None, "payment_method": None})
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    client.post("/api/expenses/burst-scan", files=_files(3))
+    rows = db.query(Expense).filter(Expense.user_id == u.id).all()
+    # Answer one of them, leave two unanswered.
+    rows[0].payment_method = "cash"
+    db.commit()
+
+    r = client.post("/api/expenses/approve-batch",
+                    json={"ids": [str(x.id) for x in rows]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["count"] == 1
+    assert len(body["skipped_no_method"]) == 2
+    assert body["skipped_no_amount"] == []
+
+
+def test_approved_cash_draft_actually_reaches_the_drawer(client, db, monkeypatch):
+    """The invariant the whole fix exists for: a cash purchase must move
+    kassebeholdning. Booked as 'card' it silently never did."""
+    from app.models.cashbook import CashTransaction
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "Netto", "amount": 120.0,
+                                      "date": None, "payment_method": "cash"})
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    client.post("/api/expenses/burst-scan", files=_files(1))
+    d = db.query(Expense).filter(Expense.user_id == u.id).one()
+
+    assert client.post(f"/api/expenses/{d.id}/approve").status_code == 200
+    cash = db.query(CashTransaction).filter(
+        CashTransaction.user_id == u.id,
+        CashTransaction.reference_id == f"expense_{d.id}",
+    ).all()
+    assert len(cash) == 1, "an approved cash expense must post a cash-out"
+    assert float(cash[0].amount) == 120.0
