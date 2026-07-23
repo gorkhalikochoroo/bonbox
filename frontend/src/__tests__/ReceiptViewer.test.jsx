@@ -86,7 +86,7 @@ describe("<ReceiptViewer> — render and metadata", () => {
 describe("<ReceiptViewer> — image URL safety (security-critical)", () => {
   // safeImageUrl is what stops a malicious receipt URL from running
   // in our origin. The viewer MUST NOT render an <img src> for any
-  // value safeImageUrl rejects — instead it shows a 🧾 placeholder.
+  // value safeImageUrl rejects — instead it shows an icon placeholder.
   it.each([
     ["javascript: URL",     "javascript:alert(1)"],
     ["data:image/svg+xml",  'data:image/svg+xml,<svg onload="alert(1)"/>'],
@@ -107,10 +107,17 @@ describe("<ReceiptViewer> — image URL safety (security-critical)", () => {
     const img = container.querySelector("img");
     expect(img).toBeNull();
     // The placeholder div renders inside the photo column, identifiable
-    // by its `aspect-[3/4]` class (the header 🧾 lives in a <span>).
+    // by its `aspect-[3/4]` class. Scoping the icon lookup to it matters:
+    // the header and the ✕ button render their own <svg>s, so an
+    // unscoped container.querySelector("svg") would pass vacuously.
     const placeholder = container.querySelector(".aspect-\\[3\\/4\\]");
     expect(placeholder).not.toBeNull();
-    expect(placeholder.textContent).toContain("🧾");
+    // The placeholder renders the Lucide <Receipt> icon — an <svg>, not
+    // the 🧾 emoji it used to be. Asserting on "there is an icon here"
+    // rather than on a specific glyph keeps this from re-breaking every
+    // time the design system swaps the icon set; the emoji itself is now
+    // banned in chrome by scripts/check-design-doctrine.sh (rule 9).
+    expect(placeholder.querySelector("svg")).not.toBeNull();
   });
 
   it("renders the <img> for a valid https URL", () => {
@@ -211,14 +218,22 @@ describe("<ReceiptViewer> — OCR text + amount highlighting", () => {
       />,
     );
     // Three <mark> elements for three detected amounts
-    const marks = container.querySelectorAll("mark");
+    const marks = Array.from(container.querySelectorAll("mark"));
     expect(marks.length).toBe(3);
-    // The suggested one gets the green emerald-styled class; others
-    // get the amber class.
-    const suggested = Array.from(marks).find((m) => m.textContent === "1250");
-    const other = Array.from(marks).find((m) => m.textContent === "1200");
-    expect(suggested.className).toMatch(/emerald/);
-    expect(other.className).toMatch(/amber/);
+    expect(marks.map((m) => m.textContent).sort()).toEqual(["1200", "1250", "50"]);
+    // The point of the highlighting is that the user can tell WHICH
+    // match drove the "detected amount" pick without counting. So pin
+    // the contrast, not the palette: the suggested mark must be styled
+    // differently from the others, and the others must all share one
+    // style. Naming the actual colour classes here is what made this
+    // test stale — the design-system ship (db32753) recoloured the
+    // suggested mark emerald → gray and nothing about the behaviour
+    // changed.
+    const suggested = marks.find((m) => m.textContent === "1250");
+    const others = marks.filter((m) => m !== suggested);
+    expect(others).toHaveLength(2);
+    expect(others.every((m) => m.className !== suggested.className)).toBe(true);
+    expect(new Set(others.map((m) => m.className)).size).toBe(1);
   });
 
   it("does not render the OCR panel when ocrText is omitted", () => {
