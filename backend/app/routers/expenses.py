@@ -913,6 +913,11 @@ def approve_expense(
         return expense  # idempotent — already approved
     if not expense.amount or float(expense.amount) <= 0:
         raise HTTPException(status_code=422, detail="Udkast mangler beløb og kan ikke godkendes")
+    # Same rule for the payment method. Approving without one books the
+    # row at the model default and silently skips the cash-out sync, so
+    # a cash purchase would vanish from kassebeholdning.
+    if not expense.payment_method:
+        raise HTTPException(status_code=422, detail="Udkast mangler betalingsmåde og kan ikke godkendes")
     _promote_to_approved(db, user, expense)
     db.commit()
     db.refresh(expense)
@@ -936,14 +941,27 @@ def approve_batch(
         .all()
     )
     approved, skipped = [], []
+    skipped_no_amount, skipped_no_method = [], []
     for e in rows:
         if not e.amount or float(e.amount) <= 0:
             skipped.append(str(e.id))
+            skipped_no_amount.append(str(e.id))
+            continue
+        if not e.payment_method:
+            skipped.append(str(e.id))
+            skipped_no_method.append(str(e.id))
             continue
         _promote_to_approved(db, user, e)
         approved.append(str(e.id))
     db.commit()
-    return {"approved": approved, "skipped": skipped, "count": len(approved)}
+    # `skipped` stays the union for back-compat; the split lets the queue
+    # tell the owner WHAT is missing instead of silently doing less than
+    # the button promised.
+    return {
+        "approved": approved, "skipped": skipped, "count": len(approved),
+        "skipped_no_amount": skipped_no_amount,
+        "skipped_no_method": skipped_no_method,
+    }
 
 
 def _get_or_create_uncategorized(db: Session, user_id):
@@ -1032,7 +1050,14 @@ async def burst_scan(
 
         draft = Expense(
             user_id=user.id, category_id=cat_id, date=pdate or date.today(),
-            amount=amount, description=vendor or "Bilag", payment_method="card",
+            amount=amount, description=vendor or "Bilag",
+            # Read off the receipt ("Kontant" / "Dankort" / "MobilePay"),
+            # NULL when the paper doesn't say. It used to be hardcoded
+            # "card", so a pile of cash purchases booked as card and
+            # sync_cash_out_for_expense never fired — cash left the drawer
+            # and the books never saw it. The single-scan path has refused
+            # to guess this since #139; the pile was still guessing.
+            payment_method=parsed.get("payment_method"),
             receipt_photo=stored, receipt_source="scan", status="pending",
         )
         db.add(draft)

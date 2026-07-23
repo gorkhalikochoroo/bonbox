@@ -40,7 +40,13 @@ class Expense(Base):
     amount: Mapped[float] = mapped_column(Numeric(12, 2))
     description: Mapped[str] = mapped_column(String(255))
     is_recurring: Mapped[bool] = mapped_column(Boolean, default=False)
-    payment_method: Mapped[str | None] = mapped_column(String(20), nullable=True, default="card")
+    # No Python-side default. SQLAlchemy applies a column default even when
+    # the caller passes None EXPLICITLY, so `default="card"` made it
+    # impossible for any path to record "the receipt didn't say" — the
+    # burst scanner's NULL silently became 'card' on the way to the INSERT.
+    # The SQL-level DEFAULT from migration 001 still covers callers that
+    # omit the column entirely; an explicit None now stays None.
+    payment_method: Mapped[str | None] = mapped_column(String(20), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_personal: Mapped[bool] = mapped_column(Boolean, default=False)
     reference_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
