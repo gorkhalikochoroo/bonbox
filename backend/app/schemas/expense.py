@@ -45,6 +45,18 @@ class ExpenseCreate(BaseModel):
     currency: str | None = None
     fx_rate: float | None = None
     original_amount: float | None = None
+    # ── Per-vendor memory ─────────────────────────────────────────────
+    # The OCR's raw vendor line. Kept separate from `description` because
+    # description is owner-editable free text — keying memory on it is
+    # what made the existing learn/suggest loop write and read different
+    # names. Never persisted as-is; it is canonicalised into vendor_key.
+    vendor_hint: str | None = None
+    # What BonBox PROPOSED before the owner touched anything, e.g.
+    # {"payment_method": "card", "category_name": "Vareforbrug"}. Lets
+    # the server tell a confirmation from an override: saving a value
+    # different from what we proposed is a CORRECTION, and recording it
+    # as agreement is how a wrong habit cements itself.
+    autofill: dict[str, str] | None = None
 
     @field_validator("payment_method", mode="before")
     @classmethod

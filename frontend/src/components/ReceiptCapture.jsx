@@ -39,6 +39,11 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   // can say "read from the receipt" rather than implying we verified a
   // default we actually guessed.
   const [methodRead, setMethodRead] = useState(false);
+  // Per-vendor memory for the payment method, when the receipt itself
+  // didn't say: {value, evidence_n, band, vendor_label}. Rendered as a
+  // countable sentence ("kort — som de sidste 6 gange hos Netto") rather
+  // than a confidence score, so the owner can check the claim.
+  const [learnedMethod, setLearnedMethod] = useState(null);
   // Save failed — shown inline above the confirm button. Before this,
   // a rejected POST /expenses left the modal sitting there looking fine
   // with nothing saved.
@@ -73,6 +78,12 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     setPreview(URL.createObjectURL(rawFile));
     setUploading(true);
     setResult(null);
+    // Provenance belongs to ONE receipt. Reset before the next upload so
+    // a failure mid-scan can't leave the previous vendor's memory line
+    // attached to a different receipt.
+    setLearnedMethod(null);
+    setMethodRead(false);
+    setSaveError("");
     const file = await resizeImageIfLarge(rawFile);
 
     const formData = new FormData();
@@ -96,7 +107,14 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
         if (res.data.suggested_date) {
           setParsedDate(res.data.suggested_date);
         }
-        if (res.data.suggested_category?.category_id) {
+        // Only PREFILL-band memory preselects the category. A
+        // cold-start keyword guess (band "suggest", evidence_n 0) is
+        // shown highlighted but unselected, so the owner's tap is what
+        // becomes the agreement — otherwise a frozen constant would
+        // bootstrap itself into "learned" history, and category carries
+        // the §42 fradrag class, so that moves real købsmoms.
+        if (res.data.suggested_category?.category_id
+            && res.data.suggested_category.band === "prefill") {
           setParsedCategoryId(res.data.suggested_category.category_id);
         }
         // Payment method READ OFF the receipt ("Kontant" / "Dankort" /
@@ -107,6 +125,21 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
         if (res.data.suggested_payment_method) {
           setMethod(res.data.suggested_payment_method);
           setMethodRead(true);
+        } else if (res.data.learned_payment_method?.band === "prefill") {
+          // PAPER BEATS MEMORY — we only get here because the receipt
+          // didn't say. This is replayed from the owner's own confirmed
+          // history at this supplier, so it's labelled as memory, never
+          // as "read from the receipt".
+          setMethod(res.data.learned_payment_method.value);
+          setMethodRead(false);
+          setLearnedMethod(res.data.learned_payment_method);
+        } else if (res.data.learned_payment_method?.band === "suggest") {
+          // Two sightings is a hint, not a habit: highlight the chip but
+          // do NOT preselect, so Save stays disabled exactly as today.
+          // The owner's tap IS the third agreement.
+          setMethod("");
+          setMethodOpen(true);
+          setLearnedMethod(res.data.learned_payment_method);
         } else {
           setMethod("");
           setMethodOpen(true);
@@ -169,6 +202,26 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     if (parsedCategoryId) {
       payload.category_id = parsedCategoryId;
     }
+    // The OCR's raw vendor line, kept separate from `description` because
+    // description is owner-editable — keying memory on it is what made
+    // the old learn/suggest loop write and read different names.
+    if (result?.suggested_vendor) {
+      payload.vendor_hint = result.suggested_vendor;
+    }
+    // What we PROPOSED before the owner touched anything. The server
+    // compares this to what actually got saved: a different value is a
+    // CORRECTION, and recording an override as agreement is how a wrong
+    // habit cements itself.
+    const proposed = {};
+    if (learnedMethod?.band === "prefill") proposed.payment_method = learnedMethod.value;
+    // Only when it was actually preselected — that is exactly when a
+    // different saved value means the owner overrode us.
+    if (result?.suggested_category?.band === "prefill"
+        && parsedCategoryId === result.suggested_category.category_id) {
+      proposed.category_name = result.suggested_category.category_name;
+    }
+    if (Object.keys(proposed).length) payload.autofill = proposed;
+
     setSaving(true);
     setSaveError("");
     try {
@@ -201,6 +254,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     setCapError(null);
     setMethod(isExpense ? "" : "mixed");
     setMethodRead(false);
+    setLearnedMethod(null);
     setMethodOpen(false);
     setSaveError("");
     setSaving(false);
@@ -331,7 +385,14 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                     />
                   </div>
                   <button
-                    onClick={() => { setPreview(null); setResult(null); setAmount(""); }}
+                    onClick={() => {
+                      setPreview(null); setResult(null); setAmount("");
+                      // Drop this receipt's provenance with it — otherwise
+                      // the next scan inherits the previous vendor's memory.
+                      setLearnedMethod(null); setMethodRead(false);
+                      setParsedCategoryId(""); setParsedDate("");
+                      setMethod(isExpense ? "" : "mixed");
+                    }}
                     className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white w-7 h-7 rounded-full text-sm transition"
                     aria-label={t("clear") || "Clear"}
                   >
@@ -567,22 +628,46 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                           key={m}
                           size="sm"
                           selected={method === m}
-                          onClick={() => { setMethod(m); setMethodOpen(false); setMethodRead(false); }}
+                          onClick={() => {
+                            setMethod(m); setMethodOpen(false); setMethodRead(false);
+                            // The owner has taken this field over — drop the
+                            // memory provenance rather than let it describe a
+                            // value they just replaced.
+                            if (learnedMethod && m !== learnedMethod.value) setLearnedMethod(null);
+                          }}
                         >
                           {t(m)}
                         </Chip>
                       ))}
                     </div>
                   )}
-                  {/* Two honest states, never a silent default:
-                      • read off the receipt → say so
-                      • not printed on the receipt → ask, don't guess */}
+                  {/* Provenance. Exactly ONE of these may render for the
+                      field, and which one is the honesty guarantee:
+                        detected → "Read from the receipt"
+                        learned  → "Card — same as the last 6 times at Netto"
+                        assumed  → nothing is assumed; we ask instead.
+                      A learned value must never wear the detected label —
+                      that would claim the paper said something it didn't. */}
                   {isExpense && methodRead && (
                     <p className="mt-1.5 text-xs text-gray-400 dark:text-gray-500">
                       {t("paymentMethodFromReceipt", "Read from the receipt")}
                     </p>
                   )}
-                  {isExpense && !method && (
+                  {isExpense && !methodRead && method && learnedMethod?.band === "prefill" && (
+                    <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {t("paymentMethodLearned", "{method} — same as the last {n} times at {vendor}")
+                        .replace("{method}", t(learnedMethod.value))
+                        .replace("{n}", String(learnedMethod.evidence_n))
+                        .replace("{vendor}", learnedMethod.vendor_label || "")}
+                    </p>
+                  )}
+                  {isExpense && !method && learnedMethod?.band === "suggest" && (
+                    <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+                      {t("paymentMethodUsually", "You usually pay {method} here — tap to confirm")
+                        .replace("{method}", t(learnedMethod.value))}
+                    </p>
+                  )}
+                  {isExpense && !method && !learnedMethod && (
                     <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                       {t("paymentMethodAsk", "The receipt doesn't say how it was paid — pick one")}
                     </p>
