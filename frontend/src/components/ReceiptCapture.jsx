@@ -59,6 +59,33 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   // before saving — we never silently book OCR guesses.
   const [parsedDate, setParsedDate] = useState("");
   const [parsedCategoryId, setParsedCategoryId] = useState("");
+  const [creatingCat, setCreatingCat] = useState(false);
+
+  // Create the bucket we worked out, then select it — one tap, no detour
+  // into Settings. Failures surface in the same inline error as a failed
+  // save rather than leaving a button that silently does nothing.
+  const createSuggestedCategory = async (name) => {
+    if (!name) return;
+    setCreatingCat(true);
+    try {
+      const res = await api.post("/expenses/categories", { name });
+      if (res?.data?.id) {
+        setParsedCategoryId(res.data.id);
+        setResult((prev) => (prev ? {
+          ...prev,
+          suggested_category: {
+            ...prev.suggested_category,
+            category_id: res.data.id,
+            needs_create: false,
+          },
+        } : prev));
+      }
+    } catch (err) {
+      setSaveError(err?.response?.data?.detail || t("categoryCreateFailed", "Couldn't create the category"));
+    } finally {
+      setCreatingCat(false);
+    }
+  };
   // Currency the OCR read off the receipt. When it isn't the account
   // currency, the amount on the paper is NOT the amount we can book —
   // the face value used to be dropped and written straight into the
@@ -734,6 +761,20 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                     <span className="text-xs text-gray-700 dark:text-gray-300">
                       {t("categoryGuess")}
                     </span>
+                    {/* needs_create: we DID work out the right bucket, the
+                        owner just doesn't have it yet. Creating it in one
+                        tap beats dropping the answer, which is what used
+                        to happen on every Danish account. */}
+                    {result.suggested_category.needs_create ? (
+                      <button
+                        type="button"
+                        disabled={creatingCat}
+                        onClick={() => createSuggestedCategory(result.suggested_category.category_name)}
+                        className="px-2 py-0.5 rounded-md text-xs font-medium transition inline-flex items-center gap-1 bg-white dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 disabled:opacity-40"
+                      >
+                        + {t("categoryCreate", "Create")} {result.suggested_category.category_name}
+                      </button>
+                    ) : (
                     <button
                       type="button"
                       onClick={() => setParsedCategoryId(result.suggested_category.category_id)}
@@ -748,6 +789,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                       )}
                       {result.suggested_category.category_name}
                     </button>
+                    )}
                     {parsedCategoryId === result.suggested_category.category_id && (
                       <button
                         type="button"
