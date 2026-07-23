@@ -517,3 +517,82 @@ export function getVatTerms(currencyCode) {
   if (!currencyCode) return VAT_TERMS.DKK;
   return VAT_TERMS[currencyCode] || DEFAULT_VAT_TERMS;
 }
+
+/* ──────────────────────────── parseLocaleAmount ────────────────────────
+ * The INVERSE of formatKr: read a human-typed / speech-transcribed amount
+ * back into a Number, without silently mangling Danish notation.
+ *
+ * Danish writes money the opposite way round from English:
+ *   "1.234,56"  = one thousand two hundred thirty-four kroner, 56 øre
+ *   "150,50"    = one hundred fifty kroner, 50 øre
+ * so a naive parseFloat(s.replace(/,/g, "")) — the English "strip the
+ * thousands commas" idiom — turns 150,50 kr into 15.050 kr (100x) and
+ * 2.000 kr into 2 kr. Both silent, both in the books.
+ *
+ * Rules, in order:
+ *   • Both separators present → the RIGHTMOST is the decimal, the other
+ *     is grouping.  "1.234,56" → 1234.56   "1,234.56" → 1234.56
+ *   • One separator, appearing more than once → grouping.  "1.234.567"
+ *   • One separator, exactly 3 digits after it → genuinely ambiguous
+ *     ("1.234" is 1234 in DK, 1.234 in EN), so the LOCALE decides.
+ *   • One separator, any other digit count → decimal.  "150,5" "45,00"
+ *
+ * Returns NaN for anything that isn't a number, so callers can refuse
+ * rather than book a guess.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+// Locales that use "," as the decimal separator (i.e. "." groups).
+const _COMMA_DECIMAL_LOCALE = /^(da|de|nb|nn|no|sv|fi|is|nl|fr|es|it|pt|pl|cs|tr|id|vi|ru|uk|ro|hu|el|hr|sr|sl|sk|bg|lt|lv|et)/i;
+
+export function parseLocaleAmount(raw, locale = "da-DK") {
+  if (raw == null) return NaN;
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : NaN;
+
+  // Drop everything that isn't a digit, separator or leading sign —
+  // strips "kr.", "DKK", "kroner", stray spaces and NBSPs.
+  let s = String(raw).trim().replace(/[^\d.,-]/g, "");
+  // A dangling separator is punctuation, not notation — "1.234,56 kr."
+  // reduces to "1.234,56." and that trailing dot would otherwise be read
+  // as the decimal point, giving 1.23456.
+  s = s.replace(/^[.,]+/, "").replace(/[.,]+$/, "");
+  if (!s) return NaN;
+
+  const negative = s.startsWith("-");
+  s = s.replace(/-/g, "");
+  if (!s) return NaN;
+
+  const lastComma = s.lastIndexOf(",");
+  const lastDot = s.lastIndexOf(".");
+  const commaDecimalLocale = _COMMA_DECIMAL_LOCALE.test(String(locale || "da-DK"));
+
+  let decimalSep = null;
+
+  if (lastComma !== -1 && lastDot !== -1) {
+    decimalSep = lastComma > lastDot ? "," : ".";
+  } else if (lastComma !== -1 || lastDot !== -1) {
+    const sep = lastComma !== -1 ? "," : ".";
+    const occurrences = s.split(sep).length - 1;
+    const tail = s.slice(s.lastIndexOf(sep) + 1);
+    if (occurrences > 1) {
+      decimalSep = null;                      // "1.234.567" — grouping
+    } else if (tail.length === 3) {
+      // Ambiguous: DK reads "1.234" as 1234 and "1,234" as 1.234.
+      decimalSep = commaDecimalLocale ? (sep === "," ? "," : null)
+                                      : (sep === "." ? "." : null);
+    } else {
+      decimalSep = sep;                       // "150,5" / "45,00" / "1.5"
+    }
+  }
+
+  let normalized;
+  if (decimalSep === null) {
+    normalized = s.replace(/[.,]/g, "");
+  } else {
+    const groupSep = decimalSep === "," ? "." : ",";
+    normalized = s.split(groupSep).join("").replace(decimalSep, ".");
+  }
+
+  const n = parseFloat(normalized);
+  if (!Number.isFinite(n)) return NaN;
+  return negative ? -n : n;
+}
