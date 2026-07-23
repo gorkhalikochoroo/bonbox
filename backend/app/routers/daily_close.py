@@ -44,7 +44,7 @@ from app.schemas.daily_close import DailyCloseCreate, DailyCloseResponse, DailyC
 from app.services.auth import get_current_user
 from app.services.billing import effective_plan, get_cap, has_feature, record_feature_skip
 from app.services.expense_status import not_pending
-from app.services.receipt_ocr import save_receipt_photo, parse_z_report
+from app.services.receipt_ocr import save_receipt_photo_ex, parse_z_report
 from app.services.daily_close_range_export import (
     build_daily_close_range_pdf,
     closes_to_csv_bytes,
@@ -1906,28 +1906,19 @@ async def scan_z_report(
     # routes the storage path to <user_id>/kasserapport/<sha>.jpg so Z-
     # report photos sit in their own namespace separate from per-receipt
     # photos on individual sales / expenses.
-    image_url = save_receipt_photo(
+    # Returns (durable URL/path for the row, local path for OCR). Both are
+    # needed: the durable one may be a Supabase URL that OCR can't read.
+    image_url, local_path = save_receipt_photo_ex(
         file_bytes,
         file.filename or "z_report.jpg",
         str(user.id),
         kind="kasserapport",
     )
 
-    # Resolve the local path for OCR processing
-    # save_receipt_photo returns either a Supabase URL or a local path
-    if image_url.startswith("http"):
-        # Image was uploaded to Supabase — local copy is in uploads/receipts/
-        import time
-        from pathlib import Path
-        local_dir = Path("uploads/receipts")
-        # Find the most recent file for this user (saved moments ago)
-        candidates = sorted(local_dir.glob(f"{user.id}_*.jpg"), key=lambda p: p.stat().st_mtime, reverse=True)
-        if candidates:
-            local_path = str(candidates[0])
-        else:
-            raise HTTPException(status_code=500, detail="Failed to save image for OCR processing")
-    else:
-        local_path = image_url
+    # This used to pick the newest uploads/receipts/{user}_* file by mtime.
+    # On the kasserapport path that is the worst possible race: the Z-report
+    # IS the day's revenue, so reading a different photo silently books
+    # another day's — or another receipt's — figures as this close.
 
     # Parse the Z-report
     parsed = parse_z_report(local_path)

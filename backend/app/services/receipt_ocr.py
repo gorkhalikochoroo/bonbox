@@ -1157,12 +1157,12 @@ def _upload_to_supabase(
     return key
 
 
-def save_receipt_photo(
+def save_receipt_photo_ex(
     file_bytes: bytes,
     filename: str,
     user_id: str,
     kind: str = "expense",
-) -> str:
+) -> tuple[str, str]:
     """
     Save uploaded receipt photo. Uploads to Supabase Storage for persistence,
     falls back to local disk for OCR processing.
@@ -1212,9 +1212,30 @@ def save_receipt_photo(
     # Per-user scoping enforced via compose_key inside _upload_to_supabase.
     public_url = _upload_to_supabase(jpeg_bytes, safe_name, user_id=user_id, kind=kind)
     if public_url:
-        return public_url
+        return public_url, str(filepath)
 
     # Fallback: return local path. Render free/starter tiers wipe local
     # disk on redeploy, so this is dev-only durable. Production with
     # SUPABASE_SERVICE_KEY set will always go through the path above.
-    return str(filepath)
+    return str(filepath), str(filepath)
+
+
+def save_receipt_photo(
+    file_bytes: bytes,
+    filename: str,
+    user_id: str,
+    kind: str = "expense",
+) -> str:
+    """Durable path only — for callers that never OCR the image.
+
+    If you are about to run OCR on what you just saved, call
+    `save_receipt_photo_ex` and use the LOCAL path it returns. Do not
+    re-derive it by globbing the user's upload directory: two receipts
+    in flight at once (a double-tap, a second phone, the burst path
+    running alongside) and the newest-by-mtime file is somebody else's
+    receipt. That reads the wrong amount off the wrong photo and stores
+    it against this row — a wrong-amount generator that no confidence
+    threshold can catch, because the OCR is perfectly confident about
+    the image it was handed.
+    """
+    return save_receipt_photo_ex(file_bytes, filename, user_id, kind)[0]

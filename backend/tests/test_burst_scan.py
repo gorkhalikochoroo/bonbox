@@ -61,8 +61,11 @@ def client(engine_and_session, monkeypatch):
         finally:
             s.close()
 
-    monkeypatch.setattr(receipt_ocr, "save_receipt_photo",
-                        lambda raw, fn, uid, kind="expense": f"uploads/receipts/{uid}_x.jpg")
+    monkeypatch.setattr(receipt_ocr, "save_receipt_photo_ex",
+                        lambda raw, fn, uid, kind="expense": (
+                            f"uploads/receipts/{uid}_x.jpg",
+                            f"uploads/receipts/{uid}_x.jpg",
+                        ))
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": None, "amount": None, "date": None})
     app.dependency_overrides[get_db] = _get_test_db

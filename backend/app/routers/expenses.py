@@ -972,9 +972,7 @@ async def burst_scan(
     processes up to the limit, then returns cap_reached so the UI can say
     'X af Y brugt' instead of silently truncating. OCR failure never blocks the
     draft — it lands with amount 0 ('Mangler beløb') for the owner to fix."""
-    from app.services.receipt_ocr import save_receipt_photo, parse_expense_receipt
-    import glob as _glob
-    import os as _os
+    from app.services.receipt_ocr import save_receipt_photo_ex, parse_expense_receipt
 
     cap = get_cap(user, "expense_receipt_scans_per_month")
     used = _count_receipt_scans_this_month(db, user.id) if cap >= 0 else 0
@@ -992,18 +990,20 @@ async def burst_scan(
             skipped += 1
             continue
         try:
-            stored = save_receipt_photo(raw, f.filename, str(user.id), kind="expense")
+            stored, local = save_receipt_photo_ex(raw, f.filename, str(user.id), kind="expense")
         except ValueError:
             skipped += 1
             continue
 
         parsed = {"vendor": None, "amount": None, "date": None}
-        local = sorted(_glob.glob(f"uploads/receipts/{user.id}_*"), key=_os.path.getmtime, reverse=True)
-        if local:
-            try:
-                parsed = parse_expense_receipt(local[0])
-            except Exception:  # noqa: BLE001 — OCR must never block the draft
-                pass
+        # OCR the file we just wrote for THIS receipt. The old newest-by-
+        # mtime glob was worst here: a pile of receipts is uploaded in one
+        # request, so every draft in the batch raced to read whichever
+        # file happened to land last.
+        try:
+            parsed = parse_expense_receipt(local)
+        except Exception:  # noqa: BLE001 — OCR must never block the draft
+            pass
 
         amount = parsed.get("amount") or 0
         vendor = parsed.get("vendor")
@@ -1119,20 +1119,16 @@ async def upload_expense_receipt(
                 },
             )
 
-    from app.services.receipt_ocr import save_receipt_photo, extract_amount_from_image, parse_expense_receipt
+    from app.services.receipt_ocr import save_receipt_photo_ex, extract_amount_from_image, parse_expense_receipt
     try:
-        stored_path = save_receipt_photo(raw, file.filename, str(user.id), kind="expense")
+        stored_path, local_path = save_receipt_photo_ex(raw, file.filename, str(user.id), kind="expense")
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-    # OCR needs local file — find the most recent local match for this user
-    import glob, os as _os
-    local_files = sorted(
-        glob.glob(f"uploads/receipts/{user.id}_*"),
-        key=_os.path.getmtime,
-        reverse=True,
-    )
-    local_path = local_files[0] if local_files else stored_path
+    # Use the local copy we JUST wrote — never re-derive it by globbing
+    # the user's upload dir by mtime. Two receipts in flight at once and
+    # the newest file is somebody else's; we would OCR that image and
+    # store its amount against this row.
 
     # Try the richer parse first (vendor + amount + date), fall back to
     # amount-only on any failure. Both wrap their internal exceptions —
