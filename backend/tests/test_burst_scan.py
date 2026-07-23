@@ -222,3 +222,123 @@ def test_approved_cash_draft_actually_reaches_the_drawer(client, db, monkeypatch
     ).all()
     assert len(cash) == 1, "an approved cash expense must post a cash-out"
     assert float(cash[0].amount) == 120.0
+
+
+# ── Phase 2: the pile joins per-vendor memory ────────────────────────
+#
+# Drafts previously carried no vendor_key at all, so the pile neither
+# read the owner's habits nor taught them: a correction made on a draft
+# went nowhere, and a supplier confirmed ten times through the pile
+# still arrived blank on the eleventh.
+#
+# The honesty hinge is `kind`. One Godkend on one draft is the owner
+# agreeing. One tap on "Godkend alle 8" is NOT eight agreements — if it
+# minted evidence, auto-fill would validate itself: memory fills a
+# draft, the sweep approves it unread, that mints a streak, and memory
+# fills more confidently next time, all without a human ever looking.
+
+from app.models.vendor_profile import VendorProfile
+from app.services.vendor_identity import canonical_vendor_key
+from app.services.vendor_memory import record_signal
+
+
+def _mem(db, user, key, field, value):
+    return db.query(VendorProfile).filter(
+        VendorProfile.user_id == user.id, VendorProfile.vendor_key == key,
+        VendorProfile.field == field, VendorProfile.value == value,
+    ).first()
+
+
+def test_burst_draft_carries_the_vendor_key(client, db, monkeypatch):
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "NETTO 1284 LYNGBY", "amount": 120.0,
+                                      "date": None, "payment_method": "cash"})
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    client.post("/api/expenses/burst-scan", files=_files(1))
+    d = db.query(Expense).filter(Expense.user_id == u.id).one()
+    assert d.vendor_key == canonical_vendor_key("NETTO 1284 LYNGBY")
+
+
+def test_prefill_memory_fills_a_draft_when_the_receipt_is_silent(client, db, monkeypatch):
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "Netto", "amount": 120.0,
+                                      "date": None, "payment_method": None})
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    for _ in range(3):
+        record_signal(db, u.id, "netto", "payment_method", "card", kind="confirm")
+    db.commit()
+
+    client.post("/api/expenses/burst-scan", files=_files(1))
+    assert db.query(Expense).filter(Expense.user_id == u.id).one().payment_method == "card"
+
+
+def test_paper_still_beats_memory_on_the_pile(client, db, monkeypatch):
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "Netto", "amount": 120.0,
+                                      "date": None, "payment_method": "cash"})
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    for _ in range(9):
+        record_signal(db, u.id, "netto", "payment_method", "card", kind="confirm")
+    db.commit()
+
+    client.post("/api/expenses/burst-scan", files=_files(1))
+    assert db.query(Expense).filter(Expense.user_id == u.id).one().payment_method == "cash", \
+        "the receipt said Kontant — memory must not overrule it"
+
+
+def test_a_two_sighting_hunch_does_not_fill_a_draft(client, db, monkeypatch):
+    """Only PREFILL (3+ clean agreements) may fill a row that a sweep
+    could later approve without anyone reading it."""
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "Netto", "amount": 120.0,
+                                      "date": None, "payment_method": None})
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    for _ in range(2):
+        record_signal(db, u.id, "netto", "payment_method", "card", kind="confirm")
+    db.commit()
+
+    client.post("/api/expenses/burst-scan", files=_files(1))
+    assert db.query(Expense).filter(Expense.user_id == u.id).one().payment_method is None
+
+
+def test_single_godkend_teaches_the_vendor(client, db, monkeypatch):
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "Netto", "amount": 120.0,
+                                      "date": None, "payment_method": "cash"})
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    client.post("/api/expenses/burst-scan", files=_files(1))
+    d = db.query(Expense).filter(Expense.user_id == u.id).one()
+
+    assert client.post(f"/api/expenses/{d.id}/approve").status_code == 200
+    row = _mem(db, u, "netto", "payment_method", "cash")
+    assert row is not None and row.agree_count == 1
+
+
+def test_godkend_alle_mints_no_evidence(client, db, monkeypatch):
+    """THE INVARIANT. One tap must not become N agreements, or the loop
+    validates itself and nobody ever looked."""
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "Netto", "amount": 120.0,
+                                      "date": None, "payment_method": "cash"})
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    client.post("/api/expenses/burst-scan", files=_files(4))
+    rows = db.query(Expense).filter(Expense.user_id == u.id).all()
+    assert len(rows) == 4
+
+    r = client.post("/api/expenses/approve-batch",
+                    json={"ids": [str(x.id) for x in rows]})
+    assert r.status_code == 200 and r.json()["count"] == 4
+    assert _mem(db, u, "netto", "payment_method", "cash") is None, \
+        "a sweep the owner never read must mint zero evidence"
+    # ...and the rows really were booked. expire_all first: the endpoint
+    # committed on its own session, so this session's identity map still
+    # holds the pre-approval instances.
+    db.expire_all()
+    assert all(db.query(Expense).filter(Expense.id == x.id).one().status == "approved"
+               for x in rows)
