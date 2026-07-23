@@ -97,3 +97,18 @@ describe("parseLocaleAmount — refuses rather than guesses", () => {
     expect(parseLocaleAmount(Infinity, "da-DK")).toBeNaN();
   });
 });
+
+describe("parseLocaleAmount — the misapplication that bit us", () => {
+  it("must NOT be used on <input type=number> values", () => {
+    // The browser normalises type=number .value to canonical dot-decimal
+    // regardless of locale. Routing that through the Danish text parser
+    // reads a 3-digit tail as a thousands group: an FX rate of 0.134
+    // became 134, so a 745,50 receipt booked as 99.897 instead of 99,90.
+    expect(parseLocaleAmount("0.134", "da-DK")).toBe(134);   // correct for TEXT
+    expect(parseFloat("0.134")).toBeCloseTo(0.134, 9);        // correct for INPUTS
+
+    const receipt = 745.5;
+    expect(receipt * parseFloat("0.134")).toBeCloseTo(99.9, 2);
+    expect(receipt * parseLocaleAmount("0.134", "da-DK")).toBeCloseTo(99897, 0);
+  });
+});
