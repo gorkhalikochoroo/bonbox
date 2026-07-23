@@ -29,6 +29,7 @@ class Expense(Base):
     __table_args__ = (
         Index("ix_expense_user_date", "user_id", "date", "is_deleted"),
         Index("ix_expense_user_category", "user_id", "category_id", "date"),
+        Index("ix_expense_user_vendor", "user_id", "vendor_key"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
@@ -57,6 +58,12 @@ class Expense(Base):
     # cap); 'attach' = bilag stapled onto an existing row (no OCR → excluded
     # from the cap); NULL = legacy/scan-created (counts, conservative).
     receipt_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Canonical supplier key for per-vendor memory (vendor_identity.
+    # canonical_vendor_key). Set ONCE at create/promote and never
+    # re-derived: an owner editing the description must not silently
+    # re-point the row at a different vendor, or a correction would
+    # be recorded against a key that never made the suggestion.
+    vendor_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
     # Godkend-kø gate: 'approved' = a real, owner-confirmed expense that
     # enters MOMS/Foresight/reports; 'pending' = an AI-proposed draft (snap,
     # forwarded email, recurring) the owner has NOT yet approved — it must

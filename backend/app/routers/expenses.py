@@ -23,6 +23,8 @@ _limiter = Limiter(key_func=client_ip)
 from app.database import get_db
 from app.models.user import User
 from app.models.expense import Expense, ExpenseCategory
+from app.services.vendor_identity import canonical_vendor_key, display_name_for
+from app.services.vendor_memory import recall as vendor_recall, record_signal
 from app.models.category_mapping import CategoryMapping
 from app.schemas.expense import (
     ExpenseCreate, ExpenseUpdate, ExpenseResponse,
@@ -36,6 +38,11 @@ from app.services.billing import get_cap, effective_plan
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
+
+# Categories the SERVER may choose on the owner's behalf. Never learned:
+# replaying our own fallback as "what you usually do here" would be a
+# claim about the owner that the owner never made.
+_UNLEARNABLE_CATEGORIES = {"Andet", "Ukategoriseret"}
 
 router = APIRouter()
 
@@ -507,6 +514,9 @@ def create_expense(
     # Those land in "Andet" (get-or-create), visible and re-categorisable
     # from the list.
     cat_id = payload.get("category_id")
+    # Remember whether the OWNER chose this, before the fallback below
+    # may substitute one. Only an owner-chosen category is evidence.
+    submitted_category_id = cat_id
     if cat_id is not None:
         owned = (
             db.query(ExpenseCategory)
@@ -561,7 +571,16 @@ def create_expense(
         payload["fx_rate"] = None
         payload["original_amount"] = None
 
-    expense = Expense(user_id=user.id, **payload)
+    # Canonical supplier key — set ONCE here, never re-derived later, so a
+    # later description edit can't silently re-point the row at a different
+    # vendor. `vendor_hint` is the OCR's raw vendor line when the row came
+    # from a scan; typed rows fall back to the description.
+    vendor_raw = payload.pop("vendor_hint", None) or payload.get("description")
+    payload.pop("autofill", None)  # client-side provenance, not a column
+    vendor_key = canonical_vendor_key(vendor_raw)
+    vendor_display = display_name_for(vendor_raw, vendor_key)
+
+    expense = Expense(user_id=user.id, vendor_key=vendor_key, **payload)
     # Allocate bilagsnummer (DK Bogføringsloven 2024). Year from expense.date
     # so back-dated entries land in the correct fiscal year sequence.
     try:
@@ -585,6 +604,52 @@ def create_expense(
                 db.commit()
             except Exception:
                 db.rollback()
+
+    # ── Per-vendor memory ─────────────────────────────────────────────
+    # What the owner actually saved is the ground truth for this vendor.
+    # A pre-save OVERRIDE is a correction, not a confirmation: the client
+    # tells us what we proposed via `autofill`, and recording an override
+    # as agreement is precisely how a streak gets poisoned into
+    # auto-filling a value the owner keeps changing.
+    # Only ASSERTED values are evidence. A field the client never sent —
+    # ExpenseCreate.payment_method defaults to "card", and QuickAdd's
+    # expense tab has no method picker at all — is a schema default, not
+    # a decision. Counting it would let the app later say "kort — som de
+    # sidste 3 gange hos Netto" about a choice the owner never made, and
+    # accepting that prefill on a cash receipt skips the cash-out sync
+    # and overstates kassebeholdning. Same for the "Andet" category: we
+    # pick that so a scan isn't lost, so it is our fallback, not a habit.
+    if expense.vendor_key:
+        proposed = data.autofill or {}
+        method_asserted = "payment_method" in data.model_fields_set
+        category_asserted = submitted_category_id is not None
+        try:
+            if expense.payment_method and method_asserted:
+                prior = proposed.get("payment_method")
+                changed = bool(prior) and prior != expense.payment_method
+                record_signal(
+                    db, user.id, expense.vendor_key, "payment_method",
+                    expense.payment_method,
+                    kind="correction" if changed else "confirm",
+                    previous_value=prior if changed else None,
+                    display_name=vendor_display,
+                )
+            cat_row = db.query(ExpenseCategory).filter(
+                ExpenseCategory.id == expense.category_id
+            ).first() if category_asserted else None
+            if cat_row and cat_row.name not in _UNLEARNABLE_CATEGORIES:
+                prior_cat = proposed.get("category_name")
+                changed_cat = bool(prior_cat) and prior_cat != cat_row.name
+                record_signal(
+                    db, user.id, expense.vendor_key, "category_name", cat_row.name,
+                    kind="correction" if changed_cat else "confirm",
+                    previous_value=prior_cat if changed_cat else None,
+                    display_name=vendor_display,
+                )
+            db.commit()
+        except Exception:  # noqa: BLE001 — memory must never break a save
+            logger.warning("vendor memory write failed on create", exc_info=True)
+            db.rollback()
 
     # ── L7 — Audit row for foreign-currency entries ────────────────────
     # The DKK figure (`amount`) is what bookkeeping sees; the original
@@ -630,8 +695,10 @@ def update_expense(
     if not expense:
         raise HTTPException(status_code=404, detail="Expense not found")
     old_method = expense.payment_method
+    old_category_id = expense.category_id
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(expense, field, value)
+
     ref_id = f"expense_{expense.id}"
     if not expense.is_personal:
         if old_method == "cash" and expense.payment_method != "cash":
@@ -642,6 +709,45 @@ def update_expense(
             update_cash_entry_for_ref(db, ref_id, user.id, amount=float(expense.amount), date=expense.date)
     db.commit()
     db.refresh(expense)
+
+    # ── The correction loop ───────────────────────────────────────────
+    # Re-categorising or re-paying an expense is the owner telling us we
+    # were wrong. Nothing listened here before: learn_category was never
+    # called from this path, so a wrong mapping kept its usage_count and
+    # the right answer was never learned from an edit.
+    #
+    # Runs AFTER the commit above, in its own transaction, so a learning
+    # failure can never roll back or 500 the owner's actual edit.
+    #
+    # Keyed on the STORED expense.vendor_key, never re-derived from the
+    # (owner-editable) description — a correction has to land on the same
+    # key that produced the suggestion, or we teach a name that never
+    # made the guess.
+    if expense.vendor_key:
+        try:
+            if expense.payment_method and expense.payment_method != old_method:
+                record_signal(
+                    db, user.id, expense.vendor_key, "payment_method",
+                    expense.payment_method, kind="correction", previous_value=old_method,
+                )
+            if expense.category_id != old_category_id:
+                new_cat = db.query(ExpenseCategory).filter(
+                    ExpenseCategory.id == expense.category_id
+                ).first()
+                old_cat = db.query(ExpenseCategory).filter(
+                    ExpenseCategory.id == old_category_id
+                ).first() if old_category_id else None
+                if new_cat and new_cat.name not in _UNLEARNABLE_CATEGORIES:
+                    record_signal(
+                        db, user.id, expense.vendor_key, "category_name", new_cat.name,
+                        kind="correction",
+                        previous_value=old_cat.name if old_cat else None,
+                    )
+            db.commit()
+        except Exception:  # noqa: BLE001 — learning must never break an edit
+            logger.warning("vendor memory write failed on update", exc_info=True)
+            db.rollback()
+
     return expense
 
 
@@ -1048,27 +1154,81 @@ async def upload_expense_receipt(
     # Best amount = parse result if confident, else fall back to amount-only
     amount = parsed.get("amount") or amount_block.get("suggested_amount")
 
-    # Best-effort category suggestion from the parsed vendor
+    # ── Per-vendor memory ─────────────────────────────────────────────
+    # Memory is consulted BEFORE the keyword fallback, but it only ever
+    # fills a null. PAPER ALWAYS BEATS MEMORY: if the receipt printed the
+    # payment method, we do not consult memory for it and we do not
+    # render a "you usually..." line — the value stays `detected`.
+    vendor_key = canonical_vendor_key(parsed.get("vendor"))
+    memory = vendor_recall(db, user.id, vendor_key, consume_demotion=True) if vendor_key else {}
+
+    learned_payment = None
+    if not parsed.get("payment_method"):
+        pm = memory.get("payment_method")
+        if pm and pm["band"] in ("suggest", "prefill"):
+            learned_payment = {
+                "value": pm["value"],
+                "source": "learned",
+                # The CONSECUTIVE run, not the lifetime count — the copy
+                # claims "the last N times", and an owner who corrected
+                # us once could otherwise be shown a number they can
+                # disprove from their own list.
+                "evidence_n": pm["streak"],
+                "band": pm["band"],
+                "vendor_label": pm.get("display_name") or vendor_key,
+            }
+
+    # Best-effort category suggestion — memory first (this owner's own
+    # confirmed history at this exact supplier), keyword map only as cold
+    # start. The keyword map cannot learn; it is a frozen literal.
     suggested_category = None
-    if parsed.get("vendor"):
-        cat_hit = suggest_category_for(parsed["vendor"], user.id, db)
-        if cat_hit:
-            cat = (
-                db.query(ExpenseCategory)
-                .filter(
-                    ExpenseCategory.user_id == user.id,
-                    ExpenseCategory.name == cat_hit["category_name"],
-                )
-                .first()
+    cat_hit = None
+    mem_cat = memory.get("category_name")
+    if mem_cat and mem_cat["band"] in ("suggest", "prefill"):
+        cat_hit = {
+            "category_name": mem_cat["value"],
+            "source": "learned",
+            "evidence_n": mem_cat["streak"],
+            "band": mem_cat["band"],
+        }
+    elif parsed.get("vendor"):
+        legacy = suggest_category_for(parsed["vendor"], user.id, db)
+        if legacy:
+            # Cold start only. Deliberately NOT labelled "learned" and
+            # deliberately never band=prefill — the legacy 0.9/0.7/0.6
+            # numbers are hardcoded constants, not measured accuracy, so
+            # they may suggest but must not auto-fill.
+            cat_hit = {
+                "category_name": legacy["category_name"],
+                "source": "keyword",
+                "evidence_n": 0,
+                "band": "suggest",
+            }
+    if cat_hit:
+        cat = (
+            db.query(ExpenseCategory)
+            .filter(
+                ExpenseCategory.user_id == user.id,
+                ExpenseCategory.name == cat_hit["category_name"],
             )
-            if cat:
-                suggested_category = {
-                    "category_id": str(cat.id),
-                    "category_name": cat_hit["category_name"],
-                    "confidence": cat_hit["confidence"],
-                }
+            .first()
+        )
+        if cat:
+            suggested_category = {
+                "category_id": str(cat.id),
+                "category_name": cat_hit["category_name"],
+                "source": cat_hit["source"],
+                "evidence_n": cat_hit["evidence_n"],
+                "band": cat_hit["band"],
+            }
+    try:
+        db.commit()  # persist demotion decrements consumed by recall()
+    except Exception:  # noqa: BLE001
+        db.rollback()
 
     return {
+        "vendor_key": vendor_key,
+        "learned_payment_method": learned_payment,
         "filepath": stored_path,
         "suggested_amount": amount,
         "suggested_vendor": parsed.get("vendor"),
@@ -1108,7 +1268,17 @@ def create_expense_from_receipt(
     user: User = Depends(get_current_user),
 ):
     """Create an expense from a confirmed receipt scan."""
-    expense = Expense(user_id=user.id, **data.model_dump())
+    # vendor_hint / autofill are request metadata, not columns — strip
+    # them or the model constructor raises. (This endpoint splats the
+    # dump, so every future ExpenseCreate field lands here too.)
+    receipt_payload = data.model_dump()
+    rp_vendor = receipt_payload.pop("vendor_hint", None) or receipt_payload.get("description")
+    receipt_payload.pop("autofill", None)
+    expense = Expense(
+        user_id=user.id,
+        vendor_key=canonical_vendor_key(rp_vendor),
+        **receipt_payload,
+    )
     db.add(expense)
     db.commit()
     db.refresh(expense)

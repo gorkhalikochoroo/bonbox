@@ -2206,6 +2206,16 @@ _migrations = [
     # portal pool shows it, and a claim materializes a Schedule row that
     # INHERITS the branch. NULL = unassigned/main, as everywhere else.
     "ALTER TABLE open_shifts ADD COLUMN IF NOT EXISTS branch_id VARCHAR(36) REFERENCES branches(id)",
+    # ── Migration 066 (2026-07-23): per-vendor memory (slice 1) ──────────
+    # expenses.vendor_key is the canonical supplier key that finally makes
+    # learning real: today learn_category writes keyed on description
+    # while suggest_category_for reads keyed on the OCR vendor, so a
+    # correction is filed under a name the next scan never looks up. The
+    # vendor_profiles table itself is created by create_all from the
+    # model; the index below is the read path for recall().
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS vendor_key VARCHAR(80)",
+    "CREATE INDEX IF NOT EXISTS ix_expense_user_vendor ON expenses (user_id, vendor_key)",
+    "CREATE INDEX IF NOT EXISTS ix_vendor_profile_lookup ON vendor_profiles (user_id, vendor_key, field)",
 ]
 
 

@@ -1632,6 +1632,29 @@ def export_all_data(
         float(wl.estimated_cost), wl.reason, wl.notes or "",
     ] for wl in waste])
 
+    # --- Vendor Memory ---
+    # What BonBox has inferred about how this owner buys — which supplier
+    # they pay how, and where they file it. It is derived from their own
+    # confirmations rather than supplied by them, which is exactly why it
+    # belongs in a subject-access export: the owner should be able to see
+    # (and audit the counts behind) every habit the app is acting on.
+    from app.models.vendor_profile import VendorProfile as _VendorProfile
+    vendor_mem = (
+        db.query(_VendorProfile)
+        .filter(_VendorProfile.user_id == uid)
+        .order_by(_VendorProfile.vendor_key)
+        .all()
+    )
+    _write_csv_section(w, "Vendor Memory", [
+        "vendor", "vendor_key", "field", "value",
+        "times_agreed", "times_corrected", "current_streak",
+        "locked", "last_agreed_at",
+    ], [[
+        vm.display_name or "", vm.vendor_key, vm.field, vm.value,
+        vm.agree_count or 0, vm.disagree_count or 0, vm.streak or 0,
+        vm.is_locked, str(vm.last_agree_at) if vm.last_agree_at else "",
+    ] for vm in vendor_mem])
+
     # --- Khata Customers & Transactions ---
     khata_custs = db.query(KhataCustomer).filter(KhataCustomer.user_id == uid).all()
     _write_csv_section(w, "Khata Customers", ["name", "phone", "address"], [
