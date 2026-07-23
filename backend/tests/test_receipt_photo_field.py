@@ -94,10 +94,37 @@ def test_expense_create_normalises_empty_string_to_none():
     assert payload.receipt_photo is None
 
 
-def test_expense_create_rejects_oversize_receipt_photo():
-    """DB column is VARCHAR(500). Reject obviously too-long input
-    rather than letting Postgres cut the URL off mid-string at insert."""
-    too_long = "https://example.com/" + ("x" * 500)
+def test_expense_create_accepts_a_real_signed_storage_url():
+    """This test used to assert the opposite, on a false premise.
+
+    It said "DB column is VARCHAR(500)" — but the production column is
+    TEXT, and since the 2026-05 move to a private bucket storage returns
+    a 1-year SIGNED URL carrying a JWT, measured at 597 chars. So the
+    500-char rule rejected EVERY scanned receipt on save, and this test
+    was the thing asserting that was correct.
+    """
+    signed = (
+        "https://ahlqhztujpeccmaivkhr.supabase.co/storage/v1/object/sign/"
+        "receipts/6f2a1c88-1111-2222-3333-444455556666/expense/"
+        "0123456789abcdef.jpg?token="
+    )
+    signed += "e" * (597 - len(signed))
+    assert len(signed) == 597
+
+    payload = ExpenseCreate(
+        category_id=uuid.uuid4(),
+        date=date.today(),
+        amount=42.50,
+        description="x",
+        receipt_photo=signed,
+    )
+    assert payload.receipt_photo == signed
+
+
+def test_expense_create_still_rejects_absurd_receipt_photo():
+    """Bounded, just not at a width that real storage URLs exceed."""
+    from app.schemas.expense import RECEIPT_PHOTO_MAX_LEN
+    too_long = "https://example.com/" + ("x" * RECEIPT_PHOTO_MAX_LEN)
     with pytest.raises(ValueError):
         ExpenseCreate(
             category_id=uuid.uuid4(),

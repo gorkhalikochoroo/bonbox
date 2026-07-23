@@ -59,7 +59,11 @@ class Expense(Base):
     # already exists via the IF NOT EXISTS migration — we just expose it
     # in the model so the create + read paths can populate / surface it.
     # VARCHAR(500) at the SQL level matches the migration in main.py.
-    receipt_photo: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # TEXT, not VARCHAR(500): storage returns a 1-year SIGNED URL (597
+    # chars) since the private-bucket migration, and the production
+    # column is already `text`. The narrower model type was the stale
+    # side of that drift.
+    receipt_photo: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 'scan' = receipt came from an OCR scan (counts toward the monthly scan
     # cap); 'attach' = bilag stapled onto an existing row (no OCR → excluded
     # from the cap); NULL = legacy/scan-created (counts, conservative).

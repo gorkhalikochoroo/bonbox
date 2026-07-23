@@ -2,6 +2,11 @@ import uuid
 import datetime
 from pydantic import BaseModel, field_validator
 
+# Upper bound for a stored receipt URL. Sized for a Supabase 1-year signed
+# URL (597 chars today) with headroom for a longer bucket path or token,
+# NOT for the old VARCHAR(500) that no longer exists in the database.
+RECEIPT_PHOTO_MAX_LEN = 2000
+
 
 class ExpenseCategoryCreate(BaseModel):
     name: str
@@ -34,7 +39,7 @@ class ExpenseCreate(BaseModel):
     # Optional receipt photo path returned by /expenses/upload-receipt.
     # When set, the expense row carries the URL so the user can re-view
     # the receipt after save (matches Sale.receipt_photo behaviour).
-    # Bounded to 500 chars to match the DB column width.
+    # Bounded by RECEIPT_PHOTO_MAX_LEN (see above).
     receipt_photo: str | None = None
     # ── Foreign-currency capture (migration 014) ──────────────────────
     # All three are nullable. The router enforces the all-or-nothing
@@ -70,10 +75,22 @@ class ExpenseCreate(BaseModel):
     def cap_receipt_photo_length(cls, v):
         if v is None or v == "":
             return None
-        if isinstance(v, str) and len(v) > 500:
-            # Defense — DB column is VARCHAR(500). Reject obviously
-            # malformed input rather than truncating silently.
-            raise ValueError("receipt_photo path too long (max 500 chars)")
+        if isinstance(v, str) and len(v) > RECEIPT_PHOTO_MAX_LEN:
+            # Still bounded — this is request input — but the old 500-char
+            # limit was based on a column width that isn't real: the
+            # expenses.receipt_photo column is TEXT in production.
+            #
+            # Storage moved to a private bucket in 2026-05 and now hands
+            # back a 1-YEAR SIGNED URL carrying a JWT. Every one of those
+            # measures 597 chars, so this validator rejected literally
+            # every scanned receipt: the upload succeeded, the owner saw
+            # the photo and the amount, and then POST /expenses 422'd. It
+            # was invisible because a 422 `detail` is a LIST, so the
+            # frontend's string-only error path fell through to a generic
+            # "couldn't save" with nothing to act on.
+            raise ValueError(
+                f"receipt_photo path too long (max {RECEIPT_PHOTO_MAX_LEN} chars)"
+            )
         return v
 
     @field_validator("currency", mode="before")
