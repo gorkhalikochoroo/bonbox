@@ -224,8 +224,9 @@ export default function ReceiptViewer({
               {/* OCR text — only present in pre-save mode (we don't persist
                   it on the row). Expanded by default so users can spot
                   mistakes before confirming. Detected amounts highlighted;
-                  the suggested one in green so the user can see at a glance
-                  which match drove the "detected amount" pick. */}
+                  the suggested one carries the neutral emphasis style (the
+                  others are amber) so the user can see at a glance which
+                  match drove the "detected amount" pick. */}
               {ocrText && (
                 <div>
                   <div className="flex items-center justify-between">
