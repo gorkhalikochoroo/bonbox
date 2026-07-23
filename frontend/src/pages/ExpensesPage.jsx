@@ -43,7 +43,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useStickyMethod } from "../hooks/useStickyMethod";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
-import { displayCurrency, getTaxConfig, formatOwnerMoney } from "../utils/currency";
+import { displayCurrency, getTaxConfig, formatOwnerMoney, parseLocaleAmount } from "../utils/currency";
 import { formatDate, localIso } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn } from "../components/AnimationKit";
@@ -302,10 +302,14 @@ export default function ExpensesPage() {
     recognition.onend = () => setListening(false);
     recognition.onresult = (event) => {
       const text = event.results[0][0].transcript.toLowerCase();
-      const numMatch = text.match(/[\d,]+\.?\d*/);
+      // Grab the number WITH its separators intact — recognition.lang is
+      // da-DK for Danish owners, so the transcript is Danish notation
+      // ("150,50", "1.234,56"). The old regex + comma-strip read those as
+      // English thousands separators and booked 150,50 kr as 15.050 kr.
+      const numMatch = text.match(/-?\d[\d.,]*/);
       if (numMatch) {
-        const val = parseFloat(numMatch[0].replace(/,/g, ""));
-        if (val > 0) {
+        const val = parseLocaleAmount(numMatch[0], lang === "da" ? "da-DK" : "en-US");
+        if (Number.isFinite(val) && val > 0) {
           setAmount(String(val));
           if (text.includes("cash") || text.includes("kontant")) setMethod("cash");
           else if (text.includes("card") || text.includes("kort")) setMethod("card");
