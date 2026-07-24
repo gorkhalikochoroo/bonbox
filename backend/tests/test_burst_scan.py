@@ -342,3 +342,104 @@ def test_godkend_alle_mints_no_evidence(client, db, monkeypatch):
     db.expire_all()
     assert all(db.query(Expense).filter(Expense.id == x.id).one().status == "approved"
                for x in rows)
+
+
+# ── Composition: answering a blank field is not a CORRECTION ─────────
+#
+# #146 made burst drafts carry payment_method=NULL, which is what
+# creates the one-tap answer in the queue. #150 gave drafts a
+# vendor_key, which is what activates update_expense's correction loop
+# for them. Neither is wrong alone; together, answering a BLANK field
+# was recorded as a correction — and record_signal resets streak to 1
+# on a correction.
+#
+# Net effect: every pile answer wiped the streak, so BAND_PREFILL
+# (agree>=3 AND streak>=3) was unreachable through the pile. The
+# product's whole claim — "the second time it already knows" — could
+# never fire for anyone using Snap-a-pile.
+#
+# The create path already had the guard (`bool(prior)`), so this is the
+# update path catching up.
+
+def _seed_pile(client, db, monkeypatch, method=None, vendor="Netto"):
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": vendor, "amount": 120.0,
+                                      "date": None, "payment_method": method})
+    client.post("/api/expenses/burst-scan", files=_files(1))
+    db.expire_all()
+    return db.query(Expense).filter(
+        Expense.user_id == db.query(Expense).first().user_id,
+        Expense.status == "pending",
+    ).order_by(Expense.created_at.desc()).first()
+
+
+def test_answering_a_blank_method_builds_a_streak(client, db, monkeypatch):
+    """The regression: three pile receipts, each answered in the queue,
+    must reach the same prefill the single-scan path reaches."""
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "Netto", "amount": 120.0,
+                                      "date": None, "payment_method": None})
+
+    for _ in range(3):
+        client.post("/api/expenses/burst-scan", files=_files(1))
+        db.expire_all()
+        d = (db.query(Expense)
+             .filter(Expense.user_id == u.id, Expense.status == "pending")
+             .order_by(Expense.created_at.desc()).first())
+        assert d.payment_method is None
+        # the queue's one-tap answer, then Godkend
+        assert client.put(f"/api/expenses/{d.id}", json={"payment_method": "cash"}).status_code == 200
+        assert client.post(f"/api/expenses/{d.id}/approve").status_code == 200
+        db.expire_all()
+
+    row = _mem(db, u, "netto", "payment_method", "cash")
+    assert row is not None
+    assert row.disagree_count == 0, "answering a blank field is not a disagreement"
+    assert row.streak >= 3, (
+        f"streak stalled at {row.streak} — prefill unreachable through the pile"
+    )
+
+
+def test_one_owner_decision_is_one_agreement(client, db, monkeypatch):
+    """GodkendKo answers the method and then approves — two HTTP calls
+    for one decision. It must not mint two agreements."""
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "Netto", "amount": 120.0,
+                                      "date": None, "payment_method": None})
+    client.post("/api/expenses/burst-scan", files=_files(1))
+    db.expire_all()
+    d = db.query(Expense).filter(Expense.user_id == u.id).one()
+
+    client.put(f"/api/expenses/{d.id}", json={"payment_method": "cash"})
+    client.post(f"/api/expenses/{d.id}/approve")
+    db.expire_all()
+
+    row = _mem(db, u, "netto", "payment_method", "cash")
+    assert row.agree_count == 1, (
+        f"one decision recorded {row.agree_count} agreements — the count the "
+        "app quotes back to the owner would be inflated"
+    )
+
+
+def test_a_real_correction_on_an_approved_row_still_counts(client, db, monkeypatch):
+    """The guard must not disarm genuine corrections."""
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
+                        lambda path: {"vendor": "Netto", "amount": 120.0,
+                                      "date": None, "payment_method": "card"})
+    client.post("/api/expenses/burst-scan", files=_files(1))
+    db.expire_all()
+    d = db.query(Expense).filter(Expense.user_id == u.id).one()
+    client.post(f"/api/expenses/{d.id}/approve")
+    db.expire_all()
+
+    # now the owner changes their mind on a BOOKED row — a real correction
+    client.put(f"/api/expenses/{d.id}", json={"payment_method": "cash"})
+    db.expire_all()
+    assert _mem(db, u, "netto", "payment_method", "card").disagree_count == 1
+    assert _mem(db, u, "netto", "payment_method", "cash").agree_count == 1
