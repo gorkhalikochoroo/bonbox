@@ -601,6 +601,11 @@ def create_expense(
     # genuinely different expense can never collide. `allow_duplicate`
     # is the owner's explicit "no, I really did buy that twice".
     allow_dup = payload.pop("allow_duplicate", False)
+    # vat_source is SERVER-stamped, never client-supplied: a figure is
+    # only "from the receipt" if it arrived with the scan. Letting the
+    # client assert its own provenance would make the cross-check
+    # meaningless.
+    payload["vat_source"] = "receipt" if payload.get("vat_amount") is not None else None
     fp = dedup_fingerprint(
         user_id=user.id,
         amount=payload.get("amount"),
@@ -935,6 +940,47 @@ def _promote_to_approved(db: Session, user: User, expense: Expense, *, kind: str
         )
     except Exception:  # noqa: BLE001
         logger.warning("approve: audit failed for expense=%s", expense.id)
+
+
+@router.get("/moms-conflicts")
+def moms_conflicts(
+    start: date | None = Query(None),
+    end: date | None = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Expenses where the receipt's printed MOMS disagrees with the
+    figure the filing derives.
+
+    Read-only and advisory. It resolves nothing: which number is right
+    is a decision for the owner and their revisor, and the filing basis
+    does not change because this endpoint says so. Surfacing the
+    disagreement IS the value — an over-claim the owner never sees is
+    the one SKAT finds.
+    """
+    from app.services.moms_crosscheck import (
+        find_conflicts, summarise, TOLERANCE_KR,
+    )
+
+    conflicts = find_conflicts(db, user.id, start, end)
+    return {
+        **summarise(conflicts),
+        "tolerance_kr": TOLERANCE_KR,
+        "conflicts": [
+            {
+                "expense_id": c.expense_id,
+                "date": c.date.isoformat(),
+                "description": c.description,
+                "category_name": c.category_name,
+                "amount": c.amount,
+                "printed_vat": c.printed_vat,
+                "derived_vat": c.derived_vat,
+                "difference": c.difference,
+                "over_claiming": c.over_claiming,
+            }
+            for c in conflicts
+        ],
+    }
 
 
 @router.get("/pending", response_model=list[ExpenseResponse])
@@ -1397,6 +1443,9 @@ def create_expense_from_receipt(
     # memory so the next one can't repeat it.
     for _request_only in ("autofill", "allow_duplicate"):
         receipt_payload.pop(_request_only, None)
+    receipt_payload["vat_source"] = (
+        "receipt" if receipt_payload.get("vat_amount") is not None else None
+    )
     expense = Expense(
         user_id=user.id,
         vendor_key=canonical_vendor_key(rp_vendor),

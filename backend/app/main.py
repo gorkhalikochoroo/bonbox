@@ -2222,6 +2222,12 @@ _migrations = [
     # replay and return the original row instead of booking it again.
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS dedup_fingerprint VARCHAR(64)",
     "CREATE INDEX IF NOT EXISTS ix_expense_dedup ON expenses (user_id, dedup_fingerprint)",
+    # ── Migration 068 (2026-07-24): the receipt's own MOMS ──────────────
+    # Kept so the printed figure can be cross-checked against the one the
+    # filing derives. Storing it does NOT change the filing basis.
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS vat_amount NUMERIC(12,2)",
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS vat_rate NUMERIC(5,4)",
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS vat_source VARCHAR(12)",
 ]
 
 

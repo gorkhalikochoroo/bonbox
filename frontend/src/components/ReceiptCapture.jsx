@@ -301,6 +301,14 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     payload.vendor_hint = result?.suggested_vendor || typedVendor || "";
     // Bogføringsloven §10 cross-border trail. create_expense enforces
     // all-or-nothing, so these three travel together or not at all.
+    // The receipt's own MOMS — the figure this screen already SHOWS the
+    // owner ("Heraf moms 10,41") and, until now, threw away on save.
+    // Only sent when the OCR actually read it; the server stamps the
+    // provenance, we don't assert it.
+    if (typeof result?.vat_amount === "number") {
+      payload.vat_amount = result.vat_amount;
+      if (typeof result?.vat_rate === "number") payload.vat_rate = result.vat_rate;
+    }
     if (isForeign) {
       payload.currency = scanCurrency;
       payload.fx_rate = Number(fxRateNum.toFixed(6));

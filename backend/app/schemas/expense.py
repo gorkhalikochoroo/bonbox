@@ -77,6 +77,41 @@ class ExpenseCreate(BaseModel):
     # can never cost them an expense — the replay guard is a convenience,
     # never a wall.
     allow_duplicate: bool = False
+    # ── The receipt's own MOMS ────────────────────────────────────────
+    # Sent only when the OCR read it off the paper. Stored for the
+    # cross-check against what the filing derives — never used as the
+    # filing basis without the owner's revisor deciding that.
+    vat_amount: float | None = None
+    vat_rate: float | None = None
+
+    @field_validator("vat_amount", mode="before")
+    @classmethod
+    def validate_vat_amount(cls, v):
+        if v is None or v == "":
+            return None
+        try:
+            av = float(v)
+        except (TypeError, ValueError):
+            raise ValueError("vat_amount must be a number")
+        if av < 0:
+            raise ValueError("vat_amount must be non-negative")
+        return av
+
+    @field_validator("vat_rate", mode="before")
+    @classmethod
+    def validate_vat_rate(cls, v):
+        if v is None or v == "":
+            return None
+        try:
+            rv = float(v)
+        except (TypeError, ValueError):
+            raise ValueError("vat_rate must be a number")
+        # A DECIMAL rate (0.25), never a percentage. Anything above 1
+        # is a unit mix-up, and silently accepting 25 would store a
+        # 2500% rate against a bilag.
+        if not 0 <= rv <= 1:
+            raise ValueError("vat_rate must be a decimal between 0 and 1")
+        return rv
 
     @field_validator("payment_method", mode="before")
     @classmethod
