@@ -60,18 +60,29 @@ api.interceptors.response.use(null, async (err) => {
   const status = err.response?.status;
   const isRetryable = !err.response || err.code === "ECONNABORTED" || status >= 500;
   if (!isRetryable) return Promise.reject(err);
-  // POSTs:
-  //   • Network error (no response) → retry, because the request
-  //     never reached the server so re-sending is safe.
-  //   • 503 Service Unavailable → retry, because that's the standard
-  //     "server temporarily unavailable, please try again" status.
-  //     This is the Render cold-start case for /auth/login,
-  //     /auth/magic-link/request, /auth/oauth/*, /demo/seed etc.
-  //     503 is documented as "the server has NOT processed the
-  //     request" so re-sending creates no duplicate side effects.
-  //   • 500/502/504 → don't retry, because those could mean the
-  //     handler ran half-way and left state behind.
-  if (config.method === "post" && err.response && status !== 503) {
+  // Retrying a NON-IDEMPOTENT method is only safe when we know the
+  // server did not process the request. There is exactly one such
+  // signal: 503, which is defined as "the server has NOT processed
+  // this" (the Render cold-start case for /auth/login, /demo/seed…).
+  //
+  // A bare network error is NOT that signal. `err.response` is also
+  // undefined when the request DID reach the server, the handler
+  // committed, and the RESPONSE was lost — a dropped socket, a mobile
+  // network handoff, or our own 60s timeout firing ECONNABORTED. The
+  // old rule read `err.response &&`, which is falsy in exactly that
+  // case, so it fell through and REPLAYED the POST up to 4 times at
+  // 2s / 6s / 14s / 26s cumulative.
+  //
+  // That is a duplicate generator, and it is visible in production: the
+  // measured collision pairs sit 6 and 23 seconds apart — the first two
+  // backoff steps — on the typed expense path, with no receipt photos.
+  // Each replay booked another expense and double-claimed its MOMS.
+  //
+  // GET/HEAD/OPTIONS are idempotent and keep retrying on everything.
+  const idempotentMethod = ["get", "head", "options"].includes(
+    (config.method || "get").toLowerCase(),
+  );
+  if (!idempotentMethod && status !== 503) {
     return Promise.reject(err);
   }
   const attempt = config._retryCount || 0;

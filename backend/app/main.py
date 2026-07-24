@@ -2216,6 +2216,12 @@ _migrations = [
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS vendor_key VARCHAR(80)",
     "CREATE INDEX IF NOT EXISTS ix_expense_user_vendor ON expenses (user_id, vendor_key)",
     "CREATE INDEX IF NOT EXISTS ix_vendor_profile_lookup ON vendor_profiles (user_id, vendor_key, field)",
+    # ── Migration 067 (2026-07-24): replay guard for expense creation ──
+    # A dropped response caused the client to re-POST the same expense up
+    # to 4 times; the fingerprint lets create_expense recognise the
+    # replay and return the original row instead of booking it again.
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS dedup_fingerprint VARCHAR(64)",
+    "CREATE INDEX IF NOT EXISTS ix_expense_dedup ON expenses (user_id, dedup_fingerprint)",
 ]
 
 

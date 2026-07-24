@@ -26,6 +26,7 @@ from app.models.expense import Expense, ExpenseCategory
 from app.services.vendor_identity import canonical_vendor_key, display_name_for
 from app.services.vendor_memory import recall as vendor_recall, record_signal
 from app.services.category_match import resolve_category, preferred_name_for
+from app.services.expense_dedup import fingerprint as dedup_fingerprint, find_recent_replay
 from app.models.category_mapping import CategoryMapping
 from app.schemas.expense import (
     ExpenseCreate, ExpenseUpdate, ExpenseResponse,
@@ -590,7 +591,35 @@ def create_expense(
     vendor_key = canonical_vendor_key(vendor_raw)
     vendor_display = display_name_for(vendor_raw, vendor_key)
 
-    expense = Expense(user_id=user.id, vendor_key=vendor_key, **payload)
+    # ── Replay guard ─────────────────────────────────────────────────
+    # An identical payload arriving seconds after the first is one intent
+    # delivered twice — a retried POST whose response was lost, or a
+    # second tap during a slow save. Return the row we already made
+    # rather than booking the cost twice and double-claiming its MOMS.
+    #
+    # Fingerprint covers everything the owner could have changed, so a
+    # genuinely different expense can never collide. `allow_duplicate`
+    # is the owner's explicit "no, I really did buy that twice".
+    allow_dup = payload.pop("allow_duplicate", False)
+    fp = dedup_fingerprint(
+        user_id=user.id,
+        amount=payload.get("amount"),
+        date=payload.get("date"),
+        description=payload.get("description"),
+        payment_method=payload.get("payment_method"),
+        category_id=payload.get("category_id"),
+    )
+    if not allow_dup:
+        prior = find_recent_replay(db, user.id, fp)
+        if prior is not None:
+            logger.info(
+                "expense replay collapsed user=%s expense=%s", user.id, prior.id
+            )
+            return prior
+
+    expense = Expense(
+        user_id=user.id, vendor_key=vendor_key, dedup_fingerprint=fp, **payload
+    )
     # Allocate bilagsnummer (DK Bogføringsloven 2024). Year from expense.date
     # so back-dated entries land in the correct fiscal year sequence.
     try:
@@ -1313,7 +1342,13 @@ def create_expense_from_receipt(
     # dump, so every future ExpenseCreate field lands here too.)
     receipt_payload = data.model_dump()
     rp_vendor = receipt_payload.pop("vendor_hint", None) or receipt_payload.get("description")
-    receipt_payload.pop("autofill", None)
+    # Every non-column field on ExpenseCreate has to be stripped here.
+    # This endpoint splats the whole dump into Expense(), so each new
+    # request-only field breaks it — vendor_hint/autofill did once
+    # already, now allow_duplicate. Pop by difference rather than by
+    # memory so the next one can't repeat it.
+    for _request_only in ("autofill", "allow_duplicate"):
+        receipt_payload.pop(_request_only, None)
     expense = Expense(
         user_id=user.id,
         vendor_key=canonical_vendor_key(rp_vendor),
