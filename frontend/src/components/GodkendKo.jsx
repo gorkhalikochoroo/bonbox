@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Receipt, CircleCheck, AlertTriangle, Scale } from "lucide-react";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
+import { localIso } from "../utils/dateFormat";
 import { safeImageUrl } from "../utils/safeUrl";
 
 // §42 fradrag % from the canonical DK category name — mirrors dk_fradrag.py so
@@ -41,8 +42,13 @@ export default function GodkendKo({ getCatName, currency = "kr.", onApproved, on
   // fall back to the column default and skip the cash-out sync, so a
   // cash purchase would leave the drawer without the books noticing.
   const hasMethod = (d) => Boolean(d.payment_method);
+  // Mirrors the server's _draft_blocker, in the same order — the queue
+  // must never call something "klar" that a single Godkend would refuse.
+  const needsRate = (d) => Boolean(d.currency) && (d.fx_rate == null || d.original_amount == null);
+  const dateGuessed = (d) => d.date_source === "guessed";
   const isKlar = (d) =>
-    hasAmount(d) && hasMethod(d) && !!d.receipt_photo
+    !needsRate(d) && hasAmount(d) && hasMethod(d) && !dateGuessed(d)
+    && !!d.receipt_photo
     && getCatName(d.category_id) !== "Ukategoriseret";
   const klarIds = drafts.filter(isKlar).map((d) => d.id);
   const missingAmountCount = drafts.filter((d) => !hasAmount(d)).length;
@@ -51,6 +57,16 @@ export default function GodkendKo({ getCatName, currency = "kr.", onApproved, on
   // One tap on the row sets the method — the owner is looking straight at
   // the receipt thumbnail, so sending them into an edit modal to answer
   // one question would be the wrong trade.
+  // A guessed date blocks approval, so it needs an answer in place —
+  // a gate the owner can't clear from the queue is just a dead end.
+  const setToday = async (id) => {
+    setBusy(true);
+    try {
+      await api.put(`/expenses/${id}`, { date: localIso() });
+      await load();
+    } finally { setBusy(false); }
+  };
+
   const setMethod = async (id, method) => {
     setBusy(true);
     try {
@@ -117,7 +133,9 @@ export default function GodkendKo({ getCatName, currency = "kr.", onApproved, on
       <div className="space-y-2.5">
         {drafts.map((d) => {
           const noAmount = !hasAmount(d);
-          const noMethod = !noAmount && !hasMethod(d);
+          const noRate = needsRate(d);
+          const noMethod = !noAmount && !noRate && !hasMethod(d);
+          const noDate = !noAmount && !noRate && hasMethod(d) && dateGuessed(d);
           const klar = isKlar(d);
           const catName = getCatName(d.category_id);
           const pct = fradragPct(catName);
@@ -150,9 +168,18 @@ export default function GodkendKo({ getCatName, currency = "kr.", onApproved, on
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300">
                         <AlertTriangle size={12} strokeWidth={1.75} aria-hidden="true" />{t("koMissingAmount", "Missing amount")}
                       </span>
+                    ) : noRate ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300">
+                        <AlertTriangle size={12} strokeWidth={1.75} aria-hidden="true" />
+                        {t("koMissingRate", "Needs an exchange rate")} · {d.original_amount} {d.currency}
+                      </span>
                     ) : noMethod ? (
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300">
                         <AlertTriangle size={12} strokeWidth={1.75} aria-hidden="true" />{t("koMissingMethod", "Missing payment method")}
+                      </span>
+                    ) : noDate ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300">
+                        <AlertTriangle size={12} strokeWidth={1.75} aria-hidden="true" />{t("koDateGuessed", "Couldn't read the date")}
                       </span>
                     ) : klar ? (
                       <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300">
@@ -161,9 +188,18 @@ export default function GodkendKo({ getCatName, currency = "kr.", onApproved, on
                     ) : (
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">Ukategoriseret</span>
                     )}
-                    {noAmount ? (
+                    {noAmount || noRate ? (
                       <button type="button" onClick={() => onEdit?.(d)} className="ml-auto text-sm font-medium px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition">
                         {t("koFix", "Fix")}
+                      </button>
+                    ) : noDate ? (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => setToday(d.id)}
+                        className="ml-auto text-sm font-medium px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition disabled:opacity-40"
+                      >
+                        {t("dateUseToday", "Today")}
                       </button>
                     ) : noMethod ? (
                       <span className="ml-auto inline-flex items-center gap-1.5" role="group" aria-label={t("paymentMethod", "Payment method")}>

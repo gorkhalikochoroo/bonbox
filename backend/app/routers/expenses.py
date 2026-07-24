@@ -750,8 +750,16 @@ def update_expense(
         raise HTTPException(status_code=404, detail="Expense not found")
     old_method = expense.payment_method
     old_category_id = expense.category_id
-    for field, value in data.model_dump(exclude_unset=True).items():
+    updates = data.model_dump(exclude_unset=True)
+    for field, value in updates.items():
         setattr(expense, field, value)
+
+    # The owner just told us the date, so it is no longer a guess.
+    # Without this the "dato" approve gate never clears and answering the
+    # question leaves the draft permanently unapprovable — a dead end
+    # dressed up as a safety rail.
+    if "date" in updates and updates["date"] is not None:
+        expense.date_source = None
 
     ref_id = f"expense_{expense.id}"
     if not expense.is_personal:
@@ -1047,13 +1055,11 @@ def approve_expense(
         raise HTTPException(status_code=404, detail="Expense not found")
     if expense.status != "pending":
         return expense  # idempotent — already approved
-    if not expense.amount or float(expense.amount) <= 0:
-        raise HTTPException(status_code=422, detail="Udkast mangler beløb og kan ikke godkendes")
-    # Same rule for the payment method. Approving without one books the
-    # row at the model default and silently skips the cash-out sync, so
-    # a cash purchase would vanish from kassebeholdning.
-    if not expense.payment_method:
-        raise HTTPException(status_code=422, detail="Udkast mangler betalingsmåde og kan ikke godkendes")
+    blocker = _draft_blocker(expense)
+    if blocker:
+        raise HTTPException(
+            status_code=422, detail=f"Udkast mangler {blocker} og kan ikke godkendes"
+        )
     _promote_to_approved(db, user, expense)
     db.commit()
     db.refresh(expense)
@@ -1078,14 +1084,16 @@ def approve_batch(
     )
     approved, skipped = [], []
     skipped_no_amount, skipped_no_method = [], []
+    skipped_by_reason: dict[str, list[str]] = {}
     for e in rows:
-        if not e.amount or float(e.amount) <= 0:
+        blocker = _draft_blocker(e)
+        if blocker:
             skipped.append(str(e.id))
-            skipped_no_amount.append(str(e.id))
-            continue
-        if not e.payment_method:
-            skipped.append(str(e.id))
-            skipped_no_method.append(str(e.id))
+            skipped_by_reason.setdefault(blocker, []).append(str(e.id))
+            if blocker == "beløb":
+                skipped_no_amount.append(str(e.id))
+            elif blocker == "betalingsmåde":
+                skipped_no_method.append(str(e.id))
             continue
         _promote_to_approved(db, user, e, kind="batch")
         approved.append(str(e.id))
@@ -1097,7 +1105,41 @@ def approve_batch(
         "approved": approved, "skipped": skipped, "count": len(approved),
         "skipped_no_amount": skipped_no_amount,
         "skipped_no_method": skipped_no_method,
+        # Every reason, so "Godkend alle" can say what it left behind
+        # instead of quietly doing less than its count implied.
+        "skipped_by_reason": skipped_by_reason,
     }
+
+
+def _draft_blocker(expense: Expense) -> str | None:
+    """Why this draft cannot be booked yet, or None if it can.
+
+    One rule read by BOTH approve paths, so a single Godkend and a
+    "Godkend alle" sweep can never disagree about what is ready. Each
+    entry is something that would otherwise be silently wrong in the
+    books, not a nicety:
+
+      beløb  — a 0 kr bilag is not an expense.
+      betalingsmåde — cash-out sync only fires on "cash" (#146).
+      kurs   — a foreign receipt has no account-currency amount until
+               the owner supplies a rate; booking its face value as
+               kroner is a ~7x error on a EUR invoice.
+      dato   — a guessed date is the wrong MOMS period AND the wrong
+               voucher year, since allocate_voucher keys on date.year.
+    """
+    # Currency FIRST. A foreign draft carries amount 0 precisely because
+    # no account-currency figure exists yet, so an amount-first order
+    # would tell the owner "mangler beløb" when the actual answer needed
+    # is the rate — sending them to fix the wrong thing.
+    if expense.currency and (expense.fx_rate is None or expense.original_amount is None):
+        return "kurs"
+    if not expense.amount or float(expense.amount) <= 0:
+        return "beløb"
+    if not expense.payment_method:
+        return "betalingsmåde"
+    if expense.date_source == "guessed":
+        return "dato"
+    return None
 
 
 def _get_or_create_uncategorized(db: Session, user_id):
@@ -1187,12 +1229,18 @@ async def burst_scan(
             c = resolve_category(mem_cat["value"], user.id, db)
             if c:
                 cat_id = c.id
-        if cat_id is None and vendor:
-            hit = suggest_category_for(vendor, user.id, db)
-            if hit:
-                c = resolve_category(hit["category_name"], user.id, db)
-                if c:
-                    cat_id = c.id
+        # NOT the frozen keyword map. On the single-scan path a keyword
+        # hit is band="suggest" — highlighted, never preselected — because
+        # DEFAULT_KEYWORDS is a hardcoded literal, not this owner's
+        # history. The pile had no such gate, and once resolve_category
+        # started mapping those English concepts onto real Danish
+        # categories, a Wolt receipt began auto-filing into
+        # "Restaurantbesøg, erhverv" — a 25% §42 fradrag class instead of
+        # 100%, chosen by a constant and approvable in one sweep.
+        #
+        # An honest "Ukategoriseret" keeps the draft out of the klar set
+        # so the owner picks. Memory (their own confirmed history) is
+        # still allowed to fill it above.
         if cat_id is None:
             cat_id = _get_or_create_uncategorized(db, user.id).id
 
@@ -1205,8 +1253,27 @@ async def burst_scan(
             if mem_pm and mem_pm["band"] == "prefill":
                 draft_method = mem_pm["value"]
 
+        # A foreign receipt's face value is NOT an account-currency
+        # amount. The single scan asks for a rate (#145); a batch can't,
+        # so we keep the original + its currency and leave `amount` at 0
+        # — which the existing "mangler beløb" gate already blocks —
+        # rather than booking 100 EUR as 100 kr with no FX trail.
+        scan_ccy = (parsed.get("currency") or "").upper() or None
+        account_ccy = (user.currency or "DKK").upper()
+        is_foreign_draft = bool(scan_ccy) and scan_ccy != account_ccy
+        original_amt = amount if is_foreign_draft else None
+        if is_foreign_draft:
+            amount = 0
+
         draft = Expense(
             user_id=user.id, category_id=cat_id, date=pdate or date.today(),
+            # An unreadable date is stamped with today's so the NOT NULL
+            # column has a value — but it must SAY so, or a wrong MOMS
+            # period and a wrong voucher year ride through the queue
+            # looking identical to a real date.
+            date_source=None if pdate else "guessed",
+            currency=scan_ccy if is_foreign_draft else None,
+            original_amount=original_amt,
             amount=amount, description=vendor or "Bilag",
             # Read off the receipt ("Kontant" / "Dankort" / "MobilePay"),
             # NULL when the paper doesn't say. It used to be hardcoded
