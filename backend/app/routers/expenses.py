@@ -605,6 +605,14 @@ def create_expense(
     # only "from the receipt" if it arrived with the scan. Letting the
     # client assert its own provenance would make the cross-check
     # meaningless.
+    # Defence in depth: the client is guarded too, but a foreign-currency
+    # expense must never carry a DK-MOMS figure. `amount` is converted to
+    # the account currency while any OCR vat_amount is in the receipt's,
+    # and foreign VAT is not købsmoms in the first place — it is reclaimed
+    # through a separate EU refund, not deducted on a MOMS-angivelse.
+    if payload.get("currency"):
+        payload["vat_amount"] = None
+        payload["vat_rate"] = None
     payload["vat_source"] = "receipt" if payload.get("vat_amount") is not None else None
     fp = dedup_fingerprint(
         user_id=user.id,
@@ -1471,6 +1479,9 @@ def create_expense_from_receipt(
     # memory so the next one can't repeat it.
     for _request_only in ("autofill", "allow_duplicate"):
         receipt_payload.pop(_request_only, None)
+    if receipt_payload.get("currency"):
+        receipt_payload["vat_amount"] = None
+        receipt_payload["vat_rate"] = None
     receipt_payload["vat_source"] = (
         "receipt" if receipt_payload.get("vat_amount") is not None else None
     )

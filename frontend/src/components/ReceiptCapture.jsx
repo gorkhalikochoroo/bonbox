@@ -305,7 +305,16 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     // owner ("Heraf moms 10,41") and, until now, threw away on save.
     // Only sent when the OCR actually read it; the server stamps the
     // provenance, we don't assert it.
-    if (typeof result?.vat_amount === "number") {
+    // NOT on a foreign receipt. Two reasons, either sufficient:
+    //   • Units. payload.amount is the CONVERTED account-currency figure,
+    //     while the OCR read vat_amount in the receipt's currency — so a
+    //     100 EUR receipt would store amount 746 (DKK) beside vat 20
+    //     (EUR) in a column everything downstream reads as DKK.
+    //   • Meaning. Foreign VAT is not Danish MOMS. German MwSt is not
+    //     købsmoms and is not deducted on a DK MOMS-angivelse at all; it
+    //     is reclaimed through a separate EU refund. Converting it would
+    //     fix the units and still assert something false.
+    if (!isForeign && typeof result?.vat_amount === "number") {
       payload.vat_amount = result.vat_amount;
       if (typeof result?.vat_rate === "number") payload.vat_rate = result.vat_rate;
     }

@@ -311,3 +311,67 @@ def test_endpoint_reports_without_resolving(client, db):
     assert body["conflicts"][0]["derived_vat"] == 100.0
     # and the row is untouched
     assert float(db.query(Expense).filter(Expense.user_id == u.id).one().vat_amount) == 0.0
+
+
+# ── Composition: FX (#145) meets stored MOMS (#153) ──────────────────
+#
+# Each was right alone. Together they stored a EUR VAT figure beside a
+# DKK amount, in a column everything downstream reads as DKK — and the
+# cross-check then reported a large phantom over-claim.
+#
+# The fix is not unit conversion. Foreign VAT is not Danish MOMS: German
+# MwSt is not købsmoms and is not deducted on a MOMS-angivelse at all,
+# it is reclaimed through a separate EU refund. Converting it would fix
+# the units and still assert something false.
+
+def test_a_foreign_receipt_stores_no_dk_moms(client, db):
+    u = _owner(db); c = _cat(db, u)
+    app.dependency_overrides[get_current_user] = lambda: u
+
+    r = client.post("/api/expenses", json={
+        "amount": 746.00,            # account currency (DKK)
+        "original_amount": 100.00,   # what the paper says
+        "currency": "EUR", "fx_rate": 7.46,
+        "description": "Grossist GmbH", "date": "2026-07-20",
+        "payment_method": "card", "category_id": str(c.id),
+        "vat_amount": 20.00,         # EUR MwSt — must NOT be stored as MOMS
+        "vat_rate": 0.19,
+    })
+    assert r.status_code in (200, 201), r.text
+
+    row = db.query(Expense).filter(Expense.user_id == u.id).one()
+    assert float(row.amount) == 746.00
+    assert row.currency == "EUR" and float(row.fx_rate) == 7.46
+    assert row.vat_amount is None, "foreign VAT is not Danish MOMS"
+    assert row.vat_rate is None
+    assert row.vat_source is None
+
+
+def test_a_foreign_receipt_raises_no_phantom_moms_conflict(client, db):
+    """The composed bug's visible symptom: 746 DKK derives ~149 kr of
+    købsmoms, and a stored EUR 20 would have read as a 129 kr
+    over-claim that does not exist."""
+    u = _owner(db); c = _cat(db, u)
+    app.dependency_overrides[get_current_user] = lambda: u
+    client.post("/api/expenses", json={
+        "amount": 746.00, "original_amount": 100.00,
+        "currency": "EUR", "fx_rate": 7.46,
+        "description": "Grossist GmbH", "date": "2026-07-20",
+        "payment_method": "card", "category_id": str(c.id),
+        "vat_amount": 20.00, "vat_rate": 0.19,
+    })
+    assert find_conflicts(db, u.id) == []
+
+
+def test_a_domestic_receipt_still_stores_its_moms(client, db):
+    """The guard keys on `currency`, which is NULL for a same-currency
+    expense — the DK path must be untouched."""
+    u = _owner(db); c = _cat(db, u)
+    app.dependency_overrides[get_current_user] = lambda: u
+    client.post("/api/expenses", json={
+        "amount": 52.05, "description": "MENY", "date": "2026-07-17",
+        "payment_method": "cash", "category_id": str(c.id),
+        "vat_amount": 10.41, "vat_rate": 0.25,
+    })
+    row = db.query(Expense).filter(Expense.user_id == u.id).one()
+    assert float(row.vat_amount) == 10.41 and row.vat_source == "receipt"
