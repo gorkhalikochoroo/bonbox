@@ -88,6 +88,7 @@ export default function ExpensesPage() {
   const [expDate, setExpDate] = useState(localIso());
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [showSetup, setShowSetup] = useState(false);
   const [filterFrom, setFilterFrom] = useState("");
   const [filterTo, setFilterTo] = useState("");
@@ -482,6 +483,12 @@ export default function ExpensesPage() {
   // description. When detailedOpen=true, the existing detailed flow
   // runs (category required, smart-scan verify, FX, etc.).
   const submit = async () => {
+    // In-flight lock. Without it the button stayed live through the
+    // pre-flight category lookup + create (its own comment notes 2-15s
+    // on a Render cold start) and then the POST, so a second tap booked
+    // the expense again. The server-side replay guard is the backstop;
+    // this is the part that stops it being sent at all.
+    if (submitting) return;
     const isForeign =
       detailedOpen
       && fxOpen
@@ -497,6 +504,7 @@ export default function ExpensesPage() {
     if (!value || value <= 0) return;
 
     let finalCatId = catId;
+    setSubmitting(true);
     setError("");
     try {
       // Quick path — no category picked, no custom category typed.
@@ -622,6 +630,8 @@ export default function ExpensesPage() {
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(errText(err, t("failedToAddExpense")));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -1247,6 +1257,11 @@ export default function ExpensesPage() {
             onDateChange={(v) => { setExpDate(v); markTouched("date"); }}
             submitLabel={t("add")}
             onSubmit={submit}
+            // EntryCard gates canSubmit on `busy`, but this was never
+            // passed — so the button stayed live through an await that
+            // its own comment calls "2-15s on a Render cold start", and
+            // a second tap posted the expense again.
+            busy={submitting}
             extras={
               <>
                 {detailedOpen && detailedExtras}

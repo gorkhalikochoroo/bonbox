@@ -72,6 +72,11 @@ class ExpenseCreate(BaseModel):
     # different from what we proposed is a CORRECTION, and recording it
     # as agreement is how a wrong habit cements itself.
     autofill: dict[str, str] | None = None
+    # "Yes, I really did buy the same thing twice just now." Set by the
+    # UI after the owner confirms a flagged repeat, so a false positive
+    # can never cost them an expense — the replay guard is a convenience,
+    # never a wall.
+    allow_duplicate: bool = False
 
     @field_validator("payment_method", mode="before")
     @classmethod

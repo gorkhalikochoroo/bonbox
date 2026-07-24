@@ -30,6 +30,7 @@ class Expense(Base):
         Index("ix_expense_user_date", "user_id", "date", "is_deleted"),
         Index("ix_expense_user_category", "user_id", "category_id", "date"),
         Index("ix_expense_user_vendor", "user_id", "vendor_key"),
+        Index("ix_expense_dedup", "user_id", "dedup_fingerprint"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
@@ -74,6 +75,11 @@ class Expense(Base):
     # re-point the row at a different vendor, or a correction would
     # be recorded against a key that never made the suggestion.
     vendor_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    # Content hash used ONLY to collapse a replayed create (see
+    # services/expense_dedup.py). Not an identity for the expense — two
+    # genuinely separate purchases made months apart legitimately share
+    # a fingerprint, which is why the lookup is also time-boxed.
+    dedup_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # Godkend-kø gate: 'approved' = a real, owner-confirmed expense that
     # enters MOMS/Foresight/reports; 'pending' = an AI-proposed draft (snap,
     # forwarded email, recurring) the owner has NOT yet approved — it must

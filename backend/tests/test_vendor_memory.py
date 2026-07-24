@@ -351,11 +351,17 @@ def test_scan_correct_then_confirmations_flip_the_prefill(client, db):
     _cat(db, u, "Emballage")
     app.dependency_overrides[get_current_user] = lambda: u
 
+    seq = {"n": 0}
+
     def _save(method, cat_name, proposed=None):
         cat = db.query(ExpenseCategory).filter(
             ExpenseCategory.user_id == u.id, ExpenseCategory.name == cat_name).one()
+        # Each shop is a distinct amount. Identical amounts seconds apart
+        # would (correctly) be collapsed as a replay by the dedup guard.
+        seq["n"] += 1
         body = {
-            "amount": 199.0, "description": "Netto", "vendor_hint": "NETTO 1284 LYNGBY",
+            "amount": 199.0 + seq["n"], "description": "Netto",
+            "vendor_hint": "NETTO 1284 LYNGBY",
             "date": date.today().isoformat(), "payment_method": method,
             "category_id": str(cat.id),
         }
@@ -621,9 +627,13 @@ def test_server_chosen_andet_fallback_is_never_learned(client, db):
     isn't lost — but that is OUR choice, not their habit."""
     u = _owner(db)
     app.dependency_overrides[get_current_user] = lambda: u
-    for _ in range(3):
+    # Amounts must differ: three byte-identical posts seconds apart are a
+    # REPLAY (see test_expense_replay_guard) and collapse into one row,
+    # which is correct — a real owner shopping three times pays three
+    # different amounts.
+    for i in range(3):
         r = client.post("/api/expenses", json={
-            "amount": 60.0, "description": "Netto", "vendor_hint": "Netto",
+            "amount": 60.0 + i, "description": "Netto", "vendor_hint": "Netto",
             "date": date.today().isoformat(), "payment_method": "cash",
         })
         assert r.status_code in (200, 201), r.text

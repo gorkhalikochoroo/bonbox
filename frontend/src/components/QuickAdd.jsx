@@ -74,6 +74,9 @@ export default function QuickAdd() {
   // confirming a value the app picked, which is the thing that goes wrong.
   // So: no default, and Tilføj stays disabled until one is tapped.
   const [expMethod, setExpMethod] = useState(null);
+  // One lock for both non-idempotent submitters. Neither had any, and
+  // both clear their fields only after the await.
+  const [posting, setPosting] = useState(false);
 
   // Personal mode
   const [pAmount, setPAmount] = useState("");
@@ -156,6 +159,12 @@ export default function QuickAdd() {
     // expMethod is part of the guard, not an optional extra — a business
     // expense posted without one is exactly the cash-drift bug.
     if (!expAmount || !expCatId || !expDesc || !expMethod) return;
+    // In-flight lock. There was none: the fields are cleared only AFTER
+    // the await, so a second tap during a slow save posted the same
+    // expense again — one of the two mechanisms behind the duplicate
+    // pairs measured in production.
+    if (posting) return;
+    setPosting(true);
     try {
       await api.post("/expenses", {
         category_id: expCatId,
@@ -174,11 +183,15 @@ export default function QuickAdd() {
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
       showError(err.response?.data?.detail || t("failedToAddExpense"));
+    } finally {
+      setPosting(false);
     }
   };
 
   const submitPersonal = async () => {
     if (!pAmount || !pCatId) return;
+    if (posting) return;
+    setPosting(true);
     const cat = categories.find((c) => c.id === pCatId);
     try {
       await api.post("/expenses", {
@@ -205,6 +218,8 @@ export default function QuickAdd() {
       window.dispatchEvent(new Event("bonbox-data-changed"));
     } catch (err) {
       showError(err.response?.data?.detail || t("failedToAddEntry"));
+    } finally {
+      setPosting(false);
     }
   };
 
@@ -512,7 +527,8 @@ export default function QuickAdd() {
 
             <button
               onClick={submitExpense}
-              disabled={!expAmount || !expCatId || !expDesc || !expMethod}
+              aria-busy={posting}
+              disabled={posting || !expAmount || !expCatId || !expDesc || !expMethod}
               className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("addExpense")}
@@ -589,7 +605,8 @@ export default function QuickAdd() {
 
             <button
               onClick={submitPersonal}
-              disabled={!pAmount || !pCatId}
+              aria-busy={posting}
+              disabled={posting || !pAmount || !pCatId}
               className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("logIncome")}
@@ -666,7 +683,8 @@ export default function QuickAdd() {
 
             <button
               onClick={submitPersonal}
-              disabled={!pAmount || !pCatId}
+              aria-busy={posting}
+              disabled={posting || !pAmount || !pCatId}
               className="w-full bg-gray-900 text-white py-3 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("logExpense")}
