@@ -6511,6 +6511,7 @@ const translations = {
     fxRateNeeded: "Enter the rate from the receipt's date to save.",
     dateUnreadable: "Couldn't read the date — is it today?",
     dateUseToday: "Today",
+    amountDisputed: "The MOMS on this receipt doesn't match that total — which is right?",
     paymentMethodLearned: "{method} — same as the last {n} times at {vendor}",
     paymentMethodUsually: "You usually pay {method} here — tap to confirm",
     // Tier 4 v2 Dashboard restructure — new card-set composition.
@@ -13640,6 +13641,7 @@ const translations = {
     fxRateNeeded: "Skriv kursen fra bonens dato for at gemme.",
     dateUnreadable: "Kunne ikke læse datoen — er det i dag?",
     dateUseToday: "I dag",
+    amountDisputed: "Bonens moms passer ikke til det beløb — hvilket er rigtigt?",
     paymentMethodLearned: "{method} — som de sidste {n} gange hos {vendor}",
     paymentMethodUsually: "Du plejer at betale {method} her — tryk for at bekræfte",
     // Tier 4 v2 Dashboard restructure — danske tekster. `faktura`,

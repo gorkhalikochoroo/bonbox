@@ -636,6 +636,38 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                   autoFocus
                 />
 
+                {/* The receipt's own figures disagree with the total we
+                    read. Usually the creased-label case: the parser fell
+                    back to the largest number, which on a Danish cash
+                    receipt is the cash tendered, not the total. Offer the
+                    alternates — never swap silently. */}
+                {isExpense && result?.amount_check
+                  && result.amount_check.confident === false
+                  && result.amount_check.reason === "vat_contradicts_choice"
+                  && result.amount_check.alternates?.length > 0 && (
+                  <div className="mb-3 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/60 dark:bg-amber-900/10 p-3 space-y-2">
+                    <p className="text-sm text-amber-900 dark:text-amber-200">
+                      {t("amountDisputed", "The MOMS on this receipt doesn't match that total — which is right?")}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {result.amount_check.alternates.map((a) => (
+                        <button
+                          key={a}
+                          type="button"
+                          onClick={() => setAmount(String(a))}
+                          className={`px-2.5 py-1 rounded-lg text-sm font-medium border transition tabular-nums ${
+                            String(a) === String(amount)
+                              ? "bg-gray-900 text-white border-gray-900"
+                              : "bg-white dark:bg-gray-800 border-amber-300 dark:border-amber-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50"
+                          }`}
+                        >
+                          {a.toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Foreign-currency rail. The face value on a EUR receipt
                     is not a kroner amount, and booking it as one was the
                     sharpest silent hole in the scan flow — a 100 EUR

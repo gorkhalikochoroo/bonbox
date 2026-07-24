@@ -1306,6 +1306,25 @@ async def upload_expense_receipt(
     # Best amount = parse result if confident, else fall back to amount-only
     amount = parsed.get("amount") or amount_block.get("suggested_amount")
 
+    # ── Cross-check the total against the receipt's own figures ──────
+    # The regex path picks the LARGEST total-looking number, which on a
+    # Danish cash receipt is usually the cash tendered or the change, not
+    # the total. A creased "AT BETALE" drops it onto that fallback and it
+    # books 200,00 instead of 52,05 — reproduced on a real receipt.
+    #
+    # The paper disproves that itself: its printed MOMS only implies a
+    # legal DK rate against the true total. We never substitute silently
+    # — a contradicted amount becomes a question with the alternates.
+    from app.services.amount_reconcile import reconcile_amount
+    verdict = reconcile_amount(
+        amount_block.get("all_amounts_found") or [],
+        chosen=amount,
+        vat_amount=parsed.get("vat_amount"),
+        line_items=parsed.get("line_items"),
+    )
+    if verdict.confident and verdict.amount is not None:
+        amount = verdict.amount
+
     # ── Per-vendor memory ─────────────────────────────────────────────
     # Memory is consulted BEFORE the keyword fallback, but it only ever
     # fills a null. PAPER ALWAYS BEATS MEMORY: if the receipt printed the
@@ -1416,6 +1435,15 @@ async def upload_expense_receipt(
         # say. None means ASK — the form must not pre-pick a method the
         # paper doesn't support, or cash purchases book as card.
         "suggested_payment_method": parsed.get("payment_method"),
+        # How much the receipt's own figures back the amount above.
+        # `confident: false` with alternates means ASK — the paper
+        # contradicts what the parser picked, or there was nothing to
+        # check it against.
+        "amount_check": {
+            "confident": verdict.confident,
+            "reason": verdict.reason,
+            "alternates": verdict.alternates,
+        },
         "usage": {
             "used_this_month": _count_receipt_scans_this_month(db, user.id),
             "monthly_cap": cap,
