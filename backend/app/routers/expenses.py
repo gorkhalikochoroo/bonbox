@@ -769,12 +769,27 @@ def update_expense(
     # (owner-editable) description — a correction has to land on the same
     # key that produced the suggestion, or we teach a name that never
     # made the guess.
-    if expense.vendor_key:
+    # A PENDING draft is not a decision yet. The Godkend-kø answers a
+    # missing method and then approves — two HTTP calls for one owner
+    # decision — and _promote_to_approved records it at approval. Writing
+    # here too would mint two agreements for one tap and inflate the very
+    # count the app quotes back ("som de sidste N gange").
+    if expense.vendor_key and expense.status != "pending":
         try:
             if expense.payment_method and expense.payment_method != old_method:
+                # Filling a BLANK field is an answer, not a disagreement.
+                # record_signal resets streak to 1 on a correction, so
+                # calling every change a correction meant each pile answer
+                # wiped the streak and BAND_PREFILL (agree>=3 AND
+                # streak>=3) was unreachable through the pile — the
+                # "second time it already knows" claim could never fire.
+                # create_expense already guards this with `bool(prior)`.
+                corrected = bool(old_method)
                 record_signal(
                     db, user.id, expense.vendor_key, "payment_method",
-                    expense.payment_method, kind="correction", previous_value=old_method,
+                    expense.payment_method,
+                    kind="correction" if corrected else "confirm",
+                    previous_value=old_method if corrected else None,
                 )
             if expense.category_id != old_category_id:
                 new_cat = db.query(ExpenseCategory).filter(
@@ -784,10 +799,18 @@ def update_expense(
                     ExpenseCategory.id == old_category_id
                 ).first() if old_category_id else None
                 if new_cat and new_cat.name not in _UNLEARNABLE_CATEGORIES:
+                    # Moving off a placeholder the SERVER chose
+                    # ("Ukategoriseret" / "Andet") is likewise an answer —
+                    # the owner never picked the thing being replaced.
+                    prior_name = (
+                        old_cat.name
+                        if old_cat and old_cat.name not in _UNLEARNABLE_CATEGORIES
+                        else None
+                    )
                     record_signal(
                         db, user.id, expense.vendor_key, "category_name", new_cat.name,
-                        kind="correction",
-                        previous_value=old_cat.name if old_cat else None,
+                        kind="correction" if prior_name else "confirm",
+                        previous_value=prior_name,
                     )
             db.commit()
         except Exception:  # noqa: BLE001 — learning must never break an edit

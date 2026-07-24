@@ -642,7 +642,13 @@ export default function ExpensesPage() {
       amount: parseFloat(exp.amount),
       description: exp.description,
       category_id: exp.category_id,
-      payment_method: exp.payment_method || "card",
+      // NOT `|| "card"`. A row can legitimately have NO method — the
+      // scan paths store NULL when the receipt didn't say (#139/#146),
+      // and the Godkend-kø's "Fix" button routes here. Defaulting the
+      // dropdown to Kort meant opening such a row and saving silently
+      // booked a method nobody chose, which is the exact bug four
+      // earlier changes removed from every other surface.
+      payment_method: exp.payment_method || "",
       notes: exp.notes || "",
       is_personal: exp.is_personal || false,
       is_tax_exempt: exp.is_tax_exempt || false,
@@ -653,6 +659,10 @@ export default function ExpensesPage() {
     try {
       const payload = { ...editData };
       if (payload.amount === "") payload.amount = 0;
+      // Leave it OUT rather than sending "" — ExpenseUpdate is
+      // exclude_unset, so an omitted field keeps whatever the row has
+      // and an unanswered method stays honestly unknown.
+      if (!payload.payment_method) delete payload.payment_method;
       await api.put(`/expenses/${editId}`, payload);
       setEditId(null);
       setEditData({});
@@ -1461,10 +1471,11 @@ export default function ExpensesPage() {
                   className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
                 />
                 <select
-                  value={editData.payment_method || "card"}
+                  value={editData.payment_method || ""}
                   onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
                 >
+                  <option value="">{t("choosePaymentMethod", "Choose payment method")}</option>
                   {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
                     <option key={m} value={m}>{t(m)}</option>
                   ))}
