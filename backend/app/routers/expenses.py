@@ -846,7 +846,7 @@ async def attach_receipt_to_expense(
 
 
 # ── Godkend-kø (approve queue) ──────────────────────────────────────
-def _promote_to_approved(db: Session, user: User, expense: Expense) -> None:
+def _promote_to_approved(db: Session, user: User, expense: Expense, *, kind: str = "confirm") -> None:
     """Flip a pending draft → approved — the moment it becomes a real booked
     expense. Allocate the bilagsnummer NOW (not at draft, so abandoned drafts
     never burn the Bogføringsloven §10 voucher sequence), cash-sync, learn the
@@ -864,13 +864,35 @@ def _promote_to_approved(db: Session, user: User, expense: Expense) -> None:
             sync_cash_out_for_expense(db, expense)
         except Exception:  # noqa: BLE001
             logger.warning("approve: cash sync failed for expense=%s", expense.id)
-    if expense.description and expense.category_id:
+    cat = None
+    if expense.category_id:
         cat = db.query(ExpenseCategory).filter(ExpenseCategory.id == expense.category_id).first()
-        if cat:
-            try:
-                learn_category(expense.description, cat.name, user.id, db)
-            except Exception:  # noqa: BLE001
-                pass
+    if expense.description and cat:
+        try:
+            learn_category(expense.description, cat.name, user.id, db)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # Per-vendor memory. `kind` is the honesty hinge: a single Godkend is
+    # the owner looking at one draft and agreeing, but one tap on
+    # "Godkend alle 8" is NOT eight agreements. record_signal drops
+    # kind="batch" entirely — otherwise auto-fill validates itself:
+    # memory fills a draft, the sweep approves it unread, that mints
+    # evidence, and memory fills more confidently next time.
+    if expense.vendor_key:
+        try:
+            if expense.payment_method:
+                record_signal(
+                    db, user.id, expense.vendor_key, "payment_method",
+                    expense.payment_method, kind=kind,
+                )
+            if cat and cat.name not in _UNLEARNABLE_CATEGORIES:
+                record_signal(
+                    db, user.id, expense.vendor_key, "category_name",
+                    cat.name, kind=kind,
+                )
+        except Exception:  # noqa: BLE001 — learning must never block approval
+            logger.warning("approve: vendor memory write failed for expense=%s", expense.id)
     try:
         from app.services.audit_service import record as audit_record
         audit_record(
@@ -959,7 +981,7 @@ def approve_batch(
             skipped.append(str(e.id))
             skipped_no_method.append(str(e.id))
             continue
-        _promote_to_approved(db, user, e)
+        _promote_to_approved(db, user, e, kind="batch")
         approved.append(str(e.id))
     db.commit()
     # `skipped` stays the union for back-compat; the split lets the queue
@@ -1042,8 +1064,24 @@ async def burst_scan(
         except Exception:  # noqa: BLE001
             pdate = None
 
+        # The pile joins the same key space as the single scan, so a
+        # correction made on a draft teaches the same vendor the scan
+        # flow reads from. Without this, drafts neither read nor write
+        # memory at all.
+        v_key = canonical_vendor_key(vendor)
+        memory = vendor_recall(db, user.id, v_key) if v_key else {}
+
         cat_id = None
-        if vendor:
+        # Memory first — the owner's own confirmed history at this
+        # supplier — and only at PREFILL, i.e. 3+ clean agreements. A
+        # 2-sighting hunch must not silently fill a row that "Godkend
+        # alle" can then sweep past without anyone looking at it.
+        mem_cat = memory.get("category_name")
+        if mem_cat and mem_cat["band"] == "prefill":
+            c = resolve_category(mem_cat["value"], user.id, db)
+            if c:
+                cat_id = c.id
+        if cat_id is None and vendor:
             hit = suggest_category_for(vendor, user.id, db)
             if hit:
                 c = resolve_category(hit["category_name"], user.id, db)
@@ -1051,6 +1089,15 @@ async def burst_scan(
                     cat_id = c.id
         if cat_id is None:
             cat_id = _get_or_create_uncategorized(db, user.id).id
+
+        # PAPER BEATS MEMORY: only fill the method when the receipt
+        # itself didn't say. Still NULL if memory has nothing confident,
+        # so the draft stays un-approvable until the owner answers.
+        draft_method = parsed.get("payment_method")
+        if not draft_method:
+            mem_pm = memory.get("payment_method")
+            if mem_pm and mem_pm["band"] == "prefill":
+                draft_method = mem_pm["value"]
 
         draft = Expense(
             user_id=user.id, category_id=cat_id, date=pdate or date.today(),
@@ -1061,7 +1108,8 @@ async def burst_scan(
             # sync_cash_out_for_expense never fired — cash left the drawer
             # and the books never saw it. The single-scan path has refused
             # to guess this since #139; the pile was still guessing.
-            payment_method=parsed.get("payment_method"),
+            payment_method=draft_method,
+            vendor_key=v_key,
             receipt_photo=stored, receipt_source="scan", status="pending",
         )
         db.add(draft)
