@@ -99,6 +99,12 @@ class Expense(Base):
     # write a derived figure here, or the provenance stops meaning
     # anything and the cross-check compares a number with itself.
     vat_source: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    # 'guessed' = OCR could not read the date and we stamped today's.
+    # The column is NOT NULL, so there is nowhere to put "unknown" —
+    # without this marker a guessed date is indistinguishable from a
+    # read one, and it drives BOTH the MOMS period and the voucher year
+    # (allocate_voucher keys on date.year). NULL = the date is real.
+    date_source: Mapped[str | None] = mapped_column(String(12), nullable=True)
     # Godkend-kø gate: 'approved' = a real, owner-confirmed expense that
     # enters MOMS/Foresight/reports; 'pending' = an AI-proposed draft (snap,
     # forwarded email, recurring) the owner has NOT yet approved — it must

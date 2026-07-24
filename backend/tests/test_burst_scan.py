@@ -22,7 +22,7 @@ from sqlalchemy.pool import StaticPool
 import app.services.receipt_ocr as receipt_ocr
 from app.database import Base, get_db
 from app.main import app, _db_ready
-from app.models.expense import Expense
+from app.models.expense import Expense, ExpenseCategory
 from app.models.user import User
 from app.routers.expenses import _limiter as _exp_limiter
 from app.services.auth import get_current_user
@@ -67,7 +67,7 @@ def client(engine_and_session, monkeypatch):
                             f"uploads/receipts/{uid}_x.jpg",
                         ))
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
-                        lambda path: {"vendor": None, "amount": None, "date": None})
+                        lambda path: {"vendor": None, "amount": None, "date": "2026-07-17"})
     app.dependency_overrides[get_db] = _get_test_db
     yield TestClient(app)
     app.dependency_overrides.clear()
@@ -143,7 +143,7 @@ def test_burst_stops_at_free_cap(client, db):
 def test_burst_draft_has_no_method_when_the_receipt_is_silent(client, db, monkeypatch):
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "Netto", "amount": 120.0,
-                                      "date": None, "payment_method": None})
+                                      "date": "2026-07-17", "payment_method": None})
     u = _owner(db)
     app.dependency_overrides[get_current_user] = lambda: u
     r = client.post("/api/expenses/burst-scan", files=_files(2))
@@ -157,7 +157,7 @@ def test_burst_draft_has_no_method_when_the_receipt_is_silent(client, db, monkey
 def test_burst_draft_keeps_the_method_the_receipt_printed(client, db, monkeypatch):
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "Netto", "amount": 120.0,
-                                      "date": None, "payment_method": "cash"})
+                                      "date": "2026-07-17", "payment_method": "cash"})
     u = _owner(db)
     app.dependency_overrides[get_current_user] = lambda: u
     assert client.post("/api/expenses/burst-scan", files=_files(1)).status_code == 200
@@ -167,7 +167,7 @@ def test_burst_draft_keeps_the_method_the_receipt_printed(client, db, monkeypatc
 def test_draft_without_a_method_cannot_be_approved(client, db, monkeypatch):
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "Netto", "amount": 120.0,
-                                      "date": None, "payment_method": None})
+                                      "date": "2026-07-17", "payment_method": None})
     u = _owner(db)
     app.dependency_overrides[get_current_user] = lambda: u
     client.post("/api/expenses/burst-scan", files=_files(1))
@@ -185,7 +185,7 @@ def test_approve_batch_skips_methodless_drafts_and_says_so(client, db, monkeypat
     owner ends up believing a receipt was booked when it wasn't."""
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "Netto", "amount": 120.0,
-                                      "date": None, "payment_method": None})
+                                      "date": "2026-07-17", "payment_method": None})
     u = _owner(db)
     app.dependency_overrides[get_current_user] = lambda: u
     client.post("/api/expenses/burst-scan", files=_files(3))
@@ -209,7 +209,7 @@ def test_approved_cash_draft_actually_reaches_the_drawer(client, db, monkeypatch
     from app.models.cashbook import CashTransaction
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "Netto", "amount": 120.0,
-                                      "date": None, "payment_method": "cash"})
+                                      "date": "2026-07-17", "payment_method": "cash"})
     u = _owner(db)
     app.dependency_overrides[get_current_user] = lambda: u
     client.post("/api/expenses/burst-scan", files=_files(1))
@@ -252,7 +252,7 @@ def _mem(db, user, key, field, value):
 def test_burst_draft_carries_the_vendor_key(client, db, monkeypatch):
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "NETTO 1284 LYNGBY", "amount": 120.0,
-                                      "date": None, "payment_method": "cash"})
+                                      "date": "2026-07-17", "payment_method": "cash"})
     u = _owner(db)
     app.dependency_overrides[get_current_user] = lambda: u
     client.post("/api/expenses/burst-scan", files=_files(1))
@@ -263,7 +263,7 @@ def test_burst_draft_carries_the_vendor_key(client, db, monkeypatch):
 def test_prefill_memory_fills_a_draft_when_the_receipt_is_silent(client, db, monkeypatch):
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "Netto", "amount": 120.0,
-                                      "date": None, "payment_method": None})
+                                      "date": "2026-07-17", "payment_method": None})
     u = _owner(db)
     app.dependency_overrides[get_current_user] = lambda: u
     for _ in range(3):
@@ -277,7 +277,7 @@ def test_prefill_memory_fills_a_draft_when_the_receipt_is_silent(client, db, mon
 def test_paper_still_beats_memory_on_the_pile(client, db, monkeypatch):
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "Netto", "amount": 120.0,
-                                      "date": None, "payment_method": "cash"})
+                                      "date": "2026-07-17", "payment_method": "cash"})
     u = _owner(db)
     app.dependency_overrides[get_current_user] = lambda: u
     for _ in range(9):
@@ -294,7 +294,7 @@ def test_a_two_sighting_hunch_does_not_fill_a_draft(client, db, monkeypatch):
     could later approve without anyone reading it."""
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "Netto", "amount": 120.0,
-                                      "date": None, "payment_method": None})
+                                      "date": "2026-07-17", "payment_method": None})
     u = _owner(db)
     app.dependency_overrides[get_current_user] = lambda: u
     for _ in range(2):
@@ -308,7 +308,7 @@ def test_a_two_sighting_hunch_does_not_fill_a_draft(client, db, monkeypatch):
 def test_single_godkend_teaches_the_vendor(client, db, monkeypatch):
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "Netto", "amount": 120.0,
-                                      "date": None, "payment_method": "cash"})
+                                      "date": "2026-07-17", "payment_method": "cash"})
     u = _owner(db)
     app.dependency_overrides[get_current_user] = lambda: u
     client.post("/api/expenses/burst-scan", files=_files(1))
@@ -324,7 +324,7 @@ def test_godkend_alle_mints_no_evidence(client, db, monkeypatch):
     validates itself and nobody ever looked."""
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "Netto", "amount": 120.0,
-                                      "date": None, "payment_method": "cash"})
+                                      "date": "2026-07-17", "payment_method": "cash"})
     u = _owner(db)
     app.dependency_overrides[get_current_user] = lambda: u
     client.post("/api/expenses/burst-scan", files=_files(4))
@@ -364,7 +364,7 @@ def test_godkend_alle_mints_no_evidence(client, db, monkeypatch):
 def _seed_pile(client, db, monkeypatch, method=None, vendor="Netto"):
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": vendor, "amount": 120.0,
-                                      "date": None, "payment_method": method})
+                                      "date": "2026-07-17", "payment_method": method})
     client.post("/api/expenses/burst-scan", files=_files(1))
     db.expire_all()
     return db.query(Expense).filter(
@@ -380,7 +380,7 @@ def test_answering_a_blank_method_builds_a_streak(client, db, monkeypatch):
     app.dependency_overrides[get_current_user] = lambda: u
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "Netto", "amount": 120.0,
-                                      "date": None, "payment_method": None})
+                                      "date": "2026-07-17", "payment_method": None})
 
     for _ in range(3):
         client.post("/api/expenses/burst-scan", files=_files(1))
@@ -409,7 +409,7 @@ def test_one_owner_decision_is_one_agreement(client, db, monkeypatch):
     app.dependency_overrides[get_current_user] = lambda: u
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "Netto", "amount": 120.0,
-                                      "date": None, "payment_method": None})
+                                      "date": "2026-07-17", "payment_method": None})
     client.post("/api/expenses/burst-scan", files=_files(1))
     db.expire_all()
     d = db.query(Expense).filter(Expense.user_id == u.id).one()
@@ -431,7 +431,7 @@ def test_a_real_correction_on_an_approved_row_still_counts(client, db, monkeypat
     app.dependency_overrides[get_current_user] = lambda: u
     monkeypatch.setattr(receipt_ocr, "parse_expense_receipt",
                         lambda path: {"vendor": "Netto", "amount": 120.0,
-                                      "date": None, "payment_method": "card"})
+                                      "date": "2026-07-17", "payment_method": "card"})
     client.post("/api/expenses/burst-scan", files=_files(1))
     db.expire_all()
     d = db.query(Expense).filter(Expense.user_id == u.id).one()
@@ -443,3 +443,147 @@ def test_a_real_correction_on_an_approved_row_still_counts(client, db, monkeypat
     db.expire_all()
     assert _mem(db, u, "netto", "payment_method", "card").disagree_count == 1
     assert _mem(db, u, "netto", "payment_method", "cash").agree_count == 1
+
+
+# ── The rails the pile never got ─────────────────────────────────────
+#
+# Every hardening in this cycle landed on the single-scan path first and
+# reached burst_scan late or not at all. A composition audit made that
+# systematic rather than anecdotal: the pile still dropped the OCR
+# currency, still stamped date.today() on an unreadable date, and — once
+# resolve_category began mapping English concepts onto real Danish
+# categories — began auto-filing a §42 fradrag class chosen by a frozen
+# constant.
+#
+# Drafts are outside every money total until approved, so none of this
+# was wrong YET. One tap on "Godkend alle" made it wrong.
+
+def _pile(client, monkeypatch, **over):
+    parsed = {"vendor": "Netto", "amount": 120.0, "date": "2026-07-17",
+              "payment_method": "cash"}
+    parsed.update(over)
+    monkeypatch.setattr(receipt_ocr, "parse_expense_receipt", lambda path: parsed)
+    return client.post("/api/expenses/burst-scan", files=_files(1))
+
+
+def test_a_foreign_receipt_is_not_booked_as_kroner(client, db, monkeypatch):
+    """100 EUR is not 100 kr. The single scan asks for a rate; a batch
+    can't, so the draft keeps the original and stays unapprovable rather
+    than booking a ~7x error."""
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    _pile(client, monkeypatch, amount=100.0, currency="EUR")
+    db.expire_all()
+
+    d = db.query(Expense).filter(Expense.user_id == u.id).one()
+    assert d.currency == "EUR"
+    assert float(d.original_amount) == 100.0
+    assert float(d.amount) == 0, "no account-currency figure exists yet"
+
+    r = client.post(f"/api/expenses/{d.id}/approve")
+    assert r.status_code == 422, r.text
+
+
+def test_a_domestic_receipt_is_untouched(client, db, monkeypatch):
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    _pile(client, monkeypatch, currency="DKK")
+    db.expire_all()
+    d = db.query(Expense).filter(Expense.user_id == u.id).one()
+    assert d.currency is None and float(d.amount) == 120.0
+    assert client.post(f"/api/expenses/{d.id}/approve").status_code == 200
+
+
+def test_an_unreadable_date_is_marked_and_blocks_approval(client, db, monkeypatch):
+    """A guessed date is the wrong MOMS period AND the wrong voucher
+    year — allocate_voucher keys on date.year."""
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    _pile(client, monkeypatch, date=None)
+    db.expire_all()
+
+    d = db.query(Expense).filter(Expense.user_id == u.id).one()
+    assert d.date_source == "guessed"
+    r = client.post(f"/api/expenses/{d.id}/approve")
+    assert r.status_code == 422 and "dato" in r.json()["detail"]
+    db.expire_all()
+    assert db.query(Expense).filter(Expense.id == d.id).one().status == "pending"
+
+
+def test_answering_the_date_unblocks_it(client, db, monkeypatch):
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    _pile(client, monkeypatch, date=None)
+    db.expire_all()
+    d = db.query(Expense).filter(Expense.user_id == u.id).one()
+
+    assert client.put(f"/api/expenses/{d.id}",
+                      json={"date": "2026-07-17"}).status_code == 200
+    db.expire_all()
+    assert client.post(f"/api/expenses/{d.id}/approve").status_code == 200
+
+
+def test_a_read_date_is_not_marked(client, db, monkeypatch):
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+    _pile(client, monkeypatch)
+    db.expire_all()
+    assert db.query(Expense).filter(Expense.user_id == u.id).one().date_source is None
+
+
+def test_the_frozen_keyword_map_no_longer_files_a_fradrag_class(client, db, monkeypatch):
+    """DEFAULT_KEYWORDS maps "wolt" -> "Food & Dining", which
+    resolve_category lands on "Restaurantbesøg, erhverv" — 25% §42
+    fradrag instead of 100%, chosen by a hardcoded constant and
+    sweepable in one tap. The pile must leave it Ukategoriseret."""
+    u = _owner(db)
+    for name in ("Vareforbrug", "Restaurantbesøg, erhverv"):
+        db.add(ExpenseCategory(user_id=u.id, name=name))
+    db.commit()
+    app.dependency_overrides[get_current_user] = lambda: u
+
+    _pile(client, monkeypatch, vendor="Wolt")
+    db.expire_all()
+    d = db.query(Expense).filter(Expense.user_id == u.id).one()
+    cat = db.query(ExpenseCategory).filter(ExpenseCategory.id == d.category_id).one()
+    assert cat.name == "Ukategoriseret", (
+        f"the pile auto-filed {cat.name!r} from a frozen constant"
+    )
+
+
+def test_the_owners_own_memory_may_still_fill_the_category(client, db, monkeypatch):
+    """The gate is on the frozen map, not on the owner's history."""
+    u = _owner(db)
+    db.add(ExpenseCategory(user_id=u.id, name="Vareforbrug")); db.commit()
+    app.dependency_overrides[get_current_user] = lambda: u
+    for _ in range(3):
+        record_signal(db, u.id, "netto", "category_name", "Vareforbrug", kind="confirm")
+    db.commit()
+
+    _pile(client, monkeypatch)
+    db.expire_all()
+    d = db.query(Expense).filter(Expense.user_id == u.id).one()
+    cat = db.query(ExpenseCategory).filter(ExpenseCategory.id == d.category_id).one()
+    assert cat.name == "Vareforbrug"
+
+
+def test_both_approve_paths_agree_on_what_is_ready(client, db, monkeypatch):
+    """One rule, read by both — a sweep must never book something a
+    single Godkend would refuse."""
+    u = _owner(db)
+    db.add(ExpenseCategory(user_id=u.id, name="Vareforbrug")); db.commit()
+    app.dependency_overrides[get_current_user] = lambda: u
+
+    _pile(client, monkeypatch, date=None)          # blocked: dato
+    _pile(client, monkeypatch, amount=100.0, currency="EUR")   # blocked: kurs
+    _pile(client, monkeypatch, payment_method=None)            # blocked: betalingsmåde
+    db.expire_all()
+    rows = db.query(Expense).filter(Expense.user_id == u.id).all()
+    assert len(rows) == 3
+
+    r = client.post("/api/expenses/approve-batch",
+                    json={"ids": [str(x.id) for x in rows]})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["count"] == 0, "a sweep must not book what a single approve refuses"
+    assert set(body["skipped_by_reason"]) == {"dato", "kurs", "betalingsmåde"}

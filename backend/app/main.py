@@ -2228,6 +2228,11 @@ _migrations = [
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS vat_amount NUMERIC(12,2)",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS vat_rate NUMERIC(5,4)",
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS vat_source VARCHAR(12)",
+    # ── Migration 069 (2026-07-24): mark a guessed receipt date ────────
+    # The pile stamped date.today() on an unreadable date with nothing to
+    # show for it — wrong MOMS period and wrong voucher year, one tap
+    # from being booked.
+    "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS date_source VARCHAR(12)",
 ]
 
 
