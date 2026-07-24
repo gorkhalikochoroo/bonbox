@@ -80,6 +80,25 @@ class Expense(Base):
     # genuinely separate purchases made months apart legitimately share
     # a fingerprint, which is why the lookup is also time-boxed.
     dedup_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # ── The receipt's OWN MOMS figure ────────────────────────────────
+    # Danish receipts print it ("HERAF MOMS 10,41"), the OCR reads it,
+    # and the confirm screen has always SHOWN it to the owner — then
+    # threw it away. The MOMS filing instead derives købsmoms by
+    # assuming every deductible expense carries 25%
+    # (tax_service._calc_vat). Those agree on an ordinary receipt and
+    # disagree on a mixed-rate one, a zero-rated one, or one from a
+    # vendor with no MOMS registration — and disagreeing upward is the
+    # direction SKAT audits.
+    #
+    # Stored so the two can be COMPARED. Deliberately not yet wired into
+    # the filing basis: switching what købsmoms is computed from is a
+    # money change that needs the owner's revisor, not a silent upgrade.
+    vat_amount: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    vat_rate: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
+    # 'receipt' = printed on the paper. NULL = we never had one; never
+    # write a derived figure here, or the provenance stops meaning
+    # anything and the cross-check compares a number with itself.
+    vat_source: Mapped[str | None] = mapped_column(String(12), nullable=True)
     # Godkend-kø gate: 'approved' = a real, owner-confirmed expense that
     # enters MOMS/Foresight/reports; 'pending' = an AI-proposed draft (snap,
     # forwarded email, recurring) the owner has NOT yet approved — it must
