@@ -4668,6 +4668,27 @@ try:
         name="Stripe subscription reconciliation (downgrade backstop)",
         replace_existing=True,
     )
+    # Vendor-memory backfill — seed per-vendor memory from expense history
+    # so it works on day one instead of after three scans.
+    #
+    # Scheduled rather than run at startup: it touches every owner's
+    # expenses and must not sit in front of the health check on a Render
+    # cold start. Scheduled ONCE rather than nightly: it is strictly
+    # additive and skips any vendor+field that already has live memory,
+    # so a repeat run is a no-op — but a recurring job that does nothing
+    # every night is noise pretending to be maintenance. Re-running it
+    # after a data import is a manual call.
+    #
+    # 03:10 UTC = 04:10/05:10 Copenhagen, outside business hours and
+    # clear of the 02:30 maintenance sweep.
+    from app.jobs.vendor_backfill import run_backfill as _run_vendor_backfill
+    _scheduler.add_job(
+        _run_vendor_backfill,
+        trigger=CronTrigger(hour=3, minute=10),
+        id="vendor_memory_backfill",
+        name="Seed vendor memory from expense history (idempotent)",
+        replace_existing=True,
+    )
     # Nightly: GDPR purge old events + expire stale patterns + run detectors.
     # 02:30 UTC = 03:30/04:30 Copenhagen — well outside business hours.
     _scheduler.add_job(
