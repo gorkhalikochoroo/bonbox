@@ -64,14 +64,36 @@ _ALLOWED_MIME = {
 _MAX_BYTES = 12 * 1024 * 1024  # 12 MB
 
 
-def _today_count(db: Session, user_id) -> int:
-    """How many extractions has this user run today? Used for tier cap."""
-    today = date.today()
+def _today_count(db: Session, user, user_id=None) -> int:
+    """How many extractions has this user run today? Used for tier cap.
+
+    "Today" is the DK BUSINESS day (06:00 Europe/Copenhagen), not the
+    server's calendar day — the same convention _today_scan_count and
+    _today_classify_count already follow.
+
+    It used to use date.today(), i.e. UTC on Render, which rolls over at
+    02:00 Copenhagen in summer. A café closing at 02:00 — precisely the
+    owner this convention exists for — burned the NEXT day's quota an
+    hour into their close ritual, and then hit a wall the following
+    evening for extracts they had not made.
+
+    Accepts a User (for the timezone) and tolerates a bare id for older
+    callers, so the tier gate and the usage panel read one number.
+    """
+    from app.services.tz_utils import business_day_window
+
+    if not hasattr(user, "id"):        # legacy: a bare user_id was passed
+        user = db.query(User).filter(User.id == user).first()
+    if user is None:
+        return 0
+
+    start_utc, end_utc = business_day_window(user)
     return (
         db.query(sa_func.count(KasserapportExtraction.id))
         .filter(
-            KasserapportExtraction.user_id == user_id,
-            sa_func.date(KasserapportExtraction.created_at) == today,
+            KasserapportExtraction.user_id == user.id,
+            KasserapportExtraction.created_at >= start_utc,
+            KasserapportExtraction.created_at < end_utc,
         )
         .scalar()
         or 0
@@ -142,7 +164,7 @@ async def extract(
     # Defense-3: per-tier daily cap (PLAN_CAPS["kasse_extracts_per_day"]).
     plan = effective_plan(user) or "free"
     cap = get_cap(user, "kasse_extracts_per_day")
-    used = _today_count(db, user.id)
+    used = _today_count(db, user)
     if used >= cap:
         raise HTTPException(
             status_code=429,

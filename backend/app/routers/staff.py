@@ -100,6 +100,28 @@ from app.database import SessionLocal
 from app.utils.time import utc_now
 from app.utils.text import portal_path
 
+def count_active_staff(db: Session, user_id) -> int:
+    """Roster seats in use, for the `staff_members` cap.
+
+    Named so the cap GATE and the usage PANEL call one function rather
+    than two copies of the same query. A second copy is how a screen ends
+    up telling an owner "3 of 50" while the gate blocks them — the count
+    the owner sees has to be the count that stops them.
+
+    A seat is active AND not deleted, so offboarding a leaver frees it —
+    matching the /staff/members list exactly.
+    """
+    return (
+        db.query(StaffMember)
+        .filter(
+            StaffMember.user_id == user_id,
+            StaffMember.is_deleted.isnot(True),
+            StaffMember.active.is_(True),
+        )
+        .count()
+    )
+
+
 router = APIRouter()
 
 # Rate-limit shared with the "today on shift" dashboard card.  60/min is
@@ -467,16 +489,7 @@ def create_staff_member(
     # every staffer and every shift — this refuses only the NEXT add, with
     # the canonical 402 upgrade payload. It never deletes or hides anyone.
     from app.services.billing import enforce_cap
-    current_staff = (
-        db.query(StaffMember)
-        .filter(
-            StaffMember.user_id == user.id,
-            StaffMember.is_deleted.isnot(True),
-            StaffMember.active.is_(True),
-        )
-        .count()
-    )
-    enforce_cap(user, "staff_members", current_staff)
+    enforce_cap(user, "staff_members", count_active_staff(db, user.id))
 
     # Defense-in-depth: re-run the schema validators at the boundary even
     # though Pydantic already coerced. Catches malformed clients sending

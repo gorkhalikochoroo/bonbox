@@ -87,11 +87,130 @@ const HINT_CLASS =
 /** The eight Card sections rendered on this page. The TOC reads from
  *  this list so adding a section in one place automatically gets the
  *  matching nav entry on desktop. */
+/* ── Plan usage ────────────────────────────────────────────────────────
+ * Every figure comes from GET /billing/usage, which calls the SAME
+ * counter each cap gate calls. So the number here is the number that
+ * actually stops the owner — a second, independent count is how a panel
+ * ends up saying "3 of 10" while the gate returns 402.
+ *
+ * Three states, deliberately distinct:
+ *   ubegrænset  — no bar. A bar implies a ceiling that isn't there.
+ *   locked (0)  — not on this plan. A full bar would say "you used it up".
+ *   n / cap     — a real ratio, amber near the wall.
+ */
+function UsageSection({ t }) {
+  const [usage, setUsage] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    api.get("/billing/usage")
+      .then((r) => { if (alive) setUsage(r.data); })
+      .catch(() => { if (alive) setFailed(true); });
+    return () => { alive = false; };
+  }, []);
+
+  const periodLabel = (p) =>
+    p === "day" ? t("usagePerDay", "today")
+      : p === "month" ? t("usagePerMonth", "this month")
+        : "";
+
+  return (
+    <SectionAnchor id="usage">
+      <Card>
+        <Card.Header
+          title={t("usageTitle", "Your plan usage")}
+          subtitle={t("usageDesc", "What you've used of what your plan allows")}
+          icon={<Icon name="BarChart3" size={18} />}
+        />
+
+        {usage && !failed && (
+          <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-3">
+            {t("usageScopeNote", "Other limits apply to your plan too — these are the ones we can measure exactly.")}
+          </p>
+        )}
+
+        {failed ? (
+          /* Say we couldn't read it. A blank panel reads as "zero used". */
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {t("usageUnavailable", "Couldn't load your usage right now.")}
+          </p>
+        ) : !usage ? (
+          <p className="text-sm text-gray-400 dark:text-gray-500">{t("loading", "Loading…")}</p>
+        ) : (
+          <div className="space-y-3">
+            {usage.meters.map((m) => {
+              const label = t(m.label_key);
+              const period = periodLabel(m.period);
+              const pct = m.cap ? Math.min(100, Math.round(((m.used ?? 0) / m.cap) * 100)) : 0;
+              // Gates deny at used >= cap, so 10/10 means ALREADY blocked,
+              // not "nearly". Rendering it the same as 8/10 tells the owner
+              // they have one left when the next action will 402.
+              const atWall = m.cap != null && m.used != null && m.used >= m.cap;
+              const near = !atWall && m.cap != null && m.used != null && m.used >= m.cap * 0.8;
+
+              return (
+                <div key={m.key}>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-sm text-gray-700 dark:text-gray-300 min-w-0 truncate">
+                      {label}
+                      {period && (
+                        <span className="text-gray-400 dark:text-gray-500"> · {period}</span>
+                      )}
+                    </span>
+                    <span className="text-sm tabular-nums shrink-0 text-gray-900 dark:text-gray-100">
+                      {m.used == null
+                        ? t("usageUnknown", "—")
+                        : m.locked
+                          ? t("usageNotOnPlan", "Not on your plan")
+                          : m.unlimited
+                            ? `${m.used} · ${t("usageUnlimited", "unlimited")}`
+                            : `${m.used} / ${m.cap}`}
+                    </span>
+                  </div>
+
+                  {/* Only a real ratio gets a bar. */}
+                  {!m.locked && !m.unlimited && m.cap != null && m.used != null && (
+                    <div className="mt-1 h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          atWall ? "bg-amber-600"
+                            : near ? "bg-amber-500"
+                              : "bg-gray-900 dark:bg-gray-100"
+                        }`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  )}
+
+                  {atWall && (
+                    <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
+                      {t("usageAtWall", "Limit reached — this is blocked until it resets")}
+                    </p>
+                  )}
+
+                  {m.approximate && m.used != null && !m.locked && (
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                      {t("usageApprox", "Approximate — counted by the receipt's date, and unsaved scans aren't counted")}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+    </SectionAnchor>
+  );
+}
+
+
 const SECTIONS = [
   { id: "account",       titleKey: "profileSectionAccount",       descKey: "profileSectionAccountDesc",       icon: "User" },
   { id: "business",      titleKey: "profileSectionBusiness",      descKey: "profileSectionBusinessDesc",      icon: "Building2" },
   { id: "operations",    titleKey: "profileSectionOperations",    descKey: "profileSectionOperationsDesc",    icon: "Calendar" },
   { id: "billing",       titleKey: "profileSectionBilling",       descKey: "profileSectionBillingDesc",       icon: "CreditCard" },
+  { id: "usage",         titleKey: "profileSectionUsage",         descKey: "profileSectionUsageDesc",         icon: "BarChart3" },
   { id: "brand",         titleKey: "profileSectionBrand",         descKey: "profileSectionBrandDesc",         icon: "Palette" },
   { id: "notifications", titleKey: "profileSectionNotifications", descKey: "profileSectionNotificationsDesc", icon: "Bell" },
   { id: "privacy",       titleKey: "profileSectionPrivacy",       descKey: "profileSectionPrivacyDesc",       icon: "Shield" },
@@ -1211,6 +1330,8 @@ export default function ProfilePage() {
           </SectionAnchor>
 
           {/* ─── Brand & appearance ───────────────────────────────── */}
+          <UsageSection t={t} />
+
           <SectionAnchor id="brand">
             <Card>
               <Card.Header
