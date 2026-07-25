@@ -31,7 +31,7 @@ from app.database import get_db
 from app.models.user import User
 from app.services.admin_security import _audit, require_super_admin
 from app.services.auth import get_current_user
-from app.services.billing import billing_summary, entitlements_payload
+from app.services.billing import billing_summary, entitlements_payload, effective_plan
 from app.services import stripe_billing
 from app.utils.time import utc_now
 
@@ -131,6 +131,28 @@ def my_billing(
         user.subscription_period_end.isoformat() if user.subscription_period_end else None
     )
     return summary
+
+
+@router.get("/usage")
+def my_usage(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """What this owner has used of what their plan allows.
+
+    Read-only. Every figure comes from services/usage_registry, which
+    calls the SAME counter the cap gate calls — so a number here can
+    never disagree with the number that actually stops them.
+
+    Scoped to the caller: there is no user_id parameter, so one owner
+    cannot read another's consumption.
+    """
+    from app.services.usage_registry import build_usage
+
+    return {
+        "plan": effective_plan(user),
+        "meters": build_usage(db, user),
+    }
 
 
 @router.get("/entitlements")
