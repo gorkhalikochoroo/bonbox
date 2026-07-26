@@ -29,7 +29,7 @@
 //
 // DK terminology lock applies: revisor / MOMS etc. stay Danish in all
 // locales. The public copy here defaults to Danish (DK-first market).
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import {
   Calendar,
@@ -720,9 +720,20 @@ export default function ReservationPublicPage() {
   }
 
   // ── Submit ───────────────────────────────────────────────────────
-  // One idempotency key per attempt. After a 409 we generate a fresh
-  // key (the conflict was on the slot, not the booking key) — mirrors
-  // the BookingCheckoutPage pattern.
+  // ONE key per booking INTENT — not per attempt.
+  //
+  // The server already de-duplicates on this key, but the key used to be
+  // minted fresh inside every onSubmit, so the guard could never fire.
+  // When a confirm times out AFTER the server committed, the guest is
+  // told to try again (that is what the generic error says) — and the
+  // retry booked the same table a second time, or 409'd them against
+  // their OWN first booking so they believed they had failed while
+  // actually holding a table.
+  //
+  // Rotated only on a real 409: that conflict is about the slot, so the
+  // next attempt is a genuinely new intent.
+  const idempotencyKey = useRef(null);
+
   function newIdempotencyKey() {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
       return crypto.randomUUID();
@@ -738,14 +749,22 @@ export default function ReservationPublicPage() {
     }
     setSubmitting(true);
     setSubmitError("");
+    // Mint on the first attempt of this intent; a retry reuses it so the
+    // server can recognise the replay.
+    if (!idempotencyKey.current) idempotencyKey.current = newIdempotencyKey();
     const hasAllergy =
       allergenTags.length > 0 || allergyNote.trim().length > 0;
     const payload = {
       day,
-      // For a group request the backend ignores the exact time (it's a
-      // day-level request) but the schema still wants HH:MM — send the
-      // chosen slot if any, else a neutral opening-ish time.
-      time: slot || "18:00",
+      // A group request has no chosen slot. This used to send a blind
+      // "18:00" under a comment claiming the backend ignores it — it does
+      // not: the value is stored as starts_at, so an invented time became
+      // the booking time, one-tap approval confirmed a guest for a time
+      // they never picked, and at a venue opening at 19:00 it landed
+      // outside opening hours entirely. The venue's own first opening of
+      // that day is at least a real time. The 18:00 tail stays only for
+      // the case where availability returned nothing at all.
+      time: slot || slots[0] || "18:00",
       party_size: party,
       guest_name: guestName.trim(),
       guest_email: guestEmail.trim() || null,
@@ -771,7 +790,7 @@ export default function ReservationPublicPage() {
     };
     try {
       const res = await api.post(`/public/reservations/${slug}`, payload, {
-        headers: { "X-Idempotency-Key": newIdempotencyKey() },
+        headers: { "X-Idempotency-Key": idempotencyKey.current },
       });
       const data = res?.data || null;
       setResult(data);
@@ -798,6 +817,9 @@ export default function ReservationPublicPage() {
         if (code === "slot_unavailable" || code === "stylist_unavailable") {
           if (isProvider) fetchAvailability(day, party, behandlingId, stylistId);
           else fetchAvailability(day, party);
+          // The slot is genuinely gone, so the next attempt is a NEW
+          // intent — rotate the key the retry will carry.
+          idempotencyKey.current = null;
           setStep(1);
         }
       } else {
@@ -1066,6 +1088,27 @@ export default function ReservationPublicPage() {
               />
               {t("rsvpStatusWaiting", "Afventer bekræftelse fra stedet…")}
             </div>
+          )}
+          {/* An expectation, not just a spinner. The page stops polling
+              after ~2 minutes, so without this the guest is left watching
+              nothing with no idea when — or whether — they will hear.
+              The nightly sweep now guarantees an answer before the
+              sitting; this is that promise, said out loud. */}
+          {isRequest && (
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {t(
+                "rsvpRequestExpectation",
+                "Du hører fra os på email inden dagen. Vil du være sikker, så ring til os.",
+              )}
+              {page?.phone && (
+                <>
+                  {" "}
+                  <a href={telHref(page.phone)} className="underline">
+                    {page.phone}
+                  </a>
+                </>
+              )}
+            </p>
           )}
           {isConfirmed && status !== result.status && (
             <div
@@ -1437,6 +1480,22 @@ export default function ReservationPublicPage() {
               </div>
             ) : (
               <div>
+                {/* The lost-the-race message, rendered WHERE THE GUEST
+                    LANDS. The 409 handler bounces to step 1, and the only
+                    other copy of this banner lives inside the step-2
+                    block — so it unmounted in the same commit and the
+                    message written for exactly this race had never been
+                    seen by anyone. Their name and contact stay filled. */}
+                {submitError && step === 1 && (
+                  <div
+                    role="alert"
+                    className="mb-2.5 rounded-xl border border-amber-200 dark:border-amber-800/40 bg-amber-50/70 dark:bg-amber-900/10 px-3 py-2"
+                  >
+                    <p className="text-sm text-amber-900 dark:text-amber-200">
+                      {submitErrorMessage(submitError, t)}
+                    </p>
+                  </div>
+                )}
                 <p className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   {t("rsvpPickTime", "Vælg tidspunkt")}
                 </p>
@@ -1522,7 +1581,7 @@ export default function ReservationPublicPage() {
                               key={s}
                               size="md"
                               selected={slot === s}
-                              onClick={() => setSlot(s)}
+                              onClick={() => { setSlot(s); setSubmitError(""); }}
                               className={"h-11 w-full " + (slot === s ? "font-semibold shadow-sm" : "")}
                             >
                               {s}
