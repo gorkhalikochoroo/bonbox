@@ -24,7 +24,9 @@ from zoneinfo import ZoneInfo
 from fastapi import (
     APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Path, Query, Request,
 )
-from pydantic import BaseModel, Field
+import re
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
@@ -60,6 +62,13 @@ def _now_local() -> datetime:
     return datetime.now(_TZ).replace(tzinfo=None)
 
 
+# Shape checks for guest contact. Deliberately permissive: a booking form
+# is not a signup, and a tourist's +44 number must go through. They exist
+# to catch a typo before it becomes a confirmation nobody receives.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$")
+_PHONE_RE = re.compile(r"^\+?[0-9 ()\-./]{6,40}$")
+
+
 class PublicReservationCreate(BaseModel):
     day: str = Field(description="YYYY-MM-DD")
     time: str = Field(description="HH:MM")
@@ -67,12 +76,56 @@ class PublicReservationCreate(BaseModel):
     guest_name: str = Field(min_length=1, max_length=160)
     guest_email: str | None = Field(default=None, max_length=255)
     guest_phone: str | None = Field(default=None, max_length=40)
+    # ── Contact is REQUIRED, and it is required HERE ──────────────────
+    # The booking form has always demanded one ("Vi skal bruge én måde at
+    # kontakte dig på"), but the API did not — so a script could post a
+    # one-character name and nothing else, and the row auto-confirmed. At
+    # 6/min per IP that fills a Friday service with untraceable holds the
+    # venue cannot call to verify. A validator in the browser is a
+    # courtesy; a validator on the server is the rule.
     occasion: str | None = Field(default=None, max_length=60)
     guest_notes: str | None = Field(default=None, max_length=2000)
     allergen_tags: list[str] | None = None
     allergy_note: str | None = Field(default=None, max_length=2000)
     allergy_severity: str | None = None
     consent_marketing: bool = False
+
+    @field_validator("guest_email")
+    @classmethod
+    def _clean_email(cls, v):
+        """Shape-check only. A booking is not an account, so we do not
+        verify deliverability — but a value that cannot be an address is
+        a typo the guest should fix now, not a bounced confirmation they
+        never see."""
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        if not _EMAIL_RE.match(v):
+            raise ValueError("invalid_email")
+        return v
+
+    @field_validator("guest_phone")
+    @classmethod
+    def _clean_phone(cls, v):
+        if v is None:
+            return None
+        v = " ".join(v.split())
+        if not v:
+            return None
+        digits = sum(c.isdigit() for c in v)
+        # DK numbers are 8 digits; +45 and spacing push the ceiling up.
+        # Loose on purpose — a tourist's foreign number must still work.
+        if digits < 6 or digits > 15 or not _PHONE_RE.match(v):
+            raise ValueError("invalid_phone")
+        return v
+
+    @model_validator(mode="after")
+    def _require_a_way_to_reach_you(self):
+        if not (self.guest_email or self.guest_phone):
+            raise ValueError("contact_required")
+        return self
     # Optional table the guest tapped on the public floor map. Honored only if
     # it's still free for this party at this time; otherwise we auto-assign
     # (the occupancy exclusion constraint is the real race backstop).
@@ -415,9 +468,53 @@ def _guest_cancel_url(profile: BusinessProfile, r: Reservation) -> str | None:
         return None
 
 
-def _send_confirmation(owner: User, profile: BusinessProfile, r: Reservation) -> None:
+# Confirmations one venue may send to one address per day. A guest who
+# books, cancels and rebooks is normal and must not be throttled into
+# silence; a script pointing the venue's confirmation at a stranger is
+# not. Three covers both.
+_CONFIRMATIONS_PER_ADDRESS_PER_DAY = 3
+
+
+def _confirmation_quota_left(db: Session, owner_id, email: str) -> bool:
+    """Has this venue already mailed this address enough for one day?
+
+    Without a bound, the public booking form is an open relay: anyone can
+    make BonBox send branded mail to any address, from our sending domain,
+    reply-to the venue, at the public rate limit. That is a deliverability
+    risk to every other owner on the platform, not just this one.
+
+    Counted from reservations rather than a new table — confirmation_sent_at
+    is already stamped on every send, so the ledger exists.
+    """
+    since = utc_now() - timedelta(days=1)
+    n = (
+        db.query(func.count(Reservation.id))
+        .filter(Reservation.user_id == owner_id,
+                # trim as well as lower: the schema validator strips new
+                # rows, but a legacy row with stray whitespace would
+                # otherwise read as a different address and hand the
+                # sender a fresh quota.
+                func.lower(func.trim(Reservation.guest_email)) == email.strip().lower(),
+                Reservation.confirmation_sent_at.isnot(None),
+                Reservation.confirmation_sent_at >= since)
+        .scalar()
+    ) or 0
+    return n < _CONFIRMATIONS_PER_ADDRESS_PER_DAY
+
+
+def _send_confirmation(owner: User, profile: BusinessProfile, r: Reservation,
+                       db: Session | None = None) -> None:
     """Best-effort confirmation email — never blocks the booking."""
     if not r.guest_email:
+        return
+    # Skip silently: the BOOKING is real and already committed, and the
+    # guest sees the reference on screen. A relay attempt must not turn
+    # into an error the real guest sees.
+    if db is not None and not _confirmation_quota_left(db, r.user_id, r.guest_email):
+        logger.warning(
+            "confirmation suppressed: per-address daily cap reached (owner=%s)",
+            r.user_id,
+        )
         return
     try:
         from app.services.email_service import send_email
@@ -559,7 +656,7 @@ def _send_booking_notifications(reservation_id: str, owner_id: str) -> None:
         )
         if owner is None or profile is None:
             return
-        _send_confirmation(owner, profile, r)          # guest email (+ sent stamp)
+        _send_confirmation(owner, profile, r, db)      # guest email (+ sent stamp)
         try:
             from app.services.notification_service import notify_owner_new_reservation
             notify_owner_new_reservation(db, owner, r)  # owner device push
@@ -658,7 +755,7 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
         err = "stylist_unavailable" if payload.stylist_id else "slot_unavailable"
         raise HTTPException(status_code=409, detail={"error": err})
 
-    _send_confirmation(owner, profile, r)
+    _send_confirmation(owner, profile, r, db)
     audit_service.record(db, owner, "reservation.created_public", "reservation", r.id)
     db.commit()
     try:
@@ -715,12 +812,25 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
         raise HTTPException(status_code=409, detail={"error": "party_too_large"})
 
     # L7 — owner's monthly cap → generic 409 (no tier leak to the visitor).
+    #
+    # Counts bookings that EXIST, not creation attempts. Counting cancelled
+    # rows made the cap a denial-of-business weapon: at the 6/min public
+    # limit, ~20 create-then-cancel round trips (about four minutes) burned
+    # a Free venue's entire month, and cancelling left the floor plan clean
+    # so the owner saw a dead booking page with no cause. A cancelled table
+    # consumes nothing — the guest freed it — so it must not consume quota.
+    #
+    # no_show and completed DO count: the table was held, the cover was
+    # real. Only a cancellation gives the capacity back.
     month_start = _now_local().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     used = (
         db.query(func.count(Reservation.id))
         .filter(Reservation.user_id == owner.id,
                 Reservation.created_at >= month_start,
-                Reservation.is_deleted.is_(False))
+                Reservation.is_deleted.is_(False),
+                Reservation.status.in_(
+                    ("requested", "confirmed", "seated", "completed", "no_show")
+                ))
         .scalar()
     ) or 0
     if at_cap(owner, "reservations_per_month", int(used)):

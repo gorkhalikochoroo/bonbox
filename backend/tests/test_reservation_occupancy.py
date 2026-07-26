@@ -939,7 +939,8 @@ def test_public_create_honors_picked_table(client, db, engine_and_session):
     resp = client.post(
         f"/api/public/reservations/{slug}",
         json={"day": _DAY, "time": "19:00", "party_size": 2,
-              "guest_name": "Sita Sharma", "resource_id": pick},
+              "guest_name": "Sita Sharma", "guest_email": "sita@example.com",
+               "resource_id": pick},
     )
     assert resp.status_code == 200, resp.text
     r = db.query(Reservation).filter(Reservation.id == resp.json()["id"]).first()
@@ -959,7 +960,8 @@ def test_public_create_stale_pick_falls_back(client, db, engine_and_session):
     resp = client.post(
         f"/api/public/reservations/{slug}",
         json={"day": _DAY, "time": "19:00", "party_size": 2,
-              "guest_name": "Anil Thapa", "resource_id": taken_now[0]},
+              "guest_name": "Anil Thapa", "guest_email": "anil@example.com",
+               "resource_id": taken_now[0]},
     )
     assert resp.status_code == 200, resp.text
     r = db.query(Reservation).filter(Reservation.id == resp.json()["id"]).first()
@@ -980,7 +982,8 @@ def test_public_create_picked_outside_hours_rejected(client, db, engine_and_sess
     resp = client.post(
         f"/api/public/reservations/{slug}",
         json={"day": _DAY, "time": "02:00", "party_size": 2,
-              "guest_name": "Out Of Hours", "resource_id": free_ids[0]},
+              "guest_name": "Out Of Hours", "guest_email": "ooh@example.com",
+               "resource_id": free_ids[0]},
     )
     assert resp.status_code == 409, resp.text
     assert resp.json()["detail"]["error"] == "slot_unavailable"
