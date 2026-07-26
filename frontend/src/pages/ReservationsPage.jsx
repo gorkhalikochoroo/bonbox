@@ -5299,20 +5299,68 @@ function EmbedOnWebsite({ publicUrl, venueName, t }) {
 
   const label = t("rsvpEmbedButtonLabel", "Book bord");
   const safeName = (venueName || "BonBox").replace(/"/g, "&quot;");
+  const fallbackLabel = t("rsvpEmbedOpenInNewTab", "Åbn booking i nyt vindue →");
   // The iframe MUST load the /r/ form: only that route carries the
   // frame-ancestors CSP that lets a third-party site embed it (the bare
   // /{slug} route inherits the site-wide frame-ancestors 'none'). Same page,
   // embeddable headers. The button is a full-page link, so bare slug is fine.
-  const embedSrc = publicUrl.replace(/\/([^/]+)\/?$/, "/r/$1");
+  // The /r/ prefix must be ADDED, not appended blindly. A legacy slug that
+  // collides with an app route already comes back as ".../r/<slug>", and
+  // the old unconditional replace turned that into ".../r/r/<slug>" — a
+  // path no route matches, so those owners were pasting an iframe that
+  // could only ever render a not-found page inside their own site.
+  const embedSrc = /\/r\/[^/]+\/?$/.test(publicUrl)
+    ? publicUrl.replace(/\/$/, "")
+    : publicUrl.replace(/\/([^/]+)\/?$/, "/r/$1");
+  // Origin the height messages must come from, so the host page's listener
+  // cannot be driven by some other frame on the owner's site.
+  let embedOrigin = "https://www.bonbox.dk";
+  try {
+    embedOrigin = new URL(embedSrc).origin;
+  } catch { /* keep the default */ }
   const buttonSnippet =
     `<a href="${publicUrl}" target="_blank" rel="noopener"\n` +
     `  style="display:inline-flex;align-items:center;gap:8px;padding:12px 22px;` +
     `border-radius:12px;background:#111827;color:#fff;font:600 15px/1 system-ui,` +
     `sans-serif;text-decoration:none">${label}</a>`;
+  // The iframe used to be a bare fixed height="720". That number is wrong
+  // for every site: on a phone it cut the form off mid-way with no inner
+  // scrollbar to reach the rest, and on desktop it left dead white space
+  // in the middle of the owner's page. The frame now reports its own
+  // height and the host resizes to match.
+  //
+  // The link below the frame is not decoration. frame-ancestors is
+  // https:, so an owner whose site is still plain HTTP gets a silently
+  // blank box — no error, nothing in their page, just white. The link is
+  // what that owner's guests can still use. It hides itself the moment
+  // the frame proves it loaded, so a working embed does not carry it.
+  //
+  // Everything degrades: if the host CMS strips the <script> (Wix and
+  // Squarespace often do), the iframe keeps the 720px fallback height and
+  // the link simply stays visible.
   const iframeSnippet =
-    `<iframe src="${embedSrc}?embed=1" title="${label} — ${safeName}"\n` +
-    `  width="100%" height="720" loading="lazy"\n` +
-    `  style="border:0;max-width:460px;border-radius:16px"></iframe>`;
+    `<div style="max-width:460px">\n` +
+    `  <iframe id="bonbox-booking" src="${embedSrc}?embed=1"\n` +
+    `    title="${label} — ${safeName}" width="100%" height="720" loading="lazy"\n` +
+    `    style="border:0;width:100%;border-radius:16px"></iframe>\n` +
+    `  <p id="bonbox-booking-link" style="margin:8px 0 0;font:400 14px/1.4 system-ui,sans-serif">\n` +
+    `    <a href="${publicUrl}" target="_blank" rel="noopener">${fallbackLabel}</a>\n` +
+    `  </p>\n` +
+    `  <script>\n` +
+    `  (function(){\n` +
+    `    var f=document.getElementById('bonbox-booking');\n` +
+    `    var l=document.getElementById('bonbox-booking-link');\n` +
+    `    window.addEventListener('message',function(e){\n` +
+    `      if(e.origin!=='${embedOrigin}'||!f||e.source!==f.contentWindow)return;\n` +
+    `      if(!e.data||e.data.type!=='bonbox:height')return;\n` +
+    `      f.style.height=e.data.height+'px';\n` +
+    `      if(l)l.style.display='none';\n` +
+    `    });\n` +
+    `  })();\n` +
+    // Split so this file never contains a literal closing script tag —
+    // and eslint does not flag a useless escape either.
+    `  <` + `/script>\n` +
+    `</div>`;
 
   // Hand-off email. A mailto: only OPENS the owner's mail app pre-filled —
   // we never send anything on their behalf.
@@ -5396,6 +5444,17 @@ function EmbedOnWebsite({ publicUrl, venueName, t }) {
           {t(
             "rsvpEmbedIframeWhere",
             "In WordPress, Wix or Squarespace: add an “Embed HTML” block, then paste.",
+          )}
+        </p>
+        {/* The unexplained failure. frame-ancestors is https:, so on a site
+            still served over plain HTTP the frame is blocked and the owner
+            sees a blank white box with no error anywhere — in their page,
+            in ours, or in any log they will ever look at. Say the condition
+            out loud, and name the option that does work. */}
+        <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+          {t(
+            "rsvpEmbedNeedsHttps",
+            "Your site must be on https for the embed to show. If it isn't, use the button above — that works anywhere.",
           )}
         </p>
       </div>
