@@ -583,9 +583,13 @@ def _public_reservation_url(slug: str | None) -> str | None:
     are blocked in set_slug — this branch only protects pre-existing rows."""
     if not slug:
         return None
+    # www, not the apex: bonbox.dk 307-redirects to www.bonbox.dk, and the
+    # redirect hop carries neither the frame-ancestors CSP nor the app's
+    # own headers. Handing an owner a link that bounces before it resolves
+    # is one more thing that can go wrong inside someone else's iframe.
     if slug in RESERVED_SLUGS:
-        return f"https://bonbox.dk/r/{slug}"
-    return f"https://bonbox.dk/{slug}"
+        return f"https://www.bonbox.dk/r/{slug}"
+    return f"https://www.bonbox.dk/{slug}"
 
 
 @router.post("/slug")

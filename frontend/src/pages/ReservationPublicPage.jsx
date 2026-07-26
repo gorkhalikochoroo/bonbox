@@ -264,6 +264,50 @@ export default function ReservationPublicPage() {
   const isEmbed = searchParams.get("embed") === "1";
   const rootMinH = isEmbed ? "" : "min-h-screen";
 
+  // ── Height contract with the host page ───────────────────────────
+  // The embed snippet ships a fixed height="720". That number is wrong
+  // for every single site: on a phone the form is cut off mid-way with
+  // no inner scrollbar to reveal it, and on a desktop with a short
+  // opening list it leaves a few hundred pixels of dead white space in
+  // the middle of the owner's page. Neither looks like a bug to the
+  // owner — it looks like BonBox is what their site now is.
+  //
+  // So the frame tells the parent how tall it actually is, and keeps
+  // telling it as the guest moves between steps (step 2 is taller than
+  // step 1, and the confirmation is shorter than both).
+  //
+  // targetOrigin is "*" ON PURPOSE and is safe here: we do not know the
+  // owner's domain, the payload is a single integer, and it carries
+  // nothing private. Never widen this to send booking data.
+  useEffect(() => {
+    if (!isEmbed || typeof window === "undefined" || window.parent === window) return;
+    // Only speak when the number changes. ResizeObserver fires on every
+    // layout pass, and re-posting an unchanged height would have the host
+    // page reassigning the same style on a loop for as long as the widget
+    // is open — on someone else's site, at their expense.
+    let last = 0;
+    const post = () => {
+      const h = Math.ceil(
+        document.documentElement?.getBoundingClientRect?.().height || 0,
+      );
+      if (h > 0 && h !== last) {
+        last = h;
+        window.parent.postMessage({ type: "bonbox:height", height: h }, "*");
+      }
+    };
+    post();
+    // ResizeObserver catches step changes, validation messages appearing,
+    // and the slot grid reflowing — a resize listener alone would not.
+    const ro =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(post) : null;
+    if (ro && document.body) ro.observe(document.body);
+    window.addEventListener("resize", post);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", post);
+    };
+  }, [isEmbed]);
+
   // ── Page data (GET /public/reservations/{slug}) ──────────────────
   const [page, setPage] = useState(null);
   const [loading, setLoading] = useState(true);

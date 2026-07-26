@@ -1,5 +1,5 @@
 """
-Root-slug vanity link (bonbox.dk/<slug>) — reserved-word guard + URL helper.
+Root-slug vanity link (www.bonbox.dk/<slug>) — reserved-word guard + URL helper.
 
 Locks:
   • A normal slug resolves to the pretty root link.
@@ -13,15 +13,15 @@ from app.routers.reservations import RESERVED_SLUGS, _public_reservation_url
 
 
 def test_normal_slug_is_root_vanity_link():
-    assert _public_reservation_url("bistro") == "https://bonbox.dk/bistro"
-    assert _public_reservation_url("cafe-mokka") == "https://bonbox.dk/cafe-mokka"
+    assert _public_reservation_url("bistro") == "https://www.bonbox.dk/bistro"
+    assert _public_reservation_url("cafe-mokka") == "https://www.bonbox.dk/cafe-mokka"
 
 
 def test_reserved_slug_keeps_r_prefix():
     # A legacy venue whose slug matches an app route must NOT sit at the root
     # (the SPA route would shadow it) — it falls back to the /r/ alias.
-    assert _public_reservation_url("tax") == "https://bonbox.dk/r/tax"
-    assert _public_reservation_url("bar") == "https://bonbox.dk/r/bar"
+    assert _public_reservation_url("tax") == "https://www.bonbox.dk/r/tax"
+    assert _public_reservation_url("bar") == "https://www.bonbox.dk/r/bar"
 
 
 def test_none_slug_is_none():
