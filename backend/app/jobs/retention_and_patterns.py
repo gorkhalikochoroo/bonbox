@@ -133,6 +133,14 @@ def daily_maintenance() -> dict:
         **smart_drift_scan_for_all(),
         "ran_at": utc_now().isoformat(),
     }
+    # An unanswered group request must not sit in limbo past its own
+    # sitting — the guest is never told yes or no otherwise.
+    try:
+        from app.jobs.reservation_request_expiry import expire_stale_requests
+        summary.update(expire_stale_requests())
+    except Exception as e:  # noqa: BLE001
+        summary["request_expiry_error"] = str(e)
+
     # Accounting retention sweep — Bogføringsloven §12 (5y min) +
     # Skatteforvaltningsloven §31 (10y max) compliance. Soft-archive
     # only; permanent deletes only for orphan drafts + ancient audit
