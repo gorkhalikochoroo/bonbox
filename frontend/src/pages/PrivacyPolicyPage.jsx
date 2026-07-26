@@ -52,7 +52,7 @@ export default function PrivacyPolicyPage() {
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
         <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Privacy Policy</h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 13 May 2026</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 26 July 2026</p>
 
         <div className="prose prose-gray dark:prose-invert max-w-none space-y-4 text-gray-700 dark:text-gray-300 leading-relaxed">
 
