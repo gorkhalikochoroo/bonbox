@@ -24,7 +24,7 @@ export default function CookiePolicyPage() {
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12">
         <h1 className="text-3xl font-extrabold text-gray-900 dark:text-white mb-2">Cookie Policy</h1>
-        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: April 7, 2026</p>
+        <p className="text-gray-500 dark:text-gray-400 text-sm mb-8">Last updated: 26 July 2026</p>
 
         <div className="prose prose-gray dark:prose-invert max-w-none space-y-6 text-gray-700 dark:text-gray-300 leading-relaxed">
 
@@ -49,10 +49,9 @@ export default function CookiePolicyPage() {
                 </thead>
                 <tbody>
                   {[
-                    ["session_token", "Keeps you logged in", "Essential", "Until logout or 30 days"],
-                    ["language_pref", "Remembers your language choice", "Essential", "1 year"],
-                    ["theme_pref", "Remembers dark/light mode", "Essential", "1 year"],
-                    ["csrf_token", "Protects against cross-site request forgery", "Essential", "Session"],
+                    ["bonbox_session", "Keeps you logged in. HttpOnly, so page scripts cannot read it.", "Necessary", "30 days, or until you log out"],
+                    ["bonbox_csrf", "Protects against cross-site request forgery. Readable by our own scripts on purpose — that is how the check works.", "Necessary", "30 days, or until you log out"],
+                    ["bonbox_acct_client", "Only set for accountants: remembers which client's books you are looking at. HttpOnly.", "Necessary", "30 days, or until you log out"],
                   ].map(([cookie, purpose, type, duration], i) => (
                     <tr key={i} className="border-b border-gray-100 dark:border-gray-800 last:border-0">
                       <td className="px-4 py-2.5 font-mono text-xs text-gray-800 dark:text-gray-200">{cookie}</td>
@@ -64,6 +63,39 @@ export default function CookiePolicyPage() {
                 </tbody>
               </table>
             </div>
+          </section>
+
+          <section>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mt-8 mb-3">Things we store in your browser that are not cookies</h2>
+            <p>
+              Cookies are not the only way a site stores things on your device, and the rules
+              (ePrivacy Art. 5(3), and cookiebekendtgørelsen here in Denmark) cover the others too. So
+              they belong on this page even though your browser files them separately.
+            </p>
+            <p className="mt-2">
+              BonBox keeps around twenty small values in your browser's local storage. They stay on your
+              device and are not sent to us as cookies are. They fall into three groups:
+            </p>
+            <ul className="list-disc pl-6 space-y-1 mt-2">
+              <li>
+                <strong>Settings you chose</strong> — language, currency, dark mode, which branch you are
+                viewing, whether the sidebar is collapsed, your recent searches, and which tips you have
+                dismissed.
+              </li>
+              <li>
+                <strong>Signing you in</strong> — an access token, a copy of your own account details for
+                the app to render, and, for staff using a shared device, proof that a PIN was entered.
+                Clearing site data signs you out.
+              </li>
+              <li>
+                <strong>Your cookie answer</strong> — <code>bonbox_cookie_consent</code>, so we do not ask
+                again on every visit.
+              </li>
+            </ul>
+            <p className="mt-2">
+              None of it is used for advertising, profiling or tracking you between sites. You can wipe all
+              of it by clearing site data for bonbox.dk in your browser.
+            </p>
           </section>
 
           <section>
@@ -79,10 +111,19 @@ export default function CookiePolicyPage() {
           <section>
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mt-8 mb-3">Your choices</h2>
             <p>
-              Since we only use essential cookies required for BonBox to function, we do not display a cookie consent banner. Under GDPR and the ePrivacy Directive, strictly necessary cookies do not require consent.
+              The three cookies above are strictly necessary, and under the ePrivacy Directive those do
+              not require consent. You will still see a consent banner on your first visit. It is there
+              for the optional analytics category, which is switched off and has nothing behind it today —
+              no analytics tool is loaded. If we ever add one, the banner is already the gate, and
+              declining will keep it from loading.
             </p>
             <p className="mt-2">
-              You can delete cookies at any time through your browser settings. Note that deleting the session cookie will log you out of BonBox.
+              Your answer is remembered in local storage under <code>bonbox_cookie_consent</code>. Clear
+              your browser's site data for bonbox.dk to be asked again.
+            </p>
+            <p className="mt-2">
+              You can delete cookies at any time through your browser settings. Deleting the session
+              cookie logs you out of BonBox.
             </p>
           </section>
 

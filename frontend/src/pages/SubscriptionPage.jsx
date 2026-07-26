@@ -1056,7 +1056,7 @@ export default function SubscriptionPage() {
       {/* Reassurance row — warm stone, no random color blocks */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-10">
         <Reassure title={t("pricingReassureNoCard") || "No card for trial"} sub={t("pricingReassureNoCardSub") || "14 days of Pro, no payment info needed."} />
-        <Reassure title={t("pricingReassureDenmark") || "Built in Denmark"} sub={t("pricingReassureDenmarkSub") || "GDPR-first · EU-hosted · DKK + Moms native"} />
+        <Reassure title={t("pricingReassureDenmark") || "Built in Denmark"} sub={t("pricingReassureDenmarkSub") || "Database in Ireland · DKK and MOMS built in"} />
         <Reassure title={t("pricingReassureCancel") || "Cancel anytime"} sub={t("pricingReassureCancelSub") || "No contracts. Export your data on the way out."} />
         <Reassure title={t("pricingReassureLanguages") || "6 languages"} sub={t("pricingReassureLanguagesSub") || "Dansk, English, नेपाली, Tiếng Việt, ภาษาไทย, Türkçe"} />
       </div>
