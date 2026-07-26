@@ -602,7 +602,8 @@ def test_public_provider_availability_and_booking(client, db):
     # Public booking — valgfri, server stamps service_name + catalog duration.
     book = client.post(f"/api/public/reservations/{slug}", json={
         "day": fut_str, "time": "10:00", "party_size": 1,
-        "guest_name": "Public Guest", "behandling_id": str(b.id),
+        "guest_name": "Public Guest", "guest_email": "guest@example.com",
+        "behandling_id": str(b.id),
         "duration_min": 5,  # ignored (not even in the schema) — server uses 60
     })
     # The public create endpoint returns 200 (no status_code=201 on the route),
