@@ -1397,12 +1397,41 @@ export default function ReservationPublicPage() {
                     </Chip>
                   ))}
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-                  {t(
-                    "rsvpPartyHint",
-                    "Større selskab? Vælg det højeste antal — vi sender en forespørgsel.",
-                  )}
-                </p>
+                {/* This hint used to read "Større selskab? Vælg det højeste
+                    antal — vi sender en forespørgsel" and it was shown at
+                    every party size. Following it produced a WRONG BOOKING:
+                    the backend rejects party_size above the owner's
+                    max_party_size (409 party_too_large), so a party of
+                    fourteen could only send "10 personer". The owner laid up
+                    for ten, the confirmation said ten, and fourteen people
+                    arrived. Nothing in the product ever said otherwise.
+                    So: only speak when the guest is actually at the ceiling,
+                    and give them a route that ends in the real number
+                    reaching the venue. Calling is that route; where there is
+                    no number, the note field is, and the owner reads it. */}
+                {party >= maxParty && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+                    {telHref(page.phone) ? (
+                      <>
+                        {t("rsvpPartyOverMaxCall", "Er I mere end {n}? Ring til os", {
+                          n: maxParty,
+                        })}{" "}
+                        <a
+                          href={telHref(page.phone)}
+                          className="font-medium text-gray-700 dark:text-gray-200 underline"
+                        >
+                          {page.phone}
+                        </a>
+                      </>
+                    ) : (
+                      t(
+                        "rsvpPartyOverMaxNote",
+                        "Er I mere end {n}? Skriv det præcise antal i beskedfeltet på næste trin.",
+                        { n: maxParty },
+                      )
+                    )}
+                  </p>
+                )}
               </div>
             )}
 
