@@ -234,7 +234,7 @@ function DailyCloseHero({ tx_ }) {
                 {tx_("landingDailyCloseMomsLabel", "MOMS Q2 · Frist 1. juni")}
               </p>
               <p className="text-[15px] font-semibold text-amber-900 mt-0.5">
-                {tx_("landingDailyCloseMomsAside", "4.230 kr. klar til at afsætte")}
+                {tx_("landingDailyCloseMomsAside", "2.846 kr. klar til at afsætte")}
               </p>
             </div>
             <div className="relative shrink-0 h-12 w-12" aria-hidden="true">
@@ -436,7 +436,7 @@ function LandingFakturaMini({ tx_ }) {
         </div>
         <div className="px-5 sm:px-6 py-5">
           <p className="text-[12px] text-gray-500">
-            {tx_("landingShowFakturaTo", "To")} <span className="text-gray-800 font-medium">Café Nord ApS · CVR 38221144</span>
+            {tx_("landingShowFakturaTo", "To")} <span className="text-gray-800 font-medium">Café Nord ApS · CVR 00000000 (eksempel)</span>
           </p>
           <div className="mt-4 space-y-2.5">
             {FAKTURA_LINES.map((l) => (
@@ -518,14 +518,14 @@ function MomsCountdownSpotlight({ tx_ }) {
             <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500">
               {tx_("landingMomsDueLabel", "Skal betales")}
             </p>
-            <p className="text-[20px] font-semibold text-gray-900 tabular-nums mt-1">4.230 kr</p>
+            <p className="text-[20px] font-semibold text-gray-900 tabular-nums mt-1">148.000 kr</p>
           </div>
           <div className="rounded-lg bg-emerald-50 border border-emerald-200/70 px-3.5 py-3">
             <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-emerald-700">
               {tx_("landingMomsAsideLabel", "Afsat automatisk")}
               <Check size={13} strokeWidth={2} aria-hidden="true" />
             </div>
-            <p className="text-[20px] font-semibold text-emerald-800 tabular-nums mt-1">4.230 kr</p>
+            <p className="text-[20px] font-semibold text-emerald-800 tabular-nums mt-1">148.000 kr</p>
           </div>
         </div>
 
@@ -1524,7 +1524,7 @@ export default function LandingPage() {
             { val: tx_("landingFactLangVal", "6 languages"), label: tx_("landingFactLangLabel", "in the app") },
             { val: tx_("landingFactEuVal", "Ireland"), label: tx_("landingFactEuLabel", "Where your database sits") },
             { val: tx_("landingFactBogfVal", "§7 & §10"), label: tx_("landingFactBogfLabel", "Bogføringsloven-ready") },
-            { val: tx_("landingFactFristVal", "0"), label: tx_("landingFactFristLabel", "missed MOMS deadlines") },
+            { val: tx_("landingFactFristVal", "25%"), label: tx_("landingFactFristLabel", "MOMS worked out on every sale") },
           ].map((s) => (
             <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-5 text-center">
               <p className="text-[24px] sm:text-[30px] font-semibold tracking-tight text-gray-900 tabular-nums leading-tight">
@@ -1540,7 +1540,7 @@ export default function LandingPage() {
           {[
             { title: tx_("landingTrustBogf7", "Bogføringsloven §7"), body: tx_("landingTrustBogf7Body", "Gap-free invoice numbering, kreditnota with the next number, locked books.") },
             { title: tx_("landingTrustBogf10", "Bogføringsloven §10"), body: tx_("landingTrustBogf10Body", "5-year retention. Immutable audit log on every financial change.") },
-            { title: tx_("landingTrustGdpr", "GDPR-compliant"), body: tx_("landingTrustGdprBody", "EU-hosted infrastructure. Owner-controlled data export and deletion. Your revisor logs in without sharing a password.") },
+            { title: tx_("landingTrustGdpr", "Built to GDPR"), body: tx_("landingTrustGdprBody", "Database in Ireland. Receipts are read in the US. Every processor is named in the privacy policy, so you can check them before you sign up. You export or delete your data yourself, and your revisor logs in without sharing a password.") },
             { title: tx_("landingTrustAudit", "Audit-logged"), body: tx_("landingTrustAuditBody", "Every send, void, unlock and schedule publish leaves an append-only trail you can show SKAT.") },
           ].map((badge) => (
             <div key={badge.title}>
