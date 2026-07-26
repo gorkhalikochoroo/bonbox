@@ -1682,7 +1682,7 @@ export default function LandingPage() {
               M
             </div>
             <p className="text-[15px] font-semibold text-gray-900 tracking-tight">
-              {tx_("landingFounderName", "Manoj · Founder, BonBox")}
+              {tx_("landingFounderName", "Manoj Kumar Chaudhary · BonBox · København · CVR 46417321")}
             </p>
           </div>
 
@@ -1694,12 +1694,12 @@ export default function LandingPage() {
           {/* Three short paragraphs — lead size (17px), generous spacing. */}
           <div className="space-y-4">
             <p className="text-[17px] text-gray-900 leading-[1.6]">
-              {tx_("landingFounderP1", "Hi, I'm Manoj — I built BonBox.")}
+              {tx_("landingFounderP1", "My name is Manoj.")}
             </p>
-            <p className="text-[15px] text-gray-600 leading-[1.65]">
+            <p className="text-[15px] text-gray-600 leading-[1.65] whitespace-pre-line">
               {tx_(
                 "landingFounderP2",
-                "I kept meeting small business owners stuck on the same few things: the nightly cash-up, the MOMS frist sneaking up, the endless \"send me the CSVs\" from the revisor. None of it is why anyone opens a café or a shop. So I'm building the tool that just takes it off their plate.",
+                "I spent five years in a kitchen in Copenhagen. The part that wore you down was not the evenings, it was the half hour afterwards, counting up and writing numbers down by hand. That half hour is what BonBox is built to remove.",
               )}
             </p>
             <p className="text-[15px] text-gray-600 leading-[1.65]">
