@@ -31,8 +31,11 @@
 // locales. The public copy here defaults to Danish (DK-first market).
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
+import { useConfirm } from "../hooks/useConfirm";
+import { buildIcs, venueAddress } from "../utils/reservationIcs";
 import {
   Calendar,
+  CalendarPlus,
   Users,
   MapPin,
   Clock,
@@ -243,7 +246,7 @@ function telHref(phone) {
 }
 
 function mapsHref(address, city) {
-  const q = [address, city].filter(Boolean).join(", ").trim();
+  const q = venueAddress(address, city);
   if (!q) return null;
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
 }
@@ -252,6 +255,7 @@ export default function ReservationPublicPage() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
   const { t, setLang } = useLanguage();
+  const confirm = useConfirm();
 
   // Embedded in an owner's website (iframe, ?embed=1): drop the forced
   // min-h-screen so the widget sizes to its content inside the frame instead
@@ -884,6 +888,22 @@ export default function ReservationPublicPage() {
   // owner. Idempotent server-side (already-cancelled returns the state).
   const onCancel = async () => {
     if (!result?.id || cancelling) return;
+    // Ask first. This tap frees the table AND spends the cancel token, so
+    // a mis-tap on a phone is not recoverable by the guest — they would
+    // have to ring the venue to get their evening back. One confirmation
+    // is the right price for an irreversible action; the booking flow
+    // itself stays one-tap.
+    const sure = await confirm({
+      title: t("rsvpCancelConfirmTitle", "Aflys reservationen?"),
+      message: t(
+        "rsvpCancelConfirmBody",
+        "Bordet bliver frigivet med det samme, og du kan ikke fortryde. Du er velkommen til at booke igen.",
+      ),
+      confirmLabel: t("rsvpCancelConfirmYes", "Ja, aflys"),
+      cancelLabel: t("rsvpCancelConfirmNo", "Behold reservationen"),
+      destructive: true,
+    });
+    if (!sure) return;
     const token = bookingToken();
     if (!token) {
       setCancelError(true);
@@ -981,7 +1001,7 @@ export default function ReservationPublicPage() {
     let title = t("rsvpConfirmedTitle", "Reservation bekræftet");
     let body = t(
       "rsvpConfirmedBody",
-      "Vi glæder os til at se dig. Du modtager en bekræftelse hvis du har angivet en email.",
+      // The email sentence used to live here too, hedged as "hvis du har\n      // angivet en email" — directly under a line that names the address we\n      // sent it to. Contradicting yourself about whether the guest will hear\n      // from you is the one thing a confirmation screen must not do.\n      "Vi glæder os til at se dig.",
     );
     if (isRequest) {
       HeroIcon = Clock;
@@ -1144,11 +1164,11 @@ export default function ReservationPublicPage() {
                     rel="noopener noreferrer"
                     className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-gray-600 dark:hover:text-gray-300"
                   >
-                    {[page.address, page.city].filter(Boolean).join(", ")}
+                    {venueAddress(page.address, page.city)}
                   </a>
                 ) : (
                   <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                    {[page.address, page.city].filter(Boolean).join(", ")}
+                    {venueAddress(page.address, page.city)}
                   </span>
                 )}
               </div>
@@ -1170,6 +1190,54 @@ export default function ReservationPublicPage() {
               </div>
             )}
           </div>
+
+          {/* Add to calendar — only for a CONFIRMED booking with a real
+              time. A pending request has no agreed time yet (the payload
+              carries the venue's first opening as a placeholder), and
+              writing that into someone's calendar would invent a promise
+              the venue has not made. */}
+          {isConfirmed && slot && day && (
+            <Button
+              variant="secondary"
+              size="lg"
+              className="w-full"
+              onClick={() => {
+                const ics = buildIcs({
+                  uid: `${result.id}@bonbox.dk`,
+                  day,
+                  time: slot,
+                  minutes: isProvider ? chosenBehandling?.duration_min : 120,
+                  // business_name, not name — the public payload has no
+                  // `name` field at all, so the first cut of this would
+                  // have written a bare "Bord hos " into every calendar.
+                  summary: page.business_name
+                    ? t("rsvpIcsSummary", "Bord hos {venue}", {
+                        venue: page.business_name,
+                      })
+                    : t("rsvpIcsSummaryNoVenue", "Bordreservation"),
+                  location: venueAddress(page.address, page.city),
+                  description: [refCode, guestName.trim()]
+                    .filter(Boolean)
+                    .join(" · "),
+                });
+                const url = URL.createObjectURL(
+                  new Blob([ics], { type: "text/calendar;charset=utf-8" }),
+                );
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "reservation.ics";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                // Revoke on the next frame — Safari cancels the download
+                // if the object URL dies in the same tick as the click.
+                requestAnimationFrame(() => URL.revokeObjectURL(url));
+              }}
+            >
+              <CalendarPlus size={16} strokeWidth={1.75} className="mr-1.5" aria-hidden="true" />
+              {t("rsvpAddToCalendar", "Føj til kalender")}
+            </Button>
+          )}
 
           {/* Self-cancel — frees the table and notifies the restaurant.
               Hidden once the booking is cancelled/done. */}
