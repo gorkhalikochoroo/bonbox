@@ -88,10 +88,10 @@ function addDays(isoStr, n) {
 // checks a native date input, and never lands on a dead day. `dayMap` null =
 // the open/closed overview hasn't resolved yet → render enabled and let the
 // single-day fetch tell the truth (fail-soft, never a false "closed").
-function DateStrip({ today, dayMap, value, onPick, t }) {
+function DateStrip({ today, dayMap, value, onPick, t, lang }) {
   const days = Array.from({ length: 14 }, (_, i) => addDays(today, i));
   const fmt = (iso) =>
-    new Date(`${iso}T00:00:00`).toLocaleDateString("da-DK", {
+    new Date(`${iso}T00:00:00`).toLocaleDateString(dateLocale(lang), {
       weekday: "short",
       day: "numeric",
       month: "short",
@@ -143,11 +143,24 @@ function hhmmOf(iso) {
 }
 
 // Pretty DK date for the header / success screen: "lørdag 13. juni".
-function fmtDayLabel(isoStr) {
+// Dates followed the venue's language even after the guest switched to
+// English: the page read "Pick a date" over a strip of "Søn. 26. Jul.".
+// Weekday and month names are UI chrome, so they translate — unlike the
+// DK terminology lock (MOMS, revisor, kasserapport), which never does.
+//
+// en-GB, not en-US: day-before-month matches how the rest of this page
+// and every Danish guest reads a date.
+const DATE_LOCALES = { da: "da-DK", en: "en-GB" };
+
+function dateLocale(lang) {
+  return DATE_LOCALES[lang] || "da-DK";
+}
+
+function fmtDayLabel(isoStr, lang) {
   if (!isoStr) return "";
   try {
     const d = new Date(`${isoStr}T00:00:00`);
-    return d.toLocaleDateString("da-DK", {
+    return d.toLocaleDateString(dateLocale(lang), {
       weekday: "long",
       day: "numeric",
       month: "long",
@@ -254,7 +267,7 @@ function mapsHref(address, city) {
 export default function ReservationPublicPage() {
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
-  const { t, setLang } = useLanguage();
+  const { t, lang, setLang } = useLanguage();
   const confirm = useConfirm();
 
   // Embedded in an owner's website (iframe, ?embed=1): drop the forced
@@ -399,8 +412,19 @@ export default function ReservationPublicPage() {
 
   // Submit.
   const [submitting, setSubmitting] = useState(false);
+  // Focus target for the confirmation headline — see the success screen.
+  const resultHeadingRef = useRef(null);
   const [submitError, setSubmitError] = useState(""); // "" | error-key
   const [result, setResult] = useState(null); // {id, status, booking_token}
+
+  // Move focus to the confirmation once, when the booking first lands.
+  // Keyed on the id, not the object: the status poll replaces `result`
+  // every few seconds, and re-focusing on each poll would yank the cursor
+  // out from under a guest who had tabbed on to the cancel button.
+  const resultId = result?.id || null;
+  useEffect(() => {
+    if (resultId) resultHeadingRef.current?.focus();
+  }, [resultId]);
 
   // ── Post-booking live status + self-cancel ───────────────────────
   // After a successful booking the success screen polls GET /booking/{id}
@@ -1121,8 +1145,20 @@ export default function ReservationPublicPage() {
               aria-hidden="true"
             />
           </div>
-          <div className="space-y-1">
-            <h1 className="text-[26px] font-semibold tracking-tight text-gray-900 dark:text-gray-100">
+          {/* The whole outcome, announced as one thing.
+              Booking replaces the form in place and the URL never changes,
+              so a screen reader said nothing at all — and focus fell to the
+              body the moment the submit button unmounted. A blind guest was
+              left with no way to know whether they had a table, on the one
+              screen where that is the only question. role="status" reads
+              the result; the heading takes focus so the next Tab starts at
+              the confirmation rather than back at the top of the document. */}
+          <div className="space-y-1" role="status" aria-live="polite">
+            <h1
+              ref={resultHeadingRef}
+              tabIndex={-1}
+              className="text-[26px] font-semibold tracking-tight text-gray-900 dark:text-gray-100 outline-none"
+            >
               {title}
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-300">{body}</p>
@@ -1196,7 +1232,7 @@ export default function ReservationPublicPage() {
             <SummaryRow
               icon={<Calendar size={16} strokeWidth={1.75} />}
               label={t("rsvpDateLabel", "Dato")}
-              value={fmtDayLabel(day)}
+              value={fmtDayLabel(day, lang)}
             />
             {!isRequest && slot && (
               <SummaryRow
@@ -1380,6 +1416,31 @@ export default function ReservationPublicPage() {
                 {page.business_name}
               </h1>
             </div>
+            {/* The page adopts the venue's own language, which is right for
+                the guests who live nearby and wrong for everyone else. A
+                tourist booking a Copenhagen table had no way out of Danish:
+                the app's language control lives behind the login, and this
+                page carries none. Two words, no flags — a flag is a country,
+                not a language. Choosing here also clears the auto-pick, so
+                the choice survives through to the confirmation. */}
+            <div className="shrink-0 flex items-center gap-0.5 -mt-0.5">
+              {["da", "en"].map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  onClick={() => setLang(code)}
+                  aria-pressed={lang === code}
+                  className={
+                    "px-1.5 py-1 rounded-md text-[11px] font-medium uppercase tracking-wide transition-colors " +
+                    (lang === code
+                      ? "text-gray-900 dark:text-gray-100"
+                      : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300")
+                  }
+                >
+                  {code}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Location row + quiet right-aligned call link on the same line. */}
@@ -1513,7 +1574,7 @@ export default function ReservationPublicPage() {
                 </button>
               </div>
               {/* One-tap date strip (closed days disabled) — the primary picker. */}
-              <DateStrip today={today} dayMap={dayMap} value={day} onPick={setDay} t={t} />
+              <DateStrip today={today} dayMap={dayMap} value={day} onPick={setDay} t={t} lang={lang} />
               {showDateInput && (
                 <div className="mt-2">
                   <Input
@@ -1676,11 +1737,11 @@ export default function ReservationPublicPage() {
                     <div className="space-y-3">
                       <p className="text-sm text-gray-600 dark:text-gray-300">
                         {t("rsvpClosedTodayOpenSoon", "Lukket denne dag. Næste ledige: {day}", {
-                          day: fmtDayLabel(nextOpenDay),
+                          day: fmtDayLabel(nextOpenDay, lang),
                         })}
                       </p>
                       <Button size="lg" onClick={() => setDay(nextOpenDay)}>
-                        {t("rsvpJumpNextOpen", "Vis {day}", { day: fmtDayLabel(nextOpenDay) })}
+                        {t("rsvpJumpNextOpen", "Vis {day}", { day: fmtDayLabel(nextOpenDay, lang) })}
                       </Button>
                     </div>
                   ) : (
@@ -1803,7 +1864,7 @@ export default function ReservationPublicPage() {
                     </>
                   )}
                   <span aria-hidden="true"> · </span>
-                  <span>{fmtDayLabel(day)}</span>
+                  <span>{fmtDayLabel(day, lang)}</span>
                   {slot && (
                     <>
                       <span aria-hidden="true"> </span>
@@ -1813,7 +1874,7 @@ export default function ReservationPublicPage() {
                 </span>
               ) : (
                 <>
-                  <span className="font-medium">{fmtDayLabel(day)}</span>
+                  <span className="font-medium">{fmtDayLabel(day, lang)}</span>
                   {!groupRequest && slot && (
                     <>
                       <span aria-hidden="true">·</span>
