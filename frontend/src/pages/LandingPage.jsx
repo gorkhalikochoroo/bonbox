@@ -26,10 +26,18 @@
  *      rounded-2xl > rounded-lg; the rest of the page stays rounded-xl.
  *
  *   5. HONESTY — killed the "90s target / 6+ terminals / 5 min" stat
- *      cards (they quietly admitted no traction). The proof band now
- *      carries only definitionally-true facts (6 sprog, EU-servere,
- *      Bogføringsloven §7 & §10-klar, 0 mistede MOMS-frister). No
- *      "save X kr/yr" headline number.
+ *      cards (they quietly admitted no traction). No "save X kr/yr"
+ *      headline number.
+ *
+ *      Jul 2026: "EU-servere" was NOT a definitionally-true fact, and
+ *      calling it one here is how it survived review for months. The
+ *      database is in eu-west-1 (Ireland) and receipt photos are sent
+ *      to Anthropic in the US to be read, so "EU servers" implied an
+ *      EU-only pipeline that does not exist. A reader in a Danish dev
+ *      group checked the claim against the privacy policy, found they
+ *      contradicted each other, and said so in public. The band now
+ *      names the country instead of wearing a compliance badge.
+ *      If you add a fact here, verify it against the code first.
  *
  *   6. STRUCTURE — spine tightened 13 → 10: Hero → Flow → Capabilities
  *      → MOMS → Brief → How → Proof band → IS/IS-NOT → FAQ → Final CTA.
@@ -1243,7 +1251,7 @@ export default function LandingPage() {
                   tx_("landingCheck1", "14 dages gratis prøve"),
                   tx_("landingCheck2", "Ingen kortoplysninger"),
                   tx_("landingCheckCompliance", "Bogføringsloven §7 & §10"),
-                  tx_("landingCheckGdpr", "GDPR · servere i EU"),
+                  tx_("landingCheckGdpr", "Database i Irland"),
                 ].map((txt) => (
                   <span key={txt} className="inline-flex items-center gap-1.5">
                     <Check size={14} strokeWidth={2} className="text-emerald-600 shrink-0" aria-hidden="true" />
@@ -1514,7 +1522,7 @@ export default function LandingPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 max-w-4xl mx-auto">
           {[
             { val: tx_("landingFactLangVal", "6 languages"), label: tx_("landingFactLangLabel", "in the app") },
-            { val: tx_("landingFactEuVal", "EU servers"), label: tx_("landingFactEuLabel", "GDPR from the ground up") },
+            { val: tx_("landingFactEuVal", "Ireland"), label: tx_("landingFactEuLabel", "Where your database sits") },
             { val: tx_("landingFactBogfVal", "§7 & §10"), label: tx_("landingFactBogfLabel", "Bogføringsloven-ready") },
             { val: tx_("landingFactFristVal", "0"), label: tx_("landingFactFristLabel", "missed MOMS deadlines") },
           ].map((s) => (
@@ -1630,7 +1638,7 @@ export default function LandingPage() {
             { q: tx_("landingFaq3Q", "What if the AI misreads a kasserapport?"),
               a: tx_("landingFaq3A", "Every parsed receipt is editable — the AI suggests, you confirm. Low-confidence matches go to a Review inbox instead of the books. Nothing flips to 'final' without your tap. Plus a 10-year audit log records every change.") },
             { q: tx_("landingFaq4Q", "Where does my data live?"),
-              a: tx_("landingFaq4A", "EU-only. Hosted in Denmark. Encrypted at rest, audit log immutable at the DB level (Postgres rules), GDPR-first by design. You can export everything as CSV at any time and delete your account in one click.") },
+              a: tx_("landingFaq4A", "The database is in Ireland. When a receipt needs reading, the image goes to Anthropic in the US. Every company that touches your data is named in the privacy policy.\n\nThe audit log can't be edited or deleted. That's locked in the database itself.\n\nYou can pull everything out as CSV and delete your account whenever you want.") },
             { q: tx_("landingFaq5Q", "Do I need a CVR to sign up?"),
               a: tx_("landingFaq5A", "No. Sign up with email. Add CVR later when you want CVR-verified customers + auto-fill on fakturaer. Freelancers without a CVR work fine — just toggle 'Privatperson' on each customer.") },
             { q: tx_("landingFaq6Q", "What happens after the 14-day trial?"),
@@ -1641,7 +1649,7 @@ export default function LandingPage() {
                 <span className="text-[15px] font-semibold text-gray-900 tracking-tight pr-3">{item.q}</span>
                 <ChevronDown size={18} strokeWidth={STROKE} className="text-gray-400 group-open:rotate-180 transition-transform shrink-0" aria-hidden="true" />
               </summary>
-              <div className="px-5 sm:px-6 pb-5 text-[15px] text-gray-600 leading-[1.65]">
+              <div className="px-5 sm:px-6 pb-5 text-[15px] text-gray-600 leading-[1.65] whitespace-pre-line">
                 {item.a}
               </div>
             </details>

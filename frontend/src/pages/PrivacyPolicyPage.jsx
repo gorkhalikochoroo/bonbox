@@ -179,15 +179,23 @@ export default function PrivacyPolicyPage() {
             <Table
               headers={["Service", "Purpose", "Location", "Data processed"]}
               rows={[
-                ["Supabase", "Database hosting (PostgreSQL)", "EU/US", "All account and business data"],
+                ["Supabase", "Database hosting (PostgreSQL)", "EU (Ireland)", "All account and business data"],
                 ["Vercel", "Frontend hosting", "Global CDN", "No personal data stored"],
                 ["Render", "Backend API hosting", "US/EU", "API requests, no persistent storage"],
                 ["Resend", "Email delivery", "US", "Email address, email content"],
-                ["Anthropic (Claude API)", "AI Copilot responses", "EU/US", "Your chat message + business context summary; not retained beyond Anthropic's operational logs; not used for training"],
+                ["Anthropic (Claude API)", "Reading receipts and documents, AI Copilot replies", "EU/US", "Photos of receipts, kasserapporter and other documents you upload, plus your chat messages and a summary of your business context; not retained beyond Anthropic's operational logs; not used for training"],
+                ["Google Cloud Vision", "Reading text from receipt photos (when enabled)", "US", "Photos of receipts you upload"],
+                ["Stripe", "Subscription payments", "US/EU", "Billing email, subscription status; card details go straight to Stripe and never reach our servers"],
                 ["cvrapi.dk", "Business registration lookup", "Denmark", "CVR numbers (public data)"],
               ]}
             />
-            <p>We do not share your financial data with any third party. Your data stays in our database and is only accessible to you.</p>
+            <p>
+              We do not sell your data, and we do not share it for advertising. Your books stay in our
+              database and only you can see them. The one exception is the list above: to read a receipt
+              we have to send the photo to an OCR provider, and that photo is financial data. Those
+              providers process it on our instructions, do not train on it, and do not keep it beyond
+              their operational logs.
+            </p>
 
             <h3 className="text-base font-semibold text-gray-800 dark:text-gray-200 mt-6 mb-2">Law enforcement</h3>
             <p>We may disclose personal data if required by Danish or EU law, or in response to a valid legal request from a Danish court or the Danish Data Protection Agency (Datatilsynet).</p>
