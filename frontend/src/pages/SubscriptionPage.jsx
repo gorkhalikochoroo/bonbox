@@ -874,10 +874,15 @@ export default function SubscriptionPage() {
               </div>
 
               {/* Job-to-be-done — leads with the value */}
+              {/* NOT quoted. These used to render inside curly quotation
+                  marks, in the first person — "BonBox lukker min dag på 90
+                  sekunder." — which reads as a customer saying it. There is
+                  no such customer. A fabricated quotation on the pricing
+                  page is the same fault as the invented testimonials, except
+                  this one actually rendered. It is a plain "who this is for"
+                  line now. */}
               <p className="mt-2 text-[15px] leading-snug font-medium text-gray-900 dark:text-gray-100 min-h-[3em]">
-                <span className="text-gray-400 dark:text-gray-500">“</span>
                 {tier.job}
-                <span className="text-gray-400 dark:text-gray-500">”</span>
               </p>
 
               {/* Time saved */}
