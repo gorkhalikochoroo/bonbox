@@ -136,13 +136,15 @@ export default function NavV2() {
           >
             {t("landingV2.nav.login", "Log in")}
           </Link>
-          <a
-            href="#pricing"
+          {/* Goes to /register, not #pricing — see the same change in
+              HeroV2. Pricing is still reachable from the nav link. */}
+          <Link
+            to="/register"
             className="rounded-full bg-slate-900 px-[18px] py-[9px] text-[14.5px] font-medium text-white transition-colors duration-[160ms] ease-[cubic-bezier(0.22,0.61,0.36,1)] hover:bg-bb-green"
             onClick={close}
           >
-            {t("landingV2.nav.cta", "Start free")}
-          </a>
+            {t("landingV2.nav.cta", "Free trial")}
+          </Link>
         </div>
       </div>
 

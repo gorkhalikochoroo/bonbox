@@ -1,4 +1,5 @@
 import { ChevronRight } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useLanguage } from "../../../hooks/useLanguage";
 
 /**
@@ -48,12 +49,15 @@ export default function HeroV2() {
           </p>
 
           <div className="mb-[26px] flex flex-wrap items-center gap-[14px]">
-            <a
-              href="#pricing"
+            {/* Goes to /register, not #pricing. The primary CTA used to
+                scroll to the pricing table, so the one button most likely to
+                be clicked never reached a signup form. */}
+            <Link
+              to="/register"
               className="rounded-full bg-slate-900 px-[26px] py-[14px] text-[15.5px] font-medium text-white transition-colors duration-150 ease-out hover:bg-bb-green"
             >
-              {t("landingV2HeroCtaPrimary", "Start free")}
-            </a>
+              {t("landingV2HeroCtaPrimary", "Free trial")}
+            </Link>
             <a
               href="#reservations"
               className="rounded-full border border-slate-200 bg-white px-6 py-[13px] text-[15.5px] font-medium text-slate-900 transition-colors duration-150 ease-out hover:border-slate-400"
