@@ -19,6 +19,20 @@
   --color-chat-bubble: #17222E;
   --color-chat-border: #1C2833;
 
+  /* Marketing brand green. NOT green-600: index.css remaps every
+     .bg-green-* / .text-green-* class to rgb(var(--brand-*)) with
+     !important so the APP follows the user's chosen theme, and the
+     default theme is blue. A marketing page must not change colour
+     because a logged-in user picked a different theme, so the landing
+     design uses these tokens, which no override touches. */
+  --color-bb-green: #16A34A;
+  --color-bb-green-bright: #22C55E;
+  --color-bb-green-dark: #15803D;
+  --color-bb-green-tint: #DCFCE7;
+  --color-bb-green-wash: #ECFDF5;
+  --color-bb-green-edge: #86EFAC;
+  --color-bb-green-icon: #F0FDF4;
+
   --font-display: "Hanken Grotesk", system-ui, sans-serif;
   --font-text: "Inter Tight", "Inter", system-ui, sans-serif;
 }
