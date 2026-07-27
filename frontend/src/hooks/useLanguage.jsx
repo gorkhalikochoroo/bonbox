@@ -4909,7 +4909,9 @@ const translations = {
     // Founder's own words; do not rewrite. DK terms (MOMS, revisor,
     // kasseopgørelse) stay Danish in both locales. Informal "du".
     landingFounderEyebrow: "Who's behind this",
-    landingFounderName: "Manoj · Founder, BonBox",
+    landingFounderName: "Manoz Chaudhary · Copenhagen",
+    landingFounderCvr: "CVR 46417321",
+    landingFooterEntity: "a product of DukaanAI v/Manoz Chaudhary",
     landingFounderP1: "My name is Manoj.",
     landingFounderP2: "I spent five years in a kitchen in Copenhagen. The part that wore you down was not the evenings, it was the half hour afterwards, counting up and writing numbers down by hand. That half hour is what BonBox is built to remove.",
     landingFounderP3: "It's just me for now — so when you email, you get me. Usually the same day.",
@@ -12137,7 +12139,9 @@ const translations = {
     // Stifterens egne ord; må ikke omskrives. DK-termer (MOMS, revisor,
     // kasseopgørelse) bliver på dansk. Uformelt "du".
     landingFounderEyebrow: "Hvem står bag",
-    landingFounderName: "Manoj · Stifter, BonBox",
+    landingFounderName: "Manoz Chaudhary · København",
+    landingFounderCvr: "CVR 46417321",
+    landingFooterEntity: "et produkt fra DukaanAI v/Manoz Chaudhary",
     landingFounderP1: "Jeg hedder Manoj.",
     landingFounderP2: "Jeg har stået fem år i et køkken i København. Det, der sled, var ikke aftenerne — det var den halve time bagefter, hvor der skulle tælles op og skrives tal ned i hånden. Det er den halve time, BonBox er bygget til at fjerne.",
     landingFounderP3: "Det er kun mig indtil videre — så når du skriver, er det mig, du får fat i. Som regel samme dag.",
