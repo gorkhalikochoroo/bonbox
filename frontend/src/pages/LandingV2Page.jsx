@@ -94,7 +94,7 @@ export default function LandingV2Page() {
           the reservations band above and closes that gap. Single column below
           1041px, where PhoneFanV2 also drops its two side phones (981px). */}
       <Band id="staff" tone="white">
-        <div className="grid items-center gap-[clamp(36px,5vw,64px)] min-[1240px]:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+        <div className="grid items-center gap-[clamp(36px,5vw,64px)] min-[1041px]:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
           <StaffCopyV2 />
           {/* PhoneFanV2 is fixed-width artwork — three 280px shells, ~852px
               across. The right column only reaches that at ~1680px, so
@@ -104,7 +104,7 @@ export default function LandingV2Page() {
               html's overflow-x:clip on the right (which is why scrollWidth
               looked clean). Scale keeps the layout box put and shrinks only
               what is painted. Numbers are the measured cell width / 852. */}
-          <div className="flex justify-center min-[1240px]:scale-[0.70] min-[1440px]:scale-[0.84] min-[1680px]:scale-100">
+          <div className="flex justify-center min-[1041px]:scale-[0.58] min-[1240px]:scale-[0.70] min-[1440px]:scale-[0.84] min-[1680px]:scale-100">
             <PhoneFanV2 />
           </div>
         </div>
