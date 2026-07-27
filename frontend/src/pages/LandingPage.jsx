@@ -1609,7 +1609,15 @@ export default function LandingPage() {
                 (w-15 h-15 = 60px). Keep the ring-1 ring-gray-200 for a
                 clean edge on light photos. */}
             <p className="text-[15px] font-semibold text-gray-900 tracking-tight">
-              {tx_("landingFounderName", "Manoj Kumar Chaudhary · BonBox · København · CVR 46417321")}
+              {tx_("landingFounderName", "Manoz Chaudhary · København")}{" "}
+              <a
+                href="https://datacvr.virk.dk/enhed/virksomhed/46417321"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-normal text-gray-500 underline underline-offset-2 hover:text-gray-900"
+              >
+                {tx_("landingFounderCvr", "CVR 46417321")}
+              </a>
             </p>
           </div>
 
@@ -1698,8 +1706,21 @@ export default function LandingPage() {
               <Link to="/contact" className="hover:text-gray-900 transition-colors">{tx_("contact", "Contact")}</Link>
             </div>
 
+            {/* The trading name is BonBox; the registered business is
+                DukaanAI v/Manoz Chaudhary. Naming both, with the CVR
+                linked to the public register, is the cheapest credibility
+                on the page — anyone can check it in ten seconds. */}
             <p className="text-[12px] text-gray-500">
-              © {new Date().getFullYear()} BonBox · København · CVR 46417321
+              © {new Date().getFullYear()} BonBox —{" "}
+              {tx_("landingFooterEntity", "et produkt fra DukaanAI v/Manoz Chaudhary")} ·{" "}
+              <a
+                href="https://datacvr.virk.dk/enhed/virksomhed/46417321"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-2 hover:text-gray-700"
+              >
+                CVR 46417321
+              </a>
             </p>
           </div>
         </div>

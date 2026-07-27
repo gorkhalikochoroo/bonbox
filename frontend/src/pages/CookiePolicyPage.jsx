@@ -134,6 +134,16 @@ export default function CookiePolicyPage() {
               <strong>Email:</strong> <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a><br />
               <strong>Website:</strong> <a href="https://bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">bonbox.dk</a>
             </p>
+            {/* e-handelsloven §7 wants a name, a real address and a CVR on a
+                page like this — "email us" is not an identifiable trader.
+                Values are the CVR register's, not the ones printed on the
+                app's own gavekort template. */}
+            <p className="mt-3">
+              BonBox is a product of <strong>DukaanAI v/Manoz Chaudhary</strong>, registered in Denmark
+              as a Personligt ejet Mindre Virksomhed.<br />
+              Carl Th. Dreyers Vej 244, 4. 3, 2500 Valby, Denmark · CVR{" "}
+              <a href="https://datacvr.virk.dk/enhed/virksomhed/46417321" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">46417321</a>
+            </p>
           </section>
         </div>
 
