@@ -73,7 +73,7 @@ export default function FooterV2() {
 
   return (
     <footer className="border-t border-slate-200 bg-slate-50">
-      <div className="mx-auto flex max-w-[1180px] flex-wrap justify-between gap-9 px-[clamp(24px,4vw,64px)] pt-11 pb-9">
+      <div className="mx-auto flex max-w-[1440px] flex-wrap justify-between gap-9 px-[clamp(24px,4vw,80px)] pt-11 pb-9">
         <div>
           <div className="mb-3 flex items-center gap-2.5">
             <span
@@ -121,7 +121,7 @@ export default function FooterV2() {
       </div>
 
       <div className="border-t border-slate-200">
-        <div className="mx-auto max-w-[1180px] px-[clamp(24px,4vw,64px)] py-4 text-[12.5px] text-slate-400">
+        <div className="mx-auto max-w-[1440px] px-[clamp(24px,4vw,80px)] py-4 text-[12.5px] text-slate-400">
           {t("landingV2.footer.copyright", "© 2026 BonBox · Made in Copenhagen")}
         </div>
       </div>
