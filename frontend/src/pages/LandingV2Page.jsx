@@ -1,10 +1,9 @@
 /**
  * The rebuilt marketing landing page (design_handoff_bonbox_landing).
  *
- * Mounted at /v2 so it can be looked at beside the live page rather than
- * replacing it in one commit — the current landing carries two weeks of
- * corrections (hosting claims, statute references, MOMS arithmetic,
- * fabricated quotes) and a straight swap would risk losing them silently.
+ * This is the front door, served at "/". It shipped behind /v2 first so it
+ * could be compared against the old page; /v2 stays as an alias so any
+ * link already shared keeps working.
  *
  * Section order and backgrounds follow the handoff: alternating white /
  * slate-50, with one charcoal band near the end. The floor plan is the
@@ -24,7 +23,6 @@ import AiPanelV2 from "../components/landing/v2/AiPanelV2";
 import GavekortV2 from "../components/landing/v2/GavekortV2";
 import PricingV2 from "../components/landing/v2/PricingV2";
 import FooterV2 from "../components/landing/v2/FooterV2";
-import { useLanguage } from "../hooks/useLanguage";
 
 /** Shared shell: 1180px container with the handoff's fluid gutters. */
 function Container({ children, className = "" }) {
@@ -52,8 +50,6 @@ function Band({ id, tone = "white", children }) {
 }
 
 export default function LandingV2Page() {
-  const { t } = useLanguage();
-
   return (
     <div className="min-h-screen bg-white font-text text-slate-900">
       <NavV2 />
@@ -109,12 +105,6 @@ export default function LandingV2Page() {
       </Band>
 
       <FooterV2 />
-
-      {/* Preview marker — this route is not the live page. Removed when the
-          design replaces it. */}
-      <div className="bg-slate-900 px-4 py-2 text-center text-[12px] text-slate-400">
-        {t("landingV2PreviewNote", "Preview of the rebuilt landing page. The live page is at /.")}
-      </div>
     </div>
   );
 }
