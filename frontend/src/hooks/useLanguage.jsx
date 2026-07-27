@@ -17429,6 +17429,14 @@ export function LanguageProvider({ children }) {
     return result;
   }, [loaded, lang]);
 
+  // Keep <html lang> in step with the chosen language. index.html ships
+  // lang="en" and nothing was updating it, so a Danish page still announced
+  // itself as English — screen readers then read Danish with English
+  // phonetics, and search engines index the wrong locale.
+  useEffect(() => {
+    if (typeof document !== "undefined") document.documentElement.lang = lang;
+  }, [lang]);
+
   return (
     <LanguageContext.Provider value={{ lang, setLang, toggleLang, t, LANGUAGES }}>
       {children}

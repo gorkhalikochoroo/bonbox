@@ -19,7 +19,7 @@
  * Colours are stock Tailwind under the design's names: slate-900 is its
  * "ink", slate-200 its border, green-600 the confirmed time.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLanguage } from "../../../hooks/useLanguage";
 
 /** Chip geometry differs per group in the design: 12 / 14 / 13 px inline. */
@@ -33,8 +33,18 @@ const PARTY_SIZES = [1, 2, 3, 4, 5, 6];
 const TIMES = ["18:15", "18:30", "18:45", "19:00", "19:15"];
 
 export default function BookingCardV2() {
-  const { t } = useLanguage();
-  const [cardLang, setCardLang] = useState("en");
+  const { t, lang } = useLanguage();
+  // The demo opens in whatever language the visitor is reading the site in.
+  // It used to hard-code "en", so the Danish landing page showed an English
+  // booking card — "Pick a date", "Party size", "No account needed" were the
+  // only English left on the page. The DA/EN switch below still works; it is
+  // the public page's own control, and a visitor toggling it keeps their
+  // choice until the site language itself changes.
+  const demoLang = lang === "da" ? "da" : "en";
+  const [cardLang, setCardLang] = useState(demoLang);
+  useEffect(() => {
+    setCardLang(demoLang);
+  }, [demoLang]);
   const [dateIdx, setDateIdx] = useState(0);
   const [party, setParty] = useState(2);
   const [time, setTime] = useState("19:00");
