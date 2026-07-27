@@ -65,7 +65,6 @@ export default function PrivacyPolicyPage() {
             <ul className="list-disc pl-6 space-y-1 mt-2">
               <li><strong>Registered name:</strong> DukaanAI v/Manoz Chaudhary</li>
               <li><strong>CVR:</strong> <a href="https://datacvr.virk.dk/enhed/virksomhed/46417321" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">46417321</a> — you can check us in the public register</li>
-              <li><strong>Address:</strong> Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby, Denmark</li>
               <li><strong>Website:</strong> bonbox.dk</li>
               <li><strong>Contact email:</strong> <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a></li>
             </ul>

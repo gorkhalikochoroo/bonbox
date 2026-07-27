@@ -5,10 +5,25 @@
  * could be compared against the old page; /v2 stays as an alias so any
  * link already shared keeps working.
  *
- * Section order and backgrounds follow the handoff: alternating white /
- * slate-50, with one charcoal band near the end. The floor plan is the
- * component already shipped in components/landing/FloorPlan.jsx rather
- * than a second copy.
+ * DO NOT WRAP THE SELF-CONTAINED SECTIONS.
+ * Six of these components return their own <section id="…"> carrying the
+ * band background, the 1180px container and the clamp() padding: HeroV2
+ * (#top), ModulesV2 (#modules), AccessV2 (#access), AiPanelV2 (#ai),
+ * GavekortV2 (#gavekort), PricingV2 (#pricing). The first version of this
+ * page put a <Band> around them as well, which nested a section inside a
+ * section carrying the same id. That gave doubled gutters (the hero was
+ * inset 90px instead of 45), a second background painted inside the first
+ * — visible as an edge running down both sides of the page — and
+ * duplicate DOM ids, so getElementById returned the outer shell and the
+ * nav anchors scrolled to the wrong element.
+ *
+ * The rest are fragments with no section of their own (BookingCardV2,
+ * StaffCopyV2, ScheduleGridV2, PhoneFanV2), so those DO get the Band
+ * below. NavV2 returns <header> and FooterV2 returns <footer>; both are
+ * full-width and own their layout.
+ *
+ * Rule when adding a section: if the component renders its own
+ * <section id>, render it bare here.
  */
 import NavV2 from "../components/landing/v2/NavV2";
 import HeroV2 from "../components/landing/v2/HeroV2";
@@ -24,27 +39,27 @@ import GavekortV2 from "../components/landing/v2/GavekortV2";
 import PricingV2 from "../components/landing/v2/PricingV2";
 import FooterV2 from "../components/landing/v2/FooterV2";
 
-/** Shared shell: 1180px container with the handoff's fluid gutters. */
-function Container({ children, className = "" }) {
-  return (
-    <div
-      className={`mx-auto w-full ${className}`}
-      style={{ maxWidth: 1180, paddingLeft: "clamp(24px,4vw,64px)", paddingRight: "clamp(24px,4vw,64px)" }}
-    >
-      {children}
-    </div>
-  );
-}
-
+/**
+ * Wrapper for the fragment sections only. Matches the geometry the
+ * self-contained ones already carry, so every band sits on the same
+ * 1180px column with the same fluid gutters.
+ */
 function Band({ id, tone = "white", children }) {
-  const bg = tone === "slate" ? "bg-slate-50" : tone === "charcoal" ? "bg-charcoal" : "bg-white";
+  const bg = tone === "slate" ? "bg-slate-50" : "bg-white";
   return (
     <section id={id} className={`${bg} border-t border-slate-200`}>
-      <Container>
-        <div style={{ paddingTop: "clamp(52px,6vw,88px)", paddingBottom: "clamp(52px,6vw,88px)" }}>
-          {children}
-        </div>
-      </Container>
+      <div
+        className="mx-auto w-full"
+        style={{
+          maxWidth: 1180,
+          paddingLeft: "clamp(24px,4vw,64px)",
+          paddingRight: "clamp(24px,4vw,64px)",
+          paddingTop: "clamp(52px,6vw,88px)",
+          paddingBottom: "clamp(52px,6vw,88px)",
+        }}
+      >
+        {children}
+      </div>
     </section>
   );
 }
@@ -54,55 +69,39 @@ export default function LandingV2Page() {
     <div className="min-h-screen bg-white font-text text-slate-900">
       <NavV2 />
 
-      {/* 2 · Hero — slate-50, no top border (it sits under the nav) */}
-      <section id="top" className="bg-slate-50">
-        <Container>
-          <div style={{ paddingTop: "clamp(48px,6vw,88px)", paddingBottom: "clamp(40px,5vw,64px)" }}>
-            <HeroV2 />
-          </div>
-        </Container>
-      </section>
+      {/* Self-contained: brings #top and its own slate-50 band */}
+      <HeroV2 />
 
-      {/* 3 · Six modules */}
-      <Band id="modules" tone="white">
-        <ModulesV2 />
-      </Band>
+      {/* Self-contained: #modules */}
+      <ModulesV2 />
 
-      {/* 4 · Reservations — booking card + the architectural floor plan.
-          0.82fr / 1.18fr per the handoff, one column under 1040px. */}
+      {/* Fragments — booking card + the architectural floor plan.
+          0.82fr / 1.18fr per the handoff, one column under 1041px. */}
       <Band id="reservations" tone="slate">
-        <div className="grid items-center gap-[clamp(36px,5vw,56px)] lg:grid-cols-[0.82fr_1.18fr]">
+        <div className="grid items-center gap-[clamp(36px,5vw,56px)] min-[1041px]:grid-cols-[0.82fr_1.18fr]">
           <div><BookingCardV2 /></div>
           <div className="flex justify-center"><FloorPlan /></div>
         </div>
       </Band>
 
-      {/* 5 · Staff app — copy, then the week builder, then the phone fan */}
+      {/* Fragments — copy, then the week builder, then the phone fan */}
       <Band id="staff" tone="white">
         <StaffCopyV2 />
         <div className="mt-12"><ScheduleGridV2 /></div>
         <div className="mt-14"><PhoneFanV2 /></div>
       </Band>
 
-      {/* 6 · Who sees what */}
-      <Band id="access" tone="slate">
-        <AccessV2 />
-      </Band>
+      {/* Self-contained: #access */}
+      <AccessV2 />
 
-      {/* 7 · BonBox AI */}
-      <Band id="ai" tone="white">
-        <AiPanelV2 />
-      </Band>
+      {/* Self-contained: #ai */}
+      <AiPanelV2 />
 
-      {/* 8 · Gavekort — the one band that breaks the white/slate rhythm */}
-      <Band id="gavekort" tone="charcoal">
-        <GavekortV2 />
-      </Band>
+      {/* Self-contained: #gavekort — the charcoal band */}
+      <GavekortV2 />
 
-      {/* 9 · Pricing */}
-      <Band id="pricing" tone="white">
-        <PricingV2 />
-      </Band>
+      {/* Self-contained: #pricing */}
+      <PricingV2 />
 
       <FooterV2 />
     </div>
