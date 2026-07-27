@@ -65,10 +65,11 @@ import {
   tableDims, archetypeChairs, bodyRadiusClass, chairIsStool, TableMark,
 } from "../config/tableArchetypes";
 import {
-  Clock, Sparkles, Check, ArrowRight, Menu, X, ChevronDown, Apple, Mail,
+  Clock, Check, ArrowRight, Menu, X, ChevronDown, Apple, Mail,
+  Receipt, Utensils, Landmark,
   // Pillar/day glyphs — one Lucide outline icon per surface,
   // all at the single decorative stroke weight (1.5).
-  CalendarClock, FileText, Calendar, CalendarCheck,
+  CalendarClock, FileText, Calendar,
   // Proof-tile + trust glyphs.
   Users, FileCheck, Globe, Server, BookCheck,
 } from "lucide-react";
@@ -194,12 +195,18 @@ function DailyCloseHero({ tx_ }) {
           <p className="text-[40px] sm:text-[44px] font-bold text-gray-900 tabular-nums leading-tight tracking-tight mt-0.5">
             14.230<span className="text-gray-400 ml-1.5 text-[22px] font-semibold">kr</span>
           </p>
+          {/* Derived, not decorative. The bars are these takings in
+              1.000 kr, and the "+12%" caption beside them is computed from
+              the same numbers: today (14.23) against the mean of the six
+              days before it (76.2/6 = 12.70 → +12.0%). The previous version
+              hardcoded seven heights that showed +117% next to a caption
+              claiming +12% — if you change a bar, recompute the caption. */}
           <div className="mt-3 flex items-end gap-1.5 h-12" aria-hidden="true">
-            {[46, 58, 43, 67, 54, 73, 100].map((hPct, i) => (
+            {[11.9, 13.2, 12.4, 13.9, 12.1, 12.7, 14.23].map((v, i, all) => (
               <span
                 key={i}
-                className={`closeBar flex-1 rounded-sm ${i === 6 ? "bg-gray-900" : "bg-gray-200"}`}
-                style={{ height: `${hPct}%`, animationDelay: `${i * 55}ms` }}
+                className={`closeBar flex-1 rounded-sm ${i === all.length - 1 ? "bg-gray-900" : "bg-gray-200"}`}
+                style={{ height: `${Math.round((v / 14.23) * 100)}%`, animationDelay: `${i * 55}ms` }}
               />
             ))}
           </div>
@@ -801,7 +808,7 @@ export default function LandingPage() {
     {
       key: "brief",
       href: "#pillars",
-      icon: <Sparkles size={16} strokeWidth={STROKE} aria-hidden="true" />,
+      icon: <Mail size={16} strokeWidth={STROKE} aria-hidden="true" />,
       time: tx_("landingDay1Time", "08:00"),
       title: tx_("landingDay1Title", "Your brief is waiting"),
       body: tx_("landingDay1Body", "Revenue, MOMS countdown, overdue fakturaer, regulars drifting — before your first coffee."),
@@ -817,18 +824,18 @@ export default function LandingPage() {
     {
       key: "reservations",
       href: "#pillars",
-      icon: <CalendarClock size={16} strokeWidth={STROKE} aria-hidden="true" />,
+      icon: <Utensils size={16} strokeWidth={STROKE} aria-hidden="true" />,
       time: tx_("landingDay3Time", "18:00"),
-      title: tx_("landingDay3Title", "Tables book themselves"),
+      title: tx_("landingDay3Title", "Guests book their own table"),
       body: tx_("landingDay3Body", "Guests self-book on your floor plan. Double-booking a table is physically impossible."),
     },
     {
       key: "close",
       href: "#pillars",
-      icon: <Clock size={16} strokeWidth={STROKE} aria-hidden="true" />,
+      icon: <Receipt size={16} strokeWidth={STROKE} aria-hidden="true" />,
       time: tx_("landingDay4Time", "22:30"),
       title: tx_("landingDay4Title", "Close the day in 30 seconds"),
-      body: tx_("landingDay4Body", "Snap the Z-report. A dated, locked, revisor-ready kasserapport signs itself while you cash up."),
+      body: tx_("landingDay4Body", "Photograph the Z-report. While you cash up, a dated and locked kasserapport is made ready for your revisor."),
     },
   ];
 
@@ -838,17 +845,17 @@ export default function LandingPage() {
     {
       key: "close",
       span: true,
-      icon: <Clock size={22} strokeWidth={STROKE} aria-hidden="true" />,
+      icon: <Receipt size={22} strokeWidth={STROKE} aria-hidden="true" />,
       title: tx_("landingPillarCloseTitle", "Daily close · kasserapport"),
-      promise: tx_("landingPillarClosePromise", "Snap the Z-report — a dated, locked, revisor-ready kasserapport signs itself. No more 22:30 cash-up."),
+      promise: tx_("landingPillarClosePromise", "Photograph the Z-report. The numbers are read out, you check them, and the day locks with a dated kasserapport your revisor can use as it is."),
       foot: tx_("landingPillarCloseFoot", "You scan the Z-report — BonBox isn't the POS."),
       tier: null,
     },
     {
       key: "staff",
-      icon: <Calendar size={22} strokeWidth={STROKE} aria-hidden="true" />,
+      icon: <Users size={22} strokeWidth={STROKE} aria-hidden="true" />,
       title: tx_("landingPillarStaffTitle", "Vagtplan autopilot"),
-      promise: tx_("landingPillarStaffPromise", "Next week's Vagtplan proposed in one tap — sized to your revenue, the weather and DK labour law, at your target labour %."),
+      promise: tx_("landingPillarStaffPromise", "Next week's vagtplan proposed in one tap. It weighs your revenue, the weather and Danish labour law, and holds your target labour percentage."),
       foot: tx_("landingPillarStaffFoot", "Proposes — never auto-publishes. You publish."),
       tier: tx_("pricingTierPro", "Pro"),
       appLink: {
@@ -858,7 +865,7 @@ export default function LandingPage() {
     },
     {
       key: "reservations",
-      icon: <CalendarCheck size={22} strokeWidth={STROKE} aria-hidden="true" />,
+      icon: <Utensils size={22} strokeWidth={STROKE} aria-hidden="true" />,
       title: tx_("landingPillarReservationsTitle", "Reservationer"),
       promise: tx_("landingPillarReservationsPromise", "A public booking page on a tap-to-pick 2D floor plan — double-booking a table is physically impossible."),
       foot: tx_("landingPillarReservationsFoot", "Free taste: 20 bookings/mo, 3 tables."),
@@ -874,9 +881,9 @@ export default function LandingPage() {
     },
     {
       key: "skat",
-      icon: <CalendarClock size={22} strokeWidth={STROKE} aria-hidden="true" />,
+      icon: <Landmark size={22} strokeWidth={STROKE} aria-hidden="true" />,
       title: tx_("landingPillarSkatTitle", "Skat Autopilot · MOMS"),
-      promise: tx_("landingPillarSkatPromise", "A live countdown to every MOMS frist and the weekly kroner to set aside — plus a filing-ready angivelse PDF you submit to SKAT."),
+      promise: tx_("landingPillarSkatPromise", "A live countdown to every MOMS deadline and the amount to set aside each week. When the deadline nears, the filing is ready as a PDF, and you send it to SKAT yourself."),
       foot: tx_("landingPillarSkatFoot", "BonBox doesn't file to SKAT — you submit; the amount is an estimate."),
       tier: null,
     },
@@ -903,7 +910,7 @@ export default function LandingPage() {
       icon: <Clock size={18} strokeWidth={STROKE} aria-hidden="true" />,
       fig: tx_("landingSaveCloseFig", "~30 sec"),
       label: tx_("landingSaveCloseLabel", "to close, not 30 minutes"),
-      sub: tx_("landingSaveCloseSub", "Snap-and-confirm replaces the spreadsheet cash-up — you review before locking."),
+      sub: tx_("landingSaveCloseSub", "Photograph and confirm. It replaces the spreadsheet cash-up, and you review before anything locks."),
     },
     {
       key: "rekey",
@@ -955,7 +962,7 @@ export default function LandingPage() {
         // Moved to Starter under the 2026-07 tier doctrine (every functional
         // feature is on Starter now; Pro differs only by size + volume + perks).
         tx_("landingPricingStarterB6", "Vagtplan autopilot (revenue + weather + labour %)"),
-        tx_("landingPricingStarterB7", "Filing-ready MOMS angivelse PDF + reservation insights"),
+        tx_("landingPricingStarterB7", "MOMS angivelse as PDF, ready to file + reservation insights"),
       ],
       ctaLabel: tx_("landingPricingCtaStarter", "Try 14 days free"),
       ctaStyle: "dark",
@@ -993,7 +1000,7 @@ export default function LandingPage() {
         tx_("landingCatMoney3", "Recurring expenses (rent, internet, subs)"),
         tx_("landingCatMoney4", "Cash Book + cash drawer variance"),
         tx_("landingCatMoney5", "Bank reconciliation auto-match"),
-        tx_("landingCatMoney6", "MOMS countdown + filing-ready PDF (you submit to SKAT)"),
+        tx_("landingCatMoney6", "MOMS countdown + PDF ready for the filing (you submit yourself)"),
       ],
     },
     {
@@ -1033,22 +1040,17 @@ export default function LandingPage() {
       titleKey: "landingCatAi", titleFallback: "AI",
       items: [
         tx_("landingCatAi1", "Daily Brief 2.0 (8am email + in-app)"),
-        tx_("landingCatAi2", "MOMS countdown widget"),
         tx_("landingCatAi3", "Regulars-at-risk alerts"),
         tx_("landingCatAi4", "Sales↔Close variance flagging"),
-        tx_("landingCatAi5", "Receipt OCR (vendor + amount + date)"),
         tx_("landingCatAi6", "Weather-aware staff predictions"),
       ],
     },
     {
       titleKey: "landingCatMore", titleFallback: "More",
       items: [
-        tx_("landingCatMore1", "Reservations + floor plan"),
         tx_("landingCatMore2", "Khata · regulars credit book"),
         tx_("landingCatMore3", "Loan tracker"),
         tx_("landingCatMore4", "Multi-currency · 6 languages"),
-        tx_("landingCatMore5", "Dark mode"),
-        tx_("landingCatMore6", "Revisor read-only export bundle"),
       ],
     },
   ];
@@ -1224,7 +1226,7 @@ export default function LandingPage() {
               <p className="mt-5 text-[17px] text-gray-600 leading-[1.6] max-w-[560px]">
                 {tx_(
                   "landingHeroSub2",
-                  "Slut med den trætte kasseoptælling kl. 22:30 og MOMS-fristen der lurer. Luk dagen på 30 sekunder, miss aldrig en frist, og alt er klar til din revisor.",
+                  "Tag et billede af Z-rapporten, tjek tallene, færdig. MOMS-nedtællingen viser, hvad du skal lægge til side, og kasserapporten ligger klar til revisor.",
                 )}
               </p>
 
@@ -1273,7 +1275,7 @@ export default function LandingPage() {
         <CenteredIntro
           eyebrow={tx_("landingDayTag", "One day, handled")}
           title={tx_("landingDayTitle", "Your day, from first coffee to lights-out.")}
-          sub={tx_("landingDaySub", "Four moments that used to eat your evening. Now they run while you work — and the revisor-ready paperwork writes itself.")}
+          sub={tx_("landingDaySub", "Four things that used to take the rest of the evening. Now they run while you work, and the paperwork is ready for your revisor afterwards.")}
         />
         <DayTimeline nodes={dayNodes} />
         <p className="mt-10 text-center text-[15px] text-gray-500 max-w-2xl mx-auto leading-[1.6]">
@@ -1338,7 +1340,7 @@ export default function LandingPage() {
               <Eyebrow>{tx_("landingShowFakturaTag", "Faktura")}</Eyebrow>
               <Heading>{tx_("landingShowFakturaTitle", "Send a faktura. Numbered exactly right.")}</Heading>
               <p className="mt-4 text-[17px] text-gray-600 leading-[1.6] max-w-[560px]">
-                {tx_("landingShowFakturaSub", "One tap makes a faktura with numbering that runs without gaps. Void one and you get a proper kreditnota — never a deleted line. Upload your netbank CSV and paid invoices match themselves.")}
+                {tx_("landingShowFakturaSub", "One tap makes a faktura with numbering that runs without gaps. Void one and you get a proper kreditnota — never a deleted line. Upload your netbank CSV and paid invoices are matched automatically.")}
               </p>
               <ul className="mt-6 space-y-2.5 text-[15px] text-gray-700">
                 {[
@@ -1591,7 +1593,7 @@ export default function LandingPage() {
                 tx_("landingPosIs2", "Faktura with numbering that runs without gaps"),
                 tx_("landingPosIs3", "The AI morning Brief that knows your last 90 days"),
                 tx_("landingPosIs4", "OCR receipts + bank-CSV auto-match to fakturaer"),
-                tx_("landingPosIs5", "Revisor-ready CSV bundle for the årsregnskab"),
+                tx_("landingPosIs5", "CSV bundle for the årsregnskab, ready for your revisor to use as it is"),
               ].map((line) => (
                 <li key={line} className="flex gap-2 text-[15px] text-gray-700 leading-snug">
                   <Check size={16} strokeWidth={2} className="mt-0.5 text-emerald-600 shrink-0" aria-hidden="true" />
@@ -1674,13 +1676,6 @@ export default function LandingPage() {
                 <img src="…" alt="Manoj" className="w-15 h-15 rounded-full object-cover ring-1 ring-gray-200" />
                 (w-15 h-15 = 60px). Keep the ring-1 ring-gray-200 for a
                 clean edge on light photos. */}
-            <div
-              className="shrink-0 inline-flex items-center justify-center rounded-full bg-gray-100 ring-1 ring-gray-200 text-gray-900 font-bold text-[24px] select-none"
-              style={{ width: 60, height: 60 }}
-              aria-hidden="true"
-            >
-              M
-            </div>
             <p className="text-[15px] font-semibold text-gray-900 tracking-tight">
               {tx_("landingFounderName", "Manoj Kumar Chaudhary · BonBox · København · CVR 46417321")}
             </p>
@@ -1688,7 +1683,7 @@ export default function LandingPage() {
 
           {/* Eyebrow sits under the identity — keeps the human first. */}
           <div className="mt-6">
-            <Eyebrow>{tx_("landingFounderEyebrow", "Made by a real person")}</Eyebrow>
+            <Eyebrow>{tx_("landingFounderEyebrow", "Who's behind this")}</Eyebrow>
           </div>
 
           {/* Three short paragraphs — lead size (17px), generous spacing. */}
