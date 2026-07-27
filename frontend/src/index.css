@@ -1,5 +1,28 @@
 @import "tailwindcss";
 
+/* ── Landing design system tokens ──────────────────────────────────
+   From design_handoff_bonbox_landing. Almost the whole palette in that
+   handoff is stock Tailwind under a different name — #0F172A is
+   slate-900, #16A34A is green-600, #E2E8F0 is slate-200, #F8FAFC is
+   slate-50, #DCFCE7 is green-100, and so on. Those are used as utility
+   classes, NOT redefined here; duplicating them under new names would
+   give the codebase two words for one colour.
+
+   Only the four genuinely bespoke values live here, plus the two type
+   faces. */
+@theme {
+  --color-paper: #FBFAF7;      /* floor-plan floor — warm, must stay distinct from slate-50 */
+  --color-charcoal: #131210;   /* gavekort band */
+  --color-charcoal-card: #14120E;
+  --color-gold: #C9A961;       /* gavekort accents */
+  --color-chat-bg: #0F1922;    /* BonBox AI panel */
+  --color-chat-bubble: #17222E;
+  --color-chat-border: #1C2833;
+
+  --font-display: "Hanken Grotesk", system-ui, sans-serif;
+  --font-text: "Inter Tight", "Inter", system-ui, sans-serif;
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* Restore the hand-cursor on clickable controls.
@@ -549,3 +572,56 @@ body.modal-open {
   }
 }
 @page { margin: 14mm; }
+
+
+/* ── Landing floor-plan animation ─────────────────────────────────
+   Four keyframes, ONE story on a shared 9s clock: a booking arrives
+   (bb-book), Bord 3 turns upcoming, then seated, then resets
+   (bb-seat + bb-seatdot), with a ring pulsing out of it (bb-ping).
+   Keep the durations equal — staggering them breaks the narrative.
+
+   Every animated node carries its resolved end state as an inline
+   style and the keyframe only overrides it, so a reduced-motion user
+   sees a finished plan rather than a blank element. */
+@keyframes bb-seat {
+  0%, 24%   { background: #ECFDF5; border-color: #22C55E; }
+  33%, 55%  { background: #FEF3C7; border-color: #F59E0B; }
+  64%, 88%  { background: #E2E8F0; border-color: #94A3B8; }
+  96%, 100% { background: #ECFDF5; border-color: #22C55E; }
+}
+@keyframes bb-seatdot {
+  0%, 24%   { background: #22C55E; }
+  33%, 55%  { background: #F59E0B; }
+  64%, 88%  { background: #64748B; }
+  96%, 100% { background: #22C55E; }
+}
+@keyframes bb-ping {
+  0%   { transform: scale(0.5); opacity: 0; }
+  28%  { transform: scale(1);   opacity: 0.55; }
+  60%  { transform: scale(1.7); opacity: 0; }
+  100% { transform: scale(1.7); opacity: 0; }
+}
+@keyframes bb-book {
+  0%, 22%    { opacity: 0; transform: translateY(8px); }
+  28%, 68%   { opacity: 1; transform: translateY(0); }
+  74%, 100%  { opacity: 0; transform: translateY(8px); }
+}
+@keyframes bb-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-10px); }
+}
+
+.bb-seat, .bb-seatdot, .bb-ping, .bb-book {
+  animation-duration: 9s;
+  animation-iteration-count: infinite;
+  animation-timing-function: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.bb-seat    { animation-name: bb-seat; }
+.bb-seatdot { animation-name: bb-seatdot; }
+.bb-ping    { animation-name: bb-ping; }
+.bb-book    { animation-name: bb-book; }
+.bb-float   { animation: bb-float 11s infinite cubic-bezier(0.22, 0.61, 0.36, 1); }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-anim] { animation: none !important; }
+}
