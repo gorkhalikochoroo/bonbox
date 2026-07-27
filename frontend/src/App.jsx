@@ -454,7 +454,11 @@ function PublicOrDashboard() {
   // direct /s/<token> link (SMS/email) or the installed PWA's manifest start_url.
   // (Previously "/" force-redirected to a saved /s/<token>, which made the bare
   // domain unreachable for anyone who'd ever tapped a staff link.)
-  return <LandingPage />;
+  //
+  // The rebuilt design (design_handoff_bonbox_landing) is now the front door.
+  // It shipped behind /v2 first so it could be compared against the old page;
+  // /v2 stays as an alias so any link already shared keeps working.
+  return <LandingV2Page />;
 }
 
 function AppRoutes() {
