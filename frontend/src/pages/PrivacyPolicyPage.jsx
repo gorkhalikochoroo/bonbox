@@ -58,12 +58,16 @@ export default function PrivacyPolicyPage() {
 
           <Section title="Who we are">
             <p>
-              BonBox is a business analytics platform for small and medium-sized businesses, operated by Manoj Kumar Chaudhary, based in Copenhagen, Denmark.
+              BonBox is a product of <strong>DukaanAI v/Manoz Chaudhary</strong>, a sole proprietorship
+              (enkeltmandsvirksomhed) registered in Denmark. That business is the data controller for
+              everything described on this page.
             </p>
             <ul className="list-disc pl-6 space-y-1 mt-2">
+              <li><strong>Registered name:</strong> DukaanAI v/Manoz Chaudhary</li>
+              <li><strong>CVR:</strong> 46417321</li>
+              <li><strong>Address:</strong> Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby, Denmark</li>
               <li><strong>Website:</strong> bonbox.dk</li>
               <li><strong>Contact email:</strong> <a href="mailto:contact@bonbox.dk" className="text-blue-600 dark:text-blue-400 hover:underline">contact@bonbox.dk</a></li>
-              <li><strong>Location:</strong> Copenhagen, Denmark</li>
             </ul>
             <p className="mt-3">
               We process personal data in accordance with the EU General Data Protection Regulation (GDPR) and the Danish Data Protection Act (Databeskyttelsesloven, Act No. 502 of 23 May 2018).

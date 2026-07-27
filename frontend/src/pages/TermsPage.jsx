@@ -188,7 +188,7 @@ export default function TermsPage() {
 
           <Section num={13} title="Trademarks and third-party names">
             <p>
-              "BonBox" and the BonBox logo are trademarks of Manoj Kumar Chaudhary.
+              "BonBox" and the BonBox logo are trademarks of DukaanAI v/Manoz Chaudhary (CVR 46417321).
             </p>
             <p className="mt-3">
               All other product, service, and company names referenced in BonBox or in
