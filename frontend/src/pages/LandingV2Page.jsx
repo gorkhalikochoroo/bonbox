@@ -51,7 +51,7 @@ function Band({ id, tone = "white", children }) {
       <div
         className="mx-auto w-full"
         style={{
-          maxWidth: 1440,
+          maxWidth: "100%",
           paddingLeft: "clamp(24px,4vw,80px)",
           paddingRight: "clamp(24px,4vw,80px)",
           paddingTop: "clamp(52px,6vw,88px)",
