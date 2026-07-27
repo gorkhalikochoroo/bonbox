@@ -10,7 +10,9 @@
  *  1. LEGAL IDENTITY. The design prints "BonBox v/Manoz Chaudhary" and drops
  *     the floor from the address. Both are wrong against the CVR registry.
  *     BonBox is the product; the registered business is DukaanAI, at
- *     Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby, CVR 46417321. A footer
+ *     CVR 46417321, linked to the public register. The street address
+ *     is deliberately NOT printed: it is a private home, and the CVR
+ *     link resolves to the register, which carries it. A footer
  *     identity line is the one place on a marketing site that is legally
  *     load-bearing, so it matches the registry verbatim and is NOT
  *     translated — a registered name and address are not copy.
@@ -35,7 +37,6 @@ import { useLanguage } from "../../../hooks/useLanguage";
 // Registry values, not copy. Deliberately outside t().
 const LEGAL_LINES = [
   "DukaanAI v/Manoz Chaudhary",
-  "Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby",
   "CVR 46417321",
 ];
 

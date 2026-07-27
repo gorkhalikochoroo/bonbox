@@ -141,7 +141,7 @@ export default function CookiePolicyPage() {
             <p className="mt-3">
               BonBox is a product of <strong>DukaanAI v/Manoz Chaudhary</strong>, registered in Denmark
               as a Personligt ejet Mindre Virksomhed.<br />
-              Carl Th. Dreyers Vej 244, 4. 3, 2500 Valby, Denmark · CVR{" "}
+              Registered in Copenhagen, Denmark · CVR{" "}
               <a href="https://datacvr.virk.dk/enhed/virksomhed/46417321" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">46417321</a>
             </p>
           </section>

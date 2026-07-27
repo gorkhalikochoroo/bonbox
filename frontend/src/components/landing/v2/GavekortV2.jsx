@@ -182,7 +182,7 @@ export default function GavekortV2() {
                     <div className="mt-[5px] text-[8px] leading-[1.5] tracking-[0.06em] text-[#5F5A52]">
                       {t(
                         "landingV2.gavekort.card.address",
-                        "Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby"
+                        "København"
                       )}
                     </div>
                     <div className="text-[8px] leading-[1.5] tracking-[0.06em] text-[#5F5A52]">
