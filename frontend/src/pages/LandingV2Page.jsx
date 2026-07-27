@@ -7,7 +7,7 @@
  *
  * DO NOT WRAP THE SELF-CONTAINED SECTIONS.
  * Six of these components return their own <section id="…"> carrying the
- * band background, the 1180px container and the clamp() padding: HeroV2
+ * band background, the 1440px container and the clamp() padding: HeroV2
  * (#top), ModulesV2 (#modules), AccessV2 (#access), AiPanelV2 (#ai),
  * GavekortV2 (#gavekort), PricingV2 (#pricing). The first version of this
  * page put a <Band> around them as well, which nested a section inside a
@@ -42,7 +42,7 @@ import FooterV2 from "../components/landing/v2/FooterV2";
 /**
  * Wrapper for the fragment sections only. Matches the geometry the
  * self-contained ones already carry, so every band sits on the same
- * 1180px column with the same fluid gutters.
+ * 1440px column with the same fluid gutters.
  */
 function Band({ id, tone = "white", children }) {
   const bg = tone === "slate" ? "bg-slate-50" : "bg-white";
@@ -51,9 +51,9 @@ function Band({ id, tone = "white", children }) {
       <div
         className="mx-auto w-full"
         style={{
-          maxWidth: 1180,
-          paddingLeft: "clamp(24px,4vw,64px)",
-          paddingRight: "clamp(24px,4vw,64px)",
+          maxWidth: 1440,
+          paddingLeft: "clamp(24px,4vw,80px)",
+          paddingRight: "clamp(24px,4vw,80px)",
           paddingTop: "clamp(52px,6vw,88px)",
           paddingBottom: "clamp(52px,6vw,88px)",
         }}

@@ -53,7 +53,7 @@ export default function PricingV2() {
       aria-labelledby="pricing-heading"
       className="border-t border-slate-200 bg-white"
     >
-      <div className="mx-auto max-w-[1180px] px-[clamp(24px,4vw,64px)] py-[clamp(52px,6vw,88px)]">
+      <div className="mx-auto max-w-[1440px] px-[clamp(24px,4vw,80px)] py-[clamp(52px,6vw,88px)]">
         <div className="mb-10 max-w-[54ch]">
           <div className={`${eyebrow} mb-4`}>
             {t("landingV2.pricing.eyebrow", "Pricing")}
