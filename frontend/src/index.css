@@ -534,6 +534,19 @@ body.modal-open {
 :root[data-theme="modern"] body     { background-color: #faf9fd; }
 :root[data-theme="focus"] body      { background-color: #f8fafc; }
 
+/* The landing page paints its own full-bleed bands on white, but body carries
+   horizontal safe-area padding (the body rule near the top of this file). On a
+   notched phone in landscape, body's own background shows through that ~44px
+   inset as a stripe down BOTH sides — visually identical to a border, and part
+   of the complaint that took five passes to pin down. Match body to the page
+   so the inset is invisible.
+
+   MUST stay below the theme rules above: `:root[data-theme="calm"] body` is
+   specificity 0,1,2 and would otherwise beat this. `:root` here brings this to
+   0,2,2 so it wins on both specificity and order, for every theme at once.
+   Dark mode is exempt — the landing page is light-only. */
+:root:not(.dark) body:has([data-page="landing"]) { background-color: #fff; }
+
 /* ═══════════════════════════════════════════════════════════════════════
    BRAND GREEN — BonBox identity token
 
