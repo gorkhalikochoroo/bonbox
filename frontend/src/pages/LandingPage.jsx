@@ -177,7 +177,7 @@ function DailyCloseHero({ tx_ }) {
                 {tx_("landingDailyCloseEyebrow", "Daily close")}
               </p>
               <p className="text-[15px] font-semibold text-gray-900 mt-1">
-                {tx_("landingDailyCloseDate", "Tor. 22. maj")}
+                {tx_("landingDailyCloseDate", "Tir. 19. maj")}
               </p>
             </div>
             <span className="text-[13px] text-gray-500 tabular-nums text-right">
@@ -231,7 +231,7 @@ function DailyCloseHero({ tx_ }) {
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">
-                {tx_("landingDailyCloseMomsLabel", "MOMS Q2 · Frist 1. juni")}
+                {tx_("landingDailyCloseMomsLabel", "MOMS 1. kvartal · frist 1. juni")}
               </p>
               <p className="text-[15px] font-semibold text-amber-900 mt-0.5">
                 {tx_("landingDailyCloseMomsAside", "2.846 kr. klar til at afsætte")}
@@ -414,7 +414,7 @@ function LandingScheduleMini({ tx_ }) {
 }
 
 // ─── Showcase surface — Faktura (2D invoice) ───────────────────────
-// Honest illustration of a faktura: gap-less §7 number, line items, MOMS,
+// Honest illustration of a faktura: sequential number, line items, MOMS,
 // a paid (netbank-matched) chip, and the kreditnota path. Demo amounts add up.
 const FAKTURA_LINES = [
   { d: "Catering · 40 couverts", a: "6.000,00" },
@@ -458,7 +458,7 @@ function LandingFakturaMini({ tx_ }) {
           </div>
           <div className="mt-4 flex items-center justify-between gap-3">
             <p className="text-[12px] text-gray-400 leading-snug max-w-[280px]">
-              {tx_("landingShowFakturaFoot", "Gap-less number per Bogføringsloven §7.")}
+              {tx_("landingShowFakturaFoot", "Numbers run in sequence, with no gaps.")}
             </p>
             <button type="button" tabIndex={-1} aria-hidden="true"
               className="shrink-0 inline-flex items-center rounded-lg border border-gray-300 bg-white text-gray-700 text-[12px] font-semibold px-3 py-1.5">
@@ -480,7 +480,7 @@ function MomsCountdownSpotlight({ tx_ }) {
         {/* Eyebrow strip */}
         <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-gray-100 flex items-baseline justify-between gap-2">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-            {tx_("landingMomsEyebrow", "MOMS Q2 · 2026")}
+            {tx_("landingMomsEyebrow", "MOMS 1. kvartal 2026")}
           </p>
           <p className="text-[13px] text-gray-500">
             {tx_("landingMomsDeadlineLabel", "Frist · 1. juni")}
@@ -503,11 +503,11 @@ function MomsCountdownSpotlight({ tx_ }) {
         {/* Progress bar — gray-200 track, gray-900 fill */}
         <div className="px-5 sm:px-6">
           <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-            <div className="h-full bg-gray-900 rounded-full" style={{ width: "71%" }} />
+            <div className="h-full bg-gray-900 rounded-full" style={{ width: "79%" }} />
           </div>
           <div className="flex justify-between text-[13px] text-gray-500 mt-1.5 tabular-nums">
             <span>1. apr.</span>
-            <span>22. maj · i dag</span>
+            <span>19. maj · i dag</span>
             <span>1. juni</span>
           </div>
         </div>
@@ -531,7 +531,7 @@ function MomsCountdownSpotlight({ tx_ }) {
 
         <div className="px-5 sm:px-6 pt-4 pb-5">
           <p className="text-[13px] text-gray-500 leading-relaxed text-center">
-            {tx_("landingMomsFooterMicro", "Beregnet på faktura + kasserapport · Bogføringsloven §7 · indberetning på et tryk")}
+            {tx_("landingMomsFooterMicro", "Beregnet på faktura + kasserapport · indberetning på et tryk")}
           </p>
         </div>
       </div>
@@ -868,7 +868,7 @@ export default function LandingPage() {
       key: "faktura",
       icon: <FileText size={22} strokeWidth={STROKE} aria-hidden="true" />,
       title: tx_("landingPillarFakturaTitle", "Faktura"),
-      promise: tx_("landingPillarFakturaPromise", "One-click fakturaer with gap-less numbering per Bogføringsloven §7 — and a proper kreditnota when you void one. Upload your netbank CSV and deposits self-match."),
+      promise: tx_("landingPillarFakturaPromise", "One-click fakturaer with numbering that runs without gaps — and a proper kreditnota when you void one. Upload your netbank CSV and deposits self-match."),
       foot: tx_("landingPillarFakturaFoot", "Matching reads your uploaded netbank CSV — no live bank feed."),
       tier: tx_("pricingTierStarter", "Starter"),
     },
@@ -910,7 +910,7 @@ export default function LandingPage() {
       icon: <FileCheck size={18} strokeWidth={STROKE} aria-hidden="true" />,
       fig: tx_("landingSaveRekeyFig", "0"),
       label: tx_("landingSaveRekeyLabel", "lines re-keyed for the revisor"),
-      sub: tx_("landingSaveRekeySub", "OCR pre-fills; the PDF is already §10-stored."),
+      sub: tx_("landingSaveRekeySub", "OCR pre-fills; the PDF is stored for you."),
     },
   ];
 
@@ -929,7 +929,7 @@ export default function LandingPage() {
       priceWas: null,
       foundingLabel: null,
       bullets: [
-        tx_("landingPricingFreeB1", "Daily close + kasserapport PDF (§10)"),
+        tx_("landingPricingFreeB1", "Daily close + kasserapport PDF"),
         tx_("landingPricingFreeB2", "MOMS countdown + weekly set-aside rate"),
         tx_("landingPricingFreeB3", "Reservationer — up to 20/mo, 3 tables"),
         tx_("landingPricingFreeB4", "10 receipt scans/mo"),
@@ -948,7 +948,7 @@ export default function LandingPage() {
       foundingLabel: foundingOpen ? foundingLabel : null,
       bullets: [
         tx_("landingPricingStarterB1", "Everything in Free"),
-        tx_("landingPricingStarterB2", "Faktura + kreditnota (30/mo), gap-less §7"),
+        tx_("landingPricingStarterB2", "Faktura + kreditnota (30/md), numre uden huller"),
         tx_("landingPricingStarterB3", "Auto-email close + Z-photo to revisor"),
         tx_("landingPricingStarterB4", "Reservationer unlimited · SMS reminders 300/mo"),
         tx_("landingPricingStarterB5", "Netbank-CSV reconciliation · 300 receipt scans/mo"),
@@ -1002,7 +1002,7 @@ export default function LandingPage() {
         tx_("landingCatFaktura1", "Send fakturaer (direct email)"),
         tx_("landingCatFaktura2", "CVR-verified customers"),
         tx_("landingCatFaktura3", "Bank auto-match (±2 kr tolerance)"),
-        tx_("landingCatFaktura4", "Proper kreditnota (Bogf. §7)"),
+        tx_("landingCatFaktura4", "Proper kreditnota — the original keeps its number"),
         tx_("landingCatFaktura5", "Brand + logo on PDF"),
         tx_("landingCatFaktura6", "Bilagsnummer audit trail"),
       ],
@@ -1250,7 +1250,7 @@ export default function LandingPage() {
                 {[
                   tx_("landingCheck1", "14 dages gratis prøve"),
                   tx_("landingCheck2", "Ingen kortoplysninger"),
-                  tx_("landingCheckCompliance", "Bogføringsloven §7 & §10"),
+                  tx_("landingCheckCompliance", "Bogføringsloven"),
                   tx_("landingCheckGdpr", "Database i Irland"),
                 ].map((txt) => (
                   <span key={txt} className="inline-flex items-center gap-1.5">
@@ -1338,11 +1338,11 @@ export default function LandingPage() {
               <Eyebrow>{tx_("landingShowFakturaTag", "Faktura")}</Eyebrow>
               <Heading>{tx_("landingShowFakturaTitle", "Send a faktura. Numbered exactly right.")}</Heading>
               <p className="mt-4 text-[17px] text-gray-600 leading-[1.6] max-w-[560px]">
-                {tx_("landingShowFakturaSub", "One tap makes a faktura with gap-less numbering per Bogføringsloven §7. Void one and you get a proper kreditnota — never a deleted line. Upload your netbank CSV and paid invoices match themselves.")}
+                {tx_("landingShowFakturaSub", "One tap makes a faktura with numbering that runs without gaps. Void one and you get a proper kreditnota — never a deleted line. Upload your netbank CSV and paid invoices match themselves.")}
               </p>
               <ul className="mt-6 space-y-2.5 text-[15px] text-gray-700">
                 {[
-                  tx_("landingShowFakturaB1", "Gap-less §7 numbering — your revisor's favourite"),
+                  tx_("landingShowFakturaB1", "Numbers run without gaps, which is the first thing a revisor checks"),
                   tx_("landingShowFakturaB2", "A real kreditnota on void, never a silent delete"),
                   tx_("landingShowFakturaB3", "Netbank-CSV reconciliation matches payments for you"),
                 ].map((b) => (
@@ -1523,7 +1523,7 @@ export default function LandingPage() {
           {[
             { val: tx_("landingFactLangVal", "6 languages"), label: tx_("landingFactLangLabel", "in the app") },
             { val: tx_("landingFactEuVal", "Ireland"), label: tx_("landingFactEuLabel", "Where your database sits") },
-            { val: tx_("landingFactBogfVal", "§7 & §10"), label: tx_("landingFactBogfLabel", "Bogføringsloven-ready") },
+            { val: tx_("landingFactBogfVal", "6 år"), label: tx_("landingFactBogfLabel", "your documents are kept") },
             { val: tx_("landingFactFristVal", "25%"), label: tx_("landingFactFristLabel", "MOMS worked out on every sale") },
           ].map((s) => (
             <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-5 text-center">
@@ -1538,8 +1538,8 @@ export default function LandingPage() {
         {/* Compliance badges — left-bullet + heading + body, no color fills. */}
         <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-8 gap-y-8 max-w-4xl mx-auto">
           {[
-            { title: tx_("landingTrustBogf7", "Bogføringsloven §7"), body: tx_("landingTrustBogf7Body", "Gap-free invoice numbering, kreditnota with the next number, locked books.") },
-            { title: tx_("landingTrustBogf10", "Bogføringsloven §10"), body: tx_("landingTrustBogf10Body", "5-year retention. Immutable audit log on every financial change.") },
+            { title: tx_("landingTrustBogf7", "Fortløbende fakturanumre"), body: tx_("landingTrustBogf7Body", "Gap-free invoice numbering, kreditnota with the next number, locked books.") },
+            { title: tx_("landingTrustBogf10", "Bogføringsloven"), body: tx_("landingTrustBogf10Body", "5-year retention. Immutable audit log on every financial change.") },
             { title: tx_("landingTrustGdpr", "Built to GDPR"), body: tx_("landingTrustGdprBody", "Database in Ireland. Receipts are read in the US. Every processor is named in the privacy policy, so you can check them before you sign up. You export or delete your data yourself, and your revisor logs in without sharing a password.") },
             { title: tx_("landingTrustAudit", "Audit-logged"), body: tx_("landingTrustAuditBody", "Every send, void, unlock and schedule publish leaves an append-only trail you can show SKAT.") },
           ].map((badge) => (
@@ -1588,7 +1588,7 @@ export default function LandingPage() {
             <ul className="space-y-2.5">
               {[
                 tx_("landingPosIs1", "The 30-second multi-terminal daily close"),
-                tx_("landingPosIs2", "Faktura with Bogføringsloven §7 gap-less numbering"),
+                tx_("landingPosIs2", "Faktura with numbering that runs without gaps"),
                 tx_("landingPosIs3", "The AI morning Brief that knows your last 90 days"),
                 tx_("landingPosIs4", "OCR receipts + bank-CSV auto-match to fakturaer"),
                 tx_("landingPosIs5", "Revisor-ready CSV bundle for the årsregnskab"),
