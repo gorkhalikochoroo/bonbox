@@ -19,6 +19,20 @@ import '@fontsource/inter/400.css'
 import '@fontsource/inter/500.css'
 import '@fontsource/inter/600.css'
 import '@fontsource/inter/700.css'
+
+// Landing design system (design_handoff_bonbox_landing). Self-hosted, NOT
+// the Google Fonts <link> the handoff specifies — vercel.json sets
+// font-src 'self' data:, so a CDN font request is blocked outright in
+// production and the page would silently fall back to Inter.
+// Display face: Hanken Grotesk. Text face: Inter Tight.
+import '@fontsource/hanken-grotesk/400.css'
+import '@fontsource/hanken-grotesk/500.css'
+import '@fontsource/hanken-grotesk/600.css'
+import '@fontsource/hanken-grotesk/700.css'
+import '@fontsource/hanken-grotesk/800.css'
+import '@fontsource/inter-tight/400.css'
+import '@fontsource/inter-tight/500.css'
+import '@fontsource/inter-tight/600.css'
 import '@fontsource/inter/800.css'
 
 import './index.css'

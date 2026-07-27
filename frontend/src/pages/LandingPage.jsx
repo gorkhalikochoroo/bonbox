@@ -60,11 +60,10 @@ import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import WhatDoYouPayNow from "../components/landing/WhatDoYouPayNow";
+import FloorPlan from "../components/landing/FloorPlan";
 import FounderRatePill from "../components/FounderRatePill";
 import useFounderRateStatus from "../hooks/useFounderRateStatus";
-import {
-  tableDims, archetypeChairs, bodyRadiusClass, chairIsStool, TableMark,
-} from "../config/tableArchetypes";
+import { TableMark } from "../config/tableArchetypes";
 import {
   Clock, Check, ArrowRight, Menu, X, ChevronDown, Apple, Mail,
   Receipt, Utensils, Landmark,
@@ -289,88 +288,13 @@ const FLOOR_TOK = {
   taken: { box: "bg-gray-100 ring-gray-200 text-gray-400",         chair: "bg-gray-200",        stool: "border-gray-300" },
   pick:  { box: "bg-gray-900 ring-gray-900 text-white",            chair: "bg-gray-700",        stool: "border-gray-500" },
 };
-const FLOOR_TABLES = [
-  { id: "b1", label: "Bord 1",   shape: "round",   seats: 2, x: 15, y: 27, status: "open" },
-  { id: "b2", label: "Bord 2",   shape: "round",   seats: 2, x: 45, y: 21, status: "taken" },
-  { id: "b3", label: "Bord 3",   shape: "square",  seats: 4, x: 83, y: 26, status: "open" },
-  { id: "b5", label: "Langbord", shape: "rect",    seats: 6, x: 31, y: 62, status: "pick" },
-  { id: "b7", label: "Højbord",  shape: "hightop", seats: 2, x: 85, y: 60, status: "open" },
-  { id: "b8", label: "Baren",    shape: "bar",     seats: 5, x: 64, y: 87, status: "open" },
-];
-function LandingFloorMini({ tx_ }) {
-  const SCALE = 0.86;
-  return (
-    <div className="relative w-full max-w-[520px] mx-auto">
-      <div className={`bg-white border border-gray-200 rounded-2xl overflow-hidden ${SHADOW_FLOAT}`}>
-        <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-gray-100 flex items-end justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{tx_("landingShowFloorPickHint", "Pick your table")}</p>
-            <p className="text-[15px] font-semibold text-gray-900 mt-0.5">Lør 27. juni · 19:00</p>
-          </div>
-          <span className="inline-flex items-center gap-1 text-[13px] text-gray-500 tabular-nums">
-            <Users size={13} strokeWidth={2} aria-hidden="true" />2
-          </span>
-        </div>
-        <div className="px-5 sm:px-6 py-5">
-          <div className="relative w-full rounded-xl border border-gray-200 bg-gradient-to-b from-gray-50/40 to-gray-100/60 ring-1 ring-inset ring-white/50 overflow-hidden" style={{ aspectRatio: "16 / 10" }}>
-            {FLOOR_TABLES.map((tb) => {
-              const raw = tableDims(tb.shape, tb.seats);
-              const w = Math.round(raw.w * SCALE), h = Math.round(raw.h * SCALE);
-              const chairs = archetypeChairs(tb.shape, tb.seats, w, h);
-              const stool = chairIsStool(tb.shape);
-              const tok = FLOOR_TOK[tb.status];
-              const thin = h < 34;
-              return (
-                <div key={tb.id} className="absolute" style={{ left: `${tb.x}%`, top: `${tb.y}%`, transform: "translate(-50%, -50%)" }}>
-                  <div className="relative" style={{ width: w, height: h }}>
-                    {tb.status === "pick" && (
-                      <span aria-hidden="true" className={`floorPulse absolute inset-0 ${bodyRadiusClass(tb.shape)} ring-2 ring-gray-900`} />
-                    )}
-                    {chairs.map((c, i) => (
-                      <span key={i} aria-hidden="true"
-                        className={`absolute rounded-full ${stool ? `border-2 bg-transparent ${tok.stool}` : tok.chair}`}
-                        style={{ width: 8, height: 8, left: "50%", top: "50%", transform: `translate(calc(-50% + ${c.x}px), calc(-50% + ${c.y}px))` }} />
-                    ))}
-                    <div className={`absolute inset-0 flex flex-col items-center justify-center ring-2 ${bodyRadiusClass(tb.shape)} ${tok.box} shadow-sm`}>
-                      <TableMark shape={tb.shape} w={w} h={h} benchClass={tok.chair} ringClass={tok.stool} />
-                      <span className="px-1 text-[9px] font-semibold leading-none truncate max-w-full">{tb.label}</span>
-                      {!thin && (
-                        <span className="mt-0.5 inline-flex items-center gap-0.5 text-[9px] leading-none opacity-90">
-                          <Users size={8} strokeWidth={2} aria-hidden="true" />{tb.seats}
-                        </span>
-                      )}
-                    </div>
-                    {tb.status === "pick" && (
-                      <span className="absolute -top-1.5 -right-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-gray-900 text-white ring-2 ring-white">
-                        <Check size={10} strokeWidth={3} aria-hidden="true" />
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-gray-500">
-            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-50 ring-1 ring-emerald-300" />{tx_("landingShowFloorOpen", "Open")}</span>
-            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-gray-900" />{tx_("landingShowFloorPick", "Guest's pick")}</span>
-            <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-gray-100 ring-1 ring-gray-200" />{tx_("landingShowFloorTaken", "Taken")}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Showcase surface — Vagtplan week grid ─────────────────────────
-// Honest illustration of the autopilot-proposed roster: silent empty cells,
-// white shift blocks with a 3px gray-900 role bar (no flood tint), a labour-%
-// ledger pill. Mirrors the owner Vagtplan grid's design language.
 const SCHED_DAYS = ["Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn"];
 const SCHED_ROWS = [
   { who: "Mette", init: "M", bar: "bg-gray-900", shifts: { 0: "10–18", 2: "10–18", 4: "12–20" } },
   { who: "Jonas", init: "J", bar: "bg-gray-500", shifts: { 1: "16–23", 3: "16–23", 5: "16–23" } },
   { who: "Sara",  init: "S", bar: "bg-gray-400", shifts: { 4: "17–23", 5: "12–20", 6: "11–17" } },
 ];
+
 function LandingScheduleMini({ tx_ }) {
   const weekend = (i) => i >= 5;
   return (
@@ -828,7 +752,7 @@ export default function LandingPage() {
       icon: <Utensils size={16} strokeWidth={STROKE} aria-hidden="true" />,
       time: tx_("landingDay3Time", "18:00"),
       title: tx_("landingDay3Title", "Guests book their own table"),
-      body: tx_("landingDay3Body", "Guests self-book on your floor plan. Double-booking a table is physically impossible."),
+      body: tx_("landingDay3Body", "Guests pick their own table on your floor plan."),
     },
     {
       key: "close",
@@ -868,7 +792,7 @@ export default function LandingPage() {
       key: "reservations",
       icon: <Utensils size={22} strokeWidth={STROKE} aria-hidden="true" />,
       title: tx_("landingPillarReservationsTitle", "Reservationer"),
-      promise: tx_("landingPillarReservationsPromise", "A public booking page on a tap-to-pick 2D floor plan — double-booking a table is physically impossible."),
+      promise: tx_("landingPillarReservationsPromise", "A public booking page on a floor plan of your own room. The same table cannot be booked twice, even when two guests tap at once."),
       foot: tx_("landingPillarReservationsFoot", "Free taste: 20 bookings/mo, 3 tables."),
       tier: null,
     },
@@ -1293,7 +1217,7 @@ export default function LandingPage() {
               <Eyebrow>{tx_("landingShowFloorTag", "Reservationer")}</Eyebrow>
               <Heading>{tx_("landingShowFloorTitle", "Guests book themselves — on your real floor.")}</Heading>
               <p className="mt-4 text-[17px] text-gray-600 leading-[1.6] max-w-[560px]">
-                {tx_("landingShowFloorSub", "Share one link. Diners pick their own table on a 2D map of your room — round tables, langborde, bås, the bar. Double-booking is physically impossible: the engine re-checks before it confirms.")}
+                {tx_("landingShowFloorSub", "Share one link. Diners pick their own table on a 2D map of your room — round tables, langborde, bås, the bar. The same table cannot be booked twice, even when two guests tap at once.")}
               </p>
               <ul className="mt-6 space-y-2.5 text-[15px] text-gray-700">
                 {[
@@ -1308,7 +1232,7 @@ export default function LandingPage() {
                 ))}
               </ul>
             </div>
-            <div><LandingFloorMini tx_={tx_} /></div>
+            <div className="flex justify-center"><FloorPlan /></div>
           </div>
 
           {/* Vagtplan — real 2D grid left, copy right (alternate) */}
