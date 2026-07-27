@@ -49,9 +49,9 @@ function Band({ id, tone = "white", children }) {
   return (
     <section id={id} className={`${bg} border-t border-slate-200`}>
       <div
-        className="mx-auto w-full"
+        className="mx-auto w-full max-w-[1800px]"
         style={{
-          maxWidth: "100%",
+          maxWidth: 1800,
           paddingLeft: "clamp(24px,4vw,80px)",
           paddingRight: "clamp(24px,4vw,80px)",
           paddingTop: "clamp(52px,6vw,88px)",
@@ -66,7 +66,10 @@ function Band({ id, tone = "white", children }) {
 
 export default function LandingV2Page() {
   return (
-    <div className="min-h-screen bg-white font-text text-slate-900">
+    <div
+      data-page="landing"
+      className="min-h-screen bg-white font-text text-slate-900"
+    >
       <NavV2 />
 
       {/* Self-contained: brings #top and its own slate-50 band */}
