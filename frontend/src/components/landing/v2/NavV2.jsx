@@ -15,8 +15,11 @@ import { Link } from "react-router-dom";
 import { Menu, Receipt, X } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
 
+/** Landing copy exists in these two only — see the switcher comment below. */
+const LANDING_LANGS = ["da", "en"];
+
 export default function NavV2() {
-  const { t } = useLanguage();
+  const { t, lang, setLang } = useLanguage();
   const [open, setOpen] = useState(false);
   const toggleRef = useRef(null);
 
@@ -73,6 +76,39 @@ export default function NavV2() {
         </nav>
 
         <div className="ml-auto flex items-center gap-[18px]">
+          {/* Language. The old landing page carried a <select> of all seven
+              app languages; swapping the front door to this page dropped it
+              entirely, so a visitor had no way to reach the Danish copy.
+              Restored as DA/EN only, deliberately: the landing keys exist in
+              exactly two languages (271/271 en, 271/271 da, 0/271 np, no
+              section at all for de/vi/th/tr), so listing the other five would
+              hand someone an English page under a Turkish label. Same
+              segmented shape as the booking demo's own DA/EN switch. */}
+          <div
+            className="flex items-center gap-1.5 text-[13px] font-semibold"
+            role="group"
+            aria-label={t("landingV2.nav.language", "Language")}
+          >
+            {LANDING_LANGS.map((code) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => {
+                  setLang(code);
+                  close();
+                }}
+                aria-pressed={lang === code}
+                className={
+                  lang === code
+                    ? "text-slate-900"
+                    : "text-slate-400 transition-colors duration-150 hover:text-slate-600"
+                }
+              >
+                {code.toUpperCase()}
+              </button>
+            ))}
+          </div>
+
           <button
             ref={toggleRef}
             type="button"
