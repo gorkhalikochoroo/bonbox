@@ -27,7 +27,7 @@ export default function AiPanelV2() {
       aria-labelledby="ai-heading"
       className="border-t border-slate-200 bg-white"
     >
-      <div className="mx-auto max-w-[1440px] px-[clamp(24px,4vw,80px)] py-[clamp(52px,6vw,88px)]">
+      <div className="mx-auto w-full max-w-[1800px] px-[clamp(24px,4vw,80px)] py-[clamp(52px,6vw,88px)]">
         <div className="grid grid-cols-1 items-center gap-9 min-[1041px]:grid-cols-[minmax(0,1fr)_minmax(0,0.86fr)] min-[1041px]:gap-[clamp(36px,5vw,64px)]">
           {/* Left column */}
           <div>

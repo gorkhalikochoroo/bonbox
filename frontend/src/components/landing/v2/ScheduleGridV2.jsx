@@ -107,7 +107,7 @@ export default function ScheduleGridV2() {
         {t("landingV2.schedule.eyebrow", "You build the week")}
       </div>
 
-      <figure className="m-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_16px_36px_-26px_rgba(15,23,42,0.35)]">
+      <figure className="m-0 overflow-hidden rounded-2xl bg-white shadow-[0_16px_36px_-26px_rgba(15,23,42,0.35)]">
         <figcaption className="sr-only">
           {t(
             "landingV2.schedule.caption",

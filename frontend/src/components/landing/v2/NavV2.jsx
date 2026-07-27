@@ -44,7 +44,7 @@ export default function NavV2() {
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-slate-50/[0.88] backdrop-blur-[14px]">
-      <div className="mx-auto flex h-[66px] max-w-[1440px] items-center gap-9 px-[clamp(24px,4vw,80px)]">
+      <div className="mx-auto flex h-[66px] w-full max-w-[1800px] items-center gap-9 px-[clamp(24px,4vw,80px)]">
         <a href="#top" className="flex items-center gap-2.5" onClick={close}>
           <span
             aria-hidden="true"
@@ -117,7 +117,7 @@ export default function NavV2() {
       >
         <nav
           aria-label={t("landingV2.nav.sections", "Sections")}
-          className="mx-auto flex max-w-[1440px] flex-col px-[clamp(24px,4vw,80px)] py-2"
+          className="mx-auto flex w-full max-w-[1800px] flex-col px-[clamp(24px,4vw,80px)] py-2"
         >
           {links.map((l) => (
             <a

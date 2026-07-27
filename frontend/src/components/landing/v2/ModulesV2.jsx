@@ -78,7 +78,7 @@ export default function ModulesV2() {
       id="modules"
       className="border-t border-slate-200 bg-white text-slate-900"
     >
-      <div className="mx-auto max-w-[1440px] px-[clamp(24px,4vw,80px)] py-[clamp(52px,6vw,88px)]">
+      <div className="mx-auto w-full max-w-[1800px] px-[clamp(24px,4vw,80px)] py-[clamp(52px,6vw,88px)]">
         <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
           {t("landingV2.modules.eyebrow", "What's inside")}
         </div>
