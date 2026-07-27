@@ -59,6 +59,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
+import WhatDoYouPayNow from "../components/landing/WhatDoYouPayNow";
 import FounderRatePill from "../components/FounderRatePill";
 import useFounderRateStatus from "../hooks/useFounderRateStatus";
 import {
@@ -1510,6 +1511,13 @@ export default function LandingPage() {
           <p className="mt-4 text-[13px] text-gray-400 leading-[1.5]">
             {tx_("landingPricingHonesty", "Per business, ex. MOMS. Founder rate holds while your subscription stays active.")}
           </p>
+        </div>
+
+        {/* The owner's own arithmetic. We assert nothing about anyone
+            else's price — see the component header for why a comparison
+            table was rejected. */}
+        <div className="max-w-3xl mx-auto">
+          <WhatDoYouPayNow />
         </div>
       </Section>
 
