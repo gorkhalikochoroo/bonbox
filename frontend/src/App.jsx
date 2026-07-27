@@ -14,6 +14,7 @@ import { LiveAlertsProvider } from "./hooks/useLiveAlerts";
 import { BranchProvider } from "./components/BranchSelector";
 import { LanguageProvider } from "./hooks/useLanguage";
 import { ConfirmProvider } from "./hooks/useConfirm";
+import LandingV2Page from "./pages/LandingV2Page";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 
 // ── Keep-alive: prevent Render cold starts ──
@@ -461,6 +462,7 @@ function AppRoutes() {
     <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/" element={<PublicOrDashboard />} />
+        <Route path="/v2" element={<LandingV2Page />} />
         <Route path="/login" element={<LoginPage />} />
         {/* Task #61 — magic-link landing. Token in ?token=… is the only
             credential; the page POSTs to /auth/magic-link/verify on
