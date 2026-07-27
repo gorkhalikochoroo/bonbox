@@ -87,11 +87,28 @@ export default function LandingV2Page() {
         </div>
       </Band>
 
-      {/* Fragments — copy, then the week builder, then the phone fan */}
+      {/* Fragments — the staff pitch beside its phones, then the week builder.
+          The copy is capped at 58ch, so stacking the phone fan underneath it
+          left the entire right half of this band empty at desktop widths while
+          the phones sat centred on a row of their own. Pairing them matches
+          the reservations band above and closes that gap. Single column below
+          1041px, where PhoneFanV2 also drops its two side phones (981px). */}
       <Band id="staff" tone="white">
-        <StaffCopyV2 />
-        <div className="mt-12"><ScheduleGridV2 /></div>
-        <div className="mt-14"><PhoneFanV2 /></div>
+        <div className="grid items-center gap-[clamp(36px,5vw,64px)] min-[1240px]:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+          <StaffCopyV2 />
+          {/* PhoneFanV2 is fixed-width artwork — three 280px shells, ~852px
+              across. The right column only reaches that at ~1680px, so
+              between 1240 and 1680 the fan must scale or it spills both ways:
+              measured at 1200px the phones ran 453->1250 inside a 552->1152
+              cell, overlapping the copy on the left and getting cut off by
+              html's overflow-x:clip on the right (which is why scrollWidth
+              looked clean). Scale keeps the layout box put and shrinks only
+              what is painted. Numbers are the measured cell width / 852. */}
+          <div className="flex justify-center min-[1240px]:scale-[0.70] min-[1440px]:scale-[0.84] min-[1680px]:scale-100">
+            <PhoneFanV2 />
+          </div>
+        </div>
+        <div className="mt-14"><ScheduleGridV2 /></div>
       </Band>
 
       {/* Self-contained: #access */}
