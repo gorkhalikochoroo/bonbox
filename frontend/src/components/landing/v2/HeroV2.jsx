@@ -23,10 +23,8 @@ export default function HeroV2() {
   const cardCell = "px-4 py-[18px]";
 
   return (
-    <section
-      id="top"
-      className="mx-auto max-w-[1180px] px-[clamp(24px,4vw,64px)] pt-[clamp(48px,6vw,88px)] pb-[clamp(40px,5vw,64px)]"
-    >
+    <section id="top" className="bg-slate-50">
+      <div className="mx-auto max-w-[1180px] px-[clamp(24px,4vw,64px)] pt-[clamp(48px,6vw,88px)] pb-[clamp(40px,5vw,64px)]">
       <div className="grid grid-cols-1 items-center gap-10 min-[1041px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] min-[1041px]:gap-[clamp(40px,5vw,68px)]">
         {/* ── Left column ───────────────────────────────────────────── */}
         <div>
@@ -256,6 +254,7 @@ export default function HeroV2() {
             </div>
           </div>
         </figure>
+      </div>
       </div>
     </section>
   );
