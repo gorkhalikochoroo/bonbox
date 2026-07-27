@@ -57,7 +57,7 @@ export default function AccessV2() {
       aria-labelledby="access-heading"
       className="border-t border-slate-200 bg-slate-50"
     >
-      <div className="mx-auto max-w-[1440px] px-[clamp(24px,4vw,80px)] py-[clamp(52px,6vw,88px)]">
+      <div className="mx-auto w-full px-[clamp(24px,4vw,80px)] py-[clamp(52px,6vw,88px)]">
         <div className="grid grid-cols-1 gap-10 min-[1041px]:grid-cols-[minmax(0,0.74fr)_minmax(0,1.26fr)] min-[1041px]:gap-[clamp(32px,5vw,64px)]">
           <div>
             <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
