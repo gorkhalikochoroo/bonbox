@@ -585,7 +585,7 @@ export default function ReservationPublicPage() {
 
   // ── Per-venue document title + OG tags ────────────────────────────
   // A diner's browser tab should read the RESTAURANT, not the app default
-  // ("BonBox — The AI manager …"). NOTE (honest limitation): this is a pure SPA,
+  // ("BonBox — The back office …"). NOTE (honest limitation): this is a pure SPA,
   // so social/SMS link-unfurl crawlers read the STATIC index.html title before
   // JS runs — the live tab updates, but shared-link previews still show the app
   // default until we add SSR/prerender. Still worth it for the tab + trust.
