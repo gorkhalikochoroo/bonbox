@@ -3356,16 +3356,44 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               {r.guest_phone}
             </div>
           )}
-          {r.allergy_severity === "severe" && (
-            <div className="text-[11px] text-red-600 dark:text-red-400 font-medium truncate">
-              {[
-                (r.allergen_tags || []).map((k) => t(`allergen_${k}`, k)).join(", "),
-                r.allergy_note,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </div>
-          )}
+          {/* ANY allergy reads here, beside the name — not only a severe one.
+              It used to be severe-only, so a nuts-or-gluten booking with no
+              severity set existed on this screen as a single 16px amber
+              triangle in the last column on the right. A host scanning the
+              list mid-service reads names, not the right margin. Severe stays
+              red and keeps its own weight; everything else is amber, so the
+              hierarchy the flags column already had is preserved rather than
+              flattened. The flag icon stays where it is — this adds a second
+              place to notice, it does not move the first. */}
+          {(() => {
+            const severe = r.allergy_severity === "severe";
+            const hasAllergy =
+              (Array.isArray(r.allergen_tags) && r.allergen_tags.length > 0) ||
+              !!r.allergy_note ||
+              !!r.allergy_severity;
+            if (!hasAllergy) return null;
+            const detail = [
+              (r.allergen_tags || []).map((k) => t(`allergen_${k}`, k)).join(", "),
+              r.allergy_note,
+            ]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <div
+                className={
+                  "text-[11px] font-medium truncate " +
+                  (severe
+                    ? "text-red-600 dark:text-red-400"
+                    : "text-amber-600 dark:text-amber-400")
+                }
+                title={detail || undefined}
+              >
+                {/* A severity with no tags and no note still has to say
+                    something, or the row renders an empty line. */}
+                {detail || t("rsvpAllergyFlag", "Allergy")}
+              </div>
+            );
+          })()}
         </div>
       ),
     },
