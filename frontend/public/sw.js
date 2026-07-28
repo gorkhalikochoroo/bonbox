@@ -1,4 +1,4 @@
-const CACHE_NAME = "bonbox-v6";
+const CACHE_NAME = "bonbox-v7";
 // 2026-05-25 — API cache key bumped (was bonbox-api-v1). The previous
 // SW served /api/dashboard/* via stale-while-revalidate with a 5-min
 // TTL, which meant after an optimistic-add on Sales/Expenses the very
@@ -9,7 +9,7 @@ const CACHE_NAME = "bonbox-v6";
 // previously-installed SW to nuke its stale dashboard cache on the
 // next activation. See companion React-side fixes in 78e2d6e / ee80e93.
 const API_CACHE_NAME = "bonbox-api-v2";
-const STATIC_ASSETS = ["/manifest.json", "/icon-192.png", "/icon-512.png", "/favicon.svg", "/og-image.png"];
+const STATIC_ASSETS = ["/manifest.json", "/icon-192.png", "/icon-512.png", "/favicon.svg", "/og-image.png", "/og-image-v2.png"];
 
 // --- API cache helpers ---
 
