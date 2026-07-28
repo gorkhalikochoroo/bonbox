@@ -94,7 +94,7 @@ export default function LandingV2Page() {
           the reservations band above and closes that gap. Single column below
           1041px, where PhoneFanV2 also drops its two side phones (981px). */}
       <Band id="staff" tone="white">
-        <div className="grid items-center gap-[clamp(36px,5vw,64px)] min-[1041px]:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+        <div className="grid items-center gap-6 min-[1041px]:gap-[clamp(36px,5vw,64px)] min-[1041px]:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
           <StaffCopyV2 />
           {/* PhoneFanV2 is fixed-width artwork — three 280px shells, ~852px
               across. The right column only reaches that at ~1680px, so

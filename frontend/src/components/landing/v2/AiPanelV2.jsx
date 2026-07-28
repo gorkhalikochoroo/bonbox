@@ -133,7 +133,7 @@ export default function AiPanelV2() {
                 {/* Inline metric card */}
                 <div className="flex items-center justify-between gap-3 rounded-[14px] bg-white px-[15px] py-[14px]">
                   <div>
-                    <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-[0.13em] text-slate-400">
+                    <div className="mb-1 text-[12px] min-[1041px]:text-[10.5px] font-semibold uppercase tracking-[0.13em] text-slate-400">
                       {t("landingV2.ai.metricLabel", "MOMS payable")}
                     </div>
                     <div className="font-display text-[24px] font-bold tracking-[-0.02em] text-slate-900">

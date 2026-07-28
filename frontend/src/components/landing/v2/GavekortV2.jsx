@@ -100,7 +100,7 @@ export default function GavekortV2() {
 
           {/* ── Right: the two 3D cards ──────────────────────────── */}
           <div className="flex items-center justify-center py-4">
-            <div className="relative h-[300px] w-[430px] origin-center [perspective:1600px] max-[620px]:scale-[0.66]">
+            <div className="relative h-[300px] w-[430px] origin-center [perspective:1600px] max-[620px]:origin-top max-[620px]:scale-[0.72] max-[620px]:-mb-[84px]">
               {/* Behind: the sale that produced the gavekort */}
               <div
                 aria-hidden="true"
