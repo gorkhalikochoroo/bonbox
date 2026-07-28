@@ -3234,13 +3234,19 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       null
     );
   }, [reservations, isViewingToday]);
+  // Host-stand read: WHO is next, HOW MANY, and WHERE they sit. The table was
+  // the one missing piece — a host reading this tile still had to open the
+  // drawer or scan the list to find out where to walk them. Everything here is
+  // already on the booking, so it costs nothing to say it.
   const nextArrivalHelper = useMemo(() => {
     if (!nextArrival) return t("rsvpNothingUpcoming", "Nothing upcoming");
     const name = (nextArrival.guest_name || "").trim();
-    return name
+    const who = name
       ? `${name} · ${nextArrival.party_size}`
       : t("rsvpPartyOf", "Party of {n}", { n: nextArrival.party_size });
-  }, [nextArrival, t]);
+    const table = resolveTableLabel(nextArrival, labelById);
+    return table ? `${who} · ${table}` : who;
+  }, [nextArrival, labelById, t]);
   // Click a status tile → jump to the list, filtered to that status.
   const focusStatus = (status) => {
     pickView("liste");
