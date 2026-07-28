@@ -31,7 +31,7 @@
  */
 
 import { Link } from "react-router-dom";
-import { Receipt } from "lucide-react";
+import BonBoxMark from "../../BonBoxMark";
 import { useLanguage } from "../../../hooks/useLanguage";
 
 // Registry values, not copy. Deliberately outside t().
@@ -80,7 +80,7 @@ export default function FooterV2() {
               aria-hidden="true"
               className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-bb-green"
             >
-              <Receipt size={14} strokeWidth={1.75} className="text-white" />
+              <BonBoxMark size={15} strokeWidth={2} className="text-white" />
             </span>
             <span className="font-display text-[18px] font-bold tracking-[-0.025em] text-slate-900">
               BonBox
