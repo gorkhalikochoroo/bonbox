@@ -85,7 +85,7 @@ export default function NavV2() {
               hand someone an English page under a Turkish label. Same
               segmented shape as the booking demo's own DA/EN switch. */}
           <div
-            className="flex items-center gap-1.5 text-[13px] font-semibold"
+            className="hidden items-center gap-1.5 text-[13px] font-semibold min-[860px]:flex"
             role="group"
             aria-label={t("landingV2.nav.language", "Language")}
           >
@@ -120,7 +120,7 @@ export default function NavV2() {
                 ? t("landingV2.nav.closeMenu", "Close menu")
                 : t("landingV2.nav.openMenu", "Open menu")
             }
-            className="-ml-1 flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-900 min-[860px]:hidden"
+            className="-ml-1 flex h-11 w-11 flex-none items-center justify-center rounded-full text-slate-600 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-900 min-[860px]:hidden"
           >
             {open ? (
               <X size={19} strokeWidth={1.75} aria-hidden="true" />
@@ -131,7 +131,7 @@ export default function NavV2() {
 
           <Link
             to="/login"
-            className="text-[14.5px] text-slate-600 transition-colors duration-150 hover:text-slate-900"
+            className="hidden text-[14.5px] text-slate-600 transition-colors duration-150 hover:text-slate-900 min-[860px]:inline"
             onClick={close}
           >
             {t("landingV2.nav.login", "Log in")}
@@ -162,11 +162,46 @@ export default function NavV2() {
               key={l.href}
               href={l.href}
               onClick={close}
-              className="border-b border-slate-200 py-3 text-[15px] text-slate-600 last:border-b-0 hover:text-slate-900"
+              className="border-b border-slate-200 py-3 text-[15px] text-slate-600 hover:text-slate-900"
             >
               {l.label}
             </a>
           ))}
+
+          {/* Log in and the language switch live here on a phone — the bar
+              could not hold them without clipping the CTA at 360px. */}
+          <Link
+            to="/login"
+            onClick={close}
+            className="border-b border-slate-200 py-3 text-[15px] text-slate-600 hover:text-slate-900"
+          >
+            {t("landingV2.nav.login", "Log in")}
+          </Link>
+
+          <div
+            className="flex items-center gap-2 py-3 text-[15px] font-semibold"
+            role="group"
+            aria-label={t("landingV2.nav.language", "Language")}
+          >
+            {LANDING_LANGS.map((code) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => {
+                  setLang(code);
+                  close();
+                }}
+                aria-pressed={lang === code}
+                className={`inline-flex min-w-[48px] items-center justify-center rounded-lg ${
+                  lang === code
+                    ? "bg-slate-900 text-white"
+                    : "text-slate-500"
+                }`}
+              >
+                {code.toUpperCase()}
+              </button>
+            ))}
+          </div>
         </nav>
       </div>
     </header>

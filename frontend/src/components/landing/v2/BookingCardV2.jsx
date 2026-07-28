@@ -108,7 +108,7 @@ export default function BookingCardV2() {
           BO
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-[9.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+          <div className="text-[11px] min-[1041px]:text-[9.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
             {copy.eyebrow}
           </div>
           <div className="truncate font-display text-[17px] font-bold tracking-[-0.02em] text-slate-900">
@@ -126,11 +126,11 @@ export default function BookingCardV2() {
               type="button"
               onClick={() => setCardLang(code)}
               aria-pressed={cardLang === code}
-              className={
+              className={`inline-flex min-w-[40px] items-center justify-center min-[1041px]:inline-block min-[1041px]:min-w-0 ${
                 cardLang === code
                   ? "text-slate-900"
                   : "text-slate-400 hover:text-slate-600"
-              }
+              }`}
             >
               {code.toUpperCase()}
             </button>
@@ -175,7 +175,7 @@ export default function BookingCardV2() {
             type="button"
             onClick={() => setParty(n)}
             aria-pressed={party === n}
-            className={`${CHIP_BASE} px-3.5 ${party === n ? CHIP_ON : CHIP_IDLE}`}
+            className={`${CHIP_BASE} px-3.5 min-w-[44px] min-[1041px]:min-w-0 ${party === n ? CHIP_ON : CHIP_IDLE}`}
           >
             {n}
           </button>
@@ -187,7 +187,7 @@ export default function BookingCardV2() {
         <span className="text-[12.5px] font-semibold text-slate-600">
           {copy.timeLabel}
         </span>
-        <span className="text-[9.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+        <span className="text-[11px] min-[1041px]:text-[9.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
           {copy.service}
         </span>
       </div>

@@ -163,7 +163,13 @@ export default function ScheduleGridV2() {
           </span>
         </div>
 
-        {/* Staff × days grid — scrolls sideways instead of collapsing */}
+        {/* Staff × days grid — scrolls sideways instead of collapsing.
+            On a phone only ~2 of the 7 day columns are visible, so the
+            scroll needs saying out loud or the rest of the week is
+            undiscoverable. Hidden once the grid fits. */}
+        <div className="px-[18px] pb-1 text-[12px] font-medium text-slate-500 min-[1041px]:hidden">
+          {t("landingV2.schedule.swipeHint", "Swipe to see the whole week →")}
+        </div>
         <div className="overflow-x-auto">
           <div className="min-w-[820px]">
             {/* Header row */}

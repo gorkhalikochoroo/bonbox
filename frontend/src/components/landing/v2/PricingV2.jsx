@@ -77,7 +77,7 @@ export default function PricingV2() {
 
         <div className="grid grid-cols-3 items-start gap-5 max-[980px]:grid-cols-1">
           {/* ---------------------------------------------------------- Free */}
-          <div className="rounded-2xl border border-slate-200 bg-white px-[26px] pb-[30px] pt-7">
+          <div className="order-2 rounded-2xl border border-slate-200 bg-white px-[26px] pb-[30px] pt-7 min-[981px]:order-none">
             <div className={`${eyebrow} mb-[14px]`}>
               {t("landingV2.pricing.free.name", "Free")}
             </div>
@@ -139,7 +139,7 @@ export default function PricingV2() {
 
           {/* ------------------------------------------------------- Starter */}
           <div
-            className="rounded-2xl border-[1.5px] border-bb-green bg-white px-[26px] pb-[30px] pt-7"
+            className="order-1 rounded-2xl border-[1.5px] border-bb-green bg-white px-[26px] pb-[30px] pt-7 min-[981px]:order-none"
             style={{ boxShadow: "0 16px 36px -22px rgba(22,163,74,0.40)" }}
           >
             <div className="mb-[14px] flex items-center justify-between gap-2.5">
@@ -235,7 +235,7 @@ export default function PricingV2() {
           </div>
 
           {/* ----------------------------------------------------------- Pro */}
-          <div className="rounded-2xl border border-slate-200 bg-white px-[26px] pb-[30px] pt-7">
+          <div className="order-2 rounded-2xl border border-slate-200 bg-white px-[26px] pb-[30px] pt-7 min-[981px]:order-none">
             <div className={`${eyebrow} mb-[14px]`}>
               {t("landingV2.pricing.pro.name", "Pro")}
             </div>

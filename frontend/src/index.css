@@ -547,6 +547,15 @@ body.modal-open {
    Dark mode is exempt — the landing page is light-only. */
 :root:not(.dark) body:has([data-page="landing"]) { background-color: #fff; }
 
+/* The landing header is a 66px sticky bar and html sets scroll-behavior:
+   smooth, but nothing set scroll-padding — so every in-page anchor (the
+   phone panel's entire purpose) landed with its heading tucked under the
+   bar. Scoped to the landing page and to widths where the bar is the only
+   chrome above the content. */
+@media (max-width: 859px) {
+  html:has([data-page="landing"]) { scroll-padding-top: 74px; }
+}
+
 /* ═══════════════════════════════════════════════════════════════════════
    BRAND GREEN — BonBox identity token
 

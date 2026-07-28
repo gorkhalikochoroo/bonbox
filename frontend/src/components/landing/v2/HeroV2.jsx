@@ -15,9 +15,9 @@ export default function HeroV2() {
   const { t } = useLanguage();
 
   const eyebrow =
-    "text-[9.5px] font-semibold uppercase tracking-[0.14em] text-slate-400";
+    "text-[12px] min-[861px]:text-[9.5px] font-semibold uppercase tracking-[0.14em] text-slate-400";
   const metricLabel =
-    "mb-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-400";
+    "mb-2 text-[12px] min-[861px]:text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-400";
   const metricValue =
     "font-display text-[26px] font-bold tracking-[-0.02em] tabular-nums";
   const metricUnit = "text-[14px] font-medium text-slate-500";
@@ -90,7 +90,7 @@ export default function HeroV2() {
           </figcaption>
 
           {/* Greeting header */}
-          <div className="flex items-start justify-between gap-[14px] border-b border-slate-200 px-[22px] pt-[18px] pb-4">
+          <div className="flex flex-col items-stretch gap-3 border-b border-slate-200 px-[22px] pt-[18px] pb-4 min-[861px]:flex-row min-[861px]:items-start min-[861px]:justify-between min-[861px]:gap-[14px]">
             <div>
               <div className={`${eyebrow} mb-1 tracking-[0.15em]`}>
                 {t("landingV2HeroCardEyebrow", "Home")}
@@ -141,9 +141,9 @@ export default function HeroV2() {
           </div>
 
           {/* Metric strip */}
-          <div className="grid grid-cols-1 min-[861px]:grid-cols-3">
+          <div className="grid grid-cols-2 min-[861px]:grid-cols-3">
             <div
-              className={`${cardCell} min-[861px]:border-r min-[861px]:border-slate-200`}
+              className={`${cardCell} border-r border-slate-200`}
             >
               <div className={metricLabel}>
                 {t("landingV2HeroCardRevenueLabel", "Revenue so far")}
@@ -156,7 +156,7 @@ export default function HeroV2() {
               </div>
             </div>
             <div
-              className={`${cardCell} border-t border-slate-200 min-[861px]:border-t-0 min-[861px]:border-r`}
+              className={`${cardCell} border-slate-200 min-[861px]:border-t-0 min-[861px]:border-r`}
             >
               <div className={metricLabel}>
                 {t("landingV2HeroCardWeekLabel", "This week")}
@@ -168,7 +168,7 @@ export default function HeroV2() {
                 {t("landingV2HeroCardWeekDelta", "+12% vs last week")}
               </div>
             </div>
-            <div className={`${cardCell} border-t border-slate-200 min-[861px]:border-t-0`}>
+            <div className={`${cardCell} col-span-2 border-t border-slate-200 min-[861px]:col-span-1 min-[861px]:border-t-0`}>
               <div className={metricLabel}>
                 {t("landingV2HeroCardMonthLabel", "This month")}
               </div>
