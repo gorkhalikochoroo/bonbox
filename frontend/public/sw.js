@@ -1,4 +1,4 @@
-const CACHE_NAME = "bonbox-v5";
+const CACHE_NAME = "bonbox-v6";
 // 2026-05-25 — API cache key bumped (was bonbox-api-v1). The previous
 // SW served /api/dashboard/* via stale-while-revalidate with a 5-min
 // TTL, which meant after an optimistic-add on Sales/Expenses the very

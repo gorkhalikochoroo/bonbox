@@ -12,7 +12,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Menu, Receipt, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
+import BonBoxMark from "../../BonBoxMark";
 import { useLanguage } from "../../../hooks/useLanguage";
 
 /** Landing copy exists in these two only — see the switcher comment below. */
@@ -53,7 +54,7 @@ export default function NavV2() {
             aria-hidden="true"
             className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[9px] bg-bb-green"
           >
-            <Receipt size={15} strokeWidth={1.75} className="text-white" />
+            <BonBoxMark size={16} strokeWidth={2} className="text-white" />
           </span>
           <span className="font-display text-[19px] font-bold tracking-[-0.025em] text-slate-900">
             BonBox
