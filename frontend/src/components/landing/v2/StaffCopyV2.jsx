@@ -1,5 +1,6 @@
 import { Check } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
+import AppStoreLink from "./AppStoreLink";
 
 export default function StaffCopyV2() {
   const { t } = useLanguage();
@@ -22,8 +23,14 @@ export default function StaffCopyV2() {
 
   return (
     <div className="max-w-[58ch]">
-      <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-        {t("landingV2.staff.eyebrow", "BonBox Scheduler · iPhone")}
+      <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+          {t("landingV2.staff.eyebrow", "BonBox Scheduler · iPhone")}
+        </span>
+        <AppStoreLink
+          href="https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793"
+          label={t("landingV2.appStore.scheduler", "Scheduler on the App Store")}
+        />
       </div>
 
       <h2 className="mb-4 font-display text-[clamp(28px,3.1vw,40px)] font-bold leading-[1.06] tracking-[-0.028em] text-slate-900">
