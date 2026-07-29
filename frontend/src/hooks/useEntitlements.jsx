@@ -125,7 +125,7 @@ export function EntitlementsProvider({ children }) {
   // not trigger a refetch, but an actual account change does. Signing out
   // resets to the Free shape IMMEDIATELY rather than leaving the old plan in
   // place — same fail-closed rule the catch below already follows.
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [data, setData] = useState(null);   // null = still loading
   const [error, setError] = useState(null);
   const inflight = useRef(null);             // de-dupe concurrent requests
@@ -153,7 +153,10 @@ export function EntitlementsProvider({ children }) {
         // into B's state. Silently dropping is correct: the user-change effect
         // has already queued a fetch for whoever is signed in now.
         const askedFor = res.data?.user_id ?? null;
-        if (askedFor !== null && askedFor !== currentUserIdRef.current) {
+        if (
+          askedFor !== null &&
+          String(askedFor) !== String(currentUserIdRef.current)
+        ) {
           return res.data;
         }
         setData(res.data);
@@ -206,6 +209,16 @@ export function EntitlementsProvider({ children }) {
   //
   // Logged out is its own case: no user, so the Free fallback is exactly right.
   const ent = (() => {
+    // "Not known yet" is NOT "signed out". While AuthProvider is still probing
+    // /auth/me, userId is null for a reason that has nothing to do with the
+    // user's plan — and answering Free there is a settled answer to a question
+    // we cannot yet answer. On a cold Render start that probe can take seconds
+    // (60s axios timeout, _noRetry), and a Pro owner hard-refreshing a gated
+    // page would watch an "Upgrade to Starter" card the whole time. That is
+    // this bug, reintroduced one layer up. Return not-loaded instead, which is
+    // the state the file's own loading|locked|unlocked contract reserves for
+    // exactly this.
+    if (authLoading) return null;
     // No user: always the Free shape, never whatever the last account left in
     // `data`. This is the logout half of the barrier and it needs no effect.
     if (!userId) return DEFAULT_FREE_FALLBACK;
@@ -217,7 +230,7 @@ export function EntitlementsProvider({ children }) {
     // renders nothing. Accept an unstamped payload (barrier 1 still applies to
     // it) and reject only a payload stamped for somebody ELSE, which is the
     // case this barrier exists to stop.
-    if (data.user_id != null && data.user_id !== userId) return null;
+    if (data.user_id != null && String(data.user_id) !== String(userId)) return null;
     return data;
   })();
 
