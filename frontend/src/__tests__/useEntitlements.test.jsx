@@ -39,9 +39,9 @@ vi.mock("../services/api", () => ({
 // the fix for "log out, log back in, still shown upgrade prompts". Mocked so a
 // test can move between accounts without standing up the real AuthProvider
 // (which would bootstrap /auth/me). setMockUser(null) simulates signed out.
-const authState = vi.hoisted(() => ({ user: { id: 1 } }));
+const authState = vi.hoisted(() => ({ user: { id: 1 }, loading: false }));
 vi.mock("../hooks/useAuth", () => ({
-  useAuth: () => ({ user: authState.user }),
+  useAuth: () => ({ user: authState.user, loading: authState.loading }),
 }));
 
 import api from "../services/api";
@@ -69,6 +69,7 @@ function HookProbe({ onRender }) {
 beforeEach(() => {
   api.get.mockReset();
   authState.user = { id: 1 };
+  authState.loading = false;
 });
 
 
@@ -374,5 +375,30 @@ describe("useEntitlements — entitlements follow the signed-in user", () => {
     expect(probe).toHaveAttribute("data-is-paid", "false");
     // Derived, not fetched — signing out must not hit the API.
     expect(api.get).toHaveBeenCalledTimes(1);
+  });
+
+  it("BARRIER 2 — 'not known yet' is not 'signed out' during auth bootstrap", async () => {
+    // The regression the first cut of this fix introduced. While AuthProvider
+    // probes /auth/me there is no user, but that says nothing about the plan.
+    // Answering Free there is a SETTLED answer to an unanswerable question —
+    // a Pro owner hard-refreshing a gated page would sit under an "Upgrade"
+    // card for the whole probe (seconds on a cold backend). It must read as
+    // not-loaded so gated UI renders nothing.
+    authState.user = null;
+    authState.loading = true;
+    render(<EntitlementsProvider><HookProbe /></EntitlementsProvider>);
+    await act(async () => {});
+    const probe = screen.getByTestId("probe");
+    expect(probe).toHaveAttribute("data-loading", "true");
+    expect(api.get).not.toHaveBeenCalled();
+
+    // Signed OUT (bootstrap finished, still no user) IS a settled Free.
+    authState.loading = false;
+    render(<EntitlementsProvider><HookProbe /></EntitlementsProvider>);
+    await act(async () => {});
+    const probes = screen.getAllByTestId("probe");
+    const settled = probes[probes.length - 1];
+    expect(settled).toHaveAttribute("data-loading", "false");
+    expect(settled).toHaveAttribute("data-plan", "free");
   });
 });
