@@ -81,6 +81,7 @@
  *     | grep -v isReady | grep -v entReady | grep -v entLoading
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useAuth } from "./useAuth";
 import api from "../services/api";
 
 const EntitlementsContext = createContext(null);
@@ -103,9 +104,36 @@ const DEFAULT_FREE_FALLBACK = {
 };
 
 export function EntitlementsProvider({ children }) {
+  // Entitlements follow the SIGNED-IN USER, not the provider's mount.
+  //
+  // This effect used to be `useEffect(refresh, [refresh])` with refresh
+  // memoised on `[]` — so the plan was fetched exactly once, when the provider
+  // mounted, and never again. Two consequences, both live:
+  //
+  //   1. Log out, log back in: the provider never remounts (it sits above the
+  //      router), so the entitlements from BEFORE the login survived. Signing
+  //      in as a Pro account after a logged-out page load left the app holding
+  //      the Free fallback the 401 had installed — a paying customer shown
+  //      upgrade prompts until they hit refresh, which is what remounted it.
+  //
+  //   2. Worse, and the reason this is not merely cosmetic: on a shared device
+  //      user B logging in after user A inherited A's entitlements until a
+  //      manual refresh. That is the wrong direction on a money feature — a
+  //      Free account could read a Pro one's unlocked UI.
+  //
+  // Keyed on user id, so a re-render that hands back a new user object does
+  // not trigger a refetch, but an actual account change does. Signing out
+  // resets to the Free shape IMMEDIATELY rather than leaving the old plan in
+  // place — same fail-closed rule the catch below already follows.
+  const { user } = useAuth();
   const [data, setData] = useState(null);   // null = still loading
   const [error, setError] = useState(null);
   const inflight = useRef(null);             // de-dupe concurrent requests
+
+  // Whose entitlements are we currently entitled to apply? Read inside the
+  // promise callbacks so a response that lands AFTER an account switch can be
+  // compared against the user who is signed in NOW, not the one who asked.
+  const currentUserIdRef = useRef(null);
 
   const refresh = useCallback(() => {
     // De-dupe: if a request is already in flight, return its promise so
@@ -119,6 +147,15 @@ export function EntitlementsProvider({ children }) {
     const p = api
       .get("/billing/entitlements", { _noRetry: true })
       .then((res) => {
+        // BARRIER 2a — drop a response that arrived for a different account.
+        // refresh() de-dupes via `inflight`, so without this a request started
+        // for user A and still in flight when user B signs in would resolve
+        // into B's state. Silently dropping is correct: the user-change effect
+        // has already queued a fetch for whoever is signed in now.
+        const askedFor = res.data?.user_id ?? null;
+        if (askedFor !== null && askedFor !== currentUserIdRef.current) {
+          return res.data;
+        }
         setData(res.data);
         setError(null);
         return res.data;
@@ -137,9 +174,52 @@ export function EntitlementsProvider({ children }) {
     return p;
   }, []);
 
+  const userId = user?.id ?? null;
   useEffect(() => {
+    // Written here, not during render: refs are only safe to mutate in an
+    // effect, and this effect fires precisely when the account changes.
+    currentUserIdRef.current = userId;
+    // Never hand a new account the previous account's in-flight request.
+    inflight.current = null;
+    if (!userId) {
+      // Signed out (or not yet bootstrapped). Nothing to fetch, and nothing to
+      // write: `ent` below DERIVES the Free shape whenever there is no user, so
+      // the previous account's payload becomes unreachable without a setState
+      // (which would only cascade a render to reach the same answer).
+      return;
+    }
     refresh();
-  }, [refresh]);
+  }, [userId, refresh]);
+
+  // ─── BARRIER 2b — a payload is only usable by the user it was issued to ──
+  //
+  // Barrier 1 (refetch on user change) is timing-based, and anything
+  // timing-based has a race. This one is structural: the server stamps the
+  // payload with user_id, and a payload whose stamp does not match the
+  // signed-in user is treated as NOT LOADED rather than as Free.
+  //
+  // "Not loaded" and not "Free" on purpose. Falling back to Free would show a
+  // paying customer an upgrade wall — the very bug being fixed. The hook
+  // already documents a three-state contract (loading | locked | unlocked)
+  // where consumers render nothing while !isReady, so a mismatch lands in the
+  // one state that grants nothing AND claims nothing.
+  //
+  // Logged out is its own case: no user, so the Free fallback is exactly right.
+  const ent = (() => {
+    // No user: always the Free shape, never whatever the last account left in
+    // `data`. This is the logout half of the barrier and it needs no effect.
+    if (!userId) return DEFAULT_FREE_FALLBACK;
+    if (!data) return null;
+    // ABSENCE IS NOT MISMATCH. A payload with no stamp comes from a backend
+    // that predates it — the frontend and backend deploy separately (Vercel vs
+    // Render), so requiring the stamp would mean that during any window where
+    // the frontend is ahead, EVERY user sits in permanent "loading" and the app
+    // renders nothing. Accept an unstamped payload (barrier 1 still applies to
+    // it) and reject only a payload stamped for somebody ELSE, which is the
+    // case this barrier exists to stop.
+    if (data.user_id != null && data.user_id !== userId) return null;
+    return data;
+  })();
 
   // ─── Ergonomic accessors ───────────────────────────────────────────
   // These run on EVERY render but the data they read is stable, so
@@ -148,39 +228,39 @@ export function EntitlementsProvider({ children }) {
   /** True iff the user's plan grants the boolean feature flag. Unknown
    * features fail closed (false). Mirrors backend has_feature(). */
   const hasFeature = useCallback(
-    (featureKey) => Boolean(data?.features?.[featureKey] === true),
-    [data],
+    (featureKey) => Boolean(ent?.features?.[featureKey] === true),
+    [ent],
   );
 
   /** True iff `current` >= the cap on `capKey`. Treats unlimited (-1)
    * as never-at-cap. Mirrors backend at_cap(). */
   const isAtCap = useCallback(
     (capKey, current) => {
-      const cap = data?.caps?.[capKey];
+      const cap = ent?.caps?.[capKey];
       if (cap == null) return false; // unknown cap — defer to server gate
       if (cap < 0) return false; // unlimited
       return current >= cap;
     },
-    [data],
+    [ent],
   );
 
   /** Numeric cap for a key, or -1 if unlimited, or undefined if unknown. */
   const cap = useCallback(
-    (capKey) => data?.caps?.[capKey],
-    [data],
+    (capKey) => ent?.caps?.[capKey],
+    [ent],
   );
 
   /** The lowest plan that unlocks `featureKey` — for upgrade CTAs. */
   const minPlanForFeature = useCallback(
-    (featureKey) => data?.min_plan_by_feature?.[featureKey] || null,
-    [data],
+    (featureKey) => ent?.min_plan_by_feature?.[featureKey] || null,
+    [ent],
   );
 
   /** Snapshot of caps + features for a specific plan — used by the
    * upgrade modal to render "Starter unlocks X / Pro unlocks Y". */
   const planSnapshot = useCallback(
-    (planKey) => data?.plans?.[planKey] || null,
-    [data],
+    (planKey) => ent?.plans?.[planKey] || null,
+    [ent],
   );
 
   // ─── Three-state contract (loading | locked | unlocked) ────────────
@@ -198,24 +278,25 @@ export function EntitlementsProvider({ children }) {
   //
   // `isReady` is the positive flag — preferred at call sites because
   // negating `loading` invites the "let me just check truthy" mistake.
-  const loading = data === null;
+  const loading = ent === null;
   const isReady = !loading;
 
   const value = {
-    // Raw payload (escape hatch)
-    data,
+    // Raw payload (escape hatch) — the TRUSTED view only. Never expose a
+    // payload belonging to another account, even through the escape hatch.
+    data: ent,
     loading,
     isReady,
     error,
     refresh,
 
     // Quick state
-    plan: data?.plan || "free",
-    rawPlan: data?.raw_plan || "free",
-    isPaid: Boolean(data?.is_paid),
-    inTrial: Boolean(data?.in_trial),
-    trialDaysRemaining: data?.trial_days_remaining ?? null,
-    trialEndsAt: data?.trial_ends_at || null,
+    plan: ent?.plan || "free",
+    rawPlan: ent?.raw_plan || "free",
+    isPaid: Boolean(ent?.is_paid),
+    inTrial: Boolean(ent?.in_trial),
+    trialDaysRemaining: ent?.trial_days_remaining ?? null,
+    trialEndsAt: ent?.trial_ends_at || null,
 
     // Helpers
     hasFeature,
