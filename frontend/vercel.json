@@ -1,29 +1,56 @@
 {
   "rewrites": [
-    { "source": "/portal/:token/app.webmanifest", "destination": "https://api.bonbox.dk/api/portal/:token/manifest.webmanifest" },
-    { "source": "/(.*)", "destination": "/" }
+    {
+      "source": "/portal/:token/app.webmanifest",
+      "destination": "https://api.bonbox.dk/api/portal/:token/manifest.webmanifest"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/"
+    }
   ],
   "headers": [
     {
       "source": "/assets/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
       ]
     },
     {
       "source": "/(favicon\\.svg|manifest\\.json|icon-.*\\.png|apple-touch-icon\\.png|robots\\.txt|sitemap\\.xml)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=3600, must-revalidate" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, must-revalidate"
+        }
       ]
     },
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Permissions-Policy", "value": "geolocation=(self), microphone=(), camera=(self), payment=(self), usb=(), accelerometer=(), gyroscope=()" },
-        { "key": "Strict-Transport-Security", "value": "max-age=31536000; includeSubDomains; preload" },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "geolocation=(self), microphone=(), camera=(self), payment=(self), usb=(), accelerometer=(), gyroscope=()"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=31536000; includeSubDomains; preload"
+        },
         {
           "key": "Content-Security-Policy",
           "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://js.stripe.com https://accounts.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://accounts.google.com; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://api.bonbox.dk https://bonbox-api.onrender.com https://api.stripe.com https://accounts.google.com https://*.supabase.co wss://*.supabase.co; frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://accounts.google.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.stripe.com; object-src 'none'; manifest-src 'self'; worker-src 'self' blob:"
@@ -40,5 +67,5 @@
       ]
     }
   ],
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':(exclude)ios' ':(exclude)ios-scheduler'"
+  "ignoreCommand": "bash -c 'git rev-parse --verify HEAD^ >/dev/null 2>&1 || exit 1; git diff --quiet HEAD^ HEAD -- . \":(exclude)ios\" \":(exclude)ios-scheduler\"'"
 }
