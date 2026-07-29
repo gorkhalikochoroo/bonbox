@@ -59,6 +59,7 @@ import {
   ChevronDown,
   BarChart3,
   Scissors,
+  Settings,
   SlidersHorizontal,
   ExternalLink,
   HelpCircle,
@@ -326,6 +327,14 @@ export default function ReservationsPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  // Host stand (/reservations/stand) — the door screen front of house runs.
+  // Re-derived from the path because `standalone` is a local const inside
+  // BookSection and CANNOT be threaded up: ReservationsPage takes zero
+  // parameters and App.jsx passes nothing. That is exactly why the page title,
+  // the tab pills and the 300px day rail still rendered on the stand — nothing
+  // up here knew it was a service screen.
+  const isHostStand = location.pathname.endsWith("/reservations/stand");
+
   // Per-vertical adaptation (Phase A). `bookingMode` gates the Floor tab
   // (TABLE-only) on the venue TYPE; `isProvider` (salon) drives the
   // Aftaler/Tidsbestilling vocabulary swap. Pure config read — no refetch.
@@ -366,6 +375,9 @@ export default function ReservationsPage() {
   // "book" for a missing / unknown value.
   const tab = useMemo(() => {
     try {
+      // The stand shows the book only; its settings door is the gear in the
+      // stand header, which navigates to the owner page with ?tab=settings.
+      if (isHostStand) return "book";
       const q = new URLSearchParams(location.search).get("tab");
       const resolved = RSVP_TABS.includes(q) ? q : "book";
       // A provider/no-floor venue has no Floor tab — a deep-link to ?tab=floor
@@ -377,7 +389,7 @@ export default function ReservationsPage() {
     } catch {
       return "book";
     }
-  }, [location.search, showFloor, isProvider]);
+  }, [location.search, showFloor, isProvider, isHostStand]);
 
   // Fetch the page-level resources (used by the Insights zone filter + the
   // floor grandfather above). Soft-fail — the page works without it.
@@ -445,8 +457,18 @@ export default function ReservationsPage() {
     // sidebar freed pixels the page then refused to use — ~400 dead on a 1440
     // display. The cap only lifts at xl, exactly where the day rail appears;
     // below that the single column is still the right shape.
-    <div className="p-4 md:p-8 max-w-5xl xl:max-w-[1400px] mx-auto space-y-6">
-      <PageTitle t={t} isProvider={isProvider} />
+    <div
+      className={
+        isHostStand
+          ? "space-y-4"
+          : "p-4 md:p-8 max-w-5xl xl:max-w-[1400px] mx-auto space-y-6"
+      }
+    >
+      {/* BookSection's own standalone wrapper already sets full-bleed padding
+          and safe-area insets, and its header already prints the venue name and
+          "Vært-skærm" — the owner wrapper and title would double both. */}
+      {!isHostStand && <PageTitle t={t} isProvider={isProvider} />}
+      {!isHostStand && (
       <TabPills
         tabs={[
           // Salon (provider) reads "Aftaler" (the appointment book) instead of
@@ -478,16 +500,27 @@ export default function ReservationsPage() {
         ariaLabel={t("rsvpTabsAria", "Reservation sections")}
         size="lg"
       />
+      )}
 
       {/* Two columns from xl (1280px) up — the rail is additive, so below that
           breakpoint this collapses to exactly the single column shipped
           before. min-w-0 on the book so a wide timeline scrolls inside its
           own column instead of pushing the grid open. */}
       {tab === "book" && (
-        <div className="xl:grid xl:grid-cols-[300px_minmax(0,1fr)] xl:gap-6 xl:items-start">
+        <div
+          className={
+            isHostStand
+              ? ""
+              : "xl:grid xl:grid-cols-[300px_minmax(0,1fr)] xl:gap-6 xl:items-start"
+          }
+        >
+          {/* A host never changes the date mid-service, and the month grid was
+              holding the prime top-left of a screen read at arm's length. */}
+          {!isHostStand && (
           <div className="hidden xl:block xl:sticky xl:top-6">
             <DayRail day={bookDay} onPick={setBookDay} t={t} />
           </div>
+          )}
           <div className="min-w-0">
             <BookSection
               t={t}
@@ -2483,6 +2516,10 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // table move/clear, new booking, walk-in), not just on a day change.
   const [bookTick, setBookTick] = useState(0);
   const [view, setView] = useState(() => {
+    // The stand always opens on the list: a host starts from a name spoken at
+    // the door, and only the list has the search index and a one-tap Seat. It
+    // must also not inherit whatever lens the owner last used on a laptop.
+    if (standalone) return "liste";
     try {
       const saved = localStorage.getItem(RSVP_VIEW_KEY) || "liste";
       // A non-table venue can't show the plan lens — a stale "plan" preference
@@ -2559,6 +2596,8 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
 
   const pickView = (v) => {
     setView(v);
+    // A host glancing at the Floor must not silently retarget the owner's page.
+    if (standalone) return;
     try {
       localStorage.setItem(RSVP_VIEW_KEY, v);
     } catch {
@@ -2637,6 +2676,20 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
       liveRefreshInFlight.current = false;
     }
   }, [day]);
+  // Roll the host stand onto the new day. `day` is set once at mount and the
+  // poll below only arms while day === today, so a stand left running by the
+  // door was pinned to yesterday AND had stopped polling by morning — while the
+  // now-line kept ticking, so it looked alive. Checked every minute; the poll
+  // re-arms for free because this effect's dependency IS `day`.
+  useEffect(() => {
+    if (!standalone) return undefined;
+    const id = setInterval(() => {
+      const today = isoDay(new Date());
+      if (day !== today) setDay(today);
+    }, 60000);
+    return () => clearInterval(id);
+  }, [standalone, day, setDay]);
+
   useEffect(() => {
     const onWake = () => {
       if (document.visibilityState === "visible") refreshBookSilently();
@@ -3622,6 +3675,22 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               </div>
             </div>
           </div>
+          {/* The stand hides the owner tab pills, so settings must stay ONE tap
+              away and visible — front of house runs this screen, and a hidden
+              door is the same as no door. Opens the owner page on the settings
+              tab in a new tab, leaving the stand itself untouched behind it. */}
+          <div className="flex items-center gap-1 shrink-0">
+          <a
+            href="/reservations?tab=settings"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={t("rsvpStandSettings", "Indstillinger")}
+            title={t("rsvpStandSettings", "Indstillinger")}
+            className="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+          >
+            <Settings className="w-4 h-4" aria-hidden />
+            <span className="hidden sm:inline">{t("rsvpStandSettings", "Indstillinger")}</span>
+          </a>
           <button
             type="button"
             onClick={() => {
@@ -3637,6 +3706,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             <X className="w-4 h-4" aria-hidden />
             <span className="hidden sm:inline">{t("close", "Luk")}</span>
           </button>
+          </div>
         </div>
       )}
       {/* Salon first-run — a provider (salon) venue with no self-chair yet
