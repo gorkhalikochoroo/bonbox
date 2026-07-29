@@ -2557,6 +2557,33 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // Honest dead-link note: the booking was cancelled/purged before we arrived.
   const [deepLinkGone, setDeepLinkGone] = useState(false);
 
+  // Stand day-picker. On the host stand the centre of the date stepper opens
+  // the SAME month grid the owner rail uses (per-day booking counts included)
+  // instead of the native date input — a host jumping to next Saturday should
+  // not tap the arrow seven times, and a native picker on a kiosk tablet is
+  // whatever that OS decides to show.
+  const [dayPickerOpen, setDayPickerOpen] = useState(false);
+  const dayPickerRef = useRef(null);
+  useEffect(() => {
+    if (!dayPickerOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") setDayPickerOpen(false);
+    };
+    const onDown = (e) => {
+      if (dayPickerRef.current && !dayPickerRef.current.contains(e.target)) {
+        setDayPickerOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+    };
+  }, [dayPickerOpen]);
+
   const pickView = (v) => {
     setView(v);
     try {
@@ -3665,6 +3692,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
           {/* Date stepper — ◂ step a day ▸, tap the centre to jump via the
               native picker. The relative label ("I dag" / "I morgen") gives
               instant orientation; the numeric date sits quietly beneath. */}
+          <div className="relative" ref={dayPickerRef}>
           <div className="inline-flex items-stretch rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
             <button
               type="button"
@@ -3674,6 +3702,23 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             >
               <ChevronLeft className="w-5 h-5" />
             </button>
+            {standalone ? (
+              <button
+                type="button"
+                onClick={() => setDayPickerOpen((v) => !v)}
+                aria-haspopup="dialog"
+                aria-expanded={dayPickerOpen}
+                aria-label={t("rsvpBookDay", "Reservation date")}
+                className="relative h-11 flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+              >
+                <span className="text-[13px] font-semibold leading-none text-gray-900 dark:text-gray-100">
+                  {relativeDayLabel(day, t, lang)}
+                </span>
+                <span className="text-[11px] leading-none text-gray-500 dark:text-gray-400 tabular-nums mt-1">
+                  {fmtDkDate(day)}
+                </span>
+              </button>
+            ) : (
             <label className="relative h-11 flex flex-col items-center justify-center px-3 cursor-pointer border-x border-gray-200 dark:border-gray-700 min-w-[7.5rem] hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors focus-within:ring-2 focus-within:ring-inset focus-within:ring-gray-900 dark:focus-within:ring-gray-100">
               <span className="text-[13px] font-semibold leading-none text-gray-900 dark:text-gray-100">
                 {relativeDayLabel(day, t, lang)}
@@ -3689,6 +3734,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 className="absolute inset-0 opacity-0 cursor-pointer"
               />
             </label>
+            )}
             <button
               type="button"
               onClick={() => setDay(shiftDay(day, 1))}
@@ -3697,6 +3743,23 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             >
               <ChevronRight className="w-5 h-5" />
             </button>
+          </div>
+          {standalone && dayPickerOpen && (
+            <div
+              role="dialog"
+              aria-label={t("rsvpBookDay", "Reservation date")}
+              className="absolute left-0 top-full z-30 mt-2 w-[300px] max-w-[calc(100vw-2rem)] rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-xl"
+            >
+              <DayRail
+                day={day}
+                onPick={(d) => {
+                  setDay(d);
+                  setDayPickerOpen(false);
+                }}
+                t={t}
+              />
+            </div>
+          )}
           </div>
           {day !== isoDay(new Date()) && (
             <button
