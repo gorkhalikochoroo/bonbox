@@ -1,4 +1,5 @@
 import { ChevronRight } from "lucide-react";
+import AppStoreLink from "./AppStoreLink";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../../../hooks/useLanguage";
 
@@ -29,12 +30,21 @@ export default function HeroV2() {
       <div className="grid grid-cols-1 items-center gap-10 min-[1041px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] min-[1041px]:gap-[clamp(40px,5vw,68px)]">
         {/* ── Left column ───────────────────────────────────────────── */}
         <div>
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-bb-green-tint py-[6px] pl-[10px] pr-[13px] text-[12.5px] font-semibold text-bb-green-dark">
-            <span
-              aria-hidden="true"
-              className="inline-block h-1.5 w-1.5 rounded-full bg-bb-green-bright"
+          {/* Badge + the owner app, as peers. The App Store link wraps to its
+              own line rather than squeezing the badge on a narrow screen. */}
+          <div className="mb-6 flex flex-wrap items-center gap-2.5">
+            <span className="inline-flex items-center gap-2 rounded-full bg-bb-green-tint py-[6px] pl-[10px] pr-[13px] text-[12.5px] font-semibold text-bb-green-dark">
+              <span
+                aria-hidden="true"
+                className="inline-block h-1.5 w-1.5 rounded-full bg-bb-green-bright"
+              />
+              {t("landingV2HeroBadge", "Made in Copenhagen for Danish small business")}
+            </span>
+            <AppStoreLink
+              size="md"
+              href="https://apps.apple.com/dk/app/bonbox-daily-close/id6762066960"
+              label={t("landingV2.appStore.dailyClose", "Daily Close on the App Store")}
             />
-            {t("landingV2HeroBadge", "Made in Copenhagen for Danish small business")}
           </div>
 
           <h1 className="m-0 mb-5 font-display text-[clamp(36px,4.7vw,56px)] font-extrabold leading-[1.03] tracking-[-0.033em] text-balance text-slate-900">
