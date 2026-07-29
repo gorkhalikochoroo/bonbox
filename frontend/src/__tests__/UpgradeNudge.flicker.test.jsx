@@ -33,6 +33,12 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import { render, screen, waitFor } from "@testing-library/react";
 
+// EntitlementsProvider now reads the signed-in user (the logout->login
+// entitlements fix), so it needs an auth context to mount.
+vi.mock("../hooks/useAuth", () => ({
+  useAuth: () => ({ user: { id: 1 }, loading: false }),
+}));
+
 vi.mock("../services/api", () => ({
   default: { get: vi.fn() },
 }));
