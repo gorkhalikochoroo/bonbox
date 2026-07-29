@@ -17189,6 +17189,19 @@ const translations = {
 // instantly.  `label` is the native-language full name, used inside
 // expanded dropdowns + accessibility (aria-label) so screen-reader
 // users still hear "Dansk" not "DK".
+/**
+ * The two titles index.html can ship. The shell is Danish (Denmark is the
+ * market and the static HTML is what crawlers read); the English one is
+ * swapped in at runtime for an English reader. Kept beside LANGUAGES so the
+ * pair cannot drift from index.html unnoticed — if you change the <title>
+ * there, change it here.
+ */
+const SHELL_TITLES = {
+  da: "BonBox \u2014 Bagkontoret din virksomhed faktisk k\u00f8rer p\u00e5",
+  en: "BonBox \u2014 The back office your business actually runs on",
+};
+const SHELL_TITLE_VALUES = Object.values(SHELL_TITLES);
+
 const LANGUAGES = [
   { code: "en", label: "English", short: "EN", flag: "🇬🇧" },
   { code: "da", label: "Dansk", short: "DK", flag: "🇩🇰" },
@@ -17433,12 +17446,23 @@ export function LanguageProvider({ children }) {
     return result;
   }, [loaded, lang]);
 
-  // Keep <html lang> in step with the chosen language. index.html ships
-  // lang="en" and nothing was updating it, so a Danish page still announced
-  // itself as English — screen readers then read Danish with English
-  // phonetics, and search engines index the wrong locale.
+  // Keep <html lang> and the tab title in step with the chosen language.
+  //
+  // index.html now ships lang="da" and a Danish <title>, because Denmark is
+  // the market and the STATIC shell is what Google indexes — a crawler never
+  // waits for React. The consequence is that an English-reading visitor would
+  // otherwise sit on a Danish tab title, so it is swapped here once the app
+  // knows the language.
+  //
+  // The guard matters: ReservationPublicPage and StaffPortalPage set their own
+  // document.title ("Book bord · <venue>"). Only replace the title when it is
+  // still one of the two shell defaults, so a page that has named itself is
+  // never stomped by a language change.
   useEffect(() => {
-    if (typeof document !== "undefined") document.documentElement.lang = lang;
+    if (typeof document === "undefined") return;
+    document.documentElement.lang = lang;
+    const wanted = SHELL_TITLES[lang] || SHELL_TITLES.en;
+    if (SHELL_TITLE_VALUES.includes(document.title)) document.title = wanted;
   }, [lang]);
 
   return (
