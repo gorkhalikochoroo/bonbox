@@ -35,6 +35,15 @@ vi.mock("../services/api", () => ({
   },
 }));
 
+// EntitlementsProvider now depends on the signed-in user — that dependency IS
+// the fix for "log out, log back in, still shown upgrade prompts". Mocked so a
+// test can move between accounts without standing up the real AuthProvider
+// (which would bootstrap /auth/me). setMockUser(null) simulates signed out.
+const authState = vi.hoisted(() => ({ user: { id: 1 } }));
+vi.mock("../hooks/useAuth", () => ({
+  useAuth: () => ({ user: authState.user }),
+}));
+
 import api from "../services/api";
 import { EntitlementsProvider, useEntitlements } from "../hooks/useEntitlements";
 
@@ -59,6 +68,7 @@ function HookProbe({ onRender }) {
 
 beforeEach(() => {
   api.get.mockReset();
+  authState.user = { id: 1 };
 });
 
 
@@ -278,5 +288,91 @@ describe("useEntitlements — accessor correctness", () => {
     });
     expect(captured.minPlanForFeature("ai_anomaly_detection")).toBe("starter");
     expect(captured.minPlanForFeature("nonsense")).toBeNull();
+  });
+});
+
+
+/* ─── The logout → login regression ──────────────────────────────────────
+   Reported symptom: log out, log back in on a Pro account, get shown upgrade
+   prompts, and a browser refresh clears it. Cause: the provider fetched once
+   on mount and sits above the router, so it never refetched and never
+   remounted. Two independent barriers now guard it, and each is tested
+   separately — a single fix here is a single point of failure. */
+describe("useEntitlements — entitlements follow the signed-in user", () => {
+  const proFor = (id) => ({
+    data: {
+      user_id: id, plan: "pro", raw_plan: "pro", is_paid: true,
+      caps: {}, features: { ai_anomaly_detection: true },
+      min_plan_by_feature: {}, plans: {},
+    },
+  });
+
+  it("BARRIER 1 — refetches when the account changes", async () => {
+    api.get.mockResolvedValue(proFor(1));
+    const { rerender } = render(
+      <EntitlementsProvider><HookProbe /></EntitlementsProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("probe")).toHaveAttribute("data-loading", "false");
+    });
+    expect(api.get).toHaveBeenCalledTimes(1);
+
+    // A different account signs in — the provider does NOT remount.
+    api.get.mockResolvedValue(proFor(2));
+    authState.user = { id: 2 };
+    await act(async () => {
+      rerender(<EntitlementsProvider><HookProbe /></EntitlementsProvider>);
+    });
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+  });
+
+  it("BARRIER 2 — a payload stamped for another account is never applied", async () => {
+    // Simulates the race barrier 1 cannot close: a response for user 1 landing
+    // while user 2 is signed in. It must read as NOT LOADED, not as Free —
+    // Free would show a paying customer the upgrade wall we are fixing.
+    authState.user = { id: 2 };
+    api.get.mockResolvedValue(proFor(1));
+    render(<EntitlementsProvider><HookProbe /></EntitlementsProvider>);
+    await act(async () => {});
+    const probe = screen.getByTestId("probe");
+    expect(probe).toHaveAttribute("data-loading", "true");
+    expect(probe).toHaveAttribute("data-has-anomaly", "false");
+    expect(probe).toHaveAttribute("data-is-paid", "false");
+  });
+
+  it("BARRIER 2 — an UNSTAMPED payload is still accepted (deploy-order safety)", async () => {
+    // The frontend and backend deploy separately. If the frontend ships first,
+    // every payload lacks user_id; rejecting those would hang the whole app in
+    // "loading". Absence is not mismatch.
+    api.get.mockResolvedValue({
+      data: { plan: "pro", is_paid: true, caps: {},
+              features: { ai_anomaly_detection: true },
+              min_plan_by_feature: {}, plans: {} },
+    });
+    render(<EntitlementsProvider><HookProbe /></EntitlementsProvider>);
+    await waitFor(() => {
+      expect(screen.getByTestId("probe")).toHaveAttribute("data-loading", "false");
+    });
+    expect(screen.getByTestId("probe")).toHaveAttribute("data-plan", "pro");
+  });
+
+  it("signing out drops the previous account's plan without a refetch", async () => {
+    api.get.mockResolvedValue(proFor(1));
+    const { rerender } = render(
+      <EntitlementsProvider><HookProbe /></EntitlementsProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("probe")).toHaveAttribute("data-plan", "pro");
+    });
+
+    authState.user = null;
+    await act(async () => {
+      rerender(<EntitlementsProvider><HookProbe /></EntitlementsProvider>);
+    });
+    const probe = screen.getByTestId("probe");
+    expect(probe).toHaveAttribute("data-plan", "free");
+    expect(probe).toHaveAttribute("data-is-paid", "false");
+    // Derived, not fetched — signing out must not hit the API.
+    expect(api.get).toHaveBeenCalledTimes(1);
   });
 });

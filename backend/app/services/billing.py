@@ -1301,6 +1301,14 @@ def entitlements_payload(user: User) -> dict[str, Any]:
         for plan in PLAN_ORDER  # excludes trial since it's not purchasable
     }
     return {
+        # BARRIER 2 — whose entitlements these are, asserted by the server.
+        # The frontend caches this payload in a provider that outlives a
+        # logout, so a stale or mis-delivered payload must be *structurally*
+        # unusable for the wrong account rather than merely unlikely. The
+        # client compares this against the signed-in user and refuses to grant
+        # anything on a mismatch. Not PII: it is the caller's own id, which the
+        # client already holds from /auth/me.
+        "user_id": user.id,
         "plan": summary["plan"],
         "raw_plan": summary["raw_plan"],
         "is_paid": summary["is_paid"],
