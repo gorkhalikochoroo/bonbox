@@ -17205,6 +17205,10 @@ const translations = {
 const SHELL_TITLES = {
   da: "BonBox \u2014 Bagkontoret din virksomhed faktisk k\u00f8rer p\u00e5",
   en: "BonBox \u2014 The back office your business actually runs on",
+  // Only languages at full coverage get a localised shell title. A translated
+  // tab on a mostly-English page reads as broken, so partial locales keep the
+  // English one until they are filled.
+  tr: "BonBox \u2014 \u0130\u015fletmenin ger\u00e7ekten \u00fczerinde d\u00f6nd\u00fc\u011f\u00fc arka ofis",
 };
 const SHELL_TITLE_VALUES = Object.values(SHELL_TITLES);
 
