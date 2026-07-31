@@ -1471,6 +1471,13 @@ class ReservationEdit(BaseModel):
     guest_phone: str | None = Field(default=None, max_length=40)
     guest_email: str | None = Field(default=None, max_length=255)
     guest_notes: str | None = Field(default=None, max_length=2000)
+    # Allergy is editable here because the host stand beeps a distinct urgent
+    # tone for a severe allergy and, until now, had no way to record one — a
+    # guest phoning "nødeallergi" left the host nowhere to put it. Same
+    # sanitisers as create; never a raw write.
+    allergen_tags: list[str] | None = None
+    allergy_note: str | None = Field(default=None, max_length=2000)
+    allergy_severity: str | None = None
 
 
 @router.patch("/reservations/{reservation_id}")
@@ -1482,6 +1489,8 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
     NEVER sent a cancellation for a mere change. Multi-barrier: auth · tenant
     scope on the row · Pydantic bounds · status gate · occupancy re-check ·
     audit with before/after."""
+    from app.services.allergens import sanitize_tags, sanitize_severity
+
     enforce_feature(user, "reservations")
     r = (
         db.query(Reservation)
@@ -1505,6 +1514,29 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
         v = getattr(payload, f)
         if v is not None:
             setattr(r, f, v)
+
+    # Allergy (Art. 9 health data) — through the same sanitisers create uses,
+    # so the vertical's vocabulary and severity vocabulary stay the only things
+    # that can land in the column.
+    allergy_touched = False
+    if payload.allergen_tags is not None:
+        btype = getattr(user, "business_type", None) or "restaurant"
+        r.allergen_tags = sanitize_tags(payload.allergen_tags, btype)
+        allergy_touched = True
+    if payload.allergy_note is not None:
+        r.allergy_note = payload.allergy_note or None
+        allergy_touched = True
+    if payload.allergy_severity is not None:
+        # sanitize_severity returns None for anything outside SEVERITY_LEVELS,
+        # which doubles as the "clear it" path when the host empties the field.
+        r.allergy_severity = sanitize_severity(payload.allergy_severity)
+        allergy_touched = True
+
+    # A human entry IS the confirmed record. Without this the host types the
+    # allergy the guest just phoned in and the row keeps nagging "muligt: X —
+    # bekræft?" about a stale AI guess sitting underneath it.
+    if allergy_touched:
+        r.allergy_ai_confirmed = True
 
     if time_or_party:
         profile = _profile(db, user)
@@ -1554,8 +1586,13 @@ def edit_reservation(reservation_id: UUID, payload: ReservationEdit, request: Re
     audit_service.record(
         db, user, "reservation.edited", "reservation", r.id,
         before=before,
+        # Deliberately records THAT the allergy changed, never what it says.
+        # Audit rows outlive the reservation's purge_after, so putting Art. 9
+        # health text in here would leave health data behind after the booking
+        # it belongs to has been erased.
         after={"starts_at": r.starts_at.isoformat() if r.starts_at else None,
-               "party_size": r.party_size},
+               "party_size": r.party_size,
+               **({"allergy_changed": True} if allergy_touched else {})},
     )
     try:
         db.commit()
