@@ -65,10 +65,15 @@ import {
   HelpCircle,
   Pencil,
   Mail,
+  Volume2,
+  VolumeX,
+  LogOut,
+  MoreHorizontal,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { haptic } from "../utils/haptics";
+import { getSoundStatus, subscribeSound, testSound } from "../utils/sound";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
@@ -2471,6 +2476,174 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
   );
 }
 
+/**
+ * Live audibility chip for the host stand.
+ *
+ * The stand's whole reason to exist is that it makes a noise when a severe
+ * allergy arrives. Web audio on an iPad can be killed by a single accidental
+ * tap in Control Centre, and until now that failed SILENTLY — the chime simply
+ * stopped and nothing on screen said so. This chip is the instrument: it shows
+ * whether the next alert will actually be heard, and tapping it plays the
+ * urgent tone so a host can confirm with their own ears before service.
+ *
+ * Deliberately not a toggle. Turning alert sound off is a real setting that
+ * lives in the alert centre; this is a health indicator you can test, which is
+ * a different thing and must not be confusable with a mute button.
+ */
+function StandSoundChip({ t }) {
+  const [state, setState] = useState(() => getSoundStatus());
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => subscribeSound(setState), []);
+
+  const ok = state.ok;
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setTesting(true);
+        Promise.resolve(testSound("urgent")).finally(() =>
+          setTimeout(() => setTesting(false), 700),
+        );
+      }}
+      aria-label={t("rsvpStandTestSound", "Test lyden")}
+      title={
+        ok
+          ? t("rsvpStandSoundOnHint", "Lyden virker. Tryk for at teste.")
+          : t(
+              "rsvpStandSoundOffHint",
+              "Der kommer ingen lyd. Tjek lydstyrke og lydløs-knap, og tryk for at teste igen.",
+            )
+      }
+      className={
+        "inline-flex items-center gap-1.5 h-10 px-3 rounded-lg text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
+        (ok
+          ? "text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800"
+          : "text-amber-700 bg-amber-50 hover:bg-amber-100 dark:text-amber-300 dark:bg-amber-900/30 dark:hover:bg-amber-900/50")
+      }
+    >
+      {ok ? (
+        <Volume2 className="w-4 h-4" aria-hidden />
+      ) : (
+        <VolumeX className="w-4 h-4" aria-hidden />
+      )}
+      <span className="hidden sm:inline">
+        {testing
+          ? t("rsvpStandSoundTesting", "Afspiller…")
+          : ok
+            ? t("rsvpStandSoundOn", "Lyd aktiv")
+            : t("rsvpStandSoundOff", "Lyd slået fra")}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Overflow menu for the host stand.
+ *
+ * The stand is a door tablet on an unlocked owner session. Owner settings used
+ * to be a single unlabelled gear tap away, which put the full financial app
+ * one accidental press from anyone standing at the counter. Moving it behind a
+ * deliberate two-step keeps it reachable for the owner — front of house still
+ * has a visible door, not a hidden one — without leaving it under a guest's
+ * thumb.
+ *
+ * "Luk" only appears when the tab can genuinely close itself (script-opened,
+ * so window.opener exists). On an installed home-screen stand window.close()
+ * is a no-op, and the old fallback navigated the host INTO the owner app —
+ * the exact thing this screen exists to avoid. There, the honest end-of-shift
+ * action is logging out.
+ */
+function StandMenu({ t, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const canClose = typeof window !== "undefined" && !!window.opener;
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = (e) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const item =
+    "flex w-full items-center gap-2.5 px-3 py-2.5 text-sm text-left text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors";
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={t("rsvpStandMore", "Mere")}
+        className="inline-flex items-center justify-center h-10 w-10 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+      >
+        <MoreHorizontal className="w-5 h-5" aria-hidden />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-40 mt-2 w-60 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-xl"
+        >
+          {/* target=_blank so the stand itself never leaves the stand. */}
+          <a
+            href="/reservations?tab=settings"
+            target="_blank"
+            rel="noopener noreferrer"
+            role="menuitem"
+            className={item}
+            onClick={() => setOpen(false)}
+          >
+            <Settings className="w-4 h-4 shrink-0 text-gray-400" aria-hidden />
+            <span className="min-w-0">
+              {t("rsvpStandSettings", "Indstillinger")}
+              <span className="block text-[11px] text-gray-500 dark:text-gray-400">
+                {t("rsvpStandSettingsHint", "Åbner ejer-appen i en ny fane")}
+              </span>
+            </span>
+          </a>
+          <div className="h-px bg-gray-200 dark:bg-gray-800" />
+          {canClose ? (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={() => {
+                setOpen(false);
+                window.close();
+              }}
+            >
+              <X className="w-4 h-4 shrink-0 text-gray-400" aria-hidden />
+              {t("close", "Luk")}
+            </button>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              className={item}
+              onClick={() => {
+                setOpen(false);
+                onLogout();
+              }}
+            >
+              <LogOut className="w-4 h-4 shrink-0 text-gray-400" aria-hidden />
+              {t("logout", "Log ud")}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // `day`/`onDayChange` are OPTIONAL — pass them and the book becomes a
 // controlled component so the desktop DayRail beside it can drive the date;
 // omit them (host-stand pop-out, tests) and it keeps its own state exactly as
@@ -2484,7 +2657,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   // NOT threaded down as props. `standalone` is derived from the path exactly
   // as the parent does. (Without these three, the Book tab threw
   // "ReferenceError: standalone is not defined" and crashed the whole page.)
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const standalone = location.pathname.endsWith("/reservations/stand");
@@ -3702,37 +3875,22 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               </div>
             </div>
           </div>
-          {/* The stand hides the owner tab pills, so settings must stay ONE tap
-              away and visible — front of house runs this screen, and a hidden
-              door is the same as no door. Opens the owner page on the settings
-              tab in a new tab, leaving the stand itself untouched behind it. */}
+          {/* Audibility is the one piece of stand state a host must be able to
+              read without touching anything, so the chip is top-level and the
+              owner door sits behind the overflow. Reversed from how this used
+              to be: the gear was one tap and the sound was invisible. */}
           <div className="flex items-center gap-1 shrink-0">
-          <a
-            href="/reservations?tab=settings"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={t("rsvpStandSettings", "Indstillinger")}
-            title={t("rsvpStandSettings", "Indstillinger")}
-            className="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
-          >
-            <Settings className="w-4 h-4" aria-hidden />
-            <span className="hidden sm:inline">{t("rsvpStandSettings", "Indstillinger")}</span>
-          </a>
-          <button
-            type="button"
-            onClick={() => {
-              try {
-                window.close();
-              } catch {
-                /* tab wasn't script-opened — the navigate below is the fallback */
-              }
-              navigate("/reservations");
-            }}
-            className="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-gray-100 dark:hover:bg-gray-800 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
-          >
-            <X className="w-4 h-4" aria-hidden />
-            <span className="hidden sm:inline">{t("close", "Luk")}</span>
-          </button>
+            <StandSoundChip t={t} />
+            <StandMenu
+              t={t}
+              onLogout={async () => {
+                try {
+                  await logout();
+                } finally {
+                  navigate("/login");
+                }
+              }}
+            />
           </div>
         </div>
       )}
