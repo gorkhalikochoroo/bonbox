@@ -1853,6 +1853,9 @@ const translations = {
     rsvpInstallBody: "Install BonBox on your host PC / tablet so the reservation book opens as an app.",
     rsvpInstallCta: "Install BonBox",
     rsvpInstallManual: "In Edge or Chrome: open the ⋯ menu → Apps → Install this site as an app.",
+    rsvpInstallManualIOS: "In Safari: tap Share, then Add to Home Screen. The icon opens straight to this screen.",
+    rsvpStandInstall: "Install on this device",
+    rsvpStandInstallHint: "Opens straight to the host stand",
     // ── Insights (Indsigt) tab — owner reservation analytics. Keys prefixed
     //    rsvpIns*. Figures are based on BOOKED guests (Σ party size), labelled
     //    accordingly. DK terms: gæster = guests, couvert = covers. ──
@@ -9473,6 +9476,9 @@ const translations = {
     rsvpInstallBody: "Installér BonBox på din vært-PC / tablet, så reservationsbogen åbner som en app.",
     rsvpInstallCta: "Installér BonBox",
     rsvpInstallManual: "I Edge eller Chrome: åbn ⋯-menuen → Apps → Installér dette websted som en app.",
+    rsvpInstallManualIOS: "I Safari: tryk Del, og v\u00e6lg L\u00e6g p\u00e5 hjemmesk\u00e6rm. Ikonet \u00e5bner direkte p\u00e5 v\u00e6rt-sk\u00e6rmen.",
+    rsvpStandInstall: "Install\u00e9r p\u00e5 enheden",
+    rsvpStandInstallHint: "\u00c5bner direkte p\u00e5 v\u00e6rt-sk\u00e6rmen",
     // ── Indsigt-fane — ejerens reservationsanalyse. Nøgler med rsvpIns*-præfiks.
     //    Tal er baseret på BOOKEDE gæster (Σ antal personer), markeret derefter. ──
     rsvpTabInsights: "Indsigt",

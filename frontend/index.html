@@ -92,6 +92,16 @@
           var token = m && m[1] ? m[1] : null;
           window.__BONBOX_PORTAL_TOKEN = token;
 
+          // The host stand is a door tablet, and it has exactly the same
+          // Add-to-Home problem the staff portal had: the generic manifest is
+          // start_url "/" + orientation portrait-primary, so an owner who
+          // completed the Share-sheet ritual on /reservations/stand got an icon
+          // that opened the OWNER DASHBOARD, in portrait, on a landscape
+          // tablet. Nobody could test "is the web host stand good enough"
+          // because an installed host stand had never actually existed.
+          var isStand = /^\/reservations\/stand\/?$/.test(location.pathname);
+          window.__BONBOX_IS_STAND = isStand;
+
           function setManifest(href) {
             var link = document.querySelector('link[rel="manifest"]');
             if (!href) {
@@ -115,6 +125,22 @@
             } else {
               // Android/desktop staff route → per-staff manifest, first paint.
               setManifest("/portal/" + token + "/app.webmanifest");
+            }
+          } else if (isStand) {
+            if (isIOS) {
+              // iOS host stand → NO manifest, same reasoning as the staff
+              // route: with no manifest present in the INITIAL document, iOS
+              // Add-to-Home bookmarks the current URL (/reservations/stand)
+              // and takes its name from apple-mobile-web-app-title. A manifest
+              // here would bind the icon to start_url "/" instead — the very
+              // bug. (iPad is the device this screen is for, so this is the
+              // branch that actually matters.)
+              setManifest(null);
+            } else {
+              // Android/desktop → a real stand manifest: start_url
+              // /reservations/stand and orientation "any" so a landscape
+              // tablet is not forced into portrait.
+              setManifest("/stand.webmanifest");
             }
           } else {
             // Owner / marketing / any non-portal route → generic manifest.

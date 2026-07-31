@@ -20,7 +20,7 @@
       ]
     },
     {
-      "source": "/(favicon\\.svg|manifest\\.json|icon-.*\\.png|apple-touch-icon\\.png|robots\\.txt|sitemap\\.xml)",
+      "source": "/(favicon\\.svg|manifest\\.json|stand\\.webmanifest|icon-.*\\.png|apple-touch-icon\\.png|robots\\.txt|sitemap\\.xml)",
       "headers": [
         {
           "key": "Cache-Control",
