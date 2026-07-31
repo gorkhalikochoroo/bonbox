@@ -340,6 +340,25 @@ export default function ReservationsPage() {
   // up here knew it was a service screen.
   const isHostStand = location.pathname.endsWith("/reservations/stand");
 
+  // On iOS the stand ships NO manifest (see the selector in index.html), so
+  // Add-to-Home bookmarks this exact URL and takes the icon's label from
+  // apple-mobile-web-app-title. Point that at the venue, because a host tapping
+  // a home screen wants "Bistro Nørrebro", not a second icon called "BonBox"
+  // sitting beside the owner app. Restored on unmount so the owner app's own
+  // install is untouched.
+  useEffect(() => {
+    if (!isHostStand || typeof document === "undefined") return undefined;
+    const meta = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if (!meta) return undefined;
+    const prev = meta.getAttribute("content");
+    const venue = user?.business_name;
+    meta.setAttribute("content", venue ? `${venue} — Vært` : "Vært-skærm");
+    return () => {
+      if (prev === null) meta.removeAttribute("content");
+      else meta.setAttribute("content", prev);
+    };
+  }, [isHostStand, user?.business_name]);
+
   // Per-vertical adaptation (Phase A). `bookingMode` gates the Floor tab
   // (TABLE-only) on the venue TYPE; `isProvider` (salon) drives the
   // Aftaler/Tidsbestilling vocabulary swap. Pure config read — no refetch.
@@ -2609,6 +2628,83 @@ function StandSoundChip({ t }) {
  * the exact thing this screen exists to avoid. There, the honest end-of-shift
  * action is logging out.
  */
+/**
+ * "Install on this device", as a stand menu row.
+ *
+ * The existing InstallHostStandHint lives inside SettingsSection — which the
+ * stand forces away — so on the one screen meant to live on a tablet the
+ * install affordance was unreachable. Renders nothing once installed; there is
+ * nothing honest to offer then.
+ */
+function StandInstallItem({ t, className }) {
+  const [installEvent, setInstallEvent] = useState(null);
+  const [installed, setInstalled] = useState(() => _isStandaloneDisplay());
+  const [showHow, setShowHow] = useState(false);
+
+  useEffect(() => {
+    const onPrompt = (e) => {
+      e.preventDefault();
+      setInstallEvent(e);
+    };
+    const onInstalled = () => {
+      setInstalled(true);
+      setInstallEvent(null);
+    };
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  if (installed) return null;
+
+  return (
+    <>
+      <button
+        type="button"
+        role="menuitem"
+        className={className}
+        onClick={async () => {
+          if (installEvent) {
+            try {
+              installEvent.prompt();
+              await installEvent.userChoice;
+            } catch {
+              /* stale event — harmless */
+            }
+            setInstallEvent(null);
+            return;
+          }
+          setShowHow((v) => !v);
+        }}
+      >
+        <Download className="w-4 h-4 shrink-0 text-gray-400" aria-hidden />
+        <span className="min-w-0">
+          {t("rsvpStandInstall", "Installér på enheden")}
+          <span className="block text-[11px] text-gray-500 dark:text-gray-400">
+            {t("rsvpStandInstallHint", "Åbner direkte på vært-skærmen")}
+          </span>
+        </span>
+      </button>
+      {showHow && !installEvent && (
+        <p className="px-3 pb-2.5 -mt-1 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
+          {_isIOSDevice()
+            ? t(
+                "rsvpInstallManualIOS",
+                "In Safari: tap Share, then Add to Home Screen. The icon opens straight to this screen.",
+              )
+            : t(
+                "rsvpInstallManual",
+                "In Edge or Chrome: open the ⋯ menu → Apps → Install this site as an app.",
+              )}
+        </p>
+      )}
+    </>
+  );
+}
+
 function StandMenu({ t, onLogout }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
@@ -2665,6 +2761,7 @@ function StandMenu({ t, onLogout }) {
               </span>
             </span>
           </a>
+          <StandInstallItem t={t} className={item} />
           <div className="h-px bg-gray-200 dark:bg-gray-800" />
           {canClose ? (
             <button
@@ -6634,6 +6731,20 @@ function _isStandaloneDisplay() {
   return false;
 }
 
+/** iOS/iPadOS, incl. iPad-as-Macintosh. Prefers the flag the index.html
+ *  manifest selector already computed so both layers agree on one answer. */
+function _isIOSDevice() {
+  if (typeof window === "undefined") return false;
+  if (typeof window.__BONBOX_IS_STAND !== "undefined" || typeof window.__BONBOX_IS_IOS !== "undefined") {
+    return window.__BONBOX_IS_IOS === true;
+  }
+  const ua = navigator.userAgent || "";
+  return (
+    /iphone|ipad|ipod/i.test(ua) ||
+    (navigator.maxTouchPoints > 1 && /Macintosh/i.test(ua))
+  );
+}
+
 function InstallHostStandHint({ t }) {
   const [installEvent, setInstallEvent] = useState(null);
   const [installed, setInstalled] = useState(() => _isStandaloneDisplay());
@@ -6702,10 +6813,20 @@ function InstallHostStandHint({ t }) {
           </Button>
         ) : (
           <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-            {t(
-              "rsvpInstallManual",
-              "In Edge or Chrome: open the ⋯ menu → Apps → Install this site as an app.",
-            )}
+            {/* iPad/iPhone never fire beforeinstallprompt, so this branch is
+                ALWAYS what an iPad owner sees — and it used to tell them to
+                open Edge or Chrome's ⋯ menu, on the one device this screen is
+                designed for. Safari's own Share → Add to Home Screen is the
+                real path there. */}
+            {_isIOSDevice()
+              ? t(
+                  "rsvpInstallManualIOS",
+                  "In Safari: tap Share, then Add to Home Screen. The icon opens straight to this screen.",
+                )
+              : t(
+                  "rsvpInstallManual",
+                  "In Edge or Chrome: open the ⋯ menu → Apps → Install this site as an app.",
+                )}
           </p>
         )}
       </div>
