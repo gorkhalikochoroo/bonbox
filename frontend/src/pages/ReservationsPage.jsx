@@ -660,8 +660,8 @@ function FlagsCell({ r, t }) {
       {hasAllergy && (
         <AlertTriangle
           className={"w-4 h-4 " + (severe ? "text-red-600 dark:text-red-400" : "text-amber-500 dark:text-amber-400")}
-          aria-label={severe ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
-          title={allergyTitle || (severe ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy"))}
+          aria-label={severe ? t("rsvpSevSevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
+          title={allergyTitle || (severe ? t("rsvpSevSevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy"))}
         />
       )}
       {aiMaybe && (
@@ -948,7 +948,7 @@ function ReservationDrawer({
             >
               <div className="font-semibold flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4" aria-hidden />
-                {severe ? t("rsvpAllergySevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
+                {severe ? t("rsvpSevSevere", "Severe allergy") : t("rsvpAllergyFlag", "Allergy")}
               </div>
               {allergyText && <div className="mt-0.5">{allergyText}</div>}
             </div>
@@ -1336,7 +1336,20 @@ function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose }) {
   const [party, setParty] = useState(String(r.party_size || 2));
   const [name, setName] = useState(r.guest_name || "");
   const [phone, setPhone] = useState(r.guest_phone || "");
+  // Allergy is the reason the stand has an urgent chime at all, and until now
+  // there was nowhere to type one. Seeded from the row so leaving it alone
+  // sends nothing (see the changed-only guard on submit).
+  const initialAllergy = r.allergy_note || "";
+  const initialSeverity = r.allergy_severity || "";
+  const [allergyNote, setAllergyNote] = useState(initialAllergy);
+  const [severity, setSeverity] = useState(initialSeverity);
   const sizes = [1, 2, 3, 4, 5, 6, 8];
+  const severities = [
+    { v: "", label: t("rsvpSevNone", "Ingen") },
+    { v: "preference", label: t("rsvpSevPreference", "Præference") },
+    { v: "intolerance", label: t("rsvpSevIntolerance", "Intolerance") },
+    { v: "severe", label: t("rsvpSevSevere", "Alvorlig") },
+  ];
   return (
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
@@ -1391,16 +1404,58 @@ function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose }) {
           <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel"
             className="mt-1.5 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
         </div>
+        <div>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400">
+            {t("rsvpEditAllergy", "Allergi")}
+          </label>
+          <div className="flex flex-wrap gap-2 mt-1.5">
+            {severities.map((s) => {
+              const on = s.v === severity;
+              const danger = s.v === "severe";
+              return (
+                <button key={s.v || "none"} type="button" onClick={() => setSeverity(s.v)}
+                  aria-pressed={on}
+                  className={"h-11 px-3 rounded-lg border text-sm font-medium " +
+                    (on
+                      ? danger
+                        ? "bg-red-600 text-white border-red-600"
+                        : "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
+                      : "border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600")}>
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+          <input value={allergyNote} onChange={(e) => setAllergyNote(e.target.value)}
+            placeholder={t("rsvpEditAllergyPh", "F.eks. skaldyr — ingen bisque, separat pande")}
+            maxLength={2000}
+            className="mt-2 w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-900 dark:text-gray-100" />
+          {severity === "severe" && (
+            <p className="mt-1.5 flex items-start gap-1.5 text-[12px] leading-snug text-red-700 dark:text-red-400">
+              <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" aria-hidden />
+              {t("rsvpEditAllergySevereHint", "Alvorlig giver en tydelig lyd på vært-skærmen.")}
+            </p>
+          )}
+        </div>
         {error && (
           <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-3 py-2 rounded-lg text-sm">{error}</div>
         )}
         <Button variant="primary" size="lg" busy={busy} className="w-full justify-center"
-          onClick={() => onSubmit({
-            starts_at: `${date}T${time}:00`,
-            party_size: Math.max(1, Math.min(100, parseInt(party, 10) || r.party_size)),
-            guest_name: name.trim() || null,
-            guest_phone: phone.trim() || null,
-          })}>
+          onClick={() => {
+            const body = {
+              starts_at: `${date}T${time}:00`,
+              party_size: Math.max(1, Math.min(100, parseInt(party, 10) || r.party_size)),
+              guest_name: name.trim() || null,
+              guest_phone: phone.trim() || null,
+            };
+            // Only send allergy when the host actually touched it. Sending it
+            // unchanged would mark a pending AI allergy suggestion "confirmed"
+            // as a side effect of editing a phone number — deciding something
+            // the host never looked at.
+            if (allergyNote.trim() !== initialAllergy) body.allergy_note = allergyNote.trim();
+            if (severity !== initialSeverity) body.allergy_severity = severity;
+            onSubmit(body);
+          }}>
           {t("rsvpEditSave", "Save changes")}
         </Button>
       </div>
@@ -1771,7 +1826,7 @@ function blockTitle(r, labels, t) {
     .join(" · ");
   const label =
     r.allergy_severity === "severe"
-      ? t("rsvpAllergySevere", "Severe allergy")
+      ? t("rsvpSevSevere", "Severe allergy")
       : t("rsvpAllergyFlag", "Allergy");
   return `${base}\n⚠ ${label}${detail ? ": " + detail : ""}`;
 }
