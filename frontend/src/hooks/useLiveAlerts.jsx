@@ -278,18 +278,29 @@ export function LiveAlertsProvider({ children }) {
   // calm ring) instead of the generic list. A collapsed "N changes" summary —
   // or any item without a booking id — falls back to the list. The id is the
   // only thing we carry; ReservationsPage re-derives the row from a fresh fetch.
+  //
+  // On the host stand this must NOT leave the stand. The stand is a door
+  // tablet running an unlocked owner session; navigating it to /reservations
+  // drops front of house into the full owner app — and it fired on the allergy
+  // toast, i.e. the single interaction the whole alert feature exists for.
+  // Same query contract either way, so the stand opens the same drawer.
   const openReservations = useCallback(
     (target) => {
       setToasts([]);
       markAllRead();
+      const base =
+        typeof window !== "undefined" &&
+        window.location.pathname.endsWith("/reservations/stand")
+          ? "/reservations/stand"
+          : "/reservations";
       const id = target && typeof target === "object" ? target.bookingId : null;
       if (id) {
         const date = target.bookingDate;
         const qs = new URLSearchParams({ booking: String(id) });
         if (date) qs.set("date", date);
-        navigate(`/reservations?${qs.toString()}`);
+        navigate(`${base}?${qs.toString()}`);
       } else {
-        navigate("/reservations");
+        navigate(base);
       }
     },
     [navigate, markAllRead],
