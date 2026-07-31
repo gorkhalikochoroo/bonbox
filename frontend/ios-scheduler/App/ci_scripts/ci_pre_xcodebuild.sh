@@ -46,6 +46,24 @@ if [ ! -f "$PBXPROJ" ]; then
 fi
 echo "✅ Found pbxproj: $PBXPROJ"
 
+# ── Identity guard ────────────────────────────────────────────────────
+# This script began life as a copy of the OWNER app's (dk.bonbox.app) and
+# carried its paths and build numbers with it — which would have stamped a
+# ~537 build number onto Scheduler, permanently burning that range for
+# MARKETING_VERSION 1.1. Build numbers only ever go up with Apple, so that
+# is not recoverable by editing anything.
+#
+# Refuse to mutate a project that is not this app. A wrong-project bump is
+# unrecoverable; a failed build is not.
+EXPECT_BUNDLE_ID="dk.bonbox.scheduler"
+if ! grep -q "PRODUCT_BUNDLE_IDENTIFIER = ${EXPECT_BUNDLE_ID};" "$PBXPROJ"; then
+    echo "❌ ERROR: refusing to bump — $PBXPROJ is not ${EXPECT_BUNDLE_ID}."
+    echo "   Found: $(grep -m1 -o 'PRODUCT_BUNDLE_IDENTIFIER = [^;]*;' "$PBXPROJ")"
+    echo "   This script only ever touches the Scheduler app."
+    exit 1
+fi
+echo "✅ Confirmed project is ${EXPECT_BUNDLE_ID}"
+
 # Pick a build number. Xcode Cloud sets CI_BUILD_NUMBER as a sequential
 # integer for this workflow. If we're outside CI, leave the file alone.
 if [ -z "$CI_BUILD_NUMBER" ]; then
@@ -54,24 +72,29 @@ if [ -z "$CI_BUILD_NUMBER" ]; then
     exit 0
 fi
 
-# Apple's CI environment numbers can collide with manually-uploaded
-# builds. To be safe, bump to a value that's strictly higher than the
-# last manually-uploaded build (244 as of May 2026).
-LAST_MANUAL=244
-NEW_BUILD=$((LAST_MANUAL + CI_BUILD_NUMBER))
+# Baseline = the build number committed in THIS app's pbxproj. That value is
+# the record of the last build we shipped by hand, so deriving from it means
+# CI always lands strictly above the last manual upload without anybody
+# maintaining a constant that goes stale the moment someone archives locally.
+# (If you ever upload a manual build, Xcode writes the new number into the
+# pbxproj and you commit it — the baseline moves with you automatically.)
+BASELINE=$(grep -m1 -E "CURRENT_PROJECT_VERSION = [0-9]+;" "$PBXPROJ" | grep -oE "[0-9]+" | head -1)
+if [ -z "$BASELINE" ]; then
+    echo "❌ ERROR: could not read CURRENT_PROJECT_VERSION from $PBXPROJ"
+    exit 1
+fi
 
-# Hard floor: the App Store rejected build 536 (Apple Guideline 3.1.1).
-# Every NEW submission for MARKETING_VERSION 1.4.2 must carry a build number
-# strictly greater than 536, regardless of where CI_BUILD_NUMBER happens to
-# sit. Clamp upward so we can never re-upload <= 536 even if the workflow's
-# build counter is reset or runs out of order.
-MIN_BUILD=537
+NEW_BUILD=$((BASELINE + CI_BUILD_NUMBER))
+
+# Clamp: never re-emit the baseline itself, even if CI_BUILD_NUMBER is 0 or
+# the workflow counter gets reset.
+MIN_BUILD=$((BASELINE + 1))
 if [ "$NEW_BUILD" -lt "$MIN_BUILD" ]; then
     echo "   (NEW_BUILD $NEW_BUILD below floor — clamping up to $MIN_BUILD)"
     NEW_BUILD=$MIN_BUILD
 fi
 echo "   CI_BUILD_NUMBER     = $CI_BUILD_NUMBER"
-echo "   LAST_MANUAL_OFFSET  = $LAST_MANUAL"
+echo "   BASELINE (pbxproj)  = $BASELINE"
 echo "   MIN_BUILD_FLOOR     = $MIN_BUILD"
 echo "   NEW_BUILD_NUMBER    = $NEW_BUILD"
 
@@ -92,7 +115,11 @@ echo "✅ Bumped CURRENT_PROJECT_VERSION to ${NEW_BUILD} in $COUNT location(s)"
 # Also patch Info.plist if it has CFBundleVersion = $(CURRENT_PROJECT_VERSION)
 # placeholder (it should — modern projects use the build setting). If it
 # has a hardcoded number, override that too as a belt-and-braces.
-INFO_PLIST="${CI_PRIMARY_REPOSITORY_PATH}/frontend/ios/App/App/Info.plist"
+INFO_PLIST="${CI_PRIMARY_REPOSITORY_PATH}/frontend/ios-scheduler/App/App/Info.plist"
+if [ ! -f "$INFO_PLIST" ]; then
+    # Fallback resolution from script location, same as PBXPROJ above.
+    INFO_PLIST="$(cd "$(dirname "$0")/.." && pwd)/App/Info.plist"
+fi
 if [ -f "$INFO_PLIST" ]; then
     # Only patch if it's a hardcoded value (not the build-setting placeholder)
     if grep -q "<key>CFBundleVersion</key>" "$INFO_PLIST"; then
