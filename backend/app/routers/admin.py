@@ -27,6 +27,7 @@ from app.models.sale import Sale
 from app.models.security_event import SecurityEvent
 from app.models.triage_note import TriageNote
 from app.models.user import User
+from app.services import reservation_adoption
 from app.services.admin_security import _audit, require_super_admin
 from app.services.triage_service import run_triage, serialize_note
 from app.utils.time import utc_now
@@ -83,6 +84,13 @@ def admin_overview(
     total_sales = db.query(func.count(Sale.id)).scalar() or 0
     total_expenses = db.query(func.count(Expense.id)).scalar() or 0
 
+    # Reservation adoption. `activated_users` above is distinct(Sale.user_id) —
+    # sales only — so until now the booking product appeared in no fleet metric
+    # at all and multi-week decisions were being weighed against a number nobody
+    # had run. Tiers are returned uncollapsed on purpose; see the service
+    # docstring for why each filter is (and isn't) applied.
+    reservations = reservation_adoption.collect(db)
+
     return {
         "total_users": total_users,
         "verified_users": verified_users,
@@ -96,6 +104,7 @@ def admin_overview(
         "total_events": total_events,
         "total_sales": total_sales,
         "total_expenses": total_expenses,
+        "reservations": reservations,
         "as_of": now.isoformat(),
     }
 
