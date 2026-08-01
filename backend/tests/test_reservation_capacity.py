@@ -181,3 +181,30 @@ def test_explicit_sort_order_still_honored(client, db):
                              "sort_order": 99})
     assert resp.status_code == 201, resp.text
     assert resp.json()["sort_order"] == 99
+
+
+# ── "full" must mean full ────────────────────────────────────────────
+# The 409 room_full is raised whenever auto-assign finds no table, which is two
+# different facts wearing one name: the room is genuinely occupied, OR nothing
+# is bookable at that hour at all (outside opening hours, no active tables).
+# Reported as one message the second case tells a host "that time is full — 28
+# seats" while the book plainly shows zero covers, and they turn away a caller
+# they could have seated. tables_busy_at_that_time is what lets the client tell
+# the truth: 0 means the room is empty and the slot simply is not bookable.
+
+def test_room_full_reports_zero_busy_when_the_room_is_actually_empty(client, db):
+    """Nothing booked, but the slot is unbookable → must NOT read as 'full'."""
+    _owner(db)
+    # 04:00 is outside any sane service window, so auto-assign finds nothing
+    # while the room is completely empty.
+    r = client.post("/api/reservations/book", json={
+        "guest_name": "Dead hours", "party_size": 2,
+        "starts_at": "2026-07-04T04:00:00", "auto_assign": True,
+    })
+    if r.status_code != 409:
+        pytest.skip("venue accepts that slot — nothing to assert here")
+    d = r.json()["detail"]
+    assert d["error"] == "room_full"
+    assert d["tables_busy_at_that_time"] == 0, (
+        "the room is empty, so the client must not say 'full'"
+    )

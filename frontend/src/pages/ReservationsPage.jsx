@@ -1172,27 +1172,65 @@ function ReservationDrawer({
 //     the same `onSeat({ resource_id, party_size, guest_name })`.
 function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
   const pickMode = table === SEAT_WALK_IN_PICK;
-  // First currently-free table is the sensible default pick.
-  const firstFreeId = useMemo(() => {
-    const free = tables.find((tb) => !tb.busy);
-    return free ? String(free.id) : "";
-  }, [tables]);
-  const [pickedId, setPickedId] = useState(firstFreeId);
-  // Keep the default pick fresh if the free set changes while the sheet is open
-  // (a table clears / fills on the 60s tick) and nothing valid is chosen yet.
+
+  // PARTY FIRST, TABLE FOLLOWS. This used to run the other way: pick the first
+  // free table, then default the party to THAT TABLE'S CAPACITY. So a couple
+  // walking in opened the sheet on a six-top with party 6, and changing party
+  // to 2 left them on the six-top — the sheet quietly proposed burning the
+  // best table in the room on the commonest walk-in there is.
+  //
+  // A host doesn't think table-then-party. They hear "two, please" and look
+  // for somewhere to put two. So party leads, and the table is re-suggested to
+  // the SMALLEST free table that actually fits.
+  const [party, setParty] = useState(() =>
+    // Tapping a specific table on the floor still means "seat them here", but
+    // even then the party is whoever walked in — so default to 2 unless the
+    // table physically cannot take 2.
+    String(Math.min(2, Number(table?.capacity_seats) || 2) || 2),
+  );
+  const [name, setName] = useState("");
+  // Once the host picks a table by hand, stop moving it under them.
+  const [tableTouched, setTableTouched] = useState(false);
+
+  /** Smallest free table that seats `n` — the honest auto-pick. Falls back to
+   *  the largest free table when nothing fits, so a big party still gets the
+   *  best available rather than an empty select. */
+  const bestFreeFor = useCallback(
+    (n) => {
+      const free = tables.filter((tb) => !tb.busy);
+      if (free.length === 0) return "";
+      const fits = free
+        .filter((tb) => (Number(tb.capacity_seats) || 0) >= n)
+        .sort((a, b) => (a.capacity_seats || 0) - (b.capacity_seats || 0));
+      const pick =
+        fits[0] ||
+        [...free].sort((a, b) => (b.capacity_seats || 0) - (a.capacity_seats || 0))[0];
+      return pick ? String(pick.id) : "";
+    },
+    [tables],
+  );
+
+  const [pickedId, setPickedId] = useState(() =>
+    pickMode ? bestFreeFor(Number(party) || 2) : "",
+  );
+
+  // Re-suggest as the party changes, and keep the pick valid if a table frees
+  // up or fills on the 60s tick. Never overrides a hand-picked table.
   useEffect(() => {
-    if (pickMode && !pickedId && firstFreeId) setPickedId(firstFreeId);
-  }, [pickMode, pickedId, firstFreeId]);
+    if (!pickMode || tableTouched) return;
+    const next = bestFreeFor(Number(party) || 2);
+    if (next && next !== pickedId) setPickedId(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickMode, tableTouched, party, bestFreeFor]);
+
   const chosenTable = pickMode
     ? tables.find((tb) => String(tb.id) === String(pickedId)) || null
     : table;
-  const [party, setParty] = useState(String(table?.capacity_seats || 2));
-  const [name, setName] = useState("");
-  // Keep party sensible for the picked table's capacity default.
-  useEffect(() => {
-    if (pickMode && chosenTable) setParty(String(chosenTable.capacity_seats || 2));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickedId]);
+  // Honest warning rather than a silent bad seat: the host may deliberately
+  // put 4 on a 2-top by pushing chairs together, so this informs, never blocks.
+  const tableTooSmall =
+    !!chosenTable &&
+    (Number(chosenTable.capacity_seats) || 0) < (Number(party) || 0);
   if (!table) return null;
   const sizes = [1, 2, 3, 4, 5, 6, 8];
   const canSeat = pickMode ? !!chosenTable && !chosenTable.busy : true;
@@ -1237,7 +1275,11 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
             </label>
             <select
               value={pickedId}
-              onChange={(e) => setPickedId(e.target.value)}
+              onChange={(e) => {
+                // A deliberate pick wins over the auto-suggestion from here on.
+                setTableTouched(true);
+                setPickedId(e.target.value);
+              }}
               aria-label={t("rsvpSeatWalkInTable", "Table")}
               className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
             >
@@ -1252,6 +1294,15 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
                 </option>
               ))}
             </select>
+            {tableTooSmall && (
+              /* Informs, never blocks — a host may deliberately push chairs
+                 together, and the stand must not argue with the room. */
+              <p className="mt-1.5 text-[12px] leading-snug text-amber-700 dark:text-amber-400">
+                {t("rsvpSeatTableSmall", "That table seats {seats} — you're seating {party}.")
+                  .replace("{seats}", chosenTable?.capacity_seats ?? "?")
+                  .replace("{party}", party)}
+              </p>
+            )}
           </div>
         )}
         <div>
@@ -1785,9 +1836,16 @@ function NewBookingSheet({
           <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300 space-y-2.5">
             <div className="font-semibold flex items-center gap-1.5">
               <AlertTriangle className="w-4 h-4 shrink-0" aria-hidden />
-              {warning.seats != null
-                ? t("rsvpRoomFullWarn", "That time is full — {n} seats.", { n: warning.seats })
-                : t("rsvpRoomFullShort", "That time is full.")}
+              {/* "room_full" is raised whenever auto-assign finds no table,
+                  which is two different facts. When nothing is actually
+                  occupying the room at that time, saying "full" contradicts a
+                  book showing zero covers and makes a host turn away a caller
+                  they could have seated. */}
+              {warning.busyAtThatTime === 0
+                ? t("rsvpNoTableAtTime", "No table can be booked at that time.")
+                : warning.seats != null
+                  ? t("rsvpRoomFullWarn", "That time is full — {n} seats.", { n: warning.seats })
+                  : t("rsvpRoomFullShort", "That time is full.")}
             </div>
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" size="md" disabled={busy} onClick={() => submit(true)}>
@@ -3365,7 +3423,9 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
         );
       } else if (e?.response?.status === 409 && d.error === "room_full") {
         const seats = d.seats ?? d.total_seats ?? d.capacity ?? (totalCapacity || null);
-        setRoomFull({ seats });
+        // undefined (older backend) stays undefined, so the message falls back
+        // to the previous wording rather than claiming an empty room.
+        setRoomFull({ seats, busyAtThatTime: d.tables_busy_at_that_time });
       } else {
         setCreateError(
           d.error || t("rsvpCreateError", "Couldn't create the booking."),
