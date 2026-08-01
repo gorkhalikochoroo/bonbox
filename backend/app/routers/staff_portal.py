@@ -1152,13 +1152,28 @@ def _clock_status_dict(db: Session, member, owner) -> dict:
         .all()
     )
     today_hours = round(sum(float(r.total_hours or 0) for r in today_rows), 2)
-    geofence_on = _clock_geofence(db, owner)["enabled"]
+    _fence = _clock_geofence(db, owner)
+    geofence_on = _fence["enabled"]
+    # Venue centre + radius, so the portal can draw the "are you close enough?"
+    # dial LOCALLY and answer before the staffer taps and gets a 403.
+    #
+    # Disclosure is deliberate and small: the venue's address is already on the
+    # hero with a Maps link, so its position is not a secret from the person
+    # rostered to work there. Sent ONLY when the fence is actually on.
+    #
+    # This does not change the privacy property that matters: the staffer's own
+    # coordinates still leave the device only with a punch, and are still never
+    # stored. The dial computes on-device from these two numbers.
+    _fence_pub = (
+        {"lat": _fence["lat"], "lng": _fence["lng"], "radius_m": _fence["radius_m"]}
+        if geofence_on else None
+    )
     win = _clock_window_status(db, member, owner)
     punch = _open_punch(db, member)
     if not punch:
         return {"clocked_in": False, "since": None, "elapsed_min": None,
                 "elapsed_sec": None, "today_hours": today_hours,
-                "geofence_on": geofence_on,
+                "geofence_on": geofence_on, "geofence": _fence_pub,
                 "locked": win["locked"], "opens_at": win["opens_at"],
                 "shift_start": win["shift_start"], "window_minutes": win["window_minutes"]}
     return {
@@ -1167,7 +1182,7 @@ def _clock_status_dict(db: Session, member, owner) -> dict:
         "elapsed_min": _elapsed_min(punch.start_time, now_dt),  # back-compat (whole min)
         "elapsed_sec": _elapsed_sec(punch.created_at),          # live-counter seed (seconds)
         "today_hours": today_hours,
-        "geofence_on": geofence_on,
+        "geofence_on": geofence_on, "geofence": _fence_pub,
         # Already clocked in → never "locked"; keep window context for the UI.
         "locked": False, "opens_at": None,
         "shift_start": win["shift_start"], "window_minutes": win["window_minutes"],
@@ -1641,6 +1656,67 @@ def update_portal_contact(token: str, body: ContactUpdateRequest, request: Reque
         "postal_code": member.postal_code,
         "city": member.city,
         "message": "Contact info updated",
+    }
+
+
+@router.get("/{token}/holiday")
+def get_portal_holiday(token: str, request: Request, db: Session = Depends(get_db)):
+    """The staffer's feriedage position, computed under the Ferielov.
+
+    Its own endpoint rather than a field on the PIN-EXEMPT validate payload:
+    that endpoint runs before the PIN is proven and must stay minimal, and how
+    much holiday someone has is theirs, not something a forwarded link should
+    reveal. `_get_staff_from_token` gates this behind the PIN.
+
+    Returns `since` and `partial` alongside the numbers because the caller MUST
+    render the date — see app/services/danish_holiday.py. "9,4 dage optjent
+    siden marts" is true; "9,4 dage tilbage" is a claim about someone's legal
+    entitlement that only their lønsystem can make.
+    """
+    link, member = _get_staff_from_token(token, db)
+
+    from app.models.absence import StaffAbsence
+    from app.services import danish_holiday
+
+    # Local calendar date, not the server's UTC date: a ferieår boundary an hour
+    # either side of midnight would otherwise flip a day early or late for a
+    # Danish user. Deliberately now_local(), not business_today_local() — the
+    # 06:00 business-day cutoff belongs to takings and shifts; a holiday is
+    # counted on the calendar day it falls on, not the trading day.
+    owner = db.query(User).filter(User.id == link.user_id).first()
+    today = now_local(owner).date()
+    start, end = danish_holiday.ferieaar_bounds(today)
+
+    # Ferie days recorded in BonBox inside this ferieår. One row per date, so a
+    # count IS the day count. Cancelled/rejected rows must not reduce the
+    # balance — only absences that actually happened.
+    taken = (
+        db.query(StaffAbsence)
+        .filter(
+            StaffAbsence.staff_id == member.id,
+            StaffAbsence.user_id == link.user_id,
+            StaffAbsence.kind == "ferie",
+            StaffAbsence.date >= start,
+            StaffAbsence.date <= end,
+            StaffAbsence.status != "cancelled",
+        )
+        .count()
+    )
+
+    # created_at is when the OWNER ADDED THEM HERE — not their employment start.
+    # The module treats it as "the earliest date BonBox can vouch for" and the
+    # UI shows `since`, so the number never poses as their whole year.
+    known_since = (member.created_at.date() if member.created_at else start)
+
+    b = danish_holiday.compute(known_since=known_since, taken_days=taken, on=today)
+    return {
+        "earned": b.earned,
+        "taken": b.taken,
+        "remaining": b.remaining,
+        "since": b.since.isoformat(),
+        "partial": b.partial,
+        "ferieaar_start": b.ferieaar_start.isoformat(),
+        "ferieaar_end": b.ferieaar_end.isoformat(),
     }
 
 

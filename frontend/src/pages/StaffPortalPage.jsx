@@ -6,6 +6,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 import { useConfirm } from "../hooks/useConfirm";
+import GeofenceDial from "../components/GeofenceDial";
+import { nextShiftCountdown } from "../utils/nextShiftCountdown";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
 import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
@@ -303,6 +305,63 @@ function buildShiftIcs(shift, venueName, summary) {
 
 
 // ─── PIN Gate ─────────────────────────────────────────────────────────────
+
+/**
+ * HolidaySection — feriedage, under the Ferielov.
+ *
+ * Replaces v2's "HOLIDAY · 12 days" tile, which had nothing behind it.
+ *
+ * The copy is the feature. This is days earned WHILE BONBOX HAS KNOWN THEM,
+ * minus ferie recorded here — so it says "optjent siden {dato}", never "tilbage".
+ * We do not know their real employment start, transferred days, or holiday
+ * booked outside BonBox; only their lønsystem can state an entitlement. Showing
+ * the date is what keeps the number honest, so `since` is never hidden.
+ */
+function HolidaySection({ token }) {
+  const { t, lang } = useLanguage();
+  const [h, setH] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    portalApi.get(`/portal/${token}/holiday`)
+      .then((r) => { if (alive) setH(r.data); })
+      .catch(() => { if (alive) setH(null); });
+    return () => { alive = false; };
+  }, [token]);
+
+  if (!h) return null;
+
+  const fmt = (n) => Number(n).toLocaleString(lang === "da" ? "da-DK" : "en-GB", {
+    minimumFractionDigits: 1, maximumFractionDigits: 1,
+  });
+
+  return (
+    <div className="pt-3 border-t border-gray-100">
+      <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-2">
+        {t("portalHolidaySection", "Feriedage")}
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
+          {fmt(h.remaining)}
+        </span>
+        <span className="text-[12px] text-gray-500">
+          {t("portalHolidayUnit", "days")}
+        </span>
+      </div>
+      <div className="mt-1 text-[11px] text-gray-500 tabular-nums">
+        {t("portalHolidayBreakdown", "{earned} earned · {taken} taken", {
+          earned: fmt(h.earned), taken: fmt(h.taken),
+        })}
+      </div>
+      {/* The honesty line. Without it the number reads as a legal balance. */}
+      <div className="mt-1 text-[10px] text-gray-400">
+        {t("portalHolidaySince", "Counted from {date} — what BonBox has recorded, not your full entitlement. Your payslip is the authority.", {
+          date: new Date(h.since).toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", { day: "numeric", month: "short", year: "numeric" }),
+        })}
+      </div>
+    </div>
+  );
+}
 
 /**
  * DocumentsSection — employment documents the owner has shared with this staffer.
@@ -978,6 +1037,10 @@ function useClock(token) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [result, setResult] = useState(""); // honest clock-out outcome
+  // The GPS fix used for the last punch attempt. Held ONLY so a refused punch
+  // can draw the direction dial without asking for location a second time.
+  // Never sent anywhere, never persisted — it dies with the component.
+  const [lastFix, setLastFix] = useState(null);
   const [liveSec, setLiveSec] = useState(null); // live elapsed seconds (ticks 1/s)
 
   // Snap server state AND the live-second baseline together, so the counter
@@ -1034,7 +1097,14 @@ function useClock(token) {
       let payload = {};
       if (dir === "in" && st?.geofence_on) {
         const pos = await getPos();
-        if (pos) payload = pos;
+        if (pos) {
+          payload = pos;
+          // Keep the fix that was actually used for this punch. If the server
+          // refuses, the dial can then show DIRECTION as well as distance —
+          // without asking for location a second time. Never sent anywhere
+          // else and never persisted; it dies with the component.
+          setLastFix(pos);
+        }
       }
       const res = await portalApi.post(`/portal/${token}/clock-${dir}`, payload);
       applySt(res.data);
@@ -1110,7 +1180,7 @@ function useClock(token) {
     return `${ss}s`;
   };
 
-  return { st, busy, err, result, act, fmtDur, liveLabel: fmtElapsed(liveSec) };
+  return { st, busy, err, result, act, fmtDur, liveLabel: fmtElapsed(liveSec) , lastFix };
 }
 
 // ── Live countdown to the next shift's start. No timer of its own; the parent
@@ -1120,24 +1190,28 @@ function useClock(token) {
 // shift is neither today nor within ~24h (the chip would be noise otherwise).
 // The impure Date.now() read is intentionally confined here, out of any
 // component render body.
-function nextShiftCountdown(shift, t) {
-  if (!shift) return null;
-  // Local-time parse matches the existing date+start_time pattern elsewhere.
-  const target = new Date(`${shift.date}T${shift.start_time || "00:00"}`);
-  if (Number.isNaN(target.getTime())) return null;
-  const ms = target.getTime() - Date.now();
-  // Only show today or within ~24h.
-  if (!isToday(shift.date) && ms >= 24 * 3600000) return null;
-  if (ms <= 0) return t("portalCountdownNow");
-  const totalMin = Math.floor(ms / 60000);
-  if (totalMin < 60) return t("portalCountdownSoonMin", { m: totalMin });
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  return t("portalCountdownIn", { h, m });
-}
 
 // ── Initials for a teammate avatar (≤2 letters, uppercased). Privacy: only
 // initials + a role-underline are ever shown for teammates.
+/** Per-teammate avatar tint (v2's AV_TONE). Deterministic on the name, so the
+    same colleague is the same colour every render and across sessions — the
+    strip is scannable by colour before it is readable by initial. Light tints
+    with dark ink: legible on the hero's near-black gradient. */
+const MATE_TONES = [
+  "linear-gradient(150deg,#4ade80,#16a34a)",
+  "linear-gradient(150deg,#93c5fd,#3b82f6)",
+  "linear-gradient(150deg,#fcd34d,#f59e0b)",
+  "linear-gradient(150deg,#f9a8d4,#ec4899)",
+  "linear-gradient(150deg,#c4b5fd,#8b5cf6)",
+  "linear-gradient(150deg,#7dd3fc,#0ea5e9)",
+];
+function mateTone(name) {
+  const key = (name || "?").trim().toLowerCase();
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return MATE_TONES[h % MATE_TONES.length];
+}
+
 function staffInitials(name) {
   return (name || "")
     .trim()
@@ -1215,34 +1289,53 @@ function WhosOnStrip({ teamShifts, nextShift }) {
           The avatar was aria-hidden with a title that repeated the initials,
           so a screen-reader user got nothing at all and a hover told a
           sighted user what they could already see. */}
-      <div className="flex items-start gap-3 overflow-x-auto pb-1">
-        {shown.map((s, i) => (
-          <div
-            key={`${s.staff_id ?? s.staff_name}-${i}`}
-            className="flex w-12 shrink-0 flex-col items-center gap-1"
-          >
-            <div
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-800 text-[12px] font-semibold text-white ring-2 ring-gray-900"
+      {/* v2 layout: overlapping 26px avatars with a name LIST beside them,
+          rather than a row of avatars each captioned. Same answer to "who am I
+          on with?" — the names are still there, just read as a sentence — in
+          roughly half the vertical space, which is what lets the hero, the week
+          card and the day panel share one screen. The 2px ring is the card
+          colour (#14202f), so the discs punch out of the gradient. */}
+      <div className="flex items-center gap-[9px]">
+        <div className="flex shrink-0">
+          {shown.map((s, i) => (
+            <span
+              key={`${s.staff_id ?? s.staff_name}-${i}`}
               aria-hidden
+              className="inline-block h-[26px] w-[26px] rounded-full text-center"
+              style={{
+                marginLeft: i === 0 ? 0 : -8,
+                background: mateTone(s.staff_name),
+                color: "#0b1220",
+                font: "700 9.5px/26px var(--font-text)",
+                boxShadow: "0 0 0 2px #14202f",
+              }}
             >
               {staffInitials(s.staff_name)}
-            </div>
-            <span
-              className="max-w-full truncate text-[10px] font-medium text-gray-400"
-              title={s.staff_name || undefined}
-            >
-              {firstName(s.staff_name)}
             </span>
-          </div>
-        ))}
-        {overflow > 0 && (
-          <div className="flex w-12 shrink-0 flex-col items-center gap-1">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-[12px] font-semibold text-gray-300">
+          ))}
+          {overflow > 0 && (
+            <span
+              aria-hidden
+              className="inline-block h-[26px] w-[26px] rounded-full text-center"
+              style={{
+                marginLeft: -8,
+                background: "rgba(255,255,255,.14)",
+                color: "rgba(255,255,255,.85)",
+                font: "700 9.5px/26px var(--font-text)",
+                boxShadow: "0 0 0 2px #14202f",
+              }}
+            >
               +{overflow}
-            </div>
-            <span className="text-[10px] font-medium text-transparent select-none" aria-hidden>·</span>
-          </div>
-        )}
+            </span>
+          )}
+        </div>
+        <span
+          className="min-w-0 truncate"
+          style={{ font: "500 11.5px/1 var(--font-text)", color: "rgba(255,255,255,.52)" }}
+        >
+          {shown.map((s) => firstName(s.staff_name)).filter(Boolean).join(", ")}
+          {overflow > 0 ? ` +${overflow}` : ""}
+        </span>
       </div>
     </div>
   );
@@ -1419,8 +1512,8 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
   const nextShift = upcoming[0];
   const nextShiftRole = nextShift?.role_on_shift || t("portalRoleStaff", "Staff");
 
-  // Countdown chip — null unless the shift is today or within ~24h. The
-  // Date.now() read lives inside the pure helper, recomputed each 15s render.
+  // Countdown chip. The Date.now() read lives inside the pure helper,
+  // recomputed each 15s render — minutes tick, days do not need to.
   const countdownLabel = nextShiftCountdown(nextShift, t);
 
   // Venue location — the owner sets this on their business profile. Label is
@@ -1483,18 +1576,46 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
       {/* HERO — dark gray-900 next-shift card with a 4px role-colored left-bar.
           Absorbs the punch-clock (elapsed timer + Stempl ind/ud) and a live
           countdown. Role shows ONLY via the thin left-bar + a tiny label. */}
-      <div className={`relative overflow-hidden rounded-2xl bg-gray-900 text-white p-5 shadow-soft-lg${playBeat ? " motion-safe:animate-heroSettle" : ""}`}>
-        {/* Faint --brand corner under-glow — the portal's one ceremonial glossy
-            beat: felt, not seen. Static, low-alpha (0.20), never neon. */}
+      <div
+        className={`relative overflow-hidden text-white${playBeat ? " motion-safe:animate-heroSettle" : ""}`}
+        style={{
+          // v2 hero: a three-stop diagonal rather than a flat fill, so the card
+          // has a direction of light instead of sitting there. Radius 22 and the
+          // inset top highlight are the other two thirds of v2's "glossy" —
+          // which it defines as exactly three things and nothing more.
+          borderRadius: 22,
+          padding: "19px 19px 17px",
+          background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 46%,#080e16 100%)",
+          boxShadow:
+            "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
+        }}
+      >
+        {/* Brand bloom bleeding off the TOP-RIGHT corner — v2 moves it there so
+            the light reads as coming from above, agreeing with the gradient.
+            Green, low-alpha, felt rather than seen; never neon. */}
+        {/* NO blur filter here, deliberately. A radial-gradient is already soft,
+            and adding `blur-3xl` gives this div its own compositing layer —
+            which WebKit then fails to clip against the parent's border-radius,
+            painting a hard pale-green rectangle over the rounded corner. Caught
+            on a real iPhone 17 Pro Max; invisible in a desktop browser. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute -bottom-16 -right-12 h-48 w-48 rounded-full blur-3xl"
-          style={{ background: "rgb(var(--brand-500) / 0.20)" }}
+          className="pointer-events-none absolute h-[230px] w-[230px] rounded-full"
+          style={{
+            top: -80, right: -70,
+            background: "radial-gradient(closest-side, rgba(34,197,94,.40), rgba(34,197,94,0))",
+          }}
         />
-        {/* 1px lit top edge — the cheapest premium "glossy" tell. */}
+        {/* v2 sheen — a 70px blade crossing the card every 7s. Long gap, short
+            pass: seen once and then forgotten, which is the point. Purely
+            optical, so aria-hidden and pointer-events-none. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent"
+          className="pointer-events-none absolute inset-y-0 left-0 w-[70px] motion-safe:animate-heroSheen"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent)",
+          }}
         />
         {/* Role-colored left-bar — a thin SIGNAL, the only role colour. Only
             when there IS a shift: an empty hero has no role to signal. */}
@@ -1504,12 +1625,33 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
             aria-hidden
           />
         )}
-        <div className="flex items-start justify-between gap-2">
-          <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+        {/* v2 eyebrow: a slow pulsing dot + green label. The dot is the screen's
+            only moving element at rest — it says "this is live" without a
+            spinner. 2.4s is deliberately slower than a heartbeat: present, not
+            urgent. Respects prefers-reduced-motion via motion-safe. */}
+        <div className="relative flex items-start justify-between gap-2">
+          <div
+            className="flex items-center gap-1.5 uppercase"
+            style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.16em", color: "#4ade80" }}
+          >
+            <span
+              aria-hidden
+              className="inline-block h-1.5 w-1.5 rounded-full motion-safe:animate-heroLiveDot"
+              style={{ background: "#22c55e" }}
+            />
             {t("portalNextShiftHero")}
           </div>
           {countdownLabel && (
-            <span className="shrink-0 rounded-full bg-white/10 ring-1 ring-white/15 backdrop-blur-sm text-gray-200 text-[12px] px-2.5 py-0.5 tabular-nums">
+            <span
+              className="shrink-0 rounded-full tabular-nums"
+              style={{
+                font: "600 10.5px/1 var(--font-text)",
+                color: "rgba(255,255,255,.86)",
+                background: "rgba(255,255,255,.10)",
+                border: "1px solid rgba(255,255,255,.14)",
+                padding: "5px 9px",
+              }}
+            >
               {countdownLabel}
             </span>
           )}
@@ -1517,14 +1659,16 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
 
         {nextShift ? (
           <>
-            <div className="mt-2 text-3xl font-bold text-white leading-tight tracking-[-0.02em]">
+            {/* v2 headline: date and time on ONE line at display weight, split by
+                a dimmed separator. Two stacked lines made the time read as a
+                subtitle of the date; they are one fact and now look like it. */}
+            <div
+              className="relative text-white"
+              style={{ marginTop: 13, font: "700 26px/1.06 var(--font-display)", letterSpacing: "-0.032em" }}
+            >
               {isToday(nextShift.date) ? t("portalToday") : fmtDate(nextShift.date, lang)}
-            </div>
-            {/* The TIME is the answer a staffer opens this page for — it speaks
-                at headline-adjacent scale; date → time → meta, a true F-pattern.
-                (Was 13px gray — the payload rendered as a footnote.) */}
-            <div className="mt-1 text-lg font-semibold text-white tabular-nums">
-              {nextShift.start_time}–{nextShift.end_time}
+              <span style={{ color: "rgba(255,255,255,.42)" }}> · </span>
+              <span className="tabular-nums">{nextShift.start_time}–{nextShift.end_time}</span>
             </div>
             {/* Hours clarity — gross span · unpaid break · net (paid). All three
                 derive from the owner's rostered shift (net_hours + break_minutes),
@@ -1701,6 +1845,20 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                 <div className="mt-0.5 text-[12px] text-gray-300">
                   {t("portalClockTooFarDo", "Head over and try again when you're there.")}
                 </div>
+                {/* Direction, not just distance. Drawn from the fix already used
+                    for this punch — no second permission prompt — against the
+                    venue centre the status endpoint sends when the fence is on.
+                    Schematic, so no tiles, no CSP change, no network call. */}
+                {clock.lastFix && clock.st?.geofence?.lat && (
+                  <div className="mt-3">
+                    <GeofenceDial
+                      venue={clock.st.geofence}
+                      me={clock.lastFix}
+                      radiusM={clock.st.geofence.radius_m}
+                      accuracyM={clock.lastFix.accuracy}
+                    />
+                  </div>
+                )}
               </div>
             ) : clock.err?.kind === "too_early" ? (
               <div className="mt-2 flex items-center gap-1.5 text-[12px] text-gray-400">
@@ -4868,6 +5026,10 @@ export default function StaffPortalPage() {
                   only ever returns the last 4. */}
               <BankSection token={token} />
 
+              {/* Feriedage under the Ferielov — days earned while BonBox has
+                  known them, never posed as a legal entitlement. */}
+              <HolidaySection token={token} />
+
               {/* Employment documents the owner has shared. Renders nothing
                   when there are none — the staffer cannot request one here, so
                   an empty section would be an empty promise. */}
@@ -5009,20 +5171,27 @@ export default function StaffPortalPage() {
                 key={item.key}
                 onClick={() => setTab(item.key)}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex flex-col items-center gap-0.5 px-1.5 sm:px-4 py-1 rounded-lg transition-colors active:opacity-60 ${
-                  active ? "" : "text-gray-400"
-                }`}
-                style={active ? { color: "rgb(var(--brand-600))" } : undefined}
+                className="relative flex flex-col items-center gap-1 px-1.5 sm:px-4 py-1 rounded-lg active:opacity-60"
+                style={{
+                  color: active ? "#15803d" : "#94a3b8",
+                  transition: "color 250ms ease",
+                }}
               >
                 <span className="relative">
-                  {/* Soft --brand lozenge hugging ONLY the icon — the portal's
-                      one recurring, deliberate touch of colour. Scoped to the
-                      icon so it never slices through the label below. */}
+                  {/* v2 tab pill — the portal's one recurring touch of colour.
+                      Scoped to the icon so it never slices through the label.
+                      BonBox green (#16a34a family), not the --brand accent:
+                      this is a standalone staff app carrying brand identity,
+                      and the accent themes belong to the owner dashboard. */}
                   {active && (
                     <span
                       aria-hidden
-                      className="absolute -inset-x-3.5 -inset-y-[3px] rounded-full"
-                      style={{ background: "rgb(var(--brand-50))" }}
+                      className="absolute -inset-x-3.5 -inset-y-[4px] rounded-full"
+                      style={{
+                        background: "linear-gradient(180deg,#dcfce7,#bbf7d0)",
+                        boxShadow:
+                          "inset 0 1px 0 rgba(255,255,255,.8), 0 4px 10px -6px rgba(22,163,74,.7)",
+                      }}
                     />
                   )}
                   <item.Icon
