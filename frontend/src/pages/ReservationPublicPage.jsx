@@ -48,6 +48,7 @@ import {
   Hash,
   Scissors,
   Check,
+  ChevronDown,
 } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
@@ -418,6 +419,24 @@ export default function ReservationPublicPage() {
   const [allergenTags, setAllergenTags] = useState([]); // array of keys
   const [allergySeverity, setAllergySeverity] = useState("preference");
   const [allergyNote, setAllergyNote] = useState("");
+
+  // What the collapsed disclosure says it is holding. Without this, folding the
+  // block away hides a filled-in allergy behind a generic "add a message"
+  // label, and the guest cannot tell whether the kitchen was told.
+  const extrasSummary = useMemo(() => {
+    const bits = [];
+    if (occasion.trim()) bits.push(occasion.trim());
+    if (allergenTags.length) {
+      bits.push(
+        allergenTags.length === 1
+          ? t("rsvpExtrasOneAllergen", "1 allergi")
+          : t("rsvpExtrasNAllergens", "{n} allergier").replace("{n}", allergenTags.length),
+      );
+    }
+    if (allergyNote.trim()) bits.push(t("rsvpExtrasAllergyNote", "allergi-note"));
+    if (guestNotes.trim()) bits.push(t("rsvpExtrasNote", "besked"));
+    return bits.join(" · ");
+  }, [occasion, allergenTags, allergyNote, guestNotes, t]);
 
   // GDPR — marketing consent default OFF.
   const [consentMarketing, setConsentMarketing] = useState(false);
@@ -2048,17 +2067,38 @@ export default function ReservationPublicPage() {
                 Default closed. A single quiet toggle keeps the form short;
                 the kitchen-relevant fields are an invite, never a barrier. */}
             <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
-              {!detailsOpen ? (
-                <button
-                  type="button"
-                  onClick={() => setDetailsOpen(true)}
-                  aria-expanded="false"
-                  className="w-full min-h-[44px] sm:min-h-0 text-left text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
-                >
-                  {t("rsvpAddNote", "Add a message or special request (optional)")}
-                </button>
-              ) : (
-                <div className="space-y-4">
+              {/* The header stays put and TOGGLES. It used to be replaced by
+                  the body on open, so there was no way back — a guest who
+                  tapped it to look was left with fourteen allergen chips and
+                  no way to fold them away again. It also now says what is
+                  inside when closed, so a filled-in note is never hidden
+                  behind a generic label. */}
+              <button
+                type="button"
+                onClick={() => setDetailsOpen((v) => !v)}
+                aria-expanded={detailsOpen}
+                className="w-full min-h-[44px] flex items-center gap-3 text-left"
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-gray-800 dark:text-gray-200">
+                    {t("rsvpAddNote", "Add a message or special request (optional)")}
+                  </span>
+                  {extrasSummary && (
+                    <span className="block text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
+                      {extrasSummary}
+                    </span>
+                  )}
+                </span>
+                <ChevronDown
+                  className={
+                    "w-4 h-4 shrink-0 text-gray-400 transition-transform duration-200 " +
+                    (detailsOpen ? "rotate-180" : "")
+                  }
+                  aria-hidden
+                />
+              </button>
+              {detailsOpen && (
+                <div className="space-y-4 pt-4">
                   <div>
                     <label
                       htmlFor="rsvp-occasion"

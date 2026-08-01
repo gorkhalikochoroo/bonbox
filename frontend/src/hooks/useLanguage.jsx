@@ -1828,6 +1828,10 @@ const translations = {
     // Step 2 field discipline.
     rsvpEmailWhy: "So we can send your confirmation.",
     rsvpAddNote: "Add a message or special request (optional)",
+    rsvpExtrasOneAllergen: "1 allergy",
+    rsvpExtrasNAllergens: "{n} allergies",
+    rsvpExtrasAllergyNote: "allergy note",
+    rsvpExtrasNote: "message",
     rsvpPrivacyLine: "We only use your details for this reservation.",
     // Confirmation (inline success) reassurance.
     rsvpRefLabel: "Reference",
@@ -9481,6 +9485,10 @@ const translations = {
     // Trin 2 — feltdisciplin.
     rsvpEmailWhy: "Så sender vi din bekræftelse.",
     rsvpAddNote: "Tilføj en besked eller særlige ønsker (valgfrit)",
+    rsvpExtrasOneAllergen: "1 allergi",
+    rsvpExtrasNAllergens: "{n} allergier",
+    rsvpExtrasAllergyNote: "allergi-note",
+    rsvpExtrasNote: "besked",
     rsvpPrivacyLine: "Vi bruger kun dine oplysninger til denne reservation.",
     // Bekræftelse (inline kvittering) — tryghed.
     rsvpRefLabel: "Reference",

@@ -425,7 +425,13 @@ export default function ReservationsPage() {
   // Fetch the page-level resources (used by the Insights zone filter + the
   // floor grandfather above). Soft-fail — the page works without it.
   useEffect(() => {
-    if (!isReady || !hasFeature("reservations")) return;
+    // A paired device has no session, so hasFeature reads false and this
+    // effect used to return early — leaving pageResources empty, which made
+    // the floor grandfather (hasTableResources) false and silently hid the
+    // Gulv tab. The device was showing a host stand with no floor plan.
+    // The venue's entitlement is enforced server-side on the wrapped endpoint,
+    // so the client gate is the owner's concern, not the device's.
+    if (!isStandDevice && (!isReady || !hasFeature("reservations"))) return;
     let alive = true;
     api
       .get("/reservations/resources")
@@ -438,7 +444,7 @@ export default function ReservationsPage() {
     return () => {
       alive = false;
     };
-  }, [isReady, hasFeature]);
+  }, [isReady, hasFeature, isStandDevice]);
 
   const insightsZones = useMemo(
     () => [...new Set(pageResources.map((r) => r.zone).filter(Boolean))],
