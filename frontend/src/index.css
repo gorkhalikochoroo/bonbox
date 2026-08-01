@@ -194,6 +194,17 @@ body.portal-shell {
   22%, 100% { transform: translateX(320%)  skewX(-14deg); }
 }
 .animate-heroSheen { animation: heroSheen 7s ease-in-out infinite; }
+
+/* PIN cell focus ring (design_handoff v2 §Profile: "2px solid
+   rgba(34,197,94,.45), 1px offset"). Inline styles cannot express :focus, and
+   the default ring is invisible on the dark gate — a staffer tabbing between
+   the four boxes could not see which one they were in. */
+.pin-cell:focus {
+  outline: 2px solid rgba(34, 197, 94, 0.45);
+  outline-offset: 1px;
+  border-color: rgba(34, 197, 94, 0.45) !important;
+  background: rgba(255, 255, 255, 0.11) !important;
+}
 /* Pure opacity fade for scrims/backdrops — no transform, so it doesn't fight
    a panel that's sliding in on another axis (e.g. the reservation drawer). */
 @keyframes backdropFade { from { opacity: 0; } to { opacity: 1; } }
