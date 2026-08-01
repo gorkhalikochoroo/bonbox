@@ -47,6 +47,7 @@ import {
   Phone,
   Hash,
   Scissors,
+  Check,
 } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
@@ -203,9 +204,14 @@ function VenueBadge({ logoUrl, name }) {
       />
     );
   }
+  // No uploaded logo → the monogram, on BRAND GREEN rather than the app's
+  // gray-900. This is the one page a stranger sees, and a black square with two
+  // letters read as a missing image; green reads as a mark. It stays the
+  // VENUE's monogram, never BonBox's own mark — this is the restaurant's page,
+  // and wearing our logo on it would be claiming their identity.
   return (
     <div
-      className="shrink-0 w-12 h-12 rounded-xl bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center text-base font-semibold tracking-tight select-none"
+      className="shrink-0 w-12 h-12 rounded-xl bg-bb-green text-white flex items-center justify-center text-base font-semibold tracking-tight select-none"
       aria-hidden="true"
     >
       {venueMonogram(name)}
@@ -1468,10 +1474,18 @@ export default function ReservationPublicPage() {
             </div>
           )}
 
-          {/* One quiet trust line. */}
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {t("rsvpTrustLine", "No account needed · Free cancellation")}
-          </p>
+          {/* The two objections a stranger has before booking — "do I need an
+              account?" and "am I locked in?" — answered before they scroll.
+              As plain grey body text it read as legalese and was skipped; as a
+              green-tinted strip with a check it reads as reassurance, which is
+              what it is. This is the guest-facing page, so brand green is the
+              right accent here even though the owner app stays gray-900. */}
+          <div className="flex items-center gap-2 rounded-xl bg-bb-green-icon dark:bg-bb-green-dark/15 px-3.5 py-2.5">
+            <Check className="w-4 h-4 shrink-0 text-bb-green" aria-hidden />
+            <p className="text-[13px] font-medium leading-snug text-bb-green-dark dark:text-bb-green-edge">
+              {t("rsvpTrustLine", "No account needed · Free cancellation")}
+            </p>
+          </div>
         </header>
 
         <StepDots step={step} t={t} />
@@ -1599,7 +1613,15 @@ export default function ReservationPublicPage() {
                 <p className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   {t("rsvpPartySize", "Antal gæster")}
                 </p>
-                <div className="grid grid-cols-5 gap-1.5">
+                {/* HORIZONTAL RAIL, not a grid. As a 5-across grid this was two
+                    stacked rows that pushed the time slots — the thing the guest
+                    actually came to choose — below the fold on a phone. A rail
+                    keeps party size to one line, and the common answers (1–4)
+                    are visible without scrolling it at all.
+                    -mx-4 px-4 lets the row bleed to the screen edge so the last
+                    chip is visibly cut off, which is what tells a thumb there is
+                    more to swipe. */}
+                <div className="-mx-4 px-4 flex gap-2 overflow-x-auto pb-1 snap-x">
                   {partyOptions.map((n) => (
                     <Chip
                       key={n}
@@ -1607,7 +1629,7 @@ export default function ReservationPublicPage() {
                       selected={party === n}
                       onClick={() => setParty(n)}
                       aria-label={t("rsvpPartyN", "{n} guests", { n })}
-                      className="w-full h-11"
+                      className="shrink-0 w-12 h-12 snap-start tabular-nums"
                     >
                       {n}
                     </Chip>
@@ -1777,14 +1799,24 @@ export default function ReservationPublicPage() {
                         <p className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1.5">
                           {t(group.labelKey)}
                         </p>
-                        <div className="grid grid-cols-4 gap-2">
+                        {/* Rail, not a 4-col grid. A full evening service is
+                            ~11 slots = three stacked rows, and with the party
+                            grid above it the guest had to scroll past two walls
+                            of buttons to reach the one decision that matters.
+                            Per service group the times stay on one swipeable
+                            line, and the groups (LUNCH / DINNER) do the work
+                            the rows were doing badly. */}
+                        <div className="-mx-4 px-4 flex gap-2 overflow-x-auto pb-1 snap-x">
                           {group.slots.map((s) => (
                             <Chip
                               key={s}
                               size="md"
                               selected={slot === s}
                               onClick={() => { setSlot(s); setSubmitError(""); }}
-                              className={"h-11 w-full " + (slot === s ? "font-semibold shadow-sm" : "")}
+                              className={
+                                "shrink-0 h-12 px-4 snap-start tabular-nums " +
+                                (slot === s ? "font-semibold shadow-sm" : "")
+                              }
                             >
                               {s}
                             </Chip>
