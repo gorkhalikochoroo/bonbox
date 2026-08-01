@@ -2082,6 +2082,16 @@ _migrations = [
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20)",
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS city VARCHAR(120)",
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS address_updated_at TIMESTAMP",
+    # Migration 070 — staff bank account (DK registreringsnummer + kontonummer),
+    # staff-entered in the portal for the owner's payroll export. ENCRYPTED AT
+    # REST (app/utils/crypto MultiFernet), so these are ciphertext bytes, never
+    # digits — hence BYTEA rather than VARCHAR. Narrows the module's "no
+    # banking" scope by explicit owner decision 2026-08-01; CPR and pay maths
+    # stay out. Erased with the row by the GDPR sweep, and wiped on deactivate
+    # by staff_bank.clear_bank() because is_deleted is only a soft delete.
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS bank_reg_nr_enc BYTEA",
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS bank_account_enc BYTEA",
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS bank_updated_at TIMESTAMP",
     """CREATE TABLE IF NOT EXISTS staff_chat_threads (
         id UUID PRIMARY KEY,
         user_id UUID NOT NULL REFERENCES users(id),
@@ -2687,6 +2697,15 @@ def _run_migrations():
             ok += _add("invoices", "paid_reference", "TEXT")
             ok += _add("invoices", "auto_match_reversible", "BOOLEAN DEFAULT 0")
             ok += _add("sales", "invoice_id", "VARCHAR(36)")
+            # Migration 070 mirror — staff bank account. BLOB, not BYTEA:
+            # SQLite gives an unknown type name NUMERIC affinity, which would
+            # mangle Fernet ciphertext. These are plain mapped_columns (not
+            # deferred), so the mapper emits them in EVERY staff_members SELECT
+            # — without this mirror an existing dev DB breaks the whole staff
+            # module, not just the bank endpoints.
+            ok += _add("staff_members", "bank_reg_nr_enc", "BLOB")
+            ok += _add("staff_members", "bank_account_enc", "BLOB")
+            ok += _add("staff_members", "bank_updated_at", "TIMESTAMP")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
