@@ -1,6 +1,7 @@
 import axios from "axios";
 import { getRevealProof, setRevealProof, triggerDeviceLock } from "./deviceShare";
 import { platform } from "../utils/platform";
+import { standRewrite } from "./standAuth";
 
 // The one prod origin. A native Capacitor shell (iOS/Android) has NO other
 // backend it could ever talk to — it ships pre-built and always points here.
@@ -215,6 +216,23 @@ function _readCookie(name) {
 }
 
 api.interceptors.request.use((config) => {
+  // ── Paired host-stand device ────────────────────────────────────────
+  // A device opened at /stand/<token> authenticates by TOKEN IN THE PATH,
+  // not a session. Rewrite reservation calls onto the stand prefix so
+  // ReservationsPage needs no second data layer, and DROP the session
+  // credentials on those calls: a stand must never carry both, or an owner
+  // session that happened to exist in this browser would silently hand the
+  // device owner-level reach. Scope is enforced server-side — the backend
+  // accepts this credential on six wrapped operations and 404s everything
+  // else — so this rewrite cannot widen what the device can do.
+  const rewritten = standRewrite(config.url);
+  if (rewritten) {
+    config.url = rewritten;
+    config.withCredentials = false;
+    if (config.headers) delete config.headers.Authorization;
+    return config;
+  }
+
   const token = localStorage.getItem("token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
