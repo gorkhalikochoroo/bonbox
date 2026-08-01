@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { LANGUAGES } from "../i18n/languageCatalog";
 
 const LanguageContext = createContext(null);
 
@@ -2693,8 +2694,7 @@ const translations = {
     pricingReassureDenmarkSub: "Database in Ireland · DKK and MOMS built in",
     pricingReassureCancel: "Cancel anytime",
     pricingReassureCancelSub: "No contracts. Export your data on the way out.",
-    pricingReassureLanguages: "6 languages",
-    pricingReassureLanguagesSub: "Dansk, English, नेपाली, Tiếng Việt, ภาษาไทย, Türkçe",
+    pricingReassureLanguages: "{n} languages",
     // After-trial section
     pricingAfterTrialTitle: "What changes after the 14-day trial",
     pricingAfterTrialBody: "Nothing dramatic. You stay signed in, your data is safe, every feature is still there. Free is genuinely usable — these are the only caps that come back when the trial ends:",
@@ -4811,7 +4811,7 @@ const translations = {
     landingCatMore1: "Reservations + floor plan",
     landingCatMore2: "Khata · regulars credit book",
     landingCatMore3: "Loan tracker",
-    landingCatMore4: "Multi-currency · 6 languages",
+    landingCatMore4: "Multi-currency · {n} languages",
     landingCatMore5: "Dark mode",
     landingCatMore6: "Revisor read-only export bundle",
     // Task #114 — MOMS spotlight section (EN/DA parity).  Keep DK-specific
@@ -4913,7 +4913,7 @@ const translations = {
     // definition (no traction/savings numbers).
     landingProofTag: "Built for the Danish reality",
     landingProofTitle: "Made for how Danish small businesses actually run.",
-    landingFactLangVal: "6 languages",
+    landingFactLangVal: "{n} languages",
     landingFactLangLabel: "in the app",
     landingFactEuVal: "Ireland",
     landingFactEuLabel: "Where your database sits",
@@ -5429,7 +5429,7 @@ const translations = {
     landingTagCashBook: "Cash Book", landingTagKhata: "Khata Credit Book", landingTagVat: "VAT Reports",
     landingTagPdf: "PDF Export", landingTagLoan: "Loan Tracker", landingTagPersonal: "Personal Finance",
     landingTagDark: "Dark Mode", landingTagSeasonal: "Seasonal Patterns",
-    landingTagMultiCurrency: "Multi-currency", landingTagMultiLang: "6 Languages",
+    landingTagMultiCurrency: "Multi-currency", landingTagMultiLang: "{n} Languages",
     landingTagTax: "Tax Autopilot", landingTagBudget: "Budget Tracker", landingTagExpiry: "Expiry Alerts",
     landingTagCompetitor: "Competitor Intel", landingTagBranch: "Branch Bookkeeping",
     landingTagWorkshop: "Workshop / Garage", landingTagDailyClose: "Daily Close / Kasserapport", landingTagMultiBiz: "Multi-Business",
@@ -5508,7 +5508,7 @@ const translations = {
     landingPricingProFeat5: "Full-year accountant export",
     landingPricingProFeat6: "Priority email support",
     landingGlobalTitle: "Works where you work",
-    landingGlobalSub: "6 languages, 17+ currencies, 21+ business types, and growing.",
+    landingGlobalSub: "{n} languages, 17+ currencies, 21+ business types, and growing.",
     landingCredibility1: "Built by Manoj — MSc Data-Driven Business, SDU Denmark",
     landingCredibility2: "Available on web + mobile",
     landingCredibility3: "Your data is yours. Always encrypted. Never sold.",
@@ -10312,8 +10312,7 @@ const translations = {
     pricingReassureDenmarkSub: "Database i Irland · DKK og MOMS indbygget",
     pricingReassureCancel: "Opsig når som helst",
     pricingReassureCancelSub: "Ingen kontrakter. Eksporter dine data, hvis du går.",
-    pricingReassureLanguages: "6 sprog",
-    pricingReassureLanguagesSub: "Dansk, English, नेपाली, Tiếng Việt, ภาษาไทย, Türkçe",
+    pricingReassureLanguages: "{n} sprog",
     pricingAfterTrialTitle: "Hvad der ændrer sig efter de 14 dages prøveperiode",
     pricingAfterTrialBody: "Intet dramatisk. Du forbliver logget ind, dine data er sikre, alle funktioner er der stadig. Free er reelt brugbart — det er kun disse lofter der vender tilbage, når prøveperioden slutter:",
     pricingAfterTrialCap1: "200 salg logget pr. måned",
@@ -12379,7 +12378,7 @@ const translations = {
     landingCatMore1: "Reservationer + bordplan",
     landingCatMore2: "Khata · kreditbog for faste kunder",
     landingCatMore3: "Lånesporing",
-    landingCatMore4: "Multi-valuta · 6 sprog",
+    landingCatMore4: "Multi-valuta · {n} sprog",
     landingCatMore5: "Mørk tilstand",
     landingCatMore6: "Revisor læs-kun eksport-pakke",
     // Task #114 — MOMS spotlight-sektion (EN/DA-paritet).  Uformel "du".
@@ -12474,7 +12473,7 @@ const translations = {
     // pr. definition (ingen traction-/besparelses-tal).
     landingProofTag: "Bygget til den danske virkelighed",
     landingProofTitle: "Lavet til, hvordan danske småvirksomheder faktisk fungerer.",
-    landingFactLangVal: "6 sprog",
+    landingFactLangVal: "{n} sprog",
     landingFactLangLabel: "i appen",
     landingFactEuVal: "Irland",
     landingFactEuLabel: "Der ligger din database",
@@ -12986,7 +12985,7 @@ const translations = {
     landingTagCashBook: "Kassebog", landingTagKhata: "Khata kreditbog", landingTagVat: "Momsrapporter",
     landingTagPdf: "PDF-eksport", landingTagLoan: "Låneoversigt", landingTagPersonal: "Privat økonomi",
     landingTagDark: "Mørk tilstand", landingTagSeasonal: "Sæsonmønstre",
-    landingTagMultiCurrency: "Multi-valuta", landingTagMultiLang: "6 sprog",
+    landingTagMultiCurrency: "Multi-valuta", landingTagMultiLang: "{n} sprog",
     landingTagTax: "Skat Autopilot", landingTagBudget: "Budgetsporing", landingTagExpiry: "Udløbsadvarsler",
     landingTagCompetitor: "Konkurrentintel", landingTagBranch: "Filialbogføring",
     landingTagWorkshop: "Værksted / Garage", landingTagDailyClose: "Daglig Lukning / Kasserapport", landingTagMultiBiz: "Multi-Forretning",
@@ -13076,7 +13075,7 @@ const translations = {
     landingTrustDk: "Bygget i Danmark",
     landingTrustDkBody: "Lavet til danske småvirksomheder, af folk der har siddet med en revisor ved månedsafslutning. MOMS, lønseddel, CVR-bevidst. Caféer, restauranter, butikker, freelancere — alle er velkomne.",
     landingGlobalTitle: "Virker hvor du arbejder",
-    landingGlobalSub: "6 sprog, 17+ valutaer, 21+ virksomhedstyper og voksende.",
+    landingGlobalSub: "{n} sprog, 17+ valutaer, 21+ virksomhedstyper og voksende.",
     landingCredibility1: "Bygget af Manoj — MSc Data-Driven Business, SDU Danmark",
     landingCredibility2: "Tilgængelig på web + mobil",
     landingCredibility3: "Dine data er dine. Altid krypteret. Aldrig solgt.",
@@ -15406,8 +15405,7 @@ const translations = {
     pricingReassureDenmarkSub: "GDPR-पहिले · EU-होस्ट · DKK + MOMS नेटिभ",
     pricingReassureCancel: "जुनसुकै बेला रद्द",
     pricingReassureCancelSub: "कुनै सम्झौता छैन। बाहिर निस्किँदा डाटा निर्यात गर्नुहोस्।",
-    pricingReassureLanguages: "६ भाषा",
-    pricingReassureLanguagesSub: "Dansk, English, नेपाली, Tiếng Việt, ภาษาไทย, Türkçe",
+    pricingReassureLanguages: "{n} भाषा",
     pricingAfterTrialTitle: "१४-दिने ट्रायल पछि के परिवर्तन हुन्छ",
     pricingAfterTrialBody: "केहि नाटकीय छैन। तपाईं साइन-इन रहनुहुन्छ, डाटा सुरक्षित छ, हरेक सुविधा अझै छ। Free वास्तवमा प्रयोगयोग्य छ — ट्रायल सकिएपछि यी सीमा मात्र फर्किन्छन्:",
     pricingAfterTrialCap1: "२०० बिक्री प्रति महिना",
@@ -17318,20 +17316,9 @@ const SHELL_TITLES = {
 };
 const SHELL_TITLE_VALUES = Object.values(SHELL_TITLES);
 
-const LANGUAGES = [
-  { code: "en", label: "English", short: "EN", flag: "🇬🇧" },
-  { code: "da", label: "Dansk", short: "DK", flag: "🇩🇰" },
-  // German added 2026-05-13 — de.js already had 410 lines of real
-  // translations, just wasn't exposed in the picker. Useful for
-  // Sønderjylland-area shops + CPH restaurants with German staff.
-  // Falls back to English for keys not yet translated (most of the
-  // newer landing copy) — the tx_() helper handles this gracefully.
-  { code: "de", label: "Deutsch", short: "DE", flag: "🇩🇪" },
-  { code: "np", label: "नेपाली", short: "NP", flag: "🇳🇵" },
-  { code: "vi", label: "Tiếng Việt", short: "VN", flag: "🇻🇳" },
-  { code: "th", label: "ภาษาไทย", short: "TH", flag: "🇹🇭" },
-  { code: "tr", label: "Türkçe", short: "TR", flag: "🇹🇷" },
-];
+// The catalog of locales, and which are complete enough to offer, now lives in
+// i18n/languageCatalog.js — see the note there for why four locales were taken
+// out of the picker. LANGUAGES is imported at the top of this file.
 
 // Auto-detect language from currency. Currencies whose native language
 // is in stub-only state (SEK→sv, NOK→no, CHF→de, JPY→ja, BRL→pt, MXN→es)

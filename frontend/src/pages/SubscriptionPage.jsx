@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { COMPLETE_LANGUAGE_COUNT, COMPLETE_LANGUAGE_NAMES } from "../i18n/languageCatalog";
 import { useConfirm } from "../hooks/useConfirm";
 import { trackEvent } from "../hooks/useEventLog";
 import useFounderRateStatus from "../hooks/useFounderRateStatus";
@@ -1063,7 +1064,17 @@ export default function SubscriptionPage() {
         <Reassure title={t("pricingReassureNoCard") || "No card for trial"} sub={t("pricingReassureNoCardSub") || "14 days of Pro, no payment info needed."} />
         <Reassure title={t("pricingReassureDenmark") || "Built in Denmark"} sub={t("pricingReassureDenmarkSub") || "Database in Ireland · DKK and MOMS built in"} />
         <Reassure title={t("pricingReassureCancel") || "Cancel anytime"} sub={t("pricingReassureCancelSub") || "No contracts. Export your data on the way out."} />
-        <Reassure title={t("pricingReassureLanguages") || "6 languages"} sub={t("pricingReassureLanguagesSub") || "Dansk, English, नेपाली, Tiếng Việt, ภาษาไทย, Türkçe"} />
+        {/*
+          Count and list are DERIVED from the picker, never typed. This tile
+          used to read a hardcoded "6" while the picker offered 7 and only 3
+          were finished — a claim on a paid surface that the product itself
+          contradicted. The sub is native language names, identical in every
+          locale, so it needs no translation key: one source of truth.
+        */}
+        <Reassure
+          title={t("pricingReassureLanguages", "{n} languages", { n: COMPLETE_LANGUAGE_COUNT })}
+          sub={COMPLETE_LANGUAGE_NAMES}
+        />
       </div>
 
       {/* FAQ */}
