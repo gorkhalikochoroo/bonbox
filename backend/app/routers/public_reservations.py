@@ -281,11 +281,21 @@ def availability(request: Request, slug: str = Path(...),
         db, profile=profile, user_id=owner.id, day=target,
         party_size=party, now=_now_local(),
     )
+    # Per-slot scarcity, for the "2 left" / "Last table" hint. Additive: the
+    # `slots` list is unchanged, so an older client ignores this and behaves
+    # exactly as before. Computed from the same engine pass that decided
+    # bookability, and it understates rather than overstates — a hint that
+    # invents urgency would be a lie told to make someone book faster.
+    remaining = rsvc.available_slot_details(
+        db, profile=profile, user_id=owner.id, day=target,
+        party_size=party, now=_now_local(),
+    )
     return {
         "date": day,
         "party_size": party,
         "group_request": group_request,
         "slots": [s.strftime("%H:%M") for s in slots],
+        "slot_remaining": remaining,
     }
 
 

@@ -326,6 +326,48 @@ def available_slots(db: Session, *, profile: BusinessProfile, user_id, day: date
     return sorted(starts)
 
 
+def available_slot_details(db: Session, *, profile: BusinessProfile, user_id, day: date,
+                           party_size: int, now: datetime | None = None,
+                           duration_min: int | None = None) -> dict:
+    """{ "HH:MM": remaining_single_tables } for a party on a day.
+
+    A SEPARATE function rather than a change to available_slots(), whose
+    list[datetime] contract has several callers (the day-strip summary, the
+    frontend monitor) that want exactly that and nothing more.
+
+    Feeds the guest-facing scarcity hint. The numbers come from the same
+    engine pass that decides bookability, so a slot can never advertise a
+    count the booking path would refuse — and count_free_singles understates
+    (it ignores combinable tables) so the cue never overstates scarcity.
+
+    Providers are excluded on purpose: an appointment chair is not a table,
+    "2 left" would be meaningless for it, and a salon's slot list should not
+    inherit a restaurant's scarcity language.
+    """
+    settings = load_settings(profile)
+    config = build_config(settings)
+    resources = active_resources(db, user_id)
+    busy = busy_for_day(db, user_id, day)
+    tables = [r for r in resources if r.kind != "provider"]
+    if not tables:
+        return {}
+
+    windows = restaurant_windows(profile, day, settings)
+    if not windows:
+        return {}
+
+    out: dict[str, int] = {}
+    for s in compute_slots(
+        windows=windows, resources=_views(tables), busy=busy,
+        party_size=party_size, config=config, now=now, duration_min=duration_min,
+    ):
+        key = s.start.strftime("%H:%M")
+        # A start time can surface from more than one window; keep the highest
+        # count so the hint never under-reports what is genuinely bookable.
+        out[key] = max(out.get(key, 0), int(s.remaining or 0))
+    return out
+
+
 def summarize_days(db: Session, *, profile: BusinessProfile, user_id,
                    start_date: date, days: int, party_size: int,
                    now: datetime) -> dict:

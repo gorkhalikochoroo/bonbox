@@ -83,6 +83,10 @@ class Slot:
     # two+ for a combined seating. `resource_id` mirrors the primary
     # (resource_ids[0]) for back-compat. Empty when none assigned.
     resource_ids: tuple[str, ...] = ()
+    # How many single tables could still take this party at this time — the
+    # honest number behind the guest-facing "2 left" / "Last table" hint.
+    # See count_free_singles: it understates rather than overstates.
+    remaining: int = 0
 
 
 @dataclass
@@ -150,6 +154,28 @@ def assign_resource(party_size: int, start: datetime, end: datetime,
         if is_resource_free(r.id, start, end, busy):
             return r.id
     return None
+
+
+def count_free_singles(party_size: int, start: datetime, end: datetime,
+                       resources, busy) -> int:
+    """How many SINGLE tables could seat this party for this whole range.
+
+    Drives the guest-facing scarcity hint ("2 left", "Last table"). It counts
+    exactly the set assign_resource picks from, so the number can never claim
+    availability the booking path would then refuse.
+
+    DELIBERATELY UNDERSTATES. A party that no single table fits may still be
+    seatable by COMBINING tables, and that is not counted here. Erring low is
+    the safe direction for a scarcity cue: showing "Last table" when a combo
+    also exists costs the guest nothing, whereas overstating would be a lie
+    told to create urgency. The slot itself is still offered either way —
+    this only decides what the hint says.
+    """
+    return sum(
+        1
+        for r in resources
+        if r.capacity_seats >= party_size and is_resource_free(r.id, start, end, busy)
+    )
 
 
 def find_combo(party_size: int, start: datetime, end: datetime,
@@ -267,6 +293,9 @@ def compute_slots(*, windows, resources, busy, party_size: int,
                         out.append(Slot(
                             start=start, end=start + dur, resource_id=ids[0],
                             resource_ids=tuple(ids), available=True,
+                            remaining=count_free_singles(
+                                party_size, start, start + dur, resources, busy,
+                            ),
                         ))
             start += step
     return out
