@@ -302,6 +302,183 @@ function buildShiftIcs(shift, venueName, summary) {
 
 // ─── PIN Gate ─────────────────────────────────────────────────────────────
 
+/**
+ * BankSection — the staffer's own bank account (reg-nr + kontonummer).
+ *
+ * Lives inside the PIN-gated profile editor because it is the most sensitive
+ * thing on this phone. Three rules shape the whole component:
+ *
+ *  1. NEVER RENDER THE FULL NUMBER. The server only ever sends the last 4, so
+ *     there is nothing here to accidentally leak — the display path physically
+ *     cannot show more. Re-entering the whole account is the price of changing
+ *     it, which is correct: it is also how you confirm you meant to.
+ *  2. VALIDATION IS THE SERVER'S. staff_bank.normalise() is the single source of
+ *     truth; we map its `code` to a Danish sentence rather than re-implementing
+ *     the rules here, so the two can never disagree.
+ *  3. NO DEAD ENDS. A 503 (storage not configured) says so plainly instead of
+ *     failing as "something went wrong" — the staffer needs to know their
+ *     account was NOT saved.
+ */
+export function BankSection({ token }) {
+  const { t } = useLanguage();
+  const [state, setState] = useState(null);      // null = loading
+  const [editing, setEditing] = useState(false);
+  const [reg, setReg] = useState("");
+  const [acct, setAcct] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    portalApi.get(`/portal/${token}/bank`)
+      .then((r) => { if (alive) setState(r.data); })
+      .catch(() => { if (alive) setState({ has_bank: false, unavailable: true }); });
+    return () => { alive = false; };
+  }, [token]);
+
+  // Server error codes → real Danish copy. Anything unmapped falls back to a
+  // generic line rather than showing the English developer message.
+  const messageFor = (e) => {
+    if (e?.response?.status === 503) {
+      return t("portalBankUnavailable", "Bank details can't be saved right now. Nothing was stored — try again later.");
+    }
+    const code = e?.response?.data?.detail?.code;
+    const map = {
+      empty: t("portalBankErrEmpty", "Enter both your registreringsnummer and kontonummer."),
+      reg_nr_length: t("portalBankErrRegLength", "Registreringsnummer must be exactly 4 digits."),
+      account_missing: t("portalBankErrAcctMissing", "Enter your kontonummer."),
+      account_length: t("portalBankErrAcctLong", "Kontonummer can be at most 10 digits."),
+      account_too_short: t("portalBankErrAcctShort", "That kontonummer looks too short — check it against your bank."),
+      account_zero: t("portalBankErrAcctZero", "That isn't a valid kontonummer."),
+    };
+    return map[code] || t("portalBankErrGeneric", "Couldn't save your account. Check the numbers and try again.");
+  };
+
+  const save = async () => {
+    setBusy(true); setErr(""); setOk("");
+    try {
+      const r = await portalApi.put(`/portal/${token}/bank`, { reg_nr: reg, account_number: acct });
+      setState(r.data);
+      setReg(""); setAcct("");
+      setEditing(false);
+      setOk(t("portalSaved", "Saved"));
+      setTimeout(() => setOk(""), 1800);
+    } catch (e) {
+      setErr(messageFor(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true); setErr(""); setOk("");
+    try {
+      const r = await portalApi.delete(`/portal/${token}/bank`);
+      setState(r.data);
+      setEditing(false);
+    } catch {
+      setErr(t("portalBankErrRemove", "Couldn't remove your account. Try again."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (state === null) return null;  // no skeleton — it's one row inside a form
+
+  return (
+    <div className="pt-3 border-t border-gray-100">
+      <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-2">
+        {t("portalBankSection", "Bank account")}
+      </div>
+
+      {!editing && (
+        <div className="flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            {state.has_bank ? (
+              <div className="text-[13px] font-semibold text-gray-900 tabular-nums truncate">
+                {state.masked}
+                <span className="text-gray-400 font-medium"> · reg. {state.reg_nr}</span>
+              </div>
+            ) : (
+              <div className="text-[13px] text-gray-500">{t("portalBankNone", "Not added yet")}</div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => { setEditing(true); setErr(""); }}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-[13px] font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition active:scale-[0.98]"
+          >
+            {state.has_bank ? t("portalBankChange", "Change") : t("portalBankAdd", "Add")}
+          </button>
+        </div>
+      )}
+
+      {editing && (
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <div className="w-24 shrink-0">
+              <label className="text-[10px] text-gray-500 mb-1 block">{t("portalBankRegLabel", "Reg. no.")}</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={reg}
+                onChange={(e) => setReg(e.target.value)}
+                placeholder="1234"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 tabular-nums placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-[10px] text-gray-500 mb-1 block">{t("portalBankAcctLabel", "Account no.")}</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={acct}
+                onChange={(e) => setAcct(e.target.value)}
+                placeholder="5678901234"
+                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 tabular-nums placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={save}
+              disabled={busy}
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 transition disabled:opacity-50"
+            >
+              {busy ? t("portalSaving", "Saving…") : t("portalBankSave", "Save account")}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setEditing(false); setErr(""); setReg(""); setAcct(""); }}
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition"
+            >
+              {t("cancel", "Cancel")}
+            </button>
+          </div>
+          {state.has_bank && (
+            <button
+              type="button"
+              onClick={remove}
+              disabled={busy}
+              className="w-full text-[12px] font-semibold text-red-600 hover:text-red-700 py-1 disabled:opacity-50"
+            >
+              {t("portalBankRemove", "Remove my account")}
+            </button>
+          )}
+        </div>
+      )}
+
+      {err && <p className="mt-2 text-[12px] text-red-600">{err}</p>}
+      {ok && <p className="mt-2 text-[12px] text-emerald-600">{ok}</p>}
+      <div className="mt-1.5 text-[10px] text-gray-400">
+        {t("portalBankNote", "Only your employer can see this, and only to pay you. We show you the last 4 digits.")}
+      </div>
+    </div>
+  );
+}
+
 function PinGate({ onVerified, token, staffName }) {
   const { t } = useLanguage();
   const [pin, setPin] = useState(["", "", "", ""]);
@@ -4621,6 +4798,11 @@ export default function StaffPortalPage() {
                   </div>
                 </div>
               </div>
+
+              {/* Bank account — staff-entered, encrypted, owner reads it to pay
+                  them. Sits inside the PIN-gated profile editor; the server
+                  only ever returns the last 4. */}
+              <BankSection token={token} />
 
               {/* Language — moved here from the header (design). Staff pick DA / EN. */}
               <div className="pt-3 border-t border-gray-100">
