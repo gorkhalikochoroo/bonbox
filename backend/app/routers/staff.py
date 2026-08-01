@@ -614,6 +614,120 @@ def deactivate_staff_member(
     db.commit()
 
 
+@router.get("/members/{member_id}/bank")
+def get_staff_member_bank(
+    member_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The FULL bank account for one staff member — owner only, and audited.
+
+    This is the other half of the staff-entered account: the staffer types it in
+    the portal, the owner reads it here to pay them. It is the only place the
+    plaintext leaves the database, so three things are deliberate:
+
+      • OWNER ONLY, via `_require_owner_actor`. The tenant filter below is NOT
+        sufficient on its own: get_current_user resolves a delegated manager /
+        cashier / viewer / accountant seat to the OWNER User, so
+        `user_id == user.id` passes for all of them. A kontonummer is at least
+        as sensitive as the portal tokens that gate already protects — a manager
+        has no business reading a colleague's bank details. Relaxing this must
+        be a deliberate decision, never a side effect of adding a role.
+      • AUDITED ON READ, not just on write. A write trail tells you the number
+        changed; only a read trail tells you who looked at it.
+      • SEPARATE ENDPOINT. It is not folded into the member list, so the account
+        is fetched when someone actually needs to pay — never sprayed across
+        every roster render.
+    """
+    _require_owner_actor(user)  # a kontonummer is owner-only, like portal credentials
+
+    member = db.query(StaffMember).filter(
+        StaffMember.id == member_id,
+        StaffMember.user_id == user.id,
+        StaffMember.is_deleted.isnot(True),
+    ).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    from app.services import staff_bank
+
+    if not staff_bank.has_bank(member):
+        return {"has_bank": False, "reg_nr": None, "account_number": None, "updated_at": None}
+
+    reg = staff_bank.decrypt_account(member.bank_reg_nr_enc)
+    acct = staff_bank.decrypt_account(member.bank_account_enc)
+
+    try:
+        from app.services import audit_service
+
+        audit_service.record(
+            db, user.id, "staff.bank_viewed", "staff_member",
+            entity_id=member.id,
+            # Masked in the trail — the audit log must not become a plaintext
+            # mirror of the column it is auditing.
+            after={"masked": staff_bank.mask(acct)},
+            actor_type="owner",
+        )
+        db.commit()
+    except Exception:  # noqa: BLE001 — audit is best-effort, never blocks the read
+        pass
+
+    return {
+        "has_bank": True,
+        "reg_nr": reg,
+        "account_number": acct,
+        "updated_at": member.bank_updated_at.isoformat() if member.bank_updated_at else None,
+    }
+
+
+@router.delete("/members/{member_id}/bank")
+def clear_staff_member_bank(
+    member_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner clears a staff member's account. Owner-only, audited, idempotent.
+
+    Exists because the staffer's own DELETE stops working the moment they are
+    offboarded: `_get_staff_from_token` requires `active.is_(True)`, so every
+    portal /bank route 404s for a deactivated staffer. Without this the data
+    subject loses their only erasure lever exactly when the retention
+    justification ("still owed a final salary") starts expiring — and
+    account-level erasure does not reach the row either (see the note on
+    StaffMember.bank_reg_nr_enc). This is the offboarding lever.
+
+    Deliberately does NOT filter on `active`: clearing the account of someone
+    who has already left is the entire point.
+    """
+    _require_owner_actor(user)  # a kontonummer is owner-only, like portal credentials
+
+    member = db.query(StaffMember).filter(
+        StaffMember.id == member_id,
+        StaffMember.user_id == user.id,
+    ).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    from app.services import staff_bank
+
+    had = staff_bank.has_bank(member)
+    staff_bank.clear_bank(member)
+
+    if had:
+        try:
+            from app.services import audit_service
+
+            audit_service.record(
+                db, user.id, "staff.bank_cleared", "staff_member",
+                entity_id=member.id, actor_type="owner",
+            )
+        except Exception:  # noqa: BLE001 — audit is best-effort, never blocks the clear
+            pass
+
+    db.commit()
+    return {"has_bank": False}
+
+
 @router.get("/members/{member_id}/photo")
 def get_staff_member_photo(
     member_id: str,

@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
-    String, Boolean, Date, DateTime, Numeric, ForeignKey, Text, Integer,
+    String, Boolean, Date, DateTime, LargeBinary, Numeric, ForeignKey, Text, Integer,
     UniqueConstraint, CheckConstraint, Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -42,6 +42,39 @@ class StaffMember(Base):
     postal_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     city: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     address_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # Bank account (DK registreringsnummer + kontonummer), staff-entered in the
+    # portal so the owner has it for the payroll export.
+    #
+    # This is the ONE payroll-adjacent field in the module, added by explicit
+    # owner decision on 2026-08-01, narrowing the "no banking" line above. CPR,
+    # pay maths, feriepenge and eIndkomst all remain out of scope — we still do
+    # not compute anyone's pay.
+    #
+    # ENCRYPTED AT REST via app/utils/crypto (MultiFernet, rotation-aware).
+    # Stored as ciphertext bytes, never as digits. The staff member only ever
+    # sees the last 4 and only after the PIN; the owner sees the full number
+    # because paying someone requires it, and every such read is audited.
+    #
+    # RETENTION: deliberately NOT wiped on deactivate. Staff are only ever
+    # deactivated (`active = False`), never soft-deleted, and a deactivated
+    # staffer is often seasonal or still owed a final salary — dropping the
+    # account there would break the last payslip. It is removed by the staffer
+    # (DELETE /portal/{token}/bank) or by the owner (DELETE
+    # /api/staff/members/{id}/bank).
+    #
+    # ⚠️ ACCOUNT-LEVEL ERASURE DOES NOT REACH THIS ROW TODAY. Verified against
+    # prod 2026-08-01: audit_logs.user_id / audit_logs.actor_id /
+    # security_events.user_id are FKs to users.id with delete_rule NO ACTION,
+    # and those tables are deliberately RETAINED under Bogføringsloven §10
+    # (auth.py _ERASURE_RETAINED_TABLES). So db.delete(current_user) FK-violates
+    # and the whole Art.17 transaction rolls back — 70 of 71 prod users have
+    # audit rows. That is a PRE-EXISTING bug, not one this field introduced, but
+    # it means the two explicit deletes above are the only real erasure lever
+    # until those FKs become ON DELETE SET NULL.
+    bank_reg_nr_enc: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    bank_account_enc: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    bank_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     role: Mapped[str] = mapped_column(String(50), default="server")
     contract_type: Mapped[str] = mapped_column(String(20), default="full")
     base_rate: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)

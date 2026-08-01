@@ -155,6 +155,15 @@ class ContactUpdateRequest(BaseModel):
     city: str | None = None
 
 
+class BankUpdateRequest(BaseModel):
+    """Staff's own DK bank account. Both fields are free text on the way in —
+    people paste spaces, dots and dashes — and are normalised server-side by
+    staff_bank.normalise(), which is the single source of truth for the format."""
+
+    reg_nr: str | None = None
+    account_number: str | None = None
+
+
 class PortalNotification(BaseModel):
     id: str
     event_type: str
@@ -1633,6 +1642,136 @@ def update_portal_contact(token: str, body: ContactUpdateRequest, request: Reque
         "city": member.city,
         "message": "Contact info updated",
     }
+
+
+# ── Bank account ───────────────────────────────────────────────────────────
+#
+# The staff member enters their own konto so the owner has it for the payroll
+# export. Three properties hold this together, and none is optional:
+#
+#   1. PIN. These paths are NOT in the exempt list in `_get_staff_from_token`,
+#      so on a PIN-protected link every call here 401s without a valid proof.
+#      That is what stops a forwarded link or a borrowed phone reading it.
+#   2. LAST-4 ONLY on the way out. The full number never leaves the server
+#      towards the staff phone — not even to the person who typed it. There is
+#      nothing they can do with the full digits that "•••• 8901 · reg 1234"
+#      does not already let them do, which is confirm it is the right account.
+#   3. AUDITED. Writes and clears land in audit_logs. The owner is paying money
+#      to this number; a silent change is the one thing that must not happen.
+#
+# The reg-nr IS returned in full: it names the bank branch, is not a secret,
+# and without it "•••• 8901" is not enough for someone to tell Danske from Nordea.
+
+
+@router.get("/{token}/bank")
+def get_portal_bank(token: str, request: Request, db: Session = Depends(get_db)):
+    """The staff member's own account, masked. PIN-gated via _get_staff_from_token."""
+    link, member = _get_staff_from_token(token, db)
+
+    from app.services import staff_bank
+
+    if not staff_bank.has_bank(member):
+        return {"has_bank": False, "reg_nr": None, "masked": None, "updated_at": None}
+
+    # A decrypt failure here means APP_SECRET_KEY rotated without _PREVIOUS.
+    # Fail loud rather than rendering "no account" — the silent version would
+    # have the owner paying nobody with nothing in any log.
+    reg = staff_bank.decrypt_account(member.bank_reg_nr_enc)
+    acct = staff_bank.decrypt_account(member.bank_account_enc)
+
+    return {
+        "has_bank": True,
+        "reg_nr": reg or None,
+        "masked": staff_bank.mask(acct),
+        "updated_at": member.bank_updated_at.isoformat() if member.bank_updated_at else None,
+    }
+
+
+@router.put("/{token}/bank")
+@limiter.limit("5/minute")
+def update_portal_bank(token: str, body: BankUpdateRequest, request: Request, db: Session = Depends(get_db)):
+    """Staff sets or replaces their own account.
+
+    Token-scoped exactly like the contact endpoint: `_get_staff_from_token`
+    resolves to one staff row, so nobody can write anyone else's account.
+    """
+    link, member = _get_staff_from_token(token, db)
+
+    from app.services import staff_bank
+
+    # Refuse to accept an account we cannot promise to give back. Without a
+    # dedicated APP_SECRET_KEY the at-rest key is derived from the JWT secret,
+    # and a documented JWT rotation would make every stored account permanently
+    # undecryptable. Taking someone's bank details under those conditions and
+    # losing them silently is worse than not taking them.
+    if not staff_bank.storage_available():
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "bank_storage_unavailable", "message": "Bank storage is not configured."},
+        )
+
+    try:
+        reg, acct = staff_bank.normalise(body.reg_nr, body.account_number)
+    except staff_bank.BankValidationError as e:
+        # `code` is stable and translatable; the message is a developer aid.
+        # The portal maps the code to Danish — never show this sentence raw.
+        raise HTTPException(status_code=400, detail={"code": e.code, "message": str(e)})
+
+    member.bank_reg_nr_enc, member.bank_account_enc = staff_bank.encrypt_pair(reg, acct)
+    member.bank_updated_at = utc_now()
+
+    try:
+        from app.services import audit_service
+
+        audit_service.record(
+            db, link.user_id, "staff.portal.bank_updated", "staff_member",
+            entity_id=member.id,
+            # Last-4 only — an audit row must never become the plaintext copy
+            # of the thing the column is encrypted to protect.
+            after={"field": "bank_account", "masked": staff_bank.mask(acct)},
+            actor_type="staff",
+        )
+    except Exception:  # noqa: BLE001 — audit is best-effort, never blocks the save
+        pass
+
+    db.commit()
+    return {
+        "has_bank": True,
+        "reg_nr": reg,
+        "masked": staff_bank.mask(acct),
+        "updated_at": member.bank_updated_at.isoformat(),
+    }
+
+
+@router.delete("/{token}/bank")
+@limiter.limit("5/minute")
+def delete_portal_bank(token: str, request: Request, db: Session = Depends(get_db)):
+    """Staff removes their own account. Idempotent — deleting nothing is fine.
+
+    Exists because "you may enter it" is only honest if "you may take it back"
+    is also true; it is also the staffer's own GDPR erasure lever for the one
+    financial field they gave us.
+    """
+    link, member = _get_staff_from_token(token, db)
+
+    from app.services import staff_bank
+
+    had = staff_bank.has_bank(member)
+    staff_bank.clear_bank(member)
+
+    if had:
+        try:
+            from app.services import audit_service
+
+            audit_service.record(
+                db, link.user_id, "staff.portal.bank_cleared", "staff_member",
+                entity_id=member.id, actor_type="staff",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    db.commit()
+    return {"has_bank": False, "reg_nr": None, "masked": None, "updated_at": None}
 
 
 @router.post("/{token}/profile-photo")
