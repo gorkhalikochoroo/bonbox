@@ -175,6 +175,25 @@ body.portal-shell {
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-heroSettle { animation: heroSettle 500ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* heroLiveDot — the pulsing dot beside "YOUR NEXT SHIFT" (design_handoff v2).
+   The only thing moving on the screen at rest, which is what makes it read as
+   live rather than decorative. 2.4s is deliberately slower than a heartbeat:
+   present, not urgent. Always paired with motion-safe: at the call site. */
+@keyframes heroLiveDot {
+  0%, 100% { opacity: .5; transform: scale(1); }
+  50%      { opacity: .95; transform: scale(1.5); }
+}
+.animate-heroLiveDot { animation: heroLiveDot 2.4s ease-in-out infinite; }
+
+/* heroSheen — a 70px gradient blade sweeping the dark hero every 7s (v2).
+   Long gap, short pass: noticed once, never distracting. pointer-events:none
+   and aria-hidden at the call site so it is purely optical. */
+@keyframes heroSheen {
+  0%        { transform: translateX(-130%) skewX(-14deg); }
+  22%, 100% { transform: translateX(320%)  skewX(-14deg); }
+}
+.animate-heroSheen { animation: heroSheen 7s ease-in-out infinite; }
 /* Pure opacity fade for scrims/backdrops — no transform, so it doesn't fight
    a panel that's sliding in on another axis (e.g. the reservation drawer). */
 @keyframes backdropFade { from { opacity: 0; } to { opacity: 1; } }

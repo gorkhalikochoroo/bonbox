@@ -420,6 +420,15 @@ const translations = {
     portalLangNote: "Only changes the app's language.",
     // Bank account — staff-entered, encrypted, owner reads it to pay them.
     portalBankSection: "Bank account",
+    // Clock-in geofence dial.
+    portalFenceInside: "You're at the venue",
+    portalFenceOutside: "Too far to clock in",
+    portalFenceUnknown: "Can't see your location",
+    portalFenceUnknownHint: "You can still clock in \u2014 it'll be marked unverified.",
+    portalFenceDistance: "{d} m away \u00b7 must be within {r} m",
+    portalFenceInsideA11y: "You are inside the clock-in area",
+    portalFenceOutsideA11y: "You are outside the clock-in area",
+    portalFenceUnknownA11y: "Your position is unknown",
     // Employment documents the owner shares (staff view).
     portalDocsSection: "Contract & documents",
     portalDocsOpenFailed: "Couldn't open that document. Try again.",
@@ -8168,6 +8177,15 @@ const translations = {
     portalLangNote: "Skifter kun appens sprog.",
     // Bankkonto \u2014 medarbejderen indtaster selv; krypteret; ejeren l\u00e6ser den for at udbetale l\u00f8n.
     portalBankSection: "Bankkonto",
+    // Stempl-ind geofence.
+    portalFenceInside: "Du er p\u00e5 arbejdsstedet",
+    portalFenceOutside: "For langt v\u00e6k til at stemple ind",
+    portalFenceUnknown: "Kan ikke se din placering",
+    portalFenceUnknownHint: "Du kan stadig stemple ind \u2014 det bliver markeret ubekr\u00e6ftet.",
+    portalFenceDistance: "{d} m v\u00e6k \u00b7 skal v\u00e6re inden for {r} m",
+    portalFenceInsideA11y: "Du er inden for stempl-ind-omr\u00e5det",
+    portalFenceOutsideA11y: "Du er uden for stempl-ind-omr\u00e5det",
+    portalFenceUnknownA11y: "Din placering er ukendt",
     // Ansættelsesdokumenter delt af ejeren (medarbejderens visning).
     portalDocsSection: "Kontrakt og dokumenter",
     portalDocsOpenFailed: "Dokumentet kunne ikke \u00e5bnes. Pr\u00f8v igen.",

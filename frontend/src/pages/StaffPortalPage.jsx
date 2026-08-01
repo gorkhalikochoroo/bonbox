@@ -1124,6 +1124,25 @@ function useClock(token) {
 
 // ── Initials for a teammate avatar (≤2 letters, uppercased). Privacy: only
 // initials + a role-underline are ever shown for teammates.
+/** Per-teammate avatar tint (v2's AV_TONE). Deterministic on the name, so the
+    same colleague is the same colour every render and across sessions — the
+    strip is scannable by colour before it is readable by initial. Light tints
+    with dark ink: legible on the hero's near-black gradient. */
+const MATE_TONES = [
+  "linear-gradient(150deg,#4ade80,#16a34a)",
+  "linear-gradient(150deg,#93c5fd,#3b82f6)",
+  "linear-gradient(150deg,#fcd34d,#f59e0b)",
+  "linear-gradient(150deg,#f9a8d4,#ec4899)",
+  "linear-gradient(150deg,#c4b5fd,#8b5cf6)",
+  "linear-gradient(150deg,#7dd3fc,#0ea5e9)",
+];
+function mateTone(name) {
+  const key = (name || "?").trim().toLowerCase();
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return MATE_TONES[h % MATE_TONES.length];
+}
+
 function staffInitials(name) {
   return (name || "")
     .trim()
@@ -1201,34 +1220,53 @@ function WhosOnStrip({ teamShifts, nextShift }) {
           The avatar was aria-hidden with a title that repeated the initials,
           so a screen-reader user got nothing at all and a hover told a
           sighted user what they could already see. */}
-      <div className="flex items-start gap-3 overflow-x-auto pb-1">
-        {shown.map((s, i) => (
-          <div
-            key={`${s.staff_id ?? s.staff_name}-${i}`}
-            className="flex w-12 shrink-0 flex-col items-center gap-1"
-          >
-            <div
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-800 text-[12px] font-semibold text-white ring-2 ring-gray-900"
+      {/* v2 layout: overlapping 26px avatars with a name LIST beside them,
+          rather than a row of avatars each captioned. Same answer to "who am I
+          on with?" — the names are still there, just read as a sentence — in
+          roughly half the vertical space, which is what lets the hero, the week
+          card and the day panel share one screen. The 2px ring is the card
+          colour (#14202f), so the discs punch out of the gradient. */}
+      <div className="flex items-center gap-[9px]">
+        <div className="flex shrink-0">
+          {shown.map((s, i) => (
+            <span
+              key={`${s.staff_id ?? s.staff_name}-${i}`}
               aria-hidden
+              className="inline-block h-[26px] w-[26px] rounded-full text-center"
+              style={{
+                marginLeft: i === 0 ? 0 : -8,
+                background: mateTone(s.staff_name),
+                color: "#0b1220",
+                font: "700 9.5px/26px var(--font-text)",
+                boxShadow: "0 0 0 2px #14202f",
+              }}
             >
               {staffInitials(s.staff_name)}
-            </div>
-            <span
-              className="max-w-full truncate text-[10px] font-medium text-gray-400"
-              title={s.staff_name || undefined}
-            >
-              {firstName(s.staff_name)}
             </span>
-          </div>
-        ))}
-        {overflow > 0 && (
-          <div className="flex w-12 shrink-0 flex-col items-center gap-1">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-[12px] font-semibold text-gray-300">
+          ))}
+          {overflow > 0 && (
+            <span
+              aria-hidden
+              className="inline-block h-[26px] w-[26px] rounded-full text-center"
+              style={{
+                marginLeft: -8,
+                background: "rgba(255,255,255,.14)",
+                color: "rgba(255,255,255,.85)",
+                font: "700 9.5px/26px var(--font-text)",
+                boxShadow: "0 0 0 2px #14202f",
+              }}
+            >
               +{overflow}
-            </div>
-            <span className="text-[10px] font-medium text-transparent select-none" aria-hidden>·</span>
-          </div>
-        )}
+            </span>
+          )}
+        </div>
+        <span
+          className="min-w-0 truncate"
+          style={{ font: "500 11.5px/1 var(--font-text)", color: "rgba(255,255,255,.52)" }}
+        >
+          {shown.map((s) => firstName(s.staff_name)).filter(Boolean).join(", ")}
+          {overflow > 0 ? ` +${overflow}` : ""}
+        </span>
       </div>
     </div>
   );
@@ -1470,14 +1508,15 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
           Absorbs the punch-clock (elapsed timer + Stempl ind/ud) and a live
           countdown. Role shows ONLY via the thin left-bar + a tiny label. */}
       <div
-        className={`relative overflow-hidden text-white p-5${playBeat ? " motion-safe:animate-heroSettle" : ""}`}
+        className={`relative overflow-hidden text-white${playBeat ? " motion-safe:animate-heroSettle" : ""}`}
         style={{
           // v2 hero: a three-stop diagonal rather than a flat fill, so the card
           // has a direction of light instead of sitting there. Radius 22 and the
           // inset top highlight are the other two thirds of v2's "glossy" —
           // which it defines as exactly three things and nothing more.
           borderRadius: 22,
-          background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 48%,#080e16 100%)",
+          padding: "19px 19px 17px",
+          background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 46%,#080e16 100%)",
           boxShadow:
             "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
         }}
@@ -1492,8 +1531,22 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
             on a real iPhone 17 Pro Max; invisible in a desktop browser. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-24 -right-16 h-[230px] w-[230px]"
-          style={{ background: "radial-gradient(closest-side, rgba(34,197,94,.40), transparent)" }}
+          className="pointer-events-none absolute h-[230px] w-[230px] rounded-full"
+          style={{
+            top: -80, right: -70,
+            background: "radial-gradient(closest-side, rgba(34,197,94,.40), rgba(34,197,94,0))",
+          }}
+        />
+        {/* v2 sheen — a 70px blade crossing the card every 7s. Long gap, short
+            pass: seen once and then forgotten, which is the point. Purely
+            optical, so aria-hidden and pointer-events-none. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 left-0 w-[70px] motion-safe:animate-heroSheen"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent)",
+          }}
         />
         {/* Role-colored left-bar — a thin SIGNAL, the only role colour. Only
             when there IS a shift: an empty hero has no role to signal. */}
@@ -1503,12 +1556,33 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
             aria-hidden
           />
         )}
-        <div className="flex items-start justify-between gap-2">
-          <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+        {/* v2 eyebrow: a slow pulsing dot + green label. The dot is the screen's
+            only moving element at rest — it says "this is live" without a
+            spinner. 2.4s is deliberately slower than a heartbeat: present, not
+            urgent. Respects prefers-reduced-motion via motion-safe. */}
+        <div className="relative flex items-start justify-between gap-2">
+          <div
+            className="flex items-center gap-1.5 uppercase"
+            style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.16em", color: "#4ade80" }}
+          >
+            <span
+              aria-hidden
+              className="inline-block h-1.5 w-1.5 rounded-full motion-safe:animate-heroLiveDot"
+              style={{ background: "#22c55e" }}
+            />
             {t("portalNextShiftHero")}
           </div>
           {countdownLabel && (
-            <span className="shrink-0 rounded-full bg-white/10 ring-1 ring-white/15 backdrop-blur-sm text-gray-200 text-[12px] px-2.5 py-0.5 tabular-nums">
+            <span
+              className="shrink-0 rounded-full tabular-nums"
+              style={{
+                font: "600 10.5px/1 var(--font-text)",
+                color: "rgba(255,255,255,.86)",
+                background: "rgba(255,255,255,.10)",
+                border: "1px solid rgba(255,255,255,.14)",
+                padding: "5px 9px",
+              }}
+            >
               {countdownLabel}
             </span>
           )}
@@ -1516,14 +1590,16 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
 
         {nextShift ? (
           <>
-            <div className="mt-2 text-3xl font-bold text-white leading-tight tracking-[-0.02em]">
+            {/* v2 headline: date and time on ONE line at display weight, split by
+                a dimmed separator. Two stacked lines made the time read as a
+                subtitle of the date; they are one fact and now look like it. */}
+            <div
+              className="relative text-white"
+              style={{ marginTop: 13, font: "700 26px/1.06 var(--font-display)", letterSpacing: "-0.032em" }}
+            >
               {isToday(nextShift.date) ? t("portalToday") : fmtDate(nextShift.date, lang)}
-            </div>
-            {/* The TIME is the answer a staffer opens this page for — it speaks
-                at headline-adjacent scale; date → time → meta, a true F-pattern.
-                (Was 13px gray — the payload rendered as a footnote.) */}
-            <div className="mt-1 text-lg font-semibold text-white tabular-nums">
-              {nextShift.start_time}–{nextShift.end_time}
+              <span style={{ color: "rgba(255,255,255,.42)" }}> · </span>
+              <span className="tabular-nums">{nextShift.start_time}–{nextShift.end_time}</span>
             </div>
             {/* Hours clarity — gross span · unpaid break · net (paid). All three
                 derive from the owner's rostered shift (net_hours + break_minutes),

@@ -1152,13 +1152,28 @@ def _clock_status_dict(db: Session, member, owner) -> dict:
         .all()
     )
     today_hours = round(sum(float(r.total_hours or 0) for r in today_rows), 2)
-    geofence_on = _clock_geofence(db, owner)["enabled"]
+    _fence = _clock_geofence(db, owner)
+    geofence_on = _fence["enabled"]
+    # Venue centre + radius, so the portal can draw the "are you close enough?"
+    # dial LOCALLY and answer before the staffer taps and gets a 403.
+    #
+    # Disclosure is deliberate and small: the venue's address is already on the
+    # hero with a Maps link, so its position is not a secret from the person
+    # rostered to work there. Sent ONLY when the fence is actually on.
+    #
+    # This does not change the privacy property that matters: the staffer's own
+    # coordinates still leave the device only with a punch, and are still never
+    # stored. The dial computes on-device from these two numbers.
+    _fence_pub = (
+        {"lat": _fence["lat"], "lng": _fence["lng"], "radius_m": _fence["radius_m"]}
+        if geofence_on else None
+    )
     win = _clock_window_status(db, member, owner)
     punch = _open_punch(db, member)
     if not punch:
         return {"clocked_in": False, "since": None, "elapsed_min": None,
                 "elapsed_sec": None, "today_hours": today_hours,
-                "geofence_on": geofence_on,
+                "geofence_on": geofence_on, "geofence": _fence_pub,
                 "locked": win["locked"], "opens_at": win["opens_at"],
                 "shift_start": win["shift_start"], "window_minutes": win["window_minutes"]}
     return {
@@ -1167,7 +1182,7 @@ def _clock_status_dict(db: Session, member, owner) -> dict:
         "elapsed_min": _elapsed_min(punch.start_time, now_dt),  # back-compat (whole min)
         "elapsed_sec": _elapsed_sec(punch.created_at),          # live-counter seed (seconds)
         "today_hours": today_hours,
-        "geofence_on": geofence_on,
+        "geofence_on": geofence_on, "geofence": _fence_pub,
         # Already clocked in → never "locked"; keep window context for the UI.
         "locked": False, "opens_at": None,
         "shift_start": win["shift_start"], "window_minutes": win["window_minutes"],
