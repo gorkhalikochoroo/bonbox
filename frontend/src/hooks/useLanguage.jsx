@@ -420,6 +420,9 @@ const translations = {
     portalLangNote: "Only changes the app's language.",
     // Bank account — staff-entered, encrypted, owner reads it to pay them.
     portalBankSection: "Bank account",
+    // Employment documents the owner shares (staff view).
+    portalDocsSection: "Contract & documents",
+    portalDocsOpenFailed: "Couldn't open that document. Try again.",
     portalBankErrOffline: "No connection \u2014 nothing was saved. Try again when you're back online.",
     portalBankErrTooMany: "Too many attempts \u2014 wait a minute. Nothing was saved.",
     portalBankErrLink: "Your link is no longer active. Reopen it from your invitation.",
@@ -4083,6 +4086,19 @@ const translations = {
     // Bank account (owner view) — staff enter it in their portal; the owner can
     // view (audited) or remove it, never edit it.
     staffBankLabel: "Bank account",
+    // Employment documents (owner view — upload / remove).
+    staffDocsLabel: "Contract & documents",
+    staffDocsUpload: "Upload",
+    staffDocsNamePlaceholder: "e.g. Ansættelseskontrakt 2026",
+    staffDocsHint: "They can download these in their portal. PDF, JPEG or PNG, up to 10 MB.",
+    staffDocsErrEmpty: "That file is empty.",
+    staffDocsErrTooLarge: "File must be under 10 MB.",
+    staffDocsErrType: "Only PDF, JPEG and PNG files are accepted.",
+    staffDocsErrLabel: "Give the document a name first.",
+    staffDocsErrGeneric: "Couldn't upload that document.",
+    staffDocsRemoveTitle: "Remove document?",
+    staffDocsRemoveBody: "\u201c{label}\u201d will no longer be visible to them.",
+    staffDocsRemoveFailed: "Couldn't remove that document.",
     staffBankShow: "Show account",
     staffBankHide: "Hide",
     staffBankNotGiven: "Not provided yet \u2014 they add it in their portal.",
@@ -8150,6 +8166,9 @@ const translations = {
     portalLangNote: "Skifter kun appens sprog.",
     // Bankkonto \u2014 medarbejderen indtaster selv; krypteret; ejeren l\u00e6ser den for at udbetale l\u00f8n.
     portalBankSection: "Bankkonto",
+    // Ansættelsesdokumenter delt af ejeren (medarbejderens visning).
+    portalDocsSection: "Kontrakt og dokumenter",
+    portalDocsOpenFailed: "Dokumentet kunne ikke \u00e5bnes. Pr\u00f8v igen.",
     portalBankErrOffline: "Ingen forbindelse \u2014 intet blev gemt. Pr\u00f8v igen, n\u00e5r du er online.",
     portalBankErrTooMany: "For mange fors\u00f8g \u2014 vent et minut. Intet blev gemt.",
     portalBankErrLink: "Dit link er ikke l\u00e6ngere aktivt. \u00c5bn det igen fra din invitation.",
@@ -11710,6 +11729,19 @@ const translations = {
     staffAddressUpdated: "Adresse opdateret",
     // Bankkonto (ejerens visning) \u2014 medarbejderen indtaster den selv i portalen.
     staffBankLabel: "Bankkonto",
+    // Ansættelsesdokumenter (ejerens visning — upload / fjern).
+    staffDocsLabel: "Kontrakt og dokumenter",
+    staffDocsUpload: "Upload",
+    staffDocsNamePlaceholder: "f.eks. Ans\u00e6ttelseskontrakt 2026",
+    staffDocsHint: "De kan hente dem i deres portal. PDF, JPEG eller PNG, op til 10 MB.",
+    staffDocsErrEmpty: "Filen er tom.",
+    staffDocsErrTooLarge: "Filen skal v\u00e6re under 10 MB.",
+    staffDocsErrType: "Kun PDF-, JPEG- og PNG-filer kan bruges.",
+    staffDocsErrLabel: "Giv f\u00f8rst dokumentet et navn.",
+    staffDocsErrGeneric: "Dokumentet kunne ikke uploades.",
+    staffDocsRemoveTitle: "Fjern dokument?",
+    staffDocsRemoveBody: "\u201c{label}\u201d vil ikke l\u00e6ngere v\u00e6re synligt for dem.",
+    staffDocsRemoveFailed: "Dokumentet kunne ikke fjernes.",
     staffBankShow: "Vis konto",
     staffBankHide: "Skjul",
     staffBankNotGiven: "Ikke oplyst endnu \u2014 medarbejderen tilf\u00f8jer den i sin portal.",

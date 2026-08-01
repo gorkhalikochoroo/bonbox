@@ -54,6 +54,10 @@ logger = logging.getLogger(__name__)
 ALLOWED_KINDS = {
     "kasserapport", "inventory_import", "expense", "sale", "business_logo",
     "staff_chat", "staff_avatar", "floor_background",
+    # Employment documents the owner shares with one staff member (contract,
+    # addendum, certificate). Personal data with no accounting-retention basis,
+    # so it is in ERASURE_PURGE_KINDS below too — see the note there.
+    "staff_document",
 }
 
 
@@ -66,7 +70,8 @@ def compose_key(user_id, kind: str, sha: str, ext: str = "jpg") -> str:
     if not sha or not all(c in "0123456789abcdef" for c in sha.lower()):
         raise ValueError("sha must be lowercase hex")
     # Extension is enum-like.
-    if ext not in {"jpg", "jpeg", "png", "webp", "heic"}:
+    # "pdf" added for staff_document — everything else here is an image.
+    if ext not in {"jpg", "jpeg", "png", "webp", "heic", "pdf"}:
         raise ValueError(f"Unsupported ext: {ext!r}")
     uid = str(user_id)
     # uuid4 string with hyphens, or all-hex; reject anything weirder.
@@ -363,6 +368,12 @@ def reset_storage_for_tests() -> None:
 # the retention disclosure in the delete-account response + PrivacyPolicyPage.
 ERASURE_PURGE_KINDS = frozenset({
     "staff_chat", "staff_avatar", "business_logo",
+    # Employment documents belong to the employment relationship, not to the
+    # accounting record — Bogføringsloven §10 does not cover them, so Art.17
+    # erasure must take them. If a document ever DOES need retaining (a signed
+    # contract under employment law), that is a separate decision and belongs
+    # in ACCOUNTING_RETENTION_KINDS, not here by omission.
+    "staff_document",
     # RETIRED FEATURE (reservation room-plan background photo — removed as unused).
     # Nothing writes this kind any more, but the entry is kept in BOTH lists on
     # purpose: purge_user_blobs skips kinds absent from ALLOWED_KINDS, so dropping

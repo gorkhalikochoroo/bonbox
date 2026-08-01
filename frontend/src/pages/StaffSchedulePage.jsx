@@ -4,6 +4,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import api from "../services/api";
 import StaffBankRow from "../components/StaffBankRow";
+import StaffDocumentsRow from "../components/StaffDocumentsRow";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
@@ -3133,6 +3134,9 @@ function StaffDetailModal({
                 Fetched on demand (not with the drawer) so the audit trail
                 records a real intent to look, not every drawer open. */}
             <StaffBankRow memberId={member.id} memberName={member.name} labelCls={labelCls} />
+            {/* Employment documents shared with this staffer — they download
+                them in their portal behind the PIN. */}
+            <StaffDocumentsRow memberId={member.id} labelCls={labelCls} />
             {/* Base rate */}
             <div className="sm:col-span-2">
               <label className={labelCls} htmlFor="sd-rate">{t("baseRate")} ({currency}/hr)</label>

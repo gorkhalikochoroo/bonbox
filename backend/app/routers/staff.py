@@ -46,7 +46,7 @@ from datetime import date, datetime, time as dtime, timedelta
 from io import BytesIO
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -62,6 +62,7 @@ from passlib.context import CryptContext
 from app.models.staff import (
     StaffMember,
     StaffLink,
+    StaffDocument,
     PayPeriodConfig,
     Schedule,
     HoursLogged,
@@ -752,6 +753,166 @@ def clear_staff_member_bank(
 
     db.commit()
     return {"has_bank": False}
+
+
+# ── Employment documents ───────────────────────────────────────────────────
+#
+# The owner uploads a contract/addendum/certificate for ONE staff member; the
+# staffer reads it in their portal behind the PIN. Same access shape as the bank
+# endpoints: owner-only, curtain-checked, tenant-scoped.
+#
+# Not owner-only out of habit — a document addressed to one employee is that
+# employee's personal data, and a delegated manager seat has no business
+# enumerating their colleagues' contracts.
+
+
+def _member_or_404(member_id: str, user: User, db: Session):
+    """Tenant-scoped lookup. Deliberately does NOT filter on `active`: an
+    offboarded staffer's documents still have to be listable and removable."""
+    member = db.query(StaffMember).filter(
+        StaffMember.id == member_id,
+        StaffMember.user_id == user.id,
+        StaffMember.is_deleted.isnot(True),
+    ).first()
+    if not member:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+    return member
+
+
+@router.get("/members/{member_id}/documents")
+def list_staff_documents(
+    member_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Documents shared with one staff member. Metadata only — no blob."""
+    _require_owner_actor(user)
+    if getattr(user, "_shared_device_locked", False):
+        raise HTTPException(status_code=403, detail="device_pin_required")
+    member = _member_or_404(member_id, user, db)
+
+    rows = (
+        db.query(StaffDocument)
+        .filter(StaffDocument.staff_id == member.id, StaffDocument.user_id == user.id)
+        .order_by(StaffDocument.uploaded_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": str(r.id),
+            "label": r.label,
+            "content_type": r.content_type,
+            "size_bytes": r.size_bytes,
+            "uploaded_at": r.uploaded_at.isoformat() if r.uploaded_at else None,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/members/{member_id}/documents")
+def upload_staff_document(
+    member_id: str,
+    request: Request,
+    label: str = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner shares a document with one staff member."""
+    _require_owner_actor(user)
+    if getattr(user, "_shared_device_locked", False):
+        raise HTTPException(status_code=403, detail="device_pin_required")
+    member = _member_or_404(member_id, user, db)
+
+    from app.services import staff_documents
+    from app.services.storage import compose_key, get_storage
+
+    raw = file.file.read(staff_documents.MAX_BYTES + 1)
+    try:
+        content_type, ext, sha, clean_label = staff_documents.inspect_upload(raw, label)
+    except staff_documents.DocumentRejected as e:
+        raise HTTPException(status_code=400, detail={"code": e.code, "message": str(e)})
+
+    key = compose_key(user.id, "staff_document", sha, ext=ext)
+    get_storage().put(key, raw, content_type)
+
+    doc = StaffDocument(
+        user_id=user.id,
+        staff_id=member.id,
+        label=clean_label,
+        storage_key=key,
+        content_type=content_type,
+        size_bytes=len(raw),
+    )
+    db.add(doc)
+
+    try:
+        from app.services import audit_service
+
+        audit_service.record(
+            db, user.id, "staff.document_shared", "staff_member",
+            entity_id=member.id, after={"label": clean_label}, actor_type="owner",
+            ip_address=client_ip(request) if request else None,
+        )
+    except Exception as e:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning("staff.document_shared audit failed: %s", e)
+
+    db.commit()
+    return {
+        "id": str(doc.id),
+        "label": doc.label,
+        "content_type": doc.content_type,
+        "size_bytes": doc.size_bytes,
+        "uploaded_at": doc.uploaded_at.isoformat() if doc.uploaded_at else None,
+    }
+
+
+@router.delete("/documents/{doc_id}", status_code=204)
+def delete_staff_document(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Owner un-shares a document. Removes the row AND the blob.
+
+    The blob is content-addressed, so two staffers given the identical file
+    share one key — only delete it when no other row still points at it, or
+    removing one person's copy would break the other's.
+    """
+    _require_owner_actor(user)
+    doc = db.query(StaffDocument).filter(
+        StaffDocument.id == doc_id,
+        StaffDocument.user_id == user.id,
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    key = doc.storage_key
+    db.delete(doc)
+    db.flush()
+
+    still_referenced = db.query(StaffDocument).filter(StaffDocument.storage_key == key).first()
+    if not still_referenced:
+        try:
+            from app.services.storage import get_storage
+
+            get_storage().delete(key)
+        except Exception:  # noqa: BLE001 — the Art.17 prefix purge is the backstop
+            pass
+
+    try:
+        from app.services import audit_service
+
+        audit_service.record(
+            db, user.id, "staff.document_removed", "staff_member",
+            entity_id=doc.staff_id, after={"label": doc.label}, actor_type="owner",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    db.commit()
 
 
 @router.get("/members/{member_id}/photo")

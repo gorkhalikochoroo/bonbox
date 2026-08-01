@@ -2092,6 +2092,21 @@ _migrations = [
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS bank_reg_nr_enc BYTEA",
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS bank_account_enc BYTEA",
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS bank_updated_at TIMESTAMP",
+    # Migration 071 — employment documents the owner shares with one staffer.
+    # Blob lives in storage under the "staff_document" kind (registered in BOTH
+    # ALLOWED_KINDS and ERASURE_PURGE_KINDS); this table is the metadata.
+    """CREATE TABLE IF NOT EXISTS staff_documents (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        staff_id UUID NOT NULL REFERENCES staff_members(id),
+        label VARCHAR(120) NOT NULL,
+        storage_key VARCHAR(200) NOT NULL,
+        content_type VARCHAR(80) NOT NULL,
+        size_bytes INTEGER NOT NULL,
+        uploaded_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_staff_documents_staff ON staff_documents(staff_id)",
+    "CREATE INDEX IF NOT EXISTS ix_staff_documents_user ON staff_documents(user_id)",
     """CREATE TABLE IF NOT EXISTS staff_chat_threads (
         id UUID PRIMARY KEY,
         user_id UUID NOT NULL REFERENCES users(id),
