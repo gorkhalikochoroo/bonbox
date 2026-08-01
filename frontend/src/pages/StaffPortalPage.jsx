@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useConfirm } from "../hooks/useConfirm";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
+import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
@@ -2062,58 +2062,7 @@ function HoursTab({ data, maxHours }) {
 }
 
 
-// ─── Tips Tab ─────────────────────────────────────────────────────────────
 
-function TipsTab({ data }) {
-  const { t: tr, lang } = useLanguage();
-  if (!data) return <LoadingSkeleton />;
-
-  const avgPerShift = data.entries.length > 0 ? (data.total_tips_30d / data.entries.length) : 0;
-  const lastTip = data.entries[0];
-
-  return (
-    <div className="space-y-4">
-      {/* KPIs */}
-      <div className="grid grid-cols-3 gap-2">
-        <div className="rounded-xl bg-white border border-gray-200 p-3">
-          <div className="text-[10px] text-gray-500 mb-1">{tr("portalTipsLast30", "Last 30 days")}</div>
-          <div className="text-lg font-bold text-gray-700">{Math.round(data.total_tips_30d).toLocaleString()}</div>
-        </div>
-        <div className="rounded-xl bg-white border border-gray-200 p-3">
-          <div className="text-[10px] text-gray-500 mb-1">{tr("portalTipsLastShift", "Last shift")}</div>
-          <div className="text-lg font-bold text-gray-900">{lastTip ? Math.round(lastTip.amount) : "—"}</div>
-        </div>
-        <div className="rounded-xl bg-white border border-gray-200 p-3">
-          <div className="text-[10px] text-gray-500 mb-1">{tr("portalTipsAvgPerShift", "Avg / shift")}</div>
-          <div className="text-lg font-bold text-gray-900">{Math.round(avgPerShift)}</div>
-        </div>
-      </div>
-
-      {/* Tip history */}
-      <div>
-        <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">{tr("portalTipsHistory", "Tip history")}</div>
-        <div className="space-y-1.5">
-          {data.entries.length === 0 && (
-            <div className="text-sm text-gray-400 py-4 text-center">{tr("portalTipsNone", "No tips recorded yet")}</div>
-          )}
-          {data.entries.map((t, i) => (
-            <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white border border-gray-200">
-              <span className="text-sm text-gray-500">{fmtDate(t.date, lang)}</span>
-              {t.share_pct && <span className="text-[11px] text-gray-400">{tr("portalTipsShare", "{pct}% share", { pct: t.share_pct.toFixed(1) })}</span>}
-              <span className="text-sm font-semibold text-gray-700">{Math.round(t.amount)} DKK</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {data.entries.length > 0 && (
-        <div className="text-center text-[11px] text-gray-400">
-          {tr("portalTipsSplitMethod", "Split method")}: {data.entries[0]?.split_method === "by_hours" ? tr("portalTipsByHours", "By hours worked") : data.entries[0]?.split_method || "—"}
-        </div>
-      )}
-    </div>
-  );
-}
 
 
 // ─── Swap Tab — peer-to-peer shift trading ─────────────────────────────────
@@ -3638,7 +3587,6 @@ const TABS = [
   { key: "messages", Icon: MessageSquare, labelKey: "navMessages", labelFallback: "Messages" },
   { key: "swaps", Icon: ArrowLeftRight, labelKey: "navSwaps", labelFallback: "Swaps" },
   { key: "hours", Icon: Clock, labelKey: "navHours", labelFallback: "Hours" },
-  { key: "tips", Icon: Banknote, labelKey: "navTips", labelFallback: "Tips" },
   { key: "alerts", Icon: Bell, labelKey: "navAlerts", labelFallback: "Alerts" },
 ];
 
@@ -4173,11 +4121,11 @@ export default function StaffPortalPage() {
     return () => document.body.classList.remove("portal-shell");
   }, []);
   const [tab, setTab] = useState(() => {
-    // Honor ?tab= so the installed-app shortcuts (Schedule / Hours / Tips) and
+    // Honor ?tab= so the installed-app shortcuts (Schedule / Hours) and
     // any deep link open the right tab.
     try {
       const q = new URLSearchParams(window.location.search).get("tab");
-      return ["schedule", "availability", "messages", "swaps", "hours", "tips", "alerts"].includes(q) ? q : "schedule";
+      return ["schedule", "availability", "messages", "swaps", "hours", "alerts"].includes(q) ? q : "schedule";
     } catch {
       return "schedule";
     }
@@ -4201,7 +4149,6 @@ export default function StaffPortalPage() {
   // owner doesn't take reservations (or the book is untouched) -> render NOTHING.
   const [coversByShift, setCoversByShift] = useState({});
   const [hoursData, setHoursData] = useState(null);
-  const [tipsData, setTipsData] = useState(null);
   // Unread owner→staff chat messages — drives the "Beskeder" nav badge.
   const [chatUnread, setChatUnread] = useState(0);
 
@@ -4226,7 +4173,7 @@ export default function StaffPortalPage() {
   const [, setFreshnessTick] = useState(0);
   // liveConnected — true while the SSE stream (Phase 2) is open. Drives the
   // "Live" pill and backs the foreground poll off from 20s → 60s (the stream
-  // covers instant schedule pushes; the poll then only keeps hours/tips fresh).
+  // covers instant schedule pushes; the poll then only keeps hours fresh).
   const [liveConnected, setLiveConnected] = useState(false);
 
   // Email & phone editing
@@ -4388,11 +4335,6 @@ export default function StaffPortalPage() {
     portalApi.get(`/portal/${token}/hours`).then((res) => {
       setHoursData(res.data);
     }).catch(() => {});
-
-    // Tips
-    portalApi.get(`/portal/${token}/tips`).then((res) => {
-      setTipsData(res.data);
-    }).catch(() => {});
   }, [token]);
 
   useEffect(() => {
@@ -4408,15 +4350,9 @@ export default function StaffPortalPage() {
     return () => window.removeEventListener("bonbox-data-changed", onChanged);
   }, [pinVerified, info, loadData]);
 
-  // Tips is OPTIONAL — a business that doesn't share tips (e.g. no salary/tip
-  // distribution) simply never sees the tab, so it's never an empty promise.
-  // If a deep-link (?tab=tips) lands on a staffer with no tip data, fall back
-  // to the schedule rather than show an empty "My tips".
-  useEffect(() => {
-    if (tab === "tips" && tipsData && !(tipsData.entries?.length > 0)) {
-      setTab("schedule");
-    }
-  }, [tab, tipsData]);
+  // NOTE on old installed PWAs: the manifest used to ship a "?tab=tips"
+  // shortcut. "tips" is no longer in the deep-link allow-list above, so such a
+  // link already resolves to "schedule" — no special handling needed.
 
   // 2c. Chat unread badge — poll the cheap count endpoint so the "Beskeder"
   // nav dot lights up when the owner writes. While the Messages tab is open
@@ -4683,7 +4619,6 @@ export default function StaffPortalPage() {
                 : tab === "messages" ? t("portalTitleMessages", "Messages")
                 : tab === "swaps" ? t("portalTitleSwaps", "Swaps")
                 : tab === "hours" ? t("portalTitleHours", "My hours")
-                : tab === "tips" ? t("portalTitleTips", "My tips")
                 : t("portalTitleAlerts", "Alerts")}
             </h1>
             {info?.restaurant_name && (
@@ -4977,7 +4912,6 @@ export default function StaffPortalPage() {
           <SwapTab token={token} ownShifts={shifts} onChanged={loadData} />
         )}
         {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} />}
-        {tab === "tips" && (tipsData?.entries?.length || 0) > 0 && <TipsTab data={tipsData} />}
         {tab === "alerts" && <AlertsTab token={token} staffName={info?.staff_name} />}
       </div>
 
@@ -4985,9 +4919,9 @@ export default function StaffPortalPage() {
       <nav className="fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20">
         <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {TABS.filter(
-            // Alerts moved to the header bell (design); Tips only when it has entries.
+            // Alerts moved to the header bell (design).
             // Leaves 5 tabs: Schedule · Availability · Messages · Swaps · Hours.
-            (item) => item.key !== "alerts" && (item.key !== "tips" || (tipsData?.entries?.length || 0) > 0),
+            (item) => item.key !== "alerts",
           ).map((item) => {
             const active = tab === item.key;
             return (

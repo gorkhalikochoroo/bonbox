@@ -3308,7 +3308,6 @@ def portal_manifest(token: str, request: Request, lang: str = "da", db: Session 
         "shortcuts": [
             {"name": sched, "short_name": sched, "url": f"{start}?tab=schedule"},
             {"name": L["hours"], "short_name": L["hours"], "url": f"{start}?tab=hours"},
-            {"name": L["tips"], "short_name": L["tips_short"], "url": f"{start}?tab=tips"},
         ],
     }
     return Response(
