@@ -106,6 +106,40 @@ class StaffMember(Base):
     tip_distributions: Mapped[list["TipDistribution"]] = relationship(back_populates="staff_member")
 
 
+class StaffDocument(Base):
+    """An employment document the owner shares with ONE staff member.
+
+    Contract, addendum, certificate — the things a staffer periodically needs a
+    copy of and currently has to ask for. The owner uploads; the staffer reads
+    it in their portal behind the PIN.
+
+    The blob lives in storage under the `staff_document` kind; this row is the
+    metadata (who it belongs to, what to call it, when it landed). Two reasons
+    the row exists rather than deriving everything from the key:
+      • there can be many per staffer and they need human labels;
+      • deleting the row is how the owner un-shares a document, and the blob is
+        removed alongside it.
+
+    RETENTION: `staff_document` is in storage.ERASURE_PURGE_KINDS, so Art.17
+    account erasure removes the blobs; this table carries a users.id FK so the
+    metadata-driven row sweep takes the rows. Employment documents are NOT
+    accounting records — Bogføringsloven §10 does not apply.
+    """
+
+    __tablename__ = "staff_documents"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"), index=True)
+    staff_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("staff_members.id"), index=True)
+    # Human label the staffer sees ("Ansættelseskontrakt 2026").
+    label: Mapped[str] = mapped_column(String(120))
+    # Storage key from compose_key(user_id, "staff_document", sha, ext).
+    storage_key: Mapped[str] = mapped_column(String(200))
+    content_type: Mapped[str] = mapped_column(String(80))
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class PayPeriodConfig(Base):
     __tablename__ = "pay_period_configs"
     __table_args__ = (

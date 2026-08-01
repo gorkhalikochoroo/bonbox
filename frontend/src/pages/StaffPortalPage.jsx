@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useConfirm } from "../hooks/useConfirm";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
+import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
@@ -303,6 +303,81 @@ function buildShiftIcs(shift, venueName, summary) {
 
 
 // ─── PIN Gate ─────────────────────────────────────────────────────────────
+
+/**
+ * DocumentsSection — employment documents the owner has shared with this staffer.
+ *
+ * Download goes through portalApi as a BLOB, not an <a href>. The endpoint is
+ * PIN-gated by the X-BonBox-Pin header, and an anchor cannot carry a header —
+ * a plain link would 401 and look like the document had vanished.
+ *
+ * Nothing renders inline: the server sends Content-Disposition: attachment and
+ * the CSP sets object-src 'none', so a shared PDF can never execute on the
+ * app's own origin. Download-only is the containment, not a limitation.
+ */
+function DocumentsSection({ token }) {
+  const { t } = useLanguage();
+  const [docs, setDocs] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    portalApi.get(`/portal/${token}/documents`)
+      .then((r) => { if (alive) setDocs(r.data || []); })
+      .catch(() => { if (alive) setDocs([]); });
+    return () => { alive = false; };
+  }, [token]);
+
+  const open = async (doc) => {
+    setBusyId(doc.id); setErr("");
+    try {
+      const r = await portalApi.get(`/portal/${token}/documents/${doc.id}`, { responseType: "blob" });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = doc.label || "dokument";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      // Revoke on the next tick — revoking synchronously can cancel the
+      // download on some mobile browsers before it has started.
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch {
+      setErr(t("portalDocsOpenFailed", "Couldn't open that document. Try again."));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Nothing shared and nothing to say — stay silent rather than render an empty
+  // promise. The owner shares documents; the staffer cannot request one here.
+  if (!docs || docs.length === 0) return null;
+
+  return (
+    <div className="pt-3 border-t border-gray-100">
+      <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-2">
+        {t("portalDocsSection", "Contract & documents")}
+      </div>
+      <div className="space-y-1.5">
+        {docs.map((d) => (
+          <button
+            key={d.id}
+            type="button"
+            onClick={() => open(d)}
+            disabled={busyId === d.id}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-gray-200 text-left hover:bg-gray-50 transition disabled:opacity-50"
+          >
+            <FileText className="w-4 h-4 shrink-0 text-gray-400" />
+            <span className="flex-1 min-w-0 text-[13px] font-semibold text-gray-900 truncate">{d.label}</span>
+            <Download className="w-4 h-4 shrink-0 text-gray-400" />
+          </button>
+        ))}
+      </div>
+      {err && <p className="mt-2 text-[12px] text-red-600">{err}</p>}
+    </div>
+  );
+}
 
 /**
  * BankSection — the staffer's own bank account (reg-nr + kontonummer).
@@ -4792,6 +4867,11 @@ export default function StaffPortalPage() {
                   them. Sits inside the PIN-gated profile editor; the server
                   only ever returns the last 4. */}
               <BankSection token={token} />
+
+              {/* Employment documents the owner has shared. Renders nothing
+                  when there are none — the staffer cannot request one here, so
+                  an empty section would be an empty promise. */}
+              <DocumentsSection token={token} />
 
               {/* Language — moved here from the header (design). Staff pick DA / EN. */}
               <div className="pt-3 border-t border-gray-100">

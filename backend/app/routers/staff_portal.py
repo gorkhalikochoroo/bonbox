@@ -1644,6 +1644,93 @@ def update_portal_contact(token: str, body: ContactUpdateRequest, request: Reque
     }
 
 
+# ── Employment documents ───────────────────────────────────────────────────
+#
+# The owner shares a contract/addendum/certificate; the staffer reads it here.
+# Both paths are non-exempt in `_get_staff_from_token`, so on a PIN-protected
+# link they 401 without a valid proof.
+
+
+@router.get("/{token}/documents")
+def list_portal_documents(token: str, request: Request, db: Session = Depends(get_db)):
+    """Documents the owner has shared with THIS staff member. Metadata only."""
+    link, member = _get_staff_from_token(token, db)
+
+    from app.models.staff import StaffDocument
+
+    rows = (
+        db.query(StaffDocument)
+        .filter(StaffDocument.staff_id == member.id, StaffDocument.user_id == link.user_id)
+        .order_by(StaffDocument.uploaded_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": str(r.id),
+            "label": r.label,
+            "content_type": r.content_type,
+            "size_bytes": r.size_bytes,
+            "uploaded_at": r.uploaded_at.isoformat() if r.uploaded_at else None,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/{token}/documents/{doc_id}")
+@limiter.limit("30/minute")
+def download_portal_document(token: str, doc_id: str, request: Request, db: Session = Depends(get_db)):
+    """Stream one document to the staff member who owns it.
+
+    A PROXY, not a signed URL — the same choice the profile-photo endpoint
+    makes. A signed URL leaks the document to anyone the link reaches and keeps
+    working after the staffer is offboarded; this re-checks the token, the PIN
+    and the row's ownership on every single request.
+
+    Served as an ATTACHMENT with nosniff. A PDF rendered inline sits on the app's
+    own origin and can run script there; as a download it cannot. That matters
+    because a PDF cannot be re-encoded on upload the way an image can — the
+    accept-side check is magic-bytes only, so the serve side has to contain it.
+    """
+    link, member = _get_staff_from_token(token, db)
+
+    from app.models.staff import StaffDocument
+
+    # Scoped to BOTH the tenant and this staff member: a document id belonging
+    # to a colleague must 404, not download.
+    doc = (
+        db.query(StaffDocument)
+        .filter(
+            StaffDocument.id == doc_id,
+            StaffDocument.staff_id == member.id,
+            StaffDocument.user_id == link.user_id,
+        )
+        .first()
+    )
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    from app.services.storage import get_storage
+
+    data = get_storage().get(doc.storage_key)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # Quote the label into the filename; strip anything that could break out of
+    # the header or suggest a different type than the one we verified.
+    safe = "".join(c for c in doc.label if c.isalnum() or c in " -_().")[:80].strip() or "dokument"
+    ext = {"application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png"}.get(doc.content_type, "bin")
+
+    return Response(
+        content=data,
+        media_type=doc.content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe}.{ext}"',
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
 # ── Bank account ───────────────────────────────────────────────────────────
 #
 # The staff member enters their own konto so the owner has it for the payroll
