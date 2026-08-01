@@ -3,6 +3,7 @@
 // + i18n + a11y unchanged.
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import api from "../services/api";
+import StaffBankRow from "../components/StaffBankRow";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
@@ -759,7 +760,12 @@ export default function StaffSchedulePage() {
   /* ─── Data fetching ─── */
   const fetchStaff = useCallback(async () => {
     try {
-      const params = {};
+      // include_inactive: deactivated staff must stay reachable — the owner
+      // still has to clear their bank details after they leave, and the portal
+      // stops working for them the moment active=false. Everything that
+      // schedules or emails filters on `active` (see activeStaff), so they do
+      // not leak into pickers.
+      const params = { include_inactive: true };
       if (branchId) params.branch_id = branchId;
       const res = await api.get("/staff/members", { params });
       setStaff(res.data || []);
@@ -1296,7 +1302,7 @@ export default function StaffSchedulePage() {
    */
   const handleEmailToStaff = async () => {
     const eligible = staff.filter(
-      (s) => s.is_active !== false && (s.email || "").includes("@")
+      (s) => s.active !== false && (s.email || "").includes("@")
     );
     if (eligible.length === 0) {
       setError(
@@ -1362,7 +1368,7 @@ export default function StaffSchedulePage() {
    */
   const handleShareWithStaff = async () => {
     const eligible = staff.filter(
-      (s) => s.is_active !== false && (s.email || "").includes("@")
+      (s) => s.active !== false && (s.email || "").includes("@")
     );
     if (eligible.length === 0) {
       setError(
@@ -1465,7 +1471,7 @@ export default function StaffSchedulePage() {
     );
   };
 
-  const activeStaff = useMemo(() => staff.filter((s) => s.is_active !== false), [staff]);
+  const activeStaff = useMemo(() => staff.filter((s) => s.active !== false), [staff]);
 
   /* ─── Stats ─── */
   const stats = useMemo(() => {
@@ -2917,7 +2923,7 @@ function StaffDetailModal({
 
   const cat = ROLE_CATEGORY[member.role] || "floor";
   const colors = ROLE_COLORS[cat];
-  const isInactive = member.is_active === false;
+  const isInactive = member.active === false;
   const initial = (member.name || "?").trim().charAt(0).toUpperCase() || "?";
 
   // Shared input styling — rounded-xl, focus ring, dark mode.
@@ -3123,6 +3129,10 @@ function StaffDetailModal({
                 {new Date(member.address_updated_at).toLocaleDateString()}
               </p>
             )}
+            {/* Bank account — staff-entered in their portal, encrypted at rest.
+                Fetched on demand (not with the drawer) so the audit trail
+                records a real intent to look, not every drawer open. */}
+            <StaffBankRow memberId={member.id} memberName={member.name} labelCls={labelCls} />
             {/* Base rate */}
             <div className="sm:col-span-2">
               <label className={labelCls} htmlFor="sd-rate">{t("baseRate")} ({currency}/hr)</label>
@@ -3640,7 +3650,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
               const cat = ROLE_CATEGORY[member.role] || "floor";
               const colors = ROLE_COLORS[cat];
               const rates = getRateCard(member);
-              const isInactive = member.is_active === false;
+              const isInactive = member.active === false;
 
               return (
                 <div
@@ -3655,21 +3665,20 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                       {/* Click the name to open the detail/edit modal (#336).
                           Disabled for inactive members (their edit affordances
                           are hidden below). */}
-                      {isInactive ? (
-                        <span className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                          {member.name}
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => openDetail(member)}
-                          title={t("viewStaffDetails") || "View details"}
-                          aria-label={`${t("viewStaffDetails") || "View details"} — ${member.name}`}
-                          className="text-sm font-medium text-gray-900 dark:text-white truncate cursor-pointer hover:underline underline-offset-2 decoration-gray-300 dark:decoration-gray-600 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400/40 transition"
-                        >
-                          {member.name}
-                        </button>
-                      )}
+                      {/* Inactive members open the drawer too, read-only: the
+                          edit affordances below are gated on !isInactive, but
+                          the owner still has to be able to get IN to clear a
+                          leaver's bank details — their own portal stops working
+                          the moment active=false. */}
+                      <button
+                        type="button"
+                        onClick={() => openDetail(member)}
+                        title={t("viewStaffDetails") || "View details"}
+                        aria-label={`${t("viewStaffDetails") || "View details"} — ${member.name}`}
+                        className="text-sm font-medium text-gray-900 dark:text-white truncate cursor-pointer hover:underline underline-offset-2 decoration-gray-300 dark:decoration-gray-600 rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400/40 transition"
+                      >
+                        {member.name}
+                      </button>
                       {member.email && (
                         <span className="text-xs text-emerald-600 dark:text-gray-300" title={member.email}>
                           @

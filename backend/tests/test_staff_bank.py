@@ -179,12 +179,71 @@ class TestOwnerEndpointIsOwnerOnly:
         u._is_accountant_view = True
         assert self._call(u) == 403
 
+    def test_shared_device_curtain_is_denied(self):
+        # A curtained tablet hides revenue; it must not leave every employee's
+        # full kontonummer one tap away. /api/staff is not on the middleware's
+        # deny-prefix list (that list is the MANAGER deny-list and managers
+        # need the roster), so the endpoint checks the flag itself.
+        u = self._User()
+        u._shared_device_locked = True
+        assert self._call(u) == 403
+
     def test_real_owner_passes_the_gate(self):
         # Reaches the DB (db=None → AttributeError/TypeError), which proves the
         # gate let it through rather than 403ing.
         u = self._User()
         with pytest.raises((AttributeError, TypeError)):
             self._call(u)
+
+
+class TestAuditFailureIsLoudButNeverBlocks:
+    """The owner UI tells the owner "viewing an account is recorded in the audit
+    log". That promise has two failure modes and both are covered here.
+
+    `audit_service.record` swallows its own exceptions and returns normally, so
+    a bare `except: pass` around it would catch nothing — the promise could
+    quietly become false. And the except block itself must not explode: this
+    module imports `logging` locally inside functions, so a module-level
+    `logging.getLogger(...)` here would NameError inside the error path, which
+    is the hardest place to notice it.
+    """
+
+    @staticmethod
+    def _call_with_failing_commit():
+        import types
+        from unittest.mock import MagicMock
+
+        from app.routers import staff as S
+        from app.services import staff_bank
+
+        member = MagicMock()
+        member.id = "m1"
+        member.bank_reg_nr_enc, member.bank_account_enc = staff_bank.encrypt_pair("1234", "0005678901")
+        member.bank_updated_at = None
+
+        db = MagicMock()
+        db.query.return_value.filter.return_value.first.return_value = member
+        db.commit.side_effect = RuntimeError("audit insert failed")
+
+        user = types.SimpleNamespace(id="u1")
+        return S.get_staff_member_bank("m1", request=None, db=db, user=user), db
+
+    def test_read_still_succeeds_when_the_audit_write_fails(self):
+        # An owner must never be blocked from paying someone because the audit
+        # table hiccuped.
+        out, _ = self._call_with_failing_commit()
+        assert out["has_bank"] is True
+        assert out["account_number"] == "0005678901"
+
+    def test_failure_rolls_back_rather_than_leaving_a_half_written_txn(self):
+        _, db = self._call_with_failing_commit()
+        assert db.rollback.called
+
+    def test_the_error_path_does_not_raise_nameerror(self):
+        # Regression: `logging` is imported locally in this router, so a
+        # module-level reference inside the except block would NameError.
+        out, _ = self._call_with_failing_commit()
+        assert out is not None
 
 
 class TestMemberHelpers:

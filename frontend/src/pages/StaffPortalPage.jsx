@@ -4,6 +4,8 @@
  * Route: /s/:token
  */
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+
+import { useConfirm } from "../hooks/useConfirm";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
 import { RefreshCw, CloudOff, Download, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Banknote, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
@@ -321,6 +323,7 @@ function buildShiftIcs(shift, venueName, summary) {
  */
 export function BankSection({ token }) {
   const { t } = useLanguage();
+  const confirm = useConfirm();
   const [state, setState] = useState(null);      // null = loading
   const [editing, setEditing] = useState(false);
   const [reg, setReg] = useState("");
@@ -329,19 +332,39 @@ export function BankSection({ token }) {
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
 
-  useEffect(() => {
+  // `alive` guards the async setState so a staffer who taps away mid-request
+  // doesn't get a setState-after-unmount warning (or a resurrected state).
+  const load = useCallback(() => {
     let alive = true;
+    setState(null);
     portalApi.get(`/portal/${token}/bank`)
       .then((r) => { if (alive) setState(r.data); })
-      .catch(() => { if (alive) setState({ has_bank: false, unavailable: true }); });
+      // NOT {has_bank: false} — a failed read is not evidence of no account.
+      .catch(() => { if (alive) setState({ unavailable: true }); });
     return () => { alive = false; };
   }, [token]);
+
+  useEffect(() => load(), [load]);
 
   // Server error codes → real Danish copy. Anything unmapped falls back to a
   // generic line rather than showing the English developer message.
   const messageFor = (e) => {
-    if (e?.response?.status === 503) {
-      return t("portalBankUnavailable", "Bank details can't be saved right now. Nothing was stored — try again later.");
+    const status = e?.response?.status;
+    // Transport / auth / throttle failures FIRST. Falling through to the
+    // validation copy would tell a staffer whose digits are perfectly correct
+    // to "check the numbers" — and on the 503 path a retry burns their own
+    // rate budget, so a 429 here is a likely follow-on, not an edge case.
+    if (!e?.response) {
+      return t("portalBankErrOffline", "No connection — nothing was saved. Try again when you're back online.");
+    }
+    if (status === 503) {
+      return t("portalBankUnavailable", "Bank details can't be saved yet. Nothing was stored — tell your employer.");
+    }
+    if (status === 429) {
+      return t("portalBankErrTooMany", "Too many attempts — wait a minute. Nothing was saved.");
+    }
+    if (status === 401 || status === 404) {
+      return t("portalBankErrLink", "Your link is no longer active. Reopen it from your invitation.");
     }
     const code = e?.response?.data?.detail?.code;
     const map = {
@@ -372,13 +395,25 @@ export function BankSection({ token }) {
   };
 
   const remove = async () => {
+    const yes = await confirm({
+      title: t("portalBankRemoveTitle", "Remove your account?"),
+      message: t("portalBankRemoveBody", "Your employer will no longer have an account to pay you into. You can add it again any time."),
+      confirmLabel: t("portalBankRemove", "Remove my account"),
+      destructive: true,
+    });
+    if (!yes) return;
     setBusy(true); setErr(""); setOk("");
     try {
       const r = await portalApi.delete(`/portal/${token}/bank`);
       setState(r.data);
+      // Clear the inputs too — leaving them filled after a delete looks like
+      // the removal failed, and is one tap from re-creating what was removed.
+      setReg(""); setAcct("");
       setEditing(false);
-    } catch {
-      setErr(t("portalBankErrRemove", "Couldn't remove your account. Try again."));
+      setOk(t("portalBankRemoved", "Account removed"));
+      setTimeout(() => setOk(""), 1800);
+    } catch (e) {
+      setErr(messageFor(e));
     } finally {
       setBusy(false);
     }
@@ -392,7 +427,26 @@ export function BankSection({ token }) {
         {t("portalBankSection", "Bank account")}
       </div>
 
-      {!editing && (
+      {/* A failed read is NOT "no account". The backend deliberately fails loud
+          on a decrypt error rather than rendering an empty account; turning
+          that into "Not added yet" — next to an Add button — would recreate
+          exactly the silent lie it refused to tell. */}
+      {state.unavailable && (
+        <div className="flex items-center gap-2">
+          <span className="flex-1 text-[13px] text-gray-500">
+            {t("portalBankLoadFailed", "We couldn't load your account just now — it isn't gone.")}
+          </span>
+          <button
+            type="button"
+            onClick={load}
+            className="shrink-0 px-3 py-1.5 rounded-lg text-[13px] font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 transition"
+          >
+            {t("retry", "Try again")}
+          </button>
+        </div>
+      )}
+
+      {!editing && !state.unavailable && (
         <div className="flex items-center gap-2">
           <div className="flex-1 min-w-0">
             {state.has_bank ? (
@@ -414,7 +468,7 @@ export function BankSection({ token }) {
         </div>
       )}
 
-      {editing && (
+      {editing && !state.unavailable && (
         <div className="space-y-3">
           <div className="flex gap-2">
             <div className="w-24 shrink-0">
