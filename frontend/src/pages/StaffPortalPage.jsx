@@ -3473,12 +3473,30 @@ function MonthCalendar({
           const pending = abs && abs.status === "pending";
 
           // Exactly ONE background — precedence: approved > pending > one-off > recurring > free.
-          let fill = "", num = "text-gray-900", ring = "";
+          //
+          // "Can't work" takes v2's treatment: a red wash with the date STRUCK
+          // THROUGH. The old solid gray-900 square read as "selected", which is
+          // the opposite of what it means — a struck-out date is unambiguous at
+          // a glance and needs no legend. The manager-answer states (approved /
+          // pending) stay as they are: v2 has no equivalent, and green/amber
+          // already say "this is their reply, not your note".
+          let fill = "", num = "text-gray-900", ring = "", style, strike = false;
           let tappable = !past;
           if (approved) { fill = "bg-emerald-50"; ring = "ring-1 ring-inset ring-emerald-200"; num = "text-emerald-700 font-semibold"; tappable = false; }
           else if (pending) { fill = "bg-amber-50"; ring = "ring-1 ring-inset ring-amber-200"; num = "text-amber-700 font-semibold"; tappable = false; }
-          else if (oneOff) { fill = "bg-gray-900"; num = "text-white font-semibold"; }
-          else if (recurring) { ring = "ring-1 ring-inset ring-gray-900"; num = "text-gray-900"; }
+          else if (oneOff) {
+            style = {
+              background: "linear-gradient(180deg,#fee2e2,#fecaca)",
+              border: "1px solid rgba(239,68,68,.32)",
+            };
+            num = "font-semibold";
+            strike = true;
+          } else if (recurring) {
+            // Same meaning as a one-off, every week — so the same red family,
+            // but outlined rather than filled so the two stay distinguishable.
+            style = { border: "1px solid rgba(239,68,68,.32)" };
+            num = "";
+          }
           if (past) num = "text-gray-300 font-normal";
 
           const cls =
@@ -3486,10 +3504,15 @@ function MonthCalendar({
             fill + " " + ring + " " + num +
             (tappable ? " active:scale-[0.97] cursor-pointer" : " cursor-default") +
             (saving ? " opacity-60" : "") +
-            (today && !fill && !ring ? " bg-gray-100" : "") +
+            (today && !fill && !ring && !style ? " bg-gray-100" : "") +
             (past && (oneOff || abs || recurring) ? " opacity-40" : "");
 
-          const shiftDot = oneOff ? "bg-white" : approved ? "bg-emerald-600" : pending ? "bg-amber-500" : "bg-gray-900";
+          // v2's ink for the red states; `past` still wins so history stays quiet.
+          const cellStyle = past
+            ? style
+            : { ...style, ...(oneOff ? { color: "#7f1d1d" } : recurring ? { color: "#b91c1c" } : null) };
+
+          const shiftDot = oneOff ? "bg-red-700" : approved ? "bg-emerald-600" : pending ? "bg-amber-500" : "bg-gray-900";
 
           return (
             <button
@@ -3501,13 +3524,19 @@ function MonthCalendar({
               aria-label={iso}
               onClick={() => tappable && onTapDay(iso, { oneOff, recurring, abs, wd })}
               className={cls}
+              style={cellStyle}
             >
-              <span className={today ? "font-bold" : ""}>{dayNum}</span>
+              <span
+                className={today ? "font-bold" : ""}
+                style={strike && !past ? { textDecoration: "line-through", textDecorationThickness: "1.5px" } : undefined}
+              >
+                {dayNum}
+              </span>
               {recurring && !oneOff && !abs && (
-                <Repeat className="absolute top-0.5 right-0.5 w-2.5 h-2.5 text-gray-500" strokeWidth={2.5} aria-hidden />
+                <Repeat className="absolute top-0.5 right-0.5 w-2.5 h-2.5 text-red-500" strokeWidth={2.5} aria-hidden />
               )}
               {oneOff?.timed && (
-                <Clock className="absolute bottom-0.5 left-0.5 w-2.5 h-2.5 text-white" strokeWidth={2.5} aria-hidden />
+                <Clock className="absolute bottom-0.5 left-0.5 w-2.5 h-2.5 text-red-800" strokeWidth={2.5} aria-hidden />
               )}
               {hasShift && (
                 <span className={`absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${shiftDot}`} aria-hidden />
@@ -3734,8 +3763,8 @@ function AvailabilityTab({ token, shifts }) {
 
       {/* Legend — text always present, never colour-only */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500">
-        <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-gray-900" />{t("legendCantWork", "Can't work")}</span>
-        <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded ring-1 ring-inset ring-gray-900" />{t("legendRepeats", "Every week")}</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded" style={{ background: "linear-gradient(180deg,#fee2e2,#fecaca)", border: "1px solid rgba(239,68,68,.32)" }} />{t("legendCantWork", "Can't work")}</span>
+        <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded" style={{ border: "1px solid rgba(239,68,68,.32)" }} />{t("legendRepeats", "Every week")}</span>
         {hasAbsence && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-100 ring-1 ring-inset ring-amber-300" />{t("legendPending", "Pending")}</span>}
         {hasAbsence && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-emerald-100 ring-1 ring-inset ring-emerald-300" />{t("legendApproved", "Approved off")}</span>}
         {shiftSet.size > 0 && <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gray-900" />{t("legendScheduled", "Scheduled")}</span>}
