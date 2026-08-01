@@ -26,6 +26,8 @@ vi.mock("../services/portalApi", () => ({
 }));
 
 // t() returns the fallback, so assertions read the real shipped copy.
+vi.mock("../hooks/useConfirm", () => ({ useConfirm: () => () => Promise.resolve(true) }));
+
 vi.mock("../hooks/useLanguage", () => ({
   useLanguage: () => ({ t: (_k, fb) => fb, lang: "da", setLang: () => {}, LANGUAGES: [] }),
 }));
@@ -109,9 +111,45 @@ describe("BankSection", () => {
     expect(screen.getByText("Remove my account")).toBeTruthy();
   });
 
-  it("renders nothing rather than crashing when the fetch fails", async () => {
+  it("does NOT claim 'no account' when the read failed", async () => {
+    // The backend deliberately fails loud on a decrypt error rather than
+    // rendering an empty account. Showing "Not added yet" next to an Add
+    // button would recreate exactly the silent lie it refused to tell — and
+    // invite the staffer to overwrite an account that is still there.
     get.mockRejectedValue(new Error("offline"));
     render(<BankSection token="tok" />);
-    await waitFor(() => expect(screen.queryByText("Not added yet")).toBeTruthy());
+    expect(await screen.findByText(/isn't gone/)).toBeTruthy();
+    expect(screen.queryByText("Not added yet")).toBeNull();
+    expect(screen.queryByText("Add")).toBeNull();
+  });
+
+  it("offers a retry that re-requests the account", async () => {
+    get.mockRejectedValueOnce(new Error("offline"))
+       .mockResolvedValueOnce({ data: { has_bank: true, reg_nr: "1234", masked: "•••• 8901" } });
+    render(<BankSection token="tok" />);
+    fireEvent.click(await screen.findByText("Try again"));
+    expect(await screen.findByText(/8901/)).toBeTruthy();
+  });
+
+  it("blames the connection, not the staffer's digits, on a transport failure", async () => {
+    get.mockResolvedValue({ data: { has_bank: false } });
+    put.mockRejectedValue({});                       // no .response at all
+    render(<BankSection token="tok" />);
+    fireEvent.click(await screen.findByText("Add"));
+    fireEvent.click(screen.getByText("Save account"));
+    expect(await screen.findByText(/No connection/)).toBeTruthy();
+  });
+
+  it("says nothing was saved on a rate limit", async () => {
+    get.mockResolvedValue({ data: { has_bank: false } });
+    put.mockRejectedValue({ response: { status: 429 } });
+    render(<BankSection token="tok" />);
+    fireEvent.click(await screen.findByText("Add"));
+    fireEvent.click(screen.getByText("Save account"));
+    // slowapi returns {error: ...} with no `detail`, so without an explicit
+    // branch this fell through to "check the numbers" — telling someone whose
+    // digits are correct that they are wrong.
+    expect(await screen.findByText(/Too many attempts/)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/Check the numbers/);
   });
 });

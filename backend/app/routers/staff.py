@@ -617,6 +617,7 @@ def deactivate_staff_member(
 @router.get("/members/{member_id}/bank")
 def get_staff_member_bank(
     member_id: str,
+    request: Request = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -640,6 +641,13 @@ def get_staff_member_bank(
         every roster render.
     """
     _require_owner_actor(user)  # a kontonummer is owner-only, like portal credentials
+    # Shared-device curtain. The middleware's deny-prefix list is the MANAGER
+    # deny-list and /api/staff is deliberately not on it (managers need the
+    # roster), so this endpoint has to check the flag itself — the same
+    # per-endpoint hatch dashboard.py:269 uses. Without it, a curtained tablet
+    # hides revenue while every employee's full kontonummer is one tap away.
+    if getattr(user, "_shared_device_locked", False):
+        raise HTTPException(status_code=403, detail="device_pin_required")
 
     member = db.query(StaffMember).filter(
         StaffMember.id == member_id,
@@ -657,6 +665,11 @@ def get_staff_member_bank(
     reg = staff_bank.decrypt_account(member.bank_reg_nr_enc)
     acct = staff_bank.decrypt_account(member.bank_account_enc)
 
+    # The owner UI tells the owner "viewing an account is recorded in the audit
+    # log", so a failure here must be LOUD. `audit_service.record` swallows its
+    # own exceptions and returns normally, so a bare `except: pass` around it
+    # would catch nothing and the promise would quietly become false — log the
+    # failure and roll back rather than leaving a half-written transaction.
     try:
         from app.services import audit_service
 
@@ -667,10 +680,16 @@ def get_staff_member_bank(
             # mirror of the column it is auditing.
             after={"masked": staff_bank.mask(acct)},
             actor_type="owner",
+            ip_address=client_ip(request) if request else None,
         )
         db.commit()
-    except Exception:  # noqa: BLE001 — audit is best-effort, never blocks the read
-        pass
+    except Exception as e:  # noqa: BLE001 — never block the read, but say so
+        import logging  # module-local, matching this file's existing pattern
+
+        logging.getLogger(__name__).warning(
+            "staff.bank_viewed audit failed for member=%s: %s", member_id, e
+        )
+        db.rollback()
 
     return {
         "has_bank": True,
@@ -700,6 +719,13 @@ def clear_staff_member_bank(
     who has already left is the entire point.
     """
     _require_owner_actor(user)  # a kontonummer is owner-only, like portal credentials
+    # Shared-device curtain. The middleware's deny-prefix list is the MANAGER
+    # deny-list and /api/staff is deliberately not on it (managers need the
+    # roster), so this endpoint has to check the flag itself — the same
+    # per-endpoint hatch dashboard.py:269 uses. Without it, a curtained tablet
+    # hides revenue while every employee's full kontonummer is one tap away.
+    if getattr(user, "_shared_device_locked", False):
+        raise HTTPException(status_code=403, detail="device_pin_required")
 
     member = db.query(StaffMember).filter(
         StaffMember.id == member_id,
