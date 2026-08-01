@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 import { useConfirm } from "../hooks/useConfirm";
+import GeofenceDial from "../components/GeofenceDial";
 import { nextShiftCountdown } from "../utils/nextShiftCountdown";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
@@ -304,6 +305,63 @@ function buildShiftIcs(shift, venueName, summary) {
 
 
 // ─── PIN Gate ─────────────────────────────────────────────────────────────
+
+/**
+ * HolidaySection — feriedage, under the Ferielov.
+ *
+ * Replaces v2's "HOLIDAY · 12 days" tile, which had nothing behind it.
+ *
+ * The copy is the feature. This is days earned WHILE BONBOX HAS KNOWN THEM,
+ * minus ferie recorded here — so it says "optjent siden {dato}", never "tilbage".
+ * We do not know their real employment start, transferred days, or holiday
+ * booked outside BonBox; only their lønsystem can state an entitlement. Showing
+ * the date is what keeps the number honest, so `since` is never hidden.
+ */
+function HolidaySection({ token }) {
+  const { t, lang } = useLanguage();
+  const [h, setH] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    portalApi.get(`/portal/${token}/holiday`)
+      .then((r) => { if (alive) setH(r.data); })
+      .catch(() => { if (alive) setH(null); });
+    return () => { alive = false; };
+  }, [token]);
+
+  if (!h) return null;
+
+  const fmt = (n) => Number(n).toLocaleString(lang === "da" ? "da-DK" : "en-GB", {
+    minimumFractionDigits: 1, maximumFractionDigits: 1,
+  });
+
+  return (
+    <div className="pt-3 border-t border-gray-100">
+      <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-2">
+        {t("portalHolidaySection", "Feriedage")}
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
+          {fmt(h.remaining)}
+        </span>
+        <span className="text-[12px] text-gray-500">
+          {t("portalHolidayUnit", "days")}
+        </span>
+      </div>
+      <div className="mt-1 text-[11px] text-gray-500 tabular-nums">
+        {t("portalHolidayBreakdown", "{earned} earned · {taken} taken", {
+          earned: fmt(h.earned), taken: fmt(h.taken),
+        })}
+      </div>
+      {/* The honesty line. Without it the number reads as a legal balance. */}
+      <div className="mt-1 text-[10px] text-gray-400">
+        {t("portalHolidaySince", "Counted from {date} — what BonBox has recorded, not your full entitlement. Your payslip is the authority.", {
+          date: new Date(h.since).toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", { day: "numeric", month: "short", year: "numeric" }),
+        })}
+      </div>
+    </div>
+  );
+}
 
 /**
  * DocumentsSection — employment documents the owner has shared with this staffer.
@@ -979,6 +1037,10 @@ function useClock(token) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [result, setResult] = useState(""); // honest clock-out outcome
+  // The GPS fix used for the last punch attempt. Held ONLY so a refused punch
+  // can draw the direction dial without asking for location a second time.
+  // Never sent anywhere, never persisted — it dies with the component.
+  const [lastFix, setLastFix] = useState(null);
   const [liveSec, setLiveSec] = useState(null); // live elapsed seconds (ticks 1/s)
 
   // Snap server state AND the live-second baseline together, so the counter
@@ -1035,7 +1097,14 @@ function useClock(token) {
       let payload = {};
       if (dir === "in" && st?.geofence_on) {
         const pos = await getPos();
-        if (pos) payload = pos;
+        if (pos) {
+          payload = pos;
+          // Keep the fix that was actually used for this punch. If the server
+          // refuses, the dial can then show DIRECTION as well as distance —
+          // without asking for location a second time. Never sent anywhere
+          // else and never persisted; it dies with the component.
+          setLastFix(pos);
+        }
       }
       const res = await portalApi.post(`/portal/${token}/clock-${dir}`, payload);
       applySt(res.data);
@@ -1111,7 +1180,7 @@ function useClock(token) {
     return `${ss}s`;
   };
 
-  return { st, busy, err, result, act, fmtDur, liveLabel: fmtElapsed(liveSec) };
+  return { st, busy, err, result, act, fmtDur, liveLabel: fmtElapsed(liveSec) , lastFix };
 }
 
 // ── Live countdown to the next shift's start. No timer of its own; the parent
@@ -1776,6 +1845,20 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                 <div className="mt-0.5 text-[12px] text-gray-300">
                   {t("portalClockTooFarDo", "Head over and try again when you're there.")}
                 </div>
+                {/* Direction, not just distance. Drawn from the fix already used
+                    for this punch — no second permission prompt — against the
+                    venue centre the status endpoint sends when the fence is on.
+                    Schematic, so no tiles, no CSP change, no network call. */}
+                {clock.lastFix && clock.st?.geofence?.lat && (
+                  <div className="mt-3">
+                    <GeofenceDial
+                      venue={clock.st.geofence}
+                      me={clock.lastFix}
+                      radiusM={clock.st.geofence.radius_m}
+                      accuracyM={clock.lastFix.accuracy}
+                    />
+                  </div>
+                )}
               </div>
             ) : clock.err?.kind === "too_early" ? (
               <div className="mt-2 flex items-center gap-1.5 text-[12px] text-gray-400">
@@ -4942,6 +5025,10 @@ export default function StaffPortalPage() {
                   them. Sits inside the PIN-gated profile editor; the server
                   only ever returns the last 4. */}
               <BankSection token={token} />
+
+              {/* Feriedage under the Ferielov — days earned while BonBox has
+                  known them, never posed as a legal entitlement. */}
+              <HolidaySection token={token} />
 
               {/* Employment documents the owner has shared. Renders nothing
                   when there are none — the staffer cannot request one here, so

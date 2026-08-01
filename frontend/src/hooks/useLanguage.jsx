@@ -420,6 +420,10 @@ const translations = {
     portalLangNote: "Only changes the app's language.",
     // Bank account — staff-entered, encrypted, owner reads it to pay them.
     portalBankSection: "Bank account",
+    portalHolidaySection: "Feriedage",
+    portalHolidayUnit: "days",
+    portalHolidayBreakdown: "{earned} earned \u00b7 {taken} taken",
+    portalHolidaySince: "Counted from {date} \u2014 what BonBox has recorded, not your full entitlement. Your payslip is the authority.",
     // Clock-in geofence dial.
     portalFenceInside: "You're at the venue",
     portalFenceOutside: "Too far to clock in",
@@ -8177,6 +8181,10 @@ const translations = {
     portalLangNote: "Skifter kun appens sprog.",
     // Bankkonto \u2014 medarbejderen indtaster selv; krypteret; ejeren l\u00e6ser den for at udbetale l\u00f8n.
     portalBankSection: "Bankkonto",
+    portalHolidaySection: "Feriedage",
+    portalHolidayUnit: "dage",
+    portalHolidayBreakdown: "{earned} optjent \u00b7 {taken} afholdt",
+    portalHolidaySince: "T\u00e6llet fra {date} \u2014 det BonBox har registreret, ikke hele din optjening. Din l\u00f8nseddel er den g\u00e6ldende.",
     // Stempl-ind geofence.
     portalFenceInside: "Du er p\u00e5 arbejdsstedet",
     portalFenceOutside: "For langt v\u00e6k til at stemple ind",

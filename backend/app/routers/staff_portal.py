@@ -1659,6 +1659,67 @@ def update_portal_contact(token: str, body: ContactUpdateRequest, request: Reque
     }
 
 
+@router.get("/{token}/holiday")
+def get_portal_holiday(token: str, request: Request, db: Session = Depends(get_db)):
+    """The staffer's feriedage position, computed under the Ferielov.
+
+    Its own endpoint rather than a field on the PIN-EXEMPT validate payload:
+    that endpoint runs before the PIN is proven and must stay minimal, and how
+    much holiday someone has is theirs, not something a forwarded link should
+    reveal. `_get_staff_from_token` gates this behind the PIN.
+
+    Returns `since` and `partial` alongside the numbers because the caller MUST
+    render the date — see app/services/danish_holiday.py. "9,4 dage optjent
+    siden marts" is true; "9,4 dage tilbage" is a claim about someone's legal
+    entitlement that only their lønsystem can make.
+    """
+    link, member = _get_staff_from_token(token, db)
+
+    from app.models.absence import StaffAbsence
+    from app.services import danish_holiday
+
+    # Local calendar date, not the server's UTC date: a ferieår boundary an hour
+    # either side of midnight would otherwise flip a day early or late for a
+    # Danish user. Deliberately now_local(), not business_today_local() — the
+    # 06:00 business-day cutoff belongs to takings and shifts; a holiday is
+    # counted on the calendar day it falls on, not the trading day.
+    owner = db.query(User).filter(User.id == link.user_id).first()
+    today = now_local(owner).date()
+    start, end = danish_holiday.ferieaar_bounds(today)
+
+    # Ferie days recorded in BonBox inside this ferieår. One row per date, so a
+    # count IS the day count. Cancelled/rejected rows must not reduce the
+    # balance — only absences that actually happened.
+    taken = (
+        db.query(StaffAbsence)
+        .filter(
+            StaffAbsence.staff_id == member.id,
+            StaffAbsence.user_id == link.user_id,
+            StaffAbsence.kind == "ferie",
+            StaffAbsence.date >= start,
+            StaffAbsence.date <= end,
+            StaffAbsence.status != "cancelled",
+        )
+        .count()
+    )
+
+    # created_at is when the OWNER ADDED THEM HERE — not their employment start.
+    # The module treats it as "the earliest date BonBox can vouch for" and the
+    # UI shows `since`, so the number never poses as their whole year.
+    known_since = (member.created_at.date() if member.created_at else start)
+
+    b = danish_holiday.compute(known_since=known_since, taken_days=taken, on=today)
+    return {
+        "earned": b.earned,
+        "taken": b.taken,
+        "remaining": b.remaining,
+        "since": b.since.isoformat(),
+        "partial": b.partial,
+        "ferieaar_start": b.ferieaar_start.isoformat(),
+        "ferieaar_end": b.ferieaar_end.isoformat(),
+    }
+
+
 # ── Employment documents ───────────────────────────────────────────────────
 #
 # The owner shares a contract/addendum/certificate; the staffer reads it here.
