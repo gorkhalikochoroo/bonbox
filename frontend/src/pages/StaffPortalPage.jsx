@@ -1469,18 +1469,31 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
       {/* HERO — dark gray-900 next-shift card with a 4px role-colored left-bar.
           Absorbs the punch-clock (elapsed timer + Stempl ind/ud) and a live
           countdown. Role shows ONLY via the thin left-bar + a tiny label. */}
-      <div className={`relative overflow-hidden rounded-2xl bg-gray-900 text-white p-5 shadow-soft-lg${playBeat ? " motion-safe:animate-heroSettle" : ""}`}>
-        {/* Faint --brand corner under-glow — the portal's one ceremonial glossy
-            beat: felt, not seen. Static, low-alpha (0.20), never neon. */}
+      <div
+        className={`relative overflow-hidden text-white p-5${playBeat ? " motion-safe:animate-heroSettle" : ""}`}
+        style={{
+          // v2 hero: a three-stop diagonal rather than a flat fill, so the card
+          // has a direction of light instead of sitting there. Radius 22 and the
+          // inset top highlight are the other two thirds of v2's "glossy" —
+          // which it defines as exactly three things and nothing more.
+          borderRadius: 22,
+          background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 48%,#080e16 100%)",
+          boxShadow:
+            "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
+        }}
+      >
+        {/* Brand bloom bleeding off the TOP-RIGHT corner — v2 moves it there so
+            the light reads as coming from above, agreeing with the gradient.
+            Green, low-alpha, felt rather than seen; never neon. */}
+        {/* NO blur filter here, deliberately. A radial-gradient is already soft,
+            and adding `blur-3xl` gives this div its own compositing layer —
+            which WebKit then fails to clip against the parent's border-radius,
+            painting a hard pale-green rectangle over the rounded corner. Caught
+            on a real iPhone 17 Pro Max; invisible in a desktop browser. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute -bottom-16 -right-12 h-48 w-48 rounded-full blur-3xl"
-          style={{ background: "rgb(var(--brand-500) / 0.20)" }}
-        />
-        {/* 1px lit top edge — the cheapest premium "glossy" tell. */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/25 to-transparent"
+          className="pointer-events-none absolute -top-24 -right-16 h-[230px] w-[230px]"
+          style={{ background: "radial-gradient(closest-side, rgba(34,197,94,.40), transparent)" }}
         />
         {/* Role-colored left-bar — a thin SIGNAL, the only role colour. Only
             when there IS a shift: an empty hero has no role to signal. */}
@@ -4995,20 +5008,27 @@ export default function StaffPortalPage() {
                 key={item.key}
                 onClick={() => setTab(item.key)}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex flex-col items-center gap-0.5 px-1.5 sm:px-4 py-1 rounded-lg transition-colors active:opacity-60 ${
-                  active ? "" : "text-gray-400"
-                }`}
-                style={active ? { color: "rgb(var(--brand-600))" } : undefined}
+                className="relative flex flex-col items-center gap-1 px-1.5 sm:px-4 py-1 rounded-lg active:opacity-60"
+                style={{
+                  color: active ? "#15803d" : "#94a3b8",
+                  transition: "color 250ms ease",
+                }}
               >
                 <span className="relative">
-                  {/* Soft --brand lozenge hugging ONLY the icon — the portal's
-                      one recurring, deliberate touch of colour. Scoped to the
-                      icon so it never slices through the label below. */}
+                  {/* v2 tab pill — the portal's one recurring touch of colour.
+                      Scoped to the icon so it never slices through the label.
+                      BonBox green (#16a34a family), not the --brand accent:
+                      this is a standalone staff app carrying brand identity,
+                      and the accent themes belong to the owner dashboard. */}
                   {active && (
                     <span
                       aria-hidden
-                      className="absolute -inset-x-3.5 -inset-y-[3px] rounded-full"
-                      style={{ background: "rgb(var(--brand-50))" }}
+                      className="absolute -inset-x-3.5 -inset-y-[4px] rounded-full"
+                      style={{
+                        background: "linear-gradient(180deg,#dcfce7,#bbf7d0)",
+                        boxShadow:
+                          "inset 0 1px 0 rgba(255,255,255,.8), 0 4px 10px -6px rgba(22,163,74,.7)",
+                      }}
                     />
                   )}
                   <item.Icon
