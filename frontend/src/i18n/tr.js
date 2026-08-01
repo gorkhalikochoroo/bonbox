@@ -2833,6 +2833,8 @@ export const tr = {
   rsvpPartyOverMaxNote: "{n} kişiden fazla mı? Tam sayıyı sonraki adımdaki mesaj alanına yaz.",
   rsvpGroupRequest: "{n} ve üzeri kişi talep olarak gönderilir — mekan onaylar.",
   rsvpPickTime: "Saat seç",
+  rsvpSlotLastTable: "Son masa",
+  rsvpSlotNLeft: "{n} kald\u0131",
   rsvpNoSlots: "Uygun saat yok — başka tarih dene.",
   rsvpGroupNoSlot: "Saat seçmen gerekmiyor — tercihini sonraki adımda notlara yaz.",
   rsvpSlotsError: "Saatler yüklenemedi — tekrar dene.",

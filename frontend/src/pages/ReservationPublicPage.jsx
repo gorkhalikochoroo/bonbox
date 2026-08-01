@@ -51,6 +51,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import api from "../services/api";
+import { slotNote } from "../utils/slotNote";
 import { useLanguage } from "../hooks/useLanguage";
 import Button from "../components/ui/Button";
 import Chip from "../components/ui/Chip";
@@ -348,6 +349,11 @@ export default function ReservationPublicPage() {
 
   // Availability for the current day+party.
   const [slots, setSlots] = useState([]);
+  // Per-slot scarcity from the server: { "19:00": 2 }. Real counts from the
+  // same engine pass that decided the slot was bookable — never a guess. Left
+  // empty when the backend does not send them, in which case NO hint is shown
+  // rather than an invented one.
+  const [slotRemaining, setSlotRemaining] = useState({});
   const [groupRequest, setGroupRequest] = useState(false);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState("");
@@ -677,6 +683,7 @@ export default function ReservationPublicPage() {
       // Provider needs a behandling chosen first; until then, no slots.
       if (isProvider && !forBehandling) {
         setSlots([]);
+        setSlotRemaining({});
         setGroupRequest(false);
         setSlot("");
         return;
@@ -710,12 +717,19 @@ export default function ReservationPublicPage() {
             }
           }
           setSlots(times);
+          // A stylist chair is not a table — "2 left" would be meaningless.
+          setSlotRemaining({});
           setGroupRequest(false);
         } else {
           const res = await api.get(`/public/reservations/${slug}/availability`, {
             params: { day: forDay, party: forParty },
           });
           setSlots(Array.isArray(res.data?.slots) ? res.data.slots : []);
+          setSlotRemaining(
+            res.data?.slot_remaining && typeof res.data.slot_remaining === "object"
+              ? res.data.slot_remaining
+              : {},
+          );
           setGroupRequest(!!res.data?.group_request);
         }
       } catch (err) {
@@ -1832,20 +1846,37 @@ export default function ReservationPublicPage() {
                             line, and the groups (LUNCH / DINNER) do the work
                             the rows were doing badly. */}
                         <div className="-mx-4 px-4 flex gap-2 overflow-x-auto pb-1 snap-x">
-                          {group.slots.map((s) => (
-                            <Chip
-                              key={s}
-                              size="md"
-                              selected={slot === s}
-                              onClick={() => { setSlot(s); setSubmitError(""); }}
-                              className={
-                                "shrink-0 h-12 px-4 snap-start tabular-nums " +
-                                (slot === s ? "font-semibold shadow-sm" : "")
-                              }
-                            >
-                              {s}
-                            </Chip>
-                          ))}
+                          {group.slots.map((s) => {
+                            // Scarcity, only when it is genuinely scarce and
+                            // only from a real server count. Silence is the
+                            // default: a hint on every slot is noise, and an
+                            // invented one is a lie told to make someone book
+                            // faster. The note line keeps its height either
+                            // way so the chips stay aligned.
+                            const note = slotNote(slotRemaining[s], t);
+                            return (
+                              <Chip
+                                key={s}
+                                size="md"
+                                selected={slot === s}
+                                onClick={() => { setSlot(s); setSubmitError(""); }}
+                                className={
+                                  "shrink-0 h-14 px-4 snap-start tabular-nums flex-col justify-center gap-0 " +
+                                  (slot === s ? "font-semibold shadow-sm" : "")
+                                }
+                              >
+                                <span className="leading-none">{s}</span>
+                                <span
+                                  className={
+                                    "block text-[10px] leading-none h-3 mt-1 font-medium " +
+                                    (slot === s ? "text-white/80" : "text-bb-green")
+                                  }
+                                >
+                                  {note}
+                                </span>
+                              </Chip>
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
