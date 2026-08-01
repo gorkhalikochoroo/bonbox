@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 import { useConfirm } from "../hooks/useConfirm";
+import { nextShiftCountdown } from "../utils/nextShiftCountdown";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
 import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
@@ -1120,21 +1121,6 @@ function useClock(token) {
 // shift is neither today nor within ~24h (the chip would be noise otherwise).
 // The impure Date.now() read is intentionally confined here, out of any
 // component render body.
-function nextShiftCountdown(shift, t) {
-  if (!shift) return null;
-  // Local-time parse matches the existing date+start_time pattern elsewhere.
-  const target = new Date(`${shift.date}T${shift.start_time || "00:00"}`);
-  if (Number.isNaN(target.getTime())) return null;
-  const ms = target.getTime() - Date.now();
-  // Only show today or within ~24h.
-  if (!isToday(shift.date) && ms >= 24 * 3600000) return null;
-  if (ms <= 0) return t("portalCountdownNow");
-  const totalMin = Math.floor(ms / 60000);
-  if (totalMin < 60) return t("portalCountdownSoonMin", { m: totalMin });
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  return t("portalCountdownIn", { h, m });
-}
 
 // ── Initials for a teammate avatar (≤2 letters, uppercased). Privacy: only
 // initials + a role-underline are ever shown for teammates.
@@ -1419,8 +1405,8 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
   const nextShift = upcoming[0];
   const nextShiftRole = nextShift?.role_on_shift || t("portalRoleStaff", "Staff");
 
-  // Countdown chip — null unless the shift is today or within ~24h. The
-  // Date.now() read lives inside the pure helper, recomputed each 15s render.
+  // Countdown chip. The Date.now() read lives inside the pure helper,
+  // recomputed each 15s render — minutes tick, days do not need to.
   const countdownLabel = nextShiftCountdown(nextShift, t);
 
   // Venue location — the owner sets this on their business profile. Label is
