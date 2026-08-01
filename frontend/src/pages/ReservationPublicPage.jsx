@@ -395,6 +395,12 @@ export default function ReservationPublicPage() {
   const [guestName, setGuestName] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
   const [guestPhone, setGuestPhone] = useState("");
+  // Which channel the guest is filling in. The form used to show BOTH fields
+  // with a line underneath saying only one was needed — so a stranger read two
+  // required-looking boxes and had to work out that they were not. One choice,
+  // one field. Both values stay in state, so flipping back and forth never
+  // discards what was typed, and submission still sends whatever is filled.
+  const [contactMode, setContactMode] = useState("email");
   const [occasion, setOccasion] = useState("");
   const [guestNotes, setGuestNotes] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
@@ -1966,16 +1972,39 @@ export default function ReservationPublicPage() {
                   rule honestly (no more "(optional)" on a field that, together,
                   is required). Email gets the "why" helper. */}
               <div className="space-y-3">
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {t("rsvpContactHint", "We need one way to reach you — email or phone.")}
+                <p className="block text-xs font-medium text-gray-700 dark:text-gray-300">
+                  {t("rsvpContactHow", "How should we reach you?")}
                 </p>
-                <div>
-                  <label
-                    htmlFor="rsvp-email"
-                    className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
-                  >
-                    {t("rsvpContactEmailLabel", "Email")}
-                  </label>
+                {/* One choice, then one field. Two always-visible boxes under a
+                    line saying "only one is needed" made the guest do the
+                    reasoning; a segment answers it before they start typing. */}
+                <div
+                  role="tablist"
+                  aria-label={t("rsvpContactHow", "How should we reach you?")}
+                  className="flex gap-1 p-1 rounded-xl bg-gray-100 dark:bg-gray-800"
+                >
+                  {[
+                    { k: "email", label: t("rsvpContactEmailLabel", "Email") },
+                    { k: "phone", label: t("rsvpContactPhoneLabel", "Telefon") },
+                  ].map((m) => (
+                    <button
+                      key={m.k}
+                      type="button"
+                      role="tab"
+                      aria-selected={contactMode === m.k}
+                      onClick={() => setContactMode(m.k)}
+                      className={
+                        "flex-1 h-10 rounded-lg text-sm font-semibold transition-colors " +
+                        (contactMode === m.k
+                          ? "bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm"
+                          : "text-gray-500 dark:text-gray-400")
+                      }
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+                {contactMode === "email" ? (
                   <Input
                     id="rsvp-email"
                     type="email"
@@ -1989,14 +2018,7 @@ export default function ReservationPublicPage() {
                     inputMode="email"
                     maxLength={255}
                   />
-                </div>
-                <div>
-                  <label
-                    htmlFor="rsvp-phone"
-                    className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5"
-                  >
-                    {t("rsvpContactPhoneLabel", "Telefon")}
-                  </label>
+                ) : (
                   <Input
                     id="rsvp-phone"
                     type="tel"
@@ -2005,11 +2027,12 @@ export default function ReservationPublicPage() {
                     onChange={(e) => setGuestPhone(e.target.value)}
                     onBlur={() => setContactTouched(true)}
                     placeholder={t("rsvpPhonePh", "+45 12 34 56 78")}
+                    hint={t("rsvpPhoneWhy", "We only call if something changes.")}
                     autoComplete="tel"
                     inputMode="tel"
                     maxLength={40}
                   />
-                </div>
+                )}
                 {contactTouched && !contactValid && (
                   <p className="text-xs text-red-600 dark:text-red-400">
                     {t(
@@ -2242,11 +2265,21 @@ export default function ReservationPublicPage() {
               disabled={!canSubmit}
               className="flex-1"
             >
-              {groupRequest
-                ? t("rsvpSendRequest", "Send forespørgsel →")
-                : isProvider
-                  ? t("rsvpConfirmTime", "Bekræft tidsbestilling →")
-                  : t("rsvpConfirm", "Bekræft reservation →")}
+              {/* A disabled button reading "Confirm reservation" tells the guest
+                  nothing about why it will not press. Say what is missing —
+                  the label becomes the instruction, same principle as step 1's
+                  "Pick a time". */}
+              {!nameValid
+                ? t("rsvpCtaNeedName", "Tilføj dit navn")
+                : !contactValid
+                  ? contactMode === "phone"
+                    ? t("rsvpCtaNeedPhone", "Tilføj dit telefonnummer")
+                    : t("rsvpCtaNeedEmail", "Tilføj din email")
+                  : groupRequest
+                    ? t("rsvpSendRequest", "Send forespørgsel →")
+                    : isProvider
+                      ? t("rsvpConfirmTime", "Bekræft tidsbestilling →")
+                      : t("rsvpConfirm", "Bekræft reservation →")}
             </Button>
           )}
         </div>
