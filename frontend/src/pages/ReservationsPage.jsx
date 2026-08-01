@@ -338,7 +338,14 @@ export default function ReservationsPage() {
   // parameters and App.jsx passes nothing. That is exactly why the page title,
   // the tab pills and the 300px day rail still rendered on the stand — nothing
   // up here knew it was a service screen.
-  const isHostStand = location.pathname.endsWith("/reservations/stand");
+  // Two different things wear the name "stand":
+  //   isStandDevice — opened at /stand/<token> by a PAIRED DEVICE. No session
+  //                   at all; authenticates by the token in the path.
+  //   isHostStand   — the door-screen CHROME (stripped nav, service layout),
+  //                   which both the owner's pop-out and a paired device use.
+  const isStandDevice = location.pathname.startsWith("/stand/");
+  const isHostStand =
+    isStandDevice || location.pathname.endsWith("/reservations/stand");
 
   // On iOS the stand ships NO manifest (see the selector in index.html), so
   // Add-to-Home bookmarks this exact URL and takes the icon's label from
@@ -456,8 +463,18 @@ export default function ReservationsPage() {
   // Render NOTHING while entitlements are loading, then either the
   // upgrade nudge (locked) or the page (unlocked). Matches the doctrine
   // in useEntitlements.jsx.
-  if (!isReady) return null;
-  if (!hasFeature("reservations")) {
+  //
+  // A PAIRED DEVICE IS EXEMPT. It has no session, so useEntitlements sees no
+  // plan and reads as Free — which showed a host an UPGRADE WALL on the tablet
+  // at the door of a venue that is already paying. The entitlement that matters
+  // is the OWNER'S, and the server already enforces it: every wrapped stand
+  // endpoint runs enforce_feature(user, "reservations") against the venue
+  // re-derived from the link row. So this client gate is both wrong and
+  // redundant here — if the venue genuinely lacks the feature, the API returns
+  // 402 and the page surfaces that honestly instead of guessing.
+  if (!isStandDevice) {
+    if (!isReady) return null;
+    if (!hasFeature("reservations")) {
     return (
       <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-6">
         <PageTitle t={t} isProvider={isProvider} />
@@ -474,6 +491,7 @@ export default function ReservationsPage() {
         />
       </div>
     );
+    }
   }
 
   return (
@@ -2870,7 +2888,13 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
   const { user, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const standalone = location.pathname.endsWith("/reservations/stand");
+  // Both doors into the door screen: the owner's pop-out (/reservations/stand)
+  // and a paired device (/stand/<token>). Kept in sync with the parent's
+  // isHostStand — this is re-derived rather than threaded because
+  // ReservationsPage takes zero props.
+  const standalone =
+    location.pathname.endsWith("/reservations/stand") ||
+    location.pathname.startsWith("/stand/");
   // TABLE venues (dining/bar) get the Floor ("plan") lens; provider (salon) /
   // no-floor (bakery/retail) venues never do — gated on the venue TYPE, with a
   // grandfather for venues that already have a real table plan. `tableFloor`
@@ -6763,6 +6787,164 @@ function SettingsSection({ t }) {
           the Windows PC / touch tablet already at the podium, no locked-down
           terminal required. */}
       <InstallHostStandHint t={t} />
+
+      {/* Pair a device with a short code — the alternative to typing the
+          owner's email and password on a tablet that lives at the door. */}
+      <StandDevices t={t} />
+    </div>
+  );
+}
+
+/**
+ * Pair and revoke host-stand devices.
+ *
+ * The code is the point: read six characters across a counter and that device
+ * runs the book, with reservations-only reach and no owner login on it. The
+ * list matters as much as the button — a credential you cannot see is one you
+ * cannot revoke, so paired devices are always visible with a one-tap Remove.
+ */
+function StandDevices({ t }) {
+  const confirm = useConfirm();
+  const [devices, setDevices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [minting, setMinting] = useState(false);
+  const [fresh, setFresh] = useState(null); // the code just minted
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api.get("/stand/links");
+      setDevices(res.data?.devices || []);
+    } catch {
+      setError(t("rsvpStandDevicesError", "Kunne ikke hente enheder."));
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const mint = async () => {
+    setMinting(true);
+    setError("");
+    try {
+      const res = await api.post("/stand/links", { label: null });
+      setFresh(res.data);
+      await load();
+    } catch {
+      setError(t("rsvpStandMintError", "Kunne ikke lave en kode. Prøv igen."));
+    } finally {
+      setMinting(false);
+    }
+  };
+
+  const revoke = async (d) => {
+    const ok = await confirm({
+      title: t("rsvpStandRevokeTitle", "Fjern denne enhed?"),
+      body: t(
+        "rsvpStandRevokeBody",
+        "Enheden mister adgang til bogen med det samme. Du kan altid lave en ny kode.",
+      ),
+      confirmText: t("rsvpStandRevokeYes", "Fjern"),
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/stand/links/${d.id}`);
+      if (fresh && fresh.id === d.id) setFresh(null);
+      await load();
+    } catch {
+      setError(t("rsvpStandRevokeError", "Kunne ikke fjerne enheden."));
+    }
+  };
+
+  const active = devices.filter((d) => d.active);
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/60 p-4 space-y-3">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center shrink-0 text-gray-600 dark:text-gray-300">
+          <MonitorSmartphone className="w-4 h-4" aria-hidden />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            {t("rsvpStandDevicesTitle", "Vært-skærm på en anden enhed")}
+          </h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
+            {t(
+              "rsvpStandDevicesBody",
+              "Lav en kode, tast den på tabletten ved døren, og den viser kun reservationer — aldrig regnskab eller løn.",
+            )}
+          </p>
+        </div>
+      </div>
+
+      {/* The freshly minted code, big enough to read aloud across a room. */}
+      {fresh?.code && (
+        <div
+          className="rounded-xl px-4 py-3.5 text-center"
+          style={{
+            background: "linear-gradient(180deg,#ffffff,#f7f9fc)",
+            boxShadow:
+              "inset 0 1px 0 #fff, 0 1px 2px rgba(15,23,42,.05), 0 8px 18px -14px rgba(15,23,42,.35)",
+          }}
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">
+            {t("rsvpStandCodeEyebrow", "Tast på enheden · bonbox.dk/stand")}
+          </p>
+          <p className="mt-1 font-mono text-[32px] font-bold tracking-[0.3em] tabular-nums text-gray-900 dark:text-gray-100">
+            {fresh.code}
+          </p>
+          <p className="mt-1 text-[12px] text-gray-500">
+            {t("rsvpStandCodeTtl", "Udløber om {n} minutter · virker én gang", {
+              n: fresh.expires_in_minutes,
+            })}
+          </p>
+        </div>
+      )}
+
+      <Button
+        variant="secondary"
+        size="lg"
+        onClick={mint}
+        busy={minting}
+        iconLeft={<Plus className="w-4 h-4" />}
+      >
+        {t("rsvpStandMintCta", "Lav en kode")}
+      </Button>
+
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+
+      {!loading && active.length > 0 && (
+        <ul className="space-y-1.5 pt-1">
+          {active.map((d) => (
+            <li
+              key={d.id}
+              className="flex items-center gap-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2"
+            >
+              <span className="min-w-0 flex-1 text-[13px] text-gray-700 dark:text-gray-200 truncate">
+                {d.label || t("rsvpStandDeviceUnnamed", "Enhed")}
+                <span className="block text-[11px] text-gray-400">
+                  {d.paired
+                    ? d.last_seen_at
+                      ? t("rsvpStandDeviceSeen", "Sidst set {when}", {
+                          when: new Date(d.last_seen_at).toLocaleString(),
+                        })
+                      : t("rsvpStandDevicePaired", "Forbundet")
+                    : t("rsvpStandDeviceWaiting", "Venter på koden")}
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() => revoke(d)}
+                className="shrink-0 h-9 px-3 rounded-lg text-[13px] font-medium text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+              >
+                {t("rsvpStandDeviceRemove", "Fjern")}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

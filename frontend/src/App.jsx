@@ -1,5 +1,6 @@
 import { Component, lazy, Suspense, useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
+import { setStandToken } from "./services/standAuth";
 import { reportClientError } from "./utils/reportClientError";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
 import { canUsePersonalMode, homeFor } from "./lib/appMode";
@@ -250,6 +251,18 @@ const DoorScanPage = lazyRetry(() => import("./pages/DoorScanPage"));
 // /reservations and is a Starter+ feature, gated inside the page.
 const ReservationPublicPage = lazyRetry(() => import("./pages/ReservationPublicPage"));
 const ReservationsPage = lazyRetry(() => import("./pages/ReservationsPage"));
+const StandPairPage = lazyRetry(() => import("./pages/StandPairPage"));
+
+/**
+ * A paired host-stand device. Adopts the token from the path BEFORE the page
+ * mounts — the api client reads it synchronously on every request, so it has to
+ * be set before ReservationsPage fires its first fetch, not in an effect after.
+ */
+function StandTokenRoute() {
+  const { standToken } = useParams();
+  setStandToken(standToken);
+  return <ReservationsPage />;
+}
 // Public gavekort page — the recipient's live card at /g/:token (no auth;
 // the signed token is the credential). PII-minimal balance mirror.
 const GavekortPublicPage = lazyRetry(() => import("./pages/GavekortPublicPage"));
@@ -535,6 +548,17 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        {/* ── Paired device ───────────────────────────────────────────
+            /stand        → type the owner's six-character code
+            /stand/<token> → the same ReservationsPage, but authenticated by
+                             the TOKEN IN THE PATH instead of an owner session.
+            Deliberately NOT wrapped in ProtectedRoute: a door tablet has no
+            login, and requiring one is the whole problem this removes. The
+            credential is scoped server-side — it reaches six reservation
+            operations and 404s everything else — so an unauthenticated route
+            here cannot expose anything the device is not entitled to. */}
+        <Route path="/stand" element={<StandPairPage />} />
+        <Route path="/stand/:standToken" element={<StandTokenRoute />} />
         {/* Same deal for the week grid: OUTSIDE <Layout /> so the schedule gets
             the whole window. The grid is 7 day-columns wide and the sidebar
             costs it ~250px of exactly the axis it needs most — this is the
