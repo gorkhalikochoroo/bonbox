@@ -59,6 +59,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
+import { COMPLETE_LANGUAGE_COUNT } from "../i18n/languageCatalog";
 import WhatDoYouPayNow from "../components/landing/WhatDoYouPayNow";
 import FloorPlan from "../components/landing/FloorPlan";
 import FounderRatePill from "../components/FounderRatePill";
@@ -84,6 +85,12 @@ function tx(t, key, fallback) {
   const v = t(key);
   return (v && v !== key) ? v : fallback;
 }
+
+// Fills the {n} in a language-count string from the picker itself, so the
+// landing page cannot advertise more languages than BonBox actually finished.
+// tx() takes no vars and is used in ~200 places, so substitution happens here
+// rather than by widening that helper.
+const nLangs = (s) => String(s).replace("{n}", String(COMPLETE_LANGUAGE_COUNT));
 
 // ─── Design tokens ─────────────────────────────────────────────────
 
@@ -975,7 +982,7 @@ export default function LandingPage() {
       items: [
         tx_("landingCatMore2", "Khata · regulars credit book"),
         tx_("landingCatMore3", "Loan tracker"),
-        tx_("landingCatMore4", "Multi-currency · 6 languages"),
+        nLangs(tx_("landingCatMore4", "Multi-currency · {n} languages")),
       ],
     },
   ];
@@ -1455,7 +1462,9 @@ export default function LandingPage() {
         {/* Definitionally-true fact row — replaces the killed "target" stats. */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 max-w-4xl mx-auto">
           {[
-            { val: tx_("landingFactLangVal", "6 languages"), label: tx_("landingFactLangLabel", "in the app") },
+            // Was a hardcoded "6 languages" sitting in a row headed
+            // "definitionally-true" — the one entry here that wasn't. Now counted.
+            { val: nLangs(tx_("landingFactLangVal", "{n} languages")), label: tx_("landingFactLangLabel", "in the app") },
             { val: tx_("landingFactEuVal", "Ireland"), label: tx_("landingFactEuLabel", "Where your database sits") },
             { val: tx_("landingFactBogfVal", "6 år"), label: tx_("landingFactBogfLabel", "your documents are kept") },
             { val: tx_("landingFactFristVal", "25%"), label: tx_("landingFactFristLabel", "MOMS worked out on every sale") },
