@@ -718,34 +718,80 @@ function PinGate({ onVerified, token, staffName }) {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
-      <div className="w-full max-w-xs text-center">
+    /* v2 treatment. This is the FIRST screen a new staffer ever sees — the
+       moment they connect — and it looked like a system prompt while the rest
+       of the app looked like BonBox. It now wears the hero's own surface:
+       the same 152deg gradient, radius 22, green bloom off the top-right and
+       the 1px inset highlight. Nothing about the gate's behaviour changes;
+       the PIN is still verified server-side and still mints the proof. */
+    <div className="min-h-[100dvh] flex items-center justify-center p-6" style={{ background: "#f5f7fb" }}>
+      <div
+        className="relative overflow-hidden w-full max-w-xs text-center"
+        style={{
+          borderRadius: 22,
+          padding: "28px 22px 24px",
+          background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 46%,#080e16 100%)",
+          boxShadow: "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
+        }}
+      >
         <div
-          className="w-16 h-16 rounded-2xl border shadow-soft flex items-center justify-center mx-auto mb-4"
-          style={{ background: "rgb(var(--brand-50))", borderColor: "rgb(var(--brand-100))" }}
-        >
-          <Lock className="w-7 h-7" strokeWidth={2} aria-hidden style={{ color: "rgb(var(--brand-600))" }} />
+          aria-hidden
+          className="pointer-events-none absolute h-[230px] w-[230px] rounded-full"
+          style={{
+            top: -90, right: -80,
+            background: "radial-gradient(closest-side, rgba(34,197,94,.40), rgba(34,197,94,0))",
+          }}
+        />
+        <div className="relative">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
+            style={{
+              background: "rgba(255,255,255,.08)",
+              border: "1px solid rgba(255,255,255,.14)",
+              boxShadow: "inset 0 1px 0 rgba(255,255,255,.18)",
+            }}
+          >
+            <Lock className="w-6 h-6" strokeWidth={2} aria-hidden style={{ color: "#4ade80" }} />
+          </div>
+          <h1
+            className="text-white mb-1.5"
+            style={{ font: "700 22px/1.1 var(--font-display)", letterSpacing: "-0.03em" }}
+          >
+            {t("portalPinTitle", "Enter PIN")}
+          </h1>
+          <p className="mb-7" style={{ font: "400 12.5px/1.45 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
+            {t("portalPinSubtitle", "Hi {name}, enter your 4-digit PIN", { name: staffName })}
+          </p>
+          <div className="flex gap-2.5 justify-center mb-5">
+            {pin.map((d, i) => (
+              <input
+                key={i}
+                id={`pin-${i}`}
+                type="tel"
+                inputMode="numeric"
+                maxLength={1}
+                value={d}
+                onChange={(e) => handleDigit(i, e.target.value)}
+                onKeyDown={(e) => handleKeyDown(i, e)}
+                className="w-[52px] h-[56px] text-center outline-none pin-cell"
+                style={{
+                  font: "700 24px/1 var(--font-display)",
+                  color: "#fff",
+                  background: "rgba(255,255,255,.07)",
+                  border: "1px solid rgba(255,255,255,.16)",
+                  borderRadius: 14,
+                }}
+                autoFocus={i === 0}
+              />
+            ))}
+          </div>
+          {error && <p className="text-[13px] mb-3" style={{ color: "#fca5a5" }}>{error}</p>}
+          {loading && (
+            <p className="text-[13px]" style={{ color: "rgba(255,255,255,.55)" }}>
+              {t("portalPinVerifying", "Verifying...")}
+            </p>
+          )}
         </div>
-        <h1 className="text-xl font-bold text-gray-900 mb-1">{t("portalPinTitle", "Enter PIN")}</h1>
-        <p className="text-sm text-gray-500 mb-8">{t("portalPinSubtitle", "Hi {name}, enter your 4-digit PIN", { name: staffName })}</p>
-        <div className="flex gap-3 justify-center mb-6">
-          {pin.map((d, i) => (
-            <input
-              key={i}
-              id={`pin-${i}`}
-              type="tel"
-              inputMode="numeric"
-              maxLength={1}
-              value={d}
-              onChange={(e) => handleDigit(i, e.target.value)}
-              onKeyDown={(e) => handleKeyDown(i, e)}
-              className="w-14 h-14 text-center text-2xl font-bold bg-white border border-gray-300 rounded-xl text-gray-900 focus:border-gray-900/30 focus:ring-2 focus:ring-gray-400/30 outline-none"
-              autoFocus={i === 0}
-            />
-          ))}
-        </div>
-        {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
-        {loading && <p className="text-gray-500 text-sm">{t("portalPinVerifying", "Verifying...")}</p>}
       </div>
     </div>
   );
