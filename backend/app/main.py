@@ -113,6 +113,7 @@ from app.routers import tickets as tickets_router
 from app.routers import reservations as reservations_router
 from app.routers import reservation_insights as reservation_insights_router
 from app.routers import public_reservations as public_reservations_router
+from app.routers import stand_link as stand_link_router
 from app.routers import public_gavekort as public_gavekort_router
 from app.routers import gavekort as gavekort_router
 # Onboarding — business-archetype detection (keyword fast-path → AI fallback)
@@ -1792,6 +1793,26 @@ _migrations = [
     # GUID columns are VARCHAR(36) (GUID() impl is String(36); native-UUID DDL
     # breaks the users/reservations FKs on SQLite dev — see Migration 034).
     # Distinct from the pre-existing `waitlist_entries` (paid-tier interest).
+    # Host-stand device credential (PR: stand pairing code). Same shape as
+    # staff_links: long token in the URL + short human-typeable join code +
+    # an `active` revocation switch. Scope is structural (only the operations
+    # wrapped in routers/stand_link.py accept it), so there is no scope column.
+    """CREATE TABLE IF NOT EXISTS stand_links (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL REFERENCES users(id),
+        token VARCHAR(64) NOT NULL UNIQUE,
+        join_code VARCHAR(12) UNIQUE,
+        code_expires_at TIMESTAMP,
+        code_used_at TIMESTAMP,
+        label VARCHAR(80),
+        active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TIMESTAMP,
+        revoked_at TIMESTAMP
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_stand_links_user_id ON stand_links(user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_stand_links_token ON stand_links(token)",
+    "CREATE INDEX IF NOT EXISTS ix_stand_links_join_code ON stand_links(join_code)",
     """CREATE TABLE IF NOT EXISTS reservation_waitlist (
         id VARCHAR(36) PRIMARY KEY,
         user_id VARCHAR(36) NOT NULL REFERENCES users(id),
@@ -4276,6 +4297,10 @@ app.include_router(
 )
 # Reservations — owner CRUD/book + the public /r/<slug> booking surface.
 app.include_router(reservations_router.router, prefix="/api/reservations", tags=["Reservations"])
+# Host-stand device pairing. Mounted at /api (the router carries its own
+# /stand prefix) so device URLs read /api/stand/<token>/... — the credential
+# reaches ONLY the operations wrapped in that router, never the owner API.
+app.include_router(stand_link_router.router, prefix="/api", tags=["Host stand"])
 # Owner-facing analytics on the booking book — GET /api/reservations/insights.
 # Mounted under the SAME prefix as the owner reservation router (separate file
 # to keep that router from growing further). Authed + tenant-scoped + fail-soft.
