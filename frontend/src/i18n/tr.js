@@ -2713,6 +2713,8 @@ export const tr = {
   rsvpCreateBooking: "Rezervasyon oluştur",
   rsvpCreateError: "Rezervasyon oluşturulamadı.",
   rsvpRoomFullWarn: "O saat dolu — {n} koltuk.",
+  rsvpNoTableAtTime: "O saatte masa ayr\u0131lamaz.",
+  rsvpSeatTableSmall: "Bu masa {seats} ki\u015filik \u2014 {party} ki\u015fi oturtuyorsun.",
   rsvpRoomFullShort: "O saat dolu.",
   rsvpBookAnyway: "Yine de rezerve et (masasız)",
   rsvpPickAnotherTime: "Başka bir saat seç",

@@ -1154,12 +1154,40 @@ def _venue_seats_total(db: Session, user: User) -> int:
     )
 
 
-def _room_full_detail(db: Session, user: User, party_size: int) -> dict:
+def _room_full_detail(db: Session, user: User, party_size: int,
+                      start=None, end=None) -> dict:
     """Cheap capacity context for the 409 room_full payload — the canonical
-    venue seat total (see _venue_seats_total)."""
+    venue seat total (see _venue_seats_total).
+
+    ALSO SAYS WHY, because "room_full" is raised whenever auto-assign finds no
+    table, and that is two different facts wearing one name:
+      • the room really is full — other bookings hold the tables, or
+      • nothing is bookable at that hour at all (outside opening hours, no
+        active tables, a closed day)
+    Reported as one message, the second case tells a host "that time is full —
+    28 seats" while the book plainly shows zero covers, so they turn away a
+    caller who could have been seated. `seated_now` lets the client say the
+    true thing: it counts occupancy rows actually overlapping the requested
+    window, so 0 means the room is empty and the slot simply is not bookable.
+    """
+    overlapping = 0
+    if start is not None and end is not None:
+        overlapping = int(
+            db.query(func.count(ReservationOccupancy.id))
+            .filter(
+                ReservationOccupancy.user_id == user.id,
+                ReservationOccupancy.active.is_(True),
+                ReservationOccupancy.starts_at < end,
+                ReservationOccupancy.ends_at > start,
+            )
+            .scalar()
+            or 0
+        )
     return {
         "error": "room_full", "requested": party_size,
         "total_seats": _venue_seats_total(db, user),
+        # 0 with a full-looking error = not full, just not bookable then.
+        "tables_busy_at_that_time": overlapping,
     }
 
 
@@ -1333,7 +1361,11 @@ def create_manual(payload: ManualReservation, request: Request,
                 # cheap capacity context instead of a silent phantom booking.
                 raise HTTPException(
                     status_code=409,
-                    detail=_room_full_detail(db, user, payload.party_size),
+                    detail=_room_full_detail(
+                        db, user, payload.party_size,
+                        start=payload.starts_at,
+                        end=payload.starts_at + timedelta(minutes=duration),
+                    ),
                 )
         if not assigned:
             # Plain unassigned insert — either auto_assign was off (legacy
