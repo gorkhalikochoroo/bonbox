@@ -463,6 +463,8 @@ const translations = {
     portalFenceOutsideA11y: "You are outside the clock-in area",
     portalFenceUnknownA11y: "Your position is unknown",
     // Employment documents the owner shares (staff view).
+    portalSinceJoined: "Since {d}",
+    portalDocsEmpty: "Nothing here yet. Your contract and payslips appear here when your manager shares them.",
     portalDocsSection: "Contract & documents",
     portalDocsOpenFailed: "Couldn't open that document. Try again.",
     portalBankErrOffline: "No connection \u2014 nothing was saved. Try again when you're back online.",
@@ -8277,6 +8279,8 @@ const translations = {
     portalFenceOutsideA11y: "Du er uden for stempl-ind-omr\u00e5det",
     portalFenceUnknownA11y: "Din placering er ukendt",
     // Ansættelsesdokumenter delt af ejeren (medarbejderens visning).
+    portalSinceJoined: "Siden {d}",
+    portalDocsEmpty: "Intet her endnu. Din kontrakt og lønsedler dukker op her, når din leder deler dem.",
     portalDocsSection: "Kontrakt og dokumenter",
     portalDocsOpenFailed: "Dokumentet kunne ikke \u00e5bnes. Pr\u00f8v igen.",
     portalBankErrOffline: "Ingen forbindelse \u2014 intet blev gemt. Pr\u00f8v igen, n\u00e5r du er online.",

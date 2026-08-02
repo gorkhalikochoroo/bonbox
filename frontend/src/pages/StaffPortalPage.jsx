@@ -411,15 +411,18 @@ function DocumentsSection({ token }) {
     }
   };
 
-  // Nothing shared and nothing to say — stay silent rather than render an empty
-  // promise. The owner shares documents; the staffer cannot request one here.
-  if (!docs || docs.length === 0) return null;
+  if (docs === null) return null;            // still loading — do not flash
 
   return (
     <div className="pt-3 border-t border-[#f1f5f9]">
       <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
         {t("portalDocsSection", "Contract & documents")}
       </div>
+      {docs.length === 0 && (
+        <div className="text-[11px] text-gray-400">
+          {t("portalDocsEmpty", "Nothing here yet. Your contract and payslips appear here when your manager shares them.")}
+        </div>
+      )}
       <div className="space-y-1.5">
         {docs.map((d) => (
           <button
@@ -6273,6 +6276,23 @@ export default function StaffPortalPage() {
                   <div style={{ marginTop: 6, font: "500 12px/1 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
                     {[info?.role, info?.restaurant_name].filter(Boolean).join(" · ")}
                   </div>
+                  {info?.since && (
+                    <div style={{ marginTop: 10 }}>
+                      <span
+                        style={{
+                          display: "inline-block", padding: "5px 9px", borderRadius: 999,
+                          background: "rgba(34,197,94,.16)", border: "1px solid rgba(34,197,94,.28)",
+                          font: "600 10px/1 var(--font-text)", color: "#86efac",
+                        }}
+                      >
+                        {t("portalSinceJoined", "Since {d}").split("{d}").join(
+                          new Date(`${info.since}T00:00:00`).toLocaleDateString(
+                            localeFor(lang), { month: "short", year: "numeric" },
+                          )
+                        )}
+                      </span>
+                    </div>
+                  )}
                   {photoBusy ? (
                     <div style={{ marginTop: 10, font: "600 10px/1 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
                       {t("portalSaving", "Saving…")}
@@ -6363,23 +6383,27 @@ export default function StaffPortalPage() {
 
               {/* Language — moved here from the header (design). Staff pick DA / EN. */}
               <div className="pt-3 border-t border-[#f1f5f9]">
-                <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">{t("portalLangSection", "Language")}</div>
-                <div className="flex w-full rounded-lg border border-gray-200 p-0.5 gap-0.5" role="group" aria-label={t("portalLangLabel", "Language")}>
-                  {["da", "en"].map((code) => (
-                    <button
-                      key={code}
-                      type="button"
-                      onClick={() => setLang(code)}
-                      aria-pressed={lang === code}
-                      className={`flex-1 py-1.5 rounded-md text-[13px] font-semibold transition active:scale-[0.98] ${
-                        lang === code ? "bg-gray-900 text-white" : "bg-white text-gray-500 hover:bg-gray-50"
-                      }`}
-                    >
-                      {code === "da" ? "Dansk" : "English"}
-                    </button>
-                  ))}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-semibold text-gray-900">{t("portalLangSection", "Language")}</div>
+                    <div className="text-[11px] text-gray-400">{t("portalLangNote", "Only changes the app's language.")}</div>
+                  </div>
+                  <div className="flex flex-none rounded-lg border border-gray-200 p-0.5 gap-0.5" role="group" aria-label={t("portalLangLabel", "Language")}>
+                    {["da", "en"].map((code) => (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => setLang(code)}
+                        aria-pressed={lang === code}
+                        className={`px-3 py-1.5 rounded-md text-[12px] font-bold uppercase transition active:scale-[0.98] ${
+                          lang === code ? "bg-gray-900 text-white" : "bg-white text-gray-500 hover:bg-gray-50"
+                        }`}
+                      >
+                        {code === "da" ? "DA" : "EN"}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="mt-1.5 text-[10px] text-gray-400">{t("portalLangNote", "Only changes the app's language.")}</div>
               </div>
               <button
                 onClick={handleContactSave}

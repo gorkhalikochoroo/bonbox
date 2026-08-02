@@ -126,6 +126,10 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 class PortalInfo(BaseModel):
     staff_name: str
     role: str
+    # When the owner added them. Honest about what it measures: this is the
+    # BonBox record, not an employment start date — the same basis the holiday
+    # balance already counts from.
+    since: date | None = None
     email: str | None = None
     phone: str | None = None
     address: str | None = None
@@ -449,6 +453,7 @@ def get_portal_info(token: str, request: Request, db: Session = Depends(get_db))
     return PortalInfo(
         staff_name=member.name,
         role=member.role or "staff",
+        since=member.created_at.date() if (pii_ok and member.created_at) else None,
         email=member.email if pii_ok else None,
         phone=member.phone if pii_ok else None,
         address=member.address if pii_ok else None,
