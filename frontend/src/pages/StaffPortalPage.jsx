@@ -5348,6 +5348,7 @@ export default function StaffPortalPage() {
   // only ever contain places they actually work. null = all of them.
   const [dept, setDept] = useState(null);
   const [deptOpen, setDeptOpen] = useState(false);
+  const [photoMenu, setPhotoMenu] = useState(false);
 
   const departments = useMemo(() => {
     const seen = new Map();
@@ -6002,6 +6003,55 @@ export default function StaffPortalPage() {
             </button>
           </div>
         </div>
+        {photoMenu && createPortal(
+          <div className="fixed inset-0 z-[60] flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setPhotoMenu(false)}>
+            <div
+              className="w-full bg-white"
+              style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+              <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
+                {t("portalPhotoLabel", "Photo")}
+              </div>
+              <div style={{ marginTop: 6, font: "400 12px/1.45 var(--font-text)", color: "#64748b" }}>
+                {t("portalPhotoWhoSees", "Your manager and the colleagues on your shifts can see this.")}
+              </div>
+              <div className="flex flex-col" style={{ gap: 8, marginTop: 14 }}>
+                <button
+                  type="button"
+                  onClick={() => { setPhotoMenu(false); handlePhotoChange(); }}
+                  className="w-full flex items-center"
+                  style={{ gap: 10, padding: "14px 15px", borderRadius: 16, background: "#f5f8fb", border: "1px solid #e8edf3", font: "600 13px/1 var(--font-text)", color: "#0f172a" }}
+                >
+                  <CameraIcon size={16} strokeWidth={2} aria-hidden />
+                  {photoUrl ? t("portalPhotoChange", "Change") : t("portalPhotoAdd", "Add photo")}
+                </button>
+                {photoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => { setPhotoMenu(false); handlePhotoRemove(); }}
+                    className="w-full flex items-center"
+                    style={{ gap: 10, padding: "14px 15px", borderRadius: 16, background: "#fff", border: "1px solid #fecaca", font: "600 13px/1 var(--font-text)", color: "#b91c1c" }}
+                  >
+                    <Trash2 size={16} strokeWidth={2} aria-hidden />
+                    {t("portalPhotoRemove", "Remove photo")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setPhotoMenu(false)}
+                  className="w-full"
+                  style={{ padding: "12px 0", font: "600 13px/1 var(--font-text)", color: "#64748b" }}
+                >
+                  {t("cancel", "Cancel")}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
         {deptOpen && createPortal(
           <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setDeptOpen(false)}>
             <div
@@ -6069,37 +6119,77 @@ export default function StaffPortalPage() {
               </div>
               <div className="px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3">
               {/* Profile photo — staff pick a photo; the owner sees it too. */}
-              <div className="flex items-center gap-3 pb-3 border-b border-[#f1f5f9]">
-                <div className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center text-base font-bold text-gray-500 shrink-0">
-                  {photoUrl ? (
-                    <img src={photoUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-1.5">{t("portalPhotoLabel", "Photo")}</div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handlePhotoChange}
-                      disabled={photoBusy}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-900 text-white hover:bg-gray-700 transition disabled:opacity-50"
-                    >
-                      <CameraIcon className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
-                      {photoBusy ? t("portalSaving", "Saving…") : (photoUrl ? t("portalPhotoChange", "Change") : t("portalPhotoAdd", "Add photo"))}
-                    </button>
-                    {photoUrl && !photoBusy && (
-                      <button
-                        type="button"
-                        onClick={handlePhotoRemove}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 transition"
-                        aria-label={t("portalPhotoRemove", "Remove photo")}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
-                      </button>
+              <div
+                className="relative flex items-center overflow-hidden"
+                style={{
+                  gap: 14, padding: 19, borderRadius: 22,
+                  background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 48%,#080e16 100%)",
+                  boxShadow: "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
+                }}
+              >
+                {/* Bloom as a radial-gradient background, never a blurred child:
+                    a blur gets its own compositing layer that WebKit fails to
+                    clip against border-radius, painting a hard corner. */}
+                <span
+                  className="absolute"
+                  style={{
+                    right: -70, top: -80, width: 230, height: 230, borderRadius: "50%",
+                    background: "radial-gradient(closest-side,rgba(34,197,94,.34),rgba(34,197,94,0))",
+                  }}
+                  aria-hidden
+                />
+                <button
+                  type="button"
+                  onClick={() => setPhotoMenu(true)}
+                  disabled={photoBusy}
+                  aria-label={photoUrl ? t("portalPhotoChange", "Change") : t("portalPhotoAdd", "Add photo")}
+                  className="relative shrink-0 overflow-visible"
+                  style={{ width: 62, height: 62 }}
+                >
+                  <span
+                    className="w-full h-full overflow-hidden flex items-center justify-center"
+                    style={{
+                      borderRadius: 20,
+                      background: "linear-gradient(150deg,#334155,#0f172a)",
+                      border: "1px solid rgba(255,255,255,.14)",
+                      font: "700 21px/1 var(--font-display)", letterSpacing: "-0.02em", color: "#e2e8f0",
+                    }}
+                  >
+                    {photoUrl ? (
+                      <img src={photoUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
                     )}
+                  </span>
+                  {/* The + badge IS the change-photo affordance in v2, so the
+                      avatar itself is the button rather than a separate row. */}
+                  <span
+                    className="absolute flex items-center justify-center"
+                    style={{
+                      right: -4, bottom: -4, width: 22, height: 22, borderRadius: 99,
+                      background: "linear-gradient(180deg,#22c55e,#16a34a)",
+                      border: "2px solid #0f172a", color: "#fff",
+                    }}
+                  >
+                    <Plus size={11} strokeWidth={2.6} aria-hidden />
+                  </span>
+                </button>
+                <div className="relative flex-1 min-w-0">
+                  <div style={{ font: "700 21px/1.05 var(--font-display)", letterSpacing: "-0.032em", color: "#fff" }}>
+                    {info?.staff_name}
                   </div>
+                  <div style={{ marginTop: 6, font: "500 12px/1 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
+                    {[info?.role, info?.restaurant_name].filter(Boolean).join(" · ")}
+                  </div>
+                  {photoBusy ? (
+                    <div style={{ marginTop: 10, font: "600 10px/1 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
+                      {t("portalSaving", "Saving…")}
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 10, font: "600 10px/1 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
+                      {photoUrl ? t("portalPhotoChange", "Change") : t("portalPhotoAdd", "Add photo")}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500">{t("portalNotifications", "Notifications")}</div>
