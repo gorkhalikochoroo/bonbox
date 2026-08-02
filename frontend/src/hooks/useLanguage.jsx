@@ -420,6 +420,10 @@ const translations = {
     portalLangNote: "Only changes the app's language.",
     // Bank account — staff-entered, encrypted, owner reads it to pay them.
     portalBankSection: "Bank account",
+    portalGaFree: "Free for you",
+    portalGaOverlaps: "Overlaps you",
+    portalGaBlocked: "Blocked",
+    portalGaBlockedWhy: "You already work then \u2014 that's why this one is blocked.",
     portalHolidaySection: "Feriedage",
     portalHolidayUnit: "days",
     portalHolidayBreakdown: "{earned} earned \u00b7 {taken} taken",
@@ -8181,6 +8185,10 @@ const translations = {
     portalLangNote: "Skifter kun appens sprog.",
     // Bankkonto \u2014 medarbejderen indtaster selv; krypteret; ejeren l\u00e6ser den for at udbetale l\u00f8n.
     portalBankSection: "Bankkonto",
+    portalGaFree: "Ledig for dig",
+    portalGaOverlaps: "Overlapper dig",
+    portalGaBlocked: "Blokeret",
+    portalGaBlockedWhy: "Du arbejder allerede der \u2014 derfor er den blokeret.",
     portalHolidaySection: "Feriedage",
     portalHolidayUnit: "dage",
     portalHolidayBreakdown: "{earned} optjent \u00b7 {taken} afholdt",

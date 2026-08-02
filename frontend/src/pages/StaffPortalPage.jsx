@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useConfirm } from "../hooks/useConfirm";
 import GeofenceDial from "../components/GeofenceDial";
 import { nextShiftCountdown } from "../utils/nextShiftCountdown";
+import { overlapsOwnShift } from "../utils/overlapsOwnShift";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
 import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
@@ -2455,12 +2456,27 @@ function SwapTab({ token, ownShifts, onChanged }) {
           {claimErr && (
             <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-[14px] px-2.5 py-1.5">{claimErr}</div>
           )}
-          {pool.map((g) => (
-            <div key={g.id} className="rounded-[18px] bg-white border border-[#e8edf3] p-3 flex items-center gap-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          {pool.map((g) => {
+            const clash = overlapsOwnShift(g.from_shift_date, g.from_shift_time, ownShifts);
+            return (
+            <div
+              key={g.id}
+              className="rounded-[18px] bg-white p-3 flex items-center gap-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+              style={{ border: clash ? "1px solid rgba(239,68,68,.28)" : "1px solid #e8edf3" }}
+            >
               <div className="flex-1 min-w-0">
-                <div className="text-sm text-gray-900">
+                <div className="text-sm text-gray-900 flex items-center gap-2 flex-wrap">
                   <span className="font-semibold">{fmtSwapDay(g.from_shift_date, lang)}</span>
-                  <span className="text-gray-500"> · {g.from_shift_time}</span>
+                  <span className="text-gray-500">· {g.from_shift_time}</span>
+                  {/* v2's eligibility tag — the answer before the tap. */}
+                  <span
+                    className="shrink-0 rounded-full font-text text-[10px] font-bold uppercase tracking-[0.05em] px-2 py-0.5"
+                    style={clash
+                      ? { background: "#fee2e2", color: "#b91c1c" }
+                      : { background: "#dcfce7", color: "#15803d" }}
+                  >
+                    {clash ? t("portalGaOverlaps", "Overlaps you") : t("portalGaFree", "Free for you")}
+                  </span>
                 </div>
                 <div className="text-[11px] text-gray-500 truncate">
                   {t("portalGaFrom", "From")} {g.from_staff_name}
@@ -2469,14 +2485,24 @@ function SwapTab({ token, ownShifts, onChanged }) {
                 </div>
               </div>
               <button
-                onClick={() => claimGiveaway(g.id)}
+                onClick={() => (clash
+                  ? setClaimErr(t("portalGaBlockedWhy", "You already work then — that's why this one is blocked."))
+                  : claimGiveaway(g.id))}
                 disabled={claimBusy === g.id}
-                className="shrink-0 text-xs font-semibold px-3 py-2 rounded-lg bg-gray-900 hover:bg-gray-700 text-white disabled:opacity-50"
+                aria-disabled={clash}
+                className={`shrink-0 font-text text-[12px] font-bold px-3 py-2 rounded-[12px] disabled:opacity-50 ${
+                  clash ? "bg-[#f1f5f9] text-gray-400" : "bg-gray-900 hover:bg-gray-700 text-white"
+                }`}
               >
-                {claimBusy === g.id ? "…" : t("portalGaTake", "Take it")}
+                {claimBusy === g.id
+                  ? "…"
+                  : clash
+                    ? t("portalGaBlocked", "Blocked")
+                    : t("portalGaTake", "Take it")}
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -2503,6 +2529,7 @@ function SwapTab({ token, ownShifts, onChanged }) {
  * direction (incoming = respond, outgoing = withdraw) and status. */
 /* Swap shifts arrive as ISO dates ("2026-06-05") — render them the way the
    rest of the portal speaks ("Fri 5 Jun" / "fre. 5. jun."), locale-aware. */
+
 function fmtSwapDay(iso, lang) {
   if (!iso) return iso;
   try {
