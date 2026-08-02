@@ -3507,7 +3507,7 @@ function AlertsTab({ token, onNavigate }) {
   const [loading, setLoading] = useState(true);
   // Captured at mount: marking read must not make rows vanish under the finger
   // while the staffer is still reading them.
-  const [seenAt, setSeenAt] = useState(() => readAlertsSeen(token));
+  const [seenAt] = useState(() => readAlertsSeen(token));
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
@@ -4235,7 +4235,15 @@ function MonthCalendar({
           let tappable = !past;
           if (approved) { fill = "bg-emerald-50"; ring = "ring-1 ring-inset ring-emerald-200"; num = "text-emerald-700 font-semibold"; tappable = false; }
           else if (pending) { fill = "bg-amber-50"; ring = "ring-1 ring-inset ring-amber-200"; num = "text-amber-700 font-semibold"; tappable = false; }
-          else if (oneOff) {
+          else if (oneOff && oneOff.kind === "preferred") {
+            // "Helst" — a soft yes. Green, and NOT struck through: this day is
+            // still workable, which is the whole difference from "kan ikke".
+            style = {
+              background: "linear-gradient(180deg,#dcfce7,#bbf7d0)",
+              border: "1px solid rgba(22,163,74,.35)",
+            };
+            num = "font-semibold";
+          } else if (oneOff) {
             style = {
               background: "linear-gradient(180deg,#fee2e2,#fecaca)",
               border: "1px solid rgba(239,68,68,.32)",
@@ -4261,9 +4269,9 @@ function MonthCalendar({
           // v2's ink for the red states; `past` still wins so history stays quiet.
           const cellStyle = past
             ? style
-            : { ...style, ...(oneOff ? { color: "#7f1d1d" } : recurring ? { color: "#b91c1c" } : null) };
+            : { ...style, ...(oneOff ? { color: oneOff.kind === "preferred" ? "#14532d" : "#7f1d1d" } : recurring ? { color: "#b91c1c" } : null) };
 
-          const shiftDot = oneOff ? "bg-red-700" : approved ? "bg-emerald-600" : pending ? "bg-amber-500" : "bg-gray-900";
+          const shiftDot = oneOff ? (oneOff.kind === "preferred" ? "bg-green-700" : "bg-red-700") : approved ? "bg-emerald-600" : pending ? "bg-amber-500" : "bg-gray-900";
 
           return (
             <button
@@ -4363,6 +4371,124 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
  * (ferie/sygdom) the owner APPROVES. One calm view over the existing
  * availability + absence endpoints; nothing here is cosmetic.
  */
+/**
+ * The fast surface: seven cells, one tap each.
+ *
+ * Cell treatment is the prototype's — red gradient + strike-through for "kan
+ * ikke", green gradient for "helst", flat #f5f8fb when free. A day already
+ * governed by an absence request is NOT tappable here, exactly as in the month
+ * view: that day belongs to the approval flow, and a soft tap must not look
+ * like it can override it.
+ */
+function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenceByDate, savingSet, onTapDay, lang, t }) {
+  const days = useMemo(() => {
+    const base = new Date();
+    base.setHours(0, 0, 0, 0);
+    const monday = new Date(base);
+    monday.setDate(base.getDate() - ((base.getDay() + 6) % 7) + weekOffset * 7);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      return d;
+    });
+  }, [weekOffset]);
+
+  const iso = (d) => d.toLocaleDateString("sv-SE");
+  const todayISO = new Date().toLocaleDateString("sv-SE");
+  const range = `${days[0].toLocaleDateString(localeFor(lang), { day: "numeric", month: "short" })} – ${days[6].toLocaleDateString(localeFor(lang), { day: "numeric", month: "short" })}`;
+  const markedThisWeek = days.filter((d) => oneOffByDate[iso(d)]).length;
+
+  return (
+    <div
+      className="bg-white"
+      style={{
+        border: "1px solid #e8edf3", borderRadius: 20, padding: 15,
+        boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
+      }}
+    >
+      <div className="flex items-center justify-between">
+        <button type="button" onClick={() => onShiftWeek(weekOffset - 1)} aria-label={t("portalPrevWeek", "Previous week")} style={{ color: "#94a3b8" }}>
+          <ChevronLeft size={16} strokeWidth={2.5} />
+        </button>
+        <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+          {range}
+        </span>
+        <button type="button" onClick={() => onShiftWeek(weekOffset + 1)} aria-label={t("portalNextWeek", "Next week")} style={{ color: "#94a3b8" }}>
+          <ChevronRight size={16} strokeWidth={2.5} />
+        </button>
+      </div>
+
+      <div className="flex" style={{ marginTop: 13, gap: 4 }}>
+        {days.map((d) => {
+          const key = iso(d);
+          const one = oneOffByDate[key];
+          const abs = absenceByDate[key];
+          const recurring = !one && recurringSet.has((d.getDay() + 6) % 7);
+          const past = key < todayISO;
+          const saving = savingSet.has(key);
+          const pref = one?.kind === "preferred";
+          const on = !!one;
+
+          let cell = { background: "#f5f8fb", border: "1px solid #eef2f7" };
+          let dow = "#94a3b8";
+          let num = "#0f172a";
+          let dot = "transparent";
+          if (abs) {
+            const ok = abs.status === "acknowledged" || abs.status === "covered";
+            cell = { background: ok ? "#ecfdf5" : "#fffbeb", border: `1px solid ${ok ? "#a7f3d0" : "#fde68a"}` };
+            dow = ok ? "#15803d" : "#b45309"; num = ok ? "#14532d" : "#92400e";
+          } else if (on && pref) {
+            cell = { background: "linear-gradient(180deg,#dcfce7,#bbf7d0)", border: "1px solid rgba(22,163,74,.35)" };
+            dow = "#15803d"; num = "#14532d"; dot = "#16a34a";
+          } else if (on) {
+            cell = { background: "linear-gradient(180deg,#fee2e2,#fecaca)", border: "1px solid rgba(239,68,68,.32)" };
+            dow = "#b91c1c"; num = "#7f1d1d"; dot = "#ef4444";
+          } else if (recurring) {
+            cell = { background: "#f5f8fb", border: "1px solid rgba(239,68,68,.32)" };
+            dow = "#b91c1c";
+          }
+
+          const locked = !!abs || past;
+          return (
+            <button
+              key={key}
+              type="button"
+              disabled={locked || saving}
+              onClick={() => onTapDay(key, { oneOff: one, abs, recurring })}
+              className="flex flex-col items-center"
+              style={{
+                flex: "1 1 0", minWidth: 0, gap: 5, padding: "9px 0 10px", borderRadius: 13,
+                transition: "all .2s", opacity: past ? 0.4 : saving ? 0.6 : 1,
+                cursor: locked ? "default" : "pointer", ...cell,
+              }}
+            >
+              <span style={{ font: "600 9.5px/1 var(--font-text)", color: dow }}>
+                {d.toLocaleDateString(localeFor(lang), { weekday: "short" }).replace(".", "").slice(0, 3)}
+              </span>
+              <span
+                className="tabular-nums"
+                style={{
+                  font: "700 13.5px/1 var(--font-display)", letterSpacing: "-0.02em", color: num,
+                  textDecoration: on && !pref ? "line-through" : "none",
+                }}
+              >
+                {d.getDate()}
+              </span>
+              <span style={{ width: 5, height: 5, borderRadius: 99, background: dot }} />
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ marginTop: 11, font: "600 11px/1 var(--font-text)", color: markedThisWeek ? "#16a34a" : "#94a3b8" }}>
+        {markedThisWeek
+          ? t("kanIkkeMarkedCount", "{n} marked this week").split("{n}").join(String(markedThisWeek))
+          : t("kanIkkeNothingMarked", "Nothing marked this week")}
+      </div>
+    </div>
+  );
+}
+
 function AvailabilityTab({ token, shifts }) {
   const { t, lang } = useLanguage();
   const [avail, setAvail] = useState(null);     // null = loading
@@ -4374,6 +4500,14 @@ function AvailabilityTab({ token, shifts }) {
   const [recurOpen, setRecurOpen] = useState(false);
   const [expandedDate, setExpandedDate] = useState(null);
   const [confirmWeekday, setConfirmWeekday] = useState(null); // { wd }
+  // Which kind a tap writes. "unavailable" is the default because it is the one
+  // that actually constrains the roster; "preferred" is a soft signal.
+  const [mode, setMode] = useState("unavailable");
+  // Collapsed by default: marking the next few days is the common errand, and a
+  // 7-cell strip makes it one tap with no month to scan. The month is one tap
+  // away for anything further out — collapsing must not cost reach.
+  const [calOpen, setCalOpen] = useState(false);
+  const [weekOffset, setWeekOffset] = useState(0);   // 0 = the week containing today
   const [err, setErr] = useState("");
 
   const loadAvail = async () => {
@@ -4391,8 +4525,11 @@ function AvailabilityTab({ token, shifts }) {
   const oneOffByDate = useMemo(() => {
     const m = {};
     (avail || []).forEach((a) => {
-      if (a.kind === "unavailable" && a.date) {
-        m[a.date] = { id: a.id, timed: !!a.start_time, start: a.start_time, end: a.end_time, note: a.note };
+      if (a.date) {
+        m[a.date] = {
+          id: a.id, timed: !!a.start_time, start: a.start_time, end: a.end_time, note: a.note,
+          kind: a.kind === "preferred" ? "preferred" : "unavailable",
+        };
       }
     });
     return m;
@@ -4400,7 +4537,9 @@ function AvailabilityTab({ token, shifts }) {
   const recurringByWeekday = useMemo(() => {
     const m = new Map();
     (avail || []).forEach((a) => {
-      if (a.kind === "unavailable" && a.date == null && a.weekday != null) m.set(a.weekday, a.id);
+      if (a.date == null && a.weekday != null) {
+        m.set(a.weekday, { id: a.id, kind: a.kind === "preferred" ? "preferred" : "unavailable" });
+      }
     });
     return m;
   }, [avail]);
@@ -4442,8 +4581,8 @@ function AvailabilityTab({ token, shifts }) {
     }
     if (oneOffByDate[iso]) return;                       // dedupe guard vs rapid double-tap
     withSaving(iso, true);
-    setAvail((rows) => [...(rows || []), { id: "tmp-" + iso, kind: "unavailable", date: iso, weekday: null, start_time: null, end_time: null, note: null }]);
-    try { await portalApi.post(`/portal/${token}/availability`, { date: iso, kind: "unavailable" }); await loadAvail(); }
+    setAvail((rows) => [...(rows || []), { id: "tmp-" + iso, kind: mode, date: iso, weekday: null, start_time: null, end_time: null, note: null }]);
+    try { await portalApi.post(`/portal/${token}/availability`, { date: iso, kind: mode }); await loadAvail(); }
     catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
     finally { withSaving(iso, false); }
   };
@@ -4457,7 +4596,7 @@ function AvailabilityTab({ token, shifts }) {
     catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
   };
   const removeWeekly = async (wd) => {
-    const id = recurringByWeekday.get(wd);
+    const id = recurringByWeekday.get(wd)?.id;
     setConfirmWeekday(null);
     if (!id) return;
     setAvail((rows) => (rows || []).filter((r) => r.id !== id));
@@ -4497,18 +4636,68 @@ function AvailabilityTab({ token, shifts }) {
 
   return (
     <div className="space-y-4">
+      {/* Which kind of day a tap marks. Both are real: "kan ikke" constrains
+          the roster, "helst" is a soft preference the manager sees while
+          planning. The copy for each says exactly that much and no more —
+          a preference does not reserve the shift. */}
+      <div className="flex" style={{ padding: 3, borderRadius: 14, background: "#e9eef4", gap: 3 }}>
+        {[
+          { key: "unavailable", label: t("kanIkkeModeCant", "Can't work") },
+          { key: "preferred", label: t("kanIkkeModePreferred", "Preferred") },
+        ].map((m) => {
+          const on = mode === m.key;
+          return (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => setMode(m.key)}
+              style={{
+                flex: 1, height: 34, borderRadius: 11,
+                font: "700 12px/1 var(--font-text)",
+                background: on ? "#fff" : "transparent",
+                color: on ? "#0f172a" : "#64748b",
+                boxShadow: on ? "0 2px 6px -2px rgba(15,23,42,.22)" : "none",
+                transition: "all .22s",
+              }}
+            >
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Intro — mental model + honesty boundary before the first tap */}
       <p className="text-[13px] leading-relaxed text-gray-600">
-        {t("kanIkkeCalIntro", "Tap the days you can't work. Your manager sees it while planning — a heads-up, not approved time off.")}
+        {mode === "preferred"
+          ? t("kanIkkeIntroPreferred", "Tap the days you'd like to work. A preference never books a shift — your manager just sees it while planning.")
+          : t("kanIkkeCalIntro", "Tap the days you can't work. Your manager sees it while planning — a heads-up, not approved time off.")}
       </p>
 
-      <MonthCalendar
-        viewYear={viewYear} viewMonth={viewMonth}
-        onPrev={goPrev} onNext={goNext} onToday={goToday} showToday={!isCurrentMonth}
-        oneOffByDate={oneOffByDate} recurringSet={recurringSet} absenceByDate={absenceByDate}
-        shiftSet={shiftSet} savingSet={savingSet}
-        onTapDay={tapDay} lang={lang} t={t}
-      />
+      {calOpen ? (
+        <MonthCalendar
+          viewYear={viewYear} viewMonth={viewMonth}
+          onPrev={goPrev} onNext={goNext} onToday={goToday} showToday={!isCurrentMonth}
+          oneOffByDate={oneOffByDate} recurringSet={recurringSet} absenceByDate={absenceByDate}
+          shiftSet={shiftSet} savingSet={savingSet}
+          onTapDay={tapDay} lang={lang} t={t}
+        />
+      ) : (
+        <WeekStrip
+          weekOffset={weekOffset} onShiftWeek={setWeekOffset}
+          oneOffByDate={oneOffByDate} recurringSet={recurringSet} absenceByDate={absenceByDate}
+          savingSet={savingSet} onTapDay={tapDay} lang={lang} t={t}
+        />
+      )}
+
+      <button
+        type="button"
+        onClick={() => setCalOpen((v) => !v)}
+        className="w-full flex items-center justify-center"
+        style={{ gap: 6, height: 38, borderRadius: 13, background: "#f5f8fb", border: "1px solid #eef2f7", font: "600 11.5px/1 var(--font-text)", color: "#64748b" }}
+      >
+        {calOpen ? t("kanIkkeShowWeek", "Show this week only") : t("kanIkkeShowMonth", "Pick another date")}
+        <ChevronDown size={13} strokeWidth={2.5} style={{ transform: calOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+      </button>
 
       {err && <div className="text-xs text-red-600">{err}</div>}
 

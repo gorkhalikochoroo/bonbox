@@ -843,23 +843,34 @@ export default function StaffSchedulePage() {
   const availByStaff = useMemo(() => {
     const m = {};
     for (const a of availability) {
-      if (a.kind && a.kind !== "unavailable") continue; // 'preferred' never blocks
+      // Keep BOTH kinds. "preferred" must never block a shift, but discarding
+      // it here meant a staffer could mark days they WANT and no one ever saw
+      // it — a control that writes to nowhere. Consumers below decide what a
+      // kind means; this map just carries it.
       (m[String(a.staff_id)] = m[String(a.staff_id)] || []).push(a);
     }
     return m;
   }, [availability]);
 
-  const unavailFor = useCallback((staffId, date) => {
+  const matchAvail = useCallback((staffId, date, kind) => {
     const list = availByStaff[String(staffId)];
     if (!list || !list.length) return null;
     const iso = toISO(date);
     const pyWd = (date.getDay() + 6) % 7; // JS Sun=0 → DK/Python Mon=0
     for (const a of list) {
+      const rowKind = a.kind === "preferred" ? "preferred" : "unavailable";
+      if (rowKind !== kind) continue;
       const match = a.date ? a.date === iso : a.weekday === pyWd;
       if (match) return { ...a, timeLabel: a.start_time ? `${a.start_time}–${a.end_time}` : null };
     }
     return null;
   }, [availByStaff]);
+
+  // Kept separate ON PURPOSE. Every caller of unavailFor treats a hit as a
+  // reason NOT to roster someone; a preference is the opposite signal and must
+  // never reach that path.
+  const unavailFor = useCallback((staffId, date) => matchAvail(staffId, date, "unavailable"), [matchAvail]);
+  const preferredFor = useCallback((staffId, date) => matchAvail(staffId, date, "preferred"), [matchAvail]);
 
   // Approved/pending fravær keyed by staff_id → { ISO date → row }. Excludes
   // declined ('cancelled'); a concrete absence outranks a standing "kan ikke".
@@ -2094,6 +2105,7 @@ export default function StaffSchedulePage() {
                 weekDates={weekDates}
                 getShiftForCell={getShiftForCell}
                 unavailFor={unavailFor}
+                preferredFor={preferredFor}
                 absenceFor={absenceFor}
                 costForShift={costForShift}
                 showCost={showCost}
@@ -2123,6 +2135,7 @@ export default function StaffSchedulePage() {
                 weekDates={weekDates}
                 getShiftForCell={getShiftForCell}
                 unavailFor={unavailFor}
+                preferredFor={preferredFor}
                 absenceFor={absenceFor}
                 currency={currency}
                 costForShift={costForShift}
@@ -4781,6 +4794,7 @@ function ScheduleGrid({
   weekDates,
   getShiftForCell,
   unavailFor,
+  preferredFor,
   absenceFor,
   onCellClick,
   onMoveShift,
@@ -4987,6 +5001,8 @@ function ScheduleGrid({
                       // the owner can still hand-place over them).
                       const abs = absenceFor?.(member.id, date) || null;
                       const blk = abs ? null : unavailFor(member.id, date);
+                      // A soft "helst" — shown, never treated as a block.
+                      const pref = abs || blk ? null : preferredFor(member.id, date);
                       const absLabel = abs ? absKindLabel(abs.kind, t) : "";
                       return (
                         <DroppableCell
@@ -4999,7 +5015,9 @@ function ScheduleGrid({
                               ? "bg-indigo-50/50 dark:bg-indigo-950/20"
                               : blk
                                 ? "bg-red-50/60 dark:bg-red-950/20"
-                                : isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
+                                : pref
+                                  ? "bg-emerald-50/60 dark:bg-emerald-950/20"
+                                  : isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
                           } hover:bg-gray-50 dark:hover:bg-gray-800/40`}
                           onClick={() => onCellClick(member.id, date, null)}
                           title={abs
