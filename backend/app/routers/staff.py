@@ -960,15 +960,45 @@ def _gen_join_code(n: int = 6) -> str:
     return "".join(secrets.choice(_JOIN_ALPHABET) for _ in range(n))
 
 
+# How long a join code stays valid. Long enough that an owner can text it and
+# the staffer connects before their next shift; short enough that a code
+# photographed off a staff-room whiteboard, or left in an old message thread,
+# is dead by the time anyone finds it.
+JOIN_CODE_TTL_DAYS = 7
+
+
+def _join_code_live(link: StaffLink) -> bool:
+    """True when the link's current code can still be redeemed."""
+    if not link.join_code:
+        return False
+    if link.code_used_at is not None:
+        return False
+    if link.code_expires_at is not None and link.code_expires_at <= utc_now():
+        return False
+    # Codes minted before migration 072 have no expiry stamp. Treat them as
+    # LIVE rather than silently dead — an owner mid-onboarding should not find
+    # a code they just shared has stopped working because of a deploy. They
+    # pick up a TTL the next time they are regenerated.
+    return True
+
+
 def _ensure_join_code(db: Session, link: StaffLink) -> str:
-    """Lazily assign a unique short join code to a link. Idempotent."""
-    if link.join_code:
+    """Get-or-mint the link's short join code.
+
+    Idempotent while the code is still live; mints a fresh one once it has been
+    redeemed or expired, so the owner never has to know the difference — they
+    ask for the code and get one that works.
+    """
+    if _join_code_live(link):
         return link.join_code
+    link.join_code = None      # release the old value so the unique index frees it
+    link.code_used_at = None
     for _ in range(8):
         code = _gen_join_code()
         clash = db.query(StaffLink.id).filter(StaffLink.join_code == code).first()
         if not clash:
             link.join_code = code
+            link.code_expires_at = utc_now() + timedelta(days=JOIN_CODE_TTL_DAYS)
             try:
                 db.commit()
                 return code
@@ -976,6 +1006,7 @@ def _ensure_join_code(db: Session, link: StaffLink) -> str:
                 db.rollback()
     # Astronomically unlikely fallback — widen the code space.
     link.join_code = _gen_join_code(8)
+    link.code_expires_at = utc_now() + timedelta(days=JOIN_CODE_TTL_DAYS)
     db.commit()
     return link.join_code
 

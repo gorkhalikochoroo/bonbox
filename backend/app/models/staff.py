@@ -291,6 +291,19 @@ class StaffLink(Base):
     # alphabet (no 0/O/1/I). Resolves to the same token; brute-force is bounded
     # by the public endpoint's hard per-IP rate limit.
     join_code: Mapped[Optional[str]] = mapped_column(String(12), nullable=True, unique=True, index=True)
+    # A join code is an ONBOARDING token, not a standing credential.
+    #
+    # Without these two fields it was neither: idempotent, permanent and
+    # infinitely reusable, so a code on a staff-room whiteboard, photographed,
+    # or sitting in a two-year-old message still opened the portal today — and
+    # the portal now carries bank last-4 and employment documents.
+    #
+    # Mirrors the pattern already used by StandLink (code_expires_at /
+    # code_used_at); this is a consistency fix, not a new invention. Each link
+    # belongs to ONE staff member, so burning a code on use costs nothing:
+    # "copy links for the whole team" still hands every person their own.
+    code_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    code_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     pin_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     # PIN brute-force lockout (multi-layer link protection): a per-LINK
     # counter — per-IP rate limits alone don't stop a distributed guesser

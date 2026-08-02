@@ -279,9 +279,24 @@ _JOIN_ALPHABET = set("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
 @router.post("/join")
 @limiter.limit("8/minute")
 def portal_join(payload: JoinCodeRequest, request: Request, db: Session = Depends(get_db)):
-    """Resolve a short join code → the staffer's portal path. Public + hard
-    rate-limited (the code space + per-IP cap make brute force infeasible).
-    A 404 is returned for every failure mode so codes can't be enumerated."""
+    """Resolve a short join code → the staffer's portal path.
+
+    Public and unauthenticated, so the defences are stacked deliberately:
+
+      • 32^6 ≈ 1.07e9 codes from an ambiguity-free alphabet (no O/0/I/1),
+        drawn with secrets.choice;
+      • 8/minute per IP;
+      • ONE indistinguishable 404 for every failure — unknown, malformed,
+        expired, already-used, revoked link, deleted member. Anything that
+        confirmed a code EXISTS is the signal an enumerator is paying for;
+      • codes EXPIRE (7 days) and BURN on redemption, so a guess has to land
+        inside a live window rather than against a permanent target.
+
+    Deliberately not claimed: that brute force is "infeasible". The per-IP cap
+    is the only volume control, so the ceiling scales with an attacker's IP
+    pool — ~9 days at 10k IPs against a permanent code. Expiry and single-use
+    are what actually shrink that target; the rate limit alone never did.
+    """
     code = (payload.code or "").strip().upper().replace(" ", "").replace("-", "")
     if not (6 <= len(code) <= 12) or any(c not in _JOIN_ALPHABET for c in code):
         raise HTTPException(status_code=404, detail="Ukendt kode")
@@ -292,6 +307,21 @@ def portal_join(payload: JoinCodeRequest, request: Request, db: Session = Depend
     )
     if not link:
         raise HTTPException(status_code=404, detail="Ukendt kode")
+
+    # A join code is an ONBOARDING token: it expires, and it burns on use.
+    #
+    # Same 404 as an unknown code, deliberately. "Expired" and "already used"
+    # are both confirmations that the code EXISTED, which is exactly the signal
+    # an enumerator wants — the whole endpoint returns one indistinguishable
+    # failure so a guesser learns nothing from any response.
+    #
+    # Codes minted before migration 072 carry no expiry and stay redeemable;
+    # they pick up a TTL when next regenerated. Nobody mid-onboarding loses a
+    # code they already shared because of a deploy.
+    if link.code_used_at is not None:
+        raise HTTPException(status_code=404, detail="Ukendt kode")
+    if link.code_expires_at is not None and link.code_expires_at <= utc_now():
+        raise HTTPException(status_code=404, detail="Ukendt kode")
     member = (
         db.query(StaffMember)
         .filter(StaffMember.id == link.staff_id, StaffMember.is_deleted.isnot(True))
@@ -301,6 +331,31 @@ def portal_join(payload: JoinCodeRequest, request: Request, db: Session = Depend
         raise HTTPException(status_code=404, detail="Ukendt kode")
     owner = db.query(User).filter(User.id == link.user_id).first()
     biz = getattr(owner, "business_name", None) if owner else None
+
+    # Burn the code. The staffer's device now holds the real credential (the
+    # 192-bit token), so the short code has done its whole job — leaving it live
+    # only widens the window for whoever else can see it. The owner can mint a
+    # fresh one any time; _ensure_join_code re-mints automatically once a code
+    # is used or expired, so they never have to think about it.
+    link.code_used_at = utc_now()
+    try:
+        from app.services import audit_service
+
+        audit_service.record(
+            db, link.user_id, "staff.join_code_redeemed", "staff_member",
+            entity_id=member.id, actor_type="staff",
+            ip_address=client_ip(request) if request else None,
+        )
+        db.commit()
+    except Exception as e:  # noqa: BLE001 — never block a staffer connecting
+        import logging
+
+        logging.getLogger(__name__).warning("join_code redeem audit failed: %s", e)
+        db.rollback()
+        # The burn itself is not optional — retry it alone.
+        link.code_used_at = utc_now()
+        db.commit()
+
     return {"path": portal_path(link.token, biz, member.name)}
 
 
