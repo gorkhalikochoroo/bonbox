@@ -3467,38 +3467,104 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
 
 // ─── Alerts Tab ──────────────────────────────────────────────────────────
 
-function AlertsTab({ token, staffName }) {
+/**
+ * Everything that changed since you last looked, newest first.
+ *
+ * Two things about the data this renders, both of which shape the design:
+ *
+ *   • Only FOUR event types ever reach a staffer. `GET /notifications` filters
+ *     on `staff_id == member.id`, and the other seven event types in the
+ *     backend are written with `staff_id=None` — they are owner rows. So the
+ *     map below is the complete set, not a sample.
+ *
+ *   • There is no read/unread column anywhere. The prototype's "N unread",
+ *     "Mark all read" and the unread row treatment all need a read state that
+ *     the server does not have. Rather than invent one, this uses the reading
+ *     the prototype's own copy implies — "since you last looked" — as a
+ *     per-device last-seen timestamp. It is honest about what it measures:
+ *     this device's last visit, not a synced account-wide receipt.
+ */
+const ALERT_SEEN_KEY = "bonbox_alerts_seen";
+
+function readAlertsSeen(token) {
+  try {
+    const all = JSON.parse(localStorage.getItem(ALERT_SEEN_KEY) || "{}");
+    return all[token] || null;
+  } catch { return null; }
+}
+
+function writeAlertsSeen(token, iso) {
+  try {
+    const all = JSON.parse(localStorage.getItem(ALERT_SEEN_KEY) || "{}");
+    all[token] = iso;
+    localStorage.setItem(ALERT_SEEN_KEY, JSON.stringify(all));
+  } catch { /* private mode — the feed still works, nothing is marked read */ }
+}
+
+function AlertsTab({ token, onNavigate }) {
   const { t, lang } = useLanguage();
   const [notifications, setNotifications] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Captured at mount: marking read must not make rows vanish under the finger
+  // while the staffer is still reading them.
+  const [seenAt, setSeenAt] = useState(() => readAlertsSeen(token));
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     setLoading(true);
     portalApi.get(`/portal/${token}/notifications`)
-      .then((res) => {
-        setNotifications(res.data.notifications || []);
-      })
-      .catch(() => {
-        setNotifications([]);
-      })
+      .then((res) => setNotifications(res.data.notifications || []))
+      .catch(() => setNotifications([]))
       .finally(() => setLoading(false));
   }, [token]);
 
   if (loading) return <LoadingSkeleton />;
 
-  const EVENT_ICONS = {
-    schedule_published: { Icon: Calendar, label: t("portalEvtSchedulePublished", "Schedule published") },
-    shift_changed: { Icon: ArrowLeftRight, label: t("portalEvtShiftChanged", "Shift changed") },
-    shift_deleted: { Icon: X, label: t("portalEvtShiftDeleted", "Shift cancelled") },
-  };
+  // Every schedule change also writes one push row per device whose subject is
+  // the app name ("BonBox · Vagtplan"), carrying no information. Dropping the
+  // push CHANNEL is what the old `channel === "in_app"` filter was reaching
+  // for, but that one broke for anyone with an email on file: their real row
+  // is logged as `email`, so the in_app list came back empty, the fail-open
+  // branch fired, and every alert appeared beside its contentless twin.
+  const all = notifications || [];
+  const content = all.filter((n) => n.channel !== "push");
+  const feed = content.length ? content : all;   // fail open rather than blank
 
-  // The feed is the IN-APP record. Every publish also writes a push/email
-  // delivery row whose subject is just the notification title ("BonBox ·
-  // Vagtplan") — showing those reads as contentless duplicates, so they are
-  // filtered out. Fail-open: if a staffer somehow has ONLY delivery rows,
-  // show them rather than an empty feed.
-  const inAppRows = (notifications || []).filter((n) => n.channel === "in_app");
-  const feed = inAppRows.length ? inAppRows : notifications || [];
+  const parsed = feed.map((n) => {
+    // The subject is machine-built as "<English verb> - <date label>". Split it
+    // so the row gets a translated title and keeps the date as the body — and
+    // read the VERB from the subject, not the event type: reassigning a shift
+    // away from someone is logged as `shift_changed` but reads "Shift
+    // cancelled", and a title contradicting its own body is worse than a
+    // generic one.
+    const subject = n.subject || "";
+    const cut = subject.lastIndexOf(" - ");
+    const detail = cut > 0 ? subject.slice(cut + 3) : subject;
+    const cancelled = /cancelled/i.test(subject);
+
+    let kind = n.event_type;
+    if (n.event_type === "shift_changed" && cancelled) kind = "shift_deleted";
+
+    const META = {
+      schedule_published: { Icon: Calendar, tone: "green", title: t("portalEvtSchedulePublished", "Schedule published"), tab: "schedule" },
+      shift_changed:      { Icon: Clock,    tone: "amber", title: t("portalEvtShiftChanged", "Shift changed"),        tab: "schedule" },
+      shift_deleted:      { Icon: CalendarOff, tone: "amber", title: t("portalEvtShiftDeleted", "Shift cancelled"),   tab: "schedule" },
+      // The staffer is already inside the portal, so there is nowhere useful to
+      // send them — no tab, deliberately.
+      staff_link_shared:  { Icon: Mail,     tone: "slate", title: t("portalEvtLinkShared", "Portal link sent"),       tab: null },
+    };
+    const meta = META[kind] || { Icon: Bell, tone: "slate", title: subject || n.event_type, tab: null };
+    const unread = !seenAt || (n.created_at || "") > seenAt;
+    return { n, meta, detail: detail === meta.title ? "" : detail, unread };
+  });
+
+  const unreadCount = dismissed ? 0 : parsed.filter((r) => r.unread).length;
+
+  const markAll = () => {
+    if (!unreadCount) return;
+    writeAlertsSeen(token, new Date().toISOString());
+    setDismissed(true);      // grey the rows in place; do not reshuffle the list
+  };
 
   if (!feed.length) {
     return (
@@ -3514,26 +3580,90 @@ function AlertsTab({ token, staffName }) {
     );
   }
 
+  const TONES = {
+    green: ["#dcfce7", "#16a34a"],
+    amber: ["#fef3c7", "#d97706"],
+    slate: ["#eef2f7", "#64748b"],
+  };
+
   return (
-    <div className="space-y-4">
-      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
-        {t("portalAlertsRecent", "Recent notifications")}
+    <div>
+      <div className="flex items-center justify-between">
+        <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+          {t("portalAlertsRecentShort", "Recent")}
+        </span>
+        <button
+          type="button"
+          onClick={markAll}
+          disabled={!unreadCount}
+          style={{ font: "600 11px/1 var(--font-text)", color: unreadCount ? "#16a34a" : "#cbd5e1" }}
+        >
+          {t("portalAlertsMarkAllRead", "Mark all read")}
+        </button>
       </div>
-      <div className="space-y-1.5">
-        {feed.map((n) => {
-          const evt = EVENT_ICONS[n.event_type] || { Icon: Bell, label: n.event_type };
-          const EvtIcon = evt.Icon;
-          const timeAgo = n.created_at ? formatTimeAgo(n.created_at, lang, t) : "";
+
+      <div className="flex flex-col" style={{ marginTop: 11, gap: 8 }}>
+        {parsed.map(({ n, meta, detail, unread: wasUnread }) => {
+          const unread = wasUnread && !dismissed;
+          const [bg, fg] = TONES[meta.tone];
+          const EvtIcon = meta.Icon;
+          const target = meta.tab && onNavigate ? meta.tab : null;
           return (
-            <div key={n.id} className="flex items-start gap-3 px-3 py-3 rounded-xl bg-white border border-gray-200">
-              <EvtIcon className="w-4 h-4 text-gray-500 mt-0.5" strokeWidth={2} aria-hidden />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-gray-900">{n.subject || evt.label}</div>
-                <div className="text-[11px] text-gray-400 mt-1">{timeAgo}</div>
-              </div>
-            </div>
+            <button
+              key={n.id}
+              type="button"
+              onClick={target ? () => onNavigate(target) : undefined}
+              // A row that goes nowhere must not pretend to be pressable.
+              style={{
+                display: "flex", alignItems: "flex-start", gap: 11,
+                padding: "13px 14px", borderRadius: 17, textAlign: "left",
+                cursor: target ? "pointer" : "default",
+                background: unread ? "#fff" : "rgba(255,255,255,.5)",
+                border: `1px solid ${unread ? "#e8edf3" : "#eef2f7"}`,
+                boxShadow: unread ? "0 1px 2px rgba(15,23,42,.04), 0 14px 28px -26px rgba(15,23,42,.4)" : "none",
+              }}
+            >
+              <span
+                style={{
+                  width: 34, height: 34, flex: "none", borderRadius: 12,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: bg, color: fg,
+                }}
+              >
+                <EvtIcon size={17} strokeWidth={1.85} aria-hidden />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="flex items-baseline justify-between" style={{ gap: 8 }}>
+                  <span style={{ font: `${unread ? 700 : 600} 12.5px/1.2 var(--font-text)`, color: unread ? "#0f172a" : "#475569" }}>
+                    {meta.title}
+                  </span>
+                  <span style={{ font: "500 10.5px/1 var(--font-text)", color: "#94a3b8", flex: "none" }}>
+                    {n.created_at ? formatTimeAgo(n.created_at, lang, t) : ""}
+                  </span>
+                </span>
+                {detail && (
+                  <span className="block" style={{ marginTop: 5, font: "400 11.5px/1.45 var(--font-text)", color: "#64748b", textWrap: "pretty" }}>
+                    {detail}
+                  </span>
+                )}
+              </span>
+              <span
+                style={{
+                  width: 7, height: 7, flex: "none", marginTop: 6, borderRadius: 99,
+                  background: "#16a34a", opacity: unread ? 1 : 0,
+                }}
+              />
+            </button>
           );
         })}
+      </div>
+
+      {/* The prototype says "Alerts older than 30 days are cleared
+          automatically." That is not true of this backend: the endpoint takes
+          the last 30 ROWS and no job ever purges by age. Ship what the code
+          actually does. */}
+      <div style={{ marginTop: 16, textAlign: "center", font: "400 11px/1.5 var(--font-text)", color: "#94a3b8" }}>
+        {t("portalAlertsFooter", "Showing your last 30 updates.")}
       </div>
     </div>
   );
@@ -5871,7 +6001,7 @@ export default function StaffPortalPage() {
           <SwapTab token={token} ownShifts={shifts} onChanged={loadData} />
         )}
         {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} range={hoursRange} setRange={setHoursRange} prevTotal={prevTotal} hoursError={hoursError} hoursLoading={hoursLoading} />}
-        {tab === "alerts" && <AlertsTab token={token} staffName={info?.staff_name} />}
+        {tab === "alerts" && <AlertsTab token={token} onNavigate={setTab} />}
       </div>
 
       {/* Bottom Navigation */}
