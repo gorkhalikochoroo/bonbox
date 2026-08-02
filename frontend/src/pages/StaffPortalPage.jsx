@@ -2337,7 +2337,7 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
   const [to, setTo] = useState(initial?.end || "");
 
   const iso = (d) => d.toLocaleDateString("sv-SE");
-  const anchor = anchorMonth ? new Date(anchorMonth) : new Date();
+  const anchor = anchorMonth ? new Date(`${anchorMonth}T00:00:00`) : new Date();
   const Y = anchor.getFullYear();
   const M = anchor.getMonth();
   const monthName = (off) =>
@@ -2369,10 +2369,21 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
     },
   ];
 
+  // Three years back, matching the server's floor exactly. A client bound looser
+  // than the server's is worse than none: it lets the staffer pick a date that
+  // looks legal, and the request 400s after the sheet has already closed.
+  const floorISO = (() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 3);
+    d.setDate(d.getDate() + 1);           // stay inside the server's 365*3 days
+    return d.toLocaleDateString("sv-SE");
+  })();
+
   const problem = (() => {
     if (!from || !to) return null;
     if (to < from) return t("portalHoursRangeBackwards", "The end date is before the start date");
-    if ((new Date(to) - new Date(from)) / 86400000 > 366) return t("portalHoursRangeTooWide", "Pick a year or less");
+    if ((new Date(`${to}T00:00:00`) - new Date(`${from}T00:00:00`)) / 86400000 > 366) return t("portalHoursRangeTooWide", "Pick a year or less");
+    if (from < floorISO) return t("portalHoursRangeTooOld", "We keep three years of hours");
     return null;
   })();
   const ready = from && to && !problem;
@@ -2427,11 +2438,11 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
         <div className="flex" style={{ gap: 10, marginTop: 8 }}>
           <label style={{ flex: 1, minWidth: 0 }}>
             <span style={cap}>{t("portalHoursFrom", "From")}</span>
-            <input type="date" value={from} max={todayISO} onChange={(e) => setFrom(e.target.value)} style={field} />
+            <input type="date" value={from} min={floorISO} max={todayISO} onChange={(e) => setFrom(e.target.value)} style={field} />
           </label>
           <label style={{ flex: 1, minWidth: 0 }}>
             <span style={cap}>{t("portalHoursTo", "To")}</span>
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={field} />
+            <input type="date" value={to} min={from || floorISO} onChange={(e) => setTo(e.target.value)} style={field} />
           </label>
         </div>
         {problem && (
@@ -2468,9 +2479,14 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
   );
 }
 
-function HoursTab({ data, maxHours, range, setRange, prevTotal }) {
+function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hoursError, hoursLoading }) {
   const { t, lang } = useLanguage();
   const [customOpen, setCustomOpen] = useState(false);
+  // The permit cap is monthly. Against a chosen window of any other length the
+  // ratio is meaningless — and it drives an amber/red "permit nearly blown"
+  // alarm, so a wrong one is not a cosmetic slip. Suppress it unless we are
+  // looking at the owner's own pay period.
+  const maxHours = range ? null : maxHoursRaw;
 
   // Group the period's own entries into ISO weeks for the by-week chart.
   // Derived from the SAME entries the list below renders, so the bars can never
@@ -2483,18 +2499,22 @@ function HoursTab({ data, maxHours, range, setRange, prevTotal }) {
       const th = new Date(d);
       th.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));   // Thursday of this week
       const jan4 = new Date(th.getFullYear(), 0, 4);
-      return 1 + Math.round(((th - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+      const week = 1 + Math.round(((th - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+      // th is the Thursday, so ITS year is the ISO week-year by definition.
+      return { key: `${th.getFullYear()}-${String(week).padStart(2, "0")}`, week };
     };
     const buckets = new Map();
     for (const e of data?.entries || []) {
-      const w = isoWeek(e.date);
-      if (w === null) continue;                                // never bucket a date we cannot read
-      buckets.set(w, (buckets.get(w) || 0) + (Number(e.total_hours) || 0));
+      const k = isoWeek(e.date);
+      if (k === null) continue;                                // never bucket a date we cannot read
+      buckets.set(k.key, (buckets.get(k.key) || 0) + (Number(e.total_hours) || 0));
     }
+    // Key is `${isoYear}-${week}` so a range crossing New Year does not collide
+    // W52 of one year with W52 of the next, or sort W01 before W52.
     const rows = [...buckets.entries()]
-      .sort((a, b) => a[0] - b[0])
+      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
       .slice(-5)                                               // v2 shows five columns
-      .map(([w, n]) => ({ w: `W${w}`, n: Math.round(n * 100) / 100, v: String(Math.round(n * 100) / 100) }));
+      .map(([k, n]) => ({ w: `W${k.split("-")[1]}`, n: Math.round(n * 100) / 100, v: String(Math.round(n * 100) / 100) }));
     rows.max = rows.reduce((m, r) => Math.max(m, r.n), 0) || 1;
     return rows;
   }, [data?.entries]);
@@ -2515,10 +2535,14 @@ function HoursTab({ data, maxHours, range, setRange, prevTotal }) {
   // headline. Deliberately "so far", not "worked": with hours_source=schedule
   // these are ROSTERED shifts, and claiming they were worked would assert a
   // punch we do not have.
-  const soFar = (data.entries || [])
+  const soFarRaw = (data.entries || [])
     .filter((e) => (e.date || "") < todayISO)
     .reduce((a, e) => a + (Number(e.total_hours) || 0), 0);
-  const ahead = Math.round((data.total_hours - soFar) * 100) / 100;
+  const soFar = Math.round(soFarRaw * 100) / 100;
+  // Round the difference of the ROUNDED parts. Differencing the raw float
+  // against an already-rounded total leaves residue like 0.0000001, which
+  // reads as "hours still left" in a period that closed months ago.
+  const ahead = Math.round((Math.round(data.total_hours * 100) / 100 - soFar) * 100) / 100;
   // Entries arrive newest-first, so the soonest upcoming one is the LAST that
   // is still ahead of today.
   const nextUp = [...(data.entries || [])].reverse().find((e) => (e.date || "") >= todayISO);
@@ -2564,8 +2588,35 @@ function HoursTab({ data, maxHours, range, setRange, prevTotal }) {
         }}
       >
         {fmtShort(data.period_start, lang)} – {fmtShort(data.period_end, lang)}
-        <ChevronDown size={16} strokeWidth={2.5} style={{ color: "#94a3b8" }} />
+        {hoursLoading
+          ? <RefreshCw size={14} strokeWidth={2.5} className="animate-spin" style={{ color: "#94a3b8" }} />
+          : <ChevronDown size={16} strokeWidth={2.5} style={{ color: "#94a3b8" }} />}
       </button>
+
+      {hoursError && (
+        <div
+          className="flex items-start"
+          style={{
+            gap: 9, padding: "11px 13px", borderRadius: 14,
+            background: "#fef2f2", border: "1px solid #fecaca",
+            font: "600 12px/1.45 var(--font-text)", color: "#b91c1c",
+          }}
+        >
+          <AlertTriangle size={15} strokeWidth={2.4} style={{ flex: "none", marginTop: 1 }} />
+          <span>
+            {typeof hoursError === "string" ? hoursError : t("portalHoursLoadFailed", "Could not load that period")}
+            {range && (
+              <button
+                type="button"
+                onClick={() => setRange(null)}
+                style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c" }}
+              >
+                {t("portalHoursBackToDefault", "Back to my pay period")}
+              </button>
+            )}
+          </span>
+        </div>
+      )}
 
       {/* Period info */}
       {/* v2 dark stat card. Note the bloom sits BOTTOM-LEFT here at .34, where
@@ -5171,11 +5222,33 @@ export default function StaffPortalPage() {
   // Hours are fetched separately from the rest: they are the one panel with a
   // caller-chosen window, so they refetch when the staffer picks a period
   // without re-pulling the schedule, covers and open shifts behind it.
+  const [hoursError, setHoursError] = useState(null);
+  const [hoursLoading, setHoursLoading] = useState(false);
+  const hoursSeq = useRef(0);
+
   const loadHours = useCallback(() => {
     const q = hoursRange ? `?start=${hoursRange.start}&end=${hoursRange.end}` : "";
+    // Sequence guard: the retry interceptor can make an earlier request land
+    // AFTER a later one, and the earlier one describes a window the staffer has
+    // already moved off. Only the newest request may write.
+    const seq = ++hoursSeq.current;
+    setHoursLoading(true);
     portalApi.get(`/portal/${token}/hours${q}`)
-      .then((res) => setHoursData(res.data))
-      .catch(() => {});
+      .then((res) => {
+        if (seq !== hoursSeq.current) return;
+        setHoursData(res.data);
+        setHoursError(null);
+      })
+      .catch((err) => {
+        if (seq !== hoursSeq.current) return;
+        // Never swallow this. The staffer picked a window and closed a sheet;
+        // if we drop the failure they are left reading the PREVIOUS period's
+        // numbers under the PREVIOUS period's label, with nothing on screen
+        // saying so — the tap looks like it did nothing, and the rejected
+        // window stays selected so every later refetch fails the same way.
+        setHoursError(err?.response?.data?.detail || true);
+      })
+      .finally(() => { if (seq === hoursSeq.current) setHoursLoading(false); });
   }, [token, hoursRange]);
 
   useEffect(() => {
@@ -5193,23 +5266,26 @@ export default function StaffPortalPage() {
   const [prevTotal, setPrevTotal] = useState(null);
   useEffect(() => {
     if (!(pinVerified && info) || !hoursData?.period_start || !hoursData?.period_end) return;
-    const ps = new Date(hoursData.period_start);
-    const pe = new Date(hoursData.period_end);
+    const ps = new Date(`${hoursData.period_start}T00:00:00`);
+    const pe = new Date(`${hoursData.period_end}T00:00:00`);
     const span = Math.round((pe - ps) / 86400000) + 1;
     const prevEnd = new Date(ps); prevEnd.setDate(prevEnd.getDate() - 1);
     const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate() - span + 1);
     const iso = (d) => d.toLocaleDateString("sv-SE");
     const [a, b] = [iso(prevStart), iso(prevEnd)];
     let cancelled = false;
+    setPrevTotal(null);   // clear FIRST: the old value describes the old window
     portalApi.get(`/portal/${token}/hours?start=${a}&end=${b}`)
       .then((res) => {
         if (cancelled) return;
-        const ok = res.data?.period_start === a && res.data?.period_end === b;
-        setPrevTotal(ok ? Number(res.data.total_hours) : null);
+        const sameWindow = res.data?.period_start === a && res.data?.period_end === b;
+        const sameBasis =
+          (res.data?.hours_source || "schedule") === (hoursData.hours_source || "schedule");
+        setPrevTotal(sameWindow && sameBasis ? Number(res.data.total_hours) : null);
       })
       .catch(() => { if (!cancelled) setPrevTotal(null); });
     return () => { cancelled = true; };
-  }, [token, pinVerified, info, hoursData?.period_start, hoursData?.period_end]);
+  }, [token, pinVerified, info, hoursData?.period_start, hoursData?.period_end, hoursData?.hours_source]);
 
   useEffect(() => {
     if (pinVerified && info) loadData();
@@ -5794,7 +5870,7 @@ export default function StaffPortalPage() {
         {tab === "swaps" && (
           <SwapTab token={token} ownShifts={shifts} onChanged={loadData} />
         )}
-        {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} range={hoursRange} setRange={setHoursRange} prevTotal={prevTotal} />}
+        {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} range={hoursRange} setRange={setHoursRange} prevTotal={prevTotal} hoursError={hoursError} hoursLoading={hoursLoading} />}
         {tab === "alerts" && <AlertsTab token={token} staffName={info?.staff_name} />}
       </div>
 
