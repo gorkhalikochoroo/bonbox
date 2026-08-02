@@ -1012,7 +1012,7 @@ function addDaysToDate(d, days) {
  *   • One tap → server returns confirmed_count → small "✓ N shifts
  *     confirmed" inline confirmation that fades after 4s.
  */
-function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange }) {
+function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange, allShifts}) {
   const { t } = useLanguage();
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -1027,11 +1027,26 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange }) {
 
   if (publishedShifts.length === 0) return null;
 
+  // Confirming is scoped to what is on screen, so a department selection can
+  // leave the window's OTHER branches unconfirmed while this view rests on
+  // "thanks". Say so, rather than letting the calm state imply everything is
+  // done — the staffer would never find the remaining shifts.
+  const visibleIds = new Set(publishedShifts.map((sh) => sh.id));
+  const unconfirmedElsewhere = (allShifts || []).filter(
+    (sh) => sh.status === "published" && !sh.confirmed_at && !visibleIds.has(sh.id),
+  ).length;
+
   const submit = async () => {
     setSubmitting(true);
     setError("");
     try {
-      const res = await portalApi.post(`/portal/${token}/confirm-schedule`, {});
+      // Send the ids on screen. With a department selected the list is a
+      // SUBSET of the server's window, and an unscoped confirm stamps shifts at
+      // another branch that were filtered out and never read — then reports a
+      // count that disagrees with what is displayed.
+      const res = await portalApi.post(`/portal/${token}/confirm-schedule`, {
+        shift_ids: publishedShifts.filter((sh) => !sh.confirmed_at).map((sh) => sh.id),
+      });
       haptic.light(); // a quiet physical ack — confirm is routine, not ceremonial
       const n = res?.data?.confirmed_count ?? 0;
       setFeedback(n > 0
@@ -1074,6 +1089,12 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange }) {
           <Check className="w-4 h-4 shrink-0 text-gray-400" strokeWidth={2.5} aria-hidden />
           <span>{t("portalConfirmedThanks", "You've confirmed this schedule. Thanks!")}</span>
         </div>
+        {unconfirmedElsewhere > 0 && (
+          <div className="w-full text-center text-[11px] text-amber-700">
+            {t("portalConfirmOtherDept", "{n} shifts at another location are still unconfirmed — switch to All.")
+              .split("{n}").join(String(unconfirmedElsewhere))}
+          </div>
+        )}
         {needChangeLink}
       </div>
     );
@@ -1518,7 +1539,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, coversByShift, onShiftsChanged, onNeedChange, onOpenAvailability }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, coversByShift, onShiftsChanged, onNeedChange, onOpenAvailability, allShifts}) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -2012,6 +2033,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
         <ConfirmScheduleButton
           token={token}
           shifts={shifts}
+          allShifts={allShifts}
           onConfirmed={onShiftsChanged}
           onNeedChange={() => {
             setShowSick(true);
@@ -2559,15 +2581,44 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
     }
     // Key is `${isoYear}-${week}` so a range crossing New Year does not collide
     // W52 of one year with W52 of the next, or sort W01 before W52.
-    const rows = [...buckets.entries()]
-      .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+    const sorted = [...buckets.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    const rows = sorted
       .slice(-5)                                               // v2 shows five columns
       .map(([k, n]) => ({ w: `W${k.split("-")[1]}`, n: Math.round(n * 100) / 100, v: String(Math.round(n * 100) / 100) }));
     rows.max = rows.reduce((m, r) => Math.max(m, r.n), 0) || 1;
+    // Flagged, not hidden: with a long custom window these five bars are a tail,
+    // not the whole period, so they cannot add up to the headline above them.
+    rows.truncated = sorted.length > rows.length;
     return rows;
   }, [data?.entries]);
 
-  if (!data) return <LoadingSkeleton />;
+  if (!data) {
+    // A failed FIRST fetch also leaves data null. Showing the skeleton then is
+    // an eternal spinner with no way out, so the error wins over the skeleton.
+    if (hoursError) {
+      return (
+        <div
+          className="flex items-start"
+          style={{
+            gap: 9, padding: "11px 13px", borderRadius: 14,
+            background: "#fef2f2", border: "1px solid #fecaca",
+            font: "600 12px/1.45 var(--font-text)", color: "#b91c1c",
+          }}
+        >
+          <AlertTriangle size={15} strokeWidth={2.4} style={{ flex: "none", marginTop: 1 }} />
+          <span>
+            {typeof hoursError === "string" ? hoursError : t("portalHoursLoadFailed", "Could not load that period")}
+            {range && (
+              <button type="button" onClick={() => setRange(null)} style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c" }}>
+                {t("portalHoursBackToDefault", "Back to my pay period")}
+              </button>
+            )}
+          </span>
+        </div>
+      );
+    }
+    return <LoadingSkeleton />;
+  }
 
   const pct = maxHours && maxHours > 0 ? Math.min(100, (data.total_hours / maxHours) * 100) : null;
   const remaining = maxHours ? Math.max(0, maxHours - data.total_hours) : null;
@@ -2781,7 +2832,11 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
               {t("portalHoursByWeek", "By week")}
             </span>
-            <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>{t("portalHrsShort")}</span>
+            <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>
+              {weekBars.truncated
+                ? t("portalHoursLastNWeeks", "last {n} weeks").split("{n}").join(String(weekBars.length))
+                : t("portalHrsShort")}
+            </span>
           </div>
           <div className="flex items-end" style={{ marginTop: 16, gap: 9, height: 104 }}>
             {weekBars.map((b) => (
@@ -4502,7 +4557,7 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
               key={key}
               type="button"
               disabled={locked || saving}
-              onClick={() => onTapDay(key, { oneOff: one, abs, recurring })}
+              onClick={() => onTapDay(key, { oneOff: one, abs, recurring, wd: (d.getDay() + 6) % 7 })}
               className="flex flex-col items-center"
               style={{
                 flex: "1 1 0", minWidth: 0, gap: 5, padding: "9px 0 10px", borderRadius: 13,
@@ -4665,7 +4720,9 @@ function AvailabilityTab({ token, shifts }) {
     // POST would leave TWO rows for one date (backend has no dedup/unique).
     try { await portalApi.delete(`/portal/${token}/availability/${row.id}`); }
     catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); return; }
-    const body = { date: row.date, kind: "unavailable" };
+    // Preserve the row's OWN kind. Hardcoding "unavailable" here silently
+    // converted a "Helst" day to "Kan ikke" the moment its hours were edited.
+    const body = { date: row.date, kind: row.kind === "preferred" ? "preferred" : "unavailable" };
     if (!allDay) { body.start_time = start; body.end_time = end; }
     if (note && note.trim()) body.note = note.trim();
     try { await portalApi.post(`/portal/${token}/availability`, body); await loadAvail(); }
@@ -5052,6 +5109,108 @@ function InstallNotifyCard({ token }) {
  *   POST /portal/{token}/push/subscribe    → upserts the row.
  *   POST /portal/{token}/push/unsubscribe  → cleans up.
  */
+/**
+ * The pre-shift reminder, reachable from the PROFILE.
+ *
+ * It also lives inside StaffPushOptIn, but that component renders only on the
+ * Schedule tab and only on web (`tab === "schedule" && !isNativeApp()`) — so
+ * once switched on it could not be switched OFF from the native app at all,
+ * and on web only from one tab. A setting you can turn on and not off is not a
+ * setting. Profile is reachable everywhere, so the off switch lives here too.
+ */
+function ShiftReminderRow({ token }) {
+  const { t } = useLanguage();
+  const [minutes, setMinutes] = useState(undefined);   // undefined = not loaded
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let cancel = false;
+    portalApi.get(`/portal/${token}/reminder`)
+      .then((r) => { if (!cancel) setMinutes(r.data?.minutes ?? null); })
+      .catch(() => { if (!cancel) setMinutes(null); });
+    return () => { cancel = true; };
+  }, [token]);
+
+  if (minutes === undefined) return null;              // never flash a wrong state
+
+  const save = async (next) => {
+    setBusy(true); setErr("");
+    const prev = minutes;
+    setMinutes(next);
+    try {
+      await portalApi.post(`/portal/${token}/reminder`, { minutes: next });
+    } catch {
+      setMinutes(prev);                                 // never claim an opt-in the server refused
+      setErr(t("staffPushSaveFailed", "Couldn't save — try again."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="pt-3 border-t border-[#f1f5f9]">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold text-gray-900">{t("staffRemindTitle", "Remind me before a shift")}</div>
+          <div className="text-[11px] text-gray-400">
+            {minutes
+              ? t("staffRemindOnHint", "We'll tap you {n} minutes before you start.").split("{n}").join(String(minutes))
+              : t("staffRemindNeedsPush", "Needs notifications switched on for this device.")}
+          </div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={!!minutes}
+          disabled={busy}
+          onClick={() => save(minutes ? null : 60)}
+          className="flex-shrink-0 disabled:opacity-50"
+          style={{
+            width: 42, height: 25, borderRadius: 99, padding: 3, display: "flex",
+            transition: "background .25s",
+            background: minutes ? "linear-gradient(180deg,#22c55e,#16a34a)" : "#dbe3ec",
+            boxShadow: "inset 0 1px 2px rgba(15,23,42,.14)",
+          }}
+        >
+          <span
+            style={{
+              width: 19, height: 19, borderRadius: 99, background: "#fff",
+              boxShadow: "0 1px 3px rgba(15,23,42,.35)",
+              transition: "transform .25s cubic-bezier(.3,1.4,.5,1)",
+              transform: minutes ? "translateX(17px)" : "translateX(0)",
+            }}
+          />
+        </button>
+      </div>
+      {minutes && (
+        <div className="flex" style={{ gap: 6, marginTop: 10 }}>
+          {[30, 60, 120, 180].map((m) => (
+            <button
+              key={m}
+              type="button"
+              disabled={busy}
+              onClick={() => save(m)}
+              style={{
+                flex: 1, padding: "7px 0", borderRadius: 10,
+                font: `${minutes === m ? 700 : 600} 11px/1 var(--font-text)`,
+                background: minutes === m ? "linear-gradient(180deg,#1e293b,#0f172a)" : "#f5f8fb",
+                color: minutes === m ? "#fff" : "#64748b",
+                border: `1px solid ${minutes === m ? "transparent" : "#e8edf3"}`,
+              }}
+            >
+              {m < 60
+                ? t("staffRemindMin", "{n} min").split("{n}").join(String(m))
+                : t("staffRemindHr", "{n} h").split("{n}").join(String(m / 60))}
+            </button>
+          ))}
+        </div>
+      )}
+      {err && <p className="mt-2 text-[11px] text-red-600">{err}</p>}
+    </div>
+  );
+}
+
 function StaffPushOptIn({ token }) {
   const { t } = useLanguage();
   const [supported, setSupported] = useState(true);
@@ -5365,86 +5524,6 @@ function StaffPushOptIn({ token }) {
 }
 
 
-/**
- * SyncPill — the honest freshness indicator in the portal header.
- *
- * Hard rule (see MEMORY "honest claims"): the pill must reflect REAL state.
- *   • Offline                       → "Offline", gray, CloudOff. Never "Synced".
- *   • Online + synced < 45s ago     → "Synced", emerald dot + RefreshCw.
- *   • Online + synced ≥ 45s ago     → "Synced HH:MM", gray, tap to refetch.
- *   • Online + never synced yet     → "Synced HH:MM" falls back to a plain
- *     "Sync" affordance (no lastSynced) so we never imply freshness we lack.
- *
- * It's a button so the stale/online state is tappable to force a refetch;
- * onRefresh is the parent's loadData. Re-renders are driven by the parent's
- * freshness ticker so the label decays without a new fetch.
- */
-function SyncPill({ isOnline, live, lastSynced, onRefresh, t }) {
-  const FRESH_MS = 45000;
-  const ageMs = lastSynced ? Date.now() - lastSynced.getTime() : Infinity;
-  const isFresh = isOnline && lastSynced && ageMs < FRESH_MS;
-
-  if (!isOnline) {
-    return (
-      <span
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-[11px] font-medium text-gray-400"
-        role="status"
-      >
-        <CloudOff className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
-        {t("portalOffline")}
-      </span>
-    );
-  }
-
-  // Live — the realtime stream is open, so changes land instantly. This is
-  // the ONE honest "live/now" use of the full emerald pill (green exclusivity:
-  // LIVE keeps the pill; mere freshness gets the quiet gray+dot below). Solid
-  // dot, NO animate-ping — the clocked-in ping in the hero owns the pulse.
-  // Only shown when truly connected (never imply "live" while polling).
-  if (live) {
-    return (
-      <button
-        type="button"
-        onClick={onRefresh}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 active:scale-[0.98] transition"
-        title={t("portalLive")}
-        aria-label={t("portalLive")}
-      >
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden />
-        {t("portalLive")}
-      </button>
-    );
-  }
-
-  if (isFresh) {
-    return (
-      <button
-        type="button"
-        onClick={onRefresh}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-[11px] font-medium text-gray-500 hover:bg-gray-200 active:scale-[0.98] transition"
-        title={t("portalSynced")}
-        aria-label={t("portalSynced")}
-      >
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden />
-        {t("portalSynced")}
-      </button>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={onRefresh}
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-[11px] font-medium text-gray-500 hover:bg-gray-200 transition"
-      title={t("portalSynced")}
-    >
-      <RefreshCw className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
-      {lastSynced
-        ? t("portalSyncedAt", { time: fmtClock(lastSynced) })
-        : t("portalSynced")}
-    </button>
-  );
-}
 
 export default function StaffPortalPage() {
   const { token } = useParams();
@@ -5829,12 +5908,16 @@ export default function StaffPortalPage() {
   useEffect(() => {
     if (!(pinVerified && info)) return;
 
+    // Hours are fetched separately (they carry a caller-chosen window), so
+    // every refresh trigger has to drive BOTH or they drift apart.
+    const refreshAll = () => { loadData(); loadHours(); };
+
     const onVisible = () => {
-      if (document.visibilityState === "visible") loadData();
+      if (document.visibilityState === "visible") refreshAll();
     };
     const onOnline = () => {
       setIsOnline(true);
-      loadData();
+      refreshAll();
     };
     const onOffline = () => setIsOnline(false);
 
@@ -5843,7 +5926,7 @@ export default function StaffPortalPage() {
     window.addEventListener("offline", onOffline);
 
     const pollId = setInterval(() => {
-      if (document.visibilityState === "visible") loadData();
+      if (document.visibilityState === "visible") refreshAll();
     }, liveConnected ? 60000 : 20000);
 
     return () => {
@@ -5852,7 +5935,7 @@ export default function StaffPortalPage() {
       window.removeEventListener("offline", onOffline);
       clearInterval(pollId);
     };
-  }, [pinVerified, info, loadData, liveConnected]);
+  }, [pinVerified, info, loadData, loadHours, liveConnected]);
 
   // 2e. Realtime stream (Phase 2) — instant push the moment the owner
   // publishes. Opens a Server-Sent Events connection to the portal stream; on
@@ -5872,7 +5955,7 @@ export default function StaffPortalPage() {
       return; // EventSource unavailable → poll-only, harmless no-op
     }
 
-    const onPublished = () => loadData();
+    const onPublished = () => { loadData(); loadHours(); };
     es.onopen = () => setLiveConnected(true);
     es.onerror = () => setLiveConnected(false); // browser keeps auto-reconnecting
     es.addEventListener("schedule_published", onPublished);
@@ -5882,7 +5965,7 @@ export default function StaffPortalPage() {
       try { es.removeEventListener("schedule_published", onPublished); } catch { /* noop */ }
       try { es.close(); } catch { /* noop */ }
     };
-  }, [pinVerified, info, token, loadData]);
+  }, [pinVerified, info, token, loadData, loadHours]);
 
   // 2c. Freshness ticker — re-render the pill every 15s so "Synced" decays to
   // "Synced HH:MM" as data ages, independent of any fetch.
@@ -6067,7 +6150,11 @@ export default function StaffPortalPage() {
                 {pinVerified && info && (
                   <>
                     {" · "}
-                    <span style={{ color: liveConnected && isOnline ? "#16a34a" : "#94a3b8" }}>
+                    <button
+                      type="button"
+                      onClick={() => { loadData(); loadHours(); }}
+                      style={{ color: liveConnected && isOnline ? "#16a34a" : "#94a3b8" }}
+                    >
                       {!isOnline
                         ? t("portalOffline")
                         : liveConnected
@@ -6075,7 +6162,7 @@ export default function StaffPortalPage() {
                           : lastSynced && Date.now() - lastSynced.getTime() < 45000
                             ? t("portalSynced")
                             : t("portalTapToRefresh", "Tap to refresh")}
-                    </span>
+                    </button>
                   </>
                 )}
               </div>
@@ -6424,6 +6511,7 @@ export default function StaffPortalPage() {
               {/* Employment documents the owner has shared. Renders nothing
                   when there are none — the staffer cannot request one here, so
                   an empty section would be an empty promise. */}
+              <ShiftReminderRow token={token} />
               <DocumentsSection token={token} />
 
               {/* Language — moved here from the header (design). Staff pick DA / EN. */}
@@ -6518,6 +6606,7 @@ export default function StaffPortalPage() {
         {tab === "schedule" && (
           <ScheduleTab
             shifts={visibleShifts}
+            allShifts={shifts}
             coversByShift={coversByShift}
             teamShifts={teamShifts}
             openShifts={openShifts}

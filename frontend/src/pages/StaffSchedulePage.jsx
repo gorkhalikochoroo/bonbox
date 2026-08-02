@@ -4041,7 +4041,7 @@ function CostControls({ showCost, onToggleShowCost, costBasis, onCostBasis, t })
   );
 }
 
-function MobileSchedule({ staff, weekDates, getShiftForCell, costForShift, showCost, weekCost, costBasis, targetPct, t, onCellClick, unavailFor, absenceFor }) {
+function MobileSchedule({ staff, weekDates, getShiftForCell, costForShift, showCost, weekCost, costBasis, targetPct, t, onCellClick, unavailFor, preferredFor, absenceFor }) {
   // Default to today within the current week range. If the user navigated
   // to a different week (Previous/Next), today falls outside — pick the
   // middle of the week (Thursday) as a sensible default.
@@ -4229,6 +4229,10 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, costForShift, showC
             // outranks a standing "kan ikke" (red); both only on empty rows.
             const mAbs = !shift ? (absenceFor?.(member.id, selectedDate) || null) : null;
             const mBlk = !shift && !mAbs ? (unavailFor?.(member.id, selectedDate) || null) : null;
+            // A staffer can now mark days they WANT. Reading as plain "OFF"
+            // beside a red "Can't work" made the preference invisible on the
+            // one screen it exists to inform.
+            const mPref = !shift && !mAbs && !mBlk ? (preferredFor?.(member.id, selectedDate) || null) : null;
 
             return (
               <button
@@ -4283,6 +4287,11 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, costForShift, showC
                   <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 bg-red-100/70 dark:bg-red-900/30">
                     <CalendarOff className="w-3 h-3 text-red-400 dark:text-red-400" strokeWidth={2} aria-hidden />
                     <span className="text-[10px] font-medium text-red-400 dark:text-red-400 tabular-nums">{mBlk.timeLabel || t("schedKanIkkeCell", "Can't work")}</span>
+                  </span>
+                ) : mPref ? (
+                  <span className="inline-flex items-center gap-1 rounded-md px-2 py-1 bg-emerald-100/70 dark:bg-emerald-900/30">
+                    <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" strokeWidth={2.5} aria-hidden />
+                    <span className="text-[10px] font-medium text-emerald-600 dark:text-emerald-400 tabular-nums">{mPref.timeLabel || t("schedHelstCell", "Prefers")}</span>
                   </span>
                 ) : (
                   <div className="text-[11px] text-gray-400 dark:text-gray-500 flex items-center gap-1">

@@ -78,7 +78,13 @@ def send_due_shift_reminders(db: Session) -> dict:
 
     members = (
         db.query(StaffMember)
-        .filter(StaffMember.shift_reminder_minutes.isnot(None))
+        .filter(
+            StaffMember.shift_reminder_minutes.isnot(None),
+            # Deactivated staff must never be pushed to. Every sibling query in
+            # the portal gates on this; the sweep did not, so a fired staffer
+            # kept getting "your shift starts at 16:00" until someone noticed.
+            StaffMember.active.is_(True),
+        )
         .all()
     )
     if not members:

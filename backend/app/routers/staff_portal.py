@@ -654,9 +654,21 @@ def get_portal_schedule(token: str, request: Request, db: Session = Depends(get_
 # ─────────────────────────────────────────────────────────────────────────
 
 
+class ConfirmScheduleBody(BaseModel):
+    # Optional and defaulted: an older cached bundle posts `{}` and must keep
+    # confirming the whole window. Present, it NARROWS — it is layered on top of
+    # the existing staff/tenant/window/status guards and can never widen them.
+    shift_ids: list[str] | None = None
+
+
 @router.post("/{token}/confirm-schedule")
 @limiter.limit("10/minute")
-def confirm_schedule(token: str, request: Request, db: Session = Depends(get_db)):
+def confirm_schedule(
+    token: str,
+    request: Request,
+    body: ConfirmScheduleBody | None = None,
+    db: Session = Depends(get_db),
+):
     """Mark every published shift in the visible 3-week window as
     confirmed by this staff member. Idempotent — re-tapping changes
     nothing.
@@ -681,6 +693,20 @@ def confirm_schedule(token: str, request: Request, db: Session = Depends(get_db)
         Schedule.status == "published",
         Schedule.confirmed_at.is_(None),
     ).all()
+
+    # Scope the write to what the staffer actually SAW. The portal now has a
+    # department switcher, so the on-screen list can be a subset of the window;
+    # without this the tap stamped confirmed_at on shifts at another branch that
+    # were deliberately filtered out and never read — and reported a count that
+    # disagreed with the screen.
+    if body is not None and body.shift_ids:
+        wanted = set()
+        for raw in body.shift_ids[:200]:          # bounded: it is a narrowing list, not a page size
+            try:
+                wanted.add(uuid.UUID(str(raw)))
+            except (ValueError, AttributeError, TypeError):
+                continue
+        pending = [s_ for s_ in pending if s_.id in wanted]
 
     now = utc_now()
     for s in pending:
@@ -2140,6 +2166,13 @@ def get_portal_notifications(token: str, request: Request, db: Session = Depends
         .filter(
             NotificationLog.staff_id == member.id,
             NotificationLog.user_id == link.user_id,
+            # Delivery rows are not feed items. Every push fan-out writes one
+            # whose subject is just the app name ("BonBox · Vagtplan"), and the
+            # pre-shift reminder writes one PER SHIFT purely as its dedup
+            # record. Excluding them here means the limit below counts thirty
+            # things a staffer can actually read — before this, a week of
+            # reminders could push every real alert past the cutoff.
+            NotificationLog.channel != "push",
         )
         .order_by(NotificationLog.created_at.desc())
         .limit(30)
