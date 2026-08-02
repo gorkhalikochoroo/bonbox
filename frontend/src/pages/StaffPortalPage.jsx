@@ -336,8 +336,8 @@ function HolidaySection({ token }) {
   });
 
   return (
-    <div className="pt-3 border-t border-gray-100">
-      <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-2">
+    <div className="pt-3 border-t border-[#f1f5f9]">
+      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
         {t("portalHolidaySection", "Feriedage")}
       </div>
       <div className="flex items-baseline gap-2">
@@ -414,8 +414,8 @@ function DocumentsSection({ token }) {
   if (!docs || docs.length === 0) return null;
 
   return (
-    <div className="pt-3 border-t border-gray-100">
-      <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-2">
+    <div className="pt-3 border-t border-[#f1f5f9]">
+      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
         {t("portalDocsSection", "Contract & documents")}
       </div>
       <div className="space-y-1.5">
@@ -556,8 +556,8 @@ export function BankSection({ token }) {
   if (state === null) return null;  // no skeleton — it's one row inside a form
 
   return (
-    <div className="pt-3 border-t border-gray-100">
-      <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-2">
+    <div className="pt-3 border-t border-[#f1f5f9]">
+      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
         {t("portalBankSection", "Bank account")}
       </div>
 
@@ -613,7 +613,7 @@ export function BankSection({ token }) {
                 value={reg}
                 onChange={(e) => setReg(e.target.value)}
                 placeholder="1234"
-                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 tabular-nums placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+                className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 tabular-nums placeholder:text-gray-400 outline-none focus:border-gray-900/30"
               />
             </div>
             <div className="flex-1">
@@ -624,7 +624,7 @@ export function BankSection({ token }) {
                 value={acct}
                 onChange={(e) => setAcct(e.target.value)}
                 placeholder="5678901234"
-                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 tabular-nums placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+                className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 tabular-nums placeholder:text-gray-400 outline-none focus:border-gray-900/30"
               />
             </div>
           </div>
@@ -872,9 +872,9 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
   const maxIso = toLocalISO(addDaysToDate(new Date(), 14));
 
   return (
-    <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-3">
+    <div className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between">
-        <div className="font-semibold text-gray-900 text-sm flex items-center gap-1.5"><Thermometer className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalCallInSick", "Call in sick")}</div>
+        <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><Thermometer className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalCallInSick", "Call in sick")}</div>
         <button
           onClick={() => { setOpen(false); setError(""); setReason(""); }}
           className="text-gray-500 hover:text-gray-700 text-lg leading-none w-6 h-6 flex items-center justify-center"
@@ -891,7 +891,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
           min={todayIso}
           max={maxIso}
           onChange={(e) => setDate(e.target.value)}
-          className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-amber-500/40"
+          className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-amber-500/40"
         />
         {matchingShift && (
           <div className="mt-1 text-[11px] text-gray-500">
@@ -908,7 +908,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
           onChange={(e) => setReason(e.target.value.slice(0, 500))}
           rows={2}
           placeholder={t("portalSickReasonPlaceholder", "e.g. fever 39C, doctor advised rest")}
-          className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-amber-500/40 resize-none"
+          className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-amber-500/40 resize-none"
         />
       </div>
       {error && (
@@ -1428,7 +1428,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
-      <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2 flex items-center gap-1.5">
         <CalendarPlus className="w-3.5 h-3.5" />
         {t("portalOpenTitle", "Open shifts")}
       </div>
@@ -1723,19 +1723,19 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
               {nextShift.break_minutes > 0 ? (
                 // With a break, the split is meaningful: gross span · unpaid break · net.
                 <>
-                  <span className="rounded-md bg-white/[0.07] px-2 py-1 text-[12px] font-semibold text-gray-300 tabular-nums">
+                  <span className="rounded-full bg-white/[0.07] px-2 py-1 text-[12px] font-semibold text-gray-300 tabular-nums">
                     {t("portalHoursGross", "{h} shift", { h: fmtHM(grossHrs(nextShift)) })}
                   </span>
-                  <span className="rounded-md bg-white/[0.07] px-2 py-1 text-[12px] font-semibold text-gray-300 tabular-nums">
+                  <span className="rounded-full bg-white/[0.07] px-2 py-1 text-[12px] font-semibold text-gray-300 tabular-nums">
                     {t("portalHoursBreak", "{m} min break", { m: nextShift.break_minutes })}
                   </span>
-                  <span className="rounded-md bg-emerald-400/15 px-2 py-1 text-[12px] font-bold text-emerald-300 tabular-nums">
+                  <span className="rounded-full bg-emerald-400/15 px-2 py-1 text-[12px] font-bold text-emerald-300 tabular-nums">
                     {t("portalHoursNet", "{h} net", { h: fmtHM(nextShift.net_hours) })}
                   </span>
                 </>
               ) : (
                 // No break → gross == net, so ONE chip (avoids a redundant "8t shift · 8t net").
-                <span className="rounded-md bg-emerald-400/15 px-2 py-1 text-[12px] font-bold text-emerald-300 tabular-nums">
+                <span className="rounded-full bg-emerald-400/15 px-2 py-1 text-[12px] font-bold text-emerald-300 tabular-nums">
                   {t("portalHoursGross", "{h} shift", { h: fmtHM(nextShift.net_hours) })}
                 </span>
               )}
@@ -1973,7 +1973,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
           {/* Eyebrow stays a pure uppercase-tracked label; the date range drops
               to its own quiet line instead of muddying the tracked eyebrow. */}
           <div>
-            <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">
+            <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500">
               {weekView === "this" ? t("portalSecThisWeek", "This week") : t("portalSecNextWeek", "Next week")}
             </div>
             <div className="text-[11px] text-gray-400 tabular-nums mt-0.5">
@@ -2102,7 +2102,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
         {weekView === "this" && (() => {
           const fs = expandedShift || nextShift;
           return (
-            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
+            <div className="mt-3 pt-3 border-t border-[#f1f5f9] flex items-center justify-between gap-3">
               {fs ? (
                 <div className="flex items-center gap-2.5 min-w-0">
                   <span className={`w-1.5 h-8 rounded-full shrink-0 ${roleBarColor(fs.role_on_shift)}`} aria-hidden />
@@ -2241,9 +2241,9 @@ function HoursTab({ data, maxHours }) {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl bg-white border border-gray-200 p-3">
+        <div className="rounded-2xl bg-white border border-[#e8edf3] p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           <div className="text-[11px] text-gray-500 mb-1">{hoursLabel}</div>
-          <div className="text-2xl font-bold text-gray-900">
+          <div className="font-display text-2xl font-bold tabular-nums tracking-[-0.030em] text-gray-900">
             {data.total_hours} {maxHours ? <span className="text-sm text-gray-500">/ {maxHours}</span> : null}
           </div>
           {pct !== null && (
@@ -2263,9 +2263,9 @@ function HoursTab({ data, maxHours }) {
             </>
           )}
         </div>
-        <div className="rounded-xl bg-white border border-gray-200 p-3">
+        <div className="rounded-2xl bg-white border border-[#e8edf3] p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           <div className="text-[11px] text-gray-500 mb-1">{t("portalHoursShiftsCount", "Shifts")}</div>
-          <div className="text-2xl font-bold text-gray-900">{data.entries.length}</div>
+          <div className="font-display text-2xl font-bold tabular-nums tracking-[-0.030em] text-gray-900">{data.entries.length}</div>
           <div className="text-[11px] text-gray-500">{t("portalHoursThisPeriod", "this period")}</div>
         </div>
       </div>
@@ -2280,13 +2280,13 @@ function HoursTab({ data, maxHours }) {
 
       {/* Recent / upcoming shifts */}
       <div>
-        <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">{recentLabel}</div>
+        <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">{recentLabel}</div>
         <div className="space-y-1.5">
           {data.entries.length === 0 && (
             <div className="text-sm text-gray-400 py-4 text-center">{emptyLabel}</div>
           )}
           {data.entries.map((h, i) => (
-            <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white border border-gray-200">
+            <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-[18px] bg-white border border-[#e8edf3] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
               <span className="text-sm text-gray-500">
                 {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
               </span>
@@ -2317,7 +2317,7 @@ function HoursTab({ data, maxHours }) {
         if (extra.length === 0) return null; // nothing new to surface
         return (
           <div>
-            <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+            <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
               {t("portalHoursRecentlyClocked", "Recently clocked")}
               <span className="ml-1 font-normal text-gray-400 normal-case tracking-normal">
                 · {t("portalHoursRecentlyClockedWindow", "last {n} days", { n: winDays })}
@@ -2325,7 +2325,7 @@ function HoursTab({ data, maxHours }) {
             </div>
             <div className="space-y-1.5">
               {extra.map((h, i) => (
-                <div key={`rc-${i}`} className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-white border border-gray-200">
+                <div key={`rc-${i}`} className="flex items-center justify-between px-3 py-2.5 rounded-[18px] bg-white border border-[#e8edf3] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                   <span className="text-sm text-gray-500">
                     {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
                   </span>
@@ -2453,10 +2453,10 @@ function SwapTab({ token, ownShifts, onChanged }) {
             {t("portalGaPoolHeading", "Shifts up for grabs")}
           </div>
           {claimErr && (
-            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">{claimErr}</div>
+            <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-[14px] px-2.5 py-1.5">{claimErr}</div>
           )}
           {pool.map((g) => (
-            <div key={g.id} className="rounded-xl bg-white border border-gray-200 p-3 flex items-center gap-3">
+            <div key={g.id} className="rounded-[18px] bg-white border border-[#e8edf3] p-3 flex items-center gap-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
               <div className="flex-1 min-w-0">
                 <div className="text-sm text-gray-900">
                   <span className="font-semibold">{fmtSwapDay(g.from_shift_date, lang)}</span>
@@ -2597,7 +2597,7 @@ function SwapRow({ swap, token, onChanged }) {
         )}
       </div>
       <div className={`grid gap-2 text-[11px] ${isGiveaway ? "grid-cols-1" : "grid-cols-2"}`}>
-        <div className="bg-gray-50 rounded p-1.5">
+        <div className="bg-[#f5f8fb] rounded-[13px] p-1.5">
           <div className="text-[10px] text-gray-500">
             {isGiveaway ? t("portalGaShiftLabel", "Shift") : t("portalSwapGives", "Gives")}
           </div>
@@ -2605,7 +2605,7 @@ function SwapRow({ swap, token, onChanged }) {
           <div className="text-gray-500">{swap.from_shift_time}</div>
         </div>
         {!isGiveaway && (
-          <div className="bg-gray-50 rounded p-1.5">
+          <div className="bg-[#f5f8fb] rounded-[13px] p-1.5">
             <div className="text-[10px] text-gray-500">{t("portalSwapGets", "Gets")}</div>
             <div className="text-gray-900">{fmtSwapDay(swap.to_shift_date, lang)}</div>
             <div className="text-gray-500">{swap.to_shift_time}</div>
@@ -2708,9 +2708,9 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
   };
 
   return (
-    <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-3">
+    <div className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between">
-        <div className="font-semibold text-gray-900 text-sm flex items-center gap-1.5">
+        <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5">
           <Send className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />
           {t("portalGaSellCta", "Give away a shift")}
         </div>
@@ -2728,7 +2728,7 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
       <select
         value={shiftId}
         onChange={(e) => setShiftId(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-800"
+        className="w-full px-3 py-2 rounded-[14px] border border-[#e2e8f0] bg-[#fbfdff] text-sm text-gray-800"
       >
         <option value="">{t("portalGaPickShift", "Pick your shift…")}</option>
         {upcomingOwn.map((s) => (
@@ -2743,10 +2743,10 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
         onChange={(e) => setReason(e.target.value)}
         maxLength={200}
         placeholder={t("portalGaReasonPh", "Reason (optional — colleagues see it)")}
-        className="w-full px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm text-gray-800"
+        className="w-full px-3 py-2 rounded-[14px] border border-[#e2e8f0] bg-[#fbfdff] text-sm text-gray-800"
       />
       {error && (
-        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">{error}</div>
+        <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-[14px] px-2.5 py-1.5">{error}</div>
       )}
       <button
         onClick={submit}
@@ -2810,9 +2810,9 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
   };
 
   return (
-    <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-3">
+    <div className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
       <div className="flex items-center justify-between">
-        <div className="font-semibold text-gray-900 text-sm flex items-center gap-1.5"><ArrowLeftRight className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalOfferSwap", "Offer to swap")}</div>
+        <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><ArrowLeftRight className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalOfferSwap", "Offer to swap")}</div>
         <button
           onClick={onClose}
           className="text-gray-500 hover:text-gray-700 text-lg w-6 h-6 flex items-center justify-center"
@@ -2829,7 +2829,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
         <select
           value={fromShiftId}
           onChange={(e) => { setFromShiftId(e.target.value); setToShiftId(""); }}
-          className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-gray-900"
+          className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-gray-900"
         >
           <option value="">{t("portalSwapPickOwn", "Pick one of your shifts…")}</option>
           {upcomingOwn.map((s) => (
@@ -2848,7 +2848,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
           <select
             value={toShiftId}
             onChange={(e) => setToShiftId(e.target.value)}
-            className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-gray-900"
+            className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-gray-900"
           >
             <option value="">{t("portalSwapPickTeammate", "Pick a teammate's shift…")}</option>
             {candidateTeamShifts.map((s) => (
@@ -2869,7 +2869,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
           onChange={(e) => setReason(e.target.value.slice(0, 500))}
           rows={2}
           placeholder={t("portalSwapReasonPlaceholder", "e.g. family wedding, doctor appt")}
-          className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900 resize-none"
+          className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900 resize-none"
         />
       </div>
 
@@ -2930,7 +2930,7 @@ function AlertsTab({ token, staffName }) {
       <div className="space-y-4">
         <div className="text-center py-12">
           <Bell className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
-          <h3 className="text-base font-semibold text-gray-900 mb-1">{t("portalAlertsEmptyTitle", "No notifications yet")}</h3>
+          <h3 className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.2] text-gray-900 mb-1">{t("portalAlertsEmptyTitle", "No notifications yet")}</h3>
           <p className="text-sm text-gray-500">
             {t("portalAlertsEmptyBody", "You'll see shift reminders, schedule updates, and tip notifications here.")}
           </p>
@@ -2941,7 +2941,7 @@ function AlertsTab({ token, staffName }) {
 
   return (
     <div className="space-y-4">
-      <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
         {t("portalAlertsRecent", "Recent notifications")}
       </div>
       <div className="space-y-1.5">
@@ -3106,7 +3106,7 @@ function MessagesTab({ token, restaurantName, onRead }) {
               strokeWidth={2}
               aria-hidden
             />
-            <h3 className="text-base font-semibold text-gray-900 mb-1">
+            <h3 className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.2] text-gray-900 mb-1">
               {t("staffChatEmptyTitle", "No messages yet")}
             </h3>
             <p className="text-sm text-gray-500">
@@ -3214,8 +3214,8 @@ function LoadingSkeleton() {
   return (
     <div className="space-y-3 animate-pulse">
       <div className="grid grid-cols-2 gap-3">
-        <div className="h-20 bg-gray-100 rounded-xl" />
-        <div className="h-20 bg-gray-100 rounded-xl" />
+        <div className="h-20 bg-[#eef2f7] rounded-2xl" />
+        <div className="h-20 bg-[#eef2f7] rounded-2xl" />
       </div>
       {[1, 2, 3, 4].map((i) => (
         <div key={i} className="h-14 bg-gray-100 rounded-xl" />
@@ -3230,7 +3230,7 @@ function LoadingSkeleton() {
 function PortalError({ message }) {
   const { t } = useLanguage();
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+    <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center p-6">
       <div className="text-center max-w-xs">
         <Inbox className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
         <h1 className="text-xl font-bold text-gray-900 mb-2">{t("portalErrorTitle", "Link not working")}</h1>
@@ -3357,12 +3357,12 @@ function AbsenceSection({ token, onChanged }) {
           {groups.map((g) => {
             const st = STATUS[g.status] || STATUS.pending;
             return (
-              <div key={g.ids[0]} className="rounded-xl bg-white border border-gray-200 p-3 flex items-center gap-3">
+              <div key={g.ids[0]} className="rounded-[18px] bg-white border border-[#e8edf3] p-3 flex items-center gap-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                 <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
                   <CalendarPlus className="w-[18px] h-[18px] text-gray-500" strokeWidth={2} aria-hidden />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold text-gray-900 truncate">
+                  <div className="font-display text-[14px] font-bold tracking-[-0.025em] tabular-nums text-gray-900 truncate">
                     {KIND_LABEL[g.kind] || g.kind} · {fmtRange(g.startDate, g.endDate)}
                   </div>
                   {g.reason && <div className="text-[12px] text-gray-500 truncate">{g.reason}</div>}
@@ -3408,18 +3408,18 @@ function AbsenceSection({ token, onChanged }) {
             <div>
               <label className="text-[10px] text-gray-500 mb-1 block">{t("fravaerFrom", "From")}</label>
               <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-gray-900/30" />
+                className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-gray-900/30" />
             </div>
             <div>
               <label className="text-[10px] text-gray-500 mb-1 block">{t("fravaerTo", "To (optional)")}</label>
               <input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 outline-none focus:border-gray-900/30" />
+                className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-gray-900/30" />
             </div>
           </div>
           <input
             type="text" value={reason} maxLength={80} onChange={(e) => setReason(e.target.value)}
             placeholder={t("fravaerNotePlaceholder", "Note (optional)")}
-            className="w-full px-3 py-2.5 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+            className="w-full px-3 py-2.5 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
           />
           <div className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-snug">
             {t("fravaerNeedsApproval", "This is a request — your manager must approve it.")}
@@ -3427,7 +3427,7 @@ function AbsenceSection({ token, onChanged }) {
           {err && <div className="text-xs text-red-600">{err}</div>}
           <div className="flex gap-2">
             <button onClick={() => { setAdding(false); reset(); }}
-              className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition">
+              className="flex-1 py-2.5 rounded-[14px] bg-[#f1f5f9] text-gray-700 font-text text-[13px] font-bold hover:bg-[#e2e8f0] transition">
               {t("portalCancel", "Cancel")}
             </button>
             <button onClick={submit} disabled={saving}
@@ -3469,7 +3469,7 @@ function MonthCalendar({
       {/* Month nav — mutates view only, never data */}
       <div className="flex items-center justify-between px-1 pb-1">
         <button type="button" onClick={onPrev} aria-label={t("kanIkkePrevMonth", "Previous month")}
-          className="w-9 h-9 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-lg flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition">
+          className="w-9 h-9 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-[11px] flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-[#eef2f7] transition">
           <ChevronLeft className="w-5 h-5" strokeWidth={2} aria-hidden />
         </button>
         <div className="flex items-center gap-2 min-w-0">
@@ -3482,7 +3482,7 @@ function MonthCalendar({
           )}
         </div>
         <button type="button" onClick={onNext} aria-label={t("kanIkkeNextMonth", "Next month")}
-          className="w-9 h-9 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-lg flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition">
+          className="w-9 h-9 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 rounded-[11px] flex items-center justify-center text-gray-500 hover:text-gray-900 hover:bg-[#eef2f7] transition">
           <ChevronRight className="w-5 h-5" strokeWidth={2} aria-hidden />
         </button>
       </div>
@@ -3610,7 +3610,7 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
           <CalendarOff className="w-[18px] h-[18px] text-white" strokeWidth={2} aria-hidden />
         </div>
         <button type="button" onClick={onToggle} className="min-w-0 flex-1 text-left">
-          <div className="text-sm font-semibold text-gray-900 truncate">{label}</div>
+          <div className="font-display text-[14px] font-bold tracking-[-0.025em] tabular-nums text-gray-900 truncate">{label}</div>
           <div className="text-[12px] text-gray-500 truncate">
             {timeText}{row.note ? ` · ${row.note}` : ` · ${t("kanIkkeAddTimeNote", "Add a time / note")}`}
           </div>
@@ -3621,7 +3621,7 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
         </button>
       </div>
       {expanded && (
-        <div className="px-3 pb-3 pt-3 space-y-3 border-t border-gray-100">
+        <div className="px-3 pb-3 pt-3 space-y-3 border-t border-[#f1f5f9]">
           <label className="flex items-center justify-between cursor-pointer">
             <span className="text-[13px] font-medium text-gray-700">{t("kanIkkeAllDay", "All day")}</span>
             <button type="button" role="switch" aria-checked={allDay} onClick={() => setAllDay(!allDay)}
@@ -3632,15 +3632,15 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
           {!allDay && (
             <div className="flex items-center gap-2">
               <input type="time" value={start} onChange={(e) => setStart(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm outline-none focus:border-gray-900/30" />
+                className="flex-1 px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm outline-none focus:border-gray-900/30" />
               <span className="text-gray-400" aria-hidden>–</span>
               <input type="time" value={end} onChange={(e) => setEnd(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm outline-none focus:border-gray-900/30" />
+                className="flex-1 px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm outline-none focus:border-gray-900/30" />
             </div>
           )}
           <input type="text" value={note} maxLength={80} onChange={(e) => setNote(e.target.value)}
             placeholder={t("kanIkkeNotePlaceholder", "Note (optional) — e.g. exam")}
-            className="w-full px-3 py-2.5 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30" />
+            className="w-full px-3 py-2.5 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30" />
           <button type="button" onClick={() => onSave(allDay, start, end, note)}
             className="w-full py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 transition">
             {t("kanIkkeSave", "Save")}
@@ -3866,7 +3866,7 @@ function AvailabilityTab({ token, shifts }) {
       )}
 
       {/* Divider — a different kind of thing below */}
-      <div className="h-px bg-gray-100" />
+      <div className="h-px bg-[#f1f5f9]" />
 
       {/* Fravær — a request the owner approves (distinct from the soft calendar taps) */}
       <AbsenceSection token={token} onChanged={loadAbsence} />
@@ -3874,12 +3874,12 @@ function AvailabilityTab({ token, shifts }) {
       {/* Remove-weekly-rule scoped confirm (blast-radius honesty) */}
       {confirmWeekday && (
         <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true">
-          <button type="button" className="absolute inset-0 bg-black/40" onClick={() => setConfirmWeekday(null)} aria-label={t("portalCancel", "Cancel")} />
+          <button type="button" className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px]" onClick={() => setConfirmWeekday(null)} aria-label={t("portalCancel", "Cancel")} />
           <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3">
             <div className="text-base font-bold text-gray-900">{t("kanIkkeRemoveWeeklyTitle", "Remove this weekly rule?")}</div>
             <p className="text-[13px] text-gray-600">{t("kanIkkeRemoveWeeklyBody", "This clears every {day}.").split("{day}").join(WD[confirmWeekday.wd])}</p>
             <div className="flex gap-2 pt-1">
-              <button type="button" onClick={() => setConfirmWeekday(null)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition">{t("portalCancel", "Cancel")}</button>
+              <button type="button" onClick={() => setConfirmWeekday(null)} className="flex-1 py-2.5 rounded-[14px] bg-[#f1f5f9] text-gray-700 font-text text-[13px] font-bold hover:bg-[#e2e8f0] transition">{t("portalCancel", "Cancel")}</button>
               <button type="button" onClick={() => removeWeekly(confirmWeekday.wd)} className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition">{t("kanIkkeRemove", "Remove")}</button>
             </div>
           </div>
@@ -4015,7 +4015,7 @@ function InstallNotifyCard({ token }) {
 
       {/* Expanded: the install affordance + push opt-in (unchanged behaviour). */}
       {expanded && (
-        <div className="px-3 pb-3 border-t border-gray-100">
+        <div className="px-3 pb-3 border-t border-[#f1f5f9]">
           <div className="text-[12px] text-gray-500 mt-2 leading-relaxed">
             {t(
               "staffInstallSub",
@@ -4028,7 +4028,7 @@ function InstallNotifyCard({ token }) {
             <button
               type="button"
               onClick={doInstall}
-              className="mt-2.5 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold bg-gray-900 text-white hover:bg-gray-700 transition"
+              className="mt-2.5 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-[12px] font-text text-[12px] font-bold bg-gray-900 text-white hover:bg-gray-700 transition"
             >
               <Download className="w-4 h-4" strokeWidth={2} aria-hidden />
               {t("staffInstallBtn", "Install app")}
@@ -4044,7 +4044,7 @@ function InstallNotifyCard({ token }) {
                 href="https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-[12px] font-semibold bg-gray-900 text-white hover:bg-gray-700 transition"
+                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-[12px] font-text text-[12px] font-bold bg-gray-900 text-white hover:bg-gray-700 transition"
               >
                 <Apple className="w-4 h-4" strokeWidth={2} aria-hidden />
                 {t("staffGetSchedulerApp", "Get the BonBox Scheduler app")}
@@ -4845,7 +4845,7 @@ export default function StaffPortalPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-2 border-gray-300 border-t-transparent rounded-full" />
       </div>
     );
@@ -4905,7 +4905,7 @@ export default function StaffPortalPage() {
     // and makes the sticky header + fixed bottom nav feel loose. The nav and
     // chat composer stay position:fixed (viewport-pinned) — .scrollable has no
     // transform, so it doesn't trap them.
-    <div className="full-height scrollable bg-gray-50 text-gray-900 pb-24">
+    <div className="full-height scrollable bg-[#f5f7fb] text-gray-900 pb-24">
       {/* Header — sticks to the top of the internal scroller. Uses .glass-static
           (no translateZ) so the sticky header doesn't wobble during momentum
           scroll on iOS. */}
@@ -4984,10 +4984,10 @@ export default function StaffPortalPage() {
               type="button"
               aria-label={t("close", "Close")}
               onClick={() => setShowEmailEdit(false)}
-              className="absolute inset-0 bg-black/40"
+              className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px]"
             />
             <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl shadow-soft-lg max-h-[90dvh] overflow-y-auto overscroll-contain">
-              <div className="sticky top-0 bg-white/95 flex items-center justify-between px-4 pt-4 pb-2 border-b border-gray-100">
+              <div className="sticky top-0 bg-white/95 flex items-center justify-between px-4 pt-4 pb-2 border-b border-[#f1f5f9]">
                 <h2 className="text-base font-bold text-gray-900">{t("portalEditContact", "Edit profile")}</h2>
                 <button
                   type="button"
@@ -5000,7 +5000,7 @@ export default function StaffPortalPage() {
               </div>
               <div className="px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3">
               {/* Profile photo — staff pick a photo; the owner sees it too. */}
-              <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-3 pb-3 border-b border-[#f1f5f9]">
                 <div className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center text-base font-bold text-gray-500 shrink-0">
                   {photoUrl ? (
                     <img src={photoUrl} alt="" className="w-full h-full object-cover" />
@@ -5009,7 +5009,7 @@ export default function StaffPortalPage() {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-1.5">{t("portalPhotoLabel", "Photo")}</div>
+                  <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-1.5">{t("portalPhotoLabel", "Photo")}</div>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -5033,7 +5033,7 @@ export default function StaffPortalPage() {
                   </div>
                 </div>
               </div>
-              <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">{t("portalNotifications", "Notifications")}</div>
+              <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500">{t("portalNotifications", "Notifications")}</div>
               <div>
                 <label className="text-[10px] text-gray-500 mb-1 block">{t("portalContactEmailLabel", "Email")}</label>
                 <input
@@ -5041,7 +5041,7 @@ export default function StaffPortalPage() {
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
                   placeholder="your@email.com"
-                  className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+                  className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
                 />
               </div>
               <div>
@@ -5051,13 +5051,13 @@ export default function StaffPortalPage() {
                   value={phoneInput}
                   onChange={(e) => setPhoneInput(e.target.value)}
                   placeholder="+45 12 34 56 78"
-                  className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+                  className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
                 />
               </div>
               {/* Home address — DK-structured (adresse / postnr / by). Optional;
                   the owner sees it so they have a current address on file. */}
-              <div className="pt-1 border-t border-gray-100 space-y-3">
-                <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold">{t("portalAddressSection", "Address")}</div>
+              <div className="pt-1 border-t border-[#f1f5f9] space-y-3">
+                <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500">{t("portalAddressSection", "Address")}</div>
                 <div>
                   <label className="text-[10px] text-gray-500 mb-1 block">{t("portalAddressStreetLabel", "Street & number")}</label>
                   <input
@@ -5066,7 +5066,7 @@ export default function StaffPortalPage() {
                     onChange={(e) => setAddressInput(e.target.value)}
                     autoComplete="street-address"
                     placeholder={t("portalAddressStreetPlaceholder", "e.g. Nørrebrogade 12, 2. th")}
-                    className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+                    className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
                   />
                 </div>
                 <div className="flex gap-2">
@@ -5079,7 +5079,7 @@ export default function StaffPortalPage() {
                       onChange={(e) => setPostalInput(e.target.value)}
                       autoComplete="postal-code"
                       placeholder="2200"
-                      className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+                      className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
                     />
                   </div>
                   <div className="flex-1">
@@ -5090,7 +5090,7 @@ export default function StaffPortalPage() {
                       onChange={(e) => setCityInput(e.target.value)}
                       autoComplete="address-level2"
                       placeholder={t("portalAddressCityPlaceholder", "København N")}
-                      className="w-full px-3 py-2 rounded-lg bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+                      className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
                     />
                   </div>
                 </div>
@@ -5111,8 +5111,8 @@ export default function StaffPortalPage() {
               <DocumentsSection token={token} />
 
               {/* Language — moved here from the header (design). Staff pick DA / EN. */}
-              <div className="pt-3 border-t border-gray-100">
-                <div className="text-[11px] text-gray-500 uppercase tracking-wider font-semibold mb-2">{t("portalLangSection", "Language")}</div>
+              <div className="pt-3 border-t border-[#f1f5f9]">
+                <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">{t("portalLangSection", "Language")}</div>
                 <div className="flex w-full rounded-lg border border-gray-200 p-0.5 gap-0.5" role="group" aria-label={t("portalLangLabel", "Language")}>
                   {["da", "en"].map((code) => (
                     <button
@@ -5169,7 +5169,7 @@ export default function StaffPortalPage() {
                   re-enter the join code or tap the link again. Matters for
                   the Scheduler app: a phone that changes workplace needs a
                   way out, and App Review likes an explicit disconnect. */}
-              <div className="pt-1 border-t border-gray-100">
+              <div className="pt-1 border-t border-[#f1f5f9]">
                 <button
                   type="button"
                   onClick={async () => {
