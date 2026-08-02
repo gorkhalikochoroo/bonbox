@@ -5343,6 +5343,33 @@ export default function StaffPortalPage() {
 
   // Data for each tab
   const [shifts, setShifts] = useState([]);
+  // Which department (branch) the portal is showing. Built from the staffer's
+  // OWN shifts — `branch_name` already rides on every row — so the list can
+  // only ever contain places they actually work. null = all of them.
+  const [dept, setDept] = useState(null);
+  const [deptOpen, setDeptOpen] = useState(false);
+
+  const departments = useMemo(() => {
+    const seen = new Map();
+    for (const sh of shifts) {
+      if (!sh.branch_name) continue;
+      seen.set(sh.branch_name, (seen.get(sh.branch_name) || 0) + 1);
+    }
+    return [...seen.entries()].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n);
+  }, [shifts]);
+
+  // A department the staffer no longer has shifts at must not stay selected —
+  // it would silently empty every screen with no way to tell why.
+  useEffect(() => {
+    if (dept && !departments.some((d) => d.name === dept)) setDept(null);
+  }, [dept, departments]);
+
+  // Filter ONCE here so every tab agrees. Shifts with no branch always show:
+  // a single-location business has none, and hiding them would blank the app.
+  const visibleShifts = useMemo(
+    () => (dept ? shifts.filter((sh) => !sh.branch_name || sh.branch_name === dept) : shifts),
+    [shifts, dept],
+  );
   // Hoisted from WhosOnStrip / OpenShiftsClaimCard so the Schedule tab paints
   // ONCE — no post-settle hero growth or card insertion (stillness doctrine).
   const [teamShifts, setTeamShifts] = useState([]);
@@ -5891,7 +5918,26 @@ export default function StaffPortalPage() {
                 : t("portalTitleAlerts", "Alerts")}
             </h1>
             {info?.restaurant_name && (
-              <div className="text-[11px] text-gray-500">{info.restaurant_name}</div>
+              <div style={{ marginTop: 5, font: "500 12px/1 var(--font-text)", letterSpacing: "0.005em", color: "#94a3b8" }}>
+                {info.restaurant_name}
+                {/* Live/offline moves here off the chip slot, which the
+                    department switcher now owns. Only ever states what is
+                    true: "Live" needs the stream actually open. */}
+                {pinVerified && info && (
+                  <>
+                    {" · "}
+                    <span style={{ color: liveConnected && isOnline ? "#16a34a" : "#94a3b8" }}>
+                      {!isOnline
+                        ? t("portalOffline")
+                        : liveConnected
+                          ? t("portalLive")
+                          : lastSynced && Date.now() - lastSynced.getTime() < 45000
+                            ? t("portalSynced")
+                            : t("portalTapToRefresh", "Tap to refresh")}
+                    </span>
+                  </>
+                )}
+              </div>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -5910,20 +5956,42 @@ export default function StaffPortalPage() {
             >
               <Bell className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
             </button>
-            {/* Honest freshness pill — only shown once verified. Tap (when
-                online + stale) forces a refetch. */}
-            {pinVerified && info && (
-              <SyncPill
-                isOnline={isOnline}
-                live={liveConnected}
-                lastSynced={lastSynced}
-                onRefresh={loadData}
-                t={t}
-              />
+            {/* Department switcher. Only rendered when the staffer actually
+                has shifts at a named branch — a single-location business gets
+                nothing rather than a chip that cannot switch anywhere. The
+                chevron appears only when there is a second place to go, so it
+                never advertises a menu that would open onto one item. */}
+            {departments.length > 0 && (
+              <button
+                type="button"
+                onClick={() => departments.length > 1 && setDeptOpen(true)}
+                aria-label={t("portalDepartment", "Department")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, height: 32,
+                  padding: departments.length > 1 ? "0 10px 0 9px" : "0 11px 0 9px",
+                  borderRadius: 999,
+                  background: "linear-gradient(180deg,#ffffff,#f8fafc)",
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 1px 2px rgba(15,23,42,.05), inset 0 1px 0 #fff",
+                  cursor: departments.length > 1 ? "pointer" : "default",
+                }}
+              >
+                <span style={{ width: 7, height: 7, borderRadius: 99, background: "#22c55e", boxShadow: "0 0 0 3px rgba(34,197,94,.16)" }} />
+                <span style={{ font: "600 11.5px/1 var(--font-text)", color: "#334155", letterSpacing: "-0.005em", maxWidth: 96, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {dept || (departments.length > 1 ? t("portalAllDepartments", "All") : departments[0].name)}
+                </span>
+                {departments.length > 1 && <ChevronDown size={11} strokeWidth={2.4} style={{ color: "#94a3b8", flex: "none" }} />}
+              </button>
             )}
             <button
               onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setAddressInput(info?.address || ""); setPostalInput(info?.postal_code || ""); setCityInput(info?.city || ""); setEmailMsg(""); setEmailStatus(null); }}
-              className="relative w-9 h-9 rounded-full bg-gray-100 border border-gray-200 shadow-soft overflow-hidden flex items-center justify-center text-sm font-bold text-gray-700 active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
+              className="relative rounded-full overflow-hidden flex items-center justify-center active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
+              style={{
+                width: 33, height: 33, flex: "none",
+                background: "linear-gradient(150deg,#1e293b,#0f172a)", color: "#fff",
+                font: "700 12.5px/1 var(--font-text)", letterSpacing: "0.01em",
+                boxShadow: "0 4px 12px -6px rgba(15,23,42,.8), inset 0 1px 0 rgba(255,255,255,.18)",
+              }}
               title={t("portalEditContact", "Edit profile")}
             >
               {photoUrl ? (
@@ -5934,6 +6002,46 @@ export default function StaffPortalPage() {
             </button>
           </div>
         </div>
+        {deptOpen && createPortal(
+          <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setDeptOpen(false)}>
+            <div
+              className="w-full bg-white"
+              style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+              <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
+                {t("portalDepartment", "Department")}
+              </div>
+              <div className="flex flex-col" style={{ gap: 8, marginTop: 14 }}>
+                {[{ name: null, label: t("portalAllDepartments", "All"), n: shifts.length }, ...departments.map((d) => ({ name: d.name, label: d.name, n: d.n }))].map((d) => {
+                  const on = dept === d.name;
+                  return (
+                    <button
+                      key={d.name || "__all"}
+                      type="button"
+                      onClick={() => { setDept(d.name); setDeptOpen(false); }}
+                      className="flex items-center justify-between"
+                      style={{
+                        gap: 10, padding: "13px 14px", borderRadius: 16, textAlign: "left",
+                        background: on ? "linear-gradient(180deg,#1e293b,#0f172a)" : "#f5f8fb",
+                        border: `1px solid ${on ? "transparent" : "#e8edf3"}`,
+                      }}
+                    >
+                      <span style={{ font: "600 13px/1.2 var(--font-text)", color: on ? "#fff" : "#0f172a" }}>{d.label}</span>
+                      {/* The count is the honest reason to pick one. */}
+                      <span style={{ font: "500 11px/1 var(--font-text)", color: on ? "rgba(255,255,255,.55)" : "#94a3b8" }}>
+                        {t("portalDeptShiftCount", "{n} shifts").split("{n}").join(String(d.n))}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
         {/* Profile / contact edit — a bottom-sheet overlay portaled to <body>.
             Previously it rendered INSIDE this sticky header, which made the
             header taller than the viewport and made the schedule scroll oddly
@@ -6158,7 +6266,7 @@ export default function StaffPortalPage() {
       <div className="max-w-lg mx-auto px-4 py-4">
         {tab === "schedule" && (
           <ScheduleTab
-            shifts={shifts}
+            shifts={visibleShifts}
             coversByShift={coversByShift}
             teamShifts={teamShifts}
             openShifts={openShifts}
@@ -6178,7 +6286,7 @@ export default function StaffPortalPage() {
             nonsense — the user IS in the app. Native push arrives with the
             APNs slice; until then the card simply doesn't render there. */}
         {tab === "schedule" && !isNativeApp() && <InstallNotifyCard token={token} />}
-        {tab === "availability" && <AvailabilityTab token={token} shifts={shifts} />}
+        {tab === "availability" && <AvailabilityTab token={token} shifts={visibleShifts} />}
         {tab === "messages" && (
           <MessagesTab
             token={token}

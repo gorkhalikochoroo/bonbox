@@ -7622,6 +7622,10 @@ const translations = {
     // Staff portal live-sync (Phase 1) — freshness pill, hero, toast.
     portalSynced: 'Synced',
     portalSyncedAt: 'Synced {time}',
+    portalTapToRefresh: "Tap to refresh",
+    portalDepartment: "Department",
+    portalAllDepartments: "All",
+    portalDeptShiftCount: "{n} shifts",
     portalLive: 'Live',
     portalOffline: 'Offline',
     portalDocTitle: 'Your schedule · {restaurant}',
@@ -15191,6 +15195,10 @@ const translations = {
     // Staff portal live-sync (Phase 1) — freshness pill, hero, toast.
     portalSynced: 'Synket',
     portalSyncedAt: 'Synket {time}',
+    portalTapToRefresh: "Tryk for at opdatere",
+    portalDepartment: "Afdeling",
+    portalAllDepartments: "Alle",
+    portalDeptShiftCount: "{n} vagter",
     portalLive: 'Live',
     portalOffline: 'Offline',
     portalDocTitle: 'Din vagtplan · {restaurant}',
