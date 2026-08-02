@@ -1551,8 +1551,6 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
   const hasLater = shifts.some((s) => s.date >= laterStart);
 
   // Hours / counts for the muted summary line under the strip.
-  const thisWeekShifts = shifts.filter((s) => s.date >= weekStart && s.date < nextWeekStart);
-  const thisWeekHours = Math.round(thisWeekShifts.reduce((a, s) => a + s.net_hours, 0) * 100) / 100;
 
   // Next shift (drives the hero, countdown, teammate strip, .ics).
   const upcoming = shifts.filter((s) => s.date >= today).sort((a, b) => a.date.localeCompare(b.date));
@@ -1589,6 +1587,23 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
   };
 
   const weekDays = weekView === "this" ? thisWeek : nextWeek;
+
+
+  // Totals for the week ON SCREEN, not the fixed "this week" — paging to next
+
+  // week has to move these numbers with it, or the footer describes a week
+
+  // the staffer is not looking at.
+
+  const weekTotals = useMemo(() => {
+
+    const withShift = weekDays.filter((d) => d.shift);
+
+    const hours = withShift.reduce((a, d) => a + (Number(d.shift.net_hours) || 0), 0);
+
+    return { hours: Math.round(hours * 100) / 100, count: withShift.length };
+
+  }, [weekDays]);
   const weekLabelStart = weekView === "this" ? weekStart : nextWeekStart;
   const expandedShift = expandedDate
     ? shifts.find((s) => s.date === expandedDate)
@@ -1969,31 +1984,50 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
           strip at a time (this/next week). Working day = thin role-colored bar;
           OFF = silent hollow dot; TODAY = bold gray-900 label + soft cell fill.
           Tap a working day → expand ONE inline ShiftRow below. */}
-      <div className="rounded-xl bg-white border border-gray-200 p-4">
-        <div className="flex items-start justify-between mb-2">
-          {/* Eyebrow stays a pure uppercase-tracked label; the date range drops
-              to its own quiet line instead of muddying the tracked eyebrow. */}
+      <div
+        className="bg-white"
+        style={{
+          border: "1px solid #e8edf3", borderRadius: 20, padding: "15px 15px 13px",
+          boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
+        }}
+      >
+        {/* v2 week card header: eyebrow over the RANGE at display weight, with
+            two chevron buttons rather than a text link. The range is the fact
+            a staffer scans for, so it carries the type weight, not the label. */}
+        <div className="flex items-start justify-between gap-2">
           <div>
-            <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500">
+            <div style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
               {weekView === "this" ? t("portalSecThisWeek", "This week") : t("portalSecNextWeek", "Next week")}
             </div>
-            <div className="text-[11px] text-gray-400 tabular-nums mt-0.5">
+            <div className="tabular-nums" style={{ marginTop: 6, font: "700 14.5px/1 var(--font-display)", letterSpacing: "-0.02em", color: "#0f172a" }}>
               {fmtShort(weekLabelStart, lang)} – {fmtShort(addDays(weekLabelStart, 6), lang)}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setWeekView((v) => (v === "this" ? "next" : "this"));
-              setExpandedDate(null);
-            }}
-            className="text-[11px] font-medium text-gray-500 hover:text-gray-700 active:opacity-60 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 rounded px-2 -mx-1 py-2.5 -my-2"
-          >
-            {weekView === "this" ? t("portalSecNextWeek", "Next week") : t("portalSecThisWeek", "This week")} →
-          </button>
+          <div className="flex items-center gap-[5px]">
+            {[["prev", weekView !== "this"], ["next", weekView === "this"]].map(([dir, enabled]) => (
+              <button
+                key={dir}
+                type="button"
+                disabled={!enabled}
+                onClick={() => { setWeekView(dir === "next" ? "next" : "this"); setExpandedDate(null); }}
+                aria-label={dir === "next" ? t("portalSecNextWeek", "Next week") : t("portalSecThisWeek", "This week")}
+                className="flex items-center justify-center"
+                style={{
+                  width: 28, height: 28, borderRadius: 9, border: "1px solid #e8edf3",
+                  background: enabled ? "#f1f5f9" : "#f6f8fb",
+                  color: enabled ? "#475569" : "#cbd5e1",
+                  cursor: enabled ? "pointer" : "default",
+                }}
+              >
+                {dir === "next"
+                  ? <ChevronRight className="w-3.5 h-3.5" strokeWidth={2.4} aria-hidden />
+                  : <ChevronLeft className="w-3.5 h-3.5" strokeWidth={2.4} aria-hidden />}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="grid grid-cols-7 gap-0.5">
+        <div className="flex gap-1" style={{ marginTop: 13 }}>
           {weekDays.map(({ date: d, shift }, i) => {
             const isTodayCell = isToday(d);
             const isExpanded = expandedDate === d;
@@ -2006,7 +2040,14 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                 key={d}
                 type="button"
                 onClick={() => setExpandedDate(isExpanded || !cellTappable ? null : d)}
-                className={`flex flex-col items-center gap-1.5 rounded-lg py-2 min-h-[44px] transition active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 ${isExpanded ? "bg-gray-100" : isTodayCell ? "bg-gray-50" : "hover:bg-gray-50"}`}
+                className="flex-1 min-w-0 flex flex-col items-center transition active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300"
+                style={{
+                  gap: 5, padding: "8px 0 9px", borderRadius: 13,
+                  background: isExpanded
+                    ? "linear-gradient(180deg,#1e293b,#0f172a)"
+                    : isTodayCell ? "#eef2f7" : "transparent",
+                  boxShadow: isExpanded ? "0 8px 18px -10px rgba(15,23,42,.85)" : "none",
+                }}
                 aria-label={`${WD[i]} ${fmtShort(d, lang)}${dayUnavail && !shift ? " · " + t("portalUnavailBadge", "Can't work") : ""}`}
                 aria-current={isTodayCell ? "date" : undefined}
                 aria-expanded={cellTappable ? isExpanded : undefined}
@@ -2015,24 +2056,59 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                     ring — a ring hugging a 4px bar rendered as a broken pill.
                     EXPANDED = a step darker (bg-gray-100) so "open" reads
                     distinctly from "today". */}
-                <span className={`text-[10px] ${isTodayCell ? "text-gray-900 font-semibold" : "text-gray-400"}`}>{WD[i]}</span>
-                <span className={`text-[10px] tabular-nums ${isTodayCell ? "text-gray-900 font-semibold" : "text-gray-400"} ${dayUnavail && !shift ? "line-through decoration-amber-400" : ""}`}>{parseInt(d.slice(8), 10)}</span>
-                {shift ? (
-                  <span
-                    className={`block w-1.5 h-5 rounded-full ${roleBarColor(shift.role_on_shift)}`}
-                    aria-hidden
-                  />
-                ) : dayUnavail ? (
+                <span style={{ font: "600 9.5px/1 var(--font-text)", color: isExpanded ? "rgba(255,255,255,.55)" : "#94a3b8" }}>{WD[i]}</span>
+                <span
+                  className="tabular-nums"
+                  style={{
+                    font: "700 13.5px/1 var(--font-display)", letterSpacing: "-0.02em",
+                    color: isExpanded ? "#fff" : "#0f172a",
+                    textDecoration: dayUnavail && !shift ? "line-through" : "none",
+                    textDecorationColor: dayUnavail && !shift ? "#f59e0b" : undefined,
+                  }}
+                >
+                  {parseInt(d.slice(8), 10)}
+                </span>
+                {/* v2 marker: a 15×5 BAR when there is a shift, a 5×5 dot when
+                    there is not. Length carries the signal, so a working week
+                    is legible at a glance without reading a single date. */}
+                {dayUnavail && !shift ? (
                   <CalendarOff className="w-3.5 h-3.5 text-amber-500" strokeWidth={2.5} aria-hidden />
                 ) : (
                   <span
-                    className={`block w-2 h-2 rounded-full ${isTodayCell ? "bg-gray-900" : "border border-gray-300"}`}
                     aria-hidden
+                    style={{
+                      width: shift ? 15 : 5, height: 5, borderRadius: 99,
+                      background: shift
+                        ? (isExpanded ? "#4ade80" : "#16a34a")
+                        : (isExpanded ? "rgba(255,255,255,.22)" : "#dbe3ec"),
+                    }}
                   />
                 )}
               </button>
             );
           })}
+        </div>
+
+        {/* v2 week footer — the two numbers that answer "how much am I working
+            this week?" without opening anything, plus the status of the rota
+            itself. Ours is honestly "Live": the portal only ever receives
+            published shifts (drafts never leave the owner side), so the pill
+            states a fact rather than decorating one. */}
+        <div
+          className="flex items-center justify-between"
+          style={{ marginTop: 13, paddingTop: 11, borderTop: "1px solid #eef2f7" }}
+        >
+          <span className="tabular-nums" style={{ font: "600 12px/1 var(--font-text)", color: "#475569" }}>
+            {weekTotals.hours} {t("portalHrsShort")} · {t("portalWeekShiftCount", "{n} shifts", { n: weekTotals.count })}
+          </span>
+          <span
+            style={{
+              padding: "5px 10px", borderRadius: 999, background: "#dcfce7", color: "#15803d",
+              font: "700 10px/1 var(--font-text)", letterSpacing: "0.06em", textTransform: "uppercase",
+            }}
+          >
+            {t("portalWeekLive", "Live")}
+          </span>
         </div>
 
         {/* Opt-in detail: ONE inline ShiftRow for the tapped working day. */}
@@ -2097,9 +2173,9 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
           );
         })()}
 
-        {/* Selected-day detail + week total — the design's week footer. Left =
-            the tapped day (or today's shift by default) with a role-colored bar;
-            right = the week total. Connects the strip to a concrete shift. */}
+        {/* Selected-day detail. The week TOTAL used to live on the right here;
+            it now sits in the v2 footer above, so repeating it turned the card
+            into two rows saying "18.75 hrs · 3 shifts" twice. Left side only. */}
         {weekView === "this" && (() => {
           const fs = expandedShift || nextShift;
           return (
@@ -2117,10 +2193,18 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                   </div>
                 </div>
               ) : <span aria-hidden />}
-              <div className="text-right shrink-0">
-                <div className="text-[15px] font-bold text-gray-900 tabular-nums leading-tight">{thisWeekHours} {t("portalHrsShort")}</div>
-                <div className="text-[11px] text-gray-400">{thisWeekShifts.length} {t("portalShiftsCount")}</div>
-              </div>
+              {/* v2 puts the hours on the RIGHT of the shift row, over a tiny
+                  HRS label — the number a staffer scans for, at display weight. */}
+              {fs && (
+                <div className="text-right shrink-0">
+                  <div className="tabular-nums" style={{ font: "700 13px/1 var(--font-display)", color: "#0f172a" }}>
+                    {fs.net_hours}
+                  </div>
+                  <div style={{ marginTop: 4, font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "#94a3b8" }}>
+                    {t("portalHrsUnit", "hrs")}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })()}
