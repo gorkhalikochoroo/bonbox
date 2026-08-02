@@ -2173,12 +2173,31 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
           );
         })()}
 
-        {/* Selected-day detail. The week TOTAL used to live on the right here;
-            it now sits in the v2 footer above, so repeating it turned the card
-            into two rows saying "18.75 hrs · 3 shifts" twice. Left side only. */}
+        {/* Selected-day detail, with v2's eyebrow above it: the DAY on the left,
+            the station on the right. Without it the shift row floats free of the
+            strip and you have to work out which day you tapped. */}
         {weekView === "this" && (() => {
           const fs = expandedShift || nextShift;
+          const dayLabel = fs
+            ? new Date(fs.date + "T00:00:00")
+                .toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" })
+                .toUpperCase()
+            : "";
           return (
+            <>
+            {fs && (
+              <div className="flex items-baseline justify-between gap-2" style={{ marginTop: 18 }}>
+                <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+                  {dayLabel}
+                  {isToday(fs.date) ? ` · ${t("portalToday", "Today")}` : ""}
+                </span>
+                {fs.role_on_shift && (
+                  <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>
+                    {fs.role_on_shift}
+                  </span>
+                )}
+              </div>
+            )}
             <div className="mt-3 pt-3 border-t border-[#f1f5f9] flex items-center justify-between gap-3">
               {fs ? (
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -2206,6 +2225,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                 </div>
               )}
             </div>
+            </>
           );
         })()}
 
