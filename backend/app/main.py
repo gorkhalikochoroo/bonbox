@@ -2107,6 +2107,10 @@ _migrations = [
     )""",
     "CREATE INDEX IF NOT EXISTS ix_staff_documents_staff ON staff_documents(staff_id)",
     "CREATE INDEX IF NOT EXISTS ix_staff_documents_user ON staff_documents(user_id)",
+    # Migration 072 — join codes become onboarding tokens: they expire and burn
+    # on use. Previously permanent + infinitely reusable.
+    "ALTER TABLE staff_links ADD COLUMN IF NOT EXISTS code_expires_at TIMESTAMP",
+    "ALTER TABLE staff_links ADD COLUMN IF NOT EXISTS code_used_at TIMESTAMP",
     """CREATE TABLE IF NOT EXISTS staff_chat_threads (
         id UUID PRIMARY KEY,
         user_id UUID NOT NULL REFERENCES users(id),
@@ -2721,6 +2725,8 @@ def _run_migrations():
             ok += _add("staff_members", "bank_reg_nr_enc", "BLOB")
             ok += _add("staff_members", "bank_account_enc", "BLOB")
             ok += _add("staff_members", "bank_updated_at", "TIMESTAMP")
+            ok += _add("staff_links", "code_expires_at", "TIMESTAMP")
+            ok += _add("staff_links", "code_used_at", "TIMESTAMP")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
