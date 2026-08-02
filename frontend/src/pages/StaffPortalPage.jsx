@@ -12,6 +12,7 @@ import { overlapsOwnShift } from "../utils/overlapsOwnShift";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
 import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
+import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
@@ -2316,8 +2317,160 @@ function ShiftRow({ date: d, shift }) {
 
 // ─── Hours Tab ────────────────────────────────────────────────────────────
 
-function HoursTab({ data, maxHours }) {
+/**
+ * Choose which stretch of time "my hours" covers.
+ *
+ * Two ways in, because staff ask two different questions:
+ *   • "what does my PAY period look like" → a cycle shape (1–31, 15–14, 16–15).
+ *     Danish payroll rarely runs on calendar months, and the shape the owner
+ *     runs is not something a staffer can be expected to know by heart.
+ *   • "what did I work between these two dates" → a custom range.
+ *
+ * The bounds mirror the server's (366 days, no earlier than 3 years back) so a
+ * staffer gets a sentence instead of a 400 — but the SERVER is the gate. This
+ * is a courtesy, never the check.
+ */
+function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
   const { t, lang } = useLanguage();
+  const todayISO = new Date().toLocaleDateString("sv-SE");
+  const [from, setFrom] = useState(initial?.start || "");
+  const [to, setTo] = useState(initial?.end || "");
+
+  const iso = (d) => d.toLocaleDateString("sv-SE");
+  const anchor = anchorMonth ? new Date(anchorMonth) : new Date();
+  const Y = anchor.getFullYear();
+  const M = anchor.getMonth();
+  const monthName = (off) =>
+    new Date(Y, M + off, 1).toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", { month: "short" });
+
+  // The three cycle shapes DK owners actually run. Each is expressed against
+  // the anchor month so the label shows real dates, not an abstract rule.
+  const cycles = [
+    {
+      key: "calendar",
+      label: `1.–${new Date(Y, M + 1, 0).getDate()}.`,
+      hint: monthName(0),
+      start: iso(new Date(Y, M, 1)),
+      end: iso(new Date(Y, M + 1, 0)),
+    },
+    {
+      key: "15-14",
+      label: "15.–14.",
+      hint: `${monthName(0)} – ${monthName(1)}`,
+      start: iso(new Date(Y, M, 15)),
+      end: iso(new Date(Y, M + 1, 14)),
+    },
+    {
+      key: "16-15",
+      label: "16.–15.",
+      hint: `${monthName(0)} – ${monthName(1)}`,
+      start: iso(new Date(Y, M, 16)),
+      end: iso(new Date(Y, M + 1, 15)),
+    },
+  ];
+
+  const problem = (() => {
+    if (!from || !to) return null;
+    if (to < from) return t("portalHoursRangeBackwards", "The end date is before the start date");
+    if ((new Date(to) - new Date(from)) / 86400000 > 366) return t("portalHoursRangeTooWide", "Pick a year or less");
+    return null;
+  })();
+  const ready = from && to && !problem;
+
+  const field = {
+    width: "100%", minWidth: 0, boxSizing: "border-box",
+    marginTop: 6, padding: "11px 12px", borderRadius: 14,
+    border: "1px solid #e8edf3", background: "#fbfdff",
+    font: "600 14px/1 var(--font-text)", color: "#0f172a",
+  };
+  const cap = {
+    font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em",
+    textTransform: "uppercase", color: "#94a3b8",
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={onClose}>
+      <div
+        className="w-full bg-white"
+        style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+        <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
+          {t("portalHoursCustomTitle", "Choose a period")}
+        </div>
+
+        <div style={{ marginTop: 16, ...cap }}>{t("portalHoursCycle", "Pay cycle")}</div>
+        <div className="flex" style={{ gap: 7, marginTop: 8 }}>
+          {cycles.map((c) => {
+            const active = from === c.start && to === c.end;
+            return (
+              <button
+                key={c.key}
+                type="button"
+                onClick={() => { setFrom(c.start); setTo(c.end); }}
+                style={{
+                  flex: 1, padding: "11px 6px", borderRadius: 14, textAlign: "center",
+                  background: active ? "linear-gradient(180deg,#1e293b,#0f172a)" : "#f5f8fb",
+                  border: `1px solid ${active ? "transparent" : "#e8edf3"}`,
+                  boxShadow: active ? "0 8px 18px -10px rgba(15,23,42,.85)" : "none",
+                }}
+              >
+                <div style={{ font: "700 13px/1 var(--font-text)", color: active ? "#fff" : "#0f172a" }}>{c.label}</div>
+                <div style={{ marginTop: 5, font: "600 10px/1 var(--font-text)", color: active ? "rgba(255,255,255,.55)" : "#94a3b8" }}>{c.hint}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: 18, ...cap }}>{t("portalHoursCustomRange", "Or pick your own dates")}</div>
+        <div className="flex" style={{ gap: 10, marginTop: 8 }}>
+          <label style={{ flex: 1, minWidth: 0 }}>
+            <span style={cap}>{t("portalHoursFrom", "From")}</span>
+            <input type="date" value={from} max={todayISO} onChange={(e) => setFrom(e.target.value)} style={field} />
+          </label>
+          <label style={{ flex: 1, minWidth: 0 }}>
+            <span style={cap}>{t("portalHoursTo", "To")}</span>
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={field} />
+          </label>
+        </div>
+        {problem && (
+          <div style={{ marginTop: 10, font: "600 12px/1.4 var(--font-text)", color: "#dc2626" }}>{problem}</div>
+        )}
+
+        <button
+          type="button"
+          disabled={!ready}
+          onClick={() => onApply({ start: from, end: to })}
+          className="w-full"
+          style={{
+            marginTop: 16, padding: "14px 0", borderRadius: 16,
+            font: "700 14px/1 var(--font-text)",
+            color: ready ? "#fff" : "#94a3b8",
+            background: ready ? "linear-gradient(180deg,#1e293b,#0f172a)" : "#f1f5f9",
+            boxShadow: ready ? "0 10px 22px -12px rgba(15,23,42,.9)" : "none",
+          }}
+        >
+          {t("portalHoursShowPeriod", "Show these hours")}
+        </button>
+        {initial && (
+          <button
+            type="button"
+            onClick={() => onApply(null)}
+            className="w-full"
+            style={{ marginTop: 10, padding: "12px 0", font: "600 13px/1 var(--font-text)", color: "#64748b" }}
+          >
+            {t("portalHoursBackToDefault", "Back to my pay period")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HoursTab({ data, maxHours, range, setRange, prevTotal }) {
+  const { t, lang } = useLanguage();
+  const [customOpen, setCustomOpen] = useState(false);
 
   // Group the period's own entries into ISO weeks for the by-week chart.
   // Derived from the SAME entries the list below renders, so the bars can never
@@ -2336,7 +2489,7 @@ function HoursTab({ data, maxHours }) {
     for (const e of data?.entries || []) {
       const w = isoWeek(e.date);
       if (w === null) continue;                                // never bucket a date we cannot read
-      buckets.set(w, (buckets.get(w) || 0) + (Number(e.hours ?? e.net_hours) || 0));
+      buckets.set(w, (buckets.get(w) || 0) + (Number(e.total_hours) || 0));
     }
     const rows = [...buckets.entries()]
       .sort((a, b) => a[0] - b[0])
@@ -2356,6 +2509,23 @@ function HoursTab({ data, maxHours }) {
   // number they're looking at. Default to "schedule" for older payloads.
   const isSchedule = (data.hours_source || "schedule") === "schedule";
 
+  const todayISO = new Date().toLocaleDateString("sv-SE");   // sv-SE renders YYYY-MM-DD in LOCAL time
+  // How much of this period the staffer has already reached, vs what is still
+  // ahead. Both halves come from `data.entries`, so they always sum to the
+  // headline. Deliberately "so far", not "worked": with hours_source=schedule
+  // these are ROSTERED shifts, and claiming they were worked would assert a
+  // punch we do not have.
+  const soFar = (data.entries || [])
+    .filter((e) => (e.date || "") < todayISO)
+    .reduce((a, e) => a + (Number(e.total_hours) || 0), 0);
+  const ahead = Math.round((data.total_hours - soFar) * 100) / 100;
+  // Entries arrive newest-first, so the soonest upcoming one is the LAST that
+  // is still ahead of today.
+  const nextUp = [...(data.entries || [])].reverse().find((e) => (e.date || "") >= todayISO);
+  const delta = typeof prevTotal === "number" && Number.isFinite(prevTotal)
+    ? Math.round((data.total_hours - prevTotal) * 100) / 100
+    : null;
+
   const hoursLabel = isSchedule
     ? t("portalHoursRostered", "Rostered hours")
     : t("portalHoursWorked", "Hours worked");
@@ -2366,8 +2536,37 @@ function HoursTab({ data, maxHours }) {
     ? t("portalHoursNoShifts", "No shifts in this period yet")
     : t("portalHoursNoneLogged", "No hours logged yet this period");
 
+
   return (
     <div className="space-y-4">
+
+      {customOpen && (
+        <PeriodSheet
+          initial={range}
+          anchorMonth={data.period_start}
+          onClose={() => setCustomOpen(false)}
+          onApply={(r) => { setRange(r); setCustomOpen(false); }}
+        />
+      )}
+
+      {/* The period IS the control. It sat inside the card as a 10px eyebrow,
+          which read as a caption rather than something you could tap — so it
+          moves out, goes up in size, and keeps the chevron as the affordance. */}
+      <button
+        type="button"
+        onClick={() => setCustomOpen(true)}
+        className="flex items-center bg-white"
+        style={{
+          gap: 8, padding: "12px 14px", borderRadius: 16,
+          border: "1px solid #e8edf3",
+          boxShadow: "0 1px 2px rgba(15,23,42,.04)",
+          font: "700 15px/1 var(--font-display)", color: "#0f172a",
+        }}
+      >
+        {fmtShort(data.period_start, lang)} – {fmtShort(data.period_end, lang)}
+        <ChevronDown size={16} strokeWidth={2.5} style={{ color: "#94a3b8" }} />
+      </button>
+
       {/* Period info */}
       {/* v2 dark stat card. Note the bloom sits BOTTOM-LEFT here at .34, where
           the Schedule hero's is top-right at .40 — the two dark cards are lit
@@ -2386,10 +2585,8 @@ function HoursTab({ data, maxHours }) {
           className="pointer-events-none absolute h-[230px] w-[230px] rounded-full"
           style={{ left: -60, bottom: -90, background: "radial-gradient(closest-side, rgba(34,197,94,.34), rgba(34,197,94,0))" }}
         />
-        <div className="relative" style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
-          {t("portalHoursPeriod", "Period")} {fmtShort(data.period_start, lang)} – {fmtShort(data.period_end, lang)}
-        </div>
-        <div className="relative flex items-end gap-2" style={{ marginTop: 14 }}>
+
+        <div className="relative flex items-end gap-2">
           <span className="tabular-nums" style={{ font: "700 44px/0.9 var(--font-display)", letterSpacing: "-0.04em", color: "#fff" }}>
             {data.total_hours}
           </span>
@@ -2400,7 +2597,7 @@ function HoursTab({ data, maxHours }) {
           </span>
         </div>
         <div className="relative flex" style={{ marginTop: 16, gap: 9 }}>
-          <div style={{ flex: 1, padding: "11px 12px", borderRadius: 14, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.10)" }}>
+          <div style={{ flex: maxHours ? 1 : "0 1 auto", minWidth: 96, padding: "11px 12px", borderRadius: 14, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.10)" }}>
             <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
               {t("portalHoursShiftsCount", "Shifts")}
             </div>
@@ -2419,6 +2616,42 @@ function HoursTab({ data, maxHours }) {
               </div>
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#dcfce7" }}>
                 {data.total_hours} / {maxHours}
+              </div>
+            </div>
+          ) : soFar > 0 && ahead > 0 ? (
+            /* Mid-period only: before the first shift or after the last, a
+               split states nothing the headline has not. */
+            <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.10)" }}>
+              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
+                {t("portalHoursSoFar", "So far / left")}
+              </div>
+              <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#fff" }}>
+                {Math.round(soFar * 100) / 100} / {ahead}
+              </div>
+            </div>
+          ) : delta !== null ? (
+            /* vs the previous window of the same length. Zero is stated as
+               "same", never as "+0" — a signed zero reads like a measurement
+               when it is really "no difference". */
+            <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: delta >= 0 ? "rgba(34,197,94,.14)" : "rgba(255,255,255,.07)", border: `1px solid ${delta >= 0 ? "rgba(34,197,94,.26)" : "rgba(255,255,255,.10)"}` }}>
+              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: delta >= 0 ? "rgba(134,239,172,.85)" : "rgba(255,255,255,.42)" }}>
+                {t("portalHoursVsLast", "vs last period")}
+              </div>
+              <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: delta >= 0 ? "#dcfce7" : "#fff" }}>
+                {delta === 0
+                  ? t("portalHoursSameAsLast", "Same")
+                  : `${delta > 0 ? "+" : "−"}${Math.abs(delta)} ${t("portalHrsUnit")}`}
+              </div>
+            </div>
+          ) : nextUp ? (
+            /* Nothing worked yet in this window — the useful fact is when it
+               starts, not a split that would just restate the headline. */
+            <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: "rgba(34,197,94,.14)", border: "1px solid rgba(34,197,94,.26)" }}>
+              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(134,239,172,.85)" }}>
+                {t("portalHoursFirstShift", "First shift")}
+              </div>
+              <div style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#dcfce7" }}>
+                {fmtDate(nextUp.date, lang)}{nextUp.start_time ? ` · ${nextUp.start_time}` : ""}
               </div>
             </div>
           ) : null}
@@ -2458,11 +2691,12 @@ function HoursTab({ data, maxHours }) {
                 <div
                   style={{
                     width: "100%", borderRadius: 7,
-                    height: Math.max(4, Math.round((b.n / weekBars.max) * 74)),
+                    height: Math.max(3, Math.round((b.n / weekBars.max) * 74)),
                     background: b.n === weekBars.max
                       ? "linear-gradient(180deg,#22c55e,#15803d)"
                       : "linear-gradient(180deg,#cbd5e1,#94a3b8)",
-                    boxShadow: b.n === weekBars.max ? "0 8px 16px -10px rgba(22,163,74,.8)" : "none",
+                    boxShadow: b.n === weekBars.max ? "0 8px 18px -10px rgba(22,163,74,.8)" : "none",
+                    transition: "height .5s cubic-bezier(.22,.9,.24,1)",
                   }}
                 />
                 <span style={{ font: "600 9.5px/1 var(--font-text)", color: "#94a3b8" }}>{b.w}</span>
@@ -2483,20 +2717,81 @@ function HoursTab({ data, maxHours }) {
 
       {/* Recent / upcoming shifts */}
       <div>
-        <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">{recentLabel}</div>
-        <div className="space-y-1.5">
-          {data.entries.length === 0 && (
-            <div className="text-sm text-gray-400 py-4 text-center">{emptyLabel}</div>
+        <div className="flex items-baseline justify-between mb-2">
+          <span className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500">{recentLabel}</span>
+          {data.entries.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                // Built from the rows on screen, so the file and the screen can
+                // never disagree — this is the staffer's own record if the hours
+                // are ever queried, so a mismatch would be worse than no export.
+                const total = data.entries.reduce((a, e) => a + (Number(e.total_hours) || 0), 0);
+                exportToCsv(
+                  `bonbox-timer-${data.period_start}-${data.period_end}.csv`,
+                  [
+                    ...data.entries.map((e) => ({
+                      date: e.date,
+                      start: e.start_time || "",
+                      end: e.end_time || "",
+                      hours: e.total_hours,
+                    })),
+                    { date: t("portalHoursCsvTotal", "Total"), start: "", end: "", hours: Math.round(total * 100) / 100 },
+                  ],
+                  [
+                    { key: "date", label: t("portalHoursCsvDate", "Date") },
+                    { key: "start", label: t("portalHoursCsvStart", "Start") },
+                    { key: "end", label: t("portalHoursCsvEnd", "End") },
+                    { key: "hours", label: t("portalHrsUnit") },
+                  ],
+                );
+              }}
+              style={{ font: "600 11px/1 var(--font-text)", color: "#16a34a" }}
+            >
+              {t("portalHoursExport", "Export CSV")}
+            </button>
           )}
-          {data.entries.map((h, i) => (
-            <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-[18px] bg-white border border-[#e8edf3] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-              <span className="text-sm text-gray-500">
-                {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
-              </span>
-              <span className="text-sm font-semibold text-gray-900">{h.total_hours} {t("portalHrsShort")}</span>
-            </div>
-          ))}
         </div>
+        {data.entries.length === 0 ? (
+          <div className="text-sm text-gray-400 py-4 text-center">{emptyLabel}</div>
+        ) : (
+          <div
+            className="bg-white overflow-hidden"
+            style={{
+              border: "1px solid #e8edf3", borderRadius: 20,
+              boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
+            }}
+          >
+            {data.entries.map((h, i) => {
+              // Green = already worked, grey = still ahead. Logged entries are
+              // punches, so they are done by definition; rostered ones are
+              // judged by date. Never claim a future shift was worked.
+              const done = !isSchedule || (h.date || "") < todayISO;
+              return (
+                <div
+                  key={i}
+                  className="flex items-center"
+                  style={{
+                    gap: 11, padding: "13px 15px",
+                    borderBottom: i === data.entries.length - 1 ? "none" : "1px solid #f1f5f9",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 8, height: 8, flex: "none", borderRadius: 99,
+                      background: done ? "#16a34a" : "#cbd5e1",
+                      boxShadow: done ? "0 0 0 3px rgba(22,163,74,.14)" : "none",
+                    }}
+                  />
+                  <span className="text-sm text-gray-500 flex-1">
+                    {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
+                  </span>
+                  <span className="text-sm font-semibold text-gray-900 tabular-nums">{h.total_hours} {t("portalHrsShort")}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Recently clocked — period-INDEPENDENT proof-of-punch. A shift clocked
@@ -4686,6 +4981,9 @@ export default function StaffPortalPage() {
   // owner doesn't take reservations (or the book is untouched) -> render NOTHING.
   const [coversByShift, setCoversByShift] = useState({});
   const [hoursData, setHoursData] = useState(null);
+  // null = whatever the owner's pay-period config says (the default the staffer
+  // is paid on). Non-null = a window the staffer chose themselves.
+  const [hoursRange, setHoursRange] = useState(null);
   // Unread owner→staff chat messages — drives the "Beskeder" nav badge.
   const [chatUnread, setChatUnread] = useState(0);
 
@@ -4868,11 +5166,50 @@ export default function StaffPortalPage() {
       }
     });
 
-    // Hours
-    portalApi.get(`/portal/${token}/hours`).then((res) => {
-      setHoursData(res.data);
-    }).catch(() => {});
   }, [token]);
+
+  // Hours are fetched separately from the rest: they are the one panel with a
+  // caller-chosen window, so they refetch when the staffer picks a period
+  // without re-pulling the schedule, covers and open shifts behind it.
+  const loadHours = useCallback(() => {
+    const q = hoursRange ? `?start=${hoursRange.start}&end=${hoursRange.end}` : "";
+    portalApi.get(`/portal/${token}/hours${q}`)
+      .then((res) => setHoursData(res.data))
+      .catch(() => {});
+  }, [token, hoursRange]);
+
+  useEffect(() => {
+    if (pinVerified && info) loadHours();
+  }, [pinVerified, info, loadHours]);
+
+  // Same-length window immediately before the one on screen, so "vs last
+  // period" compares like with like even when the owner runs a 15–14 cycle.
+  //
+  // FAIL CLOSED: a server that does not understand start/end answers with the
+  // CURRENT period instead. That would make the delta compute to zero and
+  // render as "no change" — stating a fact we do not have. So we only trust
+  // the payload when it comes back describing the window we actually asked
+  // for; anything else leaves the comparison hidden.
+  const [prevTotal, setPrevTotal] = useState(null);
+  useEffect(() => {
+    if (!(pinVerified && info) || !hoursData?.period_start || !hoursData?.period_end) return;
+    const ps = new Date(hoursData.period_start);
+    const pe = new Date(hoursData.period_end);
+    const span = Math.round((pe - ps) / 86400000) + 1;
+    const prevEnd = new Date(ps); prevEnd.setDate(prevEnd.getDate() - 1);
+    const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate() - span + 1);
+    const iso = (d) => d.toLocaleDateString("sv-SE");
+    const [a, b] = [iso(prevStart), iso(prevEnd)];
+    let cancelled = false;
+    portalApi.get(`/portal/${token}/hours?start=${a}&end=${b}`)
+      .then((res) => {
+        if (cancelled) return;
+        const ok = res.data?.period_start === a && res.data?.period_end === b;
+        setPrevTotal(ok ? Number(res.data.total_hours) : null);
+      })
+      .catch(() => { if (!cancelled) setPrevTotal(null); });
+    return () => { cancelled = true; };
+  }, [token, pinVerified, info, hoursData?.period_start, hoursData?.period_end]);
 
   useEffect(() => {
     if (pinVerified && info) loadData();
@@ -4882,10 +5219,10 @@ export default function StaffPortalPage() {
   // just-logged shift shows in "My hours" (recent_clocked) without a reload.
   useEffect(() => {
     if (!(pinVerified && info)) return;
-    const onChanged = () => loadData();
+    const onChanged = () => { loadData(); loadHours(); };
     window.addEventListener("bonbox-data-changed", onChanged);
     return () => window.removeEventListener("bonbox-data-changed", onChanged);
-  }, [pinVerified, info, loadData]);
+  }, [pinVerified, info, loadData, loadHours]);
 
   // NOTE on old installed PWAs: the manifest used to ship a "?tab=tips"
   // shortcut. "tips" is no longer in the deep-link allow-list above, so such a
@@ -5457,7 +5794,7 @@ export default function StaffPortalPage() {
         {tab === "swaps" && (
           <SwapTab token={token} ownShifts={shifts} onChanged={loadData} />
         )}
-        {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} />}
+        {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} range={hoursRange} setRange={setHoursRange} prevTotal={prevTotal} />}
         {tab === "alerts" && <AlertsTab token={token} staffName={info?.staff_name} />}
       </div>
 

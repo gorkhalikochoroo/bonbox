@@ -798,7 +798,13 @@ def portal_covers(
 
 @router.get("/{token}/hours")
 @limiter.limit("30/minute")
-def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)):
+def get_portal_hours(
+    token: str,
+    request: Request,
+    start: str | None = None,
+    end: str | None = None,
+    db: Session = Depends(get_db),
+):
     """Return the staff member's hours for the current pay period.
 
     Source of truth (the original bug): owners build the schedule by
@@ -830,7 +836,35 @@ def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)
     ).first()
 
     today = date.today()
-    if config:
+
+    # ── Optional caller-chosen window ────────────────────────────────────
+    # Staff can page back through their own history instead of being stuck
+    # on the current pay period. This widens only the DATE filter — every
+    # query below stays scoped to this member and this tenant, so the range
+    # cannot reach another person's hours.
+    #
+    # Bounded on purpose: an unbounded span lets an attacker with a leaked
+    # link turn one request into a full-history table scan, and the rate
+    # limit alone would not stop it.
+    custom_start = custom_end = None
+    if start or end:
+        if not (start and end):
+            raise HTTPException(status_code=400, detail="Both start and end are required")
+        try:
+            custom_start = date.fromisoformat(start)
+            custom_end = date.fromisoformat(end)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Dates must be YYYY-MM-DD")
+        if custom_end < custom_start:
+            raise HTTPException(status_code=400, detail="end must not precede start")
+        if (custom_end - custom_start).days > 366:
+            raise HTTPException(status_code=400, detail="Range must be 366 days or less")
+        if custom_start < today - timedelta(days=365 * 3):
+            raise HTTPException(status_code=400, detail="Range starts too far in the past")
+
+    if custom_start:
+        period_start, period_end = custom_start, custom_end
+    elif config:
         period = _compute_pay_period(config, today)
         period_start = period["start_date"]
         period_end = period["end_date"]
