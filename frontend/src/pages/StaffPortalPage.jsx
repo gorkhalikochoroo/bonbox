@@ -2318,6 +2318,34 @@ function ShiftRow({ date: d, shift }) {
 
 function HoursTab({ data, maxHours }) {
   const { t, lang } = useLanguage();
+
+  // Group the period's own entries into ISO weeks for the by-week chart.
+  // Derived from the SAME entries the list below renders, so the bars can never
+  // disagree with the rows — the prototype's bars are fixtures; these are the
+  // actual shifts. `.max` rides along so the tallest bar is found once.
+  const weekBars = useMemo(() => {
+    const isoWeek = (iso) => {
+      const d = new Date(iso + "T00:00:00");
+      if (Number.isNaN(d.getTime())) return null;
+      const th = new Date(d);
+      th.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));   // Thursday of this week
+      const jan4 = new Date(th.getFullYear(), 0, 4);
+      return 1 + Math.round(((th - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+    };
+    const buckets = new Map();
+    for (const e of data?.entries || []) {
+      const w = isoWeek(e.date);
+      if (w === null) continue;                                // never bucket a date we cannot read
+      buckets.set(w, (buckets.get(w) || 0) + (Number(e.hours ?? e.net_hours) || 0));
+    }
+    const rows = [...buckets.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .slice(-5)                                               // v2 shows five columns
+      .map(([w, n]) => ({ w: `W${w}`, n: Math.round(n * 100) / 100, v: String(Math.round(n * 100) / 100) }));
+    rows.max = rows.reduce((m, r) => Math.max(m, r.n), 0) || 1;
+    return rows;
+  }, [data?.entries]);
+
   if (!data) return <LoadingSkeleton />;
 
   const pct = maxHours && maxHours > 0 ? Math.min(100, (data.total_hours / maxHours) * 100) : null;
@@ -2327,6 +2355,7 @@ function HoursTab({ data, maxHours }) {
   // (actuals the owner recorded). Label honestly so staff know which
   // number they're looking at. Default to "schedule" for older payloads.
   const isSchedule = (data.hours_source || "schedule") === "schedule";
+
   const hoursLabel = isSchedule
     ? t("portalHoursRostered", "Rostered hours")
     : t("portalHoursWorked", "Hours worked");
@@ -2340,44 +2369,113 @@ function HoursTab({ data, maxHours }) {
   return (
     <div className="space-y-4">
       {/* Period info */}
-      <div className="text-[11px] text-gray-500 flex items-center gap-2">
-        <span>{t("portalHoursPeriod", "Period")}: {fmtShort(data.period_start, lang)} – {fmtShort(data.period_end, lang)}</span>
-      </div>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-2xl bg-white border border-[#e8edf3] p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          <div className="text-[11px] text-gray-500 mb-1">{hoursLabel}</div>
-          <div className="font-display text-2xl font-bold tabular-nums tracking-[-0.030em] text-gray-900">
-            {data.total_hours} {maxHours ? <span className="text-sm text-gray-500">/ {maxHours}</span> : null}
+      {/* v2 dark stat card. Note the bloom sits BOTTOM-LEFT here at .34, where
+          the Schedule hero's is top-right at .40 — the two dark cards are lit
+          from opposite corners on purpose, so they read as siblings rather than
+          copies. Gradient stop is 48% here (the hero's is 46%). */}
+      <div
+        className="relative overflow-hidden"
+        style={{
+          borderRadius: 22, padding: 19,
+          background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 48%,#080e16 100%)",
+          boxShadow: "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
+        }}
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute h-[230px] w-[230px] rounded-full"
+          style={{ left: -60, bottom: -90, background: "radial-gradient(closest-side, rgba(34,197,94,.34), rgba(34,197,94,0))" }}
+        />
+        <div className="relative" style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.16em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
+          {t("portalHoursPeriod", "Period")} {fmtShort(data.period_start, lang)} – {fmtShort(data.period_end, lang)}
+        </div>
+        <div className="relative flex items-end gap-2" style={{ marginTop: 14 }}>
+          <span className="tabular-nums" style={{ font: "700 44px/0.9 var(--font-display)", letterSpacing: "-0.04em", color: "#fff" }}>
+            {data.total_hours}
+          </span>
+          {/* hoursLabel already says "Rostered hours" or "Hours worked" from
+              hours_source — the number must never claim to be the other one. */}
+          <span style={{ font: "600 12px/1 var(--font-text)", color: "rgba(255,255,255,.5)", paddingBottom: 5 }}>
+            {hoursLabel.toLowerCase()}
+          </span>
+        </div>
+        <div className="relative flex" style={{ marginTop: 16, gap: 9 }}>
+          <div style={{ flex: 1, padding: "11px 12px", borderRadius: 14, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.10)" }}>
+            <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
+              {t("portalHoursShiftsCount", "Shifts")}
+            </div>
+            <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#fff" }}>
+              {data.entries.length}
+            </div>
           </div>
-          {pct !== null && (
-            <>
-              <div className="h-1.5 bg-gray-100 rounded-full mt-2 overflow-hidden">
-                <div
-                  className={`h-full rounded-full ${pct >= 90 ? "bg-red-500" : pct >= 75 ? "bg-amber-500" : "bg-emerald-500"}`}
-                  style={{ width: `${pct}%` }}
-                />
+          {/* v2 puts "Est. pay before tax" here. We removed that by decision —
+              it was computed from ROSTERED hours and would disagree with the
+              payslip. The permit cap is a real number in the same slot; with no
+              cap the Shifts tile simply takes the full width. */}
+          {maxHours ? (
+            <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: "rgba(34,197,94,.14)", border: "1px solid rgba(34,197,94,.26)" }}>
+              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(134,239,172,.85)" }}>
+                {t("portalWorkPermitLimit", "Work permit limit")}
               </div>
-              {remaining !== null && remaining <= 15 && (
-                <div className={`text-[10px] mt-1 flex items-center gap-1 ${remaining <= 5 ? "text-red-600" : "text-amber-600"}`}>
-                  <AlertTriangle className="w-3 h-3" strokeWidth={2} aria-hidden />
-                  {t("portalHrsRemaining", "{n} hrs remaining", { n: remaining })}
-                </div>
-              )}
-            </>
-          )}
+              <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#dcfce7" }}>
+                {data.total_hours} / {maxHours}
+              </div>
+            </div>
+          ) : null}
         </div>
-        <div className="rounded-2xl bg-white border border-[#e8edf3] p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          <div className="text-[11px] text-gray-500 mb-1">{t("portalHoursShiftsCount", "Shifts")}</div>
-          <div className="font-display text-2xl font-bold tabular-nums tracking-[-0.030em] text-gray-900">{data.entries.length}</div>
-          <div className="text-[11px] text-gray-500">{t("portalHoursThisPeriod", "this period")}</div>
-        </div>
+        {pct !== null && (
+          <div className="relative rounded-full overflow-hidden" style={{ marginTop: 14, height: 5, background: "rgba(255,255,255,.10)" }}>
+            <div
+              className="h-full rounded-full"
+              style={{ width: `${pct}%`, background: pct >= 90 ? "#ef4444" : pct >= 75 ? "#f59e0b" : "linear-gradient(180deg,#22c55e,#16a34a)" }}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Hours warning for work permits */}
+      {/* v2 by-week chart. Bars are proportional to the period's own maximum,
+          and the tallest is green — so the shape answers "which week was
+          heaviest" before any number is read. Silent when a period has one
+          week: a single full-height bar compares nothing. */}
+      {weekBars.length > 1 && (
+        <div
+          className="bg-white"
+          style={{
+            border: "1px solid #e8edf3", borderRadius: 20, padding: "16px 15px 13px",
+            boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+              {t("portalHoursByWeek", "By week")}
+            </span>
+            <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>{t("portalHrsShort")}</span>
+          </div>
+          <div className="flex items-end" style={{ marginTop: 16, gap: 9, height: 104 }}>
+            {weekBars.map((b) => (
+              <div key={b.w} className="flex-1 flex flex-col items-center justify-end h-full" style={{ gap: 7 }}>
+                <span className="tabular-nums" style={{ font: "700 10px/1 var(--font-text)", color: "#475569" }}>{b.v}</span>
+                <div
+                  style={{
+                    width: "100%", borderRadius: 7,
+                    height: Math.max(4, Math.round((b.n / weekBars.max) * 74)),
+                    background: b.n === weekBars.max
+                      ? "linear-gradient(180deg,#22c55e,#15803d)"
+                      : "linear-gradient(180deg,#cbd5e1,#94a3b8)",
+                    boxShadow: b.n === weekBars.max ? "0 8px 16px -10px rgba(22,163,74,.8)" : "none",
+                  }}
+                />
+                <span style={{ font: "600 9.5px/1 var(--font-text)", color: "#94a3b8" }}>{b.w}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* The permit warning stays SEPARATE from the tile above: the tile shows
+          the position, this shows the alarm. Only when it is actually close. */}
       {maxHours && remaining !== null && remaining <= 10 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[12px] text-amber-800">
+        <div className="bg-amber-50 border border-amber-200 rounded-[14px] p-3 text-[12px] text-amber-800">
           <strong className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />{t("portalWorkPermitLimit", "Work permit limit")}</strong>
           <p className="mt-0.5 text-amber-700">{t("portalHoursRemainingLong", "You have {n} hours remaining this period.", { n: remaining })}</p>
         </div>
