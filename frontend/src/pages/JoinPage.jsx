@@ -72,22 +72,56 @@ export default function JoinPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))]">
+    /* v2 treatment. With PINs gone this is genuinely the FIRST screen a staffer
+       ever sees, and it was the last one still wearing the blue --brand accent
+       while everything behind it had gone dark-and-green. Same surface as the
+       Schedule hero: 152deg gradient, radius 22, bloom off the top-right. */
+    <div
+      className="min-h-[100dvh] text-gray-900 flex items-center justify-center p-6 pt-[max(1.5rem,env(safe-area-inset-top))]"
+      style={{ background: "#f5f7fb" }}
+    >
       <div className="w-full max-w-xs">
-        <div className="text-center mb-6">
+        <div
+          className="relative overflow-hidden text-center"
+          style={{
+            borderRadius: 22,
+            padding: "26px 20px 22px",
+            background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 46%,#080e16 100%)",
+            boxShadow: "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
+          }}
+        >
           <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 text-white shadow-soft"
-            style={{ background: "rgb(var(--brand-600))" }}
-          >
-            <KeyRound className="w-6 h-6" strokeWidth={2} aria-hidden />
+            aria-hidden
+            className="pointer-events-none absolute h-[230px] w-[230px] rounded-full"
+            style={{
+              top: -90, right: -80,
+              background: "radial-gradient(closest-side, rgba(34,197,94,.40), rgba(34,197,94,0))",
+            }}
+          />
+          <div className="relative">
+            <div
+              className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
+              style={{
+                background: "rgba(255,255,255,.08)",
+                border: "1px solid rgba(255,255,255,.14)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,.18)",
+              }}
+            >
+              <KeyRound className="w-6 h-6" strokeWidth={2} aria-hidden style={{ color: "#4ade80" }} />
+            </div>
+            <h1
+              className="text-white"
+              style={{ font: "700 21px/1.12 var(--font-display)", letterSpacing: "-0.03em" }}
+            >
+              {t("joinTitle", "Connect to your workplace")}
+            </h1>
+            <p className="mt-1.5" style={{ font: "400 12.5px/1.45 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
+              {t("joinSubtitle", "Enter the 6-character code your manager gave you.")}
+            </p>
           </div>
-          <h1 className="text-xl font-bold text-gray-900">{t("joinTitle", "Connect to your workplace")}</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            {t("joinSubtitle", "Enter the 6-character code your manager gave you.")}
-          </p>
         </div>
 
-        <form onSubmit={submit} className="rounded-2xl bg-white border border-gray-200/70 card-glossy p-4">
+        <form onSubmit={submit} className="mt-3.5 rounded-2xl bg-white border border-gray-200/70 card-glossy p-4">
           <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5 block">
             {t("joinCodeLabel", "Join code")}
           </label>
@@ -113,8 +147,12 @@ export default function JoinPage() {
           <button
             type="submit"
             disabled={normalized.length < CODE_LEN || busy}
-            className="mt-3 w-full px-4 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-40 transition"
-            style={{ background: "rgb(var(--brand-600))" }}
+            className="mt-3 w-full px-4 py-3 text-sm font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-40 transition"
+            style={{
+              borderRadius: 14,
+              background: "linear-gradient(180deg,#22c55e,#16a34a)",
+              boxShadow: "0 10px 22px -12px rgba(22,163,74,.95), inset 0 1px 0 rgba(255,255,255,.35)",
+            }}
           >
             {busy ? t("joinConnecting", "Connecting…") : t("joinConnect", "Connect")}
             {!busy && <ArrowRight className="w-4 h-4" strokeWidth={2} aria-hidden />}
