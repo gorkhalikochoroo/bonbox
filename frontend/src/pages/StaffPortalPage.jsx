@@ -5015,6 +5015,10 @@ function StaffPushOptIn({ token }) {
     }
   });
   const [subscribed, setSubscribed] = useState(false);
+  // Lead time in minutes; null = no reminder. Only meaningful once push is on,
+  // so it is fetched lazily rather than on every portal boot.
+  const [reminder, setReminder] = useState(null);
+  const [reminderBusy, setReminderBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [tierAllowed, setTierAllowed] = useState(null); // null = unknown, false = locked, true = ok
@@ -5078,6 +5082,29 @@ function StaffPushOptIn({ token }) {
       cancel = true;
     };
   }, [supported, tierAllowed]);
+
+  useEffect(() => {
+    if (!subscribed) return;
+    let cancel = false;
+    portalApi.get(`/portal/${token}/reminder`)
+      .then((r) => { if (!cancel) setReminder(r.data?.minutes ?? null); })
+      .catch(() => {});
+    return () => { cancel = true; };
+  }, [subscribed, token]);
+
+  const setReminderMinutes = async (minutes) => {
+    setReminderBusy(true);
+    const prev = reminder;
+    setReminder(minutes);                      // optimistic
+    try {
+      await portalApi.post(`/portal/${token}/reminder`, { minutes });
+    } catch {
+      setReminder(prev);                       // never leave the UI claiming an
+      setError(t("staffPushSaveFailed", "Couldn't save — try again."));  // opt-in the server refused
+    } finally {
+      setReminderBusy(false);
+    }
+  };
 
   const handleEnable = async () => {
     setBusy(true);
@@ -5167,7 +5194,8 @@ function StaffPushOptIn({ token }) {
 
   if (subscribed) {
     return (
-      <div className="rounded-lg bg-white border border-gray-200 p-3 flex items-center justify-between gap-3">
+      <div className="space-y-2">
+        <div className="rounded-lg bg-white border border-gray-200 p-3 flex items-center justify-between gap-3">
         <div className="text-[11px] text-gray-700 min-w-0 flex-1">
           <div className="font-semibold text-gray-900 inline-flex items-center gap-1.5">
             <Bell className="w-4 h-4" strokeWidth={2} aria-hidden />
@@ -5185,6 +5213,70 @@ function StaffPushOptIn({ token }) {
         >
           {busy ? "…" : t("staffPushOnTurnOff", "Turn off")}
         </button>
+        </div>
+
+        {/* Pre-shift reminder. Only offered once push is actually on and the
+            permission is granted — a toggle that quietly saves a preference no
+            notification can honour is worse than no toggle. */}
+        <div className="rounded-lg bg-white border border-gray-200 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[11px] min-w-0 flex-1">
+              <div className="font-semibold text-gray-900">{t("staffRemindTitle", "Remind me before a shift")}</div>
+              <div className="text-gray-500">
+                {reminder
+                  ? t("staffRemindOnHint", "We'll tap you {n} minutes before you start.").split("{n}").join(String(reminder))
+                  : t("staffRemindOffHint", "Off — you'll still hear about schedule changes.")}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!reminder}
+              disabled={reminderBusy}
+              onClick={() => setReminderMinutes(reminder ? null : 60)}
+              className="flex-shrink-0 disabled:opacity-50"
+              style={{
+                width: 42, height: 25, borderRadius: 99, padding: 3, display: "flex",
+                transition: "background .25s",
+                background: reminder ? "linear-gradient(180deg,#22c55e,#16a34a)" : "#dbe3ec",
+                boxShadow: "inset 0 1px 2px rgba(15,23,42,.14)",
+              }}
+            >
+              <span
+                style={{
+                  width: 19, height: 19, borderRadius: 99, background: "#fff",
+                  boxShadow: "0 1px 3px rgba(15,23,42,.35)",
+                  transition: "transform .25s cubic-bezier(.3,1.4,.5,1)",
+                  transform: reminder ? "translateX(17px)" : "translateX(0)",
+                }}
+              />
+            </button>
+          </div>
+
+          {reminder && (
+            <div className="flex" style={{ gap: 6, marginTop: 10 }}>
+              {[30, 60, 120, 180].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  disabled={reminderBusy}
+                  onClick={() => setReminderMinutes(m)}
+                  style={{
+                    flex: 1, padding: "7px 0", borderRadius: 10,
+                    font: `${reminder === m ? 700 : 600} 11px/1 var(--font-text)`,
+                    background: reminder === m ? "linear-gradient(180deg,#1e293b,#0f172a)" : "#f5f8fb",
+                    color: reminder === m ? "#fff" : "#64748b",
+                    border: `1px solid ${reminder === m ? "transparent" : "#e8edf3"}`,
+                  }}
+                >
+                  {m < 60
+                    ? t("staffRemindMin", "{n} min").split("{n}").join(String(m))
+                    : t("staffRemindHr", "{n} h").split("{n}").join(String(m / 60))}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }

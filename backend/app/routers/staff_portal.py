@@ -3233,6 +3233,49 @@ def portal_push_subscribe(
         raise HTTPException(status_code=409, detail="endpoint_conflict")
 
 
+class ReminderPrefBody(BaseModel):
+    # None turns it off. Anything else must be one of the offered lead times —
+    # an arbitrary integer would let a caller schedule a push a year out.
+    minutes: int | None = None
+
+
+ALLOWED_REMINDER_MINUTES = (30, 60, 120, 180)
+
+
+@router.get("/{token}/reminder")
+@limiter.limit("30/minute")
+def portal_get_reminder(token: str, request: Request, db: Session = Depends(get_db)):
+    """The staffer's own pre-shift reminder setting."""
+    _link, member = _get_staff_from_token(token, db)
+    return {
+        "minutes": member.shift_reminder_minutes,
+        "options": list(ALLOWED_REMINDER_MINUTES),
+    }
+
+
+@router.post("/{token}/reminder")
+@limiter.limit("20/minute")
+def portal_set_reminder(
+    token: str,
+    request: Request,
+    body: ReminderPrefBody,
+    db: Session = Depends(get_db),
+):
+    """Opt in or out of a push before your shift.
+
+    The staff member is re-derived from the magic-link token — a staff_id in
+    the body is never trusted, so one staffer cannot set another's reminder.
+    """
+    _link, member = _get_staff_from_token(token, db)
+
+    if body.minutes is not None and body.minutes not in ALLOWED_REMINDER_MINUTES:
+        raise HTTPException(status_code=422, detail={"error": "bad_minutes"})
+
+    member.shift_reminder_minutes = body.minutes
+    db.commit()
+    return {"minutes": member.shift_reminder_minutes}
+
+
 @router.post("/{token}/push/unsubscribe")
 @limiter.limit("6/minute")
 def portal_push_unsubscribe(
