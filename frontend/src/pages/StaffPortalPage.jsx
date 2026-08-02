@@ -377,6 +377,7 @@ function HolidaySection({ token }) {
  * app's own origin. Download-only is the containment, not a limitation.
  */
 function DocumentsSection({ token }) {
+  const [openSheet, setOpenSheet] = useState(false);
   const { t } = useLanguage();
   const [docs, setDocs] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -415,30 +416,74 @@ function DocumentsSection({ token }) {
 
   return (
     <div className="pt-3 border-t border-[#f1f5f9]">
-      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
-        {t("portalDocsSection", "Contract & documents")}
-      </div>
-      {docs.length === 0 && (
-        <div className="text-[11px] text-gray-400">
-          {t("portalDocsEmpty", "Nothing here yet. Your contract and payslips appear here when your manager shares them.")}
+      {/* One tappable row rather than an always-open list. Empty or not, it
+          behaves the same way — you can always open it, and it tells you
+          there is nothing rather than the section simply not reacting. */}
+      <button
+        type="button"
+        onClick={() => setOpenSheet(true)}
+        className="w-full flex items-center justify-between gap-3"
+      >
+        <div className="min-w-0 text-left">
+          <div className="text-[13px] font-semibold text-gray-900">
+            {t("portalDocsSection", "Contract & documents")}
+          </div>
+          <div className="text-[11px] text-gray-400">
+            {docs.length
+              ? t("portalDocsCount", "{n} shared with you").split("{n}").join(String(docs.length))
+              : t("portalDocsNone", "None shared yet")}
+          </div>
         </div>
-      )}
-      <div className="space-y-1.5">
-        {docs.map((d) => (
-          <button
-            key={d.id}
-            type="button"
-            onClick={() => open(d)}
-            disabled={busyId === d.id}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-gray-200 text-left hover:bg-gray-50 transition disabled:opacity-50"
+        <ChevronRight className="w-4 h-4 shrink-0 text-gray-400" strokeWidth={2.5} aria-hidden />
+      </button>
+
+      {openSheet && createPortal(
+        <div className="fixed inset-0 z-[60] flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setOpenSheet(false)}>
+          <div
+            className="w-full bg-white"
+            style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <FileText className="w-4 h-4 shrink-0 text-gray-400" />
-            <span className="flex-1 min-w-0 text-[13px] font-semibold text-gray-900 truncate">{d.label}</span>
-            <Download className="w-4 h-4 shrink-0 text-gray-400" />
-          </button>
-        ))}
-      </div>
-      {err && <p className="mt-2 text-[12px] text-red-600">{err}</p>}
+            <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+            <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
+              {t("portalDocsSection", "Contract & documents")}
+            </div>
+
+            {docs.length === 0 ? (
+              <div style={{ marginTop: 10, font: "400 12px/1.5 var(--font-text)", color: "#64748b" }}>
+                {t("portalDocsEmpty", "Nothing here yet. Your contract and payslips appear here when your manager shares them.")}
+              </div>
+            ) : (
+              <div className="space-y-1.5" style={{ marginTop: 14 }}>
+                {docs.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => open(d)}
+                    disabled={busyId === d.id}
+                    className="w-full flex items-center gap-2 px-3 py-3 rounded-2xl bg-[#f5f8fb] border border-[#e8edf3] text-left hover:bg-gray-100 transition disabled:opacity-50"
+                  >
+                    <FileText className="w-4 h-4 shrink-0 text-gray-400" />
+                    <span className="flex-1 min-w-0 text-[13px] font-semibold text-gray-900 truncate">{d.label}</span>
+                    <Download className="w-4 h-4 shrink-0 text-gray-400" />
+                  </button>
+                ))}
+              </div>
+            )}
+            {err && <p className="mt-2 text-[12px] text-red-600">{err}</p>}
+
+            <button
+              type="button"
+              onClick={() => setOpenSheet(false)}
+              className="w-full"
+              style={{ marginTop: 16, padding: "12px 0", font: "600 13px/1 var(--font-text)", color: "#64748b" }}
+            >
+              {t("close", "Close")}
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

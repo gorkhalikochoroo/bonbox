@@ -465,6 +465,8 @@ const translations = {
     // Employment documents the owner shares (staff view).
     portalSinceJoined: "Since {d}",
     portalDocsEmpty: "Nothing here yet. Your contract and payslips appear here when your manager shares them.",
+    portalDocsCount: "{n} shared with you",
+    portalDocsNone: "None shared yet",
     portalDocsSection: "Contract & documents",
     portalDocsOpenFailed: "Couldn't open that document. Try again.",
     portalBankErrOffline: "No connection \u2014 nothing was saved. Try again when you're back online.",
@@ -8281,6 +8283,8 @@ const translations = {
     // Ansættelsesdokumenter delt af ejeren (medarbejderens visning).
     portalSinceJoined: "Siden {d}",
     portalDocsEmpty: "Intet her endnu. Din kontrakt og lønsedler dukker op her, når din leder deler dem.",
+    portalDocsCount: "{n} delt med dig",
+    portalDocsNone: "Ingen delt endnu",
     portalDocsSection: "Kontrakt og dokumenter",
     portalDocsOpenFailed: "Dokumentet kunne ikke \u00e5bnes. Pr\u00f8v igen.",
     portalBankErrOffline: "Ingen forbindelse \u2014 intet blev gemt. Pr\u00f8v igen, n\u00e5r du er online.",
