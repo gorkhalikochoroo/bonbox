@@ -1805,28 +1805,36 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
             {/* Hours clarity — gross span · unpaid break · net (paid). All three
                 derive from the owner's rostered shift (net_hours + break_minutes),
                 replacing the old ambiguous single "6.25 hrs" that read like a bug. */}
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {/* The prototype answers "what is this shift" in ONE quiet line —
+                role · span · break — with 3px dots between. Ours carried the
+                same facts as three coloured pills plus a separate role row:
+                two rows and four backgrounds on the calmest surface in the app.
+                Same facts, one line. NET keeps its emphasis because it is the
+                paid number and the one thing here we compute rather than
+                restate. */}
+            <div className="mt-2 flex flex-wrap items-center" style={{ gap: 7, font: "500 12.5px/1.35 var(--font-text)", color: "rgba(255,255,255,.60)" }}>
+              {nextShiftRole && <span>{nextShiftRole}</span>}
               {nextShift.break_minutes > 0 ? (
-                // With a break, the split is meaningful: gross span · unpaid break · net.
                 <>
-                  <span className="rounded-full bg-white/[0.07] px-2 py-1 text-[12px] font-semibold text-gray-300 tabular-nums">
-                    {t("portalHoursGross", "{h} shift", { h: fmtHM(grossHrs(nextShift)) })}
-                  </span>
-                  <span className="rounded-full bg-white/[0.07] px-2 py-1 text-[12px] font-semibold text-gray-300 tabular-nums">
-                    {t("portalHoursBreak", "{m} min break", { m: nextShift.break_minutes })}
-                  </span>
-                  <span className="rounded-full bg-emerald-400/15 px-2 py-1 text-[12px] font-bold text-emerald-300 tabular-nums">
+                  {nextShiftRole && <HeroDot />}
+                  <span className="tabular-nums">{t("portalHoursGross", "{h} shift", { h: fmtHM(grossHrs(nextShift)) })}</span>
+                  <HeroDot />
+                  <span className="tabular-nums">{t("portalHoursBreak", "{m} min break", { m: nextShift.break_minutes })}</span>
+                  <HeroDot />
+                  <span className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
                     {t("portalHoursNet", "{h} net", { h: fmtHM(nextShift.net_hours) })}
                   </span>
                 </>
               ) : (
-                // No break → gross == net, so ONE chip (avoids a redundant "8t shift · 8t net").
-                <span className="rounded-full bg-emerald-400/15 px-2 py-1 text-[12px] font-bold text-emerald-300 tabular-nums">
-                  {t("portalHoursGross", "{h} shift", { h: fmtHM(nextShift.net_hours) })}
-                </span>
+                <>
+                  {nextShiftRole && <HeroDot />}
+                  {/* No break → gross == net, so ONE figure, not a redundant pair. */}
+                  <span className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
+                    {t("portalHoursGross", "{h} shift", { h: fmtHM(nextShift.net_hours) })}
+                  </span>
+                </>
               )}
             </div>
-            <div className="mt-1.5 text-[12px] text-gray-400">{nextShiftRole}</div>
 
             {/* Booked covers for this shift's night — the reason to hold both the
                 book and the roster. Count ONLY: the server sends one integer per
@@ -2171,14 +2179,6 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
         >
           <span className="tabular-nums" style={{ font: "600 12px/1 var(--font-text)", color: "#475569" }}>
             {weekTotals.hours} {t("portalHrsShort")} · {t("portalWeekShiftCount", "{n} shifts", { n: weekTotals.count })}
-          </span>
-          <span
-            style={{
-              padding: "5px 10px", borderRadius: 999, background: "#dcfce7", color: "#15803d",
-              font: "700 10px/1 var(--font-text)", letterSpacing: "0.06em", textTransform: "uppercase",
-            }}
-          >
-            {t("portalWeekLive", "Live")}
           </span>
         </div>
 
@@ -2555,7 +2555,6 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
     return <LoadingSkeleton />;
   }
 
-  const pct = maxHours && maxHours > 0 ? Math.min(100, (data.total_hours / maxHours) * 100) : null;
   const remaining = maxHours ? Math.max(0, maxHours - data.total_hours) : null;
 
   // Headline can be rostered (from the published schedule) or logged
@@ -2741,14 +2740,6 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             </div>
           ) : null}
         </div>
-        {pct !== null && (
-          <div className="relative rounded-full overflow-hidden" style={{ marginTop: 14, height: 5, background: "rgba(255,255,255,.10)" }}>
-            <div
-              className="h-full rounded-full"
-              style={{ width: `${pct}%`, background: pct >= 90 ? "#ef4444" : pct >= 75 ? "#f59e0b" : "linear-gradient(180deg,#22c55e,#16a34a)" }}
-            />
-          </div>
-        )}
       </div>
 
       {/* v2 by-week chart. Bars are proportional to the period's own maximum,
@@ -5471,6 +5462,11 @@ function StaffPushOptIn({ token }) {
 }
 
 
+
+/** The prototype's meta separator: a 3px dot at 35% white. */
+function HeroDot() {
+  return <span aria-hidden style={{ width: 3, height: 3, borderRadius: 99, background: "rgba(255,255,255,.35)", flex: "none" }} />;
+}
 
 export default function StaffPortalPage() {
   const { token } = useParams();
