@@ -339,7 +339,7 @@ function HolidaySection({ token }) {
 
   return (
     <div className="pt-3 border-t border-[#f1f5f9]">
-      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
+      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2">
         {t("portalHolidaySection", "Feriedage")}
       </div>
       <div className="flex items-baseline gap-2">
@@ -613,7 +613,7 @@ export function BankSection({ token }) {
 
   return (
     <div className="pt-3 border-t border-[#f1f5f9]">
-      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
+      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2">
         {t("portalBankSection", "Bank account")}
       </div>
 
@@ -1469,7 +1469,7 @@ function WhosOnStrip({ teamShifts, nextShift }) {
 // model — appears only when there's something to take, never a notification
 // blast). Claim is atomic + overlap-guarded server-side; on success the shift
 // lands in the staffer's own schedule, so we refresh.
-function OpenShiftsClaimCard({ token, rows, onClaimed }) {
+function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts }) {
   // PURE-PROPS rows: hoisted to the page-level loadData (same Promise.allSettled
   // as the schedule) so this card paints WITH the first render instead of
   // inserting itself after settle. Claim refreshes via onClaimed → loadData.
@@ -1505,7 +1505,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
-      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2 flex items-center gap-1.5">
+      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2 flex items-center gap-1.5">
         <CalendarPlus className="w-3.5 h-3.5" />
         {t("portalOpenTitle", "Open shifts")}
       </div>
@@ -1523,6 +1523,11 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
               </div>
               <div className="text-[13px] text-gray-500 tabular-nums mt-0.5">
                 {o.start_time}–{o.end_time}
+                {/* Same pre-tap verdict Swaps gives. Finding out you clash
+                    AFTER committing is the version that wastes a tap. */}
+                {overlapsOwnShift(o.date, `${o.start_time}–${o.end_time}`, ownShifts) && (
+                  <span className="ml-1.5 text-red-600 font-semibold">· {t("portalGaOverlaps", "Overlaps you")}</span>
+                )}
                 {/* Multi-location S5: WHERE the hole is — a colleague sees
                     the venue before taking a cross-location shift. */}
                 {o.branch_name && (
@@ -2019,7 +2024,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
       </div>
 
       {/* Åbne vagter — open shifts this staffer can pick up one-tap. */}
-      {token && <OpenShiftsClaimCard token={token} rows={openShifts || []} onClaimed={onShiftsChanged} />}
+      {token && <OpenShiftsClaimCard token={token} rows={openShifts || []} onClaimed={onShiftsChanged} ownShifts={shifts} />}
 
       {/* Bidirectional confirmation — calm "Jeg har set det" strip. Truth logic
           (allConfirmed gated on every confirmed_at) untouched; only the CTA
@@ -2199,7 +2204,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                 )}
               </div>
             )}
-            <div className="mt-3 pt-3 border-t border-[#f1f5f9] flex items-center justify-between gap-3">
+            <div className={`flex items-center justify-between gap-3${fs ? " mt-3 pt-3 border-t border-[#f1f5f9]" : ""}`}>
               {fs ? (
                 <div className="flex items-center gap-2.5 min-w-0">
                   <span className={`w-1.5 h-8 rounded-full shrink-0 ${roleBarColor(fs.role_on_shift)}`} aria-hidden />
@@ -2744,7 +2749,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       {/* Recent / upcoming shifts */}
       <div>
         <div className="flex items-baseline justify-between mb-2">
-          <span className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500">{recentLabel}</span>
+          <span className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8]">{recentLabel}</span>
           {data.entries.length > 0 && (
             <button
               type="button"
@@ -2830,7 +2835,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
         if (extra.length === 0) return null; // nothing new to surface
         return (
           <div>
-            <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
+            <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2">
               {t("portalHoursRecentlyClocked", "Recently clocked")}
               <span className="ml-1 font-normal text-gray-400 normal-case tracking-normal">
                 · {t("portalHoursRecentlyClockedWindow", "last {n} days", { n: winDays })}
@@ -4100,7 +4105,7 @@ function AbsenceSection({ token, onChanged }) {
               {t("portalCancel", "Cancel")}
             </button>
             <button onClick={submit} disabled={saving}
-              className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-50">
+              className="flex-1 py-2.5 rounded-[14px] bg-gray-900 text-white font-text text-[13px] font-bold hover:bg-gray-700 transition disabled:opacity-50">
               {saving ? t("portalSaving", "Saving…") : t("fravaerSubmit", "Send request")}
             </button>
           </div>
@@ -4350,7 +4355,7 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
  * view: that day belongs to the approval flow, and a soft tap must not look
  * like it can override it.
  */
-function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenceByDate, savingSet, onTapDay, lang, t }) {
+function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenceByDate, shiftSet, savingSet, onTapDay, lang, t }) {
   const days = useMemo(() => {
     const base = new Date();
     base.setHours(0, 0, 0, 0);
@@ -4410,6 +4415,7 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
           const saving = savingSet.has(key);
           const pref = one?.kind === "preferred";
           const on = !!one;
+          const rostered = shiftSet?.has(key);
 
           let cell = { background: "#f5f8fb", border: "1px solid #eef2f7" };
           let dow = "#94a3b8";
@@ -4445,6 +4451,7 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
                   : one ? t("legendCantWork", "Can't work")
                   : recurring ? t("legendRepeats", "Every week")
                   : null,
+                rostered ? t("legendScheduled", "Scheduled") : null,
               ].filter(Boolean).join(" — ")}
               className="flex flex-col items-center"
               style={{
@@ -4466,7 +4473,10 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
                 {d.getDate()}
               </span>
               <span className="relative flex items-center justify-center" style={{ height: 5 }}>
-                <span style={{ width: 5, height: 5, borderRadius: 99, background: dot }} />
+                {/* A rostered day carries a dot even when unmarked: marking
+                    "kan ikke" on a day you already work does NOT release it,
+                    and this strip is where that mistake gets made. */}
+                <span style={{ width: 5, height: 5, borderRadius: 99, background: dot !== "transparent" ? dot : (rostered ? "#0f172a" : "transparent") }} />
                 {/* Non-colour markers, matching the month view: a weekly rule
                     and a timed window are states colour alone cannot carry. */}
                 {recurring && !one && <Repeat className="absolute w-2.5 h-2.5 text-red-500" strokeWidth={2.5} aria-hidden />}
@@ -4684,7 +4694,7 @@ function AvailabilityTab({ token, shifts }) {
         <WeekStrip
           weekOffset={weekOffset} onShiftWeek={setWeekOffset}
           oneOffByDate={oneOffByDate} recurringSet={recurringSet} absenceByDate={absenceByDate}
-          savingSet={savingSet} onTapDay={tapDay} lang={lang} t={t}
+          shiftSet={shiftSet} savingSet={savingSet} onTapDay={tapDay} lang={lang} t={t}
         />
       )}
 
@@ -4709,7 +4719,7 @@ function AvailabilityTab({ token, shifts }) {
         <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded" style={{ background: "linear-gradient(180deg,#dcfce7,#bbf7d0)", border: "1px solid rgba(22,163,74,.35)" }} />{t("legendPreferred", "Prefers")}</span>
         {/* Only claim the scheduled dot when the surface on screen actually
             draws one — the week strip does not. */}
-        {shiftSet.size > 0 && calOpen && <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gray-900" />{t("legendScheduled", "Scheduled")}</span>}
+        {shiftSet.size > 0 && <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gray-900" />{t("legendScheduled", "Scheduled")}</span>}
       </div>
 
 
@@ -4776,7 +4786,7 @@ function AvailabilityTab({ token, shifts }) {
             <p className="text-[13px] text-gray-600">{t("kanIkkeRemoveWeeklyBody", "This clears every {day}.").split("{day}").join(WD[confirmWeekday.wd])}</p>
             <div className="flex gap-2 pt-1">
               <button type="button" onClick={() => setConfirmWeekday(null)} className="flex-1 py-2.5 rounded-[14px] bg-[#f1f5f9] text-gray-700 font-text text-[13px] font-bold hover:bg-[#e2e8f0] transition">{t("portalCancel", "Cancel")}</button>
-              <button type="button" onClick={() => removeWeekly(confirmWeekday.wd)} className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition">{t("kanIkkeRemove", "Remove")}</button>
+              <button type="button" onClick={() => removeWeekly(confirmWeekday.wd)} className="flex-1 py-2.5 rounded-[14px] bg-red-600 text-white font-text text-[13px] font-bold hover:bg-red-700 transition">{t("kanIkkeRemove", "Remove")}</button>
             </div>
           </div>
         </div>
@@ -6387,7 +6397,7 @@ export default function StaffPortalPage() {
                   )}
                 </div>
               </div>
-              <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500">{t("portalNotifications", "Notifications")}</div>
+              <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8]">{t("portalNotifications", "Notifications")}</div>
               <div>
                 <label className="text-[10px] text-gray-500 mb-1 block">{t("portalContactEmailLabel", "Email")}</label>
                 <input
@@ -6411,7 +6421,7 @@ export default function StaffPortalPage() {
               {/* Home address — DK-structured (adresse / postnr / by). Optional;
                   the owner sees it so they have a current address on file. */}
               <div className="pt-1 border-t border-[#f1f5f9] space-y-3">
-                <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500">{t("portalAddressSection", "Address")}</div>
+                <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8]">{t("portalAddressSection", "Address")}</div>
                 <div>
                   <label className="text-[10px] text-gray-500 mb-1 block">{t("portalAddressStreetLabel", "Street & number")}</label>
                   <input
