@@ -1,0 +1,27 @@
+{
+  "name": "BonBox Vært-skærm",
+  "short_name": "Vært-skærm",
+  "description": "Reservationsbogen til døren: dagens gæster, bordplan og venteliste.",
+  "start_url": "/reservations/stand",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "orientation": "any",
+  "categories": ["business", "productivity"],
+  "lang": "da",
+  "icons": [
+    {
+      "src": "/icon-192.png?v=2",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png?v=2",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

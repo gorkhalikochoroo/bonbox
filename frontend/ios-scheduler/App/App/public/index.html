@@ -1,9 +1,22 @@
 <!doctype html>
-<html lang="en">
+<html lang="da">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <!-- Favicon, in the order a crawler resolves it.
+         /favicon.ico MUST exist as a real file: vercel.json rewrites /(.*) -> /
+         for the SPA, so before this file existed a request for /favicon.ico
+         returned index.html with HTTP 200 and content-type text/html. Google's
+         favicon crawler probes that path by convention, so it got an
+         apparently-successful response full of markup rather than a clean 404
+         it could fall back from — which is why search results kept showing the
+         old icon. Static files in public/ are matched before rewrites, so the
+         file's existence is the fix. Raster PNGs are listed too because an
+         SVG-only favicon is the least well-supported option across crawlers. -->
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=2" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png?v=2" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <link rel="apple-touch-icon" href="/icon-192.png?v=2" />
     <!-- viewport-fit=cover exposes env(safe-area-inset-*) so layouts can
          dodge the notch / punch-hole camera. We dropped maximum-scale +
          user-scalable=no so kitchen owners can pinch-zoom into a small
@@ -16,7 +29,7 @@
          token in /s/<token> can't leak to a third party. (Browser default,
          pinned explicitly as defence-in-depth.) -->
     <meta name="referrer" content="strict-origin-when-cross-origin" />
-    <meta name="description" content="BonBox — the AI manager for Danish small businesses. Cafés, restaurants, bars, retail, freelancers, konsulenter. Daily close, MOMS countdown, faktura, receipt OCR, and a 9am brief that actually helps. 129 DKK/mo founding rate." />
+    <meta name="description" content="Dagens lukning, bordbestilling, vagtplan, timer &amp; løn, lager og MOMS. Til restauranter, barer, bistroer, butikker og alle andre, der lukker en kasse i Danmark. Ét login til ejeren, én app til personalet, én regning." />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="BonBox" />
@@ -79,6 +92,16 @@
           var token = m && m[1] ? m[1] : null;
           window.__BONBOX_PORTAL_TOKEN = token;
 
+          // The host stand is a door tablet, and it has exactly the same
+          // Add-to-Home problem the staff portal had: the generic manifest is
+          // start_url "/" + orientation portrait-primary, so an owner who
+          // completed the Share-sheet ritual on /reservations/stand got an icon
+          // that opened the OWNER DASHBOARD, in portrait, on a landscape
+          // tablet. Nobody could test "is the web host stand good enough"
+          // because an installed host stand had never actually existed.
+          var isStand = /^\/reservations\/stand\/?$/.test(location.pathname);
+          window.__BONBOX_IS_STAND = isStand;
+
           function setManifest(href) {
             var link = document.querySelector('link[rel="manifest"]');
             if (!href) {
@@ -102,6 +125,22 @@
             } else {
               // Android/desktop staff route → per-staff manifest, first paint.
               setManifest("/portal/" + token + "/app.webmanifest");
+            }
+          } else if (isStand) {
+            if (isIOS) {
+              // iOS host stand → NO manifest, same reasoning as the staff
+              // route: with no manifest present in the INITIAL document, iOS
+              // Add-to-Home bookmarks the current URL (/reservations/stand)
+              // and takes its name from apple-mobile-web-app-title. A manifest
+              // here would bind the icon to start_url "/" instead — the very
+              // bug. (iPad is the device this screen is for, so this is the
+              // branch that actually matters.)
+              setManifest(null);
+            } else {
+              // Android/desktop → a real stand manifest: start_url
+              // /reservations/stand and orientation "any" so a landscape
+              // tablet is not forced into portrait.
+              setManifest("/stand.webmanifest");
             }
           } else {
             // Owner / marketing / any non-portal route → generic manifest.
@@ -137,20 +176,25 @@
 
 
     <!-- Open Graph for Facebook sharing -->
-    <meta property="og:title" content="BonBox — The AI manager for Danish small businesses" />
-    <meta property="og:description" content="Cafés, restaurants, bars, retail, freelancers, konsulenter. Daily close, MOMS countdown, faktura, receipt OCR. A 9am brief that actually helps. Built for Danish small businesses." />
+    <meta property="og:title" content="BonBox — Bagkontoret din virksomhed faktisk kører på" />
+    <meta property="og:description" content="Dagens lukning, bordbestilling, vagtplan, timer &amp; løn, lager og MOMS. Til restauranter, barer, bistroer, butikker og alle andre, der lukker en kasse i Danmark. Ét login til ejeren, én app til personalet, én regning." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://bonbox.dk" />
-    <meta property="og:image" content="https://bonbox.dk/icon-512.png" />
+    <meta property="og:image" content="https://www.bonbox.dk/og-image-v2.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="BonBox" />
     <meta property="og:locale" content="da_DK" />
+    <meta property="og:locale:alternate" content="en_GB" />
 
     <!-- Twitter Card -->
-    <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="BonBox — The AI manager for Danish small businesses" />
-    <meta name="twitter:description" content="Cafés, restaurants, bars, retail, freelancers, konsulenter. Daily close, MOMS countdown, faktura, receipt OCR. A 9am brief that actually helps. 129 DKK/mo founding rate for the first 100." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://www.bonbox.dk/og-image-v2.png" />
+    <meta name="twitter:title" content="BonBox — Bagkontoret din virksomhed faktisk kører på" />
+    <meta name="twitter:description" content="Dagens lukning, bordbestilling, vagtplan, timer &amp; løn, lager og MOMS. Til restauranter, barer, bistroer, butikker og alle andre, der lukker en kasse i Danmark. Ét login til ejeren, én app til personalet, én regning." />
 
     <!-- SEO extras -->
-    <meta name="keywords" content="café management Denmark, restaurant AI manager, daily brief café, MOMS automation, kasserapport AI, faktura Denmark, receipt OCR, lønseddel, schedule autopilot, Bogføringsloven, café software Denmark, BonBox" />
+    <meta name="keywords" content="kasserapport, dagens lukning, MOMS-frist, faktura, bilagsscanning, lønseddel, vagtplan, bordbestilling, café software, restaurant software, bogføring Danmark, Bogføringsloven, BonBox" />
     <meta name="author" content="BonBox" />
     <link rel="canonical" href="https://bonbox.dk/" />
 
@@ -160,7 +204,7 @@
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
       "name": "BonBox",
-      "description": "The AI manager for Danish small businesses. Cafés, restaurants, bars, retail, freelancers, konsulenter. Daily close, MOMS countdown, faktura, receipt OCR, and a 9am brief that actually helps.",
+      "description": "Bagkontoret din virksomhed faktisk kører på. Dagens lukning, bordbestilling, vagtplan, timer & løn, lager og MOMS — til restauranter, barer, bistroer, butikker og alle andre, der lukker en kasse i Danmark.",
       "url": "https://bonbox.dk",
       "applicationCategory": "BusinessApplication",
       "operatingSystem": "Web, iOS",
@@ -173,57 +217,61 @@
     }
     </script>
 
-    <title>BonBox — The AI manager for Danish small businesses | 9am brief, MOMS countdown, faktura, OCR receipts</title>
-    <script type="module" crossorigin src="/assets/index-Bs3FKDeO.js"></script>
+    <title>BonBox — Bagkontoret din virksomhed faktisk kører på</title>
+    <script type="module" crossorigin src="/assets/index-DJIqomYL.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-COnpUsM8.js">
     <link rel="modulepreload" crossorigin href="/assets/vendor-charts-3Io-QhMO.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-B_0r447s.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-DpG5_Wl_.js">
     <link rel="modulepreload" crossorigin href="/assets/dist-N3LOKtlT.js">
-    <link rel="modulepreload" crossorigin href="/assets/platform-BtvdINIB.js">
+    <link rel="modulepreload" crossorigin href="/assets/platform-BI5k6Ixa.js">
     <link rel="modulepreload" crossorigin href="/assets/createLucideIcon-DroOUvy5.js">
-    <link rel="modulepreload" crossorigin href="/assets/thermometer-BK_dE3li.js">
-    <link rel="modulepreload" crossorigin href="/assets/wrench-622vwiXV.js">
-    <link rel="modulepreload" crossorigin href="/assets/sparkles-D3dRxOYn.js">
-    <link rel="modulepreload" crossorigin href="/assets/calendar-IlDUikm_.js">
-    <link rel="modulepreload" crossorigin href="/assets/timer-BHGA2Dpt.js">
-    <link rel="modulepreload" crossorigin href="/assets/chart-column-opEg0Tyc.js">
-    <link rel="modulepreload" crossorigin href="/assets/check-eEe61_0c.js">
-    <link rel="modulepreload" crossorigin href="/assets/chevron-down-BujprOmw.js">
-    <link rel="modulepreload" crossorigin href="/assets/chevron-right-I2YYvZxX.js">
-    <link rel="modulepreload" crossorigin href="/assets/circle-alert-DCyeJ3E1.js">
-    <link rel="modulepreload" crossorigin href="/assets/clock-mmf30_FL.js">
-    <link rel="modulepreload" crossorigin href="/assets/rotate-ccw-Dk77clYC.js">
-    <link rel="modulepreload" crossorigin href="/assets/gift-Cs1v36Ks.js">
-    <link rel="modulepreload" crossorigin href="/assets/info-C8-utKuX.js">
-    <link rel="modulepreload" crossorigin href="/assets/mail-DsdIjLPc.js">
-    <link rel="modulepreload" crossorigin href="/assets/plus-C9EZ3To4.js">
+    <link rel="modulepreload" crossorigin href="/assets/wrench-zSmH_4gW.js">
+    <link rel="modulepreload" crossorigin href="/assets/thermometer-DezoYkm8.js">
+    <link rel="modulepreload" crossorigin href="/assets/calendar-check-BgHM9rpe.js">
+    <link rel="modulepreload" crossorigin href="/assets/utensils-D_mu5TWY.js">
+    <link rel="modulepreload" crossorigin href="/assets/calendar-jMnqS0GV.js">
+    <link rel="modulepreload" crossorigin href="/assets/timer-C68Lm9jT.js">
+    <link rel="modulepreload" crossorigin href="/assets/chart-column-DRNtSRlI.js">
+    <link rel="modulepreload" crossorigin href="/assets/check-OEuE0Cco.js">
+    <link rel="modulepreload" crossorigin href="/assets/chevron-down-cVL4Wsxb.js">
+    <link rel="modulepreload" crossorigin href="/assets/chevron-right-DcIY0t_U.js">
+    <link rel="modulepreload" crossorigin href="/assets/circle-alert-CmKw60iR.js">
+    <link rel="modulepreload" crossorigin href="/assets/clock-D1Swltmr.js">
+    <link rel="modulepreload" crossorigin href="/assets/rotate-ccw-7x0Gw6Fs.js">
+    <link rel="modulepreload" crossorigin href="/assets/file-text-cJKzAh-t.js">
+    <link rel="modulepreload" crossorigin href="/assets/gift-CCDPbH6W.js">
+    <link rel="modulepreload" crossorigin href="/assets/info-3i9ftsc0.js">
+    <link rel="modulepreload" crossorigin href="/assets/mail-zskppUoL.js">
+    <link rel="modulepreload" crossorigin href="/assets/minus-C9dL9797.js">
     <link rel="modulepreload" crossorigin href="/assets/users-round-B0ybBPer.js">
-    <link rel="modulepreload" crossorigin href="/assets/shield-check-C1ima-8Q.js">
-    <link rel="modulepreload" crossorigin href="/assets/thumbs-up-C5JkO-ii.js">
-    <link rel="modulepreload" crossorigin href="/assets/trash-2-C3-fs0KH.js">
-    <link rel="modulepreload" crossorigin href="/assets/triangle-alert-D43knM2g.js">
-    <link rel="modulepreload" crossorigin href="/assets/users-DTVEZDV2.js">
-    <link rel="modulepreload" crossorigin href="/assets/wallet-WVNXIeaQ.js">
-    <link rel="modulepreload" crossorigin href="/assets/x-BXtIZQiv.js">
-    <link rel="modulepreload" crossorigin href="/assets/Icon-IWheX42s.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-react-PPoFeehd.js">
-    <link rel="modulepreload" crossorigin href="/assets/currency-BthxMQZT.js">
-    <link rel="modulepreload" crossorigin href="/assets/Amount-BrkIDfCS.js">
-    <link rel="modulepreload" crossorigin href="/assets/Button-BYFCrHCy.js">
-    <link rel="modulepreload" crossorigin href="/assets/Card-BiZFb6Y_.js">
-    <link rel="modulepreload" crossorigin href="/assets/inbox-BzsvyFZj.js">
-    <link rel="modulepreload" crossorigin href="/assets/Empty-HqXrzF_g.js">
-    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-CoHiYv_t.js">
-    <link rel="modulepreload" crossorigin href="/assets/StatCard-9Q07HC_k.js">
-    <link rel="modulepreload" crossorigin href="/assets/TabPills-hBhPcWzm.js">
-    <link rel="modulepreload" crossorigin href="/assets/api-DF06_mIC.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-BBxVqzPB.js">
-    <link rel="modulepreload" crossorigin href="/assets/UpgradeNudge-BoumejM8.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEventLog-U6tuaYyo.js">
-    <link rel="modulepreload" crossorigin href="/assets/useAuth-Ddr1HEC3.js">
-    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-BFSz86J8.js">
-    <link rel="modulepreload" crossorigin href="/assets/errText-BC8zNJ-K.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-BoKNdoB0.css">
+    <link rel="modulepreload" crossorigin href="/assets/plus-BPzDGJUM.js">
+    <link rel="modulepreload" crossorigin href="/assets/shield-check-C1tQIa_2.js">
+    <link rel="modulepreload" crossorigin href="/assets/thumbs-up-DBYIetpn.js">
+    <link rel="modulepreload" crossorigin href="/assets/trash-2-CHYbTsfc.js">
+    <link rel="modulepreload" crossorigin href="/assets/triangle-alert-DiDOLiwh.js">
+    <link rel="modulepreload" crossorigin href="/assets/users-DpPg3amc.js">
+    <link rel="modulepreload" crossorigin href="/assets/wallet-C0XNlOYw.js">
+    <link rel="modulepreload" crossorigin href="/assets/x-BAeyZths.js">
+    <link rel="modulepreload" crossorigin href="/assets/Icon-BJ0CkwU9.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-react-MjxW2Qor.js">
+    <link rel="modulepreload" crossorigin href="/assets/currency-vSt_hpJ7.js">
+    <link rel="modulepreload" crossorigin href="/assets/Amount-CJKuce8L.js">
+    <link rel="modulepreload" crossorigin href="/assets/Button-CybeLv_t.js">
+    <link rel="modulepreload" crossorigin href="/assets/Card-D4t2o5CB.js">
+    <link rel="modulepreload" crossorigin href="/assets/inbox-Di2ePHV3.js">
+    <link rel="modulepreload" crossorigin href="/assets/Empty-CKBjnVQ1.js">
+    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-DO5j0nt_.js">
+    <link rel="modulepreload" crossorigin href="/assets/StatCard-CmwEhvk4.js">
+    <link rel="modulepreload" crossorigin href="/assets/TabPills-BZPOes08.js">
+    <link rel="modulepreload" crossorigin href="/assets/api-OG2N4cJa.js">
+    <link rel="modulepreload" crossorigin href="/assets/useEventLog-BcbdlkMy.js">
+    <link rel="modulepreload" crossorigin href="/assets/useAuth-DHO8ii3h.js">
+    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-Dk1RSjkt.js">
+    <link rel="modulepreload" crossorigin href="/assets/UpgradeNudge-7XhOcT_w.js">
+    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-ogvm47gE.js">
+    <link rel="modulepreload" crossorigin href="/assets/errText-e9v5XCBy.js">
+    <link rel="modulepreload" crossorigin href="/assets/sound-BNC8Wlcd.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-DDL7Zhrm.css">
   </head>
   <body>
     <script>
