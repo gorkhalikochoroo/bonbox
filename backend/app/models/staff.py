@@ -390,21 +390,34 @@ class OpenShift(Base):
 
 
 class StaffChatThread(Base):
-    """One 1:1 conversation between the owner (user_id) and a staffer (staff_id).
+    """A conversation. Either 1:1 owner<->staffer, or a group of staffers.
 
-    Lazily materialized on first message OR first GET. UNIQUE(user_id, staff_id)
-    makes a duplicate/cross-tenant thread structurally impossible — on the race,
+    kind='direct' — the original shape. staff_id is set, and a partial unique
+    index on (user_id, staff_id) WHERE kind='direct' keeps a duplicate or
+    cross-tenant thread structurally impossible, exactly as the old table-wide
+    UNIQUE did. Lazily materialized on first message OR first GET; on the race
     the loser catches IntegrityError and re-SELECTs the winner.
+
+    kind='group'  — staff_id is NULL because a group belongs to no one staffer.
+    Membership lives in StaffChatMember, and so does read state: two timestamp
+    columns cannot express N readers.
+
+    Direct threads ALSO get a member row (backfilled in migration 072) so every
+    reader uses one code path instead of branching on kind forever.
     """
 
     __tablename__ = "staff_chat_threads"
-    __table_args__ = (
-        UniqueConstraint("user_id", "staff_id", name="uq_staff_chat_thread"),
-    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
-    staff_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("staff_members.id"))
+    # NULL for a group — see the class docstring.
+    staff_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID(), ForeignKey("staff_members.id"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(String(8), default="direct", server_default="direct")
+    title: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    # Who opened it, so the UI can say "started by your manager" honestly.
+    created_by: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)  # 'owner'|'staff'
     last_message_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     owner_last_read_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     staff_last_read_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -412,6 +425,32 @@ class StaffChatThread(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=utc_now, onupdate=utc_now
     )
+
+
+class StaffChatMember(Base):
+    """One staffer's membership of one thread — and their own read position.
+
+    Read state lives HERE, not on the thread, because a group has N readers and
+    the thread's two timestamp columns can only describe two. `owner_last_read_at`
+    stays on the thread: there is exactly one owner.
+
+    UNIQUE(thread_id, staff_id) makes a double-add impossible, which matters
+    because "add to group" is the kind of action people tap twice.
+    """
+
+    __tablename__ = "staff_chat_members"
+    __table_args__ = (
+        UniqueConstraint("thread_id", "staff_id", name="uq_staff_chat_member"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
+    thread_id: Mapped[uuid.UUID] = mapped_column(
+        GUID(), ForeignKey("staff_chat_threads.id", ondelete="CASCADE")
+    )
+    staff_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("staff_members.id"))
+    last_read_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class StaffChatMessage(Base):
@@ -435,6 +474,13 @@ class StaffChatMessage(Base):
     )
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
     sender_type: Mapped[str] = mapped_column(String(8))  # 'owner' | 'staff'
+    # WHICH staffer wrote it. NULL for owner messages and for the pre-group
+    # 1:1 history, where the thread's own staff_id already answered it. In a
+    # group it is the only attribution there is: `mine` cannot be derived from
+    # sender_type alone, because every member is 'staff'.
+    sender_staff_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID(), ForeignKey("staff_members.id"), nullable=True
+    )
     body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     photo_count: Mapped[int] = mapped_column(Integer, default=0)  # 0..3
     client_msg_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)

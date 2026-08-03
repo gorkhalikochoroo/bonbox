@@ -2249,6 +2249,56 @@ _migrations = [
     # when to be told rather than us guessing. Nullable-with-no-default on
     # purpose: nobody is opted into a push they never asked for.
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS shift_reminder_minutes INTEGER",
+
+    # ── Migration 073 (2026-08-03): group chat ──────────────────────────────
+    # staff_chat_threads was structurally 1:1 — UNIQUE(user_id, staff_id) plus
+    # exactly two read timestamps. A group needs N members, so membership moves
+    # OUT of the thread row into its own table and read state moves WITH it.
+    #
+    # The 1:1 threads keep working untouched: kind='direct' rows still carry
+    # staff_id, and the backfill below gives each one a membership row so every
+    # reader can use one code path instead of branching on kind forever.
+    "ALTER TABLE staff_chat_threads ADD COLUMN IF NOT EXISTS kind VARCHAR(8) NOT NULL DEFAULT 'direct'",
+    # create_all may have made the column first (it runs BEFORE migrations), in
+    # which case the ADD above is a no-op — so state the default explicitly.
+    "ALTER TABLE staff_chat_threads ALTER COLUMN kind SET DEFAULT 'direct'",
+    "ALTER TABLE staff_chat_threads ADD COLUMN IF NOT EXISTS title VARCHAR(80)",
+    "ALTER TABLE staff_chat_threads ADD COLUMN IF NOT EXISTS created_by VARCHAR(8)",
+    # staff_id becomes nullable — a group belongs to no single staffer. The old
+    # table-wide UNIQUE must become PARTIAL: the invariant that mattered was
+    # "one direct thread per staffer", and that is what the index below says.
+    # (Postgres treats NULLs as distinct, so groups would not have collided —
+    # but a table-wide constraint on a now-nullable column is still wrong.)
+    "ALTER TABLE staff_chat_threads ALTER COLUMN staff_id DROP NOT NULL",
+    "ALTER TABLE staff_chat_threads DROP CONSTRAINT IF EXISTS uq_staff_chat_thread",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_chat_direct "
+    "ON staff_chat_threads (user_id, staff_id) WHERE kind = 'direct'",
+
+    "ALTER TABLE staff_chat_messages ADD COLUMN IF NOT EXISTS sender_staff_id UUID",
+    "CREATE INDEX IF NOT EXISTS ix_staff_chat_msg_sender ON staff_chat_messages (thread_id, sender_staff_id)",
+
+    """CREATE TABLE IF NOT EXISTS staff_chat_members (
+        id UUID PRIMARY KEY,
+        user_id UUID NOT NULL REFERENCES users(id),
+        thread_id UUID NOT NULL REFERENCES staff_chat_threads(id) ON DELETE CASCADE,
+        staff_id UUID NOT NULL REFERENCES staff_members(id),
+        last_read_at TIMESTAMP,
+        added_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_staff_chat_member UNIQUE (thread_id, staff_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS ix_staff_chat_members_staff ON staff_chat_members (user_id, staff_id)",
+    # Backfill: every existing 1:1 thread gets its member row, carrying the read
+    # position it already had. Without this a staffer's unread count would jump
+    # to "everything" the moment the new code path goes live.
+    """INSERT INTO staff_chat_members (id, user_id, thread_id, staff_id, last_read_at, added_at)
+       SELECT md5(random()::text || clock_timestamp()::text)::uuid,
+              t.user_id, t.id, t.staff_id, t.staff_last_read_at, t.created_at
+       FROM staff_chat_threads t
+       WHERE t.staff_id IS NOT NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM staff_chat_members m
+           WHERE m.thread_id = t.id AND m.staff_id = t.staff_id
+         )""",
     # ── Migration 064 (2026-07-18): shift location (multi-location S3) ───
     # Optional branch on a shift — ONE roster with a location lens, never
     # separate rosters (the anti-Planday design). NULL = unassigned/main;
@@ -2732,6 +2782,14 @@ def _run_migrations():
             ok += _add("staff_members", "bank_account_enc", "BLOB")
             ok += _add("staff_members", "bank_updated_at", "TIMESTAMP")
             ok += _add("staff_members", "shift_reminder_minutes", "INTEGER")
+            # Migration 072 mirror. SQLite cannot DROP NOT NULL or build a
+            # partial unique index, and it does not have gen_random_uuid — so
+            # dev DBs get the columns, Base.metadata.create_all makes
+            # staff_chat_members, and the backfill is skipped (a dev DB with
+            # pre-existing 1:1 threads simply re-reads them as unread once).
+            ok += _add("staff_chat_threads", "kind", "VARCHAR(8) DEFAULT 'direct'")
+            ok += _add("staff_chat_threads", "title", "VARCHAR(80)")
+            ok += _add("staff_chat_threads", "created_by", "VARCHAR(8)")
             ok += _add("staff_links", "code_expires_at", "TIMESTAMP")
             ok += _add("staff_links", "code_used_at", "TIMESTAMP")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
