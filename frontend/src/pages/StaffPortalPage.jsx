@@ -440,6 +440,9 @@ function DocumentsSection({ token }) {
       {openSheet && createPortal(
         <div className="fixed inset-0 z-[60] flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setOpenSheet(false)}>
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={t("portalDocsSection")}
             className="w-full bg-white"
             style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
             onClick={(e) => e.stopPropagation()}
@@ -2338,7 +2341,10 @@ function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={onClose}>
       <div
-        className="w-full bg-white"
+        role="dialog"
+            aria-modal="true"
+            aria-label={t("portalHoursCustomTitle")}
+            className="w-full bg-white"
         style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -3824,7 +3830,7 @@ function MessagesTab({ token, restaurantName, onRead }) {
                         ? "text-white rounded-br-md"
                         : "bg-white border border-gray-200/70 text-gray-900 rounded-bl-md"
                     } ${m._pending ? "opacity-60" : ""} ${m._failed ? "cursor-pointer ring-1 ring-red-300" : ""}`}
-                    style={m.mine ? { background: "rgb(var(--brand-600))" } : undefined}
+                    style={m.mine ? { background: "linear-gradient(180deg,#22c55e,#16a34a)" } : undefined}
                   >
                     {m.body}
                   </div>
@@ -3864,7 +3870,7 @@ function MessagesTab({ token, restaurantName, onRead }) {
               disabled={(!text.trim() && picker.files.length === 0) || sending}
               aria-label={t("staffChatSend", "Send")}
               className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white disabled:opacity-40 transition"
-              style={{ background: "rgb(var(--brand-600))" }}
+              style={{ background: "linear-gradient(180deg,#22c55e,#16a34a)" }}
             >
               <Send className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
             </button>
@@ -4133,7 +4139,13 @@ function MonthCalendar({
   }, [viewYear, viewMonth]);
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-2">
+    <div
+      className="bg-white"
+      style={{
+        border: "1px solid #e8edf3", borderRadius: 20, padding: 8,
+        boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
+      }}
+    >
       {/* Month nav — mutates view only, never data */}
       <div className="flex items-center justify-between px-1 pb-1">
         <button type="button" onClick={onPrev} aria-label={t("kanIkkePrevMonth", "Previous month")}
@@ -4370,13 +4382,25 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
       }}
     >
       <div className="flex items-center justify-between">
-        <button type="button" onClick={() => onShiftWeek(weekOffset - 1)} aria-label={t("portalPrevWeek", "Previous week")} style={{ color: "#94a3b8" }}>
+        <button
+          type="button"
+          onClick={() => onShiftWeek(weekOffset - 1)}
+          aria-label={t("portalPrevWeek", "Previous week")}
+          className="flex items-center justify-center -m-2"
+          style={{ color: "#94a3b8", minWidth: 44, minHeight: 44 }}
+        >
           <ChevronLeft size={16} strokeWidth={2.5} />
         </button>
         <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
           {range}
         </span>
-        <button type="button" onClick={() => onShiftWeek(weekOffset + 1)} aria-label={t("portalNextWeek", "Next week")} style={{ color: "#94a3b8" }}>
+        <button
+          type="button"
+          onClick={() => onShiftWeek(weekOffset + 1)}
+          aria-label={t("portalNextWeek", "Next week")}
+          className="flex items-center justify-center -m-2"
+          style={{ color: "#94a3b8", minWidth: 44, minHeight: 44 }}
+        >
           <ChevronRight size={16} strokeWidth={2.5} />
         </button>
       </div>
@@ -4418,6 +4442,15 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
               type="button"
               disabled={locked || saving}
               onClick={() => onTapDay(key, { oneOff: one, abs, recurring, wd: (d.getDay() + 6) % 7 })}
+              aria-pressed={!locked ? !!one : undefined}
+              aria-label={[
+                d.toLocaleDateString(localeFor(lang), { weekday: "long", day: "numeric", month: "long" }),
+                abs ? t("legendApproved", "Approved off")
+                  : one?.kind === "preferred" ? t("legendPreferred", "Prefers")
+                  : one ? t("legendCantWork", "Can't work")
+                  : recurring ? t("legendRepeats", "Every week")
+                  : null,
+              ].filter(Boolean).join(" — ")}
               className="flex flex-col items-center"
               style={{
                 flex: "1 1 0", minWidth: 0, gap: 5, padding: "9px 0 10px", borderRadius: 13,
@@ -4437,7 +4470,13 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
               >
                 {d.getDate()}
               </span>
-              <span style={{ width: 5, height: 5, borderRadius: 99, background: dot }} />
+              <span className="relative flex items-center justify-center" style={{ height: 5 }}>
+                <span style={{ width: 5, height: 5, borderRadius: 99, background: dot }} />
+                {/* Non-colour markers, matching the month view: a weekly rule
+                    and a timed window are states colour alone cannot carry. */}
+                {recurring && !one && <Repeat className="absolute w-2.5 h-2.5 text-red-500" strokeWidth={2.5} aria-hidden />}
+                {one?.timed && <Clock className="absolute w-2.5 h-2.5" strokeWidth={2.5} style={{ color: one.kind === "preferred" ? "#14532d" : "#7f1d1d" }} aria-hidden />}
+              </span>
             </button>
           );
         })}
@@ -5035,6 +5074,7 @@ function ShiftReminderRow({ token }) {
           type="button"
           role="switch"
           aria-checked={!!minutes}
+          aria-label={t("staffRemindTitle", "Remind me before a shift")}
           disabled={busy}
           onClick={() => save(minutes ? null : 60)}
           className="flex-shrink-0 disabled:opacity-50"
@@ -6036,7 +6076,7 @@ export default function StaffPortalPage() {
         />
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold text-gray-900">
+            <h1 style={{ font: "700 23px/1.08 var(--font-display)", letterSpacing: "-0.03em", color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {tab === "schedule" ? t("portalTitleSchedule", "My schedule")
                 : tab === "availability" ? t("portalTitleKanIkke", "Availability")
                 : tab === "messages" ? t("portalTitleMessages", "Messages")
@@ -6144,7 +6184,10 @@ export default function StaffPortalPage() {
         {photoMenu && createPortal(
           <div className="fixed inset-0 z-[60] flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setPhotoMenu(false)}>
             <div
-              className="w-full bg-white"
+              role="dialog"
+            aria-modal="true"
+            aria-label={t("portalPhotoLabel")}
+            className="w-full bg-white"
               style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -6193,7 +6236,10 @@ export default function StaffPortalPage() {
         {deptOpen && createPortal(
           <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setDeptOpen(false)}>
             <div
-              className="w-full bg-white"
+              role="dialog"
+            aria-modal="true"
+            aria-label={t("portalDepartment")}
+            className="w-full bg-white"
               style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
               onClick={(e) => e.stopPropagation()}
             >
