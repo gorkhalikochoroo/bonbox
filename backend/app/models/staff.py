@@ -244,6 +244,22 @@ class HoursLogged(Base):
     rate_applied: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
     earned: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
     entry_method: Mapped[str] = mapped_column(String(20), default="quick")
+    # ── Owner resolution: the "I have seen this and it is right" tick ──────
+    #
+    # Only ever set by a human. A scheduled shift with no punch is ambiguous —
+    # no-show, or worked-and-forgot — and nothing but the owner can settle it.
+    # 'confirmed' = the recorded hours are right as they stand.
+    # 'adjusted'  = the owner changed them; clock_hours keeps what was measured.
+    resolution: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    resolved_by: Mapped[Optional[uuid.UUID]] = mapped_column(GUID(), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    resolution_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # WRITE-ONCE. Captured the first time an owner overrides a measurement, so
+    # the Arbejdstidsloven register can always show that the clock and the owner
+    # disagreed, and by how much. Destroying it would make the override
+    # indistinguishable from a measurement — which is the whole failure mode.
+    # NULL means no measurement ever existed (an owner-typed 'quick' row).
+    clock_hours: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
     is_overtime: Mapped[bool] = mapped_column(Boolean, default=False)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

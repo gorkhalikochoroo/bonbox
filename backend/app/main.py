@@ -2275,6 +2275,17 @@ _migrations = [
     "ON staff_chat_threads (user_id, staff_id) WHERE kind = 'direct'",
 
     "ALTER TABLE staff_chat_messages ADD COLUMN IF NOT EXISTS sender_staff_id UUID",
+
+    # 074 — owner resolution of hours ("seen and accepted").
+    "ALTER TABLE hours_logged ADD COLUMN IF NOT EXISTS resolution VARCHAR(16)",
+    "ALTER TABLE hours_logged ADD COLUMN IF NOT EXISTS resolved_by UUID",
+    "ALTER TABLE hours_logged ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP",
+    "ALTER TABLE hours_logged ADD COLUMN IF NOT EXISTS resolution_note TEXT",
+    # Write-once: what the clock measured, kept forever so an override can never
+    # masquerade as a measurement.
+    "ALTER TABLE hours_logged ADD COLUMN IF NOT EXISTS clock_hours NUMERIC(5,2)",
+    "CREATE INDEX IF NOT EXISTS ix_hours_unresolved ON hours_logged (user_id, date) "
+    "WHERE resolution IS NULL",
     "CREATE INDEX IF NOT EXISTS ix_staff_chat_msg_sender ON staff_chat_messages (thread_id, sender_staff_id)",
 
     """CREATE TABLE IF NOT EXISTS staff_chat_members (
@@ -2791,6 +2802,14 @@ def _run_migrations():
             ok += _add("staff_chat_threads", "title", "VARCHAR(80)")
             ok += _add("staff_chat_threads", "created_by", "VARCHAR(8)")
             ok += _add("staff_chat_messages", "sender_staff_id", "CHAR(32)")
+            # 074 mirror. The chat migration shipped with its mirror line
+            # missing and no test could catch it, because create_all builds
+            # fresh DBs straight from the model. Both branches, every time.
+            ok += _add("hours_logged", "resolution", "VARCHAR(16)")
+            ok += _add("hours_logged", "resolved_by", "CHAR(32)")
+            ok += _add("hours_logged", "resolved_at", "TIMESTAMP")
+            ok += _add("hours_logged", "resolution_note", "TEXT")
+            ok += _add("hours_logged", "clock_hours", "NUMERIC(5,2)")
 
             # SQLite can neither DROP NOT NULL nor drop a table-wide UNIQUE via
             # ALTER, so an EXISTING dev database keeps `staff_id NOT NULL` and

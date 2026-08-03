@@ -405,6 +405,7 @@ export default function StaffHoursPage() {
               summary={summary}
               loading={summaryLoading}
               currency={currency}
+              onResolved={refetchAll}
             />
           </FadeIn>
           <FadeIn delay={0.15}>
@@ -929,8 +930,121 @@ function fmtHours(n, lang) {
   return `${num} ${lang === "da" ? "t" : "h"}`;
 }
 
-function HoursSummaryTable({ summary, loading, currency }) {
+
+/** Settle one shift. Three things the owner can say, and the system says none
+    of them by itself.
+
+    Deliberately NOT here: a "godkend alle" button. Batch navigation is fine;
+    batch decision is not — a single tap that accepts twelve shifts the owner
+    never looked at is exactly the rubber stamp this feature exists to replace.
+*/
+/** The first shift worth asking about. Unanswered punches outrank measured
+    deviations — only one of them needs a human. */
+function firstException(row) {
+  const ex = row.exceptions || [];
+  return ex.find((e) => e.state === "no_clock_in") || ex[0] || null;
+}
+
+function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
   const { t, lang } = useLanguage();
+  const [hours, setHours] = useState(
+    exception?.scheduled_hours != null ? String(exception.scheduled_hours) : "",
+  );
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const send = async (action, total) => {
+    setBusy(true); setErr("");
+    try {
+      await api.post("/staff/hours/resolve", {
+        staff_id: staffId,
+        date: exception.date,
+        action,
+        ...(total != null ? { total_hours: total } : {}),
+      });
+      onResolved();
+      onClose();
+    } catch (e) {
+      // Surfaced, never swallowed. The old edit path had `catch { /* silent */ }`
+      // so a failed save looked exactly like a successful one — on a pay record.
+      setErr(errText(e, t("shpResolveFailed", "Could not save. Try again.")));
+      setBusy(false);
+    }
+  };
+
+  const isMissing = exception?.state === "no_clock_in";
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center">
+      <div className="absolute inset-0 bg-gray-900/40" onClick={onClose} aria-hidden />
+      <div
+        role="dialog" aria-modal="true"
+        className="relative w-full sm:max-w-sm bg-white dark:bg-gray-800 rounded-t-2xl sm:rounded-2xl p-5"
+        style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))" }}
+      >
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{staffName}</h3>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {fmtDateFull(exception.date)} ·{" "}
+          {t("shpScheduledShort", "{h} scheduled").replace("{h}", fmtHours(exception.scheduled_hours, lang))}
+        </p>
+
+        <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">
+          {isMissing
+            ? t("shpResolveMissingBody", "The clock recorded nothing for this shift. Only you know what happened.")
+            : t("shpResolveShortBody", "The clock recorded {a} of {s}.")
+                .replace("{a}", fmtHours(exception.actual_hours, lang))
+                .replace("{s}", fmtHours(exception.scheduled_hours, lang))}
+        </p>
+
+        {err && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{err}</p>}
+
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <input
+              type="number" step="0.25" min="0" max="24"
+              value={hours}
+              onChange={(e) => setHours(e.target.value)}
+              aria-label={t("shpResolveHoursLabel", "Hours worked")}
+              className="w-24 px-3 py-2 rounded-xl border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-gray-100 tabular-nums outline-none"
+            />
+            <Button
+              className="flex-1"
+              disabled={busy || !hours}
+              onClick={() => send("adjust", parseFloat(hours))}
+            >
+              {t("shpResolveWorked", "They worked this")}
+            </Button>
+          </div>
+          <Button
+            variant="secondary" className="w-full" disabled={busy}
+            onClick={() => send("absent")}
+          >
+            {t("shpResolveAbsent", "They did not work")}
+          </Button>
+          {!isMissing && (
+            <Button
+              variant="secondary" className="w-full" disabled={busy}
+              onClick={() => send("confirm")}
+            >
+              {t("shpResolveConfirm", "The record is correct")}
+            </Button>
+          )}
+        </div>
+
+        <button
+          onClick={onClose}
+          className="mt-3 w-full text-center text-sm text-gray-500 dark:text-gray-400 py-2"
+        >
+          {t("shpResolveCancel", "Not now")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function HoursSummaryTable({ summary, loading, currency, onResolved }) {
+  const { t, lang } = useLanguage();
+  const [resolving, setResolving] = useState(null);   // {staffId, staffName, exception}
   // Same server field the rows read, so the chip and the rows can never
   // disagree about how many shifts are unanswered.
   const needsAnswer = (summary || []).reduce(
@@ -1060,14 +1174,26 @@ function HoursSummaryTable({ summary, loading, currency }) {
                         correct there; what it could never carry is WHICH KIND of
                         deviation this was. */}
                     {stateMeta ? (
-                      <span className="inline-flex items-center gap-1 justify-end">
-                        {stateMeta.label}
-                        {row.needs_answer_count > 1 && (
-                          <span className="tabular-nums opacity-70">
-                            ×{row.needs_answer_count}
-                          </span>
-                        )}
-                      </span>
+                      firstException(row) ? (
+                        <button
+                          type="button"
+                          onClick={() => setResolving({
+                            staffId: row.staff_id,
+                            staffName: row.staff_name,
+                            exception: firstException(row),
+                          })}
+                          className="inline-flex items-center gap-1 justify-end underline underline-offset-2 decoration-dotted"
+                        >
+                          {stateMeta.label}
+                          {row.needs_answer_count > 1 && (
+                            <span className="tabular-nums opacity-70">×{row.needs_answer_count}</span>
+                          )}
+                        </button>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 justify-end">
+                          {stateMeta.label}
+                        </span>
+                      )
                     ) : "\u2014"}
                   </td>
                   <td className="hidden md:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
@@ -1116,6 +1242,16 @@ function HoursSummaryTable({ summary, loading, currency }) {
           </tfoot>
         </table>
       </div>
+
+      {resolving && (
+        <ResolveSheet
+          staffId={resolving.staffId}
+          staffName={resolving.staffName}
+          exception={resolving.exception}
+          onClose={() => setResolving(null)}
+          onResolved={onResolved}
+        />
+      )}
     </div>
   );
 }

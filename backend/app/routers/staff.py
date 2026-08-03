@@ -42,7 +42,7 @@ Endpoints:
 import uuid
 import secrets
 import calendar
-from datetime import date, datetime, time as dtime, timedelta
+from datetime import date, date as date_type, datetime, time as dtime, timedelta
 from io import BytesIO
 from typing import Optional
 
@@ -3638,6 +3638,108 @@ def confirm_schedule_hours(
         "created": created,
         "skipped_not_ended": not_ended_yet,
         "week_start": week_start.isoformat(),
+    }
+
+
+class ResolveHoursRequest(BaseModel):
+    """The owner settling one shift. `date` identifies it, not an id — the whole
+    point is that the ambiguous case has no row to reference yet."""
+    staff_id: str
+    date: date_type
+    action: str                       # "confirm" | "adjust" | "absent"
+    total_hours: float | None = None  # required for "adjust"
+    note: str | None = None
+
+
+@router.post("/hours/resolve")
+def resolve_hours(
+    data: ResolveHoursRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Mark one shift seen — the double tick.
+
+    Three things an owner can say, and the system says none of them by itself:
+
+      confirm — "what's recorded is right." Includes confirming a zero: the
+                staffer genuinely did not work.
+      adjust  — "they worked N hours." Used when someone forgot to clock in or
+                out. The measured value is preserved in clock_hours, forever.
+      absent  — "they did not work this shift." Records a real zero, which is
+                different from the absence of a record.
+
+    There is no auto-resolve. An unresolved shift stays unresolved until a human
+    answers it, because these hours pay wages and sit in a register kept five
+    years. A correction that is not visibly an owner decision is falsification.
+    """
+    staff = db.query(StaffMember).filter(
+        StaffMember.id == data.staff_id,
+        StaffMember.user_id == user.id,
+        StaffMember.is_deleted.isnot(True),
+    ).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="Staff member not found")
+
+    action = (data.action or "").strip().lower()
+    if action not in ("confirm", "adjust", "absent"):
+        raise HTTPException(status_code=400, detail="Unknown action")
+    if action == "adjust" and data.total_hours is None:
+        raise HTTPException(status_code=400, detail="total_hours required to adjust")
+    if data.total_hours is not None and not (0 <= data.total_hours <= 24):
+        raise HTTPException(status_code=400, detail="total_hours out of range")
+
+    entry = db.query(HoursLogged).filter(
+        HoursLogged.user_id == user.id,
+        HoursLogged.staff_id == staff.id,
+        HoursLogged.date == data.date,
+    ).first()
+
+    if entry is None:
+        # The ambiguous case: scheduled, never punched. There is no row to
+        # amend, so resolving creates one — and clock_hours records that the
+        # clock measured zero, which is a fact and must survive the override.
+        entry = HoursLogged(
+            user_id=user.id, staff_id=staff.id, date=data.date,
+            break_minutes=0, total_hours=0, entry_method="owner_resolved",
+            clock_hours=0,
+        )
+        db.add(entry)
+    elif entry.clock_hours is None and entry.entry_method == "clock":
+        # WRITE-ONCE, and only for a real measurement. An owner-typed "quick"
+        # row never had a measurement, so clock_hours stays NULL — the absence
+        # of a measurement must read as an absence, not be disguised as one.
+        entry.clock_hours = entry.total_hours
+
+    if action == "adjust":
+        entry.total_hours = data.total_hours
+        entry.resolution = "adjusted"
+    elif action == "absent":
+        entry.total_hours = 0
+        entry.resolution = "confirmed"
+    else:
+        entry.resolution = "confirmed"
+
+    entry.resolved_by = user.id
+    entry.resolved_at = utc_now()
+    if data.note:
+        entry.resolution_note = data.note.strip()[:500]
+
+    try:
+        db.commit()
+        db.refresh(entry)
+    except Exception as e:      # noqa: BLE001
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Could not save") from e
+
+    return {
+        "id": str(entry.id),
+        "staff_id": str(entry.staff_id),
+        "date": entry.date.isoformat(),
+        "total_hours": float(entry.total_hours or 0),
+        "clock_hours": float(entry.clock_hours) if entry.clock_hours is not None else None,
+        "resolution": entry.resolution,
+        "resolved_at": entry.resolved_at.isoformat() if entry.resolved_at else None,
+        "entry_method": entry.entry_method,
     }
 
 
