@@ -234,3 +234,53 @@ def test_an_impossible_day_is_rejected(client, db):
 def test_an_unknown_action_is_rejected(client, db):
     o = _owner(db); m = _staff(db, o)
     assert _resolve(client, m, "approve_everything").status_code == 400
+
+
+# ── 5. the same rules apply to a plain edit, not just /resolve ───────────
+#
+# The edit endpoint predates resolution and had its own hole: editing the times
+# on a clocked row stamped entry_method="clock", so an owner's typed correction
+# was recorded as a machine measurement. Both doors have to be locked, or the
+# guarantee is only as good as which one the UI happens to use.
+
+def test_editing_times_does_not_claim_the_clock_measured_it(client, db):
+    o = _owner(db); m = _staff(db, o)
+    h = _worked(db, o, m, 6.5)                       # clock measured 6.5
+
+    r = client.put(f"/api/staff/hours/{h.id}", json={
+        "staff_id": str(m.id), "date": str(D1),
+        "start_time": "08:00", "end_time": "16:00", "break_minutes": 0,
+        "total_hours": 8.0, "entry_method": "quick",
+    })
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    row = db.query(HoursLogged).one()
+    assert row.entry_method == "owner_resolved"      # never "clock"
+    assert float(row.total_hours) == 8.0
+
+
+def test_editing_preserves_the_measurement_too(client, db):
+    o = _owner(db); m = _staff(db, o)
+    h = _worked(db, o, m, 6.5)
+    client.put(f"/api/staff/hours/{h.id}", json={
+        "staff_id": str(m.id), "date": str(D1),
+        "start_time": "08:00", "end_time": "16:00", "break_minutes": 0,
+        "total_hours": 8.0, "entry_method": "quick",
+    })
+    db.expire_all()
+    assert float(db.query(HoursLogged).one().clock_hours) == 6.5
+
+
+def test_an_edit_counts_as_an_answer(client, db):
+    """Otherwise the owner fixes the shift and it keeps asking to be fixed."""
+    o = _owner(db); m = _staff(db, o)
+    h = _worked(db, o, m, 6.5)
+    client.put(f"/api/staff/hours/{h.id}", json={
+        "staff_id": str(m.id), "date": str(D1),
+        "start_time": "08:00", "end_time": "16:00", "break_minutes": 0,
+        "total_hours": 8.0, "entry_method": "quick",
+    })
+    db.expire_all()
+    row = db.query(HoursLogged).one()
+    assert row.resolution == "adjusted"
+    assert row.resolved_by == o.id

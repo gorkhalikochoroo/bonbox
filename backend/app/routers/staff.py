@@ -3769,7 +3769,19 @@ def update_hours(
 
     if data.start_time and data.end_time:
         total_hours = _calc_shift_hours(data.start_time, data.end_time, data.break_minutes)
-        entry_method = "clock"
+        # NOT "clock". A human editing times is the owner DECIDING, not the
+        # punch clock measuring, and only the clock may claim to have measured.
+        # This previously stamped entry_method="clock" on every owner edit,
+        # which made a typed correction indistinguishable from a machine
+        # reading — the exact falsification the resolution design exists to
+        # prevent, arriving through a different door.
+        entry_method = "owner_resolved"
+
+    # Write-once capture of the measurement, identical rule to /hours/resolve:
+    # an override must never destroy what the clock actually recorded, or a
+    # disputed payslip has nothing to appeal to.
+    if entry.clock_hours is None and entry.entry_method == "clock":
+        entry.clock_hours = entry.total_hours
 
     rate = data.rate_applied if data.rate_applied else _pick_rate(staff, data.date, data.start_time)
     earned = data.earned if data.earned is not None else round(total_hours * rate, 2)
@@ -3785,6 +3797,10 @@ def update_hours(
     entry.entry_method = entry_method
     entry.is_overtime = data.is_overtime
     entry.notes = data.notes
+    # An owner edit IS an answer — the shift should not still be asking.
+    entry.resolution = "adjusted"
+    entry.resolved_by = user.id
+    entry.resolved_at = utc_now()
     db.commit()
     db.refresh(entry)
     return entry
