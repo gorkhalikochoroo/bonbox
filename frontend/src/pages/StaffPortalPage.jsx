@@ -344,7 +344,10 @@ function HolidaySection({ token }) {
       </div>
       <div className="flex items-baseline gap-2">
         <span className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
-          {fmt(h.remaining)}
+          {/* `partial` means the ferieår began before we knew this staffer, so
+              what we hold is a floor. A bare 0,0 at 22px bold would read as a
+              statement about their entitlement — the one thing it is not. */}
+          {h.partial && !h.remaining ? "–" : fmt(h.remaining)}
         </span>
         <span className="text-[12px] text-gray-500">
           {t("portalHolidayUnit", "days")}
@@ -2647,10 +2650,13 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                split states nothing the headline has not. */
             <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.10)" }}>
               <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
-                {t("portalHoursSoFar", "So far / left")}
+                {t("portalHoursLeft", "Still to come")}
               </div>
+              {/* Was "12 / 8" in the permit tile's exact shape — a ratio
+                  against a cap. This is a SPLIT of the period, so it states the
+                  one number the staffer does not already have. */}
               <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#fff" }}>
-                {Math.round(soFar * 100) / 100} / {ahead}
+                {ahead} {t("portalHrsShort")}
               </div>
             </div>
           ) : delta !== null ? (
@@ -2783,10 +2789,6 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
             }}
           >
             {data.entries.map((h, i) => {
-              // Green = already worked, grey = still ahead. Logged entries are
-              // punches, so they are done by definition; rostered ones are
-              // judged by date. Never claim a future shift was worked.
-              const done = !isSchedule || (h.date || "") < todayISO;
               return (
                 <div
                   key={i}
@@ -2796,13 +2798,6 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                     borderBottom: i === data.entries.length - 1 ? "none" : "1px solid #f1f5f9",
                   }}
                 >
-                  <span
-                    style={{
-                      width: 8, height: 8, flex: "none", borderRadius: 99,
-                      background: done ? "#16a34a" : "#cbd5e1",
-                      boxShadow: done ? "0 0 0 3px rgba(22,163,74,.14)" : "none",
-                    }}
-                  />
                   <span className="text-sm text-gray-500 flex-1">
                     {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
                   </span>
@@ -6155,7 +6150,6 @@ export default function StaffPortalPage() {
                   cursor: departments.length > 1 ? "pointer" : "default",
                 }}
               >
-                <span style={{ width: 7, height: 7, borderRadius: 99, background: "#22c55e", boxShadow: "0 0 0 3px rgba(34,197,94,.16)" }} />
                 <span style={{ font: "600 11.5px/1 var(--font-text)", color: "#334155", letterSpacing: "-0.005em", maxWidth: 96, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {dept || (departments.length > 1 ? t("portalAllDepartments", "All") : departments[0].name)}
                 </span>
