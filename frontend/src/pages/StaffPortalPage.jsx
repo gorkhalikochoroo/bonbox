@@ -876,9 +876,9 @@ function PinGate({ onVerified, token, staffName }) {
  *   • staff_id is fixed by the magic-link token — the body only
  *     contains date + reason. UI doesn't even ask for staff_id.
  */
-function SickCallButton({ token, upcomingShifts, onCalledIn }) {
+function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false }) {
   const { t } = useLanguage();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen);
   const todayIso = useState(() => toLocalISO(new Date()))[0];
   const [date, setDate] = useState(todayIso);
   const [reason, setReason] = useState("");
@@ -973,7 +973,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
       <button
         onClick={submit}
         disabled={submitting || !date}
-        className="w-full px-4 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold transition disabled:opacity-50"
+        className="w-full py-2.5 rounded-[14px] bg-gray-900 text-white font-text text-[13px] font-bold hover:bg-gray-700 transition disabled:opacity-50"
       >
         {submitting ? t("portalSending", "Sending...") : t("portalSickSubmit", "Send sick call")}
       </button>
@@ -2049,6 +2049,10 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           token={token}
           upcomingShifts={upcoming}
           onCalledIn={onShiftsChanged}
+          // Straight to the form. "Need a change?" already asked the question;
+          // an intermediate "Call in sick" button is a third stacked CTA that
+          // only repeats it.
+          autoOpen
         />
       )}
 
