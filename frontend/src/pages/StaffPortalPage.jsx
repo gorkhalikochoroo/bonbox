@@ -1539,7 +1539,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, coversByShift, onShiftsChanged, onNeedChange, onOpenAvailability, allShifts}) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, coversByShift, onShiftsChanged, onOpenAvailability, allShifts}) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -2043,10 +2043,10 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
           shifts={shifts}
           allShifts={allShifts}
           onConfirmed={onShiftsChanged}
-          onNeedChange={() => {
-            setShowSick(true);
-            onNeedChange?.();
-          }}
+          // Reveal the form and STAY. This used to also fire onNeedChange(),
+          // which switches to Swaps — so the tap opened something and then
+          // navigated away from it before it could be read.
+          onNeedChange={() => setShowSick(true)}
         />
       )}
 
@@ -2579,7 +2579,10 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
   // Entries arrive newest-first, so the soonest upcoming one is the LAST that
   // is still ahead of today.
   const nextUp = [...(data.entries || [])].reverse().find((e) => (e.date || "") >= todayISO);
-  const delta = typeof prevTotal === "number" && Number.isFinite(prevTotal)
+  // A previous window with NO hours is not a baseline — it is usually "you did
+  // not work here yet". Comparing against it would state a measurement where
+  // there is none, so the tile stays hidden until there is something to compare.
+  const delta = typeof prevTotal === "number" && Number.isFinite(prevTotal) && prevTotal > 0
     ? Math.round((data.total_hours - prevTotal) * 100) / 100
     : null;
 
@@ -3365,7 +3368,7 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
 
 
 function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [teamShifts, setTeamShifts] = useState([]);
   const [fromShiftId, setFromShiftId] = useState("");
   const [toShiftId, setToShiftId] = useState("");
@@ -3438,7 +3441,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
           <option value="">{t("portalSwapPickOwn", "Pick one of your shifts…")}</option>
           {upcomingOwn.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.date} · {s.start_time}–{s.end_time}
+              {fmtSwapDay(s.date, lang)} · {s.start_time}–{s.end_time}
             </option>
           ))}
         </select>
@@ -3457,7 +3460,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
             <option value="">{t("portalSwapPickTeammate", "Pick a teammate's shift…")}</option>
             {candidateTeamShifts.map((s) => (
               <option key={s.shift_id} value={s.shift_id}>
-                {s.staff_name} — {s.date} · {s.start_time}–{s.end_time}
+                {s.staff_name} — {fmtSwapDay(s.date, lang)} · {s.start_time}–{s.end_time}
               </option>
             ))}
           </select>
@@ -5512,6 +5515,7 @@ export default function StaffPortalPage() {
   const [deptOpen, setDeptOpen] = useState(false);
   const [photoMenu, setPhotoMenu] = useState(false);
 
+
   const departments = useMemo(() => {
     const seen = new Map();
     for (const sh of shifts) {
@@ -5558,6 +5562,31 @@ export default function StaffPortalPage() {
   // The signature ref holds the last-rendered published-schedule signature so
   //   we can detect a *real* change without firing on the very first load.
   const [lastSynced, setLastSynced] = useState(null);
+  // Counted against the same per-device "since you last looked" stamp AlertsTab
+  // uses, so the badge and the screen can never disagree. Push rows are already
+  // excluded server-side, so this counts readable items only.
+  const [alertsUnread, setAlertsUnread] = useState(0);
+  useEffect(() => {
+    if (!(pinVerified && info) || tab === "alerts") return;
+    let cancel = false;
+    portalApi.get(`/portal/${token}/notifications`)
+      .then((r) => {
+        if (cancel) return;
+        const seen = readAlertsSeen(token);
+        const rows = r.data?.notifications || [];
+        setAlertsUnread(rows.filter((n) => !seen || (n.created_at || "") > seen).length);
+      })
+      .catch(() => {});
+    return () => { cancel = true; };
+  }, [token, pinVerified, info, tab, lastSynced]);
+
+  // Opening Alerts IS reading them — otherwise the badge stays lit until the
+  // staffer happens to find "Mark all read".
+  useEffect(() => {
+    if (tab !== "alerts") return;
+    writeAlertsSeen(token, new Date().toISOString());
+    setAlertsUnread(0);
+  }, [tab, token]);
   const [isOnline, setIsOnline] = useState(
     typeof navigator !== "undefined" ? navigator.onLine !== false : true,
   );
@@ -6126,6 +6155,14 @@ export default function StaffPortalPage() {
               }`}
             >
               <Bell className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
+              {alertsUnread > 0 && tab !== "alerts" && (
+                <span
+                  className="absolute z-10 -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold leading-[16px] text-center ring-2 ring-white"
+                  aria-label={t("portalAlertsUnreadBadge", "Unread updates")}
+                >
+                  {alertsUnread > 9 ? "9+" : alertsUnread}
+                </span>
+              )}
             </button>
             {/* Department switcher. Only rendered when the staffer actually
                 has shifts at a named branch — a single-location business gets
@@ -6491,25 +6528,15 @@ export default function StaffPortalPage() {
               {emailMsg && (
                 <div className={`text-xs ${emailStatus === "ok" ? "text-emerald-700" : "text-red-600"}`}>{emailMsg}</div>
               )}
-              <div className="text-[10px] text-gray-400">
-                {info?.email || info?.phone ? (
-                  <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                    {info.email && (
-                      <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" strokeWidth={2} aria-hidden />{info.email}</span>
-                    )}
-                    {info.email && info.phone && <span aria-hidden>·</span>}
-                    {info.phone && (
-                      <span className="inline-flex items-center gap-1"><Smartphone className="w-3 h-3" strokeWidth={2} aria-hidden />{info.phone}</span>
-                    )}
-                  </span>
-                ) : (
-                  t("portalContactEmptyHint", "Add your email or phone to get notified when your schedule changes.")
-                )}
-              </div>
-              {(info?.address || info?.postal_code || info?.city) && (
-                <div className="text-[10px] text-gray-400 inline-flex items-start gap-1">
-                  <MapPin className="w-3 h-3 mt-px shrink-0" strokeWidth={2} aria-hidden />
-                  <span>{[info.address, [info.postal_code, info.city].filter(Boolean).join(" ")].filter(Boolean).join(", ")}</span>
+              {/* Only the EMPTY-state hint survives here. The filled version
+                  reprinted the email, phone and address as grey read-only
+                  lines — the same values sitting in the input boxes half a
+                  screen above, which reads as a second, older copy of the
+                  data you are editing. The hint still earns its place: it
+                  says WHY the fields matter when they are blank. */}
+              {!info?.email && !info?.phone && (
+                <div className="text-[10px] text-gray-400">
+                  {t("portalContactEmptyHint", "Add your email or phone to get notified when your schedule changes.")}
                 </div>
               )}
               {/* Native Web Push opt-in moved to the prominent
@@ -6559,7 +6586,6 @@ export default function StaffPortalPage() {
             restaurantCity={info?.restaurant_city}
             restaurantAddress={info?.restaurant_address}
             onShiftsChanged={loadData}
-            onNeedChange={() => setTab("swaps")}
             onOpenAvailability={() => setTab("availability")}
           />
         )}
