@@ -5694,6 +5694,9 @@ export default function StaffPortalPage() {
 
   // 2. Load data once verified
   const loadData = useCallback(() => {
+    // Set inside the .then below; the returned promise resolves to it so a
+    // pull-to-refresh can distinguish "new roster" from "nothing moved".
+    let changed = false;
     // Schedule — the freshness source of truth. On success we stamp
     // lastSynced (drives the "Synced" pill) and diff the published shifts
     // against the last-rendered signature to decide whether to toast.
@@ -5701,7 +5704,7 @@ export default function StaffPortalPage() {
     // React 18 batches the sets into one paint), so the hero never grows and
     // no card inserts after first paint. Each leg fails independently and
     // honest: on error we keep the previous data, never clear it.
-    Promise.allSettled([
+    return Promise.allSettled([
       portalApi.get(`/portal/${token}/schedule`),
       portalApi.get(`/portal/${token}/team-schedule`),
       portalApi.get(`/portal/${token}/open-shifts`),
@@ -5714,6 +5717,7 @@ export default function StaffPortalPage() {
         const nextShifts = sched.value.data.shifts || [];
         const nextSig = publishedScheduleSignature(nextShifts);
         const prevSig = scheduleSigRef.current;
+        changed = prevSig !== null && prevSig !== nextSig;
         // Only toast on a REAL change after we already had data — never on the
         // first successful load (prevSig === null means we've shown nothing yet).
         if (prevSig !== null && prevSig !== nextSig) {
@@ -5737,9 +5741,11 @@ export default function StaffPortalPage() {
       if (covers.status === "fulfilled") {
         setCoversByShift(coversMapFrom(covers.value.data));
       }
+      return changed;
     });
 
   }, [token]);
+
 
   // Hours are fetched separately from the rest: they are the one panel with a
   // caller-chosen window, so they refetch when the staffer picks a period
@@ -5776,6 +5782,59 @@ export default function StaffPortalPage() {
   useEffect(() => {
     if (pinVerified && info) loadHours();
   }, [pinVerified, info, loadHours]);
+
+  // Pull-to-refresh. The portal is the screen a staffer checks BEFORE leaving
+  // the house, so "did this actually reload?" is a real question — and the
+  // honest answer includes "yes, and nothing had changed". Without that, a
+  // refresh that finds no news is indistinguishable from a refresh that never
+  // ran, and people pull again.
+  const [pullState, setPullState] = useState(null);   // null | "pulling" | "busy" | "same" | "new"
+  const pullY = useRef(0);
+
+  const doRefresh = useCallback(async () => {
+    setPullState("busy");
+    const changed = await Promise.resolve(loadData()).catch(() => false);
+    loadHours();
+    setPullState(changed ? "new" : "same");
+    setTimeout(() => setPullState(null), 2200);
+  }, [loadData, loadHours]);
+
+  useEffect(() => {
+    if (!(pinVerified && info)) return;
+    const el = document.querySelector(".full-height.scrollable");
+    if (!el) return;                       // shell not mounted yet
+    let startY = null;
+
+    const onStart = (e) => {
+      // Only arm at the very top, else this fights normal scrolling.
+      startY = el.scrollTop <= 0 ? e.touches[0].clientY : null;
+      pullY.current = 0;
+    };
+    const onMove = (e) => {
+      if (startY === null || pullState === "busy") return;
+      const dy = e.touches[0].clientY - startY;
+      if (dy > 0 && el.scrollTop <= 0) {
+        pullY.current = dy;
+        if (dy > 12) setPullState((p) => (p === null ? "pulling" : p));
+      }
+    };
+    const onEnd = () => {
+      const dy = pullY.current;
+      startY = null;
+      pullY.current = 0;
+      if (dy > 70) doRefresh();
+      else setPullState((p) => (p === "pulling" ? null : p));
+    };
+
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: true });
+    el.addEventListener("touchend", onEnd, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+      el.removeEventListener("touchend", onEnd);
+    };
+  }, [pinVerified, info, pullState, doRefresh]);
 
   // Same-length window immediately before the one on screen, so "vs last
   // period" compares like with like even when the owner runs a 15–14 cycle.
@@ -6559,6 +6618,36 @@ export default function StaffPortalPage() {
           </div>
         ), document.body)}
       </div>
+
+      {/* Pull-to-refresh readout. "same" is the case that matters: a refresh
+          that finds no news must SAY so, or it is indistinguishable from one
+          that never ran — and people just pull again. */}
+      {pullState && (
+        <div
+          className="fixed left-0 right-0 z-40 flex justify-center pointer-events-none"
+          style={{ top: 8 }}
+          role="status"
+          aria-live="polite"
+        >
+          <span
+            className="inline-flex items-center gap-2"
+            style={{
+              padding: "7px 13px", borderRadius: 999,
+              background: pullState === "new" ? "#dcfce7" : "#fff",
+              border: `1px solid ${pullState === "new" ? "#a7f3d0" : "#e8edf3"}`,
+              boxShadow: "0 6px 16px -8px rgba(15,23,42,.4)",
+              font: "600 12px/1 var(--font-text)",
+              color: pullState === "new" ? "#15803d" : "#64748b",
+            }}
+          >
+            {pullState === "busy" && <RefreshCw size={13} strokeWidth={2.5} className="animate-spin" aria-hidden />}
+            {pullState === "pulling" && t("portalPullRelease", "Release to refresh")}
+            {pullState === "busy" && t("portalPullBusy", "Checking…")}
+            {pullState === "same" && t("portalPullSame", "Up to date — no changes")}
+            {pullState === "new" && t("portalPullNew", "Schedule updated")}
+          </span>
+        </div>
+      )}
 
       {/* Content */}
       <div className="max-w-lg mx-auto px-4 py-4">
