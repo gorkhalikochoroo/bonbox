@@ -1214,6 +1214,7 @@ def owner_list_groups(
         .filter(StaffChatThread.user_id == user.id, StaffChatThread.kind == "group")
         .all()
     )
+    names = _names_map(db, user.id)
     out = []
     for t in threads:
         last = _last_message(db, t.id)
@@ -1231,6 +1232,9 @@ def owner_list_groups(
             "created_by": t.created_by,
             "member_count": len(_member_ids(db, t.id)),
             "last_body": (last.body or ("📷" if (last.photo_count or 0) else None)) if last else None,
+            # Who spoke — in a group the preview is ambiguous without it, and
+            # the staff portal already names the speaker.
+            "last_sender": names.get(last.sender_staff_id) if last else None,
             "last_message_at": (
                 last.created_at.isoformat() if (last and last.created_at) else None
             ),

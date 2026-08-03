@@ -11,7 +11,7 @@ import { nextShiftCountdown } from "../utils/nextShiftCountdown";
 import { overlapsOwnShift } from "../utils/overlapsOwnShift";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
-import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
+import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Search, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
@@ -3663,30 +3663,389 @@ function formatTimeAgo(dateStr, lang, t) {
 }
 
 
-// ─── Messages (Beskeder) — owner ↔ this staffer, 1:1 ───────────────────────
+// ─── Messages (Beskeder) — the owner thread plus staff groups ──────────────
+//
+// v2's shape: a list of conversations, then one open thread with a back link.
+// The owner channel is pinned to the top because it is the one that carries
+// schedule news; groups follow by most recent activity.
 
-function MessagesTab({ token, restaurantName, onRead }) {
+/** One row in the conversation list. Unread is carried by weight and a solid
+    card, not just a badge — a badge alone is invisible in a hurried glance. */
+function ThreadRow({ thread, onOpen }) {
   const { t, lang } = useLanguage();
+  const unread = thread.unread || 0;
+  const isGroup = thread.kind === "group";
+  const name = thread.title || t("staffChatOwnerLabel", "Manager");
+  const preview = thread.last_body
+    ? (thread.last_sender ? `${thread.last_sender}: ${thread.last_body}` : thread.last_body)
+    : t("staffChatNoMessagesYet", "No messages yet");
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full text-left flex items-center"
+      style={{
+        gap: 11, padding: "12px 13px", borderRadius: 16,
+        background: unread ? "#fff" : "rgba(255,255,255,0.55)",
+        border: `1px solid ${unread ? "#e8edf3" : "#eef2f7"}`,
+        boxShadow: unread
+          ? "0 1px 2px rgba(15,23,42,0.04),0 14px 28px -26px rgba(15,23,42,0.4)"
+          : "none",
+      }}
+    >
+      <span
+        aria-hidden
+        className="flex-none flex items-center justify-center"
+        style={{
+          width: 38, height: 38, borderRadius: 13,
+          // The owner channel wears the venue's near-black so it never reads as
+          // just another colleague.
+          background: isGroup
+            ? mateTone(name)
+            : "linear-gradient(150deg,#1e293b,#0f172a)",
+          color: isGroup ? "#0f172a" : "#e2e8f0",
+          font: "700 12px/1 var(--font-text)",
+        }}
+      >
+        {isGroup ? <Users className="w-4 h-4" strokeWidth={2.2} /> : staffInitials(name)}
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className="flex items-baseline justify-between gap-2">
+          <span
+            className="truncate"
+            style={{ font: `${unread ? 700 : 600} 12.5px/1 var(--font-text)`, color: "#0f172a" }}
+          >
+            {name}
+          </span>
+          <span className="flex-none" style={{ font: "500 10.5px/1 var(--font-text)", color: "#94a3b8" }}>
+            {thread.last_message_at ? formatTimeAgo(thread.last_message_at, lang, t) : ""}
+          </span>
+        </span>
+        <span
+          className="block truncate"
+          style={{
+            marginTop: 5,
+            font: `${unread ? 500 : 400} 11.5px/1.35 var(--font-text)`,
+            color: unread ? "#475569" : "#94a3b8",
+          }}
+        >
+          {preview}
+        </span>
+      </span>
+      <span
+        className="flex-none text-center"
+        style={{
+          minWidth: 19, height: 19, padding: "0 5px", borderRadius: 999,
+          background: "#16a34a", color: "#fff",
+          font: "700 10px/19px var(--font-text)",
+          opacity: unread ? 1 : 0,
+        }}
+      >
+        {unread > 9 ? "9+" : unread || ""}
+      </span>
+    </button>
+  );
+}
+
+
+/** Create a group. Deliberately two fields and nothing else — a name and who
+    is in it. Colleagues come from an endpoint that returns names and roles
+    only, so this picker cannot become a staff directory. */
+function NewGroupSheet({ token, onClose, onCreated }) {
+  const { t } = useLanguage();
+  const [colleagues, setColleagues] = useState(null);
+  const [title, setTitle] = useState("");
+  const [picked, setPicked] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    portalApi
+      .get(`/portal/${token}/chat/colleagues`)
+      .then((res) => setColleagues(res.data.colleagues || []))
+      .catch(() => setColleagues([]));
+  }, [token]);
+
+  const toggle = (id) =>
+    setPicked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const create = async () => {
+    const name = title.trim();
+    if (!name || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await portalApi.post(`/portal/${token}/chat/groups`, {
+        title: name,
+        staff_ids: picked,
+      });
+      onCreated(res.data.thread_id);
+    } catch {
+      setError(t("staffChatGroupFailed", "Could not create the group. Try again."));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center sm:justify-center">
+      <div className="absolute inset-0 bg-gray-900/40" onClick={onClose} aria-hidden />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("staffChatNewGroup", "New group")}
+        className="relative w-full sm:max-w-sm bg-white"
+        style={{
+          borderRadius: "22px 22px 0 0",
+          paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
+        }}
+      >
+        <div className="flex items-center justify-between px-4 pt-4 pb-2">
+          <h3 className="font-display text-[15px] font-bold tracking-[-0.02em] text-gray-900">
+            {t("staffChatNewGroup", "New group")}
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("staffChatCancel", "Cancel")}
+            className="p-1.5 -mr-1.5 text-gray-400"
+          >
+            <X className="w-[18px] h-[18px]" strokeWidth={2.2} aria-hidden />
+          </button>
+        </div>
+
+        <div className="px-4">
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            maxLength={60}
+            placeholder={t("staffChatGroupNamePlaceholder", "e.g. Kitchen")}
+            className="w-full bg-white outline-none placeholder:text-[#94a3b8]"
+            style={{
+              padding: "12px 14px", borderRadius: 14, border: "1px solid #e2e8f0",
+              font: "500 13px/1.35 var(--font-text)", color: "#0f172a",
+            }}
+          />
+          <p
+            className="mt-3 mb-1.5"
+            style={{
+              font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.06em",
+              textTransform: "uppercase", color: "#94a3b8",
+            }}
+          >
+            {t("staffChatChoosePeople", "Who's in it?")}
+          </p>
+        </div>
+
+        <div className="px-4 overflow-y-auto" style={{ maxHeight: "42vh" }}>
+          {colleagues === null ? (
+            <div className="space-y-2 animate-pulse py-2">
+              {[1, 2, 3].map((i) => <div key={i} className="h-11 rounded-xl bg-gray-100" />)}
+            </div>
+          ) : colleagues.length === 0 ? (
+            <p className="text-sm text-gray-500 py-3">
+              {t("staffChatNoColleagues", "No colleagues to add yet.")}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1.5 pb-2">
+              {colleagues.map((c) => {
+                const on = picked.includes(c.staff_id);
+                return (
+                  <button
+                    key={c.staff_id}
+                    type="button"
+                    onClick={() => toggle(c.staff_id)}
+                    aria-pressed={on}
+                    className="w-full flex items-center text-left"
+                    style={{
+                      gap: 10, padding: "9px 11px", borderRadius: 13,
+                      border: `1px solid ${on ? "#bbf7d0" : "#eef2f7"}`,
+                      background: on ? "#f0fdf4" : "#fff",
+                    }}
+                  >
+                    <span
+                      aria-hidden
+                      className="flex-none text-center"
+                      style={{
+                        width: 30, height: 30, borderRadius: 10,
+                        background: mateTone(c.name), color: "#0f172a",
+                        font: "700 10.5px/30px var(--font-text)",
+                      }}
+                    >
+                      {staffInitials(c.name)}
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block truncate" style={{ font: "600 12.5px/1 var(--font-text)", color: "#0f172a" }}>
+                        {c.name}
+                      </span>
+                      {c.role && (
+                        <span className="block truncate" style={{ marginTop: 3, font: "400 11px/1 var(--font-text)", color: "#94a3b8" }}>
+                          {c.role}
+                        </span>
+                      )}
+                    </span>
+                    {on && <Check className="w-4 h-4 text-green-600 flex-none" strokeWidth={2.6} aria-hidden />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="px-4 pt-3">
+          {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+          <button
+            type="button"
+            onClick={create}
+            disabled={!title.trim() || busy}
+            className="w-full text-white disabled:opacity-40 transition"
+            style={{
+              height: 46, borderRadius: 14,
+              background: "linear-gradient(180deg,#22c55e,#16a34a)",
+              font: "700 13px/1 var(--font-text)",
+              boxShadow: "0 10px 22px -14px rgba(22,163,74,.9)",
+            }}
+          >
+            {t("staffChatCreateGroup", "Create group")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/** The conversation list. Search filters on name AND last message, which is
+    what people actually remember — "the one about Friday", not a name. */
+function ThreadListView({ token, onOpen, onRead }) {
+  const { t } = useLanguage();
+  const [threads, setThreads] = useState(null);
+  const [query, setQuery] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const load = useCallback(() => {
+    portalApi
+      .get(`/portal/${token}/chat/threads`)
+      .then((res) => {
+        setThreads(res.data.threads || []);
+        onRead?.();
+      })
+      .catch(() => setThreads((prev) => prev || []));
+  }, [token, onRead]);
+
+  useEffect(() => {
+    load();
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, 8000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  const q = query.trim().toLowerCase();
+  const shown = (threads || []).filter(
+    (th) =>
+      !q ||
+      (th.title || "").toLowerCase().includes(q) ||
+      (th.last_body || "").toLowerCase().includes(q),
+  );
+
+  return (
+    <div>
+      <div className="flex items-center gap-2">
+        <div
+          className="flex-1 flex items-center"
+          style={{ gap: 9, height: 42, padding: "0 13px", borderRadius: 13, background: "#eaeff5" }}
+        >
+          <Search className="w-[15px] h-[15px] flex-none text-[#94a3b8]" strokeWidth={2.1} aria-hidden />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t("staffChatSearch", "Search people and messages")}
+            aria-label={t("staffChatSearch", "Search people and messages")}
+            className="flex-1 bg-transparent outline-none placeholder:text-[#94a3b8]"
+            style={{ font: "400 12.5px/1 var(--font-text)", color: "#0f172a" }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          aria-label={t("staffChatNewGroup", "New group")}
+          className="flex-none flex items-center justify-center text-white"
+          style={{
+            width: 42, height: 42, borderRadius: 13,
+            background: "linear-gradient(180deg,#22c55e,#16a34a)",
+            boxShadow: "0 8px 18px -12px rgba(22,163,74,.95)",
+          }}
+        >
+          <Plus className="w-[18px] h-[18px]" strokeWidth={2.4} aria-hidden />
+        </button>
+      </div>
+
+      <div style={{ marginTop: 14 }} className="flex flex-col gap-2">
+        {threads === null ? (
+          [1, 2, 3].map((i) => (
+            <div key={i} className="h-[62px] rounded-2xl bg-gray-100 animate-pulse" />
+          ))
+        ) : shown.length === 0 ? (
+          <div className="text-center py-12">
+            <MessageSquare className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
+            <p className="text-sm text-gray-500">
+              {q
+                ? t("staffChatNoMatches", "Nothing matches that.")
+                : t("staffChatEmptyBody", "Send your manager a message — questions, running late, anything.")}
+            </p>
+          </div>
+        ) : (
+          shown.map((th) => (
+            <ThreadRow key={th.thread_id} thread={th} onOpen={() => onOpen(th)} />
+          ))
+        )}
+      </div>
+
+      {creating && (
+        <NewGroupSheet
+          token={token}
+          onClose={() => setCreating(false)}
+          onCreated={(threadId) => {
+            setCreating(false);
+            load();
+            onOpen({ thread_id: threadId, kind: "group" });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+
+/** One open conversation. Same bubbles and composer for the owner thread and
+    for a group — the only difference is that a group names who spoke. */
+function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft }) {
+  const { t, lang } = useLanguage();
+  const confirm = useConfirm();
+  const [meta, setMeta] = useState(thread);
   const [messages, setMessages] = useState(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const picker = usePhotoPicker();
   const scrollRef = useRef(null);
+  const threadId = thread.thread_id;
+  const isGroup = (meta?.kind || thread.kind) === "group";
 
   const load = useCallback(
     (markRead = true) => {
       portalApi
-        .get(`/portal/${token}/chat`)
+        .get(`/portal/${token}/chat/threads/${threadId}`)
         .then((res) => {
+          setMeta((prev) => ({ ...prev, ...res.data }));
           setMessages(res.data.messages || []);
           if (markRead) onRead?.();
         })
         .catch(() => setMessages((prev) => prev || []));
     },
-    [token, onRead],
+    [token, threadId, onRead],
   );
 
-  // Initial load + gentle poll (only while the tab is visible).
   useEffect(() => {
     load(true);
     const id = setInterval(() => {
@@ -3730,9 +4089,9 @@ function MessagesTab({ token, restaurantName, onRead }) {
         if (body) fd.append("body", body);
         fd.append("client_msg_id", cmid);
         photoFiles.forEach((file) => fd.append("photos", file));
-        res = await portalApi.post(`/portal/${token}/chat/photos`, fd);
+        res = await portalApi.post(`/portal/${token}/chat/threads/${threadId}/photos`, fd);
       } else {
-        res = await portalApi.post(`/portal/${token}/chat`, {
+        res = await portalApi.post(`/portal/${token}/chat/threads/${threadId}`, {
           body,
           client_msg_id: cmid,
         });
@@ -3751,6 +4110,25 @@ function MessagesTab({ token, restaurantName, onRead }) {
     }
   };
 
+  const leave = async () => {
+    const ok = await confirm({
+      title: t("staffChatLeaveTitle", "Leave this group?"),
+      message: t(
+        "staffChatLeaveBody",
+        "You'll stop seeing new messages here. Your manager can add you back.",
+      ),
+      confirmLabel: t("staffChatLeaveConfirm", "Leave"),
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await portalApi.post(`/portal/${token}/chat/groups/${threadId}/leave`);
+      onLeft?.();
+    } catch {
+      /* stays open — nothing was lost */
+    }
+  };
+
   const onKeyDown = (e) => {
     // Enter sends; Shift+Enter is a newline (desktop). On-screen keyboards
     // send via the button, so this only helps physical keyboards.
@@ -3760,13 +4138,50 @@ function MessagesTab({ token, restaurantName, onRead }) {
     }
   };
 
+  const memberCount = (meta?.member_ids || []).length;
+  const heading = isGroup
+    ? meta?.title || t("staffChatGroup", "Group")
+    : restaurantName || t("staffChatOwnerLabel", "Manager");
+
   return (
     <div className="flex flex-col">
+      <div className="flex items-center justify-between" style={{ padding: "2px 0 12px" }}>
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center"
+          style={{ gap: 7, font: "600 12px/1 var(--font-text)", color: "#16a34a" }}
+        >
+          <ChevronLeft className="w-[14px] h-[14px]" strokeWidth={2.4} aria-hidden />
+          {t("staffChatAllConversations", "All conversations")}
+        </button>
+        {isGroup && (
+          <button
+            type="button"
+            onClick={leave}
+            style={{ font: "600 11.5px/1 var(--font-text)", color: "#94a3b8" }}
+          >
+            {t("staffChatLeave", "Leave")}
+          </button>
+        )}
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <h2 className="font-display text-[15px] font-bold tracking-[-0.02em] leading-[1.2] text-gray-900">
+          {heading}
+        </h2>
+        <p style={{ marginTop: 3, font: "400 11px/1 var(--font-text)", color: "#94a3b8" }}>
+          {isGroup && memberCount
+            ? t("staffChatMemberCount", "{n} people").replace("{n}", String(memberCount))
+            : t("staffChatDirectSub", "Your manager")}
+        </p>
+      </div>
+
       {/* Message stream */}
       <div
         ref={scrollRef}
         className="flex flex-col overflow-y-auto"
-        style={{ maxHeight: "calc(100vh - 16rem)", gap: 9 }}
+        style={{ maxHeight: "calc(100vh - 20rem)", gap: 9 }}
       >
         {messages === null ? (
           <div className="space-y-2 animate-pulse">
@@ -3788,10 +4203,12 @@ function MessagesTab({ token, restaurantName, onRead }) {
               {t("staffChatEmptyTitle", "No messages yet")}
             </h3>
             <p className="text-sm text-gray-500">
-              {t(
-                "staffChatEmptyBody",
-                "Send your manager a message — questions, running late, anything.",
-              )}
+              {isGroup
+                ? t("staffChatGroupEmptyBody", "Say hello — everyone here will see it.")
+                : t(
+                    "staffChatEmptyBody",
+                    "Send your manager a message — questions, running late, anything.",
+                  )}
             </p>
           </div>
         ) : (
@@ -3803,7 +4220,11 @@ function MessagesTab({ token, restaurantName, onRead }) {
               <div className={`max-w-[78%] ${m.mine ? "items-end" : "items-start"} flex flex-col`}>
                 {!m.mine && (
                   <span style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.06em", textTransform: "uppercase", color: "#94a3b8", padding: "0 4px", marginBottom: 4 }}>
-                    {restaurantName || t("staffChatOwnerLabel", "Manager")}
+                    {/* In a group the sender is the point; in the owner thread
+                        there is only one other party and naming them is noise. */}
+                    {m.sender_type === "owner"
+                      ? restaurantName || t("staffChatOwnerLabel", "Manager")
+                      : m.sender_name || t("staffChatColleague", "Colleague")}
                   </span>
                 )}
                 {(m.photo_count > 0 || m._localPreviews) && (
@@ -3899,6 +4320,23 @@ function MessagesTab({ token, restaurantName, onRead }) {
         </div>
       </div>
     </div>
+  );
+}
+
+
+function MessagesTab({ token, restaurantName, onRead }) {
+  const [open, setOpen] = useState(null);
+  return open ? (
+    <Conversation
+      token={token}
+      thread={open}
+      restaurantName={restaurantName}
+      onBack={() => setOpen(null)}
+      onLeft={() => setOpen(null)}
+      onRead={onRead}
+    />
+  ) : (
+    <ThreadListView token={token} onOpen={setOpen} onRead={onRead} />
   );
 }
 
@@ -5907,10 +6345,6 @@ export default function StaffPortalPage() {
   // the server marks read on each fetch, so we just hold the badge at 0.
   useEffect(() => {
     if (!(pinVerified && info)) return;
-    if (tab === "messages") {
-      setChatUnread(0);
-      return;
-    }
     let cancelled = false;
     const poll = () => {
       if (document.visibilityState !== "visible") return;
@@ -5922,7 +6356,7 @@ export default function StaffPortalPage() {
         .catch(() => {});
     };
     poll();
-    const id = setInterval(poll, 25000);
+    const id = setInterval(poll, tab === "messages" ? 8000 : 25000);
     return () => {
       cancelled = true;
       clearInterval(id);

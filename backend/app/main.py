@@ -2790,6 +2790,61 @@ def _run_migrations():
             ok += _add("staff_chat_threads", "kind", "VARCHAR(8) DEFAULT 'direct'")
             ok += _add("staff_chat_threads", "title", "VARCHAR(80)")
             ok += _add("staff_chat_threads", "created_by", "VARCHAR(8)")
+            ok += _add("staff_chat_messages", "sender_staff_id", "CHAR(32)")
+
+            # SQLite can neither DROP NOT NULL nor drop a table-wide UNIQUE via
+            # ALTER, so an EXISTING dev database keeps `staff_id NOT NULL` and
+            # the old UNIQUE(user_id, staff_id) — and every group create fails
+            # on it with an IntegrityError. A FRESH database is fine, which is
+            # why the whole test suite passes: create_all builds the table from
+            # the model. Only a real, already-populated DB shows the bug.
+            #
+            # The one fix SQLite offers is a table rebuild. Column types are
+            # read back from the live table rather than hand-written, so this
+            # cannot drift from whatever GUID()/DateTime rendered as.
+            try:
+                _ti = list(conn.execute(text("PRAGMA table_info(staff_chat_threads)")))
+                _sid = [r for r in _ti if r[1] == "staff_id"]
+                if _ti and _sid and _sid[0][3]:            # notnull == 1
+                    _names = [r[1] for r in _ti]
+                    _defs = []
+                    for r in _ti:
+                        name, typ = r[1], (r[2] or "")
+                        if name == "id":
+                            _defs.append(f"{name} {typ} NOT NULL PRIMARY KEY")
+                        elif name == "user_id":
+                            _defs.append(f"{name} {typ} NOT NULL")
+                        elif name == "kind":
+                            _defs.append(f"{name} {typ} DEFAULT 'direct'")
+                        else:
+                            # staff_id lands here — nullable, which is the point.
+                            _defs.append(f"{name} {typ}")
+                    _cols = ", ".join(_names)
+                    conn.execute(text(
+                        "CREATE TABLE staff_chat_threads__new (" + ", ".join(_defs) + ")"
+                    ))
+                    conn.execute(text(
+                        f"INSERT INTO staff_chat_threads__new ({_cols}) "
+                        f"SELECT {_cols} FROM staff_chat_threads"
+                    ))
+                    conn.execute(text("DROP TABLE staff_chat_threads"))
+                    conn.execute(text(
+                        "ALTER TABLE staff_chat_threads__new RENAME TO staff_chat_threads"
+                    ))
+                    conn.execute(text("UPDATE staff_chat_threads SET kind='direct' WHERE kind IS NULL"))
+                    # The invariant that mattered was "one DIRECT thread per
+                    # staffer" — a table-wide unique on a now-nullable column
+                    # would refuse a second group.
+                    conn.execute(text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_staff_chat_direct "
+                        "ON staff_chat_threads (user_id, staff_id) WHERE kind = 'direct'"
+                    ))
+                    ok += 1
+            except Exception:
+                # A rebuild that half-applies is worse than one that does not
+                # run: leave the table alone and let the group endpoints fail
+                # loudly rather than silently losing threads.
+                pass
             ok += _add("staff_links", "code_expires_at", "TIMESTAMP")
             ok += _add("staff_links", "code_used_at", "TIMESTAMP")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
