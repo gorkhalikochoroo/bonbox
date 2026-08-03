@@ -2051,10 +2051,10 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
         />
       )}
 
-      {/* 7-dot week-at-a-glance — replaces the three long ShiftRow scrolls. One
+      {/* 7-dot week-at-a-glance — replaces the three long shift scrolls. One
           strip at a time (this/next week). Working day = thin role-colored bar;
           OFF = silent hollow dot; TODAY = bold gray-900 label + soft cell fill.
-          Tap a working day → expand ONE inline ShiftRow below. */}
+          Tap a working day → the day panel below shows it. */}
       <div
         className="bg-white"
         style={{
@@ -2182,13 +2182,6 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
           </span>
         </div>
 
-        {/* Opt-in detail: ONE inline ShiftRow for the tapped working day. */}
-        {expandedShift && (
-          <div className="mt-2 motion-safe:animate-scaleIn">
-            <ShiftRow date={expandedShift.date} shift={expandedShift} />
-          </div>
-        )}
-
         {/* Tapped a FREE future day → mark / un-mark "kan ikke arbejde" right
             here. Writes the same StaffAvailability rows the Availability tab
             uses, so a strip mark shows on the calendar and vice-versa. */}
@@ -2280,6 +2273,22 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                     <div className="text-[11px] text-gray-500 truncate">
                       {fs.role_on_shift ? `${fs.role_on_shift} · ` : ""}{fs.net_hours}{t("portalHrsShort")}
                     </div>
+                    {/* Venue lives here rather than in a second card — it
+                        was that row's only unique fact, and a staffer working
+                        two places needs it on the day they tapped, not on
+                        whatever the hero happens to be showing. */}
+                    {fs.branch_name && (
+                      <a
+                        href={`https://maps.apple.com/?q=${encodeURIComponent([fs.branch_name, fs.branch_address].filter(Boolean).join(", "))}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-gray-400 underline truncate"
+                      >
+                        <MapPin className="w-3 h-3 shrink-0" strokeWidth={2} aria-hidden />
+                        {fs.branch_name}
+                      </a>
+                    )}
                   </div>
                 </div>
               ) : <span aria-hidden />}
@@ -2309,80 +2318,6 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
   );
 }
 
-function ShiftRow({ date: d, shift }) {
-  const { t, lang } = useLanguage();
-  const dt = new Date(d + "T00:00:00");
-  const dayName = dt.toLocaleDateString(localeFor(lang), { weekday: "short" });
-  const dayNum = dt.getDate();
-  const today = isToday(d);
-  const past = isPast(d);
-
-  if (!shift) {
-    return (
-      <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-200 ${past ? "opacity-40" : "opacity-50"}`}>
-        <div className="w-10 text-center">
-          <div className="text-[10px] font-semibold text-gray-400">{dayName}</div>
-          <div className="text-sm font-bold text-gray-400">{dayNum}</div>
-        </div>
-        <div className="flex-1">
-          <div className="text-sm text-gray-400">{t("portalShiftOff", "OFF")}</div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-200 ${past && !today ? "opacity-50" : ""} ${today ? "border-gray-500/40 bg-white" : ""}`}>
-      <div className="w-10 text-center">
-        <div className="text-[10px] font-semibold text-gray-500">{dayName}</div>
-        <div className={`text-sm font-bold ${today ? "text-gray-900" : "text-gray-900"}`}>{dayNum}</div>
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-semibold text-gray-900">{shift.start_time} – {shift.end_time}</div>
-        <div className="text-[11px] text-gray-500">{shift.role_on_shift || t("portalRoleStaff", "Staff")}</div>
-        {/* Multi-location: WHERE this shift is. Kills the "which restaurant
-            am I at today?" confusion — tap opens maps. Only renders when the
-            shift actually carries a location (single-venue staff never see it). */}
-        {shift.branch_name && (
-          <a
-            href={`https://maps.apple.com/?q=${encodeURIComponent([shift.branch_name, shift.branch_address].filter(Boolean).join(", "))}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="mt-1 flex items-start gap-1 text-[12px] text-gray-600 font-medium hover:text-gray-900"
-          >
-            <MapPin className="w-3 h-3 mt-[2px] shrink-0 text-gray-400" strokeWidth={2} aria-hidden />
-            <span className="min-w-0 break-words underline-offset-2 hover:underline">{shift.branch_name}</span>
-          </a>
-        )}
-        {/* Owner's per-shift note — a quiet line so the time/role stay the
-            focus. Only renders when the owner actually left a note. */}
-        {shift.notes && (
-          <div
-            className="mt-1 flex items-start gap-1 text-[12px] text-gray-500"
-            aria-label={t("portalShiftNote", "Note from your manager")}
-          >
-            <StickyNote className="w-3 h-3 mt-[2px] shrink-0 text-gray-400" strokeWidth={2} aria-hidden />
-            <span className="min-w-0 break-words">{shift.notes}</span>
-          </div>
-        )}
-      </div>
-      <div className="shrink-0 self-start">
-        {today ? (
-          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-100 border border-gray-200 text-gray-700">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{t("portalPillToday", "Today")}
-          </span>
-        ) : past ? (
-          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-100 border border-gray-200 text-gray-700">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{t("portalPillDone", "Done")}
-          </span>
-        ) : (
-          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-100 text-gray-500">{shift.net_hours}h</span>
-        )}
-      </div>
-    </div>
-  );
-}
 
 
 // ─── Hours Tab ────────────────────────────────────────────────────────────
@@ -2896,7 +2831,7 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
                     { key: "date", label: t("portalHoursCsvDate", "Date") },
                     { key: "start", label: t("portalHoursCsvStart", "Start") },
                     { key: "end", label: t("portalHoursCsvEnd", "End") },
-                    { key: "hours", label: t("portalHrsUnit") },
+                    { key: "hours", label: t("portalHoursCsvHours", "Hours") },
                   ],
                 );
               }}
@@ -4812,9 +4747,12 @@ function AvailabilityTab({ token, shifts }) {
         <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded" style={{ border: "1px solid rgba(239,68,68,.32)" }} />{t("legendRepeats", "Every week")}</span>
         {hasAbsence && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-100 ring-1 ring-inset ring-amber-300" />{t("legendPending", "Pending")}</span>}
         {hasAbsence && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-emerald-100 ring-1 ring-inset ring-emerald-300" />{t("legendApproved", "Approved off")}</span>}
-        {shiftSet.size > 0 && <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gray-900" />{t("legendScheduled", "Scheduled")}</span>}
+        <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded" style={{ background: "linear-gradient(180deg,#dcfce7,#bbf7d0)", border: "1px solid rgba(22,163,74,.35)" }} />{t("legendPreferred", "Prefers")}</span>
+        {/* Only claim the scheduled dot when the surface on screen actually
+            draws one — the week strip does not. */}
+        {shiftSet.size > 0 && calOpen && <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gray-900" />{t("legendScheduled", "Scheduled")}</span>}
       </div>
-      <p className="text-[11px] text-gray-400 -mt-2">{t("legendCaption", "Grey = your note. Colour = your manager's answer.")}</p>
+
 
       {/* Marked days — where time-window + note live (never on the grid cell) */}
       {markedList.length > 0 && (
@@ -5118,6 +5056,15 @@ function InstallNotifyCard({ token }) {
  * and on web only from one tab. A setting you can turn on and not off is not a
  * setting. Profile is reachable everywhere, so the off switch lives here too.
  */
+/** Lead time as a person says it: "30 min", "1 time", "3 timer" — never "180 minutter". */
+function fmtLead(minutes, t) {
+  const m = Number(minutes) || 0;
+  if (m < 60) return t("staffRemindMin", "{n} min").split("{n}").join(String(m));
+  const h = m / 60;
+  return (h === 1 ? t("staffRemindHrOne", "{n} hour") : t("staffRemindHr", "{n} h"))
+    .split("{n}").join(String(h));
+}
+
 function ShiftReminderRow({ token }) {
   const { t } = useLanguage();
   const [minutes, setMinutes] = useState(undefined);   // undefined = not loaded
@@ -5155,7 +5102,7 @@ function ShiftReminderRow({ token }) {
           <div className="text-[13px] font-semibold text-gray-900">{t("staffRemindTitle", "Remind me before a shift")}</div>
           <div className="text-[11px] text-gray-400">
             {minutes
-              ? t("staffRemindOnHint", "We'll tap you {n} minutes before you start.").split("{n}").join(String(minutes))
+              ? t("staffRemindOnHint", "We'll let you know {n} before you start.").split("{n}").join(fmtLead(minutes, t))
               : t("staffRemindNeedsPush", "Needs notifications switched on for this device.")}
           </div>
         </div>
@@ -5431,7 +5378,7 @@ function StaffPushOptIn({ token }) {
               <div className="font-semibold text-gray-900">{t("staffRemindTitle", "Remind me before a shift")}</div>
               <div className="text-gray-500">
                 {reminder
-                  ? t("staffRemindOnHint", "We'll tap you {n} minutes before you start.").split("{n}").join(String(reminder))
+                  ? t("staffRemindOnHint", "We'll let you know {n} before you start.").split("{n}").join(fmtLead(reminder, t))
                   : t("staffRemindOffHint", "Off — you'll still hear about schedule changes.")}
               </div>
             </div>
