@@ -2560,15 +2560,15 @@ function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hou
       <button
         type="button"
         onClick={() => setCustomOpen(true)}
-        className="flex items-center bg-white"
+        className="w-full flex items-center justify-between bg-white"
         style={{
-          gap: 8, padding: "12px 14px", borderRadius: 16,
+          gap: 8, padding: "12px 14px", borderRadius: 16, marginBottom: 13,   // space-y does not reach the card (inline style wins), so state it
           border: "1px solid #e8edf3",
           boxShadow: "0 1px 2px rgba(15,23,42,.04)",
           font: "700 15px/1 var(--font-display)", color: "#0f172a",
         }}
       >
-        {fmtShort(data.period_start, lang)} – {fmtShort(data.period_end, lang)}
+        <span>{fmtShort(data.period_start, lang)} – {fmtShort(data.period_end, lang)}</span>
         {hoursLoading
           ? <RefreshCw size={14} strokeWidth={2.5} className="animate-spin" style={{ color: "#94a3b8" }} />
           : <ChevronDown size={16} strokeWidth={2.5} style={{ color: "#94a3b8" }} />}
@@ -5044,11 +5044,15 @@ function ShiftReminderRow({ token }) {
     let cancel = false;
     portalApi.get(`/portal/${token}/reminder`)
       .then((r) => { if (!cancel) setMinutes(r.data?.minutes ?? null); })
-      .catch(() => { if (!cancel) setMinutes(null); });
+      // A server without the /reminder route (not yet deployed) is NOT "off" —
+      // it is a control that cannot save. Showing the switch there would be a
+      // toggle that silently does nothing, so it stays hidden instead.
+      .catch(() => { if (!cancel) setMinutes(false); });
     return () => { cancel = true; };
   }, [token]);
 
   if (minutes === undefined) return null;              // never flash a wrong state
+  if (minutes === false) return null;                  // endpoint unavailable — offer nothing
 
   const save = async (next) => {
     setBusy(true); setErr("");
