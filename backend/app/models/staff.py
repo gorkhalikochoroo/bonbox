@@ -87,6 +87,11 @@ class StaffMember(Base):
     # cap / 48h / 90t-md) for this staffer. The 11-timers rest warning is NOT
     # covered: hviletid is safety law, not a preference. Default ON.
     hour_limit_warn: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Pre-shift push reminder. NULL = off; an int is the lead time in minutes.
+    # Opt-in only — a reminder nobody asked for is a notification they did not
+    # consent to, and the staffer chooses the lead time because 30 minutes
+    # means something different to a cyclist and a commuter.
+    shift_reminder_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     # Danish A-skat trækkort — affects A-skat rate + personfradrag eligibility.
     # Values: "hovedkort" (default, 36% w/ personfradrag), "bikort" (42% no
     # personfradrag), "frikort" (0% until annual limit). NULL = treated as

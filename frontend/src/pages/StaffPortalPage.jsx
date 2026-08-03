@@ -12,6 +12,7 @@ import { overlapsOwnShift } from "../utils/overlapsOwnShift";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
 import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
+import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
 import { errText } from "../utils/errText";
@@ -338,12 +339,15 @@ function HolidaySection({ token }) {
 
   return (
     <div className="pt-3 border-t border-[#f1f5f9]">
-      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
+      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2">
         {t("portalHolidaySection", "Feriedage")}
       </div>
       <div className="flex items-baseline gap-2">
         <span className="text-[22px] font-bold text-gray-900 tabular-nums leading-none">
-          {fmt(h.remaining)}
+          {/* `partial` means the ferieår began before we knew this staffer, so
+              what we hold is a floor. A bare 0,0 at 22px bold would read as a
+              statement about their entitlement — the one thing it is not. */}
+          {h.partial && !h.remaining ? "–" : fmt(h.remaining)}
         </span>
         <span className="text-[12px] text-gray-500">
           {t("portalHolidayUnit", "days")}
@@ -376,6 +380,7 @@ function HolidaySection({ token }) {
  * app's own origin. Download-only is the containment, not a limitation.
  */
 function DocumentsSection({ token }) {
+  const [openSheet, setOpenSheet] = useState(false);
   const { t } = useLanguage();
   const [docs, setDocs] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -410,31 +415,81 @@ function DocumentsSection({ token }) {
     }
   };
 
-  // Nothing shared and nothing to say — stay silent rather than render an empty
-  // promise. The owner shares documents; the staffer cannot request one here.
-  if (!docs || docs.length === 0) return null;
+  if (docs === null) return null;            // still loading — do not flash
 
   return (
     <div className="pt-3 border-t border-[#f1f5f9]">
-      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
-        {t("portalDocsSection", "Contract & documents")}
-      </div>
-      <div className="space-y-1.5">
-        {docs.map((d) => (
-          <button
-            key={d.id}
-            type="button"
-            onClick={() => open(d)}
-            disabled={busyId === d.id}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-gray-200 text-left hover:bg-gray-50 transition disabled:opacity-50"
+      {/* One tappable row rather than an always-open list. Empty or not, it
+          behaves the same way — you can always open it, and it tells you
+          there is nothing rather than the section simply not reacting. */}
+      <button
+        type="button"
+        onClick={() => setOpenSheet(true)}
+        className="w-full flex items-center justify-between gap-3"
+      >
+        <div className="min-w-0 text-left">
+          <div className="text-[13px] font-semibold text-gray-900">
+            {t("portalDocsSection", "Contract & documents")}
+          </div>
+          <div className="text-[11px] text-gray-400">
+            {docs.length
+              ? t("portalDocsCount", "{n} shared with you").split("{n}").join(String(docs.length))
+              : t("portalDocsNone", "None shared yet")}
+          </div>
+        </div>
+        <ChevronRight className="w-4 h-4 shrink-0 text-gray-400" strokeWidth={2.5} aria-hidden />
+      </button>
+
+      {openSheet && createPortal(
+        <div className="fixed inset-0 z-[60] flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setOpenSheet(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={t("portalDocsSection")}
+            className="w-full bg-white"
+            style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <FileText className="w-4 h-4 shrink-0 text-gray-400" />
-            <span className="flex-1 min-w-0 text-[13px] font-semibold text-gray-900 truncate">{d.label}</span>
-            <Download className="w-4 h-4 shrink-0 text-gray-400" />
-          </button>
-        ))}
-      </div>
-      {err && <p className="mt-2 text-[12px] text-red-600">{err}</p>}
+            <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+            <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
+              {t("portalDocsSection", "Contract & documents")}
+            </div>
+
+            {docs.length === 0 ? (
+              <div style={{ marginTop: 10, font: "400 12px/1.5 var(--font-text)", color: "#64748b" }}>
+                {t("portalDocsEmpty", "Nothing here yet. Your contract and payslips appear here when your manager shares them.")}
+              </div>
+            ) : (
+              <div className="space-y-1.5" style={{ marginTop: 14 }}>
+                {docs.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => open(d)}
+                    disabled={busyId === d.id}
+                    className="w-full flex items-center gap-2 px-3 py-3 rounded-2xl bg-[#f5f8fb] border border-[#e8edf3] text-left hover:bg-gray-100 transition disabled:opacity-50"
+                  >
+                    <FileText className="w-4 h-4 shrink-0 text-gray-400" />
+                    <span className="flex-1 min-w-0 text-[13px] font-semibold text-gray-900 truncate">{d.label}</span>
+                    <Download className="w-4 h-4 shrink-0 text-gray-400" />
+                  </button>
+                ))}
+              </div>
+            )}
+            {err && <p className="mt-2 text-[12px] text-red-600">{err}</p>}
+
+            <button
+              type="button"
+              onClick={() => setOpenSheet(false)}
+              className="w-full"
+              style={{ marginTop: 16, padding: "12px 0", font: "600 13px/1 var(--font-text)", color: "#64748b" }}
+            >
+              {t("close", "Close")}
+            </button>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
@@ -558,7 +613,7 @@ export function BankSection({ token }) {
 
   return (
     <div className="pt-3 border-t border-[#f1f5f9]">
-      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
+      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2">
         {t("portalBankSection", "Bank account")}
       </div>
 
@@ -821,9 +876,9 @@ function PinGate({ onVerified, token, staffName }) {
  *   • staff_id is fixed by the magic-link token — the body only
  *     contains date + reason. UI doesn't even ask for staff_id.
  */
-function SickCallButton({ token, upcomingShifts, onCalledIn }) {
+function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false }) {
   const { t } = useLanguage();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(autoOpen);
   const todayIso = useState(() => toLocalISO(new Date()))[0];
   const [date, setDate] = useState(todayIso);
   const [reason, setReason] = useState("");
@@ -918,7 +973,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn }) {
       <button
         onClick={submit}
         disabled={submitting || !date}
-        className="w-full px-4 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold transition disabled:opacity-50"
+        className="w-full py-2.5 rounded-[14px] bg-gray-900 text-white font-text text-[13px] font-bold hover:bg-gray-700 transition disabled:opacity-50"
       >
         {submitting ? t("portalSending", "Sending...") : t("portalSickSubmit", "Send sick call")}
       </button>
@@ -963,7 +1018,7 @@ function addDaysToDate(d, days) {
  *   • One tap → server returns confirmed_count → small "✓ N shifts
  *     confirmed" inline confirmation that fades after 4s.
  */
-function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange }) {
+function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange, allShifts}) {
   const { t } = useLanguage();
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState("");
@@ -978,11 +1033,26 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange }) {
 
   if (publishedShifts.length === 0) return null;
 
+  // Confirming is scoped to what is on screen, so a department selection can
+  // leave the window's OTHER branches unconfirmed while this view rests on
+  // "thanks". Say so, rather than letting the calm state imply everything is
+  // done — the staffer would never find the remaining shifts.
+  const visibleIds = new Set(publishedShifts.map((sh) => sh.id));
+  const unconfirmedElsewhere = (allShifts || []).filter(
+    (sh) => sh.status === "published" && !sh.confirmed_at && !visibleIds.has(sh.id),
+  ).length;
+
   const submit = async () => {
     setSubmitting(true);
     setError("");
     try {
-      const res = await portalApi.post(`/portal/${token}/confirm-schedule`, {});
+      // Send the ids on screen. With a department selected the list is a
+      // SUBSET of the server's window, and an unscoped confirm stamps shifts at
+      // another branch that were filtered out and never read — then reports a
+      // count that disagrees with what is displayed.
+      const res = await portalApi.post(`/portal/${token}/confirm-schedule`, {
+        shift_ids: publishedShifts.filter((sh) => !sh.confirmed_at).map((sh) => sh.id),
+      });
       haptic.light(); // a quiet physical ack — confirm is routine, not ceremonial
       const n = res?.data?.confirmed_count ?? 0;
       setFeedback(n > 0
@@ -1025,6 +1095,12 @@ function ConfirmScheduleButton({ token, shifts, onConfirmed, onNeedChange }) {
           <Check className="w-4 h-4 shrink-0 text-gray-400" strokeWidth={2.5} aria-hidden />
           <span>{t("portalConfirmedThanks", "You've confirmed this schedule. Thanks!")}</span>
         </div>
+        {unconfirmedElsewhere > 0 && (
+          <div className="w-full text-center text-[11px] text-amber-700">
+            {t("portalConfirmOtherDept", "{n} shifts at another location are still unconfirmed — switch to All.")
+              .split("{n}").join(String(unconfirmedElsewhere))}
+          </div>
+        )}
         {needChangeLink}
       </div>
     );
@@ -1393,7 +1469,7 @@ function WhosOnStrip({ teamShifts, nextShift }) {
 // model — appears only when there's something to take, never a notification
 // blast). Claim is atomic + overlap-guarded server-side; on success the shift
 // lands in the staffer's own schedule, so we refresh.
-function OpenShiftsClaimCard({ token, rows, onClaimed }) {
+function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts }) {
   // PURE-PROPS rows: hoisted to the page-level loadData (same Promise.allSettled
   // as the schedule) so this card paints WITH the first render instead of
   // inserting itself after settle. Claim refreshes via onClaimed → loadData.
@@ -1429,7 +1505,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4">
-      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2 flex items-center gap-1.5">
+      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2 flex items-center gap-1.5">
         <CalendarPlus className="w-3.5 h-3.5" />
         {t("portalOpenTitle", "Open shifts")}
       </div>
@@ -1447,6 +1523,11 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
               </div>
               <div className="text-[13px] text-gray-500 tabular-nums mt-0.5">
                 {o.start_time}–{o.end_time}
+                {/* Same pre-tap verdict Swaps gives. Finding out you clash
+                    AFTER committing is the version that wastes a tap. */}
+                {overlapsOwnShift(o.date, `${o.start_time}–${o.end_time}`, ownShifts) && (
+                  <span className="ml-1.5 text-red-600 font-semibold">· {t("portalGaOverlaps", "Overlaps you")}</span>
+                )}
                 {/* Multi-location S5: WHERE the hole is — a colleague sees
                     the venue before taking a cross-location shift. */}
                 {o.branch_name && (
@@ -1469,7 +1550,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed }) {
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, token, restaurantName, restaurantCity, restaurantAddress, coversByShift, onShiftsChanged, onNeedChange, onOpenAvailability }) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, coversByShift, onShiftsChanged, allShifts}) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -1491,7 +1572,6 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
   // mark unavailable right from the schedule (same StaffAvailability rows the
   // Availability tab writes — a strip mark shows there and vice-versa).
   const [unavail, setUnavail] = useState([]);
-  const [savingDay, setSavingDay] = useState(null); // iso currently posting/deleting
   const loadUnavail = async () => {
     try {
       const r = await portalApi.get(`/portal/${token}/availability`);
@@ -1512,23 +1592,6 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
   // Monday-first weekday index (matches the Availability calendar convention).
   const weekdayOfIso = (iso) => (new Date(iso + "T00:00:00").getDay() + 6) % 7;
   const isUnavailDay = (iso) => !!unavailByDate[iso] || recurUnavailWeekdays.has(weekdayOfIso(iso));
-  const markUnavail = async (iso) => {
-    if (savingDay || unavailByDate[iso]) return;
-    setSavingDay(iso);
-    setUnavail((rows) => [...(rows || []), { id: "tmp-" + iso, kind: "unavailable", date: iso, weekday: null, start_time: null, end_time: null, note: null }]);
-    try { await portalApi.post(`/portal/${token}/availability`, { date: iso, kind: "unavailable" }); }
-    catch { /* revert-on-fail via refetch below */ }
-    finally { await loadUnavail(); setSavingDay(null); }
-  };
-  const removeUnavail = async (iso) => {
-    const id = unavailByDate[iso];
-    if (!id || savingDay) return;
-    setSavingDay(iso);
-    setUnavail((rows) => (rows || []).filter((r) => r.id !== id));
-    try { if (!String(id).startsWith("tmp-")) await portalApi.delete(`/portal/${token}/availability/${id}`); }
-    catch { /* revert-on-fail via refetch below */ }
-    finally { await loadUnavail(); setSavingDay(null); }
-  };
   // "Brug for en ændring?" reveals the sick-call form inline (and deep-links
   // Swaps via onNeedChange from the confirm strip).
   const [showSick, setShowSick] = useState(false);
@@ -1735,28 +1798,36 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
             {/* Hours clarity — gross span · unpaid break · net (paid). All three
                 derive from the owner's rostered shift (net_hours + break_minutes),
                 replacing the old ambiguous single "6.25 hrs" that read like a bug. */}
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {/* The prototype answers "what is this shift" in ONE quiet line —
+                role · span · break — with 3px dots between. Ours carried the
+                same facts as three coloured pills plus a separate role row:
+                two rows and four backgrounds on the calmest surface in the app.
+                Same facts, one line. NET keeps its emphasis because it is the
+                paid number and the one thing here we compute rather than
+                restate. */}
+            <div className="mt-2 flex flex-wrap items-center" style={{ gap: 7, font: "500 12.5px/1.35 var(--font-text)", color: "rgba(255,255,255,.60)" }}>
+              {nextShiftRole && <span>{nextShiftRole}</span>}
               {nextShift.break_minutes > 0 ? (
-                // With a break, the split is meaningful: gross span · unpaid break · net.
                 <>
-                  <span className="rounded-full bg-white/[0.07] px-2 py-1 text-[12px] font-semibold text-gray-300 tabular-nums">
-                    {t("portalHoursGross", "{h} shift", { h: fmtHM(grossHrs(nextShift)) })}
-                  </span>
-                  <span className="rounded-full bg-white/[0.07] px-2 py-1 text-[12px] font-semibold text-gray-300 tabular-nums">
-                    {t("portalHoursBreak", "{m} min break", { m: nextShift.break_minutes })}
-                  </span>
-                  <span className="rounded-full bg-emerald-400/15 px-2 py-1 text-[12px] font-bold text-emerald-300 tabular-nums">
+                  {nextShiftRole && <HeroDot />}
+                  <span className="tabular-nums">{t("portalHoursGross", "{h} shift", { h: fmtHM(grossHrs(nextShift)) })}</span>
+                  <HeroDot />
+                  <span className="tabular-nums">{t("portalHoursBreak", "{m} min break", { m: nextShift.break_minutes })}</span>
+                  <HeroDot />
+                  <span className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
                     {t("portalHoursNet", "{h} net", { h: fmtHM(nextShift.net_hours) })}
                   </span>
                 </>
               ) : (
-                // No break → gross == net, so ONE chip (avoids a redundant "8t shift · 8t net").
-                <span className="rounded-full bg-emerald-400/15 px-2 py-1 text-[12px] font-bold text-emerald-300 tabular-nums">
-                  {t("portalHoursGross", "{h} shift", { h: fmtHM(nextShift.net_hours) })}
-                </span>
+                <>
+                  {nextShiftRole && <HeroDot />}
+                  {/* No break → gross == net, so ONE figure, not a redundant pair. */}
+                  <span className="tabular-nums font-semibold" style={{ color: "#6ee7b7" }}>
+                    {t("portalHoursGross", "{h} shift", { h: fmtHM(nextShift.net_hours) })}
+                  </span>
+                </>
               )}
             </div>
-            <div className="mt-1.5 text-[12px] text-gray-400">{nextShiftRole}</div>
 
             {/* Booked covers for this shift's night — the reason to hold both the
                 book and the roster. Count ONLY: the server sends one integer per
@@ -1953,7 +2024,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
       </div>
 
       {/* Åbne vagter — open shifts this staffer can pick up one-tap. */}
-      {token && <OpenShiftsClaimCard token={token} rows={openShifts || []} onClaimed={onShiftsChanged} />}
+      {token && <OpenShiftsClaimCard token={token} rows={openShifts || []} onClaimed={onShiftsChanged} ownShifts={shifts} />}
 
       {/* Bidirectional confirmation — calm "Jeg har set det" strip. Truth logic
           (allConfirmed gated on every confirmed_at) untouched; only the CTA
@@ -1963,11 +2034,12 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
         <ConfirmScheduleButton
           token={token}
           shifts={shifts}
+          allShifts={allShifts}
           onConfirmed={onShiftsChanged}
-          onNeedChange={() => {
-            setShowSick(true);
-            onNeedChange?.();
-          }}
+          // Reveal the form and STAY. This used to also fire onNeedChange(),
+          // which switches to Swaps — so the tap opened something and then
+          // navigated away from it before it could be read.
+          onNeedChange={() => setShowSick(true)}
         />
       )}
 
@@ -1977,13 +2049,17 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
           token={token}
           upcomingShifts={upcoming}
           onCalledIn={onShiftsChanged}
+          // Straight to the form. "Need a change?" already asked the question;
+          // an intermediate "Call in sick" button is a third stacked CTA that
+          // only repeats it.
+          autoOpen
         />
       )}
 
-      {/* 7-dot week-at-a-glance — replaces the three long ShiftRow scrolls. One
+      {/* 7-dot week-at-a-glance — replaces the three long shift scrolls. One
           strip at a time (this/next week). Working day = thin role-colored bar;
           OFF = silent hollow dot; TODAY = bold gray-900 label + soft cell fill.
-          Tap a working day → expand ONE inline ShiftRow below. */}
+          Tap a working day → the day panel below shows it. */}
       <div
         className="bg-white"
         style={{
@@ -2101,77 +2177,11 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
           <span className="tabular-nums" style={{ font: "600 12px/1 var(--font-text)", color: "#475569" }}>
             {weekTotals.hours} {t("portalHrsShort")} · {t("portalWeekShiftCount", "{n} shifts", { n: weekTotals.count })}
           </span>
-          <span
-            style={{
-              padding: "5px 10px", borderRadius: 999, background: "#dcfce7", color: "#15803d",
-              font: "700 10px/1 var(--font-text)", letterSpacing: "0.06em", textTransform: "uppercase",
-            }}
-          >
-            {t("portalWeekLive", "Live")}
-          </span>
         </div>
-
-        {/* Opt-in detail: ONE inline ShiftRow for the tapped working day. */}
-        {expandedShift && (
-          <div className="mt-2 motion-safe:animate-scaleIn">
-            <ShiftRow date={expandedShift.date} shift={expandedShift} />
-          </div>
-        )}
 
         {/* Tapped a FREE future day → mark / un-mark "kan ikke arbejde" right
             here. Writes the same StaffAvailability rows the Availability tab
             uses, so a strip mark shows on the calendar and vice-versa. */}
-        {!expandedShift && expandedDate && !isPast(expandedDate) && (() => {
-          const iso = expandedDate;
-          const marked = !!unavailByDate[iso];
-          const recurring = !marked && recurUnavailWeekdays.has(weekdayOfIso(iso));
-          const saving = savingDay === iso;
-          const dLabel = new Date(iso + "T00:00:00").toLocaleDateString(localeFor(lang), { weekday: "long", day: "numeric", month: "short" });
-          return (
-            <div className="mt-2 motion-safe:animate-scaleIn rounded-xl border border-gray-200 bg-white p-3">
-              {recurring ? (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Repeat className="w-4 h-4 text-gray-400 shrink-0" strokeWidth={2} aria-hidden />
-                    <span className="text-[13px] text-gray-600 truncate">{t("portalUnavailRecurring", "You're off this weekday")}</span>
-                  </div>
-                  {onOpenAvailability && (
-                    <button type="button" onClick={onOpenAvailability}
-                      className="text-[13px] font-semibold text-gray-900 underline decoration-gray-300 underline-offset-2 shrink-0">
-                      {t("portalUnavailOpen", "Manage")}
-                    </button>
-                  )}
-                </div>
-              ) : marked ? (
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <CalendarOff className="w-4 h-4 text-amber-500 shrink-0" strokeWidth={2} aria-hidden />
-                    <span className="text-[13px] text-gray-700 truncate">{t("portalUnavailMarked", "Can't work {day}", { day: dLabel })}</span>
-                  </div>
-                  <button type="button" disabled={saving} onClick={() => removeUnavail(iso)}
-                    className="text-[13px] font-semibold text-gray-500 hover:text-gray-900 disabled:opacity-50 shrink-0">
-                    {t("portalUnavailRemove", "Undo")}
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-[13px] text-gray-500 min-w-0 truncate">{t("portalUnavailPrompt", "Can't work {day}?", { day: dLabel })}</span>
-                  <button type="button" disabled={saving} onClick={() => markUnavail(iso)}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-[13px] font-semibold text-white active:scale-[0.98] disabled:opacity-50 shrink-0">
-                    <CalendarOff className="w-3.5 h-3.5" strokeWidth={2.5} aria-hidden />
-                    {t("portalUnavailMark", "Can't work")}
-                  </button>
-                </div>
-              )}
-              {onOpenAvailability && !recurring && (
-                <button type="button" onClick={onOpenAvailability}
-                  className="mt-2 block text-[11px] text-gray-400 hover:text-gray-600 underline decoration-gray-200 underline-offset-2">
-                  {t("portalUnavailMore", "Set a time or repeat weekly")}
-                </button>
-              )}
-            </div>
-          );
-        })()}
 
         {/* Selected-day detail, with v2's eyebrow above it: the DAY on the left,
             the station on the right. Without it the shift row floats free of the
@@ -2198,7 +2208,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                 )}
               </div>
             )}
-            <div className="mt-3 pt-3 border-t border-[#f1f5f9] flex items-center justify-between gap-3">
+            <div className={`flex items-center justify-between gap-3${fs ? " mt-3 pt-3 border-t border-[#f1f5f9]" : ""}`}>
               {fs ? (
                 <div className="flex items-center gap-2.5 min-w-0">
                   <span className={`w-1.5 h-8 rounded-full shrink-0 ${roleBarColor(fs.role_on_shift)}`} aria-hidden />
@@ -2209,6 +2219,22 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
                     <div className="text-[11px] text-gray-500 truncate">
                       {fs.role_on_shift ? `${fs.role_on_shift} · ` : ""}{fs.net_hours}{t("portalHrsShort")}
                     </div>
+                    {/* Venue lives here rather than in a second card — it
+                        was that row's only unique fact, and a staffer working
+                        two places needs it on the day they tapped, not on
+                        whatever the hero happens to be showing. */}
+                    {fs.branch_name && (
+                      <a
+                        href={`https://maps.apple.com/?q=${encodeURIComponent([fs.branch_name, fs.branch_address].filter(Boolean).join(", "))}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-gray-400 underline truncate"
+                      >
+                        <MapPin className="w-3 h-3 shrink-0" strokeWidth={2} aria-hidden />
+                        {fs.branch_name}
+                      </a>
+                    )}
                   </div>
                 </div>
               ) : <span aria-hidden />}
@@ -2238,95 +2264,277 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, staffName, tok
   );
 }
 
-function ShiftRow({ date: d, shift }) {
-  const { t, lang } = useLanguage();
-  const dt = new Date(d + "T00:00:00");
-  const dayName = dt.toLocaleDateString(localeFor(lang), { weekday: "short" });
-  const dayNum = dt.getDate();
-  const today = isToday(d);
-  const past = isPast(d);
 
-  if (!shift) {
-    return (
-      <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-200 ${past ? "opacity-40" : "opacity-50"}`}>
-        <div className="w-10 text-center">
-          <div className="text-[10px] font-semibold text-gray-400">{dayName}</div>
-          <div className="text-sm font-bold text-gray-400">{dayNum}</div>
-        </div>
-        <div className="flex-1">
-          <div className="text-sm text-gray-400">{t("portalShiftOff", "OFF")}</div>
-        </div>
-      </div>
-    );
-  }
+
+// ─── Hours Tab ────────────────────────────────────────────────────────────
+
+/**
+ * Choose which stretch of time "my hours" covers.
+ *
+ * Two ways in, because staff ask two different questions:
+ *   • "what does my PAY period look like" → a cycle shape (1–31, 15–14, 16–15).
+ *     Danish payroll rarely runs on calendar months, and the shape the owner
+ *     runs is not something a staffer can be expected to know by heart.
+ *   • "what did I work between these two dates" → a custom range.
+ *
+ * The bounds mirror the server's (366 days, no earlier than 3 years back) so a
+ * staffer gets a sentence instead of a 400 — but the SERVER is the gate. This
+ * is a courtesy, never the check.
+ */
+function PeriodSheet({ initial, anchorMonth, onClose, onApply }) {
+  const { t, lang } = useLanguage();
+  const todayISO = new Date().toLocaleDateString("sv-SE");
+  const [from, setFrom] = useState(initial?.start || "");
+  const [to, setTo] = useState(initial?.end || "");
+
+  const iso = (d) => d.toLocaleDateString("sv-SE");
+  const anchor = anchorMonth ? new Date(`${anchorMonth}T00:00:00`) : new Date();
+  const Y = anchor.getFullYear();
+  const M = anchor.getMonth();
+  const monthName = (off) =>
+    new Date(Y, M + off, 1).toLocaleDateString(lang === "da" ? "da-DK" : "en-GB", { month: "short" });
+
+  // The three cycle shapes DK owners actually run. Each is expressed against
+  // the anchor month so the label shows real dates, not an abstract rule.
+  const cycles = [
+    {
+      key: "calendar",
+      label: `1.–${new Date(Y, M + 1, 0).getDate()}.`,
+      hint: monthName(0),
+      start: iso(new Date(Y, M, 1)),
+      end: iso(new Date(Y, M + 1, 0)),
+    },
+    {
+      key: "15-14",
+      label: "15.–14.",
+      hint: `${monthName(0)} – ${monthName(1)}`,
+      start: iso(new Date(Y, M, 15)),
+      end: iso(new Date(Y, M + 1, 14)),
+    },
+    {
+      key: "16-15",
+      label: "16.–15.",
+      hint: `${monthName(0)} – ${monthName(1)}`,
+      start: iso(new Date(Y, M, 16)),
+      end: iso(new Date(Y, M + 1, 15)),
+    },
+  ];
+
+  // Three years back, matching the server's floor exactly. A client bound looser
+  // than the server's is worse than none: it lets the staffer pick a date that
+  // looks legal, and the request 400s after the sheet has already closed.
+  const floorISO = (() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 3);
+    d.setDate(d.getDate() + 1);           // stay inside the server's 365*3 days
+    return d.toLocaleDateString("sv-SE");
+  })();
+
+  const problem = (() => {
+    if (!from || !to) return null;
+    if (to < from) return t("portalHoursRangeBackwards", "The end date is before the start date");
+    if ((new Date(`${to}T00:00:00`) - new Date(`${from}T00:00:00`)) / 86400000 > 366) return t("portalHoursRangeTooWide", "Pick a year or less");
+    if (from < floorISO) return t("portalHoursRangeTooOld", "We keep three years of hours");
+    return null;
+  })();
+  const ready = from && to && !problem;
+
+  const field = {
+    width: "100%", minWidth: 0, boxSizing: "border-box",
+    marginTop: 6, padding: "11px 12px", borderRadius: 14,
+    border: "1px solid #e8edf3", background: "#fbfdff",
+    font: "600 14px/1 var(--font-text)", color: "#0f172a",
+  };
+  const cap = {
+    font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em",
+    textTransform: "uppercase", color: "#94a3b8",
+  };
 
   return (
-    <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white border border-gray-200 ${past && !today ? "opacity-50" : ""} ${today ? "border-gray-500/40 bg-white" : ""}`}>
-      <div className="w-10 text-center">
-        <div className="text-[10px] font-semibold text-gray-500">{dayName}</div>
-        <div className={`text-sm font-bold ${today ? "text-gray-900" : "text-gray-900"}`}>{dayNum}</div>
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-semibold text-gray-900">{shift.start_time} – {shift.end_time}</div>
-        <div className="text-[11px] text-gray-500">{shift.role_on_shift || t("portalRoleStaff", "Staff")}</div>
-        {/* Multi-location: WHERE this shift is. Kills the "which restaurant
-            am I at today?" confusion — tap opens maps. Only renders when the
-            shift actually carries a location (single-venue staff never see it). */}
-        {shift.branch_name && (
-          <a
-            href={`https://maps.apple.com/?q=${encodeURIComponent([shift.branch_name, shift.branch_address].filter(Boolean).join(", "))}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="mt-1 flex items-start gap-1 text-[12px] text-gray-600 font-medium hover:text-gray-900"
-          >
-            <MapPin className="w-3 h-3 mt-[2px] shrink-0 text-gray-400" strokeWidth={2} aria-hidden />
-            <span className="min-w-0 break-words underline-offset-2 hover:underline">{shift.branch_name}</span>
-          </a>
+    <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={onClose}>
+      <div
+        role="dialog"
+            aria-modal="true"
+            aria-label={t("portalHoursCustomTitle")}
+            className="w-full bg-white"
+        style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+        <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
+          {t("portalHoursCustomTitle", "Choose a period")}
+        </div>
+
+        <div style={{ marginTop: 16, ...cap }}>{t("portalHoursCycle", "Pay cycle")}</div>
+        <div className="flex" style={{ gap: 7, marginTop: 8 }}>
+          {cycles.map((c) => {
+            const active = from === c.start && to === c.end;
+            return (
+              <button
+                key={c.key}
+                type="button"
+                onClick={() => { setFrom(c.start); setTo(c.end); }}
+                style={{
+                  flex: 1, padding: "11px 6px", borderRadius: 14, textAlign: "center",
+                  background: active ? "linear-gradient(180deg,#1e293b,#0f172a)" : "#f5f8fb",
+                  border: `1px solid ${active ? "transparent" : "#e8edf3"}`,
+                  boxShadow: active ? "0 8px 18px -10px rgba(15,23,42,.85)" : "none",
+                }}
+              >
+                <div style={{ font: "700 13px/1 var(--font-text)", color: active ? "#fff" : "#0f172a" }}>{c.label}</div>
+                <div style={{ marginTop: 5, font: "600 10px/1 var(--font-text)", color: active ? "rgba(255,255,255,.55)" : "#94a3b8" }}>{c.hint}</div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: 18, ...cap }}>{t("portalHoursCustomRange", "Or pick your own dates")}</div>
+        <div className="flex" style={{ gap: 10, marginTop: 8 }}>
+          <label style={{ flex: 1, minWidth: 0 }}>
+            <span style={cap}>{t("portalHoursFrom", "From")}</span>
+            <input type="date" value={from} min={floorISO} max={todayISO} onChange={(e) => setFrom(e.target.value)} style={field} />
+          </label>
+          <label style={{ flex: 1, minWidth: 0 }}>
+            <span style={cap}>{t("portalHoursTo", "To")}</span>
+            <input type="date" value={to} min={from || floorISO} onChange={(e) => setTo(e.target.value)} style={field} />
+          </label>
+        </div>
+        {problem && (
+          <div style={{ marginTop: 10, font: "600 12px/1.4 var(--font-text)", color: "#dc2626" }}>{problem}</div>
         )}
-        {/* Owner's per-shift note — a quiet line so the time/role stay the
-            focus. Only renders when the owner actually left a note. */}
-        {shift.notes && (
-          <div
-            className="mt-1 flex items-start gap-1 text-[12px] text-gray-500"
-            aria-label={t("portalShiftNote", "Note from your manager")}
+
+        <button
+          type="button"
+          disabled={!ready}
+          onClick={() => onApply({ start: from, end: to })}
+          className="w-full"
+          style={{
+            marginTop: 16, padding: "14px 0", borderRadius: 16,
+            font: "700 14px/1 var(--font-text)",
+            color: ready ? "#fff" : "#94a3b8",
+            background: ready ? "linear-gradient(180deg,#1e293b,#0f172a)" : "#f1f5f9",
+            boxShadow: ready ? "0 10px 22px -12px rgba(15,23,42,.9)" : "none",
+          }}
+        >
+          {t("portalHoursShowPeriod", "Show these hours")}
+        </button>
+        {initial && (
+          <button
+            type="button"
+            onClick={() => onApply(null)}
+            className="w-full"
+            style={{ marginTop: 10, padding: "12px 0", font: "600 13px/1 var(--font-text)", color: "#64748b" }}
           >
-            <StickyNote className="w-3 h-3 mt-[2px] shrink-0 text-gray-400" strokeWidth={2} aria-hidden />
-            <span className="min-w-0 break-words">{shift.notes}</span>
-          </div>
-        )}
-      </div>
-      <div className="shrink-0 self-start">
-        {today ? (
-          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-100 border border-gray-200 text-gray-700">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{t("portalPillToday", "Today")}
-          </span>
-        ) : past ? (
-          <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-100 border border-gray-200 text-gray-700">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{t("portalPillDone", "Done")}
-          </span>
-        ) : (
-          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-gray-100 text-gray-500">{shift.net_hours}h</span>
+            {t("portalHoursBackToDefault", "Back to my pay period")}
+          </button>
         )}
       </div>
     </div>
   );
 }
 
-
-// ─── Hours Tab ────────────────────────────────────────────────────────────
-
-function HoursTab({ data, maxHours }) {
+function HoursTab({ data, maxHours: maxHoursRaw, range, setRange, prevTotal, hoursError, hoursLoading }) {
   const { t, lang } = useLanguage();
-  if (!data) return <LoadingSkeleton />;
+  const [customOpen, setCustomOpen] = useState(false);
+  // The permit cap is monthly. Against a chosen window of any other length the
+  // ratio is meaningless — and it drives an amber/red "permit nearly blown"
+  // alarm, so a wrong one is not a cosmetic slip. Suppress it unless we are
+  // looking at the owner's own pay period.
+  const maxHours = range ? null : maxHoursRaw;
 
-  const pct = maxHours && maxHours > 0 ? Math.min(100, (data.total_hours / maxHours) * 100) : null;
+  // Group the period's own entries into ISO weeks for the by-week chart.
+  // Derived from the SAME entries the list below renders, so the bars can never
+  // disagree with the rows — the prototype's bars are fixtures; these are the
+  // actual shifts. `.max` rides along so the tallest bar is found once.
+  const weekBars = useMemo(() => {
+    const isoWeek = (iso) => {
+      const d = new Date(iso + "T00:00:00");
+      if (Number.isNaN(d.getTime())) return null;
+      const th = new Date(d);
+      th.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));   // Thursday of this week
+      const jan4 = new Date(th.getFullYear(), 0, 4);
+      const week = 1 + Math.round(((th - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+      // th is the Thursday, so ITS year is the ISO week-year by definition.
+      return { key: `${th.getFullYear()}-${String(week).padStart(2, "0")}`, week };
+    };
+    const buckets = new Map();
+    for (const e of data?.entries || []) {
+      const k = isoWeek(e.date);
+      if (k === null) continue;                                // never bucket a date we cannot read
+      buckets.set(k.key, (buckets.get(k.key) || 0) + (Number(e.total_hours) || 0));
+    }
+    // Key is `${isoYear}-${week}` so a range crossing New Year does not collide
+    // W52 of one year with W52 of the next, or sort W01 before W52.
+    const sorted = [...buckets.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    const rows = sorted
+      .slice(-5)                                               // v2 shows five columns
+      .map(([k, n]) => ({ w: `W${k.split("-")[1]}`, n: Math.round(n * 100) / 100, v: String(Math.round(n * 100) / 100) }));
+    rows.max = rows.reduce((m, r) => Math.max(m, r.n), 0) || 1;
+    // Flagged, not hidden: with a long custom window these five bars are a tail,
+    // not the whole period, so they cannot add up to the headline above them.
+    rows.truncated = sorted.length > rows.length;
+    return rows;
+  }, [data?.entries]);
+
+  if (!data) {
+    // A failed FIRST fetch also leaves data null. Showing the skeleton then is
+    // an eternal spinner with no way out, so the error wins over the skeleton.
+    if (hoursError) {
+      return (
+        <div
+          className="flex items-start"
+          style={{
+            gap: 9, padding: "11px 13px", borderRadius: 14,
+            background: "#fef2f2", border: "1px solid #fecaca",
+            font: "600 12px/1.45 var(--font-text)", color: "#b91c1c",
+          }}
+        >
+          <AlertTriangle size={15} strokeWidth={2.4} style={{ flex: "none", marginTop: 1 }} />
+          <span>
+            {typeof hoursError === "string" ? hoursError : t("portalHoursLoadFailed", "Could not load that period")}
+            {range && (
+              <button type="button" onClick={() => setRange(null)} style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c" }}>
+                {t("portalHoursBackToDefault", "Back to my pay period")}
+              </button>
+            )}
+          </span>
+        </div>
+      );
+    }
+    return <LoadingSkeleton />;
+  }
+
   const remaining = maxHours ? Math.max(0, maxHours - data.total_hours) : null;
 
   // Headline can be rostered (from the published schedule) or logged
   // (actuals the owner recorded). Label honestly so staff know which
   // number they're looking at. Default to "schedule" for older payloads.
   const isSchedule = (data.hours_source || "schedule") === "schedule";
+
+  const todayISO = new Date().toLocaleDateString("sv-SE");   // sv-SE renders YYYY-MM-DD in LOCAL time
+  // How much of this period the staffer has already reached, vs what is still
+  // ahead. Both halves come from `data.entries`, so they always sum to the
+  // headline. Deliberately "so far", not "worked": with hours_source=schedule
+  // these are ROSTERED shifts, and claiming they were worked would assert a
+  // punch we do not have.
+  const soFarRaw = (data.entries || [])
+    .filter((e) => (e.date || "") < todayISO)
+    .reduce((a, e) => a + (Number(e.total_hours) || 0), 0);
+  const soFar = Math.round(soFarRaw * 100) / 100;
+  // Round the difference of the ROUNDED parts. Differencing the raw float
+  // against an already-rounded total leaves residue like 0.0000001, which
+  // reads as "hours still left" in a period that closed months ago.
+  const ahead = Math.round((Math.round(data.total_hours * 100) / 100 - soFar) * 100) / 100;
+  // Entries arrive newest-first, so the soonest upcoming one is the LAST that
+  // is still ahead of today.
+  const nextUp = [...(data.entries || [])].reverse().find((e) => (e.date || "") >= todayISO);
+  // A previous window with NO hours is not a baseline — it is usually "you did
+  // not work here yet". Comparing against it would state a measurement where
+  // there is none, so the tile stays hidden until there is something to compare.
+  const delta = typeof prevTotal === "number" && Number.isFinite(prevTotal) && prevTotal > 0
+    ? Math.round((data.total_hours - prevTotal) * 100) / 100
+    : null;
+
   const hoursLabel = isSchedule
     ? t("portalHoursRostered", "Rostered hours")
     : t("portalHoursWorked", "Hours worked");
@@ -2337,47 +2545,206 @@ function HoursTab({ data, maxHours }) {
     ? t("portalHoursNoShifts", "No shifts in this period yet")
     : t("portalHoursNoneLogged", "No hours logged yet this period");
 
+
   return (
     <div className="space-y-4">
+
+      {customOpen && (
+        <PeriodSheet
+          initial={range}
+          anchorMonth={data.period_start}
+          onClose={() => setCustomOpen(false)}
+          onApply={(r) => { setRange(r); setCustomOpen(false); }}
+        />
+      )}
+
+      {/* The period IS the control. It sat inside the card as a 10px eyebrow,
+          which read as a caption rather than something you could tap — so it
+          moves out, goes up in size, and keeps the chevron as the affordance. */}
+      <button
+        type="button"
+        onClick={() => setCustomOpen(true)}
+        className="w-full flex items-center justify-between bg-white"
+        style={{
+          gap: 8, padding: "12px 14px", borderRadius: 16, marginBottom: 13,   // space-y does not reach the card (inline style wins), so state it
+          border: "1px solid #e8edf3",
+          boxShadow: "0 1px 2px rgba(15,23,42,.04)",
+          font: "700 15px/1 var(--font-display)", color: "#0f172a",
+        }}
+      >
+        <span>{fmtShort(data.period_start, lang)} – {fmtShort(data.period_end, lang)}</span>
+        {hoursLoading
+          ? <RefreshCw size={14} strokeWidth={2.5} className="animate-spin" style={{ color: "#94a3b8" }} />
+          : <ChevronDown size={16} strokeWidth={2.5} style={{ color: "#94a3b8" }} />}
+      </button>
+
+      {hoursError && (
+        <div
+          className="flex items-start"
+          style={{
+            gap: 9, padding: "11px 13px", borderRadius: 14,
+            background: "#fef2f2", border: "1px solid #fecaca",
+            font: "600 12px/1.45 var(--font-text)", color: "#b91c1c",
+          }}
+        >
+          <AlertTriangle size={15} strokeWidth={2.4} style={{ flex: "none", marginTop: 1 }} />
+          <span>
+            {typeof hoursError === "string" ? hoursError : t("portalHoursLoadFailed", "Could not load that period")}
+            {range && (
+              <button
+                type="button"
+                onClick={() => setRange(null)}
+                style={{ marginLeft: 8, textDecoration: "underline", color: "#b91c1c" }}
+              >
+                {t("portalHoursBackToDefault", "Back to my pay period")}
+              </button>
+            )}
+          </span>
+        </div>
+      )}
+
       {/* Period info */}
-      <div className="text-[11px] text-gray-500 flex items-center gap-2">
-        <span>{t("portalHoursPeriod", "Period")}: {fmtShort(data.period_start, lang)} – {fmtShort(data.period_end, lang)}</span>
-      </div>
+      {/* v2 dark stat card. Note the bloom sits BOTTOM-LEFT here at .34, where
+          the Schedule hero's is top-right at .40 — the two dark cards are lit
+          from opposite corners on purpose, so they read as siblings rather than
+          copies. Gradient stop is 48% here (the hero's is 46%). */}
+      <div
+        className="relative overflow-hidden"
+        style={{
+          borderRadius: 22, padding: 19,
+          background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 48%,#080e16 100%)",
+          boxShadow: "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
+        }}
+      >
+        <div
+          aria-hidden
+          className="pointer-events-none absolute h-[230px] w-[230px] rounded-full"
+          style={{ left: -60, bottom: -90, background: "radial-gradient(closest-side, rgba(34,197,94,.34), rgba(34,197,94,0))" }}
+        />
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-2xl bg-white border border-[#e8edf3] p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          <div className="text-[11px] text-gray-500 mb-1">{hoursLabel}</div>
-          <div className="font-display text-2xl font-bold tabular-nums tracking-[-0.030em] text-gray-900">
-            {data.total_hours} {maxHours ? <span className="text-sm text-gray-500">/ {maxHours}</span> : null}
+        <div className="relative flex items-end gap-2">
+          <span className="tabular-nums" style={{ font: "700 44px/0.9 var(--font-display)", letterSpacing: "-0.04em", color: "#fff" }}>
+            {data.total_hours}
+          </span>
+          {/* hoursLabel already says "Rostered hours" or "Hours worked" from
+              hours_source — the number must never claim to be the other one. */}
+          <span style={{ font: "600 12px/1 var(--font-text)", color: "rgba(255,255,255,.5)", paddingBottom: 5 }}>
+            {hoursLabel.toLowerCase()}
+          </span>
+        </div>
+        <div className="relative flex" style={{ marginTop: 16, gap: 9 }}>
+          <div style={{ flex: maxHours ? 1 : "0 1 auto", minWidth: 96, padding: "11px 12px", borderRadius: 14, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.10)" }}>
+            <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
+              {t("portalHoursShiftsCount", "Shifts")}
+            </div>
+            <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#fff" }}>
+              {data.entries.length}
+            </div>
           </div>
-          {pct !== null && (
-            <>
-              <div className="h-1.5 bg-gray-100 rounded-full mt-2 overflow-hidden">
-                <div
-                  className={`h-full rounded-full ${pct >= 90 ? "bg-red-500" : pct >= 75 ? "bg-amber-500" : "bg-emerald-500"}`}
-                  style={{ width: `${pct}%` }}
-                />
+          {/* v2 puts "Est. pay before tax" here. We removed that by decision —
+              it was computed from ROSTERED hours and would disagree with the
+              payslip. The permit cap is a real number in the same slot; with no
+              cap the Shifts tile simply takes the full width. */}
+          {maxHours ? (
+            <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: "rgba(34,197,94,.14)", border: "1px solid rgba(34,197,94,.26)" }}>
+              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(134,239,172,.85)" }}>
+                {t("portalWorkPermitLimit", "Work permit limit")}
               </div>
-              {remaining !== null && remaining <= 15 && (
-                <div className={`text-[10px] mt-1 flex items-center gap-1 ${remaining <= 5 ? "text-red-600" : "text-amber-600"}`}>
-                  <AlertTriangle className="w-3 h-3" strokeWidth={2} aria-hidden />
-                  {t("portalHrsRemaining", "{n} hrs remaining", { n: remaining })}
-                </div>
-              )}
-            </>
-          )}
-        </div>
-        <div className="rounded-2xl bg-white border border-[#e8edf3] p-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-          <div className="text-[11px] text-gray-500 mb-1">{t("portalHoursShiftsCount", "Shifts")}</div>
-          <div className="font-display text-2xl font-bold tabular-nums tracking-[-0.030em] text-gray-900">{data.entries.length}</div>
-          <div className="text-[11px] text-gray-500">{t("portalHoursThisPeriod", "this period")}</div>
+              <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#dcfce7" }}>
+                {data.total_hours} / {maxHours}
+              </div>
+            </div>
+          ) : soFar > 0 && ahead > 0 ? (
+            /* Mid-period only: before the first shift or after the last, a
+               split states nothing the headline has not. */
+            <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.10)" }}>
+              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,.42)" }}>
+                {t("portalHoursLeft", "Still to come")}
+              </div>
+              {/* Was "12 / 8" in the permit tile's exact shape — a ratio
+                  against a cap. This is a SPLIT of the period, so it states the
+                  one number the staffer does not already have. */}
+              <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#fff" }}>
+                {ahead} {t("portalHrsShort")}
+              </div>
+            </div>
+          ) : delta !== null ? (
+            /* vs the previous window of the same length. Zero is stated as
+               "same", never as "+0" — a signed zero reads like a measurement
+               when it is really "no difference". */
+            <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: delta >= 0 ? "rgba(34,197,94,.14)" : "rgba(255,255,255,.07)", border: `1px solid ${delta >= 0 ? "rgba(34,197,94,.26)" : "rgba(255,255,255,.10)"}` }}>
+              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: delta >= 0 ? "rgba(134,239,172,.85)" : "rgba(255,255,255,.42)" }}>
+                {t("portalHoursVsLast", "vs last period")}
+              </div>
+              <div className="tabular-nums" style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: delta >= 0 ? "#dcfce7" : "#fff" }}>
+                {delta === 0
+                  ? t("portalHoursSameAsLast", "Same")
+                  : `${delta > 0 ? "+" : "−"}${Math.abs(delta)} ${t("portalHrsUnit")}`}
+              </div>
+            </div>
+          ) : nextUp ? (
+            /* Nothing worked yet in this window — the useful fact is when it
+               starts, not a split that would just restate the headline. */
+            <div style={{ flex: 1.5, padding: "11px 12px", borderRadius: 14, background: "rgba(34,197,94,.14)", border: "1px solid rgba(34,197,94,.26)" }}>
+              <div style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(134,239,172,.85)" }}>
+                {t("portalHoursFirstShift", "First shift")}
+              </div>
+              <div style={{ marginTop: 7, font: "700 18px/1 var(--font-display)", color: "#dcfce7" }}>
+                {fmtDate(nextUp.date, lang)}{nextUp.start_time ? ` · ${nextUp.start_time}` : ""}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
-      {/* Hours warning for work permits */}
+      {/* v2 by-week chart. Bars are proportional to the period's own maximum,
+          and the tallest is green — so the shape answers "which week was
+          heaviest" before any number is read. Silent when a period has one
+          week: a single full-height bar compares nothing. */}
+      {weekBars.length > 1 && (
+        <div
+          className="bg-white"
+          style={{
+            border: "1px solid #e8edf3", borderRadius: 20, padding: "16px 15px 13px",
+            boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+              {t("portalHoursByWeek", "By week")}
+            </span>
+            <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>
+              {weekBars.truncated
+                ? t("portalHoursLastNWeeks", "last {n} weeks").split("{n}").join(String(weekBars.length))
+                : t("portalHrsShort")}
+            </span>
+          </div>
+          <div className="flex items-end" style={{ marginTop: 16, gap: 9, height: 104 }}>
+            {weekBars.map((b) => (
+              <div key={b.w} className="flex-1 flex flex-col items-center justify-end h-full" style={{ gap: 7 }}>
+                <span className="tabular-nums" style={{ font: "700 10px/1 var(--font-text)", color: "#475569" }}>{b.v}</span>
+                <div
+                  style={{
+                    width: "100%", borderRadius: 7,
+                    height: Math.max(3, Math.round((b.n / weekBars.max) * 74)),
+                    background: b.n === weekBars.max
+                      ? "linear-gradient(180deg,#22c55e,#15803d)"
+                      : "linear-gradient(180deg,#cbd5e1,#94a3b8)",
+                    boxShadow: b.n === weekBars.max ? "0 8px 18px -10px rgba(22,163,74,.8)" : "none",
+                    transition: "height .5s cubic-bezier(.22,.9,.24,1)",
+                  }}
+                />
+                <span style={{ font: "600 9.5px/1 var(--font-text)", color: "#94a3b8" }}>{b.w}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* The permit warning stays SEPARATE from the tile above: the tile shows
+          the position, this shows the alarm. Only when it is actually close. */}
       {maxHours && remaining !== null && remaining <= 10 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[12px] text-amber-800">
+        <div className="bg-amber-50 border border-amber-200 rounded-[14px] p-3 text-[12px] text-amber-800">
           <strong className="flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />{t("portalWorkPermitLimit", "Work permit limit")}</strong>
           <p className="mt-0.5 text-amber-700">{t("portalHoursRemainingLong", "You have {n} hours remaining this period.", { n: remaining })}</p>
         </div>
@@ -2385,20 +2752,70 @@ function HoursTab({ data, maxHours }) {
 
       {/* Recent / upcoming shifts */}
       <div>
-        <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">{recentLabel}</div>
-        <div className="space-y-1.5">
-          {data.entries.length === 0 && (
-            <div className="text-sm text-gray-400 py-4 text-center">{emptyLabel}</div>
+        <div className="flex items-baseline justify-between mb-2">
+          <span className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8]">{recentLabel}</span>
+          {data.entries.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                // Built from the rows on screen, so the file and the screen can
+                // never disagree — this is the staffer's own record if the hours
+                // are ever queried, so a mismatch would be worse than no export.
+                const total = data.entries.reduce((a, e) => a + (Number(e.total_hours) || 0), 0);
+                exportToCsv(
+                  `bonbox-timer-${data.period_start}-${data.period_end}.csv`,
+                  [
+                    ...data.entries.map((e) => ({
+                      date: e.date,
+                      start: e.start_time || "",
+                      end: e.end_time || "",
+                      hours: e.total_hours,
+                    })),
+                    { date: t("portalHoursCsvTotal", "Total"), start: "", end: "", hours: Math.round(total * 100) / 100 },
+                  ],
+                  [
+                    { key: "date", label: t("portalHoursCsvDate", "Date") },
+                    { key: "start", label: t("portalHoursCsvStart", "Start") },
+                    { key: "end", label: t("portalHoursCsvEnd", "End") },
+                    { key: "hours", label: t("portalHoursCsvHours", "Hours") },
+                  ],
+                );
+              }}
+              style={{ font: "600 11px/1 var(--font-text)", color: "#16a34a" }}
+            >
+              {t("portalHoursExport", "Export CSV")}
+            </button>
           )}
-          {data.entries.map((h, i) => (
-            <div key={i} className="flex items-center justify-between px-3 py-2.5 rounded-[18px] bg-white border border-[#e8edf3] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-              <span className="text-sm text-gray-500">
-                {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
-              </span>
-              <span className="text-sm font-semibold text-gray-900">{h.total_hours} {t("portalHrsShort")}</span>
-            </div>
-          ))}
         </div>
+        {data.entries.length === 0 ? (
+          <div className="text-sm text-gray-400 py-4 text-center">{emptyLabel}</div>
+        ) : (
+          <div
+            className="bg-white overflow-hidden"
+            style={{
+              border: "1px solid #e8edf3", borderRadius: 20,
+              boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
+            }}
+          >
+            {data.entries.map((h, i) => {
+              return (
+                <div
+                  key={i}
+                  className="flex items-center"
+                  style={{
+                    gap: 11, padding: "13px 15px",
+                    borderBottom: i === data.entries.length - 1 ? "none" : "1px solid #f1f5f9",
+                  }}
+                >
+                  <span className="text-sm text-gray-500 flex-1">
+                    {fmtDate(h.date, lang)} {h.start_time && h.end_time ? `· ${h.start_time}-${h.end_time}` : ""}
+                  </span>
+                  <span className="text-sm font-semibold text-gray-900 tabular-nums">{h.total_hours} {t("portalHrsShort")}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Recently clocked — period-INDEPENDENT proof-of-punch. A shift clocked
@@ -2422,7 +2839,7 @@ function HoursTab({ data, maxHours }) {
         if (extra.length === 0) return null; // nothing new to surface
         return (
           <div>
-            <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
+            <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8] mb-2">
               {t("portalHoursRecentlyClocked", "Recently clocked")}
               <span className="ml-1 font-normal text-gray-400 normal-case tracking-normal">
                 · {t("portalHoursRecentlyClockedWindow", "last {n} days", { n: winDays })}
@@ -2892,7 +3309,7 @@ function GiveawaySellModal({ token, ownShifts, onClose, onOffered }) {
 
 
 function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [teamShifts, setTeamShifts] = useState([]);
   const [fromShiftId, setFromShiftId] = useState("");
   const [toShiftId, setToShiftId] = useState("");
@@ -2965,7 +3382,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
           <option value="">{t("portalSwapPickOwn", "Pick one of your shifts…")}</option>
           {upcomingOwn.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.date} · {s.start_time}–{s.end_time}
+              {fmtSwapDay(s.date, lang)} · {s.start_time}–{s.end_time}
             </option>
           ))}
         </select>
@@ -2984,7 +3401,7 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
             <option value="">{t("portalSwapPickTeammate", "Pick a teammate's shift…")}</option>
             {candidateTeamShifts.map((s) => (
               <option key={s.shift_id} value={s.shift_id}>
-                {s.staff_name} — {s.date} · {s.start_time}–{s.end_time}
+                {s.staff_name} — {fmtSwapDay(s.date, lang)} · {s.start_time}–{s.end_time}
               </option>
             ))}
           </select>
@@ -3023,38 +3440,104 @@ function SwapProposeModal({ token, ownShifts, onClose, onProposed }) {
 
 // ─── Alerts Tab ──────────────────────────────────────────────────────────
 
-function AlertsTab({ token, staffName }) {
+/**
+ * Everything that changed since you last looked, newest first.
+ *
+ * Two things about the data this renders, both of which shape the design:
+ *
+ *   • Only FOUR event types ever reach a staffer. `GET /notifications` filters
+ *     on `staff_id == member.id`, and the other seven event types in the
+ *     backend are written with `staff_id=None` — they are owner rows. So the
+ *     map below is the complete set, not a sample.
+ *
+ *   • There is no read/unread column anywhere. The prototype's "N unread",
+ *     "Mark all read" and the unread row treatment all need a read state that
+ *     the server does not have. Rather than invent one, this uses the reading
+ *     the prototype's own copy implies — "since you last looked" — as a
+ *     per-device last-seen timestamp. It is honest about what it measures:
+ *     this device's last visit, not a synced account-wide receipt.
+ */
+const ALERT_SEEN_KEY = "bonbox_alerts_seen";
+
+function readAlertsSeen(token) {
+  try {
+    const all = JSON.parse(localStorage.getItem(ALERT_SEEN_KEY) || "{}");
+    return all[token] || null;
+  } catch { return null; }
+}
+
+function writeAlertsSeen(token, iso) {
+  try {
+    const all = JSON.parse(localStorage.getItem(ALERT_SEEN_KEY) || "{}");
+    all[token] = iso;
+    localStorage.setItem(ALERT_SEEN_KEY, JSON.stringify(all));
+  } catch { /* private mode — the feed still works, nothing is marked read */ }
+}
+
+function AlertsTab({ token, onNavigate }) {
   const { t, lang } = useLanguage();
   const [notifications, setNotifications] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Captured at mount: marking read must not make rows vanish under the finger
+  // while the staffer is still reading them.
+  const [seenAt] = useState(() => readAlertsSeen(token));
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     setLoading(true);
     portalApi.get(`/portal/${token}/notifications`)
-      .then((res) => {
-        setNotifications(res.data.notifications || []);
-      })
-      .catch(() => {
-        setNotifications([]);
-      })
+      .then((res) => setNotifications(res.data.notifications || []))
+      .catch(() => setNotifications([]))
       .finally(() => setLoading(false));
   }, [token]);
 
   if (loading) return <LoadingSkeleton />;
 
-  const EVENT_ICONS = {
-    schedule_published: { Icon: Calendar, label: t("portalEvtSchedulePublished", "Schedule published") },
-    shift_changed: { Icon: ArrowLeftRight, label: t("portalEvtShiftChanged", "Shift changed") },
-    shift_deleted: { Icon: X, label: t("portalEvtShiftDeleted", "Shift cancelled") },
-  };
+  // Every schedule change also writes one push row per device whose subject is
+  // the app name ("BonBox · Vagtplan"), carrying no information. Dropping the
+  // push CHANNEL is what the old `channel === "in_app"` filter was reaching
+  // for, but that one broke for anyone with an email on file: their real row
+  // is logged as `email`, so the in_app list came back empty, the fail-open
+  // branch fired, and every alert appeared beside its contentless twin.
+  const all = notifications || [];
+  const content = all.filter((n) => n.channel !== "push");
+  const feed = content.length ? content : all;   // fail open rather than blank
 
-  // The feed is the IN-APP record. Every publish also writes a push/email
-  // delivery row whose subject is just the notification title ("BonBox ·
-  // Vagtplan") — showing those reads as contentless duplicates, so they are
-  // filtered out. Fail-open: if a staffer somehow has ONLY delivery rows,
-  // show them rather than an empty feed.
-  const inAppRows = (notifications || []).filter((n) => n.channel === "in_app");
-  const feed = inAppRows.length ? inAppRows : notifications || [];
+  const parsed = feed.map((n) => {
+    // The subject is machine-built as "<English verb> - <date label>". Split it
+    // so the row gets a translated title and keeps the date as the body — and
+    // read the VERB from the subject, not the event type: reassigning a shift
+    // away from someone is logged as `shift_changed` but reads "Shift
+    // cancelled", and a title contradicting its own body is worse than a
+    // generic one.
+    const subject = n.subject || "";
+    const cut = subject.lastIndexOf(" - ");
+    const detail = cut > 0 ? subject.slice(cut + 3) : subject;
+    const cancelled = /cancelled/i.test(subject);
+
+    let kind = n.event_type;
+    if (n.event_type === "shift_changed" && cancelled) kind = "shift_deleted";
+
+    const META = {
+      schedule_published: { Icon: Calendar, tone: "green", title: t("portalEvtSchedulePublished", "Schedule published"), tab: "schedule" },
+      shift_changed:      { Icon: Clock,    tone: "amber", title: t("portalEvtShiftChanged", "Shift changed"),        tab: "schedule" },
+      shift_deleted:      { Icon: CalendarOff, tone: "amber", title: t("portalEvtShiftDeleted", "Shift cancelled"),   tab: "schedule" },
+      // The staffer is already inside the portal, so there is nowhere useful to
+      // send them — no tab, deliberately.
+      staff_link_shared:  { Icon: Mail,     tone: "slate", title: t("portalEvtLinkShared", "Portal link sent"),       tab: null },
+    };
+    const meta = META[kind] || { Icon: Bell, tone: "slate", title: subject || n.event_type, tab: null };
+    const unread = !seenAt || (n.created_at || "") > seenAt;
+    return { n, meta, detail: detail === meta.title ? "" : detail, unread };
+  });
+
+  const unreadCount = dismissed ? 0 : parsed.filter((r) => r.unread).length;
+
+  const markAll = () => {
+    if (!unreadCount) return;
+    writeAlertsSeen(token, new Date().toISOString());
+    setDismissed(true);      // grey the rows in place; do not reshuffle the list
+  };
 
   if (!feed.length) {
     return (
@@ -3070,26 +3553,90 @@ function AlertsTab({ token, staffName }) {
     );
   }
 
+  const TONES = {
+    green: ["#dcfce7", "#16a34a"],
+    amber: ["#fef3c7", "#d97706"],
+    slate: ["#eef2f7", "#64748b"],
+  };
+
   return (
-    <div className="space-y-4">
-      <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">
-        {t("portalAlertsRecent", "Recent notifications")}
+    <div>
+      <div className="flex items-center justify-between">
+        <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+          {t("portalAlertsRecentShort", "Recent")}
+        </span>
+        <button
+          type="button"
+          onClick={markAll}
+          disabled={!unreadCount}
+          style={{ font: "600 11px/1 var(--font-text)", color: unreadCount ? "#16a34a" : "#cbd5e1" }}
+        >
+          {t("portalAlertsMarkAllRead", "Mark all read")}
+        </button>
       </div>
-      <div className="space-y-1.5">
-        {feed.map((n) => {
-          const evt = EVENT_ICONS[n.event_type] || { Icon: Bell, label: n.event_type };
-          const EvtIcon = evt.Icon;
-          const timeAgo = n.created_at ? formatTimeAgo(n.created_at, lang, t) : "";
+
+      <div className="flex flex-col" style={{ marginTop: 11, gap: 8 }}>
+        {parsed.map(({ n, meta, detail, unread: wasUnread }) => {
+          const unread = wasUnread && !dismissed;
+          const [bg, fg] = TONES[meta.tone];
+          const EvtIcon = meta.Icon;
+          const target = meta.tab && onNavigate ? meta.tab : null;
           return (
-            <div key={n.id} className="flex items-start gap-3 px-3 py-3 rounded-xl bg-white border border-gray-200">
-              <EvtIcon className="w-4 h-4 text-gray-500 mt-0.5" strokeWidth={2} aria-hidden />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-gray-900">{n.subject || evt.label}</div>
-                <div className="text-[11px] text-gray-400 mt-1">{timeAgo}</div>
-              </div>
-            </div>
+            <button
+              key={n.id}
+              type="button"
+              onClick={target ? () => onNavigate(target) : undefined}
+              // A row that goes nowhere must not pretend to be pressable.
+              style={{
+                display: "flex", alignItems: "flex-start", gap: 11,
+                padding: "13px 14px", borderRadius: 17, textAlign: "left",
+                cursor: target ? "pointer" : "default",
+                background: unread ? "#fff" : "rgba(255,255,255,.5)",
+                border: `1px solid ${unread ? "#e8edf3" : "#eef2f7"}`,
+                boxShadow: unread ? "0 1px 2px rgba(15,23,42,.04), 0 14px 28px -26px rgba(15,23,42,.4)" : "none",
+              }}
+            >
+              <span
+                style={{
+                  width: 34, height: 34, flex: "none", borderRadius: 12,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  background: bg, color: fg,
+                }}
+              >
+                <EvtIcon size={17} strokeWidth={1.85} aria-hidden />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="flex items-baseline justify-between" style={{ gap: 8 }}>
+                  <span style={{ font: `${unread ? 700 : 600} 12.5px/1.2 var(--font-text)`, color: unread ? "#0f172a" : "#475569" }}>
+                    {meta.title}
+                  </span>
+                  <span style={{ font: "500 10.5px/1 var(--font-text)", color: "#94a3b8", flex: "none" }}>
+                    {n.created_at ? formatTimeAgo(n.created_at, lang, t) : ""}
+                  </span>
+                </span>
+                {detail && (
+                  <span className="block" style={{ marginTop: 5, font: "400 11.5px/1.45 var(--font-text)", color: "#64748b", textWrap: "pretty" }}>
+                    {detail}
+                  </span>
+                )}
+              </span>
+              <span
+                style={{
+                  width: 7, height: 7, flex: "none", marginTop: 6, borderRadius: 99,
+                  background: "#16a34a", opacity: unread ? 1 : 0,
+                }}
+              />
+            </button>
           );
         })}
+      </div>
+
+      {/* The prototype says "Alerts older than 30 days are cleared
+          automatically." That is not true of this backend: the endpoint takes
+          the last 30 ROWS and no job ever purges by age. Ship what the code
+          actually does. */}
+      <div style={{ marginTop: 16, textAlign: "center", font: "400 11px/1.5 var(--font-text)", color: "#94a3b8" }}>
+        {t("portalAlertsFooter", "Showing your last 30 updates.")}
       </div>
     </div>
   );
@@ -3287,7 +3834,7 @@ function MessagesTab({ token, restaurantName, onRead }) {
                         ? "text-white rounded-br-md"
                         : "bg-white border border-gray-200/70 text-gray-900 rounded-bl-md"
                     } ${m._pending ? "opacity-60" : ""} ${m._failed ? "cursor-pointer ring-1 ring-red-300" : ""}`}
-                    style={m.mine ? { background: "rgb(var(--brand-600))" } : undefined}
+                    style={m.mine ? { background: "linear-gradient(180deg,#22c55e,#16a34a)" } : undefined}
                   >
                     {m.body}
                   </div>
@@ -3327,7 +3874,7 @@ function MessagesTab({ token, restaurantName, onRead }) {
               disabled={(!text.trim() && picker.files.length === 0) || sending}
               aria-label={t("staffChatSend", "Send")}
               className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white disabled:opacity-40 transition"
-              style={{ background: "rgb(var(--brand-600))" }}
+              style={{ background: "linear-gradient(180deg,#22c55e,#16a34a)" }}
             >
               <Send className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
             </button>
@@ -3562,7 +4109,7 @@ function AbsenceSection({ token, onChanged }) {
               {t("portalCancel", "Cancel")}
             </button>
             <button onClick={submit} disabled={saving}
-              className="flex-1 py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-50">
+              className="flex-1 py-2.5 rounded-[14px] bg-gray-900 text-white font-text text-[13px] font-bold hover:bg-gray-700 transition disabled:opacity-50">
               {saving ? t("portalSaving", "Saving…") : t("fravaerSubmit", "Send request")}
             </button>
           </div>
@@ -3596,7 +4143,13 @@ function MonthCalendar({
   }, [viewYear, viewMonth]);
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-2">
+    <div
+      className="bg-white"
+      style={{
+        border: "1px solid #e8edf3", borderRadius: 20, padding: 8,
+        boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
+      }}
+    >
       {/* Month nav — mutates view only, never data */}
       <div className="flex items-center justify-between px-1 pb-1">
         <button type="button" onClick={onPrev} aria-label={t("kanIkkePrevMonth", "Previous month")}
@@ -3661,7 +4214,15 @@ function MonthCalendar({
           let tappable = !past;
           if (approved) { fill = "bg-emerald-50"; ring = "ring-1 ring-inset ring-emerald-200"; num = "text-emerald-700 font-semibold"; tappable = false; }
           else if (pending) { fill = "bg-amber-50"; ring = "ring-1 ring-inset ring-amber-200"; num = "text-amber-700 font-semibold"; tappable = false; }
-          else if (oneOff) {
+          else if (oneOff && oneOff.kind === "preferred") {
+            // "Helst" — a soft yes. Green, and NOT struck through: this day is
+            // still workable, which is the whole difference from "kan ikke".
+            style = {
+              background: "linear-gradient(180deg,#dcfce7,#bbf7d0)",
+              border: "1px solid rgba(22,163,74,.35)",
+            };
+            num = "font-semibold";
+          } else if (oneOff) {
             style = {
               background: "linear-gradient(180deg,#fee2e2,#fecaca)",
               border: "1px solid rgba(239,68,68,.32)",
@@ -3687,9 +4248,9 @@ function MonthCalendar({
           // v2's ink for the red states; `past` still wins so history stays quiet.
           const cellStyle = past
             ? style
-            : { ...style, ...(oneOff ? { color: "#7f1d1d" } : recurring ? { color: "#b91c1c" } : null) };
+            : { ...style, ...(oneOff ? { color: oneOff.kind === "preferred" ? "#14532d" : "#7f1d1d" } : recurring ? { color: "#b91c1c" } : null) };
 
-          const shiftDot = oneOff ? "bg-red-700" : approved ? "bg-emerald-600" : pending ? "bg-amber-500" : "bg-gray-900";
+          const shiftDot = oneOff ? (oneOff.kind === "preferred" ? "bg-green-700" : "bg-red-700") : approved ? "bg-emerald-600" : pending ? "bg-amber-500" : "bg-gray-900";
 
           return (
             <button
@@ -3789,6 +4350,156 @@ function MarkedDayRow({ row, label, expanded, onToggle, onRemove, onSave, t }) {
  * (ferie/sygdom) the owner APPROVES. One calm view over the existing
  * availability + absence endpoints; nothing here is cosmetic.
  */
+/**
+ * The fast surface: seven cells, one tap each.
+ *
+ * Cell treatment is the prototype's — red gradient + strike-through for "kan
+ * ikke", green gradient for "helst", flat #f5f8fb when free. A day already
+ * governed by an absence request is NOT tappable here, exactly as in the month
+ * view: that day belongs to the approval flow, and a soft tap must not look
+ * like it can override it.
+ */
+function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenceByDate, shiftSet, savingSet, onTapDay, lang, t }) {
+  const days = useMemo(() => {
+    const base = new Date();
+    base.setHours(0, 0, 0, 0);
+    const monday = new Date(base);
+    monday.setDate(base.getDate() - ((base.getDay() + 6) % 7) + weekOffset * 7);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      return d;
+    });
+  }, [weekOffset]);
+
+  const iso = (d) => d.toLocaleDateString("sv-SE");
+  const todayISO = new Date().toLocaleDateString("sv-SE");
+  const range = `${days[0].toLocaleDateString(localeFor(lang), { day: "numeric", month: "short" })} – ${days[6].toLocaleDateString(localeFor(lang), { day: "numeric", month: "short" })}`;
+  const markedThisWeek = days.filter((d) => oneOffByDate[iso(d)]).length;
+
+  return (
+    <div
+      className="bg-white"
+      style={{
+        border: "1px solid #e8edf3", borderRadius: 20, padding: 15,
+        boxShadow: "0 1px 2px rgba(15,23,42,.04), 0 16px 32px -24px rgba(15,23,42,.35)",
+      }}
+    >
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => onShiftWeek(weekOffset - 1)}
+          aria-label={t("portalPrevWeek", "Previous week")}
+          className="flex items-center justify-center -m-2"
+          style={{ color: "#94a3b8", minWidth: 44, minHeight: 44 }}
+        >
+          <ChevronLeft size={16} strokeWidth={2.5} />
+        </button>
+        <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
+          {range}
+        </span>
+        <button
+          type="button"
+          onClick={() => onShiftWeek(weekOffset + 1)}
+          aria-label={t("portalNextWeek", "Next week")}
+          className="flex items-center justify-center -m-2"
+          style={{ color: "#94a3b8", minWidth: 44, minHeight: 44 }}
+        >
+          <ChevronRight size={16} strokeWidth={2.5} />
+        </button>
+      </div>
+
+      <div className="flex" style={{ marginTop: 13, gap: 4 }}>
+        {days.map((d) => {
+          const key = iso(d);
+          const one = oneOffByDate[key];
+          const abs = absenceByDate[key];
+          const recurring = !one && recurringSet.has((d.getDay() + 6) % 7);
+          const past = key < todayISO;
+          const saving = savingSet.has(key);
+          const pref = one?.kind === "preferred";
+          const on = !!one;
+          const rostered = shiftSet?.has(key);
+
+          let cell = { background: "#f5f8fb", border: "1px solid #eef2f7" };
+          let dow = "#94a3b8";
+          let num = "#0f172a";
+          let dot = "transparent";
+          if (abs) {
+            const ok = abs.status === "acknowledged" || abs.status === "covered";
+            cell = { background: ok ? "#ecfdf5" : "#fffbeb", border: `1px solid ${ok ? "#a7f3d0" : "#fde68a"}` };
+            dow = ok ? "#15803d" : "#b45309"; num = ok ? "#14532d" : "#92400e";
+          } else if (on && pref) {
+            cell = { background: "linear-gradient(180deg,#dcfce7,#bbf7d0)", border: "1px solid rgba(22,163,74,.35)" };
+            dow = "#15803d"; num = "#14532d"; dot = "#16a34a";
+          } else if (on) {
+            cell = { background: "linear-gradient(180deg,#fee2e2,#fecaca)", border: "1px solid rgba(239,68,68,.32)" };
+            dow = "#b91c1c"; num = "#7f1d1d"; dot = "#ef4444";
+          } else if (recurring) {
+            cell = { background: "#f5f8fb", border: "1px solid rgba(239,68,68,.32)" };
+            dow = "#b91c1c";
+          }
+
+          const locked = !!abs || past;
+          return (
+            <button
+              key={key}
+              type="button"
+              disabled={locked || saving}
+              onClick={() => onTapDay(key, { oneOff: one, abs, recurring, wd: (d.getDay() + 6) % 7 })}
+              aria-pressed={!locked ? !!one : undefined}
+              aria-label={[
+                d.toLocaleDateString(localeFor(lang), { weekday: "long", day: "numeric", month: "long" }),
+                abs ? t("legendApproved", "Approved off")
+                  : one?.kind === "preferred" ? t("legendPreferred", "Prefers")
+                  : one ? t("legendCantWork", "Can't work")
+                  : recurring ? t("legendRepeats", "Every week")
+                  : null,
+                rostered ? t("legendScheduled", "Scheduled") : null,
+              ].filter(Boolean).join(" — ")}
+              className="flex flex-col items-center"
+              style={{
+                flex: "1 1 0", minWidth: 0, gap: 5, padding: "9px 0 10px", borderRadius: 13,
+                transition: "all .2s", opacity: past ? 0.4 : saving ? 0.6 : 1,
+                cursor: locked ? "default" : "pointer", ...cell,
+              }}
+            >
+              <span style={{ font: "600 9.5px/1 var(--font-text)", color: dow }}>
+                {d.toLocaleDateString(localeFor(lang), { weekday: "short" }).replace(".", "").slice(0, 3)}
+              </span>
+              <span
+                className="tabular-nums"
+                style={{
+                  font: "700 13.5px/1 var(--font-display)", letterSpacing: "-0.02em", color: num,
+                  textDecoration: on && !pref ? "line-through" : "none",
+                }}
+              >
+                {d.getDate()}
+              </span>
+              <span className="relative flex items-center justify-center" style={{ height: 5 }}>
+                {/* A rostered day carries a dot even when unmarked: marking
+                    "kan ikke" on a day you already work does NOT release it,
+                    and this strip is where that mistake gets made. */}
+                <span style={{ width: 5, height: 5, borderRadius: 99, background: dot !== "transparent" ? dot : (rostered ? "#0f172a" : "transparent") }} />
+                {/* Non-colour markers, matching the month view: a weekly rule
+                    and a timed window are states colour alone cannot carry. */}
+                {recurring && !one && <Repeat className="absolute w-2.5 h-2.5 text-red-500" strokeWidth={2.5} aria-hidden />}
+                {one?.timed && <Clock className="absolute w-2.5 h-2.5" strokeWidth={2.5} style={{ color: one.kind === "preferred" ? "#14532d" : "#7f1d1d" }} aria-hidden />}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ marginTop: 11, font: "600 11px/1 var(--font-text)", color: markedThisWeek ? "#16a34a" : "#94a3b8" }}>
+        {markedThisWeek
+          ? t("kanIkkeMarkedCount", "{n} marked this week").split("{n}").join(String(markedThisWeek))
+          : t("kanIkkeNothingMarked", "Nothing marked this week")}
+      </div>
+    </div>
+  );
+}
+
 function AvailabilityTab({ token, shifts }) {
   const { t, lang } = useLanguage();
   const [avail, setAvail] = useState(null);     // null = loading
@@ -3800,6 +4511,14 @@ function AvailabilityTab({ token, shifts }) {
   const [recurOpen, setRecurOpen] = useState(false);
   const [expandedDate, setExpandedDate] = useState(null);
   const [confirmWeekday, setConfirmWeekday] = useState(null); // { wd }
+  // Which kind a tap writes. "unavailable" is the default because it is the one
+  // that actually constrains the roster; "preferred" is a soft signal.
+  const [mode, setMode] = useState("unavailable");
+  // Collapsed by default: marking the next few days is the common errand, and a
+  // 7-cell strip makes it one tap with no month to scan. The month is one tap
+  // away for anything further out — collapsing must not cost reach.
+  const [calOpen, setCalOpen] = useState(false);
+  const [weekOffset, setWeekOffset] = useState(0);   // 0 = the week containing today
   const [err, setErr] = useState("");
 
   const loadAvail = async () => {
@@ -3817,8 +4536,11 @@ function AvailabilityTab({ token, shifts }) {
   const oneOffByDate = useMemo(() => {
     const m = {};
     (avail || []).forEach((a) => {
-      if (a.kind === "unavailable" && a.date) {
-        m[a.date] = { id: a.id, timed: !!a.start_time, start: a.start_time, end: a.end_time, note: a.note };
+      if (a.date) {
+        m[a.date] = {
+          id: a.id, timed: !!a.start_time, start: a.start_time, end: a.end_time, note: a.note,
+          kind: a.kind === "preferred" ? "preferred" : "unavailable",
+        };
       }
     });
     return m;
@@ -3826,7 +4548,9 @@ function AvailabilityTab({ token, shifts }) {
   const recurringByWeekday = useMemo(() => {
     const m = new Map();
     (avail || []).forEach((a) => {
-      if (a.kind === "unavailable" && a.date == null && a.weekday != null) m.set(a.weekday, a.id);
+      if (a.date == null && a.weekday != null) {
+        m.set(a.weekday, { id: a.id, kind: a.kind === "preferred" ? "preferred" : "unavailable" });
+      }
     });
     return m;
   }, [avail]);
@@ -3868,8 +4592,8 @@ function AvailabilityTab({ token, shifts }) {
     }
     if (oneOffByDate[iso]) return;                       // dedupe guard vs rapid double-tap
     withSaving(iso, true);
-    setAvail((rows) => [...(rows || []), { id: "tmp-" + iso, kind: "unavailable", date: iso, weekday: null, start_time: null, end_time: null, note: null }]);
-    try { await portalApi.post(`/portal/${token}/availability`, { date: iso, kind: "unavailable" }); await loadAvail(); }
+    setAvail((rows) => [...(rows || []), { id: "tmp-" + iso, kind: mode, date: iso, weekday: null, start_time: null, end_time: null, note: null }]);
+    try { await portalApi.post(`/portal/${token}/availability`, { date: iso, kind: mode }); await loadAvail(); }
     catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
     finally { withSaving(iso, false); }
   };
@@ -3883,7 +4607,7 @@ function AvailabilityTab({ token, shifts }) {
     catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
   };
   const removeWeekly = async (wd) => {
-    const id = recurringByWeekday.get(wd);
+    const id = recurringByWeekday.get(wd)?.id;
     setConfirmWeekday(null);
     if (!id) return;
     setAvail((rows) => (rows || []).filter((r) => r.id !== id));
@@ -3904,7 +4628,9 @@ function AvailabilityTab({ token, shifts }) {
     // POST would leave TWO rows for one date (backend has no dedup/unique).
     try { await portalApi.delete(`/portal/${token}/availability/${row.id}`); }
     catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); return; }
-    const body = { date: row.date, kind: "unavailable" };
+    // Preserve the row's OWN kind. Hardcoding "unavailable" here silently
+    // converted a "Helst" day to "Kan ikke" the moment its hours were edited.
+    const body = { date: row.date, kind: row.kind === "preferred" ? "preferred" : "unavailable" };
     if (!allDay) { body.start_time = start; body.end_time = end; }
     if (note && note.trim()) body.note = note.trim();
     try { await portalApi.post(`/portal/${token}/availability`, body); await loadAvail(); }
@@ -3923,18 +4649,68 @@ function AvailabilityTab({ token, shifts }) {
 
   return (
     <div className="space-y-4">
+      {/* Which kind of day a tap marks. Both are real: "kan ikke" constrains
+          the roster, "helst" is a soft preference the manager sees while
+          planning. The copy for each says exactly that much and no more —
+          a preference does not reserve the shift. */}
+      <div className="flex" style={{ padding: 3, borderRadius: 14, background: "#e9eef4", gap: 3 }}>
+        {[
+          { key: "unavailable", label: t("kanIkkeModeCant", "Can't work") },
+          { key: "preferred", label: t("kanIkkeModePreferred", "Preferred") },
+        ].map((m) => {
+          const on = mode === m.key;
+          return (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => setMode(m.key)}
+              style={{
+                flex: 1, height: 34, borderRadius: 11,
+                font: "700 12px/1 var(--font-text)",
+                background: on ? "#fff" : "transparent",
+                color: on ? "#0f172a" : "#64748b",
+                boxShadow: on ? "0 2px 6px -2px rgba(15,23,42,.22)" : "none",
+                transition: "all .22s",
+              }}
+            >
+              {m.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Intro — mental model + honesty boundary before the first tap */}
       <p className="text-[13px] leading-relaxed text-gray-600">
-        {t("kanIkkeCalIntro", "Tap the days you can't work. Your manager sees it while planning — a heads-up, not approved time off.")}
+        {mode === "preferred"
+          ? t("kanIkkeIntroPreferred", "Tap the days you'd like to work. A preference never books a shift — your manager just sees it while planning.")
+          : t("kanIkkeCalIntro", "Tap the days you can't work. Your manager sees it while planning — a heads-up, not approved time off.")}
       </p>
 
-      <MonthCalendar
-        viewYear={viewYear} viewMonth={viewMonth}
-        onPrev={goPrev} onNext={goNext} onToday={goToday} showToday={!isCurrentMonth}
-        oneOffByDate={oneOffByDate} recurringSet={recurringSet} absenceByDate={absenceByDate}
-        shiftSet={shiftSet} savingSet={savingSet}
-        onTapDay={tapDay} lang={lang} t={t}
-      />
+      {calOpen ? (
+        <MonthCalendar
+          viewYear={viewYear} viewMonth={viewMonth}
+          onPrev={goPrev} onNext={goNext} onToday={goToday} showToday={!isCurrentMonth}
+          oneOffByDate={oneOffByDate} recurringSet={recurringSet} absenceByDate={absenceByDate}
+          shiftSet={shiftSet} savingSet={savingSet}
+          onTapDay={tapDay} lang={lang} t={t}
+        />
+      ) : (
+        <WeekStrip
+          weekOffset={weekOffset} onShiftWeek={setWeekOffset}
+          oneOffByDate={oneOffByDate} recurringSet={recurringSet} absenceByDate={absenceByDate}
+          shiftSet={shiftSet} savingSet={savingSet} onTapDay={tapDay} lang={lang} t={t}
+        />
+      )}
+
+      <button
+        type="button"
+        onClick={() => setCalOpen((v) => !v)}
+        className="w-full flex items-center justify-center"
+        style={{ gap: 6, height: 38, borderRadius: 13, background: "#f5f8fb", border: "1px solid #eef2f7", font: "600 11.5px/1 var(--font-text)", color: "#64748b" }}
+      >
+        {calOpen ? t("kanIkkeShowWeek", "Show this week only") : t("kanIkkeShowMonth", "Pick another date")}
+        <ChevronDown size={13} strokeWidth={2.5} style={{ transform: calOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+      </button>
 
       {err && <div className="text-xs text-red-600">{err}</div>}
 
@@ -3944,9 +4720,12 @@ function AvailabilityTab({ token, shifts }) {
         <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded" style={{ border: "1px solid rgba(239,68,68,.32)" }} />{t("legendRepeats", "Every week")}</span>
         {hasAbsence && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-100 ring-1 ring-inset ring-amber-300" />{t("legendPending", "Pending")}</span>}
         {hasAbsence && <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-emerald-100 ring-1 ring-inset ring-emerald-300" />{t("legendApproved", "Approved off")}</span>}
+        <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded" style={{ background: "linear-gradient(180deg,#dcfce7,#bbf7d0)", border: "1px solid rgba(22,163,74,.35)" }} />{t("legendPreferred", "Prefers")}</span>
+        {/* Only claim the scheduled dot when the surface on screen actually
+            draws one — the week strip does not. */}
         {shiftSet.size > 0 && <span className="inline-flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-gray-900" />{t("legendScheduled", "Scheduled")}</span>}
       </div>
-      <p className="text-[11px] text-gray-400 -mt-2">{t("legendCaption", "Grey = your note. Colour = your manager's answer.")}</p>
+
 
       {/* Marked days — where time-window + note live (never on the grid cell) */}
       {markedList.length > 0 && (
@@ -4011,7 +4790,7 @@ function AvailabilityTab({ token, shifts }) {
             <p className="text-[13px] text-gray-600">{t("kanIkkeRemoveWeeklyBody", "This clears every {day}.").split("{day}").join(WD[confirmWeekday.wd])}</p>
             <div className="flex gap-2 pt-1">
               <button type="button" onClick={() => setConfirmWeekday(null)} className="flex-1 py-2.5 rounded-[14px] bg-[#f1f5f9] text-gray-700 font-text text-[13px] font-bold hover:bg-[#e2e8f0] transition">{t("portalCancel", "Cancel")}</button>
-              <button type="button" onClick={() => removeWeekly(confirmWeekday.wd)} className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700 transition">{t("kanIkkeRemove", "Remove")}</button>
+              <button type="button" onClick={() => removeWeekly(confirmWeekday.wd)} className="flex-1 py-2.5 rounded-[14px] bg-red-600 text-white font-text text-[13px] font-bold hover:bg-red-700 transition">{t("kanIkkeRemove", "Remove")}</button>
             </div>
           </div>
         </div>
@@ -4241,6 +5020,122 @@ function InstallNotifyCard({ token }) {
  *   POST /portal/{token}/push/subscribe    → upserts the row.
  *   POST /portal/{token}/push/unsubscribe  → cleans up.
  */
+/**
+ * The pre-shift reminder, reachable from the PROFILE.
+ *
+ * It also lives inside StaffPushOptIn, but that component renders only on the
+ * Schedule tab and only on web (`tab === "schedule" && !isNativeApp()`) — so
+ * once switched on it could not be switched OFF from the native app at all,
+ * and on web only from one tab. A setting you can turn on and not off is not a
+ * setting. Profile is reachable everywhere, so the off switch lives here too.
+ */
+/** Lead time as a person says it: "30 min", "1 time", "3 timer" — never "180 minutter". */
+function fmtLead(minutes, t) {
+  const m = Number(minutes) || 0;
+  if (m < 60) return t("staffRemindMin", "{n} min").split("{n}").join(String(m));
+  const h = m / 60;
+  return (h === 1 ? t("staffRemindHrOne", "{n} hour") : t("staffRemindHr", "{n} h"))
+    .split("{n}").join(String(h));
+}
+
+function ShiftReminderRow({ token }) {
+  const { t } = useLanguage();
+  const [minutes, setMinutes] = useState(undefined);   // undefined = not loaded
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let cancel = false;
+    portalApi.get(`/portal/${token}/reminder`)
+      .then((r) => { if (!cancel) setMinutes(r.data?.minutes ?? null); })
+      // A server without the /reminder route (not yet deployed) is NOT "off" —
+      // it is a control that cannot save. Showing the switch there would be a
+      // toggle that silently does nothing, so it stays hidden instead.
+      .catch(() => { if (!cancel) setMinutes(false); });
+    return () => { cancel = true; };
+  }, [token]);
+
+  if (minutes === undefined) return null;              // never flash a wrong state
+  if (minutes === false) return null;                  // endpoint unavailable — offer nothing
+
+  const save = async (next) => {
+    setBusy(true); setErr("");
+    const prev = minutes;
+    setMinutes(next);
+    try {
+      await portalApi.post(`/portal/${token}/reminder`, { minutes: next });
+    } catch {
+      setMinutes(prev);                                 // never claim an opt-in the server refused
+      setErr(t("staffPushSaveFailed", "Couldn't save — try again."));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="pt-3 border-t border-[#f1f5f9]">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold text-gray-900">{t("staffRemindTitle", "Remind me before a shift")}</div>
+          <div className="text-[11px] text-gray-400">
+            {minutes
+              ? t("staffRemindOnHint", "We'll let you know {n} before you start.").split("{n}").join(fmtLead(minutes, t))
+              : t("staffRemindNeedsPush", "Needs notifications switched on for this device.")}
+          </div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={!!minutes}
+          aria-label={t("staffRemindTitle", "Remind me before a shift")}
+          disabled={busy}
+          onClick={() => save(minutes ? null : 60)}
+          className="flex-shrink-0 disabled:opacity-50"
+          style={{
+            width: 42, height: 25, borderRadius: 99, padding: 3, display: "flex",
+            transition: "background .25s",
+            background: minutes ? "linear-gradient(180deg,#22c55e,#16a34a)" : "#dbe3ec",
+            boxShadow: "inset 0 1px 2px rgba(15,23,42,.14)",
+          }}
+        >
+          <span
+            style={{
+              width: 19, height: 19, borderRadius: 99, background: "#fff",
+              boxShadow: "0 1px 3px rgba(15,23,42,.35)",
+              transition: "transform .25s cubic-bezier(.3,1.4,.5,1)",
+              transform: minutes ? "translateX(17px)" : "translateX(0)",
+            }}
+          />
+        </button>
+      </div>
+      {minutes && (
+        <div className="flex" style={{ gap: 6, marginTop: 10 }}>
+          {[30, 60, 120, 180].map((m) => (
+            <button
+              key={m}
+              type="button"
+              disabled={busy}
+              onClick={() => save(m)}
+              style={{
+                flex: 1, padding: "7px 0", borderRadius: 10,
+                font: `${minutes === m ? 700 : 600} 11px/1 var(--font-text)`,
+                background: minutes === m ? "linear-gradient(180deg,#1e293b,#0f172a)" : "#f5f8fb",
+                color: minutes === m ? "#fff" : "#64748b",
+                border: `1px solid ${minutes === m ? "transparent" : "#e8edf3"}`,
+              }}
+            >
+              {m < 60
+                ? t("staffRemindMin", "{n} min").split("{n}").join(String(m))
+                : t("staffRemindHr", "{n} h").split("{n}").join(String(m / 60))}
+            </button>
+          ))}
+        </div>
+      )}
+      {err && <p className="mt-2 text-[11px] text-red-600">{err}</p>}
+    </div>
+  );
+}
+
 function StaffPushOptIn({ token }) {
   const { t } = useLanguage();
   const [supported, setSupported] = useState(true);
@@ -4252,6 +5147,10 @@ function StaffPushOptIn({ token }) {
     }
   });
   const [subscribed, setSubscribed] = useState(false);
+  // Lead time in minutes; null = no reminder. Only meaningful once push is on,
+  // so it is fetched lazily rather than on every portal boot.
+  const [reminder, setReminder] = useState(null);
+  const [reminderBusy, setReminderBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [tierAllowed, setTierAllowed] = useState(null); // null = unknown, false = locked, true = ok
@@ -4315,6 +5214,29 @@ function StaffPushOptIn({ token }) {
       cancel = true;
     };
   }, [supported, tierAllowed]);
+
+  useEffect(() => {
+    if (!subscribed) return;
+    let cancel = false;
+    portalApi.get(`/portal/${token}/reminder`)
+      .then((r) => { if (!cancel) setReminder(r.data?.minutes ?? null); })
+      .catch(() => {});
+    return () => { cancel = true; };
+  }, [subscribed, token]);
+
+  const setReminderMinutes = async (minutes) => {
+    setReminderBusy(true);
+    const prev = reminder;
+    setReminder(minutes);                      // optimistic
+    try {
+      await portalApi.post(`/portal/${token}/reminder`, { minutes });
+    } catch {
+      setReminder(prev);                       // never leave the UI claiming an
+      setError(t("staffPushSaveFailed", "Couldn't save — try again."));  // opt-in the server refused
+    } finally {
+      setReminderBusy(false);
+    }
+  };
 
   const handleEnable = async () => {
     setBusy(true);
@@ -4404,7 +5326,8 @@ function StaffPushOptIn({ token }) {
 
   if (subscribed) {
     return (
-      <div className="rounded-lg bg-white border border-gray-200 p-3 flex items-center justify-between gap-3">
+      <div className="space-y-2">
+        <div className="rounded-lg bg-white border border-gray-200 p-3 flex items-center justify-between gap-3">
         <div className="text-[11px] text-gray-700 min-w-0 flex-1">
           <div className="font-semibold text-gray-900 inline-flex items-center gap-1.5">
             <Bell className="w-4 h-4" strokeWidth={2} aria-hidden />
@@ -4422,6 +5345,70 @@ function StaffPushOptIn({ token }) {
         >
           {busy ? "…" : t("staffPushOnTurnOff", "Turn off")}
         </button>
+        </div>
+
+        {/* Pre-shift reminder. Only offered once push is actually on and the
+            permission is granted — a toggle that quietly saves a preference no
+            notification can honour is worse than no toggle. */}
+        <div className="rounded-lg bg-white border border-gray-200 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[11px] min-w-0 flex-1">
+              <div className="font-semibold text-gray-900">{t("staffRemindTitle", "Remind me before a shift")}</div>
+              <div className="text-gray-500">
+                {reminder
+                  ? t("staffRemindOnHint", "We'll let you know {n} before you start.").split("{n}").join(fmtLead(reminder, t))
+                  : t("staffRemindOffHint", "Off — you'll still hear about schedule changes.")}
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!reminder}
+              disabled={reminderBusy}
+              onClick={() => setReminderMinutes(reminder ? null : 60)}
+              className="flex-shrink-0 disabled:opacity-50"
+              style={{
+                width: 42, height: 25, borderRadius: 99, padding: 3, display: "flex",
+                transition: "background .25s",
+                background: reminder ? "linear-gradient(180deg,#22c55e,#16a34a)" : "#dbe3ec",
+                boxShadow: "inset 0 1px 2px rgba(15,23,42,.14)",
+              }}
+            >
+              <span
+                style={{
+                  width: 19, height: 19, borderRadius: 99, background: "#fff",
+                  boxShadow: "0 1px 3px rgba(15,23,42,.35)",
+                  transition: "transform .25s cubic-bezier(.3,1.4,.5,1)",
+                  transform: reminder ? "translateX(17px)" : "translateX(0)",
+                }}
+              />
+            </button>
+          </div>
+
+          {reminder && (
+            <div className="flex" style={{ gap: 6, marginTop: 10 }}>
+              {[30, 60, 120, 180].map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  disabled={reminderBusy}
+                  onClick={() => setReminderMinutes(m)}
+                  style={{
+                    flex: 1, padding: "7px 0", borderRadius: 10,
+                    font: `${reminder === m ? 700 : 600} 11px/1 var(--font-text)`,
+                    background: reminder === m ? "linear-gradient(180deg,#1e293b,#0f172a)" : "#f5f8fb",
+                    color: reminder === m ? "#fff" : "#64748b",
+                    border: `1px solid ${reminder === m ? "transparent" : "#e8edf3"}`,
+                  }}
+                >
+                  {m < 60
+                    ? t("staffRemindMin", "{n} min").split("{n}").join(String(m))
+                    : t("staffRemindHr", "{n} h").split("{n}").join(String(m / 60))}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -4462,85 +5449,10 @@ function StaffPushOptIn({ token }) {
 }
 
 
-/**
- * SyncPill — the honest freshness indicator in the portal header.
- *
- * Hard rule (see MEMORY "honest claims"): the pill must reflect REAL state.
- *   • Offline                       → "Offline", gray, CloudOff. Never "Synced".
- *   • Online + synced < 45s ago     → "Synced", emerald dot + RefreshCw.
- *   • Online + synced ≥ 45s ago     → "Synced HH:MM", gray, tap to refetch.
- *   • Online + never synced yet     → "Synced HH:MM" falls back to a plain
- *     "Sync" affordance (no lastSynced) so we never imply freshness we lack.
- *
- * It's a button so the stale/online state is tappable to force a refetch;
- * onRefresh is the parent's loadData. Re-renders are driven by the parent's
- * freshness ticker so the label decays without a new fetch.
- */
-function SyncPill({ isOnline, live, lastSynced, onRefresh, t }) {
-  const FRESH_MS = 45000;
-  const ageMs = lastSynced ? Date.now() - lastSynced.getTime() : Infinity;
-  const isFresh = isOnline && lastSynced && ageMs < FRESH_MS;
 
-  if (!isOnline) {
-    return (
-      <span
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-[11px] font-medium text-gray-400"
-        role="status"
-      >
-        <CloudOff className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
-        {t("portalOffline")}
-      </span>
-    );
-  }
-
-  // Live — the realtime stream is open, so changes land instantly. This is
-  // the ONE honest "live/now" use of the full emerald pill (green exclusivity:
-  // LIVE keeps the pill; mere freshness gets the quiet gray+dot below). Solid
-  // dot, NO animate-ping — the clocked-in ping in the hero owns the pulse.
-  // Only shown when truly connected (never imply "live" while polling).
-  if (live) {
-    return (
-      <button
-        type="button"
-        onClick={onRefresh}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-medium text-emerald-700 hover:bg-emerald-100 active:scale-[0.98] transition"
-        title={t("portalLive")}
-        aria-label={t("portalLive")}
-      >
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden />
-        {t("portalLive")}
-      </button>
-    );
-  }
-
-  if (isFresh) {
-    return (
-      <button
-        type="button"
-        onClick={onRefresh}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-[11px] font-medium text-gray-500 hover:bg-gray-200 active:scale-[0.98] transition"
-        title={t("portalSynced")}
-        aria-label={t("portalSynced")}
-      >
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" aria-hidden />
-        {t("portalSynced")}
-      </button>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={onRefresh}
-      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 border border-gray-200 text-[11px] font-medium text-gray-500 hover:bg-gray-200 transition"
-      title={t("portalSynced")}
-    >
-      <RefreshCw className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
-      {lastSynced
-        ? t("portalSyncedAt", { time: fmtClock(lastSynced) })
-        : t("portalSynced")}
-    </button>
-  );
+/** The prototype's meta separator: a 3px dot at 35% white. */
+function HeroDot() {
+  return <span aria-hidden style={{ width: 3, height: 3, borderRadius: 99, background: "rgba(255,255,255,.35)", flex: "none" }} />;
 }
 
 export default function StaffPortalPage() {
@@ -4580,6 +5492,35 @@ export default function StaffPortalPage() {
 
   // Data for each tab
   const [shifts, setShifts] = useState([]);
+  // Which department (branch) the portal is showing. Built from the staffer's
+  // OWN shifts — `branch_name` already rides on every row — so the list can
+  // only ever contain places they actually work. null = all of them.
+  const [dept, setDept] = useState(null);
+  const [deptOpen, setDeptOpen] = useState(false);
+  const [photoMenu, setPhotoMenu] = useState(false);
+
+
+  const departments = useMemo(() => {
+    const seen = new Map();
+    for (const sh of shifts) {
+      if (!sh.branch_name) continue;
+      seen.set(sh.branch_name, (seen.get(sh.branch_name) || 0) + 1);
+    }
+    return [...seen.entries()].map(([name, n]) => ({ name, n })).sort((a, b) => b.n - a.n);
+  }, [shifts]);
+
+  // A department the staffer no longer has shifts at must not stay selected —
+  // it would silently empty every screen with no way to tell why.
+  useEffect(() => {
+    if (dept && !departments.some((d) => d.name === dept)) setDept(null);
+  }, [dept, departments]);
+
+  // Filter ONCE here so every tab agrees. Shifts with no branch always show:
+  // a single-location business has none, and hiding them would blank the app.
+  const visibleShifts = useMemo(
+    () => (dept ? shifts.filter((sh) => !sh.branch_name || sh.branch_name === dept) : shifts),
+    [shifts, dept],
+  );
   // Hoisted from WhosOnStrip / OpenShiftsClaimCard so the Schedule tab paints
   // ONCE — no post-settle hero growth or card insertion (stillness doctrine).
   const [teamShifts, setTeamShifts] = useState([]);
@@ -4588,6 +5529,9 @@ export default function StaffPortalPage() {
   // owner doesn't take reservations (or the book is untouched) -> render NOTHING.
   const [coversByShift, setCoversByShift] = useState({});
   const [hoursData, setHoursData] = useState(null);
+  // null = whatever the owner's pay-period config says (the default the staffer
+  // is paid on). Non-null = a window the staffer chose themselves.
+  const [hoursRange, setHoursRange] = useState(null);
   // Unread owner→staff chat messages — drives the "Beskeder" nav badge.
   const [chatUnread, setChatUnread] = useState(0);
 
@@ -4602,6 +5546,31 @@ export default function StaffPortalPage() {
   // The signature ref holds the last-rendered published-schedule signature so
   //   we can detect a *real* change without firing on the very first load.
   const [lastSynced, setLastSynced] = useState(null);
+  // Counted against the same per-device "since you last looked" stamp AlertsTab
+  // uses, so the badge and the screen can never disagree. Push rows are already
+  // excluded server-side, so this counts readable items only.
+  const [alertsUnread, setAlertsUnread] = useState(0);
+  useEffect(() => {
+    if (!(pinVerified && info) || tab === "alerts") return;
+    let cancel = false;
+    portalApi.get(`/portal/${token}/notifications`)
+      .then((r) => {
+        if (cancel) return;
+        const seen = readAlertsSeen(token);
+        const rows = r.data?.notifications || [];
+        setAlertsUnread(rows.filter((n) => !seen || (n.created_at || "") > seen).length);
+      })
+      .catch(() => {});
+    return () => { cancel = true; };
+  }, [token, pinVerified, info, tab, lastSynced]);
+
+  // Opening Alerts IS reading them — otherwise the badge stays lit until the
+  // staffer happens to find "Mark all read".
+  useEffect(() => {
+    if (tab !== "alerts") return;
+    writeAlertsSeen(token, new Date().toISOString());
+    setAlertsUnread(0);
+  }, [tab, token]);
   const [isOnline, setIsOnline] = useState(
     typeof navigator !== "undefined" ? navigator.onLine !== false : true,
   );
@@ -4770,11 +5739,75 @@ export default function StaffPortalPage() {
       }
     });
 
-    // Hours
-    portalApi.get(`/portal/${token}/hours`).then((res) => {
-      setHoursData(res.data);
-    }).catch(() => {});
   }, [token]);
+
+  // Hours are fetched separately from the rest: they are the one panel with a
+  // caller-chosen window, so they refetch when the staffer picks a period
+  // without re-pulling the schedule, covers and open shifts behind it.
+  const [hoursError, setHoursError] = useState(null);
+  const [hoursLoading, setHoursLoading] = useState(false);
+  const hoursSeq = useRef(0);
+
+  const loadHours = useCallback(() => {
+    const q = hoursRange ? `?start=${hoursRange.start}&end=${hoursRange.end}` : "";
+    // Sequence guard: the retry interceptor can make an earlier request land
+    // AFTER a later one, and the earlier one describes a window the staffer has
+    // already moved off. Only the newest request may write.
+    const seq = ++hoursSeq.current;
+    setHoursLoading(true);
+    portalApi.get(`/portal/${token}/hours${q}`)
+      .then((res) => {
+        if (seq !== hoursSeq.current) return;
+        setHoursData(res.data);
+        setHoursError(null);
+      })
+      .catch((err) => {
+        if (seq !== hoursSeq.current) return;
+        // Never swallow this. The staffer picked a window and closed a sheet;
+        // if we drop the failure they are left reading the PREVIOUS period's
+        // numbers under the PREVIOUS period's label, with nothing on screen
+        // saying so — the tap looks like it did nothing, and the rejected
+        // window stays selected so every later refetch fails the same way.
+        setHoursError(err?.response?.data?.detail || true);
+      })
+      .finally(() => { if (seq === hoursSeq.current) setHoursLoading(false); });
+  }, [token, hoursRange]);
+
+  useEffect(() => {
+    if (pinVerified && info) loadHours();
+  }, [pinVerified, info, loadHours]);
+
+  // Same-length window immediately before the one on screen, so "vs last
+  // period" compares like with like even when the owner runs a 15–14 cycle.
+  //
+  // FAIL CLOSED: a server that does not understand start/end answers with the
+  // CURRENT period instead. That would make the delta compute to zero and
+  // render as "no change" — stating a fact we do not have. So we only trust
+  // the payload when it comes back describing the window we actually asked
+  // for; anything else leaves the comparison hidden.
+  const [prevTotal, setPrevTotal] = useState(null);
+  useEffect(() => {
+    if (!(pinVerified && info) || !hoursData?.period_start || !hoursData?.period_end) return;
+    const ps = new Date(`${hoursData.period_start}T00:00:00`);
+    const pe = new Date(`${hoursData.period_end}T00:00:00`);
+    const span = Math.round((pe - ps) / 86400000) + 1;
+    const prevEnd = new Date(ps); prevEnd.setDate(prevEnd.getDate() - 1);
+    const prevStart = new Date(prevEnd); prevStart.setDate(prevStart.getDate() - span + 1);
+    const iso = (d) => d.toLocaleDateString("sv-SE");
+    const [a, b] = [iso(prevStart), iso(prevEnd)];
+    let cancelled = false;
+    setPrevTotal(null);   // clear FIRST: the old value describes the old window
+    portalApi.get(`/portal/${token}/hours?start=${a}&end=${b}`)
+      .then((res) => {
+        if (cancelled) return;
+        const sameWindow = res.data?.period_start === a && res.data?.period_end === b;
+        const sameBasis =
+          (res.data?.hours_source || "schedule") === (hoursData.hours_source || "schedule");
+        setPrevTotal(sameWindow && sameBasis ? Number(res.data.total_hours) : null);
+      })
+      .catch(() => { if (!cancelled) setPrevTotal(null); });
+    return () => { cancelled = true; };
+  }, [token, pinVerified, info, hoursData?.period_start, hoursData?.period_end, hoursData?.hours_source]);
 
   useEffect(() => {
     if (pinVerified && info) loadData();
@@ -4784,10 +5817,10 @@ export default function StaffPortalPage() {
   // just-logged shift shows in "My hours" (recent_clocked) without a reload.
   useEffect(() => {
     if (!(pinVerified && info)) return;
-    const onChanged = () => loadData();
+    const onChanged = () => { loadData(); loadHours(); };
     window.addEventListener("bonbox-data-changed", onChanged);
     return () => window.removeEventListener("bonbox-data-changed", onChanged);
-  }, [pinVerified, info, loadData]);
+  }, [pinVerified, info, loadData, loadHours]);
 
   // NOTE on old installed PWAs: the manifest used to ship a "?tab=tips"
   // shortcut. "tips" is no longer in the deep-link allow-list above, so such a
@@ -4831,12 +5864,16 @@ export default function StaffPortalPage() {
   useEffect(() => {
     if (!(pinVerified && info)) return;
 
+    // Hours are fetched separately (they carry a caller-chosen window), so
+    // every refresh trigger has to drive BOTH or they drift apart.
+    const refreshAll = () => { loadData(); loadHours(); };
+
     const onVisible = () => {
-      if (document.visibilityState === "visible") loadData();
+      if (document.visibilityState === "visible") refreshAll();
     };
     const onOnline = () => {
       setIsOnline(true);
-      loadData();
+      refreshAll();
     };
     const onOffline = () => setIsOnline(false);
 
@@ -4845,7 +5882,7 @@ export default function StaffPortalPage() {
     window.addEventListener("offline", onOffline);
 
     const pollId = setInterval(() => {
-      if (document.visibilityState === "visible") loadData();
+      if (document.visibilityState === "visible") refreshAll();
     }, liveConnected ? 60000 : 20000);
 
     return () => {
@@ -4854,7 +5891,7 @@ export default function StaffPortalPage() {
       window.removeEventListener("offline", onOffline);
       clearInterval(pollId);
     };
-  }, [pinVerified, info, loadData, liveConnected]);
+  }, [pinVerified, info, loadData, loadHours, liveConnected]);
 
   // 2e. Realtime stream (Phase 2) — instant push the moment the owner
   // publishes. Opens a Server-Sent Events connection to the portal stream; on
@@ -4874,7 +5911,7 @@ export default function StaffPortalPage() {
       return; // EventSource unavailable → poll-only, harmless no-op
     }
 
-    const onPublished = () => loadData();
+    const onPublished = () => { loadData(); loadHours(); };
     es.onopen = () => setLiveConnected(true);
     es.onerror = () => setLiveConnected(false); // browser keeps auto-reconnecting
     es.addEventListener("schedule_published", onPublished);
@@ -4884,7 +5921,7 @@ export default function StaffPortalPage() {
       try { es.removeEventListener("schedule_published", onPublished); } catch { /* noop */ }
       try { es.close(); } catch { /* noop */ }
     };
-  }, [pinVerified, info, token, loadData]);
+  }, [pinVerified, info, token, loadData, loadHours]);
 
   // 2c. Freshness ticker — re-render the pill every 15s so "Synced" decays to
   // "Synced HH:MM" as data ages, independent of any fetch.
@@ -5052,7 +6089,7 @@ export default function StaffPortalPage() {
         />
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
           <div>
-            <h1 className="text-lg font-bold text-gray-900">
+            <h1 style={{ font: "700 23px/1.08 var(--font-display)", letterSpacing: "-0.03em", color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {tab === "schedule" ? t("portalTitleSchedule", "My schedule")
                 : tab === "availability" ? t("portalTitleKanIkke", "Availability")
                 : tab === "messages" ? t("portalTitleMessages", "Messages")
@@ -5061,7 +6098,30 @@ export default function StaffPortalPage() {
                 : t("portalTitleAlerts", "Alerts")}
             </h1>
             {info?.restaurant_name && (
-              <div className="text-[11px] text-gray-500">{info.restaurant_name}</div>
+              <div style={{ marginTop: 5, font: "500 12px/1 var(--font-text)", letterSpacing: "0.005em", color: "#94a3b8" }}>
+                {info.restaurant_name}
+                {/* Live/offline moves here off the chip slot, which the
+                    department switcher now owns. Only ever states what is
+                    true: "Live" needs the stream actually open. */}
+                {pinVerified && info && (
+                  <>
+                    {" · "}
+                    <button
+                      type="button"
+                      onClick={() => { loadData(); loadHours(); }}
+                      style={{ color: liveConnected && isOnline ? "#16a34a" : "#94a3b8" }}
+                    >
+                      {!isOnline
+                        ? t("portalOffline")
+                        : liveConnected
+                          ? t("portalLive")
+                          : lastSynced && Date.now() - lastSynced.getTime() < 45000
+                            ? t("portalSynced")
+                            : t("portalTapToRefresh", "Tap to refresh")}
+                    </button>
+                  </>
+                )}
+              </div>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -5079,21 +6139,50 @@ export default function StaffPortalPage() {
               }`}
             >
               <Bell className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
+              {alertsUnread > 0 && tab !== "alerts" && (
+                <span
+                  className="absolute z-10 -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold leading-[16px] text-center ring-2 ring-white"
+                  aria-label={t("portalAlertsUnreadBadge", "Unread updates")}
+                >
+                  {alertsUnread > 9 ? "9+" : alertsUnread}
+                </span>
+              )}
             </button>
-            {/* Honest freshness pill — only shown once verified. Tap (when
-                online + stale) forces a refetch. */}
-            {pinVerified && info && (
-              <SyncPill
-                isOnline={isOnline}
-                live={liveConnected}
-                lastSynced={lastSynced}
-                onRefresh={loadData}
-                t={t}
-              />
+            {/* Department switcher. Only rendered when the staffer actually
+                has shifts at a named branch — a single-location business gets
+                nothing rather than a chip that cannot switch anywhere. The
+                chevron appears only when there is a second place to go, so it
+                never advertises a menu that would open onto one item. */}
+            {departments.length > 0 && (
+              <button
+                type="button"
+                onClick={() => departments.length > 1 && setDeptOpen(true)}
+                aria-label={t("portalDepartment", "Department")}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, height: 32,
+                  padding: departments.length > 1 ? "0 10px 0 9px" : "0 11px 0 9px",
+                  borderRadius: 999,
+                  background: "linear-gradient(180deg,#ffffff,#f8fafc)",
+                  border: "1px solid #e2e8f0",
+                  boxShadow: "0 1px 2px rgba(15,23,42,.05), inset 0 1px 0 #fff",
+                  cursor: departments.length > 1 ? "pointer" : "default",
+                }}
+              >
+                <span style={{ font: "600 11.5px/1 var(--font-text)", color: "#334155", letterSpacing: "-0.005em", maxWidth: 96, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {dept || (departments.length > 1 ? t("portalAllDepartments", "All") : departments[0].name)}
+                </span>
+                {departments.length > 1 && <ChevronDown size={11} strokeWidth={2.4} style={{ color: "#94a3b8", flex: "none" }} />}
+              </button>
             )}
             <button
               onClick={() => { setShowEmailEdit(!showEmailEdit); setEmailInput(info?.email || ""); setPhoneInput(info?.phone || ""); setAddressInput(info?.address || ""); setPostalInput(info?.postal_code || ""); setCityInput(info?.city || ""); setEmailMsg(""); setEmailStatus(null); }}
-              className="relative w-9 h-9 rounded-full bg-gray-100 border border-gray-200 shadow-soft overflow-hidden flex items-center justify-center text-sm font-bold text-gray-700 active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
+              className="relative rounded-full overflow-hidden flex items-center justify-center active:scale-[0.98] transition before:absolute before:-inset-2 before:content-['']"
+              style={{
+                width: 33, height: 33, flex: "none",
+                background: "linear-gradient(150deg,#1e293b,#0f172a)", color: "#fff",
+                font: "700 12.5px/1 var(--font-text)", letterSpacing: "0.01em",
+                boxShadow: "0 4px 12px -6px rgba(15,23,42,.8), inset 0 1px 0 rgba(255,255,255,.18)",
+              }}
               title={t("portalEditContact", "Edit profile")}
             >
               {photoUrl ? (
@@ -5104,6 +6193,101 @@ export default function StaffPortalPage() {
             </button>
           </div>
         </div>
+        {photoMenu && createPortal(
+          <div className="fixed inset-0 z-[60] flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setPhotoMenu(false)}>
+            <div
+              role="dialog"
+            aria-modal="true"
+            aria-label={t("portalPhotoLabel")}
+            className="w-full bg-white"
+              style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+              <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
+                {t("portalPhotoLabel", "Photo")}
+              </div>
+              <div style={{ marginTop: 6, font: "400 12px/1.45 var(--font-text)", color: "#64748b" }}>
+                {t("portalPhotoWhoSees", "Your manager and the colleagues on your shifts can see this.")}
+              </div>
+              <div className="flex flex-col" style={{ gap: 8, marginTop: 14 }}>
+                <button
+                  type="button"
+                  onClick={() => { setPhotoMenu(false); handlePhotoChange(); }}
+                  className="w-full flex items-center"
+                  style={{ gap: 10, padding: "14px 15px", borderRadius: 16, background: "#f5f8fb", border: "1px solid #e8edf3", font: "600 13px/1 var(--font-text)", color: "#0f172a" }}
+                >
+                  <CameraIcon size={16} strokeWidth={2} aria-hidden />
+                  {photoUrl ? t("portalPhotoChange", "Change") : t("portalPhotoAdd", "Add photo")}
+                </button>
+                {photoUrl && (
+                  <button
+                    type="button"
+                    onClick={() => { setPhotoMenu(false); handlePhotoRemove(); }}
+                    className="w-full flex items-center"
+                    style={{ gap: 10, padding: "14px 15px", borderRadius: 16, background: "#fff", border: "1px solid #fecaca", font: "600 13px/1 var(--font-text)", color: "#b91c1c" }}
+                  >
+                    <Trash2 size={16} strokeWidth={2} aria-hidden />
+                    {t("portalPhotoRemove", "Remove photo")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setPhotoMenu(false)}
+                  className="w-full"
+                  style={{ padding: "12px 0", font: "600 13px/1 var(--font-text)", color: "#64748b" }}
+                >
+                  {t("cancel", "Cancel")}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+        {deptOpen && createPortal(
+          <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(8,14,22,.45)" }} onClick={() => setDeptOpen(false)}>
+            <div
+              role="dialog"
+            aria-modal="true"
+            aria-label={t("portalDepartment")}
+            className="w-full bg-white"
+              style={{ borderRadius: "24px 24px 0 0", padding: "18px 16px calc(18px + env(safe-area-inset-bottom))" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="mx-auto" style={{ width: 38, height: 4, borderRadius: 99, background: "#e2e8f0" }} />
+              <div style={{ marginTop: 14, font: "700 17px/1.2 var(--font-display)", color: "#0f172a" }}>
+                {t("portalDepartment", "Department")}
+              </div>
+              <div className="flex flex-col" style={{ gap: 8, marginTop: 14 }}>
+                {[{ name: null, label: t("portalAllDepartments", "All"), n: shifts.length }, ...departments.map((d) => ({ name: d.name, label: d.name, n: d.n }))].map((d) => {
+                  const on = dept === d.name;
+                  return (
+                    <button
+                      key={d.name || "__all"}
+                      type="button"
+                      onClick={() => { setDept(d.name); setDeptOpen(false); }}
+                      className="flex items-center justify-between"
+                      style={{
+                        gap: 10, padding: "13px 14px", borderRadius: 16, textAlign: "left",
+                        background: on ? "linear-gradient(180deg,#1e293b,#0f172a)" : "#f5f8fb",
+                        border: `1px solid ${on ? "transparent" : "#e8edf3"}`,
+                      }}
+                    >
+                      <span style={{ font: "600 13px/1.2 var(--font-text)", color: on ? "#fff" : "#0f172a" }}>{d.label}</span>
+                      {/* The count is the honest reason to pick one. */}
+                      <span style={{ font: "500 11px/1 var(--font-text)", color: on ? "rgba(255,255,255,.55)" : "#94a3b8" }}>
+                        {t("portalDeptShiftCount", "{n} shifts").split("{n}").join(String(d.n))}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
         {/* Profile / contact edit — a bottom-sheet overlay portaled to <body>.
             Previously it rendered INSIDE this sticky header, which made the
             header taller than the viewport and made the schedule scroll oddly
@@ -5131,40 +6315,97 @@ export default function StaffPortalPage() {
               </div>
               <div className="px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] space-y-3">
               {/* Profile photo — staff pick a photo; the owner sees it too. */}
-              <div className="flex items-center gap-3 pb-3 border-b border-[#f1f5f9]">
-                <div className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 overflow-hidden flex items-center justify-center text-base font-bold text-gray-500 shrink-0">
-                  {photoUrl ? (
-                    <img src={photoUrl} alt="" className="w-full h-full object-cover" />
+              <div
+                className="relative flex items-center overflow-hidden"
+                style={{
+                  gap: 14, padding: 19, borderRadius: 22,
+                  background: "linear-gradient(152deg,#1d2a3b 0%,#0f172a 48%,#080e16 100%)",
+                  boxShadow: "0 24px 46px -26px rgba(4,10,18,.95), inset 0 1px 0 rgba(255,255,255,.13)",
+                }}
+              >
+                {/* Bloom as a radial-gradient background, never a blurred child:
+                    a blur gets its own compositing layer that WebKit fails to
+                    clip against border-radius, painting a hard corner. */}
+                <span
+                  className="absolute"
+                  style={{
+                    right: -70, top: -80, width: 230, height: 230, borderRadius: "50%",
+                    background: "radial-gradient(closest-side,rgba(34,197,94,.34),rgba(34,197,94,0))",
+                  }}
+                  aria-hidden
+                />
+                <button
+                  type="button"
+                  onClick={() => setPhotoMenu(true)}
+                  disabled={photoBusy}
+                  aria-label={photoUrl ? t("portalPhotoChange", "Change") : t("portalPhotoAdd", "Add photo")}
+                  className="relative shrink-0 overflow-visible"
+                  style={{ width: 62, height: 62 }}
+                >
+                  <span
+                    className="w-full h-full overflow-hidden flex items-center justify-center"
+                    style={{
+                      borderRadius: 20,
+                      background: "linear-gradient(150deg,#334155,#0f172a)",
+                      border: "1px solid rgba(255,255,255,.14)",
+                      font: "700 21px/1 var(--font-display)", letterSpacing: "-0.02em", color: "#e2e8f0",
+                    }}
+                  >
+                    {photoUrl ? (
+                      <img src={photoUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+                    )}
+                  </span>
+                  {/* The + badge IS the change-photo affordance in v2, so the
+                      avatar itself is the button rather than a separate row. */}
+                  <span
+                    className="absolute flex items-center justify-center"
+                    style={{
+                      right: -4, bottom: -4, width: 22, height: 22, borderRadius: 99,
+                      background: "linear-gradient(180deg,#22c55e,#16a34a)",
+                      border: "2px solid #0f172a", color: "#fff",
+                    }}
+                  >
+                    <Plus size={11} strokeWidth={2.6} aria-hidden />
+                  </span>
+                </button>
+                <div className="relative flex-1 min-w-0">
+                  <div style={{ font: "700 21px/1.05 var(--font-display)", letterSpacing: "-0.032em", color: "#fff" }}>
+                    {info?.staff_name}
+                  </div>
+                  <div style={{ marginTop: 6, font: "500 12px/1 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
+                    {[info?.role, info?.restaurant_name].filter(Boolean).join(" · ")}
+                  </div>
+                  {info?.since && (
+                    <div style={{ marginTop: 10 }}>
+                      <span
+                        style={{
+                          display: "inline-block", padding: "5px 9px", borderRadius: 999,
+                          background: "rgba(34,197,94,.16)", border: "1px solid rgba(34,197,94,.28)",
+                          font: "600 10px/1 var(--font-text)", color: "#86efac",
+                        }}
+                      >
+                        {t("portalSinceJoined", "Since {d}").split("{d}").join(
+                          new Date(`${info.since}T00:00:00`).toLocaleDateString(
+                            localeFor(lang), { month: "short", year: "numeric" },
+                          )
+                        )}
+                      </span>
+                    </div>
+                  )}
+                  {photoBusy ? (
+                    <div style={{ marginTop: 10, font: "600 10px/1 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
+                      {t("portalSaving", "Saving…")}
+                    </div>
                   ) : (
-                    info?.staff_name?.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+                    <div style={{ marginTop: 10, font: "600 10px/1 var(--font-text)", color: "rgba(255,255,255,.55)" }}>
+                      {photoUrl ? t("portalPhotoChange", "Change") : t("portalPhotoAdd", "Add photo")}
+                    </div>
                   )}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-1.5">{t("portalPhotoLabel", "Photo")}</div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handlePhotoChange}
-                      disabled={photoBusy}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-900 text-white hover:bg-gray-700 transition disabled:opacity-50"
-                    >
-                      <CameraIcon className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
-                      {photoBusy ? t("portalSaving", "Saving…") : (photoUrl ? t("portalPhotoChange", "Change") : t("portalPhotoAdd", "Add photo"))}
-                    </button>
-                    {photoUrl && !photoBusy && (
-                      <button
-                        type="button"
-                        onClick={handlePhotoRemove}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 transition"
-                        aria-label={t("portalPhotoRemove", "Remove photo")}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" strokeWidth={2} aria-hidden />
-                      </button>
-                    )}
-                  </div>
-                </div>
               </div>
-              <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500">{t("portalNotifications", "Notifications")}</div>
+              <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8]">{t("portalNotifications", "Notifications")}</div>
               <div>
                 <label className="text-[10px] text-gray-500 mb-1 block">{t("portalContactEmailLabel", "Email")}</label>
                 <input
@@ -5188,7 +6429,7 @@ export default function StaffPortalPage() {
               {/* Home address — DK-structured (adresse / postnr / by). Optional;
                   the owner sees it so they have a current address on file. */}
               <div className="pt-1 border-t border-[#f1f5f9] space-y-3">
-                <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500">{t("portalAddressSection", "Address")}</div>
+                <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-[#94a3b8]">{t("portalAddressSection", "Address")}</div>
                 <div>
                   <label className="text-[10px] text-gray-500 mb-1 block">{t("portalAddressStreetLabel", "Street & number")}</label>
                   <input
@@ -5239,27 +6480,32 @@ export default function StaffPortalPage() {
               {/* Employment documents the owner has shared. Renders nothing
                   when there are none — the staffer cannot request one here, so
                   an empty section would be an empty promise. */}
+              <ShiftReminderRow token={token} />
               <DocumentsSection token={token} />
 
               {/* Language — moved here from the header (design). Staff pick DA / EN. */}
               <div className="pt-3 border-t border-[#f1f5f9]">
-                <div className="font-text text-[10px] font-bold uppercase tracking-[0.15em] text-gray-500 mb-2">{t("portalLangSection", "Language")}</div>
-                <div className="flex w-full rounded-lg border border-gray-200 p-0.5 gap-0.5" role="group" aria-label={t("portalLangLabel", "Language")}>
-                  {["da", "en"].map((code) => (
-                    <button
-                      key={code}
-                      type="button"
-                      onClick={() => setLang(code)}
-                      aria-pressed={lang === code}
-                      className={`flex-1 py-1.5 rounded-md text-[13px] font-semibold transition active:scale-[0.98] ${
-                        lang === code ? "bg-gray-900 text-white" : "bg-white text-gray-500 hover:bg-gray-50"
-                      }`}
-                    >
-                      {code === "da" ? "Dansk" : "English"}
-                    </button>
-                  ))}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-semibold text-gray-900">{t("portalLangSection", "Language")}</div>
+                    <div className="text-[11px] text-gray-400">{t("portalLangNote", "Only changes the app's language.")}</div>
+                  </div>
+                  <div className="flex flex-none rounded-lg border border-gray-200 p-0.5 gap-0.5" role="group" aria-label={t("portalLangLabel", "Language")}>
+                    {["da", "en"].map((code) => (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => setLang(code)}
+                        aria-pressed={lang === code}
+                        className={`px-3 py-1.5 rounded-md text-[12px] font-bold uppercase transition active:scale-[0.98] ${
+                          lang === code ? "bg-gray-900 text-white" : "bg-white text-gray-500 hover:bg-gray-50"
+                        }`}
+                      >
+                        {code === "da" ? "DA" : "EN"}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="mt-1.5 text-[10px] text-gray-400">{t("portalLangNote", "Only changes the app's language.")}</div>
               </div>
               <button
                 onClick={handleContactSave}
@@ -5271,25 +6517,15 @@ export default function StaffPortalPage() {
               {emailMsg && (
                 <div className={`text-xs ${emailStatus === "ok" ? "text-emerald-700" : "text-red-600"}`}>{emailMsg}</div>
               )}
-              <div className="text-[10px] text-gray-400">
-                {info?.email || info?.phone ? (
-                  <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                    {info.email && (
-                      <span className="inline-flex items-center gap-1"><Mail className="w-3 h-3" strokeWidth={2} aria-hidden />{info.email}</span>
-                    )}
-                    {info.email && info.phone && <span aria-hidden>·</span>}
-                    {info.phone && (
-                      <span className="inline-flex items-center gap-1"><Smartphone className="w-3 h-3" strokeWidth={2} aria-hidden />{info.phone}</span>
-                    )}
-                  </span>
-                ) : (
-                  t("portalContactEmptyHint", "Add your email or phone to get notified when your schedule changes.")
-                )}
-              </div>
-              {(info?.address || info?.postal_code || info?.city) && (
-                <div className="text-[10px] text-gray-400 inline-flex items-start gap-1">
-                  <MapPin className="w-3 h-3 mt-px shrink-0" strokeWidth={2} aria-hidden />
-                  <span>{[info.address, [info.postal_code, info.city].filter(Boolean).join(" ")].filter(Boolean).join(", ")}</span>
+              {/* Only the EMPTY-state hint survives here. The filled version
+                  reprinted the email, phone and address as grey read-only
+                  lines — the same values sitting in the input boxes half a
+                  screen above, which reads as a second, older copy of the
+                  data you are editing. The hint still earns its place: it
+                  says WHY the fields matter when they are blank. */}
+              {!info?.email && !info?.phone && (
+                <div className="text-[10px] text-gray-400">
+                  {t("portalContactEmptyHint", "Add your email or phone to get notified when your schedule changes.")}
                 </div>
               )}
               {/* Native Web Push opt-in moved to the prominent
@@ -5328,7 +6564,8 @@ export default function StaffPortalPage() {
       <div className="max-w-lg mx-auto px-4 py-4">
         {tab === "schedule" && (
           <ScheduleTab
-            shifts={shifts}
+            shifts={visibleShifts}
+            allShifts={shifts}
             coversByShift={coversByShift}
             teamShifts={teamShifts}
             openShifts={openShifts}
@@ -5338,8 +6575,6 @@ export default function StaffPortalPage() {
             restaurantCity={info?.restaurant_city}
             restaurantAddress={info?.restaurant_address}
             onShiftsChanged={loadData}
-            onNeedChange={() => setTab("swaps")}
-            onOpenAvailability={() => setTab("availability")}
           />
         )}
         {/* Install/push nudge — BELOW the shift so the schedule leads; a calm
@@ -5348,7 +6583,7 @@ export default function StaffPortalPage() {
             nonsense — the user IS in the app. Native push arrives with the
             APNs slice; until then the card simply doesn't render there. */}
         {tab === "schedule" && !isNativeApp() && <InstallNotifyCard token={token} />}
-        {tab === "availability" && <AvailabilityTab token={token} shifts={shifts} />}
+        {tab === "availability" && <AvailabilityTab token={token} shifts={visibleShifts} />}
         {tab === "messages" && (
           <MessagesTab
             token={token}
@@ -5359,8 +6594,8 @@ export default function StaffPortalPage() {
         {tab === "swaps" && (
           <SwapTab token={token} ownShifts={shifts} onChanged={loadData} />
         )}
-        {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} />}
-        {tab === "alerts" && <AlertsTab token={token} staffName={info?.staff_name} />}
+        {tab === "hours" && <HoursTab data={hoursData} maxHours={info?.max_hours_month} range={hoursRange} setRange={setHoursRange} prevTotal={prevTotal} hoursError={hoursError} hoursLoading={hoursLoading} />}
+        {tab === "alerts" && <AlertsTab token={token} onNavigate={setTab} />}
       </div>
 
       {/* Bottom Navigation */}

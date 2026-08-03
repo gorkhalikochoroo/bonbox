@@ -2243,6 +2243,12 @@ _migrations = [
     # 90 t-md student default). Default TRUE = warn. Rest warnings (11-timers
     # reglen) are deliberately NOT toggleable — safety law, not preference.
     "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS hour_limit_warn BOOLEAN DEFAULT TRUE",
+
+    # ── Migration 071: pre-shift reminder opt-in ──────────────────────────
+    # NULL = off. A value is the lead time in MINUTES, so the staffer picks
+    # when to be told rather than us guessing. Nullable-with-no-default on
+    # purpose: nobody is opted into a push they never asked for.
+    "ALTER TABLE staff_members ADD COLUMN IF NOT EXISTS shift_reminder_minutes INTEGER",
     # ── Migration 064 (2026-07-18): shift location (multi-location S3) ───
     # Optional branch on a shift — ONE roster with a location lens, never
     # separate rosters (the anti-Planday design). NULL = unassigned/main;
@@ -2725,6 +2731,7 @@ def _run_migrations():
             ok += _add("staff_members", "bank_reg_nr_enc", "BLOB")
             ok += _add("staff_members", "bank_account_enc", "BLOB")
             ok += _add("staff_members", "bank_updated_at", "TIMESTAMP")
+            ok += _add("staff_members", "shift_reminder_minutes", "INTEGER")
             ok += _add("staff_links", "code_expires_at", "TIMESTAMP")
             ok += _add("staff_links", "code_used_at", "TIMESTAMP")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
@@ -4715,6 +4722,7 @@ try:
     from app.jobs.reservation_jobs import (
         send_reservation_reminders, purge_expired_reservations,
     )
+    from app.jobs.shift_reminder_jobs import run_shift_reminder_tick
 
     _scheduler = BackgroundScheduler()
     _scheduler.add_job(
@@ -4808,6 +4816,19 @@ try:
         id="recurring_expenses",
         name="Materialize due recurring expenses",
         replace_existing=True,
+    )
+    # Pre-shift reminders — opt-in per staff member, with their own lead time.
+    # Every 10 minutes against a 20-minute window: the overlap is deliberate so
+    # a slow or restarted run cannot drop a reminder, and the dedup_key
+    # ("shiftrem:<schedule_id>") is what keeps it to exactly one send.
+    _scheduler.add_job(
+        run_shift_reminder_tick,
+        trigger=IntervalTrigger(minutes=10),
+        id="shift_reminders",
+        name="Pre-shift push reminders",
+        replace_existing=True,
+        max_instances=1,          # never let two sweeps race the same window
+        coalesce=True,            # after a pause, run once — not once per missed tick
     )
     # Reservations — day-before reminder (the v1 reminders-only no-show
     # defense). 08:00 UTC ≈ 09:00-10:00 Copenhagen; sends for confirmed

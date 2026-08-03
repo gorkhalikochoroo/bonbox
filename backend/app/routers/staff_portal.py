@@ -126,6 +126,10 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 class PortalInfo(BaseModel):
     staff_name: str
     role: str
+    # When the owner added them. Honest about what it measures: this is the
+    # BonBox record, not an employment start date — the same basis the holiday
+    # balance already counts from.
+    since: date | None = None
     email: str | None = None
     phone: str | None = None
     address: str | None = None
@@ -449,6 +453,7 @@ def get_portal_info(token: str, request: Request, db: Session = Depends(get_db))
     return PortalInfo(
         staff_name=member.name,
         role=member.role or "staff",
+        since=member.created_at.date() if (pii_ok and member.created_at) else None,
         email=member.email if pii_ok else None,
         phone=member.phone if pii_ok else None,
         address=member.address if pii_ok else None,
@@ -649,9 +654,21 @@ def get_portal_schedule(token: str, request: Request, db: Session = Depends(get_
 # ─────────────────────────────────────────────────────────────────────────
 
 
+class ConfirmScheduleBody(BaseModel):
+    # Optional and defaulted: an older cached bundle posts `{}` and must keep
+    # confirming the whole window. Present, it NARROWS — it is layered on top of
+    # the existing staff/tenant/window/status guards and can never widen them.
+    shift_ids: list[str] | None = None
+
+
 @router.post("/{token}/confirm-schedule")
 @limiter.limit("10/minute")
-def confirm_schedule(token: str, request: Request, db: Session = Depends(get_db)):
+def confirm_schedule(
+    token: str,
+    request: Request,
+    body: ConfirmScheduleBody | None = None,
+    db: Session = Depends(get_db),
+):
     """Mark every published shift in the visible 3-week window as
     confirmed by this staff member. Idempotent — re-tapping changes
     nothing.
@@ -676,6 +693,20 @@ def confirm_schedule(token: str, request: Request, db: Session = Depends(get_db)
         Schedule.status == "published",
         Schedule.confirmed_at.is_(None),
     ).all()
+
+    # Scope the write to what the staffer actually SAW. The portal now has a
+    # department switcher, so the on-screen list can be a subset of the window;
+    # without this the tap stamped confirmed_at on shifts at another branch that
+    # were deliberately filtered out and never read — and reported a count that
+    # disagreed with the screen.
+    if body is not None and body.shift_ids:
+        wanted = set()
+        for raw in body.shift_ids[:200]:          # bounded: it is a narrowing list, not a page size
+            try:
+                wanted.add(uuid.UUID(str(raw)))
+            except (ValueError, AttributeError, TypeError):
+                continue
+        pending = [s_ for s_ in pending if s_.id in wanted]
 
     now = utc_now()
     for s in pending:
@@ -798,7 +829,13 @@ def portal_covers(
 
 @router.get("/{token}/hours")
 @limiter.limit("30/minute")
-def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)):
+def get_portal_hours(
+    token: str,
+    request: Request,
+    start: str | None = None,
+    end: str | None = None,
+    db: Session = Depends(get_db),
+):
     """Return the staff member's hours for the current pay period.
 
     Source of truth (the original bug): owners build the schedule by
@@ -830,7 +867,35 @@ def get_portal_hours(token: str, request: Request, db: Session = Depends(get_db)
     ).first()
 
     today = date.today()
-    if config:
+
+    # ── Optional caller-chosen window ────────────────────────────────────
+    # Staff can page back through their own history instead of being stuck
+    # on the current pay period. This widens only the DATE filter — every
+    # query below stays scoped to this member and this tenant, so the range
+    # cannot reach another person's hours.
+    #
+    # Bounded on purpose: an unbounded span lets an attacker with a leaked
+    # link turn one request into a full-history table scan, and the rate
+    # limit alone would not stop it.
+    custom_start = custom_end = None
+    if start or end:
+        if not (start and end):
+            raise HTTPException(status_code=400, detail="Both start and end are required")
+        try:
+            custom_start = date.fromisoformat(start)
+            custom_end = date.fromisoformat(end)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Dates must be YYYY-MM-DD")
+        if custom_end < custom_start:
+            raise HTTPException(status_code=400, detail="end must not precede start")
+        if (custom_end - custom_start).days > 366:
+            raise HTTPException(status_code=400, detail="Range must be 366 days or less")
+        if custom_start < today - timedelta(days=365 * 3):
+            raise HTTPException(status_code=400, detail="Range starts too far in the past")
+
+    if custom_start:
+        period_start, period_end = custom_start, custom_end
+    elif config:
         period = _compute_pay_period(config, today)
         period_start = period["start_date"]
         period_end = period["end_date"]
@@ -2101,6 +2166,13 @@ def get_portal_notifications(token: str, request: Request, db: Session = Depends
         .filter(
             NotificationLog.staff_id == member.id,
             NotificationLog.user_id == link.user_id,
+            # Delivery rows are not feed items. Every push fan-out writes one
+            # whose subject is just the app name ("BonBox · Vagtplan"), and the
+            # pre-shift reminder writes one PER SHIFT purely as its dedup
+            # record. Excluding them here means the limit below counts thirty
+            # things a staffer can actually read — before this, a week of
+            # reminders could push every real alert past the cutoff.
+            NotificationLog.channel != "push",
         )
         .order_by(NotificationLog.created_at.desc())
         .limit(30)
@@ -3197,6 +3269,49 @@ def portal_push_subscribe(
             db.commit()
             return PortalPushSubscribeOut(created=False, endpoint_suffix=suffix)
         raise HTTPException(status_code=409, detail="endpoint_conflict")
+
+
+class ReminderPrefBody(BaseModel):
+    # None turns it off. Anything else must be one of the offered lead times —
+    # an arbitrary integer would let a caller schedule a push a year out.
+    minutes: int | None = None
+
+
+ALLOWED_REMINDER_MINUTES = (30, 60, 120, 180)
+
+
+@router.get("/{token}/reminder")
+@limiter.limit("30/minute")
+def portal_get_reminder(token: str, request: Request, db: Session = Depends(get_db)):
+    """The staffer's own pre-shift reminder setting."""
+    _link, member = _get_staff_from_token(token, db)
+    return {
+        "minutes": member.shift_reminder_minutes,
+        "options": list(ALLOWED_REMINDER_MINUTES),
+    }
+
+
+@router.post("/{token}/reminder")
+@limiter.limit("20/minute")
+def portal_set_reminder(
+    token: str,
+    request: Request,
+    body: ReminderPrefBody,
+    db: Session = Depends(get_db),
+):
+    """Opt in or out of a push before your shift.
+
+    The staff member is re-derived from the magic-link token — a staff_id in
+    the body is never trusted, so one staffer cannot set another's reminder.
+    """
+    _link, member = _get_staff_from_token(token, db)
+
+    if body.minutes is not None and body.minutes not in ALLOWED_REMINDER_MINUTES:
+        raise HTTPException(status_code=422, detail={"error": "bad_minutes"})
+
+    member.shift_reminder_minutes = body.minutes
+    db.commit()
+    return {"minutes": member.shift_reminder_minutes}
 
 
 @router.post("/{token}/push/unsubscribe")
