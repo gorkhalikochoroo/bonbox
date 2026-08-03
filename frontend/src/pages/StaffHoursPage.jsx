@@ -879,8 +879,63 @@ function LaborSplitCard({ split, currency }) {
 /* ═══════════════════════════════════════════════════════════
    HOURS SUMMARY TABLE
    ═══════════════════════════════════════════════════════════ */
+
+/** Shift state → how the row should SPEAK.
+ *
+ *  The server computes this per shift and hands us the worst one, because a
+ *  period-level signed diff cannot express it: a no-show plus a later double
+ *  nets to zero and renders as "worked exactly as scheduled". No colour fixes
+ *  a number that is genuinely zero, so the number is not what carries meaning
+ *  here — the word is.
+ *
+ *  Colour law:
+ *    amber   = needs an answer from you. Nothing else in the table is amber.
+ *    red     = a statutory limit is breached.
+ *    grey    = the clock measured this. A fact, neither achievement nor fault.
+ *    emerald = LIVE, on the clock right now. Never "good", never a past shift.
+ *  The old cell painted every negative diff emerald, so a no-show wore the
+ *  colour of success. Emerald is spent on exactly one state now.
+ */
+function shiftStateMeta(state, t) {
+  switch (state) {
+    case "no_clock_in":
+      return {
+        // The clock measured nothing. That is ALL it knows. "Didn't show up" is
+        // a judgement about a person and only the owner may make it.
+        label: t("shpStateNoClockIn", "Not clocked in"),
+        cls: "text-amber-600 dark:text-amber-400",
+        needsAnswer: true,
+      };
+    case "short":
+      return { label: t("shpStateShort", "Left early"), cls: "text-gray-600 dark:text-gray-300" };
+    case "over":
+      return { label: t("shpStateOver", "Stayed longer"), cls: "text-gray-600 dark:text-gray-300" };
+    case "unplanned":
+      return { label: t("shpStateUnplanned", "Not scheduled"), cls: "text-gray-600 dark:text-gray-300" };
+    case "running":
+      return { label: t("shpStateRunning", "On the clock"), cls: "text-emerald-600 dark:text-emerald-400" };
+    default:
+      return null;     // "matched" — the boring majority stays silent
+  }
+}
+
+/** Danish writes 7,0 t — not 7.0h. The old code was `toFixed(1) + "h"`, which
+    was wrong in every row of the primary market. */
+function fmtHours(n, lang) {
+  if (n == null) return "\u2014";
+  const num = new Intl.NumberFormat(lang === "da" ? "da-DK" : "en-GB", {
+    minimumFractionDigits: 1, maximumFractionDigits: 1,
+  }).format(n);
+  return `${num} ${lang === "da" ? "t" : "h"}`;
+}
+
 function HoursSummaryTable({ summary, loading, currency }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
+  // Same server field the rows read, so the chip and the rows can never
+  // disagree about how many shifts are unanswered.
+  const needsAnswer = (summary || []).reduce(
+    (n, r) => n + (r.needs_answer_count || 0), 0,
+  );
   if (loading) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
@@ -907,7 +962,23 @@ function HoursSummaryTable({ summary, loading, currency }) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
       <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-        <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{t("periodSummary")}</h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{t("periodSummary")}</h2>
+          {/* ONE amber thing on the page. Per-row amber on a twelve-person
+              roster becomes a wall the owner stops seeing; a single count stays
+              legible. Silent when there is nothing to answer — an all-clear
+              badge every day is how a real one gets ignored. */}
+          {needsAnswer > 0 && (
+            <span
+              className="inline-flex items-center gap-1.5 shrink-0 rounded-xl border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-1 text-[12px] font-medium text-amber-700 dark:text-amber-400"
+            >
+              <Icon name="AlertTriangle" className="w-3.5 h-3.5" aria-hidden />
+              {needsAnswer === 1
+                ? t("shpNeedsAnswerOne", "1 shift needs your answer")
+                : t("shpNeedsAnswer", "{n} shifts need your answer").replace("{n}", String(needsAnswer))}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Mobile-friendly columns: name + actual + total survive on phones;
@@ -931,8 +1002,11 @@ function HoursSummaryTable({ summary, loading, currency }) {
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
             {summary.map((row, idx) => {
-              const diff = (row.actual_hours || 0) - (row.scheduled_hours || 0);
-              const isOvertime = diff > 0;
+              // Server-computed, per SHIFT. Falls back to the old aggregate
+              // reading only for a backend that has not shipped worst_state yet
+              // — and that fallback deliberately reports NOTHING rather than
+              // guessing, because guessing is how a no-show turned green.
+              const stateMeta = shiftStateMeta(row.worst_state, t);
               const isNearLimit = row.work_limit && row.actual_hours >= row.work_limit * 0.95;
               const isOverLimit = row.work_limit && row.actual_hours >= row.work_limit;
 
@@ -950,10 +1024,17 @@ function HoursSummaryTable({ summary, loading, currency }) {
                         <span className="font-medium text-gray-800 dark:text-white">{row.staff_name}</span>
                         {/* Mobile-only inline reveal of scheduled hours (column hidden < sm). */}
                         <div className="sm:hidden text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
-                          {row.scheduled_hours != null ? `${row.scheduled_hours.toFixed(1)}h planlagt` : ""}
-                          {diff !== 0 && row.scheduled_hours != null && (
-                            <span className={isOvertime ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}>
-                              {" \u00b7 "}{diff > 0 ? "+" : ""}{diff.toFixed(1)}h
+                          {/* This sub-line is the only place the phone can show
+                              scheduled-vs-actual — Scheduled and Diff are both
+                              `hidden sm:` — so it carries the same state word the
+                              desktop cell does. `planlagt` used to be hardcoded
+                              Danish sitting in the English UI. */}
+                          {row.scheduled_hours != null
+                            ? t("shpScheduledShort", "{h} scheduled").replace("{h}", fmtHours(row.scheduled_hours, lang))
+                            : ""}
+                          {stateMeta && row.scheduled_hours != null && (
+                            <span className={stateMeta.cls}>
+                              {" \u00b7 "}{stateMeta.label}
                             </span>
                           )}
                         </div>
@@ -971,12 +1052,23 @@ function HoursSummaryTable({ summary, loading, currency }) {
                   <td className="px-3 py-3 text-right font-medium text-gray-800 dark:text-white tabular-nums">
                     {row.actual_hours != null ? `${row.actual_hours.toFixed(1)}h` : "\u2014"}
                   </td>
-                  <td className={`hidden sm:table-cell px-3 py-3 text-right font-medium tabular-nums ${
-                    diff === 0 ? "text-gray-400 dark:text-gray-500"
-                      : isOvertime ? "text-red-600 dark:text-red-400"
-                      : "text-emerald-600 dark:text-gray-300"
+                  <td className={`hidden sm:table-cell px-3 py-3 text-right font-medium ${
+                    stateMeta ? stateMeta.cls : "text-gray-400 dark:text-gray-500"
                   }`}>
-                    {diff === 0 ? "\u2014" : `${diff > 0 ? "+" : ""}${diff.toFixed(1)}h`}
+                    {/* A word, not a signed number. The number is already in
+                        Scheduled and Actual either side of this cell, and it is
+                        correct there; what it could never carry is WHICH KIND of
+                        deviation this was. */}
+                    {stateMeta ? (
+                      <span className="inline-flex items-center gap-1 justify-end">
+                        {stateMeta.label}
+                        {row.needs_answer_count > 1 && (
+                          <span className="tabular-nums opacity-70">
+                            ×{row.needs_answer_count}
+                          </span>
+                        )}
+                      </span>
+                    ) : "\u2014"}
                   </td>
                   <td className="hidden md:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
                     {row.hourly_rate != null ? `${row.hourly_rate} ${currency}/hr` : "\u2014"}

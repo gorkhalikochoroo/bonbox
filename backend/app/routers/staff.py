@@ -3820,6 +3820,7 @@ def hours_summary(
             return 0.0
 
     sched_map: dict[str, float] = {}
+    sched_by_day: dict = {}
     try:
         for s in (
             db.query(Schedule)
@@ -3836,12 +3837,86 @@ def hours_summary(
             .all()
         ):
             sid = str(s.staff_id)
-            sched_map[sid] = sched_map.get(sid, 0.0) + _shift_hours(
-                s.start_time, s.end_time, s.break_minutes
-            )
+            hrs = _shift_hours(s.start_time, s.end_time, s.break_minutes)
+            sched_map[sid] = sched_map.get(sid, 0.0) + hrs
+            # Per-DAY as well as per-period. The period total alone cannot tell
+            # you whether anyone actually turned up — see _shift_states below.
+            sched_by_day[(sid, s.date)] = sched_by_day.get((sid, s.date), 0.0) + hrs
     except Exception as e:
         log.warning("hours_summary: scheduled-hours aggregation failed: %s", e)
         sched_map = {}
+        sched_by_day = {}
+
+    # ── Per-SHIFT state ──────────────────────────────────────────────────
+    #
+    # The period totals cannot answer "did everyone turn up". A staffer who
+    # no-shows an 8h shift and then covers 16h two days later nets to a diff of
+    # ZERO, and the table renders the same em-dash it uses for "worked exactly
+    # as scheduled" — reporting a perfect week over a no-show and eight hours of
+    # unplanned overtime. Verified on the running app before this was written.
+    #
+    # So state is computed per DAY and the row inherits its worst shift. It is
+    # never derived from the aggregates.
+    TOL = 0.25          # a few minutes either side of the roster is not an event
+
+    actual_by_day: dict = {}
+    open_punch_days: set = set()
+    try:
+        for h in (
+            db.query(HoursLogged)
+            .filter(
+                HoursLogged.user_id == user.id,
+                HoursLogged.date >= from_date,
+                HoursLogged.date <= to_date,
+            )
+            .all()
+        ):
+            k = (str(h.staff_id), h.date)
+            actual_by_day[k] = actual_by_day.get(k, 0.0) + float(h.total_hours or 0)
+            if h.start_time and not h.end_time:
+                open_punch_days.add(k)
+    except Exception as e:      # noqa: BLE001 — never kill the report
+        log.warning("hours_summary: per-day actuals failed: %s", e)
+        actual_by_day = {}
+        open_punch_days = set()
+
+    def _classify(scheduled: float, actual: float, has_row: bool, open_punch: bool) -> str:
+        """One shift → one state. Order matters; the first match wins."""
+        if open_punch:
+            return "running"                     # still on the clock
+        if scheduled > 0 and not has_row:
+            # The clock measured NOTHING. That is all we know. Whether they
+            # no-showed or worked and forgot to punch is not knowable here, and
+            # this state deliberately does not claim to know.
+            return "no_clock_in"
+        if scheduled <= 0 and actual > 0:
+            return "unplanned"                   # picked up a shift
+        if abs(actual - scheduled) <= TOL:
+            return "matched"
+        return "short" if actual < scheduled else "over"
+
+    # Worst-first. "needs your answer" outranks everything the clock measured,
+    # because it is the only state that cannot be resolved without a human.
+    _RANK = ["no_clock_in", "over", "short", "unplanned", "running", "matched"]
+
+    states_by_staff: dict = {}
+    for (sid, day) in set(list(sched_by_day.keys()) + list(actual_by_day.keys())):
+        scheduled = sched_by_day.get((sid, day), 0.0)
+        actual = actual_by_day.get((sid, day), 0.0)
+        st = _classify(
+            scheduled, actual,
+            has_row=(sid, day) in actual_by_day,
+            open_punch=(sid, day) in open_punch_days,
+        )
+        bucket = states_by_staff.setdefault(sid, {"states": [], "exceptions": []})
+        bucket["states"].append(st)
+        if st not in ("matched", "running"):
+            bucket["exceptions"].append({
+                "date": day.isoformat() if hasattr(day, "isoformat") else str(day),
+                "state": st,
+                "scheduled_hours": round(scheduled, 1),
+                "actual_hours": round(actual, 1),
+            })
 
     # Staff names + pay/limit fields — wrapped so a corrupt member row doesn't
     # kill the report. base_rate → hourly_rate, max_hours_month → work_limit.
@@ -3860,6 +3935,13 @@ def hours_summary(
                 )
         except Exception as e:
             log.warning("hours_summary: staff lookup failed: %s", e)
+
+    def _worst(sid: str) -> str:
+        sts = states_by_staff.get(sid, {}).get("states", [])
+        for candidate in _RANK:
+            if candidate in sts:
+                return candidate
+        return "matched"
 
     # One row per staff who has actual hours, tips, OR a scheduled shift.
     summary = []
@@ -3886,6 +3968,17 @@ def hours_summary(
             "tips": tips,
             "total": round(earned + tips, 2),
             "work_limit": limit_map.get(sid),
+            # Per-shift truth. `worst_state` is what the row should SAY; the
+            # aggregates above are only what it should show as numbers.
+            "worst_state": _worst(sid),
+            "needs_answer_count": sum(
+                1 for e in states_by_staff.get(sid, {}).get("exceptions", [])
+                if e["state"] == "no_clock_in"
+            ),
+            "exceptions": sorted(
+                states_by_staff.get(sid, {}).get("exceptions", []),
+                key=lambda e: e["date"],
+            ),
         })
 
     return summary
