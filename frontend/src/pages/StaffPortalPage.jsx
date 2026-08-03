@@ -3765,8 +3765,8 @@ function MessagesTab({ token, restaurantName, onRead }) {
       {/* Message stream */}
       <div
         ref={scrollRef}
-        className="space-y-2 overflow-y-auto"
-        style={{ maxHeight: "calc(100vh - 16rem)" }}
+        className="flex flex-col overflow-y-auto"
+        style={{ maxHeight: "calc(100vh - 16rem)", gap: 9 }}
       >
         {messages === null ? (
           <div className="space-y-2 animate-pulse">
@@ -3802,7 +3802,7 @@ function MessagesTab({ token, restaurantName, onRead }) {
             >
               <div className={`max-w-[78%] ${m.mine ? "items-end" : "items-start"} flex flex-col`}>
                 {!m.mine && (
-                  <span className="text-[10px] text-gray-400 mb-0.5 px-1">
+                  <span style={{ font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.06em", textTransform: "uppercase", color: "#94a3b8", padding: "0 4px", marginBottom: 4 }}>
                     {restaurantName || t("staffChatOwnerLabel", "Manager")}
                   </span>
                 )}
@@ -3829,17 +3829,25 @@ function MessagesTab({ token, restaurantName, onRead }) {
                           }
                         : undefined
                     }
-                    className={`px-3.5 py-2 rounded-2xl text-sm whitespace-pre-wrap break-words ${
-                      m.mine
-                        ? "text-white rounded-br-md"
-                        : "bg-white border border-gray-200/70 text-gray-900 rounded-bl-md"
-                    } ${m._pending ? "opacity-60" : ""} ${m._failed ? "cursor-pointer ring-1 ring-red-300" : ""}`}
-                    style={m.mine ? { background: "linear-gradient(180deg,#22c55e,#16a34a)" } : undefined}
+                    className={`whitespace-pre-wrap break-words ${m._pending ? "opacity-60" : ""} ${m._failed ? "cursor-pointer ring-1 ring-red-300" : ""}`}
+                    style={{
+                      maxWidth: "80%",
+                      padding: "11px 13px",
+                      borderRadius: m.mine ? "16px 16px 5px 16px" : "16px 16px 16px 5px",
+                      font: "400 12.5px/1.45 var(--font-text)",
+                      textWrap: "pretty",
+                      background: m.mine ? "linear-gradient(180deg,#22c55e,#16a34a)" : "#fff",
+                      color: m.mine ? "#fff" : "#0f172a",
+                      border: m.mine ? "none" : "1px solid #e8edf3",
+                      boxShadow: m.mine
+                        ? "0 10px 22px -14px rgba(22,163,74,.9)"
+                        : "0 1px 2px rgba(15,23,42,.04)",
+                    }}
                   >
                     {m.body}
                   </div>
                 )}
-                <span className="text-[10px] text-gray-400 mt-0.5 px-1">
+                <span style={{ font: "500 9.5px/1 var(--font-text)", color: "#cbd5e1", padding: "0 4px", marginTop: 4 }}>
                   {m._failed
                     ? t("staffChatFailed", "Not sent — tap to retry")
                     : m.created_at
@@ -3867,14 +3875,23 @@ function MessagesTab({ token, restaurantName, onRead }) {
               onKeyDown={onKeyDown}
               rows={1}
               placeholder={t("staffChatPlaceholder", "Write a message…")}
-              className="flex-1 resize-none max-h-28 px-3 py-2 rounded-2xl bg-white border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 outline-none focus:border-gray-900/30"
+              className="flex-1 resize-none max-h-28 bg-white outline-none placeholder:text-[#94a3b8]"
+              style={{
+                minHeight: 42, padding: "12px 15px", borderRadius: 999,
+                border: "1px solid #e2e8f0",
+                font: "400 12.5px/1.35 var(--font-text)", color: "#0f172a",
+              }}
             />
             <button
               onClick={send}
               disabled={(!text.trim() && picker.files.length === 0) || sending}
               aria-label={t("staffChatSend", "Send")}
-              className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center text-white disabled:opacity-40 transition"
-              style={{ background: "linear-gradient(180deg,#22c55e,#16a34a)" }}
+              className="shrink-0 flex items-center justify-center text-white disabled:opacity-40 transition"
+              style={{
+                width: 42, height: 42, borderRadius: 999,
+                background: "linear-gradient(180deg,#22c55e,#16a34a)",
+                boxShadow: "0 8px 18px -10px rgba(22,163,74,.95), inset 0 1px 0 rgba(255,255,255,.35)",
+              }}
             >
               <Send className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
             </button>
