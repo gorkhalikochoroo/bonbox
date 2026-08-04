@@ -2544,7 +2544,7 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
           .map((w, i) => <div key={i}>{w}</div>)}
       </div>
 
-      <div className="grid grid-cols-7 gap-0.5 text-center">
+      <div className="grid grid-cols-7 gap-0.5 text-center relative">
         {Array.from({ length: lead }).map((_, i) => <div key={`p${i}`} />)}
         {Array.from({ length: daysInMonth }).map((_, i) => {
           const dnum = i + 1;
@@ -2560,7 +2560,7 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
               aria-label={`${iso}${info?.covers ? ` — ${info.covers}` : ""}`}
               aria-current={selected ? "date" : undefined}
               className={
-                "rounded-md py-1 leading-[1.1] transition-colors " +
+                "group relative rounded-md py-1 leading-[1.1] transition-colors " +
                 (selected
                   ? "bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900"
                   : heavy
@@ -2581,6 +2581,30 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
               >
                 {info?.covers ? info.covers : " "}
               </span>
+
+              {/* Peek. The grid could always show covers; what it could not show
+                  was the SHAPE of a day without opening it — how many separate
+                  bookings those covers arrive in, and whether anyone is
+                  rostered. Both numbers are already in this response, so this
+                  reads nothing new; it stops the owner clicking thirty-one days
+                  to find the one that needs them.
+                  Silent on empty days — an empty tooltip is worse than none. */}
+              {info && (info.bookings || info.staff_on) ? (
+                <span
+                  role="tooltip"
+                  className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-1 z-20
+                             hidden group-hover:block group-focus-visible:block
+                             whitespace-nowrap rounded-lg px-2 py-1
+                             bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900
+                             text-[10.5px] font-medium shadow-lg"
+                >
+                  {info.bookings || 0}&nbsp;{t("rsvpPeekBookings", "bookings")}
+                  {info.covers ? ` \u00b7 ${info.covers} ${t("rsvpPeekGuests", "guests")}` : ""}
+                  {/* Roster only when we HAVE one. "0 on shift" would read as a
+                      staffing alarm when it usually means the week is unplanned. */}
+                  {info.staff_on ? ` \u00b7 ${info.staff_on} ${t("rsvpPeekOnShift", "on shift")}` : ""}
+                </span>
+              ) : null}
             </button>
           );
         })}
