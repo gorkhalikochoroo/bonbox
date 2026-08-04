@@ -2091,7 +2091,7 @@ const translations = {
     todaySubtitlePersonal: "Today's spending & MOMS",
     // LiveKpisToday — the StatCard row at the top of the merged page.
     liveKpisLabel: "Live KPIs today",
-    liveRevenueToday: "Revenue so far",
+    liveRevenueToday: "Today so far",
     liveOrdersToday: "Orders",
     liveGuestsToday: "Guests",
     liveTopPayment: "Top payment",
@@ -9925,7 +9925,7 @@ const translations = {
     todaySubtitleServices: "Daglig kasse, faktura & MOMS",
     todaySubtitlePersonal: "Dagens udgifter & MOMS",
     liveKpisLabel: "Live KPI'er i dag",
-    liveRevenueToday: "Omsætning indtil nu",
+    liveRevenueToday: "I dag indtil nu",
     liveOrdersToday: "Ordrer",
     liveGuestsToday: "Gæster",
     liveTopPayment: "Mest brugt betaling",

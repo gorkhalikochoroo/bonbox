@@ -131,11 +131,17 @@ export default function ProfitAnswerCard({ ctx = {} }) {
           <Amount value={revenue} size="body" className="text-gray-900 dark:text-gray-100" />
         </div>
         <div className="flex h-7 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
-          <div className="bg-red-500 dark:bg-red-600" style={{ width: `${expensePct}%` }} />
+          <div
+            className="bg-red-500 dark:bg-red-600"
+            style={{ width: `${expensePct}%`, minWidth: expenses > 0 ? 4 : 0 }}
+          />
           {/* Amber, the same colour the MOMS footnote already uses — this is
               money the owner is holding, not money they earned. */}
           {momsPct > 0 && (
-            <div className="bg-amber-500 dark:bg-amber-600" style={{ width: `${momsPct}%` }} />
+            <div
+              className="bg-amber-500 dark:bg-amber-600"
+              style={{ width: `${momsPct}%`, minWidth: 4 }}
+            />
           )}
           <div className="bg-emerald-500 dark:bg-emerald-600" style={{ width: `${profitPct}%` }} />
         </div>
