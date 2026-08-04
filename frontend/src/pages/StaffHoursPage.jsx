@@ -1660,7 +1660,7 @@ function FromScheduleForm({ periodFrom, onLogged }) {
    RECENT HOURS LOG
    ═══════════════════════════════════════════════════════════ */
 function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [editingId, setEditingId] = useState(null);
   const [editHours, setEditHours] = useState("");
   const [editSaving, setEditSaving] = useState(false);
@@ -1781,6 +1781,22 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                       <>
                         <span className="text-gray-300 dark:text-gray-600">|</span>
                         <span className="text-amber-600 dark:text-amber-400">{t("shpUnverifiedLoc", "Location not verified")}</span>
+                      </>
+                    )}
+                    {/* What the clock measured, when an owner has since changed
+                        it. The write-once guarantee already lived in the
+                        database — but a staffer disputing their pay could not
+                        SEE it, so it was only provable by someone with SQL
+                        access. Shown only when the two actually disagree;
+                        printing "clock said 8, owner said 8" is noise. */}
+                    {entry.clock_hours != null
+                      && Math.abs(Number(entry.clock_hours) - Number(entry.total_hours)) > 0.01 && (
+                      <>
+                        <span className="text-gray-300 dark:text-gray-600">|</span>
+                        <span className="text-amber-600 dark:text-amber-400">
+                          {t("shpClockMeasured", "Clock: {h}").replace(
+                            "{h}", fmtHours(Number(entry.clock_hours), lang))}
+                        </span>
                       </>
                     )}
                   </div>

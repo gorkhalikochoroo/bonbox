@@ -277,6 +277,13 @@ class HoursLogResponse(BaseModel):
     is_overtime: bool = False
     notes: str | None = None
     created_at: datetime.datetime | None = None
+    # What the CLOCK measured, kept write-once when an owner overrode it. The
+    # guarantee was already in the database but invisible on screen, so a
+    # disputed payslip was provable only by someone with SQL access. Exposing
+    # it is what lets the staffer see it too.
+    clock_hours: float | None = None
+    resolution: str | None = None
+    resolved_at: datetime.datetime | None = None
 
     model_config = {"from_attributes": True}
 
