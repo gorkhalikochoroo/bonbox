@@ -90,9 +90,18 @@ export default function ProfitAnswerCard({ ctx = {} }) {
         ? "text-red-600 dark:text-red-400"
         : "text-gray-500 dark:text-gray-400";
 
-  // Bar — of every krone of revenue, how much is cost vs. yours.
+  // Bar — of every krone of revenue, how much is cost, how much is SKAT's,
+  // and how much is actually the owner's.
+  //
+  // This used to split revenue two ways, expenses and "is yours", which left
+  // the MOMS sitting inside the owner's share — while the footnote three lines
+  // below said that same money "goes to SKAT". The card had the figure in hand
+  // and still called it theirs. Revenue here is MOMS-INCLUSIVE, so a krone of
+  // MOMS was never the business's money to count.
+  const yours = Math.max(0, profit - moms);
   const expensePct = revenue > 0 ? Math.min(100, Math.round((expenses / revenue) * 100)) : 100;
-  const profitPct = Math.max(0, 100 - expensePct);
+  const momsPct = revenue > 0 ? Math.min(100 - expensePct, Math.round((moms / revenue) * 100)) : 0;
+  const profitPct = Math.max(0, 100 - expensePct - momsPct);
 
   return (
     <div onClick={() => navigate("/reports")} className={cardCls} data-component="ProfitAnswerCard">
@@ -123,15 +132,27 @@ export default function ProfitAnswerCard({ ctx = {} }) {
         </div>
         <div className="flex h-7 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
           <div className="bg-red-500 dark:bg-red-600" style={{ width: `${expensePct}%` }} />
+          {/* Amber, the same colour the MOMS footnote already uses — this is
+              money the owner is holding, not money they earned. */}
+          {momsPct > 0 && (
+            <div className="bg-amber-500 dark:bg-amber-600" style={{ width: `${momsPct}%` }} />
+          )}
           <div className="bg-emerald-500 dark:bg-emerald-600" style={{ width: `${profitPct}%` }} />
         </div>
         <div className="flex justify-between text-xs mt-1.5 tabular-nums gap-3">
           <span className="text-red-600 dark:text-red-400">
             <Amount value={expenses} /> {t("profitToExpenses", "to expenses")}
           </span>
+          {moms > 0 && (
+            <span className="text-amber-600 dark:text-amber-400">
+              <Amount value={moms} /> {t("profitToSkat", "to SKAT")}
+            </span>
+          )}
           {!isLoss && (
             <span className="text-emerald-700 dark:text-emerald-400 text-right">
-              <Amount value={profit} /> {t("profitIsYours", "is yours")}
+              {/* profit MINUS moms. The claim "is yours" is a statement about
+                  the owner's own money and has to survive being read alone. */}
+              <Amount value={yours} /> {t("profitIsYours", "is yours")}
             </span>
           )}
         </div>

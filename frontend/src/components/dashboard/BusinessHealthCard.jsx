@@ -61,8 +61,13 @@ export function deriveVerdict(summary = {}, overdueCount = 0) {
   // weigh. Don't claim "healthy / margin above X%"; surface the one thing
   // that makes the read real (mirrors the ProfitLossCard zero-expense fix).
   const monthRevenue = Number(summary?.month_revenue ?? 0);
-  const monthExpenses = Number(summary?.month_expenses ?? 0);
-  if (monthRevenue > 0 && monthExpenses === 0) {
+  // The guard used to fire only on EXACTLY zero, so a single logged expense
+  // bought a verdict. Seen live: 1.225 kr of expenses against 53.000 kr of
+  // revenue produced "Healthy — margin held above 98%", which is not a healthy
+  // business, it is unentered costs. No hospitality operation runs at a 90%
+  // margin; below that ratio the honest reading is "we do not have your costs
+  // yet", and saying so is more useful than congratulating someone for it.
+  if (monthRevenue > 0 && expenseRatio < 0.10) {
     return { verdict: "incomplete", reasons: ["noExpenses"], margin, profit30d, weekExpenseDelta };
   }
 
