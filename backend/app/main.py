@@ -1569,6 +1569,51 @@ _migrations = [
     "ALTER TABLE terminal_providers ENABLE ROW LEVEL SECURITY",
     "DROP POLICY IF EXISTS rls_deny_anon ON terminal_providers",
     "CREATE POLICY rls_deny_anon ON terminal_providers AS RESTRICTIVE FOR ALL TO anon, authenticated USING (false) WITH CHECK (false)",
+
+    # ── RLS doctrine, SELF-HEALING sweep ──────────────────────────────────
+    #
+    # docs/security-rls-doctrine.md has been locked since 2026-05-27 and says
+    # every new public table ships with RLS + a RESTRICTIVE deny. It was written
+    # down and not enforced, so it drifted: by 2026-08-04 three tables had been
+    # created without it -- stand_links (which carries pairing TOKENS) and
+    # staff_chat_members were both readable with the public anon key, and an
+    # anon INSERT reached the table's own NOT NULL constraint rather than a
+    # permission check. staff_documents was empty but would have leaked staff
+    # contracts and IDs the moment it was used.
+    #
+    # A doctrine that depends on remembering is one forgotten line from a leak,
+    # and 55 CREATE TABLE statements ship from this file. So the rule is applied
+    # by sweep instead of by discipline: every public table missing the deny
+    # gets it, on every boot. New tables are covered the moment they exist,
+    # without anyone having to recall this comment.
+    #
+    # Safe by construction: the backend connects as `postgres` (BYPASSRLS), and
+    # nothing legitimate uses the anon role at all -- SUPABASE_ANON_KEY is
+    # declared in config.py and never read by any code.
+    """DO $$
+    DECLARE t record;
+    BEGIN
+      FOR t IN
+        SELECT c.relname
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relkind = 'r'
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_policy p
+            WHERE p.polrelid = c.oid
+              AND p.polname = 'rls_deny_anon'
+              AND NOT p.polpermissive        -- must be RESTRICTIVE, not merely present
+          )
+      LOOP
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t.relname);
+        EXECUTE format('DROP POLICY IF EXISTS rls_deny_anon ON public.%I', t.relname);
+        EXECUTE format(
+          'CREATE POLICY rls_deny_anon ON public.%I AS RESTRICTIVE FOR ALL '
+          'TO anon, authenticated USING (false) WITH CHECK (false)', t.relname);
+        RAISE NOTICE 'rls doctrine applied to %', t.relname;
+      END LOOP;
+    END $$;""",
     # Per-tenant Terminal row — add provider link + confidence + owner-lock.
     "ALTER TABLE terminals ADD COLUMN IF NOT EXISTS provider_id VARCHAR(36) REFERENCES terminal_providers(id) ON DELETE SET NULL",
     "ALTER TABLE terminals ADD COLUMN IF NOT EXISTS provider_confidence NUMERIC(3,2)",
