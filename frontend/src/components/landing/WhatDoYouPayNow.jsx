@@ -179,7 +179,7 @@ export default function WhatDoYouPayNow() {
             <div className="mt-4 border-t border-gray-200 pt-4" role="status" aria-live="polite">
               <p className="text-[15px] text-gray-900 leading-[1.6]">
                 {t("landingCalcYouWrote", "Du har skrevet {sum} kr./md.", { sum: kr(theirs) })}{" "}
-                {t("landingCalcOurs", "BonBox Starter koster {p} kr./md. ekskl. MOMS.", {
+                {t("landingCalcOurs", "BonBox Starter koster {p} kr./md. Der lægges ikke moms oven i.", {
                   p: kr(starter),
                 })}
               </p>

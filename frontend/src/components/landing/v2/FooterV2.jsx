@@ -35,6 +35,13 @@ import BonBoxMark from "../../BonBoxMark";
 import { useLanguage } from "../../../hooks/useLanguage";
 
 // Registry values, not copy. Deliberately outside t().
+//
+// The RELATIONSHIP line above them is copy and does translate. Without it a
+// reader sees "DukaanAI" in the footer of a site called BonBox and has to guess
+// how the two connect — and anyone checking the CVR finds no BonBox in the
+// register, because BonBox is the product, not the registered entity. Saying so
+// plainly costs nothing, claims no rights in the name, and is the first thing
+// anyone reviewing the site for impersonation would look for.
 const LEGAL_LINES = [
   "DukaanAI v/Manoz Chaudhary",
   "CVR 46417321",
@@ -87,6 +94,9 @@ export default function FooterV2() {
             </span>
           </div>
           <address className="text-[13.5px] leading-[1.7] text-slate-600 not-italic">
+            <span className="block">
+              {t("landingV2.footer.operatedBy", "BonBox is a product of")}
+            </span>
             {LEGAL_LINES.map((line) => (
               <span key={line} className="block">
                 {line}
