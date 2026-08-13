@@ -2,6 +2,26 @@
 <html lang="da">
   <head>
     <meta charset="UTF-8" />
+    <!-- Chrome decides whether to offer/auto-apply translation from the STATIC
+         shell, long before React mounts. The shell ships lang="da" because
+         Denmark is the market and that is what crawlers index — but a returning
+         visitor whose stored language is English then loads a page Chrome has
+         already labelled Danish. With "always translate Danish" on, Chrome
+         translates the ENGLISH text React renders as if it were Danish, which
+         is how "Online" came out as "onion".
+
+         So correct the attribute here, synchronously, from the same
+         localStorage key the app uses — before Chrome's detector runs. React's
+         effect still sets it on every later switch; this only fixes the gap
+         between first paint and hydration. Wrapped in try/catch because
+         private mode can throw on localStorage access, and a blank page is a
+         worse outcome than a mistranslated one. -->
+    <script>
+      try {
+        var l = localStorage.getItem("lang");
+        if (l) document.documentElement.lang = l;
+      } catch (e) { /* private mode — keep the shell default */ }
+    </script>
     <!-- Favicon, in the order a crawler resolves it.
          /favicon.ico MUST exist as a real file: vercel.json rewrites /(.*) -> /
          for the SPA, so before this file existed a request for /favicon.ico
