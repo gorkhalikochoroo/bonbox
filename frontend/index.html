@@ -17,10 +17,33 @@
          private mode can throw on localStorage access, and a blank page is a
          worse outcome than a mistranslated one. -->
     <script>
-      try {
-        var l = localStorage.getItem("lang");
-        if (l) document.documentElement.lang = l;
-      } catch (e) { /* private mode — keep the shell default */ }
+      (function () {
+        var l = null;
+        // localStorage access alone can throw (private mode, blocked cookies).
+        // Scope the catch to JUST that read — an earlier version wrapped the
+        // whole block, so in private mode it bailed before the navigator
+        // fallback and left the shell mislabelled, which is the exact bug this
+        // guard exists to prevent.
+        try { l = localStorage.getItem("lang"); } catch (e) { l = null; }
+        if (!l) {
+          // FIRST VISIT (or no storage): the app is about to auto-pick from
+          // navigator.language — see detectInitialLanguage. Mirror only that
+          // step. The currency hint and the final "en" fallback are NOT
+          // mirrored: they need app state, and guessing wrong is worse here.
+          try {
+            var n = (navigator.language || "").toLowerCase();
+            var map = { da: "da", fo: "da", en: "en", ne: "np", np: "np",
+                        vi: "vi", th: "th", tr: "tr" };
+            l = map[n] || map[n.split("-")[0]] || null;
+          } catch (e) { l = null; }
+        }
+        // Never override the shell default with Danish-or-unknown: lang="da"
+        // is already right for crawlers and the Danish market. This guard
+        // exists to prevent a WRONG label, not to restate a correct one.
+        if (l && l !== "da") {
+          try { document.documentElement.lang = l; } catch (e) {}
+        }
+      })();
     </script>
     <!-- Favicon, in the order a crawler resolves it.
          /favicon.ico MUST exist as a real file: vercel.json rewrites /(.*) -> /
