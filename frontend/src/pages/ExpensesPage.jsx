@@ -616,12 +616,24 @@ export default function ExpensesPage() {
       setExpenses(prev => [optimisticRow, ...prev]);
       const submittedSnapshot = {
         amount, desc, method, notes, customCat, isPersonal, isTaxExempt, expDate,
+        catId,
       };
       setAmount("");
       setDesc("");
       // Keep the chosen method (sticky) — don't reset to card after each add.
       setNotes("");
       setCustomCat("");
+      // Clear the category too. It is NOT sticky, and leaving it set was
+      // silently mislabelling later entries: every seeder writes it (Smart-Scan
+      // prefill, suggestion apply, voice, the chip), submit reads it ungated,
+      // and the AI fallback below is gated on `!finalCatId` — so a stale value
+      // SUPPRESSES the correct one. Worse, `desc` is cleared and this was not,
+      // so finalDesc falls back to the category name: a coffee bought after one
+      // Husleje entry booked as category AND description "Husleje". That is what
+      // the revisor reads, and category drives the §42 fradrag weighting.
+      // Method stickiness is deliberate and has its own mechanism above; this
+      // never did — it was an omission, not a decision.
+      setCatId("");
       setIsPersonal(false);
       setIsTaxExempt(false);
       setExpDate(localIso());
@@ -646,6 +658,7 @@ export default function ExpensesPage() {
         setMethod(submittedSnapshot.method);
         setNotes(submittedSnapshot.notes);
         setCustomCat(submittedSnapshot.customCat);
+        setCatId(submittedSnapshot.catId);
         setIsPersonal(submittedSnapshot.isPersonal);
         setIsTaxExempt(submittedSnapshot.isTaxExempt);
         setExpDate(submittedSnapshot.expDate);

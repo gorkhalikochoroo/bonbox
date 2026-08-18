@@ -49,17 +49,38 @@ const PREFIX = "bonbox_sticky_method";
 // second barrier of the cash-honesty invariant (with PERSIST_ALLOW below), so
 // a tampered/stale "cash" value on the sale key can never be pre-lit. Do not
 // add "cash" to `sale` in either list.
+// The `expense` sets are the ids the backend actually vets for this feature
+// (recurring_expense.py's _ALLOWED_PAYMENT_METHODS = {cash, card, mobilepay,
+// bank_transfer}) and the ids the expense form now offers. They previously
+// listed "online"/"mixed"/"dankort" — values the schema rejects — and spelled
+// bank transfer "bankTransfer" (the i18n KEY) rather than "bank_transfer" (the
+// id). That mismatch meant tapping Bankoverførsel could never become sticky:
+// commitMethod's PERSIST_ALLOW check below returned early every time.
+// `sale` is untouched — its values are correct for that scope.
 const READ_ALLOW = {
   sale: ["card", "mobilepay", "online", "mixed", "dankort"],
-  expense: ["card", "cash", "mobilepay", "online", "mixed", "dankort", "bankTransfer"],
+  expense: ["card", "cash", "mobilepay", "bank_transfer"],
 };
 
 // What may be PERSISTED per scope. Note "cash" is absent from `sale` on
 // purpose (see the cash-honesty invariant above).
 const PERSIST_ALLOW = {
   sale: ["card", "mobilepay", "online", "mixed", "dankort"],
-  expense: ["card", "cash", "mobilepay", "online", "mixed", "dankort", "bankTransfer"],
+  expense: ["card", "cash", "mobilepay", "bank_transfer"],
 };
+
+// Accounts that used the expense form before the offered methods were narrowed
+// still hold one of the retired ids. Without this they fail the read guard and
+// silently become the scope DEFAULT, so an owner whose habit was dankort would
+// find no chip lit and — if they didn't notice — book against whatever the
+// default happens to be. Both retired card-type values map to the card they
+// always were. "mixed" has no honest single equivalent, so it is left to fall
+// through and be re-chosen.
+//
+// NOTHING may map to "cash". Inventing a cash payment would post a phantom
+// movement to the cashbook via sync_cash_out_for_expense — the cash-honesty
+// invariant above, applied in the other direction.
+const LEGACY_EXPENSE_ALIAS = { dankort: "card", online: "card" };
 
 // Fresh-account defaults. DK is cashless-first, so "card" is the value an
 // owner would pick anyway, and it posts nothing to the cashbook.
@@ -77,7 +98,13 @@ function keyFor(scope, uid) {
 export function getStickyMethod(scope, uid) {
   const fallback = DEFAULTS[scope] || "card";
   try {
-    const v = localStorage.getItem(keyFor(scope, uid));
+    let v = localStorage.getItem(keyFor(scope, uid));
+    // Translate a retired expense id before the guard, not after — after the
+    // guard it has already collapsed into the default and the owner's actual
+    // habit is lost.
+    if (v && scope === "expense" && LEGACY_EXPENSE_ALIAS[v]) {
+      v = LEGACY_EXPENSE_ALIAS[v];
+    }
     if (v && (READ_ALLOW[scope] || []).includes(v)) return v;
   } catch {
     /* localStorage unavailable — fall through to the default */
