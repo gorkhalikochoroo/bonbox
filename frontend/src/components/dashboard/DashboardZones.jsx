@@ -83,7 +83,20 @@ function Row({ children, className = "" }) {
   return (
     <div
       className={
-        "grid grid-cols-1 lg:grid-cols-2 gap-4 " + (className || "")
+        // AUTO-FIT, not a breakpoint step. `lg:grid-cols-2` snapped to two
+        // columns at 1024px and then never changed, so every pixel past that
+        // just inflated the cards — a 2560px screen showed two 1130px-wide
+        // cards and a page that felt stretched rather than designed.
+        //
+        // auto-fit + minmax lets the browser create as many columns as
+        // actually fit at ANY width, continuously: one column on a phone, two
+        // on a laptop, three or four on a large monitor, with no breakpoints
+        // to maintain. `min(100%, 420px)` is what keeps it safe on narrow
+        // screens — without it the 420px floor would overflow a 375px phone.
+        // Empty tracks collapse under auto-fit, so a Row holding two cards
+        // still renders two, never two-plus-a-hole.
+        "grid grid-cols-[repeat(auto-fit,minmax(min(100%,420px),1fr))] gap-4 " +
+        (className || "")
       }
       data-component="Row"
     >

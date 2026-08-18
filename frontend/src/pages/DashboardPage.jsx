@@ -611,7 +611,7 @@ export default function DashboardPage() {
         <div className="space-y-6">
           {/* Zone 1 skeleton: DailyBrief + 3-tile KPI strip */}
           <SkeletonCard />
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3">
             <SkeletonCard />
             <SkeletonCard />
             <SkeletonCard />

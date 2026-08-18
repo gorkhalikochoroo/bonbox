@@ -10,8 +10,9 @@
  *   • default  — the money pages (Sales, Expenses, Faktura, CashBook,
  *                BankImport). max-w-6xl (1152px). Entry card + KPIs +
  *                recent-table fits comfortably.
- *   • wide     — dashboards, reports, multi-column overviews. max-w-7xl
- *                (1280px). Charts get room.
+ *   • wide     — dashboards, reports, multi-column overviews. 1280px, and
+ *                up to 1728px from the 2xl breakpoint so a large monitor
+ *                does not fill with dead margin. See WIDTH below.
  *
  * The outer wrapper carries the page gutters (matching the doctrine spec
  * `p-4 sm:p-6`). The inner wrapper carries the max-width + vertical
@@ -33,7 +34,22 @@ import React from "react";
 const WIDTH = {
   narrow: "max-w-3xl",
   default: "max-w-6xl",
-  wide: "max-w-7xl",
+  // `wide` grows on large displays. max-w-7xl alone is a hard 1280px cap, so
+  // every pixel past ~1550 became dead margin: measured on a 1920 screen it
+  // left 208px of empty gutter each side, and 528px at 2560. The wider the
+  // monitor, the emptier the page looked — which is the opposite of what a
+  // dashboard should do with space.
+  //
+  // Capped at 1728px rather than removed, deliberately. With the cap off at
+  // 2560 the content reaches 2288px, but the grids inside are `lg:grid-cols-2`
+  // and `sm:grid-cols-3` — they stop adding columns past `lg`, so the extra
+  // width only stretches cards to ~1130px each. More space, no more
+  // information. 1728 fills a 1920 screen completely (224 sidebar + 48 gutters
+  // leaves 1648) while keeping cards a sane size on anything larger.
+  //
+  // Raising this further only helps once the dashboard grids gain a 2xl column
+  // step; until then it would just make the cards bigger.
+  wide: "max-w-7xl 2xl:max-w-[1728px]",
 };
 
 export default function PageShell({

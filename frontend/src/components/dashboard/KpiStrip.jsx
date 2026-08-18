@@ -169,7 +169,12 @@ export default function KpiStrip({
   return (
     <div
       className={
-        "grid grid-cols-1 sm:grid-cols-3 gap-3 " + (className || "")
+        // Fluid, not stepped. `sm:grid-cols-3` locked three columns from
+        // 640px upward, so the tiles stretched instead of the strip gaining
+        // density on a wide screen. auto-fit sizes to whatever fits, and
+        // min(100%,220px) keeps a single tile from overflowing a phone.
+        "grid grid-cols-[repeat(auto-fit,minmax(min(100%,220px),1fr))] gap-3 " +
+        (className || "")
       }
       data-zone="1"
       data-component="KpiStrip"
