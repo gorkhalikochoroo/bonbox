@@ -307,7 +307,7 @@ export default function GavekortPage() {
   }
 
   return (
-    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto space-y-6">
       <PageTitle t={t} />
       {/* Counter action: redeem a gavekort by scanning its QR. Deep-links the
           door scanner straight into gavekort mode (/scan?mode=gavekort) so

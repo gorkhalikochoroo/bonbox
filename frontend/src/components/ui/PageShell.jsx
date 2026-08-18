@@ -33,7 +33,12 @@ import React from "react";
 
 const WIDTH = {
   narrow: "max-w-3xl",
-  default: "max-w-6xl",
+  // Same ladder as `wide` below, one step down. max-w-6xl alone left 272px of
+  // dead margin each side on a 1920 screen across all eight money pages —
+  // the same defect the dashboard had, just less visible because these pages
+  // are denser. Tables and entry cards read fine at 1400; beyond that the
+  // line length starts to hurt, which is why this stops lower than `wide`.
+  default: "max-w-6xl 2xl:max-w-[1400px]",
   // `wide` grows on large displays. max-w-7xl alone is a hard 1280px cap, so
   // every pixel past ~1550 became dead margin: measured on a 1920 screen it
   // left 208px of empty gutter each side, and 528px at 2560. The wider the

@@ -509,7 +509,7 @@ export default function ReservationsPage() {
       className={
         isHostStand
           ? "space-y-4"
-          : "p-4 md:p-8 max-w-5xl xl:max-w-[1400px] mx-auto space-y-6"
+          : "p-4 md:p-8 max-w-5xl xl:max-w-[1400px] 2xl:max-w-[1728px] mx-auto space-y-6"
       }
     >
       {/* BookSection's own standalone wrapper already sets full-bleed padding

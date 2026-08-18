@@ -425,7 +425,7 @@ export default function StaffPayrollPage() {
      RENDER
      ═══════════════════════════════════════════════════════════ */
   return (
-    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto space-y-6">
       <PageHeader
         eyebrow="STAFF"
         title={t("payroll", "Payroll")}

@@ -111,7 +111,7 @@ export default function TimeRegistrationPage() {
   const totals = data?.totals || {};
 
   return (
-    <div className="p-4 sm:p-6 max-w-5xl mx-auto page-enter space-y-4">
+    <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto page-enter space-y-4">
       <PageHeader
         eyebrow={t("navStaff", "Staff")}
         title={t("tregTitle", "Tidsregistrering")}

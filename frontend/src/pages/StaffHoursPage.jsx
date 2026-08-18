@@ -322,7 +322,7 @@ export default function StaffHoursPage() {
   ];
 
   return (
-    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4 sm:space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto space-y-4 sm:space-y-6">
       <PageHeader
         eyebrow={t("shpEyebrow", "STAFF")}
         title={t("staffHours", "Staff Hours")}

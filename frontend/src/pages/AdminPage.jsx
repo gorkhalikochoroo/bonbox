@@ -117,7 +117,7 @@ export default function AdminPage() {
   const PIE_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6 pb-24">
+    <div className="p-4 sm:p-6 max-w-7xl 2xl:max-w-[1728px] mx-auto space-y-6 pb-24">
       {/* Admin-mode banner — visual reminder this is privileged */}
       <div className="bg-gray-50 dark:bg-gray-800/50 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 flex items-center justify-between flex-wrap gap-3">
         <div>

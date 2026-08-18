@@ -45,7 +45,7 @@ export default function WorkshopPage() {
   if (loading) return <div className="p-8 text-center text-gray-400">{t("loading") || "Loading..."}</div>;
 
   return (
-    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto space-y-6">
       <FadeIn>
         <div className="flex items-center justify-between">
           <div>
