@@ -1254,7 +1254,24 @@ export default function ExpensesPage() {
                 : t("customAmount")
             }
             amountSuffix={currency === "DKK" ? "kr." : currency}
-            paymentMethods={["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => ({ id: m, label: t(m) }))}
+            paymentMethods={
+              // Matched to the list the backend already vetted for the SAME
+              // feature: recurring_expense.py's _ALLOWED_PAYMENT_METHODS is
+              // {cash, card, mobilepay, bank_transfer}. This form offered
+              // online/mixed/dankort — three values that schema REJECTS — and
+              // omitted bank_transfer, which is how a Danish business actually
+              // pays most supplier invoices. So the same owner could pick
+              // bankoverførsel for a recurring supplier payment but not for the
+              // identical one-off. Dankort is a card anyway, and "mixed" says
+              // little about a single bill.
+              //
+              // This changes only what is OFFERED. Existing rows keep whatever
+              // value they were stored with and still render, since the labels
+              // remain in the catalogue.
+              ["cash", "card", "mobilepay", "bank_transfer"].map((m) => ({
+                id: m,
+                label: t(m === "bank_transfer" ? "bankTransfer" : m),
+              }))}
             paymentMethod={method}
             onPaymentChange={commitMethod}
             voiceInput={true}

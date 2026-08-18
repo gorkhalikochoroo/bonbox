@@ -4762,7 +4762,7 @@ const translations = {
     loadingTemplate: "Loading template...", done: "Done", go: "Go",
     // Expenses page extras
     detailed: "Detailed", quickMode: "Quick",
-    quickAmountAndGo: "Amount, payment & go — we'll set the category for you",
+    quickAmountAndGo: "Amount, payment & go — filed under Other, change it any time",
     backdated: "Backdated", customCategoryPlaceholder: "Custom category...",
     failedToLoadExpenses: "Failed to load expenses", failedToLoadCategories: "Failed to load categories",
     failedToSetupCategories: "Failed to set up categories", failedToAddExpense: "Failed to add expense",
@@ -12533,7 +12533,7 @@ const translations = {
     loadingTemplate: "Indlæser skabelon...", done: "Færdig", go: "Kør",
     // Expenses page extras
     detailed: "Detaljeret", quickMode: "Hurtig",
-    quickAmountAndGo: "Beløb, betaling & færdig — vi sætter kategori for dig",
+    quickAmountAndGo: "Beløb, betaling & færdig — bogføres som Andet, kan ændres",
     backdated: "Tilbagedateret", customCategoryPlaceholder: "Brugerdefineret kategori...",
     failedToLoadExpenses: "Kunne ikke indlæse udgifter", failedToLoadCategories: "Kunne ikke indlæse kategorier",
     failedToSetupCategories: "Kunne ikke oprette kategorier", failedToAddExpense: "Kunne ikke tilføje udgift",
@@ -16873,7 +16873,7 @@ const translations = {
     loadingTemplate: "टेम्प्लेट लोड हुँदैछ...", done: "सकियो", go: "जानुहोस्",
     // Expenses page extras
     detailed: "विस्तृत", quickMode: "छिटो",
-    quickAmountAndGo: "रकम, भुक्तानी र गो — हामी तपाईंको लागि कोटि छनोट गर्छौं",
+    quickAmountAndGo: "रकम, भुक्तानी र गो — Other मा राखिन्छ, पछि बदल्न सकिन्छ",
     backdated: "पछिल्लो मिति", customCategoryPlaceholder: "आफ्नो कोटि...",
     failedToLoadExpenses: "खर्च लोड गर्न सकिएन", failedToLoadCategories: "कोटिहरू लोड गर्न सकिएन",
     failedToSetupCategories: "कोटिहरू सेटअप गर्न सकिएन", failedToAddExpense: "खर्च थप्न सकिएन",
