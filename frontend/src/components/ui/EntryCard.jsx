@@ -96,6 +96,8 @@ export default function EntryCard({
   paymentMethod = null,
   onPaymentChange,
   voiceInput = false,
+  // Opt-in, and DESKTOP-ONLY by design — see the ref effect below.
+  autoFocusAmount = false,
   onVoiceClick = null,
   voiceIcon = null,
   extras = null,
@@ -142,6 +144,30 @@ export default function EntryCard({
     if (canSubmit && typeof onSubmit === "function") onSubmit();
   };
 
+  // Focus the amount field on load, but ONLY where there is no on-screen
+  // keyboard to force up.
+  //
+  // On a phone this would be actively harmful: the keyboard would cover most
+  // of the screen on arrival and push "Snap a receipt" — the genuinely faster
+  // way to log an expense — out of view, making the slower path the default.
+  // An owner who came to snap would have to dismiss a keyboard first.
+  //
+  // The check is coarse-pointer + narrow-viewport rather than a UA sniff, and
+  // it respects a user who is tabbing: if something is already focused we
+  // leave it alone.
+  const amountRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!autoFocusAmount) return;
+    if (typeof window === "undefined") return;
+    const coarse = window.matchMedia?.("(pointer: coarse)")?.matches;
+    if (coarse || window.innerWidth < 640) return;
+    const el = amountRef.current;
+    if (!el) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active !== el) return;
+    el.focus({ preventScroll: true });
+  }, [autoFocusAmount]);
+
   // Preset taps push the value as a string so the controlled <Input>
   // receives the exact same shape it would from user typing. This keeps
   // the parent's state machine simple — it's always a string.
@@ -180,6 +206,7 @@ export default function EntryCard({
         <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
           <div className="flex-1 min-w-0">
             <Input
+              ref={amountRef}
               type="number"
               inputMode="decimal"
               size="lg"

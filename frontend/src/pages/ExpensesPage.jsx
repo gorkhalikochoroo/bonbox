@@ -64,6 +64,40 @@ import FilterBar from "../components/ui/FilterBar";
 import { Mic, Camera, Pencil, Trash2, ChevronDown, ChevronUp, Receipt, ChevronRight, Layers } from "lucide-react";
 
 const QUICK_AMOUNTS = [100, 500, 1000];
+
+/** The three amounts THIS owner actually spends, most-frequent first.
+ *
+ *  The fixed 100/500/1.000 presets sat directly above the amount field — the
+ *  most valuable space in the form — and a real cafe expense is 347,50 or
+ *  1.284 or 89. A hurried owner scanned three buttons, matched none, and typed
+ *  anyway: a cost paid on every use for a payout that almost never came.
+ *
+ *  Recurring costs repeat though, so an owner's own history predicts far
+ *  better than a round number. Exact repeats only — no rounding or bucketing,
+ *  because a preset that inserts 350 when the real bill was 347,50 would put a
+ *  WRONG number in a money field, which is worse than no preset at all.
+ *
+ *  Falls back to the fixed set until there is enough history to beat it.
+ */
+function ownAmountPresets(expenses) {
+  const counts = new Map();
+  for (const e of expenses || []) {
+    const v = Number(e?.amount);
+    if (!Number.isFinite(v) || v <= 0) continue;
+    counts.set(v, (counts.get(v) || 0) + 1);
+  }
+  const repeated = [...counts.entries()]
+    .filter(([, n]) => n >= 2)                 // seen twice = a real pattern
+    .sort((a, b) => b[1] - a[1] || b[0] - a[0])  // pick by frequency
+    .slice(0, 3)
+    .map(([v]) => v)
+    // ...but RENDER ascending. The fixed presets read 100 · 500 · 1.000, and
+    // the eye scans that row left-to-right by size. Picking by frequency and
+    // showing largest-first would keep the relevance and throw away the scan
+    // pattern the owner already has.
+    .sort((a, b) => a - b);
+  return repeated.length === 3 ? repeated : QUICK_AMOUNTS;
+}
 const DEFAULT_CATEGORIES = ["Ingredients", "Rent", "Wages", "Utilities", "Supplies", "Other"];
 
 // Categories that only belong in Personal mode — hide from Business expense buttons
@@ -1245,7 +1279,8 @@ export default function ExpensesPage() {
             density="compact"
             title={t("addExpense")}
             hint={t("quickAmountAndGo")}
-            amountPresets={QUICK_AMOUNTS}
+            amountPresets={ownAmountPresets(expenses)}
+            autoFocusAmount
             amount={amount}
             onAmountChange={(v) => { setAmount(v); markTouched("amount"); markTouched("total"); }}
             amountPlaceholder={
