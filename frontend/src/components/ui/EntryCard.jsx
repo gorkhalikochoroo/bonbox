@@ -208,6 +208,19 @@ export default function EntryCard({
             <Input
               ref={amountRef}
               type="number"
+              // Without this, `step` defaults to 1 and every decimal amount is
+              // invalid BY SPEC, in every browser: 347.50 raised "Please enter
+              // a valid value. The two nearest valid values are 347 and 348."
+              // and blocked the Enter/implicit-submit path outright. An owner
+              // could not enter øre by keyboard at all. Verified on production.
+              //
+              // "any" rather than "0.01" on purpose. `step` only fires on the
+              // native submit path — the tap path calls preventDefault() in
+              // handleSubmit before the form ever submits — so a numeric step
+              // would be a validator that silently covers one of the two ways
+              // in. Better inert and honest than half-enforcing a money rule.
+              // A real bound belongs server-side, where both paths meet.
+              step="any"
               inputMode="decimal"
               size="lg"
               value={amount ?? ""}
