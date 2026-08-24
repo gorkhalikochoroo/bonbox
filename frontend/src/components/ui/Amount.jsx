@@ -25,9 +25,15 @@ import { formatOwnerMoney } from "../../utils/currency";
 
 // Only the money HERO earns bold + negative tracking; kpi is the dashboard
 // stat number; body is a slight emphasis; unset inherits the parent entirely.
+// Both display sizes step down on a phone and land back on the canonical
+// desktop size from sm: up, so tablet and desktop stay pixel-identical — the
+// same mobile-only rule StatCard's dense scale follows. A 30px hero and a 26px
+// kpi were desktop figures rendered unchanged on a 402pt screen, where a stack
+// of three "0 kr." cards could take more vertical room than the content under
+// them. The number still leads; it just stops shouting on a handset.
 const SIZE = {
-  hero: "text-[30px] font-bold leading-none tracking-tight",
-  kpi: "text-[26px] font-semibold leading-none tracking-tight",
+  hero: "text-[24px] sm:text-[30px] font-bold leading-none tracking-tight",
+  kpi: "text-[20px] sm:text-[26px] font-semibold leading-none tracking-tight",
   body: "font-medium",
 };
 

@@ -62,7 +62,18 @@ export default function PageHeader({
             {eyebrow}
           </p>
         )}
-        <h1 className="text-[28px] font-bold tracking-[-0.025em] text-gray-900 dark:text-gray-100 leading-tight">
+        {/* 22px on a phone, back to the canonical 28px from sm: up, so tablet
+            and desktop stay pixel-identical (the same mobile-only rule
+            StatCard's dense scale already follows).
+
+            28px everywhere was a desktop size shipped to a 402pt screen. This
+            header renders on 36 pages, and on several of them it stacks with an
+            eyebrow, a two-line subtitle, a tab row and a date stepper — so the
+            owner scrolled past a third of the viewport before reaching any
+            content. The comment on the actions block below already conceded the
+            problem ("a 28px H1 already eats most of an iPhone SE's content
+            width"); it was worked around there instead of fixed here. */}
+        <h1 className="text-[22px] sm:text-[28px] font-bold tracking-[-0.025em] text-gray-900 dark:text-gray-100 leading-tight">
           {title}
         </h1>
         {subtitle && (
