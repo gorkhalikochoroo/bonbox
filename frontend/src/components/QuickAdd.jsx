@@ -11,10 +11,45 @@ import { localIso } from "../utils/dateFormat";
 import { trackEvent } from "../hooks/useEventLog";
 import Chip from "./ui/Chip";
 import { useStickyMethod } from "../hooks/useStickyMethod";
+import { parseMoneyInput, moneyLocale, formatOwnerMoney } from "../utils/currency";
 // Lazy-load Smart Scan modal — only fetched when the owner taps the
 // "Smart skan" entry below. Keeps QuickAdd's bundle lean for owners
 // who use the keypad path 99% of the time.
 const SmartScanModal = lazy(() => import("./SmartScanModal"));
+
+/* Echo what we understood, under the field.
+ *
+ * This is the guard rail that REPLACES type="number". The browser used to
+ * refuse anything it could not represent — badly, by silently deleting the
+ * Danish decimal comma and turning 347,50 into 34750 — but it did at least
+ * refuse. A text field accepts everything, so the app now has to SHOW its
+ * reading: an owner who typed 1.234,56 and sees "= 1.234,56 kr." knows it
+ * landed, and one who mistyped sees an error instead of a green button.
+ *
+ * ReceiptCapture already works this way ("the figure on screen is
+ * byte-for-byte the figure we post"); this mirrors it. No new primitive —
+ * it is one <p> in the two states Input already models.
+ */
+function AmountEcho({ raw, value, currency, invalidLabel }) {
+  const typed = String(raw ?? "").trim();
+  if (!typed) return null;
+  const unreadable = !Number.isFinite(value);
+  return (
+    <p
+      className={
+        "mt-1.5 text-xs tabular-nums " +
+        (unreadable
+          ? "text-red-600 dark:text-red-400"
+          : "text-gray-500 dark:text-gray-400")
+      }
+      aria-live="polite"
+    >
+      {unreadable
+        ? invalidLabel
+        : "= " + formatOwnerMoney(value, currency || "DKK", { decimals: 2 })}
+    </p>
+  );
+}
 
 const INCOME_CATS = ["Salary", "Freelance", "Side Income", "Gift Received", "Borrowed"];
 const PERSONAL_CATEGORIES = [
@@ -138,12 +173,22 @@ export default function QuickAdd() {
     setTimeout(() => setError(""), 3000);
   };
 
+  // The parse locale comes from the account CURRENCY, never the UI language:
+  // a DKK café can switch the interface to English mid-service, and "1.234"
+  // must not change meaning when they do.
+  const moneyLoc = moneyLocale(user?.currency);
+  const saleAmountNum = parseMoneyInput(saleAmount, moneyLoc);
+  const expAmountNum = parseMoneyInput(expAmount, moneyLoc);
+  const pAmountNum = parseMoneyInput(pAmount, moneyLoc);
+
   const submitSale = async () => {
-    if (!saleAmount) return;
+    // Gate on the PARSED number, not on the raw string being non-empty.
+    // `if (!saleAmount)` let "abc" through to parseFloat -> NaN -> the API.
+    if (!Number.isFinite(saleAmountNum) || saleAmountNum <= 0) return;
     try {
       await api.post("/sales", {
         date: saleDate,
-        amount: parseFloat(saleAmount),
+        amount: saleAmountNum,
         payment_method: saleMethod,
       });
       setSaleAmount("");
@@ -158,7 +203,8 @@ export default function QuickAdd() {
   const submitExpense = async () => {
     // expMethod is part of the guard, not an optional extra — a business
     // expense posted without one is exactly the cash-drift bug.
-    if (!expAmount || !expCatId || !expDesc || !expMethod) return;
+    if (!Number.isFinite(expAmountNum) || expAmountNum <= 0) return;
+    if (!expCatId || !expDesc || !expMethod) return;
     // In-flight lock. There was none: the fields are cleared only AFTER
     // the await, so a second tap during a slow save posted the same
     // expense again — one of the two mechanisms behind the duplicate
@@ -169,7 +215,7 @@ export default function QuickAdd() {
       await api.post("/expenses", {
         category_id: expCatId,
         date: expDate,
-        amount: parseFloat(expAmount),
+        amount: expAmountNum,
         description: expDesc,
         is_recurring: false,
         payment_method: expMethod,
@@ -189,7 +235,8 @@ export default function QuickAdd() {
   };
 
   const submitPersonal = async () => {
-    if (!pAmount || !pCatId) return;
+    if (!Number.isFinite(pAmountNum) || pAmountNum <= 0) return;
+    if (!pCatId) return;
     if (posting) return;
     setPosting(true);
     const cat = categories.find((c) => c.id === pCatId);
@@ -197,7 +244,7 @@ export default function QuickAdd() {
       await api.post("/expenses", {
         category_id: pCatId,
         date: pDate,
-        amount: parseFloat(pAmount),
+        amount: pAmountNum,
         description: cat?.name || t("entry"),
         is_recurring: false,
         // Omitted entirely when unpicked — the server stores NULL rather
@@ -403,12 +450,20 @@ export default function QuickAdd() {
             </div>
 
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
               value={saleAmount}
               onChange={(e) => setSaleAmount(e.target.value)}
               placeholder={t("orTypeAmount")}
               className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-900"
               autoFocus
+            />
+
+            <AmountEcho
+              raw={saleAmount}
+              value={saleAmountNum}
+              currency={user?.currency}
+              invalidLabel={t("amountUnreadable")}
             />
 
             <div className="flex flex-wrap gap-1.5">
@@ -437,7 +492,7 @@ export default function QuickAdd() {
 
             <button
               onClick={submitSale}
-              disabled={!saleAmount}
+              disabled={!(saleAmountNum > 0)}
               className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("logSale")}
@@ -483,11 +538,19 @@ export default function QuickAdd() {
             </div>
 
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
               value={expAmount}
               onChange={(e) => setExpAmount(e.target.value)}
               placeholder={t("orTypeAmount")}
               className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-900"
+            />
+
+            <AmountEcho
+              raw={expAmount}
+              value={expAmountNum}
+              currency={user?.currency}
+              invalidLabel={t("amountUnreadable")}
             />
 
             <input
@@ -528,7 +591,7 @@ export default function QuickAdd() {
             <button
               onClick={submitExpense}
               aria-busy={posting}
-              disabled={posting || !expAmount || !expCatId || !expDesc || !expMethod}
+              disabled={posting || !(expAmountNum > 0) || !expCatId || !expDesc || !expMethod}
               className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("addExpense")}
@@ -574,12 +637,20 @@ export default function QuickAdd() {
             </div>
 
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
               value={pAmount}
               onChange={(e) => setPAmount(e.target.value)}
               placeholder={t("amountReceived")}
               className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-400"
               autoFocus
+            />
+
+            <AmountEcho
+              raw={pAmount}
+              value={pAmountNum}
+              currency={user?.currency}
+              invalidLabel={t("amountUnreadable")}
             />
 
             <input
@@ -606,7 +677,7 @@ export default function QuickAdd() {
             <button
               onClick={submitPersonal}
               aria-busy={posting}
-              disabled={posting || !pAmount || !pCatId}
+              disabled={posting || !(pAmountNum > 0) || !pCatId}
               className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("logIncome")}
@@ -652,12 +723,20 @@ export default function QuickAdd() {
             </div>
 
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
               value={pAmount}
               onChange={(e) => setPAmount(e.target.value)}
               placeholder={t("amountSpent")}
               className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-base bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-400"
               autoFocus
+            />
+
+            <AmountEcho
+              raw={pAmount}
+              value={pAmountNum}
+              currency={user?.currency}
+              invalidLabel={t("amountUnreadable")}
             />
 
             <input
@@ -684,7 +763,7 @@ export default function QuickAdd() {
             <button
               onClick={submitPersonal}
               aria-busy={posting}
-              disabled={posting || !pAmount || !pCatId}
+              disabled={posting || !(pAmountNum > 0) || !pCatId}
               className="w-full bg-gray-900 text-white py-3 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
               {t("logExpense")}

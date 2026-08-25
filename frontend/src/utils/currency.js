@@ -604,3 +604,153 @@ export function parseLocaleAmount(raw, locale = "da-DK") {
   if (!Number.isFinite(n)) return NaN;
   return negative ? -n : n;
 }
+
+/* ─────────────────────────── parseMoneyInput ──────────────────────────
+ * The STRICT sibling of parseLocaleAmount, for money fields an owner TYPES.
+ *
+ * parseLocaleAmount salvages a number out of human noise — correct for a
+ * speech transcript, catastrophic for a field whose value goes straight
+ * into the books. Measured, under da-DK:
+ *
+ *     "1.234.56"     -> 123456       a one-character typo for 1.234,56
+ *     ",50"          -> 50           meant fifty øre
+ *     "347-50"       -> 34750
+ *     "18-08 347,50" -> 1808347.5    a pasted receipt line
+ *
+ * Every one is > 0, so a `parsed > 0` submit gate lights up green on all of
+ * them. This parser VALIDATES SHAPE FIRST and returns NaN for anything that
+ * is not a single well-formed money string, so the caller refuses instead of
+ * booking a guess. A rejected input is cheap and visible — the field shows an
+ * error and the owner retypes. A wrong number in the ledger is neither.
+ *
+ * `locale` must come from the account CURRENCY via moneyLocale(), never from
+ * the UI chrome language: a DKK café can switch the interface to English
+ * mid-session, and "1.234" must not change meaning when they do.
+ *
+ * Accepted (after one optional leading/trailing "kr."/"DKK" and a trailing ",-"):
+ *     347        347,50      347.50      0,5       -99,50     347,-
+ *     ,50  .50   (leading separator = øre: 1-2 digits only)
+ *     1.234,56   1,234.56    1 234,56    1 234 567,89
+ *     1.234      2.000       10.000      (3-digit tail: the MONEY locale decides)
+ *
+ * Refused (NaN):
+ *     any character outside [0-9 . , space] plus one leading sign
+ *     a group that is not exactly 3 digits    "1.234.56"  "1,5,0"  "1.2345"
+ *     mixed grouping separators               "1.234 567"
+ *     more than 2 fraction digits             "347,555"   ".005"
+ *     a grouped number with a leading-zero group          "0.134"
+ *     a dangling separator                    "347,"      "1."
+ *     a 3-digit tail the money locale reads as a DECIMAL — money has at most
+ *     2 fraction digits, so "1,234" under da-DK and "1.234" under en-US are
+ *     both refused rather than silently read as 1.234 kr.
+ *
+ * Never throws. Never returns a non-finite number.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+// Currencies that write the decimal with "." (so "," groups). Everything else
+// — DKK included — parses as da-DK. Denmark-first fails safe.
+const _DOT_DECIMAL_CURRENCY =
+  /^(USD|GBP|CAD|AUD|NZD|NPR|INR|JPY|CNY|HKD|SGD|MXN|PHP|THB|MYR|KRW|ILS)$/;
+
+export function moneyLocale(currencyCode) {
+  return _DOT_DECIMAL_CURRENCY.test(String(currencyCode || "DKK").toUpperCase())
+    ? "en-US"
+    : "da-DK";
+}
+
+export function parseMoneyInput(raw, locale = "da-DK") {
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : NaN;
+  if (raw == null) return NaN;
+
+  // Normalise the space characters a paste can carry (NBSP, narrow NBSP, thin).
+  let s = String(raw).replace(/[\u00A0\u202F\u2009]/g, " ").trim();
+
+  // One optional currency token at either end, and the Danish ",-" ending.
+  s = s
+    .replace(/^(?:kr\.?|DKK)\s*/i, "")
+    .replace(/\s*(?:kr\.?|DKK)$/i, "")
+    .replace(/\s*,-$/, "")
+    .trim();
+  if (!s) return NaN;
+
+  let negative = false;
+  if (s[0] === "-" || s[0] === "+") {
+    negative = s[0] === "-";
+    s = s.slice(1).trim();
+  }
+  if (!s) return NaN;
+
+  // Whitelist. Anything else — letters, a second sign, a dash used as a
+  // separator, unicode digits, an "e" exponent — is not money.
+  if (!/^[\d.,\s]+$/.test(s)) return NaN;
+  if (!/\d/.test(s)) return NaN;
+
+  // Leading bare separator: the owner omitted the zero. ",50" = 0,50.
+  // Capped at 2 digits so ",500" cannot be read as fifty kroner.
+  if (/^[.,]/.test(s)) {
+    const m = /^[.,](\d{1,2})$/.exec(s);
+    if (!m) return NaN;
+    const v = parseFloat("0." + m[1]);
+    return negative ? -v : v;
+  }
+
+  const commaDecimal = _COMMA_DECIMAL_LOCALE.test(String(locale || "da-DK"));
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+
+  // Which separator (if any) is the decimal point?
+  let decimalSep = null;
+  if (hasComma && hasDot) {
+    // Both present: the rightmost is the decimal, the other groups.
+    decimalSep = s.lastIndexOf(",") > s.lastIndexOf(".") ? "," : ".";
+  } else if (hasComma || hasDot) {
+    const sep = hasComma ? "," : ".";
+    const occurrences = s.split(sep).length - 1;
+    const tail = s.slice(s.lastIndexOf(sep) + 1);
+    if (occurrences > 1) {
+      decimalSep = null; // repeated ⇒ grouping
+    } else if (tail.length === 1 || tail.length === 2) {
+      decimalSep = sep;
+    } else if (tail.length === 3) {
+      // Genuinely ambiguous — "1.234" is 1234 in DK and 1.234 in EN. The money
+      // locale decides. If it resolves to a DECIMAL point, that is a 3-digit
+      // fraction, which money does not have: refuse rather than guess.
+      if (commaDecimal ? sep === "," : sep === ".") return NaN;
+      decimalSep = null;
+    } else {
+      return NaN; // dangling separator, or a 4+ digit tail
+    }
+  }
+
+  let intPart = s;
+  let fracPart = "";
+  if (decimalSep) {
+    const i = s.lastIndexOf(decimalSep);
+    intPart = s.slice(0, i);
+    fracPart = s.slice(i + 1);
+    if (!/^\d{1,2}$/.test(fracPart)) return NaN;
+  }
+
+  let digits;
+  if (/^\d+$/.test(intPart)) {
+    digits = intPart;
+  } else {
+    // Grouped: exactly one kind of separator, a 1-3 digit lead with no leading
+    // zero, and every following group exactly 3 digits.
+    const seps = new Set(intPart.replace(/\d/g, "").split(""));
+    if (seps.size !== 1) return NaN;
+    const g = [...seps][0];
+    if (g === decimalSep) return NaN;
+    const parts = intPart.split(g);
+    if (parts.length < 2) return NaN;
+    if (!/^[1-9]\d{0,2}$/.test(parts[0])) return NaN;
+    for (let k = 1; k < parts.length; k++) {
+      if (!/^\d{3}$/.test(parts[k])) return NaN;
+    }
+    digits = parts.join("");
+  }
+
+  const n = parseFloat(fracPart ? digits + "." + fracPart : digits);
+  if (!Number.isFinite(n)) return NaN;
+  return negative ? -n : n;
+}
