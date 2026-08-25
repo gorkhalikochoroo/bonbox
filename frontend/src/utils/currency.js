@@ -682,7 +682,11 @@ export function parseMoneyInput(raw, locale = "da-DK") {
 
   // Whitelist. Anything else — letters, a second sign, a dash used as a
   // separator, unicode digits, an "e" exponent — is not money.
-  if (!/^[\d.,\s]+$/.test(s)) return NaN;
+  // Plain space ONLY — not \s. \s admits \n and \t, and the grouping branch
+  // below would then read them as thousands separators: a pasted two-line
+  // value "347\n123" parsed as 347123. Leading/trailing newlines are already
+  // gone via trim(), so this only rejects INTERIOR ones, which is the point.
+  if (!/^[\d.,\u0020]+$/.test(s)) return NaN;
   if (!/\d/.test(s)) return NaN;
 
   // Leading bare separator: the owner omitted the zero. ",50" = 0,50.
@@ -752,5 +756,14 @@ export function parseMoneyInput(raw, locale = "da-DK") {
 
   const n = parseFloat(fracPart ? digits + "." + fracPart : digits);
   if (!Number.isFinite(n)) return NaN;
+
+  // Beyond 2^53 øre a float silently rounds — "9007199254740993" came back as
+  // ...992, and "99999999999999999,99" as 1e17 with the øre gone entirely.
+  // A rounded amount is a wrong amount, so refuse rather than book it. The
+  // ceiling is ~90.071.992.547.409 kr, far above any real entry.
+  if (!Number.isSafeInteger(Math.round(n * 100))) return NaN;
+
+  // Never hand back -0: it survives arithmetic and can render as "-0,00 kr.".
+  if (n === 0) return 0;
   return negative ? -n : n;
 }

@@ -164,6 +164,36 @@ describe("boundaries", () => {
   );
 });
 
+// ── 6b. cases an adversarial sweep found returning a WRONG NUMBER ──────
+//
+// These are not hypotheticals. The first implementation returned a plausible
+// number for every one of them, which is the exact failure this parser exists
+// to prevent — worse than the type="number" bug it replaced, because the value
+// looks reasonable.
+describe("regressions: inputs that used to parse to a wrong number", () => {
+  it("does not read an interior newline as a thousands separator", () => {
+    expect(da("347\n123")).toBeNaN();   // returned 347123
+    expect(da("347\t123")).toBeNaN();   // returned 347123
+    expect(da("347,50\n125,00")).toBeNaN();
+  });
+
+  it("refuses amounts that a float cannot hold exactly in øre", () => {
+    expect(da("9007199254740993")).toBeNaN();        // returned ...992
+    expect(da("99999999999999999,99")).toBeNaN();    // returned 1e17, øre gone
+    expect(da("1234567890123456789012")).toBeNaN();
+  });
+
+  it("still accepts any amount a real business would type", () => {
+    expect(da("999999,99")).toBeCloseTo(999999.99, 9);
+    expect(da("1.234.567,89")).toBeCloseTo(1234567.89, 9);
+  });
+
+  it("never returns -0", () => {
+    expect(Object.is(da("-0,00"), -0)).toBe(false);
+    expect(da("-0,00")).toBe(0);
+  });
+});
+
 // ── 7. never throws, never returns non-finite ──────────────────────────
 describe("it never throws and never returns a non-finite number", () => {
   const hostile = [
