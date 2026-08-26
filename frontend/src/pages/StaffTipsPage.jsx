@@ -6,7 +6,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
-import { formatDate, localIso, localDaysAgo } from "../utils/dateFormat";
+import { formatDate, localIso, localDaysAgo, dateLocale } from "../utils/dateFormat";
 import { FadeIn, AnimatedCard, StaggerContainer, StaggerItem } from "../components/AnimationKit";
 import { PageHeader, TabPills, Icon } from "../components/ui";
 import { errText } from "../utils/errText";
@@ -714,7 +714,7 @@ function TipHistoryView({ data, currency, t, onRefresh }) {
                   <div className="flex items-start justify-between">
                     <div>
                       <h3 className="font-bold dark:text-white">
-                        {tip.date ? new Date(tip.date).toLocaleDateString("en-GB", {
+                        {tip.date ? new Date(tip.date).toLocaleDateString(dateLocale(), {
                           weekday: "short", day: "numeric", month: "short", year: "numeric",
                         }) : t("stUnknownDate", "Unknown date")}
                       </h3>

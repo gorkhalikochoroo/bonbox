@@ -2,6 +2,7 @@
 // info banners → SectionBanner, summary stats → StatCard grid, primary
 // CTAs → Button variants. Behavior + i18n + a11y unchanged.
 import { useState, useEffect, useMemo } from "react";
+import { dateLocale } from "../utils/dateFormat";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -22,7 +23,7 @@ function getMonthStr(date) {
 function formatMonth(str) {
   const [y, m] = str.split("-");
   const d = new Date(+y, +m - 1);
-  return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  return d.toLocaleDateString(dateLocale(), { month: "long", year: "numeric" });
 }
 
 export default function BudgetPage() {

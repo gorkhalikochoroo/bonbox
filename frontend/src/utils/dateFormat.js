@@ -42,6 +42,32 @@ const MONTHS_BY_LOCALE = {
   no: ["Jan", "Feb", "Mar", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Des"],
 };
 
+/**
+ * The BCP-47 tag to hand toLocaleDateString / toLocaleString.
+ *
+ * Twelve call sites across the app hardcoded "en-GB" or "en-US", so a Danish
+ * owner read "Wednesday, 26 August 2026" under a fully Danish UI — including on
+ * the MOMS/SKAT deadline card. Verified on device: switching the app to Dansk
+ * translated every label and left the date in English.
+ *
+ * Deliberately NOT the same thing as formatDateClearFull(): that one drops the
+ * weekday and abbreviates the month, so it is not a drop-in for call sites that
+ * ask for `weekday: "long"`. This keeps each call's own options and only fixes
+ * WHICH locale renders them.
+ *
+ * A plain function rather than a hook so the module-level helpers
+ * (StaffHoursPage's fmtDate, BudgetPage's month label) can use it too.
+ */
+const BCP47_BY_LANG = {
+  da: "da-DK", en: "en-GB", de: "de-DE", fr: "fr-FR", es: "es-ES",
+  nl: "nl-NL", sv: "sv-SE", no: "nb-NO", pt: "pt-PT", it: "it-IT",
+  ja: "ja-JP", vi: "vi-VN", th: "th-TH", tr: "tr-TR", np: "ne-NP",
+};
+
+export function dateLocale() {
+  return BCP47_BY_LANG[detectLocale()] || "en-GB";
+}
+
 function detectLocale() {
   if (typeof navigator === "undefined") return "en";
   // "lang" is what the provider writes (useLanguage.jsx). This read used to

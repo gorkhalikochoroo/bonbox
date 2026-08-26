@@ -43,7 +43,7 @@ import {
 import ReceiptCapture from "../components/ReceiptCapture";
 import SmartSaleInput from "../components/SmartSaleInput";
 import { displayCurrency, getTaxConfig } from "../utils/currency";
-import { localIso } from "../utils/dateFormat";
+import { localIso, dateLocale } from "../utils/dateFormat";
 
 // ── Phase A artifacts + extracted zone cards ──
 import DashboardZones from "../components/dashboard/DashboardZones";
@@ -756,7 +756,7 @@ export default function DashboardPage() {
         <PageHeader
           eyebrow={t("home", "HOME").toUpperCase()}
           title={greetingTitle}
-          subtitle={new Date().toLocaleDateString("en-GB", {
+          subtitle={new Date().toLocaleDateString(dateLocale(), {
             weekday: "long",
             day: "numeric",
             month: "long",

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { dateLocale } from "../utils/dateFormat";
 import { useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -2285,7 +2286,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl px-3 py-2 flex items-center gap-2 mb-3 border border-indigo-100 dark:border-indigo-800">
             <Icon name="Moon" size={14} className="text-indigo-600 dark:text-indigo-300" />
             <p className="text-xs text-indigo-600 dark:text-indigo-300">
-              <strong>{t("nightShiftLabel", "Night shift:")}</strong> {t("nightShiftClosingFor", "closing for {date} (cutoff {hour}:00 AM)", { date: new Date(businessDate + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }), hour: cutoffHour })}
+              <strong>{t("nightShiftLabel", "Night shift:")}</strong> {t("nightShiftClosingFor", "closing for {date} (cutoff {hour}:00 AM)", { date: new Date(businessDate + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" }), hour: cutoffHour })}
             </p>
           </div>
         )}
@@ -2512,7 +2513,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             <div className="flex items-center gap-2 text-sm dark:text-gray-300">
               <Icon name="Calendar" size={14} className="text-gray-500 dark:text-gray-400" />
               <span className="font-medium">
-                {new Date(businessDate + "T12:00:00").toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+                {new Date(businessDate + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
               </span>
               {businessDate !== getBusinessDate(cutoffHour) && (
                 <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded font-semibold">{t("pastDate")}</span>
@@ -3735,7 +3736,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 <>
                   {" "}
                   {t("dcRangeMostRecent", "Your most recent close was {date}.", {
-                    date: new Date(mostRecentCloseDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }),
+                    date: new Date(mostRecentCloseDate).toLocaleDateString(dateLocale(), { day: "numeric", month: "short", year: "numeric" }),
                   })}
                 </>
               )}
@@ -3803,7 +3804,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="font-bold dark:text-white">
-                    {new Date(dc.date).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
+                    {new Date(dc.date).toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
                   </h3>
                   {(dc.status || "confirmed") === "confirmed" ? (
                     <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded font-semibold inline-flex items-center gap-1"><Icon name="Lock" size={11} /> {t("dcStatusLocked", "Locked")}</span>
@@ -4208,7 +4209,7 @@ function CalendarHeatMap({ data, currency }) {
         {hovered ? (
           <p className="text-xs text-gray-500 dark:text-gray-400">
             <span className="font-medium dark:text-gray-300">
-              {new Date(hovered.ds + "T12:00:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}
+              {new Date(hovered.ds + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" })}
             </span>
             {hovered.dc ? (
               mode === "revenue"

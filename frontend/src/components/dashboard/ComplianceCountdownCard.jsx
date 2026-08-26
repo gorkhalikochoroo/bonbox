@@ -23,6 +23,7 @@
  *   • DK terminology lock — MOMS / afregningsfrist stay Danish across languages.
  */
 import React, { useEffect, useState } from "react";
+import { dateLocale } from "../../utils/dateFormat";
 import { Link } from "react-router-dom";
 import {
   Calendar,
@@ -39,7 +40,7 @@ import { formatKr } from "../../utils/currency";
 function fmtDate(iso) {
   if (!iso) return "";
   try {
-    return new Date(iso + "T00:00:00").toLocaleDateString("en-GB", {
+    return new Date(iso + "T00:00:00").toLocaleDateString(dateLocale(), {
       day: "numeric",
       month: "short",
       year: "numeric",

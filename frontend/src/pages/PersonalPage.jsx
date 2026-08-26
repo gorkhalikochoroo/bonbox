@@ -3,7 +3,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
-import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
+import { formatDate, formatDateShort, localIso, dateLocale } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
 
 const PERSONAL_CATEGORIES = [
@@ -422,7 +422,7 @@ export default function PersonalPage() {
         <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-5">
           <div className="text-center border-b border-gray-100 dark:border-gray-700 pb-4">
             <p className="text-xs text-gray-400 uppercase tracking-wider">{t("monthlyReport")}</p>
-            <p className="text-lg font-bold text-gray-800 dark:text-white mt-1">{new Date(filterMonth + "-01").toLocaleDateString("en-US", { month: "long", year: "numeric" })}</p>
+            <p className="text-lg font-bold text-gray-800 dark:text-white mt-1">{new Date(filterMonth + "-01").toLocaleDateString(dateLocale(), { month: "long", year: "numeric" })}</p>
           </div>
 
           {/* Summary Cards */}

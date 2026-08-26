@@ -2,6 +2,7 @@
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { dateLocale } from "../utils/dateFormat";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -17,13 +18,13 @@ import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner } from "../
 function fmtDate(iso) {
   if (!iso) return "";
   const d = new Date(iso + "T00:00:00");
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return d.toLocaleDateString(dateLocale(), { day: "numeric", month: "short" });
 }
 
 function fmtDateFull(iso) {
   if (!iso) return "";
   const d = new Date(iso + "T00:00:00");
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  return d.toLocaleDateString(dateLocale(), { day: "numeric", month: "short", year: "numeric" });
 }
 
 function fmtPeriod(from, to) {
