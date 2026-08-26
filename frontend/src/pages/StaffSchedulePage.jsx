@@ -1795,7 +1795,19 @@ export default function StaffSchedulePage() {
               >
                 {autopilotLoading
                   ? t("autopilotRunning", "…")
-                  : t("autopilotButton", "Autopilot")}
+                  : (<>
+                      {/* Its three siblings in this row all collapse to a short
+                          label below sm:; this one did not, and it is what
+                          pushed the row past 402pt. The row IS horizontally
+                          scrollable by design, but the scrollbar is hidden
+                          (scrollbar-width:none here, and index.css suppresses
+                          it on coarse pointers), so the overflow read as a
+                          rendering bug: the Publish button sliced mid-word to
+                          "Publishe". Fixing the width is better than adding a
+                          scroll hint for a row that should simply fit. */}
+                      <span className="hidden sm:inline">{t("autopilotButton", "Autopilot")}</span>
+                      <span className="sm:hidden">{t("autopilotShort")}</span>
+                    </>)}
               </Button>
               <Button
                 variant={draftCount > 0 ? "accent" : "secondary"}
