@@ -3236,6 +3236,7 @@ const translations = {
     yesterdayCopied: "Yesterday's sale copied to today!", noYesterdaySale: "No sale found for yesterday",
     // Sales
     salesTracker: "Sales Tracker", logSale: "Log Today's Sale",
+    logSaleForDate: "Log sale for {date}",
     tapAmount: "Tap an amount or type your own", customAmount: "Custom amount...", log: "Log",
     recentSales: "Recent Sales", date: "Date", amount: "Amount", payment: "Payment",
     importCsv: "Import from CSV", csvColumns: "Columns: date, amount, payment_method (optional)",
@@ -11032,6 +11033,7 @@ const translations = {
     yesterdayCopied: "Gårsdagens salg kopieret til i dag!", noYesterdaySale: "Intet salg fundet for i går",
     // Sales
     salesTracker: "Salgsregistrering", logSale: "Registrer dagens salg",
+    logSaleForDate: "Registrer salg for {date}",
     tapAmount: "Tryk på et beløb eller skriv dit eget", customAmount: "Brugerdefineret beløb...",
     log: "Registrer", recentSales: "Seneste salg", date: "Dato", amount: "Beløb",
     payment: "Betaling", noSalesYet: "Ingen salg endnu — tryk på et beløb ovenfor!",

@@ -43,7 +43,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useStickyMethod } from "../hooks/useStickyMethod";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
-import { displayCurrency, getTaxConfig, formatOwnerMoney, parseLocaleAmount } from "../utils/currency";
+import { displayCurrency, getTaxConfig, formatOwnerMoney, parseLocaleAmount, parseMoneyInput, moneyLocale } from "../utils/currency";
 import { formatDate, localIso } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn } from "../components/AnimationKit";
@@ -189,6 +189,11 @@ export default function ExpensesPage() {
   const [fxOpen, setFxOpen] = useState(false);
   const [fxCurrency, setFxCurrency] = useState("USD");
   const [fxOriginalAmount, setFxOriginalAmount] = useState("");
+  // Money in a foreign currency is still money the OWNER types, so it parses
+  // with the account's notation (a Dane writes 1.234,56 whatever the currency
+  // is). The fx RATE below stays type="number" + parseFloat — a rate carries
+  // 6 decimals and a leading zero, which a money parser correctly refuses.
+  const fxOriginalAmountNum = parseMoneyInput(fxOriginalAmount, moneyLocale(currency));
   const [fxRate, setFxRate] = useState("");
   const [fxLiveRate, setFxLiveRate] = useState(null);
   const [fxLoading, setFxLoading] = useState(false);
@@ -249,7 +254,7 @@ export default function ExpensesPage() {
     return FX_FALLBACK_TO_DKK[fxCurrency] || null;
   })();
   const fxConvertedAccount = (() => {
-    const orig = parseFloat(fxOriginalAmount);
+    const orig = fxOriginalAmountNum;
     if (isNaN(orig) || !fxEffectiveRate) return null;
     return orig * fxEffectiveRate;
   })();
@@ -528,8 +533,7 @@ export default function ExpensesPage() {
       && fxOpen
       && fxCurrency
       && fxCurrency.toUpperCase() !== accountCcy
-      && !isNaN(parseFloat(fxOriginalAmount))
-      && parseFloat(fxOriginalAmount) > 0
+      && fxOriginalAmountNum > 0
       && typeof fxEffectiveRate === "number"
       && fxEffectiveRate > 0;
     const value = isForeign
@@ -599,7 +603,7 @@ export default function ExpensesPage() {
       if (isForeign) {
         payload.currency = fxCurrency.toUpperCase();
         payload.fx_rate = Number(fxEffectiveRate.toFixed(6));
-        payload.original_amount = parseFloat(fxOriginalAmount);
+        payload.original_amount = fxOriginalAmountNum;
       }
       // Optimistic insert so the new row appears at the top of the
       // table instantly, even on a slow POST (Render cold-start can be
@@ -669,7 +673,7 @@ export default function ExpensesPage() {
         isForeign ? "expense_logged_fx" : "expense_logged",
         "expenses",
         isForeign
-          ? `${parseFloat(fxOriginalAmount)} ${fxCurrency} → ${value} ${currency}`
+          ? `${fxOriginalAmountNum} ${fxCurrency} → ${value} ${currency}`
           : `${value} ${currency}`,
       );
       setSuccess(`${formatOwnerMoney(value, currency)}${isBackdated ? ` (${formatDate(submittedSnapshot.expDate)})` : ""}!`);
@@ -900,9 +904,8 @@ export default function ExpensesPage() {
           <div className="mt-2 p-3 rounded-lg border border-amber-200 dark:border-amber-700/40 bg-amber-50/40 dark:bg-amber-900/10 space-y-2">
             <div className="flex items-center gap-2">
               <input
-                type="number"
-                step="0.01"
-                min="0"
+                type="text"
+                inputMode="decimal"
                 value={fxOriginalAmount}
                 onChange={(e) => setFxOriginalAmount(e.target.value)}
                 placeholder={t("fx.originalAmountPlaceholder", "Original amount")}
@@ -945,7 +948,7 @@ export default function ExpensesPage() {
               <p className="text-sm font-semibold text-gray-900 dark:text-white">
                 ≈ <Amount value={fxConvertedAccount} currency={currency} decimals={2} />
                 <span className="ml-1 text-xs font-normal text-gray-500 dark:text-gray-400">
-                  ({parseFloat(fxOriginalAmount || 0)} {fxCurrency} ×{" "}
+                  ({Number.isFinite(fxOriginalAmountNum) ? fxOriginalAmountNum : 0} {fxCurrency} ×{" "}
                   {typeof fxEffectiveRate === "number"
                     ? fxEffectiveRate.toLocaleString(undefined, { maximumFractionDigits: 6 })
                     : "—"})

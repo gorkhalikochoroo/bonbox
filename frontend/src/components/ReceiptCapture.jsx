@@ -8,7 +8,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { localIso } from "../utils/dateFormat";
-import { displayCurrency, formatOwnerMoney } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, parseMoneyInput, moneyLocale } from "../utils/currency";
 import { useAuth } from "../hooks/useAuth";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
@@ -113,16 +113,23 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   const isForeign = Boolean(
     isExpense && scanCurrency && scanCurrency !== String(accountCcy).toUpperCase(),
   );
-  // parseFloat, NOT parseLocaleAmount. Both of these come from
-  // <input type="number">, whose .value the browser has already
-  // normalised to canonical dot-decimal regardless of the user's locale.
-  // Re-reading that through the Danish text parser is actively wrong: it
-  // treats a 3-digit tail as a thousands group, so an FX rate of "0.134"
-  // parses as 134 and a 745,50 receipt books as 99.897 instead of 99,90.
-  // parseLocaleAmount is for HUMAN text — speech transcripts, free-text
-  // fields — where "1.234" really might mean one thousand.
+  // These two are read DIFFERENTLY on purpose.
+  //
+  // fxRate is a RATE, not money: it legitimately carries 4+ decimals and a
+  // leading zero ("0.1340"). It stays <input type="number"> and stays on
+  // parseFloat. Routing it through a money parser would be actively wrong —
+  // parseMoneyInput refuses a 3-digit fraction and a leading-zero group, so
+  // "0.134" would come back NaN. The older note here warned about exactly
+  // this; the warning still holds for the rate.
+  //
+  // amount IS money and is now <input type="text">, because type="number"
+  // silently deleted the Danish decimal comma: a 347,50 receipt total became
+  // 34750. So it reads through parseMoneyInput, which validates shape before
+  // interpreting and returns NaN rather than guessing. Parsed ONCE here and
+  // used everywhere below, so the value gated on is the value posted.
   const fxRateNum = parseFloat(fxRate);
-  const originalAmountNum = parseFloat(amount);
+  const amountNum = parseMoneyInput(amount, moneyLocale(accountCcy));
+  const originalAmountNum = amountNum;
   // Rounded to the øre HERE, so the figure on screen is byte-for-byte
   // the figure we post. Showing 99,897 while booking 99,90 is a small
   // lie, and "99.897" also reads as ninety-nine thousand under Danish
@@ -249,10 +256,10 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   };
 
   const confirmSale = async () => {
-    if (!amount || !result) return;
+    if (!(amountNum > 0) || !result) return;
     await api.post("/sales/from-receipt", null, {
       params: {
-        amount: parseFloat(amount),
+        amount: amountNum,
         receipt_path: result.filepath,
         payment_method: method,
       },
@@ -263,7 +270,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
   };
 
   const confirmExpense = async () => {
-    if (!amount) return;
+    if (!(amountNum > 0)) return;
     // Use OCR-parsed date when available, else today. Owner sees the
     // date field rendered below before confirming so they can override.
     // No fallback to today: an unreadable date is a question we asked
@@ -273,7 +280,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
     const payload = {
       // Always the ACCOUNT-currency figure — that is what every MOMS,
       // dashboard and bilag path downstream consumes.
-      amount: isForeign ? fxConverted : parseFloat(amount),
+      amount: isForeign ? fxConverted : amountNum,
       description: desc || t("receiptScanDefaultDesc"),
       date: expenseDate,
       payment_method: method,
@@ -637,13 +644,26 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                 })()}
 
                 <input
-                  type="number"
+                  type="text"
+                  inputMode="decimal"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder={t("enterTotal")}
-                  className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-gray-900 mb-3"
+                  className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
                   autoFocus
                 />
+                {/* This file's own rule — "the figure on screen is byte-for-byte
+                    the figure we post" — now applies to the typed total too. */}
+                {String(amount).trim() !== "" && (
+                  <p className={"mt-1.5 mb-3 text-xs tabular-nums " + (Number.isFinite(amountNum)
+                    ? "text-gray-500 dark:text-gray-400"
+                    : "text-red-600 dark:text-red-400")} aria-live="polite">
+                    {Number.isFinite(amountNum)
+                      ? "= " + formatOwnerMoney(amountNum, accountCcy || "DKK", { decimals: 2 })
+                      : t("amountUnreadable")}
+                  </p>
+                )}
+                {String(amount).trim() === "" && <div className="mb-3" />}
 
                 {/* The receipt's own figures disagree with the total we
                     read. Usually the creased-label case: the parser fell

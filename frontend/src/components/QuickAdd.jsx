@@ -7,7 +7,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
 import { resolveMode } from "../lib/appMode";
 import { useEntitlements } from "../hooks/useEntitlements";
-import { localIso } from "../utils/dateFormat";
+import { localIso, formatDateShort } from "../utils/dateFormat";
 import { trackEvent } from "../hooks/useEventLog";
 import Chip from "./ui/Chip";
 import { useStickyMethod } from "../hooks/useStickyMethod";
@@ -513,7 +513,14 @@ export default function QuickAdd() {
               disabled={!(saleAmountNum > 0)}
               className="w-full bg-gray-900 text-white py-3.5 rounded-xl hover:bg-gray-700 transition font-semibold text-base disabled:opacity-40 dark:disabled:opacity-30"
             >
-              {t("logSale")}
+              {/* The label has to match the date actually being posted. It said
+                  "Log Today's Sale" ("Registrer dagens salg") no matter what,
+                  so backdating a sale to the 20th still told the owner it was
+                  today's — the button lying about what it does, on the money
+                  path. Verified on device before the fix. */}
+              {saleDate === localIso()
+                ? t("logSale")
+                : t("logSaleForDate").replace("{date}", formatDateShort(saleDate))}
             </button>
           </div>
         )}
