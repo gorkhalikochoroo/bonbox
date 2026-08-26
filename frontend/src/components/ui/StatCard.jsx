@@ -129,7 +129,14 @@ export default function StatCard({
 
   const inner = (
     <>
-      <div className="flex items-center justify-between gap-2">
+      {/* Reserve two lines of label height on a phone, released from sm: up.
+          In a 3-across dense row at 402pt each tile is ~117pt wide, which fits
+          "COVERS" on one line and wraps "SEATED NOW" and "ON WAITLIST" onto
+          two. The value sits below the label, so a wrapped neighbour pushed its
+          number down and the row's figures landed on different baselines — the
+          ragged look. Tiles are wide enough not to wrap from sm: up, so the
+          reservation is phone-only and desktop stays pixel-identical. */}
+      <div className="flex items-start justify-between gap-2 min-h-[2.05rem] sm:min-h-0">
         <p className={labelClass}>{label}</p>
         {isClickable && (
           <Chevron
