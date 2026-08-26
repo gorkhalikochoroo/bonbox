@@ -7,6 +7,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { errText } from "../utils/errText";
+import { useConfirm } from "../hooks/useConfirm";
 import { FadeIn, TabContent, AnimatedList, AnimatedListItem, AnimatePresence } from "../components/AnimationKit";
 import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner } from "../components/ui";
 
@@ -1665,6 +1666,10 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
   const [editHours, setEditHours] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const confirm = useConfirm();
+  // The delete used to `catch { // silent }`. A payroll record vanishing with
+  // no word is worse than one that fails loudly, so failures land here.
+  const [delErr, setDelErr] = useState("");
 
   // Build a name lookup
   const nameMap = useMemo(() => {
@@ -1689,12 +1694,19 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
   };
 
   const handleDelete = async (id) => {
+    // These hours pay wages and sit in an Arbejdstidsloven register kept five
+    // years. There was no confirm, no undo, and a silent catch — and the button
+    // itself is invisible on a phone (see the reveal class below), so a tap on
+    // apparent blank space destroyed a record and said nothing.
+    const ok = await confirm({ message: t("deleteHoursConfirm"), destructive: true });
+    if (!ok) return;
+    setDelErr("");
     setDeletingId(id);
     try {
       await api.delete(`/staff/hours/${id}`);
       onUpdated();
-    } catch {
-      // silent
+    } catch (e) {
+      setDelErr(errText(e, t("deleteHoursFailed")));
     } finally {
       setDeletingId(null);
     }
@@ -1731,6 +1743,12 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
         <h2 className="text-base font-semibold text-gray-800 dark:text-white">{t("recentHoursLog")}</h2>
         <span className="text-xs text-gray-400 dark:text-gray-500">{t("shpEntriesCount", "{count} entries").replace("{count}", sorted.length)}</span>
       </div>
+
+      {delErr && (
+        <p className="px-5 py-2.5 text-sm text-red-600 dark:text-red-400 border-b border-gray-100 dark:border-gray-700" role="alert">
+          {delErr}
+        </p>
+      )}
 
       <AnimatedList className="divide-y divide-gray-100 dark:divide-gray-700">
         {sorted.map(entry => {
@@ -1850,11 +1868,12 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
 
                 {/* Actions */}
                 {!isEditing && (
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                  <div className="flex items-center gap-1 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                     <button
                       onClick={() => { setEditingId(entry.id); setEditHours(String(entry.total_hours || "")); }}
                       className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition"
                       title={t("editHours", "Edit hours")}
+                      aria-label={t("editHours", "Edit hours")}
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -1865,6 +1884,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                       disabled={isDeleting}
                       className="p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition disabled:opacity-40"
                       title={t("deleteEntry", "Delete entry")}
+                      aria-label={t("deleteEntry", "Delete entry")}
                     >
                       {isDeleting ? (
                         <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24">

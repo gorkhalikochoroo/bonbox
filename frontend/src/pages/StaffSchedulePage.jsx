@@ -4564,7 +4564,8 @@ function OpenShiftChip({ row, t, onCancel }) {
       <button
         onClick={() => onCancel(row.id)}
         title={t("openCancel", "Remove")}
-        className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-500"
+        aria-label={t("openCancel", "Remove")}
+        className="absolute top-1 right-1 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-500"
       >
         <X className="w-3 h-3" />
       </button>
@@ -4676,6 +4677,7 @@ function OpenShiftCreateModal({ weekDates, t, onClose, onCreated }) {
 }
 
 function OpenShiftsPanel({ weekStart, t }) {
+  const confirm = useConfirm();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -4698,13 +4700,18 @@ function OpenShiftsPanel({ weekStart, t }) {
   useEffect(() => { fetchOpen(); }, [fetchOpen]);
 
   const cancelOpen = useCallback(async (id) => {
+    // The X that triggers this is invisible on a phone (hover-only reveal, now
+    // gated) and removed the shift on a single tap. Ask first — this is the
+    // published plan other people are reading.
+    const ok = await confirm({ message: t("removeOpenShiftConfirm"), destructive: true });
+    if (!ok) return;
     try {
       await api.delete(`/staff/open-shifts/${id}`);
       await fetchOpen();
     } catch (err) {
       setError(errText(err, t("openCancelFailed", "Couldn't remove the open shift.")));
     }
-  }, [fetchOpen, t]);
+  }, [fetchOpen, t, confirm]);
 
   const openCount = rows.filter((r) => r.status === "open").length;
   const byDate = useMemo(() => {
