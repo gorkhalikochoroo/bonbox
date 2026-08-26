@@ -44,7 +44,11 @@ const MONTHS_BY_LOCALE = {
 
 function detectLocale() {
   if (typeof navigator === "undefined") return "en";
-  const lang = (localStorage.getItem("bonbox_lang") || navigator.language || "en")
+  // "lang" is what the provider writes (useLanguage.jsx). This read used to
+  // ask for "bonbox_lang", a key nothing sets, so it ALWAYS fell through to
+  // the device language — which is why Danish accounts printed English
+  // dates, including on the MOMS/SKAT deadline card.
+  const lang = (localStorage.getItem("lang") || navigator.language || "en")
     .toLowerCase()
     .split("-")[0];
   return MONTHS_BY_LOCALE[lang] ? lang : "en";

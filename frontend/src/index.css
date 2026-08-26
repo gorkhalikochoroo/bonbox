@@ -626,7 +626,11 @@ body.modal-open {
    of the whole app. The card is display:none on screen and only laid out for
    the printer. */
 @media print {
-  body * { visibility: hidden !important; }
+  /* Scoped to pages that actually render the gavekort print card. This was
+     `body *`, unscoped and app-wide, written to serve one Cmd+P fallback —
+     so every OTHER print surface printed a blank sheet, including the
+     Udskriv button on the kasserapport (ReportsPage.jsx:942). */
+  body:has(.gk-print-card) * { visibility: hidden !important; }
   .gk-print-card, .gk-print-card * { visibility: visible !important; }
   .gk-print-card {
     display: flex !important;

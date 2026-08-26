@@ -181,6 +181,24 @@ export default function QuickAdd() {
   const expAmountNum = parseMoneyInput(expAmount, moneyLoc);
   const pAmountNum = parseMoneyInput(pAmount, moneyLoc);
 
+  // Closing the sheet clears what was typed into it.
+  //
+  // It did not, so cancelling and reopening left the previous amount in the
+  // field and the next entry APPENDED to it — measured on the device: two
+  // visits typing "347,50" left "34750347.5034750" sitting there with no
+  // error. An owner who cancels and comes back should get a clean sheet.
+  //
+  // Deliberately NOT reset: the payment method (sticky by design) and the
+  // category, which the owner picks far less often than the amount.
+  useEffect(() => {
+    if (open) return;
+    setSaleAmount("");
+    setExpAmount("");
+    setPAmount("");
+    setExpDesc("");
+    setPNotes("");
+  }, [open]);
+
   const submitSale = async () => {
     // Gate on the PARSED number, not on the raw string being non-empty.
     // `if (!saleAmount)` let "abc" through to parseFloat -> NaN -> the API.
