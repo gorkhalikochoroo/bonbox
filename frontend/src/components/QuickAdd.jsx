@@ -371,16 +371,16 @@ export default function QuickAdd() {
               setOpen(false);
               setSmartScanOpen(true);
             }}
-            className="w-full mb-4 flex items-center gap-3 px-3 py-3 rounded-xl border border-gray-100 dark:border-gray-800/40 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            className="w-full mb-2 sm:mb-4 flex items-center gap-3 px-3 py-2 sm:py-3 rounded-xl border border-gray-100 dark:border-gray-800/40 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           >
-            <div className="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-900 text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition">
               <ScanLine size={18} strokeWidth={2} aria-hidden="true" />
             </div>
             <div className="min-w-0 flex-1 text-left">
               <p className="text-sm font-semibold text-gray-900 dark:text-gray-200">
                 {t("smartScan.title", "Smart skan")}
               </p>
-              <p className="text-[11px] text-gray-700/80 dark:text-gray-300/80">
+              <p className="hidden sm:block text-[11px] text-gray-700/80 dark:text-gray-300/80">
                 {t("smartScan.subtitle", "Tag ét billede — vi finder ud af resten")}
               </p>
             </div>
@@ -398,16 +398,16 @@ export default function QuickAdd() {
               setOpen(false);
               navigate("/scan?mode=gavekort");
             }}
-            className="w-full mb-4 flex items-center gap-3 px-3 py-3 rounded-xl border border-gray-100 dark:border-gray-800/40 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+            className="w-full mb-2 sm:mb-4 flex items-center gap-3 px-3 py-2 sm:py-3 rounded-xl border border-gray-100 dark:border-gray-800/40 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
           >
-            <div className="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gray-900 text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition">
               <QrCode size={18} strokeWidth={2} aria-hidden="true" />
             </div>
             <div className="min-w-0 flex-1 text-left">
               <p className="text-sm font-semibold text-gray-900 dark:text-gray-200">
                 {t("gkScanEyebrow", "Indløs gavekort")}
               </p>
-              <p className="text-[11px] text-gray-700/80 dark:text-gray-300/80">
+              <p className="hidden sm:block text-[11px] text-gray-700/80 dark:text-gray-300/80">
                 {t("scanGavekortTileSub", "Scan et gavekort-QR")}
               </p>
             </div>
