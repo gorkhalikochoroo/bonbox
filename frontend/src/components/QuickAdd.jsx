@@ -453,6 +453,12 @@ export default function QuickAdd() {
           <div className="space-y-4">
             <div>
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t("quickAmount")}</p>
+              {/* toLocaleString() with NO argument formats with the DEVICE
+                  locale, so a Danish owner on an English-locale phone read
+                  "1,000" here while the Sales Tracker two taps away showed
+                  "1.000 kr." — two money formats in one app, for the same
+                  amount. Same class as the date bug: using the device instead
+                  of the account. moneyLoc comes from the account currency. */}
               <div className="flex flex-wrap gap-2">
                 {salePresets.map((amt) => (
                   <Chip
@@ -461,7 +467,7 @@ export default function QuickAdd() {
                     selected={saleAmount === String(amt)}
                     onClick={() => setSaleAmount(String(amt))}
                   >
-                    {amt.toLocaleString()}
+                    {amt.toLocaleString(moneyLoc)}
                   </Chip>
                 ))}
               </div>
@@ -556,7 +562,7 @@ export default function QuickAdd() {
                     selected={expAmount === String(amt)}
                     onClick={() => setExpAmount(String(amt))}
                   >
-                    {amt.toLocaleString()}
+                    {amt.toLocaleString(moneyLoc)}
                   </Chip>
                 ))}
               </div>
@@ -655,7 +661,7 @@ export default function QuickAdd() {
                     selected={pAmount === String(amt)}
                     onClick={() => setPAmount(String(amt))}
                   >
-                    {amt.toLocaleString()}
+                    {amt.toLocaleString(moneyLoc)}
                   </Chip>
                 ))}
               </div>
@@ -741,7 +747,7 @@ export default function QuickAdd() {
                     selected={pAmount === String(amt)}
                     onClick={() => setPAmount(String(amt))}
                   >
-                    {amt.toLocaleString()}
+                    {amt.toLocaleString(moneyLoc)}
                   </Chip>
                 ))}
               </div>
