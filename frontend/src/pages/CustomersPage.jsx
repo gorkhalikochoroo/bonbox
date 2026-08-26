@@ -176,7 +176,22 @@ export default function CustomersPage() {
           </p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <>
+        {/* Desktop table — hidden on phone.
+
+            It was the only rendering, inside overflow-hidden, on a page where
+            html/body both set `overflow-x: clip` (index.css:72/77). So a table
+            wider than the viewport was not scrollable-with-effort — it was
+            CLIPPED AND UNREACHABLE BY ANY GESTURE, and the column that fell off
+            the right edge is the one holding Rediger. Customers could not be
+            edited from a phone at all.
+
+            (The email cell's `truncate` sets white-space:nowrap, which is what
+            pushes the table past its container. The `max-w-[200px]` beside it
+            never did anything — max-width does not apply to display:table-cell.)
+
+            Same dual rendering FakturaPage.jsx already ships. */}
+        <div className="hidden md:block bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-900/40 text-gray-500 dark:text-gray-400 uppercase text-xs">
               <tr>
@@ -196,7 +211,7 @@ export default function CustomersPage() {
                   </td>
                   <td className="px-3 py-3 sm:px-5 text-gray-600 dark:text-gray-300">{c.cvr || "—"}</td>
                   <td className="px-3 py-3 sm:px-5 text-gray-600 dark:text-gray-300 truncate max-w-[200px]">{c.email || "—"}</td>
-                  <td className="px-3 py-3 sm:px-5 text-gray-600 dark:text-gray-300">{c.payment_terms_days} {t("days") || "days"}</td>
+                  <td className="px-3 py-3 sm:px-5 text-gray-600 dark:text-gray-300">{c.payment_terms_days} {t("days")}</td>
                   <td className="px-3 py-3 sm:px-5 text-right">
                     <button
                       onClick={() => {
@@ -213,6 +228,38 @@ export default function CustomersPage() {
             </tbody>
           </table>
         </div>
+
+        {/* Phone card list — same data, stacked, with Rediger as a real
+            full-width 44pt target instead of a clipped text link. */}
+        <div className="md:hidden space-y-2">
+          {filtered.map((c) => (
+            <div
+              key={c.id}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4"
+            >
+              <div className="flex items-baseline gap-2 min-w-0">
+                <span className="font-medium text-gray-800 dark:text-white truncate">{c.name}</span>
+                {c.is_company && (
+                  <span className="text-xs text-blue-600 dark:text-blue-300 shrink-0">B2B</span>
+                )}
+              </div>
+              {c.email && (
+                <p className="mt-0.5 text-sm text-gray-600 dark:text-gray-300 break-all">{c.email}</p>
+              )}
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {c.cvr ? `CVR ${c.cvr} · ` : ""}
+                {c.payment_terms_days} {t("days")}
+              </p>
+              <button
+                onClick={() => { setEditingId(c.id); setShowForm(true); }}
+                className="mt-3 w-full min-h-[44px] rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition"
+              >
+                {t("edit") || "Edit"}
+              </button>
+            </div>
+          ))}
+        </div>
+        </>
       )}
 
       {showForm && (

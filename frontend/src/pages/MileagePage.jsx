@@ -206,7 +206,14 @@ export default function MileagePage() {
           </p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <>
+        {/* Desktop table — hidden on phone. Seven columns at px-5 is 280px of
+            cell padding alone against a 402pt viewport, inside overflow-hidden,
+            on a page where html/body set `overflow-x: clip`. The overflow was
+            therefore CLIPPED AND UNREACHABLE — and the columns that fell off
+            the right edge are Fradrag, the entire reason this screen exists,
+            plus Rediger and Slet. Same dual rendering FakturaPage already ships. */}
+        <div className="hidden md:block bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-900/40 text-gray-500 dark:text-gray-400 uppercase text-xs">
               <tr>
@@ -255,7 +262,7 @@ export default function MileagePage() {
                               await api.delete(`/mileage/${e.id}`);
                               fetchAll();
                             } catch (err) {
-                              alert(err?.response?.data?.detail || "Delete failed");
+                              setError(errText(err, t("deleteFailed")));
                             }
                           }}
                           className="text-xs text-red-600 hover:underline"
@@ -273,6 +280,59 @@ export default function MileagePage() {
             </tbody>
           </table>
         </div>
+
+        {/* Phone card list — Fradrag leads, because it is what the owner opened
+            this screen to see. Rediger / Slet are real 44pt targets instead of
+            clipped text links. */}
+        <div className="md:hidden space-y-2">
+          {entries.map((e) => (
+            <div
+              key={e.id}
+              className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4"
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-xs text-gray-500 dark:text-gray-400">{e.trip_date}</span>
+                <span className="font-semibold tabular-nums text-gray-800 dark:text-gray-100">
+                  {fmtKr(e.deduction_amount)}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-gray-700 dark:text-gray-200 break-words">
+                {e.from_address} → {e.to_address}
+              </p>
+              {e.purpose && (
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 break-words">{e.purpose}</p>
+              )}
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+                {Number(e.km).toLocaleString("da-DK")} km · {Number(e.rate_per_km).toFixed(2).replace(".", ",")} kr/km
+              </p>
+              {!e.locked && (
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => { setEditingId(e.id); setShowForm(true); }}
+                    className="flex-1 min-h-[44px] rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-800 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700/40 transition"
+                  >
+                    {t("edit") || "Edit"}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!(await confirm({ message: t("deleteTripConfirm") || "Delete this trip?", destructive: true }))) return;
+                      try {
+                        await api.delete(`/mileage/${e.id}`);
+                        fetchAll();
+                      } catch (err) {
+                        setError(errText(err, t("deleteFailed")));
+                      }
+                    }}
+                    className="flex-1 min-h-[44px] rounded-lg border border-red-200 dark:border-red-800/60 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
+                  >
+                    {t("delete") || "Delete"}
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        </>
       )}
 
       {showForm && (
