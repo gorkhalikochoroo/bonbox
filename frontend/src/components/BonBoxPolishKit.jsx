@@ -51,9 +51,14 @@ export function AnimatedCounter({
 }
 
 // === SKELETON LOADERS ===
-export function SkeletonPulse({ className = "" }) {
+export function SkeletonPulse({ className = "", style }) {
+  // `style` is not decoration here: SkeletonChart below sizes each of its ten
+  // bars with style={{ height: "40%" }}, and this component used to destructure
+  // only className — so every bar rendered with no height and the chart
+  // skeleton was a title bar above 10rem of blank white. That is the first
+  // thing shown on every cold launch.
   return (
-    <div className={`animate-pulse rounded-lg bg-gray-200 dark:bg-gray-700 ${className}`} />
+    <div className={`animate-pulse rounded-lg bg-gray-200 dark:bg-gray-700 ${className}`} style={style} />
   );
 }
 
