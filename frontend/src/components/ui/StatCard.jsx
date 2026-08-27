@@ -136,7 +136,7 @@ export default function StatCard({
           number down and the row's figures landed on different baselines — the
           ragged look. Tiles are wide enough not to wrap from sm: up, so the
           reservation is phone-only and desktop stays pixel-identical. */}
-      <div className="flex items-start justify-between gap-2 min-h-[2.05rem] sm:min-h-0">
+      <div className="flex items-start justify-between gap-2 min-h-[2.125rem] sm:min-h-0">
         <p className={labelClass}>{label}</p>
         {isClickable && (
           <Chevron

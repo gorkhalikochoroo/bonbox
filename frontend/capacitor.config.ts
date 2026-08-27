@@ -43,7 +43,20 @@ const config: CapacitorConfig = {
     // status bar, so the two stack → a fat empty gap under the notch. "never"
     // hands safe-area handling entirely to CSS (single, correct inset). The
     // owner app keeps "automatic" (its chrome doesn't do CSS insets).
-    contentInset: isScheduler ? "never" : "automatic",
+    // BOTH targets now: "never" hands safe-area handling entirely to CSS.
+    //
+    // With "automatic" WKWebView is inset inside the safe areas, so the strips
+    // above the status bar and below the home indicator are painted by the
+    // NATIVE view using ios.backgroundColor — one static build-time colour for
+    // a runtime theme toggle. Measured on device in dark mode: a 34pt band of
+    // rgb(248,250,252) from 840-874pt under the tab bar, and 8pt at the top.
+    // Flipping shellBg only moves which theme is wrong.
+    //
+    // With the webview covering the screen, index.css's html/html.dark
+    // background paints those strips and they follow the live theme. body
+    // already pads by env(safe-area-inset-*), and Layout's mobile header pads
+    // by env(safe-area-inset-top) itself, so content stays clear.
+    contentInset: "never",
     allowsLinkPreview: false,
     backgroundColor: shellBg,
     // Do NOT set preferredContentMode: 'mobile' — breaks iPad responsive layout
@@ -82,7 +95,10 @@ const config: CapacitorConfig = {
       // and the two stack into a fat gap — contentInset:"never" alone doesn't
       // fix it because the offset is the frame, not the scroll inset. The owner
       // app keeps the default (its chrome doesn't do CSS safe-area insets).
-      overlaysWebView: isScheduler,
+      // Required alongside contentInset "never" — the config note below is
+      // right that "never" alone is not enough, because iOS also offsets the
+      // webview FRAME, not just the scroll inset.
+      overlaysWebView: true,
     },
     Keyboard: {
       resize: "body",
