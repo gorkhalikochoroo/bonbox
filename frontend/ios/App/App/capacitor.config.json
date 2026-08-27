@@ -4,13 +4,13 @@
 	"webDir": "dist",
 	"ios": {
 		"path": "ios",
-		"contentInset": "automatic",
+		"contentInset": "never",
 		"allowsLinkPreview": false,
-		"backgroundColor": "#0d1117",
+		"backgroundColor": "#f8fafc",
 		"scrollEnabled": true
 	},
 	"android": {
-		"backgroundColor": "#0d1117"
+		"backgroundColor": "#f8fafc"
 	},
 	"plugins": {
 		"SplashScreen": {
@@ -20,9 +20,9 @@
 			"showSpinner": false
 		},
 		"StatusBar": {
-			"style": "DARK",
-			"backgroundColor": "#0d1117",
-			"overlaysWebView": false
+			"style": "LIGHT",
+			"backgroundColor": "#f8fafc",
+			"overlaysWebView": true
 		},
 		"Keyboard": {
 			"resize": "body",
