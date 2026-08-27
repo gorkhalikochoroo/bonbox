@@ -2291,7 +2291,7 @@ export default function StaffSchedulePage() {
           Auto-dismisses after ~6s. Drafts never notify, so this is purely a
           local convenience (no "unsend"). */}
       {undoShift && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-gray-900 text-white px-4 py-2.5 shadow-lg">
+        <div className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-gray-900 text-white px-4 py-2.5 shadow-lg">
           <span className="text-sm">{t("schedShiftAdded", "Shift added as draft")}</span>
           <button
             type="button"

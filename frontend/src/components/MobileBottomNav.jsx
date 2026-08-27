@@ -108,8 +108,16 @@ export default function MobileBottomNav() {
   return (
     <nav
       aria-label={t("bottomNav") || "Primary"}
-      className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800
-        border-t border-gray-200 dark:border-gray-700 z-50 md:hidden"
+      /* .glass, not bg-white. The bar is h-14 (56px) plus the ~34pt home
+         indicator area iOS reserves, and as an opaque white block that reads as
+         a 90pt empty slab at the bottom of a light app. Translucent, it reads as
+         a bar with content passing under it — which is what a native iOS tab bar
+         does. .glass (not .glass-static) is correct here: index.css:458 notes
+         FIXED bars need the compositor hint or WKWebView repaints them every
+         scroll frame; .glass-static exists for STICKY bars where that same
+         transform causes the documented wobble. */
+      className="fixed bottom-0 left-0 right-0 glass
+        border-t border-gray-200/70 dark:border-gray-700/70 z-50 md:hidden"
       style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}
     >
       <div className="flex justify-around items-center h-14">

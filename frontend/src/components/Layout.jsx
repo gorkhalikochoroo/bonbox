@@ -532,7 +532,7 @@ export default function Layout() {
         </Suspense>
       )}
       {/* Mobile top bar */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex items-center justify-between gap-3" style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
+      <div className="md:hidden fixed top-0 left-0 right-0 z-30 glass border-b border-gray-200/70 dark:border-gray-700/70 px-4 py-3 flex items-center justify-between gap-3" style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
         <button
           onClick={() => setSidebarOpen(true)}
           aria-label={t("openMenu") || "Open menu"}

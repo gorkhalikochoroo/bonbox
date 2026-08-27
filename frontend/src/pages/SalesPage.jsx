@@ -818,7 +818,7 @@ export default function SalesPage() {
     const total = selSales.reduce((acc, s) => acc + parseFloat(s.amount), 0);
     const avg = selSales.length ? total / selSales.length : 0;
     return (
-      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-lg w-[calc(100%-2rem)]">
+      <div className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-lg w-[calc(100%-2rem)]">
         <Card variant="emphasis" className="!p-4">
           <div className="flex items-center gap-3 mb-2">
             <Button

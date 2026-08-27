@@ -135,6 +135,15 @@ export default function CookieConsent() {
     marketing: false,
   });
 
+  // NOTE ON THE NATIVE APP. An audit suggested skipping this banner entirely in
+  // the Capacitor build, the way the scheduler skip below does. That is NOT the
+  // same case and it is deliberately not done: the scheduler is exempt because
+  // it "runs NO analytics/marketing scripts" — the owner app does log events, so
+  // suppressing its consent prompt is a GDPR decision, not a layout fix.
+  //
+  // The real complaint was that the banner covered the bottom tab bar and
+  // blocked navigation on first launch. That is fixed by clearing the tab bar
+  // (see the padding on the container below), which keeps consent intact.
   useEffect(() => {
     // Scheduler (staff) app: it runs NO analytics/marketing scripts and stores
     // only an essential session token — strictly-necessary, which ePrivacy /
@@ -253,7 +262,7 @@ export default function CookieConsent() {
         aria-live="polite"
         aria-label={t("cookieBannerAria") || "Cookie consent"}
         data-cookie-consent="banner"
-        className="fixed left-0 right-0 bottom-0 z-[60] px-3 sm:px-4 pb-3 sm:pb-4"
+        className="fixed left-0 right-0 bottom-0 z-[60] px-3 sm:px-4 pb-[calc(0.75rem+3.5rem+env(safe-area-inset-bottom,0px))] md:pb-4"
       >
         <div className="max-w-3xl mx-auto bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm overflow-hidden">
           {/* Banner content */}
