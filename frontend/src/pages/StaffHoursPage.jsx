@@ -1148,12 +1148,46 @@ function HoursSummaryTable({ summary, loading, currency, onResolved }) {
                           {row.scheduled_hours != null
                             ? t("shpScheduledShort", "{h} scheduled").replace("{h}", fmtHours(row.scheduled_hours, lang))
                             : ""}
-                          {stateMeta && row.scheduled_hours != null && (
+                          {/* When the row HAS something to resolve the state
+                              word moves out of this line and becomes the real
+                              button below, so the word is never shown twice. */}
+                          {stateMeta && row.scheduled_hours != null && !firstException(row) && (
                             <span className={stateMeta.cls}>
                               {" \u00b7 "}{stateMeta.label}
                             </span>
                           )}
                         </div>
+                        {/* PHONE-ONLY resolve control.
+                            The desktop affordance lives in the Diff cell, which
+                            is `hidden sm:table-cell` — so below 640px the only
+                            caller of setResolving() was display:none, and the
+                            amber "{n} shifts need your answer" chip above the
+                            table pointed at nothing the owner could tap. The
+                            ResolveSheet was unreachable code on a phone.
+                            Deliberately its own <button> rather than making the
+                            11px sub-line tappable: the coarse-pointer floor at
+                            index.css:322-325 forces min-height:44px on every
+                            button, which gives this a real touch target — but
+                            inlined into that text row it would have stretched
+                            the row instead. Only flagged rows grow, which is
+                            the right emphasis anyway. */}
+                        {stateMeta && firstException(row) && (
+                          <button
+                            type="button"
+                            onClick={() => setResolving({
+                              staffId: row.staff_id,
+                              staffName: row.staff_name,
+                              exception: firstException(row),
+                            })}
+                            className={`sm:hidden mt-1 inline-flex items-center gap-1 rounded-lg px-2.5 text-[12px] font-medium bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 ${stateMeta.cls}`}
+                          >
+                            {stateMeta.label}
+                            {row.needs_answer_count > 1 && (
+                              <span className="tabular-nums opacity-70">×{row.needs_answer_count}</span>
+                            )}
+                            <Icon name="ChevronRight" size={12} aria-hidden="true" />
+                          </button>
+                        )}
                         {isNearLimit && (
                           <div className={`text-xs mt-0.5 font-semibold ${isOverLimit ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
                             {row.staff_name?.split(" ")[0]}: {Math.round(row.actual_hours)}/{row.work_limit} hrs!

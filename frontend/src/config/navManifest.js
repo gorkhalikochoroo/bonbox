@@ -111,6 +111,25 @@ export const NAV_MANIFEST = [
     surfaces: ["sidebar", "search", "bottomnav"],
   },
   {
+    // Directly after Sales on purpose: these are the two daily money-logging
+    // jobs and both are frequency:"daily". This used to sit after Gavekort
+    // (weekly), landing it as the 7th core row — below the fold in the phone
+    // drawer, whose scrollbar is hidden under (pointer: coarse) so nothing
+    // signals the list continues.
+    to: "/expenses",
+    icon: "Receipt",
+    labelKey: "expenses",
+    group: "core",
+    pillar: null,
+    frequency: "daily",
+    // 'more' added: this was the ONLY frequency:"daily" destination declaring
+    // neither `more` nor `bottomnav`, so on a phone Expenses existed in
+    // exactly one place in the entire nav chrome. Every other daily
+    // destination (dashboard, sales, daily-close, reservations, inventory)
+    // carries at least one of the two.
+    surfaces: ["sidebar", "more", "search"],
+  },
+  {
     // "Today" — the merged daily-close page (#150). C5 nav diet promotes it
     // from the Reports group to the top-level ungrouped (core) spine, right
     // after Sales — it's the daily ritual, not a once-a-period report.
@@ -165,15 +184,6 @@ export const NAV_MANIFEST = [
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
     aliases: ["gavekort", "gift card", "giftcard", "voucher", "gift"],
-  },
-  {
-    to: "/expenses",
-    icon: "Receipt",
-    labelKey: "expenses",
-    group: "core",
-    pillar: null,
-    frequency: "daily",
-    surfaces: ["sidebar", "search"],
   },
 
   // ─── MONEY ────────────────────────────────────────────────────────────
