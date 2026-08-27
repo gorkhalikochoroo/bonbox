@@ -85,6 +85,25 @@ export default defineConfig({
     // Each chunk is a separate file in /assets so the browser can
     // cache them independently — bumping the app code doesn't
     // invalidate the 200KB+ vendor bundles or the translation strings.
+    // Trim the startup modulepreload list.
+    //
+    // index.html was emitting 52 <link rel="modulepreload">, including
+    // vendor-charts (402 KB of recharts + d3). A transitive scan of the STATIC
+    // import graph from App.jsx (44 modules) shows nothing eager imports
+    // recharts — every page that charts is behind a lazy route. So the browser
+    // was fetching and COMPILING 402 KB at launch for code the first screen
+    // never touches. On a Capacitor build the fetch is a disk read, but the
+    // compile is real work on the critical path, and cold open measured 4-5s
+    // to content.
+    //
+    // Dropping it from the preload list changes nothing about correctness:
+    // whichever lazy route needs charts still imports them normally, one beat
+    // later. vendor-i18n is deliberately NOT trimmed — LanguageProvider is
+    // eager in App.jsx and every string on the first screen depends on it.
+    modulePreload: {
+      resolveDependencies: (_file, deps) =>
+        deps.filter((d) => !d.includes("vendor-charts")),
+    },
     rollupOptions: {
       output: {
         manualChunks(id) {
