@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { Link } from "react-router-dom";
 import { Camera, ImageIcon, Search, Info, Check, ChevronDown } from "lucide-react";
 import Modal from "./Modal";
 import ReceiptViewer from "./ReceiptViewer";
@@ -442,12 +443,12 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                     : (capError.message || t("receiptScanUpgradeCopy"))}
                 </p>
                 {canPurchaseInApp() && (
-                  <a
-                    href="/subscription"
+                  <Link
+                    to="/subscription"
                     className="inline-block px-3 py-1.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-lg text-xs font-medium hover:bg-gray-700 dark:hover:bg-gray-200 transition"
                   >
                     {t("seePlans")} →
-                  </a>
+                  </Link>
                 )}
               </div>
             )}

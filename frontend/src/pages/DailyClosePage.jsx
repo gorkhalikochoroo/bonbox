@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { dateLocale } from "../utils/dateFormat";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -2632,7 +2632,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 </div>
                 <div className="pt-2 border-t" style={{ borderColor: "rgba(99,102,241,0.15)" }}>
                   <p className="text-xs text-indigo-400">
-                    <Icon name="BarChart3" size={14} className="inline align-text-bottom mr-1" /> {t("dailyCloseReconcileNotePre", "Daily Close is your cash-drawer reconciliation. Your moms filing in ")}<a href="/tax" className="font-bold underline hover:text-indigo-300">{t("dailyCloseReconcileNoteLink", "Skat Autopilot")}</a>{t("dailyCloseReconcileNotePost", " reads from the POS sales register — this close adds a cross-check that flags variance.")}
+                    <Icon name="BarChart3" size={14} className="inline align-text-bottom mr-1" /> {t("dailyCloseReconcileNotePre", "Daily Close is your cash-drawer reconciliation. Your moms filing in ")}<Link to="/tax" className="font-bold underline hover:text-indigo-300">{t("dailyCloseReconcileNoteLink", "Skat Autopilot")}</Link>{t("dailyCloseReconcileNotePost", " reads from the POS sales register — this close adds a cross-check that flags variance.")}
                   </p>
                 </div>
               </div>
@@ -2793,12 +2793,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                         {t("autoEmailToggleStarterGateBody") || "Free still lets you manually tap Send to accountant after locking. Upgrade to Starter for the no-extra-tap version."}
                       </p>
                       {canPurchaseInApp() && (
-                        <a
-                          href="/subscription"
+                        <Link
+                          to="/subscription"
                           className="inline-block mt-2 text-xs font-semibold text-emerald-600 dark:text-gray-300 hover:underline"
                         >
                           {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
-                        </a>
+                        </Link>
                       )}
                     </div>
                   </div>
@@ -2995,9 +2995,9 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
           <Icon name="Lightbulb" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedFreeUpgradeNudge") || "Want the kasserapport auto-sent to your accountant the moment you lock? Upgrade to Starter."}
         </p>
         {canPurchaseInApp() && (
-          <a href="/subscription" className="inline-block mt-2 text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline">
+          <Link to="/subscription" className="inline-block mt-2 text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline">
             {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
-          </a>
+          </Link>
         )}
       </div>
     );
@@ -3632,9 +3632,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 <strong>{planTier === "free" ? "Free" : planTier} {t("planLabelSuffix") || "plan"}</strong>
                 {" "}{t("planCapHintMid") || "exports up to"}{" "}<strong>{exportCapDays} {t("planCapHintDays") || "days"}</strong>.
                 {canPurchaseInApp() && (
-                  <a href="/subscription" className="ml-2 underline font-semibold hover:no-underline">
+                  <Link to="/subscription" className="ml-2 underline font-semibold hover:no-underline">
                     {t("planCapHintCta") || "Upgrade for full year →"}
-                  </a>
+                  </Link>
                 )}
               </span>
             )}
@@ -3681,7 +3681,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               if (span > exportCapDays) {
                 return (
                   <p className="mb-2 text-[11px] text-amber-700 dark:text-amber-400">
-                    <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" /> {t("dcRangeExceedsCap", "This range is {span} days — your plan caps at {cap}. The export will be rejected by the server.", { span, cap: exportCapDays })} {canPurchaseInApp() && (<a href="/subscription" className="underline font-semibold">{t("dcUpgradeQuestion", "Upgrade?")}</a>)}
+                    <Icon name="AlertTriangle" size={13} className="inline align-text-bottom mr-1" /> {t("dcRangeExceedsCap", "This range is {span} days — your plan caps at {cap}. The export will be rejected by the server.", { span, cap: exportCapDays })} {canPurchaseInApp() && (<Link to="/subscription" className="underline font-semibold">{t("dcUpgradeQuestion", "Upgrade?")}</Link>)}
                   </p>
                 );
               }
@@ -3801,9 +3801,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         {!businessProfile?.accountant_email && rangeCount > 0 && (
           <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
             <Icon name="Lightbulb" size={12} className="inline align-text-bottom mr-1" /> {t("accountantHint") || "Tip: save your accountant's email on "}
-            <a href="/profile" className="text-amber-600 dark:text-amber-400 hover:underline">
+            <Link to="/profile" className="text-amber-600 dark:text-amber-400 hover:underline">
               {t("profileLinkLabel") || "Profile"}
-            </a>
+            </Link>
             {" "}{t("accountantHintTail") || "to skip typing it every time."}
           </p>
         )}
@@ -3822,9 +3822,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             <span className="flex-1">
               {exportError}
               {exportErrorIsCap && canPurchaseInApp() && (
-                <a href="/subscription" className="ml-2 underline font-semibold hover:no-underline">
+                <Link to="/subscription" className="ml-2 underline font-semibold hover:no-underline">
                   {t("dcUpgradeArrow", "Upgrade →")}
-                </a>
+                </Link>
               )}
             </span>
           </div>

@@ -1,6 +1,7 @@
 // Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
+import { Link } from "react-router-dom";
 import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -474,12 +475,12 @@ export default function CompetitorPage({ embedded = false }) {
                 {cuisineMarket.message || t("cuisineMarketSetupBody",
                   "Set your cuisine in Profile and we'll show you how many places nearby serve the same thing — and let you track them in one click.")}
               </p>
-              <a
-                href="/profile"
+              <Link
+                to="/profile"
                 className="inline-block px-4 py-2 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-sm font-semibold rounded-lg"
               >
                 {t("setCuisineCTA", "Set my cuisine →")}
-              </a>
+              </Link>
             </div>
           ) : cuisineMarket?.needs_location ? (
             <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-5 border border-amber-200 dark:border-amber-800">
@@ -489,7 +490,7 @@ export default function CompetitorPage({ embedded = false }) {
               <p className="text-sm text-amber-700 dark:text-amber-300 mb-2">
                 {cuisineMarket.message}
               </p>
-              <a href="/profile" className="text-sm font-semibold text-amber-800 underline">{t("openProfile", "Open Profile →")}</a>
+              <Link to="/profile" className="text-sm font-semibold text-amber-800 underline">{t("openProfile", "Open Profile →")}</Link>
             </div>
           ) : cuisineMarket && cuisineMarket.cuisine ? (
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-5 border border-gray-100/60 dark:border-gray-800/60">
@@ -515,13 +516,13 @@ export default function CompetitorPage({ embedded = false }) {
                           : t("crowdedMarket", "Crowded — your niche, pricing, and quality have to be sharp.")}
                   </p>
                 </div>
-                <a
-                  href="/profile"
+                <Link
+                  to="/profile"
                   className="text-xs text-gray-700 dark:text-gray-300 underline whitespace-nowrap"
                   title={t("changeCuisine", "Change cuisine")}
                 >
                   {t("changeCuisine", "Change cuisine")}
-                </a>
+                </Link>
               </div>
 
               {cuisineMarket.places?.length > 0 && (
@@ -608,7 +609,7 @@ export default function CompetitorPage({ embedded = false }) {
             </div>
             {!user?.latitude && (
               <p className="text-xs text-amber-600 dark:text-amber-400 mt-3">
-                ⚠️ {t("cpSetLocationBefore", "Set your business location in")} <a href="/profile" className="underline font-medium">{t("cpProfileLink", "Profile")}</a> {t("cpSetLocationAfter", "to discover nearby competitors.")}
+                ⚠️ {t("cpSetLocationBefore", "Set your business location in")} <Link to="/profile" className="underline font-medium">{t("cpProfileLink", "Profile")}</Link> {t("cpSetLocationAfter", "to discover nearby competitors.")}
               </p>
             )}
           </div>

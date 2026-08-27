@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -372,9 +373,9 @@ export default function OutletPage() {
           <p className="text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
             {t("noOutletsHint", "Cross-outlet intelligence needs at least 2 team members. Add staff in the Team page to enable comparisons.")}
           </p>
-          <a href="/team" className="inline-block mt-4 px-6 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition">
+          <Link to="/team" className="inline-block mt-4 px-6 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition">
             {t("goToTeam")}
-          </a>
+          </Link>
         </div>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useEntitlements } from "../hooks/useEntitlements";
@@ -301,9 +302,9 @@ export default function MultiTerminalClosePage() {
         <SmartTerminalsCard onComplete={handleSmartSetupDone} />
         <p className="text-center text-[11px] text-gray-400 mt-5">
           {t("smartTerminalsAdvancedHint") || "Prefer to set up by hand?"}{" "}
-          <a href="/terminals" className="text-emerald-600 hover:underline">
+          <Link to="/terminals" className="text-emerald-600 hover:underline">
             {t("smartTerminalsAdvancedLink") || "Open Terminals settings"}
-          </a>
+          </Link>
         </p>
       </div>
     );
@@ -1090,12 +1091,12 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
       )}
 
       <div className="flex gap-2 justify-center flex-wrap">
-        <a
-          href="/daily-close"
+        <Link
+          to="/daily-close"
           className="px-5 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition"
         >
           {t("openHistory") || "Open daily-close history"}
-        </a>
+        </Link>
         <button
           onClick={onReset}
           className="px-5 py-2 min-h-[44px] sm:min-h-0 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold rounded-lg transition"

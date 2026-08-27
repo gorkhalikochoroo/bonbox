@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 
 /**
@@ -302,9 +303,9 @@ export default function CookieConsent() {
               </div>
               <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-3 leading-relaxed">
                 {t("cookieReadMore") || "Read our"}{" "}
-                <a href="/cookies" className="underline hover:text-gray-700 dark:hover:text-gray-300">
+                <Link to="/cookies" className="underline hover:text-gray-700 dark:hover:text-gray-300">
                   {t("cookiePolicyLinkText") || "cookie policy"}
-                </a>
+                </Link>
                 .
               </p>
             </div>

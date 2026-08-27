@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
@@ -79,9 +80,9 @@ export default function MileagePage() {
               "Track business trips for kørselsgodtgørelse. Most owners miss 10-15k kr in deductions per year."}
           </p>
           {canPurchaseInApp() && (
-            <a href="/subscription" className="inline-block px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition">
+            <Link to="/subscription" className="inline-block px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition">
               {t("upgrade") || "Upgrade"}
-            </a>
+            </Link>
           )}
         </div>
       </div>

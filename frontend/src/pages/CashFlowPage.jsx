@@ -9,6 +9,7 @@
 //     INSUFFICIENT_DATA) surface instead of a pretty green default
 //   • status-only colors (emerald=ok / amber=warn / red=risk), Lucide icons,
 //     no rainbow, no decorative gradient, no emoji chrome.
+import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -534,12 +535,12 @@ export default function CashFlowPage() {
           <p className="text-gray-500 dark:text-gray-400 mb-2">{t("cfpEmptyBody")}</p>
           <p className="text-xs text-amber-600 dark:text-amber-400 mb-4">{t("cfpLearning")}</p>
           <div className="flex gap-3 justify-center">
-            <a href="/sales" className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition">
+            <Link to="/sales" className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition">
               {t("cfpLogSales")}
-            </a>
-            <a href="/cashbook" className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition">
+            </Link>
+            <Link to="/cashbook" className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition">
               {t("cfpCashBook")}
-            </a>
+            </Link>
           </div>
         </div>
       )}

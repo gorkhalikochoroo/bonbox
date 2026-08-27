@@ -4368,6 +4368,11 @@ function PortalError({ message }) {
         <Inbox className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
         <h1 className="text-xl font-bold text-gray-900 mb-2">{t("portalErrorTitle", "Link not working")}</h1>
         <p className="text-sm text-gray-500">{message || t("portalErrorBody", "This link may have expired or been deactivated. Ask your manager for a new one.")}</p>
+        {/* Deliberately a raw <a>, NOT a react-router <Link>: this is the
+            "link not working" screen for a dead/expired portal token, and the
+            full document load is what discards that token and the portal's
+            in-memory state. A soft navigation would carry the dead session
+            into /join. */}
         <a
           href="/join"
           className="inline-block mt-4 text-sm font-medium text-gray-700 underline underline-offset-2 hover:text-gray-900"

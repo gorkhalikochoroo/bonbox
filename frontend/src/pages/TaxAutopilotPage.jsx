@@ -1,6 +1,7 @@
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
+import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -373,9 +374,9 @@ export default function TaxAutopilotPage() {
 
       {/* Link to detailed MOMS-rapport */}
       <div className="flex justify-center">
-        <a href="/vat-report" className="text-sm text-emerald-600 dark:text-gray-300 hover:underline">
+        <Link to="/vat-report" className="text-sm text-emerald-600 dark:text-gray-300 hover:underline">
           {t("taxViewVatReport")} →
-        </a>
+        </Link>
       </div>
     </div>
   );
@@ -731,9 +732,9 @@ function ReconCard({ recon, taxName, currency }) {
       {cm.status === "no_data" ? (
         <div className="text-center py-3">
           <p className="text-sm text-gray-500 dark:text-gray-400">{t("taxReconNoData")}</p>
-          <a href="/daily-close" className="text-sm text-emerald-600 dark:text-gray-300 hover:underline mt-1 inline-block">
+          <Link to="/daily-close" className="text-sm text-emerald-600 dark:text-gray-300 hover:underline mt-1 inline-block">
             {t("taxReconGoToDailyClose")} &rarr;
-          </a>
+          </Link>
         </div>
       ) : (
         <>
@@ -798,9 +799,9 @@ function ReconCard({ recon, taxName, currency }) {
 
           {/* Link */}
           <div className="mt-3 text-center">
-            <a href="/daily-close" className="text-xs text-emerald-600 dark:text-gray-300 hover:underline">
+            <Link to="/daily-close" className="text-xs text-emerald-600 dark:text-gray-300 hover:underline">
               {t("taxReconHistoryLink")} &rarr;
-            </a>
+            </Link>
           </div>
         </>
       )}

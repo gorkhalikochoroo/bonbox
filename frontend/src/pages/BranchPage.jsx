@@ -1,6 +1,7 @@
 // Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
+import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -150,9 +151,9 @@ export default function BranchPage() {
             {t("branchCapHitBody") || "Upgrade to Pro for up to 3 branches with cross-outlet daily close consolidation."}
             {" "}
             {canPurchaseInApp() && (
-              <a href="/subscription" className="font-semibold underline whitespace-nowrap">
+              <Link to="/subscription" className="font-semibold underline whitespace-nowrap">
                 {t("seePlans") || "See plans →"}
-              </a>
+              </Link>
             )}
           </SectionBanner>
         </FadeIn>

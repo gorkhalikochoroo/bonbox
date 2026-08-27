@@ -11,6 +11,7 @@
 //     Starter+ funktion") + items list still rendered but the
 //     waste-cost column is hidden (backend strips it server-side via
 //     scan_upcoming_expiries' L4 gate).
+import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
@@ -474,9 +475,9 @@ export default function ExpiryPage() {
               </span>
             ))}
           </div>
-          <a href="/inventory" className="text-sm font-medium text-gray-700 dark:text-emerald-400 hover:underline">
+          <Link to="/inventory" className="text-sm font-medium text-gray-700 dark:text-emerald-400 hover:underline">
             {t("expGoToInventoryAdd", "Go to Inventory to add expiry dates →")}
-          </a>
+          </Link>
         </SectionBanner>
       )}
 
@@ -489,12 +490,12 @@ export default function ExpiryPage() {
             title={t("expEmptyTitle", "No expiry data yet")}
             body={t("expEmptyBody", "Add expiry dates to your inventory items to unlock expiry forecasting, waste prediction, and order recommendations.")}
             cta={
-              <a
-                href="/inventory"
+              <Link
+                to="/inventory"
                 className="inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors h-9 px-3.5 text-sm bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:ring-offset-2"
               >
                 {t("expGoToInventory", "Go to Inventory")}
-              </a>
+              </Link>
             }
           />
         </div>

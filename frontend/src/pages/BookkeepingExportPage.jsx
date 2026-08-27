@@ -1,6 +1,7 @@
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
+import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import api from "../services/api";
 import { trackEvent } from "../hooks/useEventLog";
@@ -394,7 +395,7 @@ export default function BookkeepingExportPage() {
         </div>
         {!businessProfile?.accountant_email && (
           <p className="text-[11px] text-gray-500 dark:text-gray-400 -mt-2">
-            {t("bkeTipPrefix", "Tip:")} <a href="/profile" className="text-gray-700 dark:text-emerald-400 hover:underline font-medium">{t("bkeTipLink", "save your revisor's email on Profile")}</a> {t("bkeTipSuffix", "to skip typing it every month.")}
+            {t("bkeTipPrefix", "Tip:")} <Link to="/profile" className="text-gray-700 dark:text-emerald-400 hover:underline font-medium">{t("bkeTipLink", "save your revisor's email on Profile")}</Link> {t("bkeTipSuffix", "to skip typing it every month.")}
           </p>
         )}
 

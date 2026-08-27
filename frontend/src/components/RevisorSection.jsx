@@ -18,6 +18,7 @@
  *   jurisdiction-locked term for "DK certified accountant". No
  *   "Accountant" translation.
  */
+import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import api from "../services/api";
 import { errText } from "../utils/errText";
@@ -223,9 +224,9 @@ export default function RevisorSection() {
               ? t("revisorUpgradeHintNative", "Inviting a revisor isn't part of your current plan.")
               : t("revisorUpgradeHint", "Upgrade to Starter to invite revisors.")}{" "}
             {canPurchaseInApp() && (
-              <a href="/subscription" className="underline font-medium">
+              <Link to="/subscription" className="underline font-medium">
                 {t("seePlans", "See plans")}
-              </a>
+              </Link>
             )}
           </div>
         )}

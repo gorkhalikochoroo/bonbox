@@ -35,6 +35,7 @@
  *     additive — none were renamed)
  *   • The `/profile` URL is unchanged
  */
+import { Link } from "react-router-dom";
 import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { errText } from "../utils/errText";
@@ -1319,12 +1320,12 @@ export default function ProfilePage() {
                   {t("profileRevisorMovedNotice") ||
                     "Revisor adgang er flyttet til Hold."}
                 </span>
-                <a
-                  href="/team"
+                <Link
+                  to="/team"
                   className="text-gray-900 dark:text-gray-100 font-medium underline hover:no-underline"
                 >
                   {t("profileRevisorMovedCta") || "Åbn Hold"}
-                </a>
+                </Link>
               </div>
             </Card>
           </SectionAnchor>
@@ -2023,14 +2024,14 @@ function ProfileIdentity({ user, t }) {
               {t("profileVerified")}
             </span>
           ) : (
-            <a
-              href="/verify-email"
+            <Link
+              to="/verify-email"
               className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 rounded-full text-[10px] font-medium hover:bg-amber-100 dark:hover:bg-amber-950/60 transition shrink-0"
               title={t("profEmailVerifyCtaTitle", "Click to verify your email")}
             >
               <Icon name="AlertTriangle" size={10} />
               {t("profileUnverified")}
-            </a>
+            </Link>
           )}
         </p>
       </div>

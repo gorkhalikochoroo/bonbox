@@ -1072,9 +1072,9 @@ export default function PaymentImportsPage() {
         <div className="text-center pt-2 pb-1">
           <p className="text-xs text-gray-500 dark:text-gray-400">
             {t("needHelpConnecting", "Need help connecting?")}{" "}
-            <a href="/contact" className="text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white underline underline-offset-2">
+            <Link to="/contact" className="text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white underline underline-offset-2">
               {t("contactUs", "Contact us")}
-            </a>{" "}
+            </Link>{" "}
             {t("needHelpConnectingTail", "and we'll walk you through it.")}
           </p>
         </div>

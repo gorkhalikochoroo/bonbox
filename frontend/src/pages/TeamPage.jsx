@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -229,9 +230,9 @@ export default function TeamPage() {
               {t("teamCapHitBody")}
             </span>
             {canPurchaseInApp() && (
-              <a href="/subscription" className="font-semibold text-amber-900 dark:text-amber-100 underline whitespace-nowrap">
+              <Link to="/subscription" className="font-semibold text-amber-900 dark:text-amber-100 underline whitespace-nowrap">
                 {t("seePlans")}
-              </a>
+              </Link>
             )}
           </div>
         </FadeIn>

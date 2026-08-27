@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Camera, PackageCheck } from "lucide-react";
 import api from "../services/api";
 import { useEntitlements } from "../hooks/useEntitlements";
@@ -675,12 +676,12 @@ function SupplierUpgradeNudge({ t }) {
           </p>
         </div>
         {canPurchaseInApp() && (
-          <a
-            href="/subscription"
+          <Link
+            to="/subscription"
             className="shrink-0 text-xs font-semibold px-2 py-1 rounded bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:opacity-90"
           >
             {t("smartImportSupplierGateCta", "Upgrade") || "Upgrade"}
-          </a>
+          </Link>
         )}
       </div>
     </div>

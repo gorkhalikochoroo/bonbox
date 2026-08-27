@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -530,7 +531,7 @@ export default function PersonalPage() {
         <div className="bg-white dark:bg-gray-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 space-y-3">
           <div className="flex items-center justify-between mb-1">
             <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("financialSnapshot")}</h2>
-            <a href="/loans" className="text-xs text-purple-600 dark:text-purple-400 hover:underline">{t("viewLoanTracker")}</a>
+            <Link to="/loans" className="text-xs text-purple-600 dark:text-purple-400 hover:underline">{t("viewLoanTracker")}</Link>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">{t("savingsRate")}</span>

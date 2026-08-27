@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import api from "../services/api";
@@ -80,12 +81,12 @@ export default function CustomersPage() {
                  "Send fakturas, track customers, and log mileage. Upgrade to Starter to unlock.")}
           </p>
           {canPurchaseInApp() && (
-            <a
-              href="/subscription"
+            <Link
+              to="/subscription"
               className="inline-block px-4 py-2 bg-amber-600 text-white rounded-xl text-sm font-semibold hover:bg-amber-700 transition"
             >
               {t("upgrade") || "Upgrade"}
-            </a>
+            </Link>
           )}
         </div>
       </div>

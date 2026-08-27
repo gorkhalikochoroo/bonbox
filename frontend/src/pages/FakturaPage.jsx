@@ -219,9 +219,9 @@ export default function FakturaPage() {
         <SectionBanner severity="info" icon="Users">
           {t("fakturaNoCustomersHint") ||
             "You need at least one customer before you can send an invoice. "}
-          <a href="/customers" className="font-semibold underline">
+          <Link to="/customers" className="font-semibold underline">
             {t("addCustomerNow") || "Add one now →"}
-          </a>
+          </Link>
         </SectionBanner>
       )}
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { useConfirm } from "../hooks/useConfirm";
 import api from "../services/api";
@@ -129,12 +130,12 @@ export default function AdminPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <a
-            href="/admin/training"
+          <Link
+            to="/admin/training"
             className="px-3 py-1.5 text-xs font-semibold bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 rounded-lg transition"
           >
             🧠 Training dashboard →
-          </a>
+          </Link>
           {overview && (
             <div className="text-xs text-gray-500 dark:text-gray-400">
               {new Date(overview.as_of).toLocaleString()}
