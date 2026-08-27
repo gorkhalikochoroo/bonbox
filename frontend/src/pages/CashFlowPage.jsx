@@ -108,6 +108,20 @@ const TONE_BORDER = {
   neutral: "border-gray-300 dark:border-gray-700",
 };
 
+/* The foresight payload's `moms.confidence` is a WORD — "high" | "medium" |
+   "low", the share of the bill already booked (foresight_service.py:283) —
+   NOT a 0-1 fraction. This screen used to render
+   Math.round(confidence * 100), so "low" * 100 gave NaN and the owner was
+   shown "NaN% confidence" underneath a MOMS estimate.
+   Worded rather than numeric is also the house rule, already written down at
+   components/ui/SuggestionCard.jsx:64 — "worded band, never a %". An unknown
+   value renders nothing at all rather than guessing a level. */
+const CONFIDENCE_KEY = {
+  high: "cfpConfidenceHigh",
+  medium: "cfpConfidenceMedium",
+  low: "cfpConfidenceLow",
+};
+
 export default function CashFlowPage() {
   const { t, lang } = useLanguage();
 
@@ -253,7 +267,7 @@ export default function CashFlowPage() {
                 {low && high && (
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 tabular-nums">
                     {t("cfpRange")}: {low} – {high}
-                    {fs.moms?.confidence ? ` · ${t("cfpConfidence").replace("{pct}", String(Math.round(fs.moms.confidence * 100)))}` : ""}
+                    {CONFIDENCE_KEY[fs.moms?.confidence] ? ` · ${t(CONFIDENCE_KEY[fs.moms.confidence])}` : ""}
                   </p>
                 )}
                 {fs.balance_stale && (
