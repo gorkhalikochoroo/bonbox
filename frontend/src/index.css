@@ -70,6 +70,23 @@ html {
      position: sticky headers/toolbars keep working, and it degrades to no-op
      on older browsers (= today's behaviour, no regression). Mobile-fit fix. */
   overflow-x: clip;
+
+  /* html must carry the SAME background as body, in both themes.
+     body already does (#f8fafc / #111827 below) but it is inset by
+     env(safe-area-inset-top), so the strip above it fell through to whatever
+     the NATIVE webview background is — capacitor.config's shellBg. That value
+     is static at build time while the theme is a runtime toggle, so one value
+     is always wrong for one theme: it showed as a 34pt dark band under the tab
+     bar in light mode, and after that was fixed, as an 8pt light band under the
+     status bar in dark mode. Both measured on device.
+
+     Painting html here makes CSS own the strip, so it follows the live theme
+     and shellBg stops mattering for it. */
+  background-color: #f8fafc;
+}
+
+html.dark {
+  background-color: #111827;
 }
 
 body {

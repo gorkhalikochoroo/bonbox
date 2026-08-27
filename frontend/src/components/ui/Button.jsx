@@ -32,9 +32,18 @@ const BASE =
   "disabled:cursor-not-allowed disabled:pointer-events-none whitespace-nowrap";
 
 const VARIANTS = {
+  // The colour inverts for dark mode; the DISABLED treatment has to invert
+  // too. Base gives every variant `disabled:opacity-50`, which works in light
+  // (a dimmed gray-900 recedes against white) and fails in dark: a gray-100
+  // block at 50% over a dark ground is still light, so the disabled primary
+  // became the brightest element on the screen — measured on /sales, where the
+  // greyed-out "Registrer" outshone every live control around it.
+  // In dark it becomes a muted dark surface instead, which is what "inactive"
+  // should look like on a dark ground.
   primary:
     "bg-gray-900 text-white hover:bg-gray-800 " +
     "dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white " +
+    "dark:disabled:opacity-100 dark:disabled:bg-gray-800 dark:disabled:text-gray-500 " +
     "focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100",
   accent:
     "bg-emerald-600 text-white hover:bg-emerald-700 " +
