@@ -11036,7 +11036,7 @@ const translations = {
     // Sales
     salesTracker: "Salgsregistrering", logSale: "Registrer dagens salg",
     logSaleForDate: "Registrer salg for {date}",
-    tapAmount: "Tryk på et beløb eller skriv dit eget", customAmount: "Brugerdefineret beløb...",
+    tapAmount: "Tryk på et beløb eller skriv dit eget", customAmount: "Andet beløb...",
     log: "Registrer", recentSales: "Seneste salg", date: "Dato", amount: "Beløb",
     payment: "Betaling", noSalesYet: "Ingen salg endnu — tryk på et beløb ovenfor!",
     importCsv: "Importer fra CSV", csvColumns: "Kolonner: dato, beløb, betalingsmetode (valgfri)",
@@ -11080,7 +11080,7 @@ const translations = {
     wasteLogged: "Spild registreret!", monthlyWasteCost: "Månedlig spildudgift",
     itemsWasted: "Varer smidt ud", noDataYet: "Ingen data endnu",
     whatWasWasted: "Hvad blev smidt ud? (f.eks. Kyllingebryst)", qty: "Antal",
-    estimatedCost: "Anslået pris (DKK)", customCost: "Brugerdefineret pris...",
+    estimatedCost: "Anslået pris (DKK)", customCost: "Anden pris...",
     recentWaste: "Seneste spild", item: "Vare", reason: "Årsag", cost: "Pris",
     noWasteYet: "Intet spild registreret endnu",
     expired: "udløbet", overcooked: "overkogt", damaged: "beskadiget", other: "andet",
@@ -12545,7 +12545,7 @@ const translations = {
     // Expenses page extras
     detailed: "Detaljeret", quickMode: "Hurtig",
     quickAmountAndGo: "Beløb, betaling & færdig — bogføres som Andet, kan ændres",
-    backdated: "Tilbagedateret", customCategoryPlaceholder: "Brugerdefineret kategori...",
+    backdated: "Tilbagedateret", customCategoryPlaceholder: "Anden kategori...",
     failedToLoadExpenses: "Kunne ikke indlæse udgifter", failedToLoadCategories: "Kunne ikke indlæse kategorier",
     failedToSetupCategories: "Kunne ikke oprette kategorier", failedToAddExpense: "Kunne ikke tilføje udgift",
     failedToUpdateExpense: "Kunne ikke opdatere udgift", failedToDeleteExpense: "Kunne ikke slette udgift",
