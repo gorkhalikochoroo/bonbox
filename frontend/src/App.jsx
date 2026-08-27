@@ -1,5 +1,5 @@
 import { Component, lazy, Suspense, useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from "react-router-dom";
 import { setStandToken } from "./services/standAuth";
 import { reportClientError } from "./utils/reportClientError";
 import { AuthProvider, useAuth } from "./hooks/useAuth";
@@ -728,11 +728,44 @@ function AppRoutes() {
   );
 }
 
+/**
+ * ScrollManager — puts the viewport at the top on navigation.
+ *
+ * Without this the app carried the previous page's scroll offset into the next
+ * one: scroll Daily Close halfway down, tap "More", and More opened halfway
+ * down too. Reproduced on an iPhone 17 Pro. There was no scroll handling of any
+ * kind — react-router's own <ScrollRestoration> is not usable here because it
+ * requires a data router (createBrowserRouter) and this app mounts
+ * <BrowserRouter>.
+ *
+ * Keyed on PATHNAME only, deliberately. Several pages carry their active tab in
+ * the query string (/staff/hours?tab=hours, /reservations?view=floor), and
+ * reacting to `search` would yank the page to the top every time the owner
+ * switched tabs.
+ *
+ * Kept deliberately dumb — no navigation-type branching, no saved-position map.
+ * A richer version that restored the offset on back-navigation white-screened
+ * the native app on launch while passing build, lint and all 322 tests; this is
+ * the shape that is actually verified on device. Restoring scroll on POP would
+ * be nice, but not at the cost of a blank app.
+ *
+ * Declared ABOVE its only consumer (AppInner) rather than relying on function
+ * hoisting, for the same reason.
+ */
+function ScrollManager() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
+  return null;
+}
+
 function AppInner() {
   useKeepAlive(); // ping Render every 10 min to prevent cold starts
   return (
     <ErrorBoundary>
       <BrowserRouter>
+        <ScrollManager />
         <LanguageProvider>
           {/* ConfirmProvider — the one premium replacement for native
               window.confirm(). Sits inside LanguageProvider (the dialog reads
