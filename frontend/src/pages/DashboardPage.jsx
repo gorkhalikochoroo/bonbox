@@ -492,8 +492,18 @@ export default function DashboardPage() {
       },
       weekComparison: weekComparison
         ? {
+            // Dead field: nothing in the backend ever emits today_change_pct
+            // (grep the whole of backend/ — no hits), so the Today tile's delta
+            // has never rendered. Kept null rather than removed so the shape
+            // stays stable for any other reader.
             todayDeltaPct: weekComparison.today_change_pct ?? null,
-            weekDeltaPct: weekComparison.change_pct ?? null,
+            // Only trust the delta when there was a real prior week to compare
+            // against. Without this, a zero-history account is told "vs last
+            // week" about a comparison that never happened.
+            weekDeltaPct:
+              Number(weekComparison.last_week_revenue) > 0
+                ? (weekComparison.change_pct ?? null)
+                : null,
             direction:
               (weekComparison.change_pct || 0) > 0
                 ? "up"

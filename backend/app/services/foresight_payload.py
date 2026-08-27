@@ -165,6 +165,12 @@ def build_foresight_payload(user, db, *, as_of, bank_balance=None, reserved=Deci
             "expected": _f(cone.moms_range.expected),
             "high": _f(cone.moms_range.high),
             "confidence": cone.moms_range.confidence,
+            # `expected` is realized + projected, so on its own it cannot tell
+            # the owner how much of the headline figure is actually booked.
+            # NOTE low != realized: low is realized + projected*(1-band), so it
+            # still contains a projection and must not be shown as "booked".
+            "realized": _f(cone.moms_range.realized),
+            "projected": _f(cone.moms_range.projected),
         },
         "balance": {
             "starting": _f(cone.mid.starting_balance),

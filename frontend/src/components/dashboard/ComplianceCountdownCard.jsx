@@ -215,6 +215,20 @@ export default function ComplianceCountdownCard({
     const expectedNum = Number(moms.expected ?? 0);
     const expected = moms.expected != null ? formatKr(moms.expected, { decimals: 0 }) : null;
 
+    // PROVENANCE. `expected` is realized + a run-rate projection of the days
+    // that have not elapsed yet (foresight_service.py:246-250), so early in a
+    // MOMS period most of the headline can be forecast rather than booked. The
+    // backend already grades this as `confidence` — the share already realized:
+    // high >=80%, medium >=40%, low below that. We surface the split ONLY when
+    // the projection is material (confidence != "high"), so the common,
+    // near-settled case keeps its shorter line and its balance prompt.
+    // Deliberately reads `realized`, never `low` — low is
+    // realized + projected*(1-band) and still contains a projection.
+    const realizedNum = moms.realized != null ? Number(moms.realized) : null;
+    const momsIsMostlyEstimate =
+      realizedNum != null && moms.confidence && moms.confidence !== "high" && expectedNum > 0;
+    const realizedStr = realizedNum != null ? formatKr(realizedNum, { decimals: 0 }) : null;
+
     // Balance-free value: even with NO balance we can give the owner the
     // safe plan — what to set aside each week to fund the bill from zero by
     // the deadline (conservative; adding a balance only lowers it). Turns
@@ -231,14 +245,24 @@ export default function ComplianceCountdownCard({
     if (noBalance && weeklyToFund > 0) {
       displayHeadline = t("fsFundHeadline", "Set aside ~{amt}/week to cover MOMS")
         .replace("{amt}", formatKr(weeklyToFund, { decimals: 0 }));
-      detail = t(
-        "fsFundDetail",
-        "~{amt} due {date} · add your balance to see if you're already covered",
+      detail = (
+        momsIsMostlyEstimate
+          ? t("fsFundDetailEstimated", "~{amt} due {date} · {realized} booked, rest estimated")
+              .replace("{realized}", realizedStr)
+          : t(
+              "fsFundDetail",
+              "~{amt} due {date} · add your balance to see if you're already covered",
+            )
       )
         .replace("{amt}", expected || "—")
         .replace("{date}", fmtDate(dl.date));
     } else if (noBalance) {
-      detail = t("fsConnectDetail", "Expected MOMS ~{amt} · due {date}")
+      detail = (
+        momsIsMostlyEstimate
+          ? t("fsConnectDetailEstimated", "MOMS ~{amt} due {date} · {realized} booked, rest estimated")
+              .replace("{realized}", realizedStr)
+          : t("fsConnectDetail", "Expected MOMS ~{amt} · due {date}")
+      )
         .replace("{amt}", expected || "—")
         .replace("{date}", fmtDate(dl.date));
     } else if (fs.verdict === "SHORT" && action && !action.already_covered) {

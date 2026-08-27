@@ -295,7 +295,8 @@ export const DASHBOARD_CARD_SET = {
           component: "KpiStrip",
           props: (ctx) => ({
             tiles: ["today", "week", "month"],
-            // WeekComparison delta wired INTO the today-tile arrow.
+            // WeekComparison delta wired INTO the week-tile arrow (direction
+            // word, not a percent; withheld when there is no fair baseline).
             showDelta: true,
           }),
         },

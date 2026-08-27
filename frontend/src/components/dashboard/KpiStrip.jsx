@@ -4,7 +4,7 @@
  * Replaces the previous 4-tile grid (Today / Week / Avg / Payments). The
  * v2 spec collapses to 3 tiles: Today / Week / Compliance-next. The
  * WeekComparisonCard's standalone surface is killed — its delta arrow
- * lives INSIDE the Today tile as `↑12% vs last week`.
+ * lives INSIDE the Week tile as `↑ Up vs last week`.
  *
  * Composition rules (doctrine):
  *   • Composes existing <StatCard> primitives — never re-rolls KPI
@@ -18,34 +18,44 @@
  *
  * Props:
  *   • tiles      — ["today", "week", "complianceNext"]. Order matters.
- *   • showDelta  — when true, the today + week tiles render their
- *                  WeekComparison delta as part of the helper text
- *                  (e.g. "↑12% vs last week"). The arrow + percent are
- *                  the only colored pixels in the tile.
+ *   • showDelta  — when true, the week tile renders its WeekComparison
+ *                  delta as part of the helper text, as an arrow + a
+ *                  direction WORD ("↑ Up vs last week") — never a raw
+ *                  percentage, and withheld entirely when there is no fair
+ *                  baseline. The arrow + word are the only colored pixels
+ *                  in the tile. (The today tile's delta is dead — the
+ *                  backend emits no today_change_pct.)
  *   • ctx        — the assembled Dashboard context (see dashboardCardSets.js).
  *                  Sourced for revenue numbers, currency, weekComparison
  *                  deltas, compliance.daysToNext, etc.
  */
 import React from "react";
-import { TrendingUp, TrendingDown, Calendar } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Calendar } from "lucide-react";
 import { StatCard, Amount } from "../ui";
 import { useLanguage } from "../../hooks/useLanguage";
 
-function fmtPct(n) {
-  if (n == null || Number.isNaN(Number(n))) return null;
-  // Always show sign so the arrow + percent read together (↑12%, ↓4%).
-  const sign = n > 0 ? "+" : n < 0 ? "" : "";
-  return `${sign}${Number(n).toFixed(0)}%`;
-}
-
 /**
- * DeltaIndicator — the colored arrow + percent that doctrine allows
+ * DeltaIndicator — the colored arrow + direction WORD that doctrine allows
  * (color is signal here, not decoration). Rendered as a small inline
  * row so it composes inside the StatCard `helper` slot.
+ *
+ * This used to print a raw period-over-period percentage ("+12%", and — worse
+ * — a bare "0%"). That is the exact thing the house convention forbids, and
+ * RevenueTrendChart.jsx:177-186 writes down why: on a young or sparse account
+ * the prior window is near-empty, so the ratio reads as a precise-looking but
+ * meaningless number. This now follows that same convention — the direction
+ * word, behind the same ±5% dead band, so a 1% wobble is not called growth.
+ *
+ * `pct` arriving null means "no fair baseline" and the whole indicator is
+ * withheld (honest absence) rather than rendered as zero. DashboardPage gates
+ * that on last_week_revenue.
  */
 function DeltaIndicator({ pct, label }) {
+  const { t } = useLanguage();
   if (pct == null || Number.isNaN(Number(pct))) return null;
-  const direction = pct > 0 ? "up" : pct < 0 ? "down" : "flat";
+  const n = Number(pct);
+  // ±5 percent, matching RevenueTrendChart's ±0.05 ratio dead band.
+  const direction = n >= 5 ? "up" : n <= -5 ? "down" : "flat";
   const colorClass =
     direction === "up"
       ? "text-emerald-600 dark:text-emerald-400"
@@ -57,13 +67,18 @@ function DeltaIndicator({ pct, label }) {
       ? TrendingUp
       : direction === "down"
       ? TrendingDown
-      : null;
-  const pretty = fmtPct(pct);
+      : Minus;
+  const word =
+    direction === "up"
+      ? t("trendUp", "Up")
+      : direction === "down"
+        ? t("trendDown", "Down")
+        : t("trendFlat", "Stable");
   return (
     <span className="inline-flex items-center gap-1 text-xs">
       <span className={`inline-flex items-center gap-0.5 font-medium ${colorClass}`}>
         {Arrow && <Arrow size={12} strokeWidth={2} aria-hidden="true" />}
-        <span>{pretty}</span>
+        <span>{word}</span>
       </span>
       {label && (
         <span className="text-gray-500 dark:text-gray-400">{label}</span>
