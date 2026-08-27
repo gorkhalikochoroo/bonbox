@@ -80,8 +80,24 @@ html {
      bar in light mode, and after that was fixed, as an 8pt light band under the
      status bar in dark mode. Both measured on device.
 
-     Painting html here makes CSS own the strip, so it follows the live theme
-     and shellBg stops mattering for it. */
+     Painting html here is correct in its own right — html should carry the same
+     ground as body, and it covers overscroll — but MEASURED ON DEVICE IT DOES
+     NOT FIX THAT STRIP. The strip sits ABOVE the webview, not inside it:
+     capacitor.config sets ios.contentInset "automatic", so WKWebView is inset
+     below the status bar and the gap is painted by the NATIVE view using
+     ios.backgroundColor. No CSS can reach it.
+
+     Closing it properly means letting the webview extend under the status bar,
+     the way the scheduler target already does — contentInset "never" PLUS
+     StatusBar.overlaysWebView true (the config notes that "never" alone is not
+     enough, because the offset is the frame, not the scroll inset). Then this
+     rule is what paints the area, and it follows the live theme.
+
+     The comment in capacitor.config.ts saying the owner app "doesn't do CSS
+     insets" is stale: Layout.jsx's mobile header already pads by
+     env(safe-area-inset-top), and body pads too — which is also the hazard,
+     since the two can stack. That is a native-behaviour change across every
+     screen and wants its own pass, not a drive-by. */
   background-color: #f8fafc;
 }
 
