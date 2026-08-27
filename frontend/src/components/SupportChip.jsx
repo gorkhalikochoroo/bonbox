@@ -110,20 +110,10 @@ export default function SupportChip() {
 
   return (
     <>
-      {/* Floating chip — MOBILE ONLY (`md:hidden`). On desktop the sidebar owns
-          the left column, and any floating "?" there either hides behind it or
-          floats awkwardly over content — so desktop uses the labelled
-          "Help & feedback" row in the sidebar footer instead (Layout.jsx), which
-          dispatches OPEN_SUPPORT_EVENT to open this same composer. On mobile the
-          sidebar is off-canvas, so bottom-left is clear. */}
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label={t("supportChipAria") || "Get help / send feedback"}
-        className="md:hidden fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] left-5 z-40 w-11 h-11 rounded-full bg-gray-900/80 dark:bg-gray-700 hover:bg-gray-900 dark:hover:bg-gray-600 text-white text-lg font-bold shadow-sm flex items-center justify-center transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
-      >
-        ?
-      </button>
+      {/* The composer is opened from elsewhere now — the mobile header's "?"
+          and the desktop sidebar's "Help & feedback" row both dispatch
+          OPEN_SUPPORT_EVENT. There is deliberately no floating button: it sat
+          over page content just above the tab bar. */}
 
       {/* Sent toast */}
       {sentToast && (

@@ -104,12 +104,14 @@ import {
   Scissors, Croissant,
   // Misc / fallback
   Circle, ChevronDown,
+  HelpCircle,
 } from "lucide-react";
 
 // Map canonical icon names → Lucide components. Sidebar entries reference
 // these by the string key (e.g. `icon: "Home"`). Renaming an icon here is
 // safe — only the icon name string needs updating in Layout.jsx.
 const ICONS = {
+  HelpCircle,
   // Core
   Home, ShoppingBag, Receipt, CalendarDays, CalendarCheck,
   // Money group

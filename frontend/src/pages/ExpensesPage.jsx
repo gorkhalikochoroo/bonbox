@@ -43,7 +43,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { useStickyMethod } from "../hooks/useStickyMethod";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
-import { displayCurrency, getTaxConfig, formatOwnerMoney, parseLocaleAmount, parseMoneyInput, moneyLocale } from "../utils/currency";
+import { displayCurrency, getTaxConfig, formatOwnerMoney, parseMoneyInput, moneyLocale } from "../utils/currency";
 import { formatDate, localIso } from "../utils/dateFormat";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn } from "../components/AnimationKit";
@@ -61,7 +61,7 @@ import EntryCard from "../components/ui/EntryCard";
 import PageShell from "../components/ui/PageShell";
 import DataTable from "../components/ui/DataTable";
 import FilterBar from "../components/ui/FilterBar";
-import { Mic, Camera, Pencil, Trash2, ChevronDown, ChevronUp, Receipt, ChevronRight, Layers } from "lucide-react";
+import { Camera, Pencil, Trash2, ChevronDown, ChevronUp, Receipt, ChevronRight, Layers } from "lucide-react";
 
 const QUICK_AMOUNTS = [100, 500, 1000];
 
@@ -113,7 +113,7 @@ const PERSONAL_ONLY_CATS = new Set([
 export default function ExpensesPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
-  const { t, lang } = useLanguage();
+  const { t } = useLanguage();
   const [expenses, setExpenses] = useState([]);
   const [categories, setCategories] = useState([]);
   const [catId, setCatId] = useState("");
@@ -133,15 +133,14 @@ export default function ExpensesPage() {
   const [editData, setEditData] = useState({});
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   // Sticky payment method (expense scope, own key — seeds from the owner's
-  // last expense choice, default card). setMethod is in-memory (voice + Smart
-  // Scan prefill use it, so neither sticks); commitMethod persists a
+  // last expense choice, default card). setMethod is in-memory (Smart Scan
+  // prefill uses it, so a scanned method never sticks); commitMethod persists a
   // deliberate picker tap. See useStickyMethod.
   const { method, setMethod, commitMethod } = useStickyMethod("expense");
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
   const [customCat, setCustomCat] = useState("");
   const customCatRef = useRef(null);
-  const [listening, setListening] = useState(false);
   // Top-level tab strip — One-time (existing flow) vs Recurring
   // (Task #47, Starter+ feature). Stays as <TabPills> per Tier-4 spec
   // — these switch between two distinct data sources.
@@ -332,43 +331,6 @@ export default function ExpensesPage() {
     }
   }, [editId]);
 
-  const startVoice = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { setError(t("voiceNotSupported")); return; }
-    const recognition = new SpeechRecognition();
-    recognition.lang = lang === "da" ? "da-DK" : "en-US";
-    recognition.interimResults = false;
-    recognition.onstart = () => setListening(true);
-    recognition.onend = () => setListening(false);
-    recognition.onresult = (event) => {
-      const text = event.results[0][0].transcript.toLowerCase();
-      // Grab the number WITH its separators intact — recognition.lang is
-      // da-DK for Danish owners, so the transcript is Danish notation
-      // ("150,50", "1.234,56"). The old regex + comma-strip read those as
-      // English thousands separators and booked 150,50 kr as 15.050 kr.
-      const numMatch = text.match(/-?\d[\d.,]*/);
-      if (numMatch) {
-        const val = parseLocaleAmount(numMatch[0], lang === "da" ? "da-DK" : "en-US");
-        if (Number.isFinite(val) && val > 0) {
-          setAmount(String(val));
-          if (text.includes("cash") || text.includes("kontant")) setMethod("cash");
-          else if (text.includes("card") || text.includes("kort")) setMethod("card");
-          else if (text.includes("mobile")) setMethod("mobilepay");
-          const catMatch = categories.find(c => text.includes(c.name.toLowerCase()));
-          if (catMatch) { setCatId(catMatch.id); setCustomCat(""); }
-          const remaining = text.replace(numMatch[0], "").replace(/cash|kontant|card|kort|mobilepay|mobil|mixed|dankort/g, "").trim();
-          if (remaining.length > 2) setDesc(remaining);
-          setSuccess(`${t("voiceParsed")}: "${text}" → ${formatOwnerMoney(val, currency)}`);
-          setTimeout(() => setSuccess(""), 3000);
-        }
-      } else {
-        setError(`${t("couldntParseAmount")}: "${text}"`);
-        setTimeout(() => setError(""), 3000);
-      }
-    };
-    recognition.onerror = () => { setListening(false); setError(t("voiceRecognitionFailed")); setTimeout(() => setError(""), 3000); };
-    recognition.start();
-  };
 
   // Auto-suggest category from description (Detailed mode only)
   const fetchSuggestion = (text) => {
@@ -1325,9 +1287,6 @@ export default function ExpensesPage() {
               }))}
             paymentMethod={method}
             onPaymentChange={commitMethod}
-            voiceInput={true}
-            onVoiceClick={startVoice}
-            voiceIcon={<Mic className={`w-4 h-4 ${listening ? "text-red-600 dark:text-red-400 animate-pulse" : ""}`} />}
             notes={notes}
             onNotesChange={setNotes}
             notesPlaceholder={t("notesOptional")}

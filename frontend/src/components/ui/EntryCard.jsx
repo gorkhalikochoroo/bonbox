@@ -95,11 +95,8 @@ export default function EntryCard({
   paymentMethods = [],
   paymentMethod = null,
   onPaymentChange,
-  voiceInput = false,
   // Opt-in, and DESKTOP-ONLY by design — see the ref effect below.
   autoFocusAmount = false,
-  onVoiceClick = null,
-  voiceIcon = null,
   extras = null,
   notes = "",
   onNotesChange,
@@ -228,26 +225,6 @@ export default function EntryCard({
                 onAmountChange && onAmountChange(e.target.value)
               }
               placeholder={amountPlaceholder}
-              prefix={
-                voiceInput && onVoiceClick ? (
-                  // Voice affordance — caller passes the icon to keep this
-                  // file dependency-free. The button is a real <button>
-                  // (not just a span) so it's tap-targetable on its own.
-                  <button
-                    type="button"
-                    onClick={onVoiceClick}
-                    aria-label={t("voiceInput", "Voice input")}
-                    className={
-                      "inline-flex items-center justify-center w-6 h-6 " +
-                      "rounded-md text-gray-500 hover:text-gray-900 " +
-                      "dark:text-gray-400 dark:hover:text-gray-100 " +
-                      "hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-                    }
-                  >
-                    {voiceIcon}
-                  </button>
-                ) : null
-              }
               suffix={amountSuffix}
               aria-label={t("amount", "Amount")}
               required

@@ -1,4 +1,4 @@
-import { Mic, Send, Sparkles, TrendingUp, X } from "lucide-react";
+import { Send, Sparkles, TrendingUp, X } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
 
 /**
@@ -162,12 +162,6 @@ export default function AiPanelV2() {
                 <div className="flex items-center gap-[9px] rounded-[14px] border border-chat-border py-[9px] pl-[15px] pr-[9px]">
                   <span className="flex-1 text-[14px] text-slate-500">
                     {t("landingV2.ai.inputPlaceholder", "Ask about your business…")}
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[10px] bg-chat-bubble text-slate-400"
-                  >
-                    <Mic size={15} strokeWidth={1.75} />
                   </span>
                   <span
                     aria-hidden="true"

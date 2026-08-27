@@ -19,7 +19,7 @@
 // rendering layer changed.
 import { useState, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
-import { Mic, Undo2, Pencil, Trash, AlertCircle, Receipt } from "lucide-react";
+import { Undo2, Pencil, Trash, AlertCircle, Receipt } from "lucide-react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -59,17 +59,18 @@ const DEFAULT_RIGHT_RAIL_MODE = "session4tile";
 export default function SalesPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
-  const { t, lang } = useLanguage();
+  const { t } = useLanguage();
   const confirm = useConfirm();
   const [sales, setSales] = useState([]);
   const [salesLoading, setSalesLoading] = useState(true);
   const [amount, setAmount] = useState("");
   const [saleDate, setSaleDate] = useState(localIso());
   // Sticky payment method — seeds from the owner's last choice (DK default:
-  // card). setMethod is in-memory only (voice uses it, so a voiced "cash"
-  // never sticks); commitMethod persists on a deliberate tap (cash excluded —
-  // it's the only method that posts to the cashbook). See useStickyMethod.
-  const { method, setMethod, commitMethod } = useStickyMethod("sale");
+  // card). commitMethod persists on a deliberate tap (cash excluded — it's the
+  // only method that posts to the cashbook). See useStickyMethod. The setter is
+  // not destructured here: nothing on this page sets the method except the
+  // picker itself, which goes through commitMethod.
+  const { method, commitMethod } = useStickyMethod("sale");
   const [notes, setNotes] = useState("");
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
@@ -81,7 +82,6 @@ export default function SalesPage() {
   const [editData, setEditData] = useState({});
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(new Set());
-  const [listening, setListening] = useState(false);
   const [isTaxExempt, setIsTaxExempt] = useState(false);
   const [showItemSale, setShowItemSale] = useState(false);
   const [inventoryItems, setInventoryItems] = useState([]);
@@ -167,37 +167,6 @@ export default function SalesPage() {
     };
   }, [sales, eventFilter]);
 
-  const startVoice = () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) { setError(t("voiceNotSupported")); return; }
-    const recognition = new SpeechRecognition();
-    recognition.lang = lang === "da" ? "da-DK" : "en-US";
-    recognition.interimResults = false;
-    recognition.onstart = () => setListening(true);
-    recognition.onend = () => setListening(false);
-    recognition.onresult = (event) => {
-      const text = event.results[0][0].transcript.toLowerCase();
-      const numMatch = text.match(/[\d,]+\.?\d*/);
-      if (numMatch) {
-        const val = parseFloat(numMatch[0].replace(/,/g, ""));
-        if (val > 0) {
-          setAmount(String(val));
-          if (text.includes("cash") || text.includes("kontant")) setMethod("cash");
-          else if (text.includes("card") || text.includes("kort")) setMethod("card");
-          else if (text.includes("mobile")) setMethod("mobilepay");
-          const remaining = text.replace(numMatch[0], "").replace(/cash|kontant|card|kort|mobilepay|mobil|mixed|dankort/g, "").trim();
-          if (remaining.length > 2) setNotes(remaining);
-          setSuccess(`${t("voiceParsed")}: "${text}" → ${formatOwnerMoney(val, user?.currency)}`);
-          setTimeout(() => setSuccess(""), 3000);
-        }
-      } else {
-        setError(`${t("couldntParseAmount")}: "${text}"`);
-        setTimeout(() => setError(""), 3000);
-      }
-    };
-    recognition.onerror = () => { setListening(false); setError(t("voiceRecognitionFailed")); setTimeout(() => setError(""), 3000); };
-    recognition.start();
-  };
 
   const fetchSales = async (from, to, eventId) => {
     try {
@@ -923,9 +892,6 @@ export default function SalesPage() {
             paymentMethods={["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => ({ id: m, label: t(m) }))}
             paymentMethod={method}
             onPaymentChange={commitMethod}
-            voiceInput={true}
-            onVoiceClick={startVoice}
-            voiceIcon={<Mic className={`w-4 h-4 ${listening ? "text-red-600 dark:text-red-400 animate-pulse" : ""}`} />}
             extras={
               <>
                 <TaxBreakdown amount={amount} currencyCode={user?.currency} isTaxExempt={isTaxExempt} onTaxExemptChange={setIsTaxExempt} />

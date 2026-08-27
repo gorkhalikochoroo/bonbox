@@ -577,6 +577,19 @@ export default function Layout() {
           {/* Shared-device ("Delt enhed") reveal/hide chip — only shows when the
               owner flagged THIS device shared (#379). */}
           <DeviceShareChip />
+          {/* Help — moved out of the floating bottom-left chip (which sat over
+              content above the tab bar) into the header, where the other global
+              actions live. Dispatches the same OPEN_SUPPORT_EVENT the sidebar's
+              "Help & feedback" row uses, so all three entry points open one
+              composer. Placed FIRST in a right-aligned row on purpose: the group
+              grows leftward, so search/AI/bell keep their learned positions. */}
+          <button
+            onClick={() => window.dispatchEvent(new Event("bonbox:open-support"))}
+            aria-label={t("supportChipAria") || "Get help / send feedback"}
+            className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 transition"
+          >
+            <Icon name="HelpCircle" size={20} strokeWidth={2} />
+          </button>
           <button
             onClick={() => setSearchOpen(true)}
             aria-label={t("search") || "Search"}
