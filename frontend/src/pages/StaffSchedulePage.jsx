@@ -162,15 +162,41 @@ function getISOWeekNumber(date) {
 }
 
 /** Formats "Week 15: 7 Apr – 13 Apr 2026" */
-function formatWeekRange(weekStart) {
+// Danish abbreviations are lowercase and take a period after the day number
+// ("24. aug"), which is why this is a table rather than toLocaleDateString —
+// the Intl short-month output for da-DK varies by runtime ("aug." vs "aug").
+const WEEK_MONTHS = {
+  en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+  da: ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"],
+};
+
+function weekParts(weekStart, lang) {
   const ws = new Date(weekStart);
   const we = new Date(ws);
   we.setDate(we.getDate() + 6);
-  const weekNum = getISOWeekNumber(ws);
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const startStr = `${ws.getDate()} ${monthNames[ws.getMonth()]}`;
-  const endStr = `${we.getDate()} ${monthNames[we.getMonth()]} ${we.getFullYear()}`;
-  return `Week ${weekNum}: ${startStr} – ${endStr}`;
+  const da = lang === "da";
+  return { ws, we, da, m: WEEK_MONTHS[da ? "da" : "en"], num: getISOWeekNumber(ws) };
+}
+
+function formatWeekRange(weekStart, lang = "en") {
+  const { ws, we, da, m, num } = weekParts(weekStart, lang);
+  const day = (dt) => (da ? `${dt.getDate()}. ${m[dt.getMonth()]}` : `${dt.getDate()} ${m[dt.getMonth()]}`);
+  return `${da ? "Uge" : "Week"} ${num}: ${day(ws)} – ${day(we)} ${we.getFullYear()}`;
+}
+
+/** Phone variant — drops the year and collapses a same-month range.
+ *  "Uge 35 · 24.–30. aug" instead of "Uge 35: 24. aug – 30. aug 2026".
+ *  The full form does not fit beside the Previous/Next buttons at 402pt:
+ *  it wrapped to two lines and squeezed them against the card edges. */
+function formatWeekRangeShort(weekStart, lang = "en") {
+  const { ws, we, da, m, num } = weekParts(weekStart, lang);
+  const endStr = da ? `${we.getDate()}. ${m[we.getMonth()]}` : `${we.getDate()} ${m[we.getMonth()]}`;
+  const startStr =
+    ws.getMonth() === we.getMonth()
+      ? (da ? `${ws.getDate()}.` : `${ws.getDate()}`)
+      : (da ? `${ws.getDate()}. ${m[ws.getMonth()]} ` : `${ws.getDate()} ${m[ws.getMonth()]} `);
+  const sep = ws.getMonth() === we.getMonth() ? "–" : "– ";
+  return `${da ? "Uge" : "Week"} ${num} · ${startStr}${sep}${endStr}`;
 }
 
 /** Returns array of 7 Date objects starting from weekStart (Monday) */
@@ -1724,19 +1750,35 @@ export default function StaffSchedulePage() {
       <FadeIn delay={0.05}>
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            {/* Week nav */}
-            <div className="flex items-center gap-2">
-              <Button variant="secondary" size="sm" onClick={goToPrevWeek}>
-                {"\u2190"} {t("schedPrevWeek", "Previous")}
+            {/* Week nav — on a phone the arrows lose their word labels and the
+                date label flexes into whatever is left. With the words shown,
+                Previous (~100pt) + the 220pt label + Next (~80pt) + gaps came
+                to ~416pt against the ~338pt actually available inside the page
+                and card padding, so the label wrapped to two lines and pushed
+                the buttons into the card edges. sm: and up is unchanged. */}
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={goToPrevWeek}
+                aria-label={t("schedPrevWeek", "Previous")}
+              >
+                {"\u2190"}<span className="hidden sm:inline"> {t("schedPrevWeek", "Previous")}</span>
               </Button>
               <button
                 onClick={goToCurrentWeek}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 min-w-[220px] text-center hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 flex-1 sm:flex-none min-w-0 sm:min-w-[220px] text-center hover:bg-gray-100 dark:hover:bg-gray-800 transition"
               >
-                {formatWeekRange(weekStart)}
+                <span className="sm:hidden">{formatWeekRangeShort(weekStart, lang)}</span>
+                <span className="hidden sm:inline">{formatWeekRange(weekStart, lang)}</span>
               </button>
-              <Button variant="secondary" size="sm" onClick={goToNextWeek}>
-                {t("schedNextWeek", "Next")} {"\u2192"}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={goToNextWeek}
+                aria-label={t("schedNextWeek", "Next")}
+              >
+                <span className="hidden sm:inline">{t("schedNextWeek", "Next")} </span>{"\u2192"}
               </Button>
             </div>
 
@@ -1927,17 +1969,23 @@ export default function StaffSchedulePage() {
               BonBox app, not this one). It just names BonBox Scheduler and
               links the store page so the owner can point staff to it. */}
           <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[12px] text-gray-400 dark:text-gray-500">
-            <Icon name="Smartphone" size={12} />
+            {/* No leading icon: a 14px Lucide "Smartphone" is a bare rounded
+                rectangle at this size and read as a missing-glyph box rather
+                than an icon. The sentence already says "app". */}
             <span>{t("scheduleStaffAppHint", "Your team sees these shifts in the BonBox Scheduler app")}</span>
-            <span aria-hidden="true">·</span>
-            <a
-              href="https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
-            >
-              {t("appStore", "App Store")}
-            </a>
+            {/* The separator travels WITH the link — on a phone the line broke
+                after the "·", orphaning it at the end of the first line. */}
+            <span className="whitespace-nowrap">
+              <span aria-hidden="true">·</span>{" "}
+              <a
+                href="https://apps.apple.com/dk/app/bonbox-scheduler/id6787010793"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+              >
+                {t("appStore", "App Store")}
+              </a>
+            </span>
           </div>
         </div>
       </FadeIn>
@@ -2361,6 +2409,7 @@ export default function StaffSchedulePage() {
           result={publishResult}
           currency={currency}
           weekStart={weekStart}
+          lang={lang}
           publishing={publishing}
           onConfirm={confirmPublish}
           onClose={() => {
@@ -5343,7 +5392,7 @@ function StatTile({ icon, value, label }) {
   );
 }
 
-function PublishConfirmModal({ summary, result, currency, weekStart, publishing, onConfirm, onClose, t }) {
+function PublishConfirmModal({ summary, result, currency, weekStart, publishing, onConfirm, onClose, t, lang }) {
   const done = !!result; // success state shown after a publish completes
   const nothing = !summary || summary.draftCount === 0;
   const headerIcon = done ? "CheckCircle2" : "Send";
@@ -5372,7 +5421,7 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
                 {title}
               </h2>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {formatWeekRange(weekStart)}
+                {formatWeekRange(weekStart, lang)}
               </p>
             </div>
           </div>
