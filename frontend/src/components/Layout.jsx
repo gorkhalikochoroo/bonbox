@@ -500,6 +500,21 @@ export default function Layout() {
 
   const closeSidebar = () => setSidebarOpen(false);
 
+  // Close the drawer on ANY navigation, not just taps on its own links.
+  //
+  // The bottom tab bar is a separate component and knows nothing about this
+  // state, so tapping Home/Sales/Today/More with the drawer open changed the
+  // page BEHIND it and left the drawer sitting over the thing you had just
+  // navigated to. Reproduced on two accounts. Keying off location covers every
+  // route change — tab bar, deep link, programmatic — rather than patching the
+  // one entry point that happened to be noticed.
+  //
+  // Desktop is unaffected: the aside is pinned open by md:translate-x-0, which
+  // overrides sidebarOpen entirely.
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
   // Accounting-software style: neutral gray bg + bold dark text on the active
   // item (Dinero/Billy/e-conomic do this). Avoids the "tech glow" colored pill
   // that read as developer-tool aesthetic.
