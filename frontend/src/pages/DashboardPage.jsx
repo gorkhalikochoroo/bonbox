@@ -482,10 +482,19 @@ export default function DashboardPage() {
         hasActivity: !!summary?.has_activity,
         totalSales: summary?.total_sales ?? summary?.sale_count ?? 0,
         todaySales: summary?.today_sale_count || 0,
-        todayRevenue: summary?.today_revenue || 0,
-        weekRevenue: summary?.week_revenue || 0,
-        monthRevenue: summary?.month_revenue || 0,
-        monthExpenses: summary?.month_expenses || 0,
+        // MONEY fields stay null when absent — never coerced to 0.
+        // If /dashboard/batch AND its per-endpoint fallback both fail (see the
+        // two silent catches below), `summary` is null; with `|| 0` the tiles
+        // then showed a confident "0 kr." and a failed fetch was indis-
+        // tinguishable from a genuinely quiet day. <Amount> already renders
+        // null as an honest em dash — the coercion here was defeating it.
+        // NOTE the counts above (totalSales / todaySales) deliberately keep
+        // their `0` for now: they have different consumers and a zero count is
+        // usually the measured truth. Money first.
+        todayRevenue: summary?.today_revenue ?? null,
+        weekRevenue: summary?.week_revenue ?? null,
+        monthRevenue: summary?.month_revenue ?? null,
+        monthExpenses: summary?.month_expenses ?? null,
         profit_30d: summary?.profit_30d ?? summary?.month_profit,
         profit_margin: summary?.profit_margin || 0,
         week_expense_delta_pct: summary?.week_expense_delta_pct || 0,

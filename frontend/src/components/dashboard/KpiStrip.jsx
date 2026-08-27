@@ -107,7 +107,7 @@ export default function KpiStrip({
   const tileSpecs = {
     today: {
       label: t("liveRevenueToday", "Revenue today"),
-      value: <Amount value={ctx?.summary?.todayRevenue ?? 0} currency={ctx?.currency} />,
+      value: <Amount value={ctx?.summary?.todayRevenue} currency={ctx?.currency} />,
       helper: showDelta ? (
         <DeltaIndicator
           pct={todayDelta}
@@ -118,7 +118,7 @@ export default function KpiStrip({
     },
     week: {
       label: t("liveRevenueWeek", "Revenue this week"),
-      value: <Amount value={ctx?.summary?.weekRevenue ?? 0} currency={ctx?.currency} />,
+      value: <Amount value={ctx?.summary?.weekRevenue} currency={ctx?.currency} />,
       helper: showDelta ? (
         <DeltaIndicator
           pct={weekDelta}
@@ -132,7 +132,7 @@ export default function KpiStrip({
     // often, and the natural today → week → month progression.
     month: {
       label: t("liveRevenueMonth", "This month"),
-      value: <Amount value={ctx?.summary?.month_revenue ?? 0} currency={ctx?.currency} />,
+      value: <Amount value={ctx?.summary?.month_revenue} currency={ctx?.currency} />,
       helper: null,
       accent: "neutral",
     },
