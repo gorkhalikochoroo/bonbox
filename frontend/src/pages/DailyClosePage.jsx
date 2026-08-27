@@ -212,7 +212,7 @@ const PAYMENT_METHODS_BY_TYPE = {
   restaurant: [
     { key: "cash", label: "Cash / Kontant", icon: "Banknote" },
     { key: "card", label: "Card / Dankort", icon: "CreditCard" },
-    { key: "mobilepay", label: "MobilePay", icon: "Smartphone" },
+    { key: "mobilepay", label: "MobilePay", icon: "Wallet" },
     { key: "invoice", label: "Invoice / Faktura", icon: "FileText" },
   ],
   workshop: [
@@ -224,17 +224,17 @@ const PAYMENT_METHODS_BY_TYPE = {
   retail: [
     { key: "cash", label: "Cash / Kontant", icon: "Banknote" },
     { key: "card", label: "Card / Dankort", icon: "CreditCard" },
-    { key: "mobilepay", label: "MobilePay", icon: "Smartphone" },
+    { key: "mobilepay", label: "MobilePay", icon: "Wallet" },
     { key: "gift_card", label: "Gift Card / Gavekort", icon: "Gift" },
   ],
   grocery: [
     { key: "cash", label: "Cash / Kontant", icon: "Banknote" },
     { key: "card", label: "Card / Dankort", icon: "CreditCard" },
-    { key: "mobilepay", label: "MobilePay", icon: "Smartphone" },
+    { key: "mobilepay", label: "MobilePay", icon: "Wallet" },
   ],
   ecommerce: [
     { key: "card", label: "Card / Online", icon: "CreditCard" },
-    { key: "mobilepay", label: "MobilePay", icon: "Smartphone" },
+    { key: "mobilepay", label: "MobilePay", icon: "Wallet" },
     { key: "bank_transfer", label: "Bank Transfer", icon: "Landmark" },
     { key: "paypal", label: "PayPal", icon: "Wallet" },
   ],
@@ -387,8 +387,19 @@ export default function DailyClosePage() {
   // CTA scroll target — when the owner taps "Close the day" at the top
   // we auto-scroll to the wizard. ref attached on the wrapper below.
   const closeWizardRef = useRef(null);
-  const scrollToWizard = () => {
+  // Bumped when the owner asks for manual entry. CloseForm owns scanMode and
+  // step, so this page cannot set them directly — it raises a signal and
+  // CloseForm acts on it. (Writing them from here was a real bug: three
+  // undefined references, so the button threw on click and did nothing.)
+  const [manualRequest, setManualRequest] = useState(0);
+
+  const scrollToWizard = ({ manual = false } = {}) => {
     setTab("close");
+    // "Enter manually" has to actually ENTER MANUALLY. It used to only scroll,
+    // which landed the owner on the scan card — where they then had to decline
+    // scanning a SECOND time via the small underlined "Skip — enter manually"
+    // link. Two decisions for one choice, on the screen they reach at 22:30.
+    if (manual) setManualRequest((n) => n + 1);
     // Defer one frame so React has rendered the wizard if we just
     // switched from History/Insights.
     requestAnimationFrame(() => {
@@ -469,7 +480,7 @@ export default function DailyClosePage() {
             </Button>
             <Button
               variant="secondary"
-              onClick={scrollToWizard}
+              onClick={() => scrollToWizard({ manual: true })}
               className="w-full sm:w-auto"
             >
               {t("closeManualCta") || "Enter manually"}
@@ -502,6 +513,7 @@ export default function DailyClosePage() {
 
       <div ref={closeWizardRef}>
         {tab === "close" && <CloseForm currency={currency} t={t} branchType={branchType} branchId={branchId} isOnline={isOnline}
+          manualRequest={manualRequest}
           editDraft={editDraft}
           onEditConsumed={() => setEditDraft(null)}
           smartScanPrefill={smartScanPrefill}
@@ -548,7 +560,7 @@ function getBusinessDate(cutoffHour = 0) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed }) {
+function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0 }) {
   const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
   const { user, refreshUser } = useAuth();
   const { hasFeature, isReady: entReady } = useEntitlements();
@@ -683,6 +695,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
   // Scan / OCR state — supports multiple photos
   const [scanMode, setScanMode] = useState("idle"); // idle | scanning | result | skipped
+
+  // The page's "Enter manually" button raises manualRequest. Skipping straight
+  // to step 1 is the whole point — otherwise the owner lands on the scan card
+  // and has to decline scanning a second time. Guarded on "idle" so a scan in
+  // flight ("scanning") or results awaiting review ("result") are never thrown
+  // away by a stray tap.
+  useEffect(() => {
+    if (!manualRequest) return;
+    if (scanMode === "idle") {
+      setScanMode("skipped");
+      setStep(1);
+    }
+  }, [manualRequest, scanMode]);
   const [scanResult, setScanResult] = useState(null);
   const [scanPhotos, setScanPhotos] = useState([]); // [{url, name}]
   // First scanned Z-report photo URL (Supabase signed URL or local path).
