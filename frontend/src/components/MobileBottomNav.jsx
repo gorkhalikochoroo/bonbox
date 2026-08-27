@@ -118,7 +118,16 @@ export default function MobileBottomNav() {
          transform causes the documented wobble. */
       className="fixed bottom-0 left-0 right-0 glass
         border-t border-gray-200/70 dark:border-gray-700/70 z-50 md:hidden"
-      style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}
+      /* Reserve LESS than the full bottom inset so the row sits lower.
+         Padding the full env(safe-area-inset-bottom) — ~34pt on this device —
+         left the icons pinned to the top of a ~90pt bar with a slab of empty
+         space under them. The home indicator is a ~5pt pill with ~8pt of
+         margin, so ~13pt is the real clearance it needs; 34pt is Apple's
+         generous reserve, not a hard floor. Giving 14px of it back moves
+         Home/Sales/Today/More visibly down and closes most of the gap, while
+         still leaving 20pt under them on a notched phone.
+         max(..., 8px) keeps a sane floor on devices reporting no inset. */
+      style={{ paddingBottom: "max(calc(env(safe-area-inset-bottom, 0px) - 14px), 8px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}
     >
       <div className="flex justify-around items-center h-14">
         {tabs.map((tab, i) => {
