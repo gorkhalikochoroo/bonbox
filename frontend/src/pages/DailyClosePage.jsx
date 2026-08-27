@@ -160,22 +160,30 @@ async function syncOfflineQueue() {
 /* ═══════════════════════════════════════════════════════════
    DEFAULT CATEGORIES — adapt based on business type
    ═══════════════════════════════════════════════════════════ */
+/* Built-in category + payment labels are i18n keys, not literals.
+   They used to be hardcoded and three-way inconsistent: bilingual
+   ("Food / Mad"), English-only ("Diagnostics", "Bank Transfer") and
+   Danish-only ("Behandlinger", "Brød & bagværk") all shipped side by side, so
+   an owner saw both languages at once in whichever one they had chosen.
+   `label` is kept as a clean ENGLISH fallback only — the real strings live in
+   en + da in useLanguage.jsx. Owner-added custom categories carry no labelKey
+   and render their free text verbatim; see catLabel(). */
 const REVENUE_CATS_BY_TYPE = {
   restaurant: [
-    { key: "food", label: "Food / Mad", icon: "Utensils" },
-    { key: "drinks", label: "Drinks / Drikkevarer", icon: "Beer" },
-    { key: "takeaway", label: "Takeaway / Udbringning", icon: "Package" },
+    { key: "food", labelKey: "dcCatFood", label: "Food", icon: "Utensils" },
+    { key: "drinks", labelKey: "dcCatDrinks", label: "Drinks", icon: "Beer" },
+    { key: "takeaway", labelKey: "dcCatTakeaway", label: "Takeaway", icon: "Package" },
   ],
   workshop: [
-    { key: "parts", label: "Parts / Reservedele", icon: "Wrench" },
-    { key: "labor", label: "Labor / Arbejde", icon: "Hammer" },
-    { key: "diagnostics", label: "Diagnostics", icon: "Search" },
-    { key: "towing", label: "Towing / Bugsering", icon: "Truck" },
+    { key: "parts", labelKey: "dcCatParts", label: "Parts", icon: "Wrench" },
+    { key: "labor", labelKey: "dcCatLabor", label: "Labour", icon: "Hammer" },
+    { key: "diagnostics", labelKey: "dcCatDiagnostics", label: "Diagnostics", icon: "Search" },
+    { key: "towing", labelKey: "dcCatTowing", label: "Towing", icon: "Truck" },
   ],
   retail: [
-    { key: "products", label: "Products / Varer", icon: "ShoppingBag" },
-    { key: "returns", label: "Returns / Returvarer", icon: "RotateCcw" },
-    { key: "services", label: "Services / Ydelser", icon: "Wrench" },
+    { key: "products", labelKey: "dcCatProducts", label: "Products", icon: "ShoppingBag" },
+    { key: "returns", labelKey: "dcCatReturns", label: "Returns", icon: "RotateCcw" },
+    { key: "services", labelKey: "dcCatServices", label: "Services", icon: "Wrench" },
   ],
   // Phase A — salon: the frisør's actual money view is the Behandlinger
   // (service) vs Udsalgsvarer (retail product) split. Both are standard 25%
@@ -183,62 +191,73 @@ const REVENUE_CATS_BY_TYPE = {
   // unchanged). Gavekort is handled as a SEPARATE line below (NOT a revenue
   // category — excluded from the day-of-sale MOMS base, flagged for revisor).
   salon: [
-    { key: "treatments", label: "Behandlinger", icon: "Scissors" },
-    { key: "retail_products", label: "Udsalgsvarer", icon: "ShoppingBag" },
+    { key: "treatments", labelKey: "dcCatTreatments", label: "Treatments", icon: "Scissors" },
+    { key: "retail_products", labelKey: "dcCatRetailProducts", label: "Retail products", icon: "ShoppingBag" },
   ],
   // Phase A — bakery: counter trade. Standard food-service-style split.
   bakery: [
-    { key: "bread_pastry", label: "Brød & bagværk", icon: "Croissant" },
-    { key: "drinks", label: "Drinks / Drikkevarer", icon: "Coffee" },
-    { key: "other", label: "Other / Andet", icon: "Package" },
+    { key: "bread_pastry", labelKey: "dcCatBreadPastry", label: "Bread & pastry", icon: "Croissant" },
+    { key: "drinks", labelKey: "dcCatDrinks", label: "Drinks", icon: "Coffee" },
+    { key: "other", labelKey: "dcCatOther", label: "Other", icon: "Package" },
   ],
   grocery: [
-    { key: "products", label: "Products / Dagligvarer", icon: "ShoppingCart" },
-    { key: "tobacco_lottery", label: "Tobacco & Lottery", icon: "Ticket" },
-    { key: "fresh", label: "Fresh / Frisk", icon: "Leaf" },
-    { key: "other", label: "Other / Andet", icon: "Package" },
+    { key: "products", labelKey: "dcCatGroceries", label: "Groceries", icon: "ShoppingCart" },
+    { key: "tobacco_lottery", labelKey: "dcCatTobaccoLottery", label: "Tobacco & lottery", icon: "Ticket" },
+    { key: "fresh", labelKey: "dcCatFresh", label: "Fresh", icon: "Leaf" },
+    { key: "other", labelKey: "dcCatOther", label: "Other", icon: "Package" },
   ],
   ecommerce: [
-    { key: "online_sales", label: "Online Sales", icon: "Globe" },
-    { key: "returns", label: "Returns / Refunds", icon: "RotateCcw" },
-    { key: "shipping", label: "Shipping Revenue", icon: "Truck" },
+    { key: "online_sales", labelKey: "dcCatOnlineSales", label: "Online sales", icon: "Globe" },
+    { key: "returns", labelKey: "dcCatReturnsRefunds", label: "Returns & refunds", icon: "RotateCcw" },
+    { key: "shipping", labelKey: "dcCatShipping", label: "Shipping revenue", icon: "Truck" },
   ],
   general: [
-    { key: "revenue", label: "Revenue", icon: "Coins" },
+    { key: "revenue", labelKey: "dcCatRevenue", label: "Revenue", icon: "Coins" },
   ],
 };
 
+/* MobilePay and PayPal are brand names and carry NO labelKey — they are not
+   translated in either language. `faktura` keeps its Danish spelling in BOTH
+   languages by the locked-terminology rule, as do kasserapport / revisor /
+   MOMS. `gavekort` is left as the product's own term so this screen agrees
+   with the Gavekort destination in the nav. */
 const PAYMENT_METHODS_BY_TYPE = {
   restaurant: [
-    { key: "cash", label: "Cash / Kontant", icon: "Banknote" },
-    { key: "card", label: "Card / Dankort", icon: "CreditCard" },
+    { key: "cash", labelKey: "dcPayCash", label: "Cash", icon: "Banknote" },
+    { key: "card", labelKey: "dcPayCard", label: "Card", icon: "CreditCard" },
     { key: "mobilepay", label: "MobilePay", icon: "Wallet" },
-    { key: "invoice", label: "Invoice / Faktura", icon: "FileText" },
+    { key: "invoice", labelKey: "dcPayInvoice", label: "Faktura", icon: "FileText" },
   ],
   workshop: [
-    { key: "cash", label: "Cash", icon: "Banknote" },
-    { key: "card", label: "Card", icon: "CreditCard" },
-    { key: "bank_transfer", label: "Bank Transfer", icon: "Landmark" },
-    { key: "invoice", label: "Invoice / Credit", icon: "FileText" },
+    { key: "cash", labelKey: "dcPayCash", label: "Cash", icon: "Banknote" },
+    { key: "card", labelKey: "dcPayCard", label: "Card", icon: "CreditCard" },
+    { key: "bank_transfer", labelKey: "dcPayBankTransfer", label: "Bank transfer", icon: "Landmark" },
+    { key: "invoice", labelKey: "dcPayInvoiceCredit", label: "Faktura / credit", icon: "FileText" },
   ],
   retail: [
-    { key: "cash", label: "Cash / Kontant", icon: "Banknote" },
-    { key: "card", label: "Card / Dankort", icon: "CreditCard" },
+    { key: "cash", labelKey: "dcPayCash", label: "Cash", icon: "Banknote" },
+    { key: "card", labelKey: "dcPayCard", label: "Card", icon: "CreditCard" },
     { key: "mobilepay", label: "MobilePay", icon: "Wallet" },
-    { key: "gift_card", label: "Gift Card / Gavekort", icon: "Gift" },
+    { key: "gift_card", labelKey: "dcPayGiftCard", label: "Gavekort", icon: "Gift" },
   ],
   grocery: [
-    { key: "cash", label: "Cash / Kontant", icon: "Banknote" },
-    { key: "card", label: "Card / Dankort", icon: "CreditCard" },
+    { key: "cash", labelKey: "dcPayCash", label: "Cash", icon: "Banknote" },
+    { key: "card", labelKey: "dcPayCard", label: "Card", icon: "CreditCard" },
     { key: "mobilepay", label: "MobilePay", icon: "Wallet" },
   ],
   ecommerce: [
-    { key: "card", label: "Card / Online", icon: "CreditCard" },
+    { key: "card", labelKey: "dcPayCardOnline", label: "Card (online)", icon: "CreditCard" },
     { key: "mobilepay", label: "MobilePay", icon: "Wallet" },
-    { key: "bank_transfer", label: "Bank Transfer", icon: "Landmark" },
+    { key: "bank_transfer", labelKey: "dcPayBankTransfer", label: "Bank transfer", icon: "Landmark" },
     { key: "paypal", label: "PayPal", icon: "Wallet" },
   ],
 };
+
+/** Resolve a category / payment label. Built-ins carry a labelKey; categories
+ *  the owner typed themselves carry only their own free text. */
+function catLabel(t, entry) {
+  return entry.labelKey ? t(entry.labelKey, entry.label) : entry.label;
+}
 
 /* Per-type close configuration — controls which steps + extra fields appear.
    Phase A flags:
@@ -2016,7 +2035,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   <div key={c.key} className="flex items-center gap-3">
                     <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
                       {val ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                      <Icon name={c.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {c.label}
+                      <Icon name={c.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, c)}
                       {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
                       {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
@@ -2077,7 +2096,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   <div key={m.key} className="flex items-center gap-3">
                     <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
                       {val ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
-                      <Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {m.label}
+                      <Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}
                       {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
                       {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
@@ -2412,7 +2431,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             )}
             {revCats.map(cat => (
               <div key={cat.key}>
-                <label className={labelClass}><Icon name={cat.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {cat.label}</label>
+                <label className={labelClass}><Icon name={cat.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, cat)}</label>
                 <input type="number" inputMode="decimal" placeholder="0" className={inputClass}
                   value={revAmounts[cat.key] || ""}
                   onChange={e => setRevAmounts({ ...revAmounts, [cat.key]: e.target.value })} />
@@ -2436,7 +2455,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           <div className="space-y-4">
             {payMethods.map(m => (
               <div key={m.key}>
-                <label className={labelClass}><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {m.label}</label>
+                <label className={labelClass}><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}</label>
                 <input type="number" inputMode="decimal" placeholder="0" className={inputClass}
                   value={payAmounts[m.key] || ""}
                   onChange={e => setPayAmounts({ ...payAmounts, [m.key]: e.target.value })} />
@@ -2550,7 +2569,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">{t("revenue")}</h3>
               {revCats.filter(c => revAmounts[c.key]).map(c => (
                 <div key={c.key} className="flex justify-between text-sm py-0.5 dark:text-gray-300">
-                  <span><Icon name={c.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {c.label}</span>
+                  <span><Icon name={c.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, c)}</span>
                   <span>{parseFloat(revAmounts[c.key]).toLocaleString()} {currency}</span>
                 </div>
               ))}
@@ -2624,7 +2643,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">{t("paymentsLabel")}</h3>
               {payMethods.filter(m => payAmounts[m.key]).map(m => (
                 <div key={m.key} className="flex justify-between text-sm py-0.5 dark:text-gray-300">
-                  <span><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {m.label}</span>
+                  <span><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}</span>
                   <span>{parseFloat(payAmounts[m.key]).toLocaleString()} {currency}</span>
                 </div>
               ))}
