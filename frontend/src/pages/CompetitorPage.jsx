@@ -1,6 +1,7 @@
 // Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
+import { useToast } from "../hooks/useToast";
 import { Link } from "react-router-dom";
 import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
@@ -22,6 +23,7 @@ const PRICE_LABELS = ["", "$", "$$", "$$$", "$$$$"];
 // "+ Add Manually" action as a compact inline button instead, so the hub
 // owns the shell without losing the action.
 export default function CompetitorPage({ embedded = false }) {
+  const toast = useToast();
   const { user } = useAuth();
   const { t } = useLanguage();
   const confirm = useConfirm();
@@ -129,7 +131,7 @@ export default function CompetitorPage({ embedded = false }) {
       fetchData();
     } catch (err) {
       const msg = err.response?.data?.detail || err.response?.data?.error || err.message || "Failed to track";
-      alert(`Could not track: ${msg}`);
+      toast({ message: `${t("cmpCouldNotTrack")}: ${msg}`, severity: "critical" });
     }
     setAddingId(null);
   };
@@ -309,8 +311,11 @@ export default function CompetitorPage({ embedded = false }) {
       const inserted = r.data?.inserted || 0;
       closeScanModal();
       await fetchData();
-      // Use a non-blocking toast-style message via window.alert for now
-      alert(`✓ ${inserted} price check${inserted === 1 ? "" : "s"} added.`);
+      toast({
+        message: (inserted === 1 ? t("cmpPriceCheckAddedOne") : t("cmpPriceCheckAddedMany"))
+          .replace("{n}", String(inserted)),
+        severity: "success",
+      });
     } catch (e) {
       setScanError(errText(e, "Couldn't import. Try again."));
     }

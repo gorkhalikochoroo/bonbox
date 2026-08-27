@@ -15,6 +15,7 @@ import { LiveAlertsProvider } from "./hooks/useLiveAlerts";
 import { BranchProvider } from "./components/BranchSelector";
 import { LanguageProvider } from "./hooks/useLanguage";
 import { ConfirmProvider } from "./hooks/useConfirm";
+import { ToastProvider } from "./hooks/useToast";
 import LandingV2Page from "./pages/LandingV2Page";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 
@@ -772,6 +773,12 @@ function AppInner() {
               t() for default labels) and wraps everything so any page can call
               useConfirm(). */}
           <ConfirmProvider>
+          {/* ToastProvider — the missing half of the native-dialog ban. Mounted
+              at the root beside ConfirmProvider on purpose: two conversions
+              (Faktura send-success, Competitor scan-success) fire a message and
+              then immediately trigger a parent refetch that can unmount the
+              caller. A component-local toast would vanish with it. */}
+          <ToastProvider>
           <AuthProvider>
             {/* DeviceShareProvider — shared-device ("Delt enhed") reveal-PIN
                 state (#379). Inside Auth (reads user.role; only fetches /status
@@ -823,6 +830,7 @@ function AppInner() {
             </EntitlementsProvider>
             </DeviceShareProvider>
           </AuthProvider>
+          </ToastProvider>
           </ConfirmProvider>
         </LanguageProvider>
       </BrowserRouter>

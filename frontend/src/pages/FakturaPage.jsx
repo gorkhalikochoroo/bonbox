@@ -2,6 +2,7 @@
 // block → UpgradeNudge card + SectionBanner, primary CTAs → Button variant,
 // status filter row → TabPills, date-range chips → TabPills. Behavior +
 // i18n + a11y unchanged.
+import { useToast } from "../hooks/useToast";
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
@@ -474,6 +475,7 @@ export default function FakturaPage() {
 // into one hook keeps a single source of truth for the network surface
 // and avoids drift between the two presentations.
 function useInvoiceActions(invoice, customer, onChanged, t) {
+  const toast = useToast();
   const confirm = useConfirm();
   // Kreditnota dialog state — Bogføringsloven §7: a sent invoice can't
   // be deleted, only credited. The dialog explains this gravity so the
@@ -497,13 +499,13 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
-      alert(t("pdfFailed") || "PDF generation failed");
+      toast({ message: t("pdfFailed"), severity: "critical" });
     }
   };
 
   const handleSend = async () => {
     if (!customer?.email) {
-      alert(t("customerHasNoEmail") || "Customer has no email — add one first");
+      toast({ message: t("customerHasNoEmail"), severity: "critical" });
       return;
     }
     try {
@@ -521,11 +523,13 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
           cc_self: true,
         });
         if (r.data?.ok) {
-          alert(
-            (t("invoiceSentDirect") || "✓ Faktura emailed to") +
-            ` ${r.data.sent_to}` +
-            (r.data.cc_self ? ` (${t("ccdYou") || "you cc'd"})` : "")
-          );
+          toast({
+            message:
+              t("invoiceSentDirect") +
+              ` ${r.data.sent_to}` +
+              (r.data.cc_self ? ` (${t("ccdYou")})` : ""),
+            severity: "success",
+          });
           onChanged();
           return;
         }
@@ -536,11 +540,13 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
         const status = sendErr.response?.status;
         if (status && status >= 400 && status < 500 && status !== 402) {
           const detail = sendErr.response?.data?.detail;
-          alert(
-            typeof detail === "string"
-              ? detail
-              : (detail?.message || (t("sendFailed") || "Send failed"))
-          );
+          toast({
+            message:
+              typeof detail === "string"
+                ? detail
+                : (detail?.message || t("sendFailed")),
+            severity: "critical",
+          });
           return;
         }
         // 5xx → fall through to manual mailto fallback below
@@ -573,7 +579,7 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
       window.location.href = `mailto:${customer.email}?subject=${subject}&body=${body}`;
       onChanged();
     } catch (e) {
-      alert(e?.response?.data?.detail || (t("sendFailed") || "Send failed"));
+      toast({ message: e?.response?.data?.detail || t("sendFailed"), severity: "critical" });
     }
   };
 
@@ -586,7 +592,7 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
       });
       onChanged();
     } catch (e) {
-      alert(e?.response?.data?.detail || "Mark paid failed");
+      toast({ message: e?.response?.data?.detail || t("fakturaMarkPaidFailed"), severity: "critical" });
     }
   };
 
@@ -599,7 +605,7 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
       await api.post(`/invoices/${invoice.id}/unmark-paid`);
       onChanged();
     } catch (e) {
-      alert(e?.response?.data?.detail || "Unmark failed");
+      toast({ message: e?.response?.data?.detail || t("fakturaUnmarkFailed"), severity: "critical" });
     }
   };
 

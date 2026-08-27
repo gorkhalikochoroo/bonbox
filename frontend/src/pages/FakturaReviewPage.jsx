@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useToast } from "../hooks/useToast";
 import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
@@ -24,6 +25,7 @@ import { errText } from "../utils/errText";
  * Audit: every accept/reject writes an audit log entry server-side.
  */
 export default function FakturaReviewPage() {
+  const toast = useToast();
   const { t } = useLanguage();
   const confirm = useConfirm();
   const [suggestions, setSuggestions] = useState([]);
@@ -66,7 +68,7 @@ export default function FakturaReviewPage() {
       await api.post(`/payment-suggestions/${s.id}/accept`);
       await load();
     } catch (e) {
-      alert(e?.response?.data?.detail || "Accept failed");
+      toast({ message: e?.response?.data?.detail || t("fakturaAcceptFailed"), severity: "critical" });
     } finally {
       setBusy(b => ({ ...b, [s.id]: false }));
     }
@@ -80,7 +82,7 @@ export default function FakturaReviewPage() {
       await api.post(`/payment-suggestions/${s.id}/reject`);
       await load();
     } catch (e) {
-      alert(e?.response?.data?.detail || "Reject failed");
+      toast({ message: e?.response?.data?.detail || t("fakturaRejectFailed"), severity: "critical" });
     } finally {
       setBusy(b => ({ ...b, [s.id]: false }));
     }

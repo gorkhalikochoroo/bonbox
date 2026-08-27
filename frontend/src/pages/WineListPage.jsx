@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useToast } from "../hooks/useToast";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
@@ -25,6 +26,7 @@ const WINE_TYPES = [
    MAIN PAGE
    ═══════════════════════════════════════════════════════════ */
 export default function WineListPage() {
+  const toast = useToast();
   const { user } = useAuth();
   const { t } = useLanguage();
   const confirm = useConfirm();
@@ -93,7 +95,7 @@ export default function WineListPage() {
       await api.post(`/wines/${id}/sell?quantity=1`);
       fetchWines();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to sell");
+      toast({ message: err.response?.data?.detail || t("wineSellFailed"), severity: "critical" });
     }
   };
 
@@ -121,7 +123,7 @@ export default function WineListPage() {
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      alert("Failed to generate PDF");
+      toast({ message: t("winePdfFailed"), severity: "critical" });
     }
   };
 
@@ -296,6 +298,7 @@ export default function WineListPage() {
    SCAN BUTTON — camera capture → AI label reading
    ═══════════════════════════════════════════════════════════ */
 function ScanButton({ onResult }) {
+  const toast = useToast();
   const { t } = useLanguage();
   const fileRef = useRef(null);
   const [scanning, setScanning] = useState(false);
@@ -313,14 +316,14 @@ function ScanButton({ onResult }) {
       if (res.data.success) {
         onResult(res.data.data);
       } else {
-        alert(res.data.error || "Could not read label — try a clearer photo");
+        toast({ message: res.data.error || t("wineLabelUnreadable"), severity: "critical" });
       }
     } catch (err) {
       const msg = err.response?.data?.detail || "Scan failed";
       if (msg.includes("not configured")) {
-        alert("AI scanning requires API configuration. Use 'Add Manually' instead.");
+        toast({ message: t("wineScanNotConfigured"), severity: "critical" });
       } else {
-        alert(msg);
+        toast({ message: msg, severity: "critical" });
       }
     }
     setScanning(false);
@@ -419,6 +422,7 @@ function WineCard({ wine: w, currency, isSelected, onToggle, onSell, onDelete })
    MENU EDITOR TAB — edit display names, glass prices, export PDF
    ═══════════════════════════════════════════════════════════ */
 function MenuEditorTab({ wines, currency, onUpdate }) {
+  const toast = useToast();
   const { t } = useLanguage();
   const [edits, setEdits] = useState({});      // { wineId: { menu_name, glass_price, sell_price } }
   const [saving, setSaving] = useState(null);   // wineId currently saving
@@ -481,7 +485,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
         onUpdate();
       }
     } catch (err) {
-      alert(err.response?.data?.detail || "Save failed");
+      toast({ message: err.response?.data?.detail || t("wineSaveFailed"), severity: "critical" });
     }
     setSaving(null);
   };
@@ -513,7 +517,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
       setPdfSuccess(true);
       setTimeout(() => setPdfSuccess(false), 3000);
     } catch {
-      alert("Failed to generate PDF");
+      toast({ message: t("winePdfFailed"), severity: "critical" });
     }
     setPdfLoading(false);
   };

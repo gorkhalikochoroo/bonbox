@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useToast } from "../hooks/useToast";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useDarkMode } from "../hooks/useDarkMode";
@@ -8,6 +9,7 @@ import { displayCurrency } from "../utils/currency";
 import { formatDate, formatDateShort } from "../utils/dateFormat";
 
 export default function RecentlyDeletedPage() {
+  const toast = useToast();
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const [dark] = useDarkMode();
@@ -44,7 +46,7 @@ export default function RecentlyDeletedPage() {
       await api.put(endpoint);
       fetchDeleted();
     } catch (err) {
-      alert(t("failedToRestore"));
+      toast({ message: t("failedToRestore"), severity: "critical" });
     }
   };
 
@@ -55,7 +57,7 @@ export default function RecentlyDeletedPage() {
       await api.delete(endpoint);
       fetchDeleted();
     } catch (err) {
-      alert(t("failedToDelete"));
+      toast({ message: t("failedToDelete"), severity: "critical" });
     }
   };
 
