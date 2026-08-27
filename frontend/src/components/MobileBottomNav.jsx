@@ -5,7 +5,7 @@ import { useAuth } from "../hooks/useAuth";
 import { resolveMode } from "../lib/appMode";
 import { personalTabs } from "../config/personalNav";
 import { Icon } from "./ui";
-import { Plus, Menu } from "lucide-react";
+import { Plus } from "lucide-react";
 import { NAV_MANIFEST } from "../config/navManifest";
 import { archetypeIdFor } from "../config/archetypes";
 
@@ -176,9 +176,7 @@ export default function MobileBottomNav() {
                   ? "text-gray-900 dark:text-gray-100"
                   : "text-gray-500 dark:text-gray-400"}`}
             >
-              {tab.icon === "Menu"
-                ? <Menu size={20} strokeWidth={1.75} aria-hidden="true" />
-                : <Icon name={tab.icon} size={20} strokeWidth={1.75} />}
+              <Icon name={tab.icon} size={20} strokeWidth={1.75} />
               <span className="text-[10px] mt-0.5 font-medium" aria-hidden="true">
                 {label}
               </span>

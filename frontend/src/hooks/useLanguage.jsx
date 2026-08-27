@@ -3088,7 +3088,7 @@ const translations = {
     rateOverridePct: "Override % (optional)",
     trækkortHint: "From employee's eSkattekort",
     // Order-channel settings (user-editable catalogue)
-    orderChannels: "Order Channels",
+    orderChannels: "Sales channels",
     // Terminals settings
     terminals: "Terminals",
     terminalsPageTitle: "POS Terminals",
@@ -3564,7 +3564,7 @@ const translations = {
     locMultiOnlyBody: "You have one location right now. Add another branch to compare performance side by side and run a consolidated close.",
     locMultiOnlyCta: "Add a location",
     // C12 Bucket B — Staff back-office merge (Timer · Tidsregistrering · Drikkepenge · Løn)
-    staffBackOffice: "Timer & løn",
+    staffBackOffice: "Hours & pay",
     workshop: "Workshop",
     wineList: "Wine List", wineListDesc: "Manage your wine catalog, track stock & margins, export menus.",
     // Contact
@@ -5330,7 +5330,7 @@ const translations = {
     "landingV2.modules.reservations.body": "Booking book, floor plan, waitlist, and a public page guests book through. No account needed to reserve.",
     "landingV2.modules.schedule.title": "Schedule",
     "landingV2.modules.schedule.body": "Build the week as drafts, check it against forecast and demand, publish once. Staff see it in the Scheduler app.",
-    "landingV2.modules.hours.title": "Timer & løn",
+    "landingV2.modules.hours.title": "Hours & pay",
     "landingV2.modules.hours.body": "Clock in and out, labor as a share of sales, feriepenge included in the estimate. Overtime flagged before it happens.",
     "landingV2.modules.stock.title": "Stock",
     "landingV2.modules.stock.body": "Inventory, expiry forecast and a waste tracker — so the milk that goes out on Thursday shows up in Thursday's numbers.",
@@ -7414,7 +7414,7 @@ const translations = {
     channelConfirmArchive: "Archive channel “{label}”? Historical sales keep this label, but it disappears from new-sale dropdowns.",
     channelArchiveFailed: "Could not archive",
     channelUnarchiveFailed: "Could not restore",
-    channelsPageTitle: "Order Channels",
+    channelsPageTitle: "Sales channels",
     channelsPageSubtitle: "Which apps and counters do orders come through? Add new aggregators yourself — no deploy needed.",
     addChannel: "Add channel",
     editChannel: "Edit channel",

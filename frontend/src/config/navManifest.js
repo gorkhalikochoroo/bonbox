@@ -523,7 +523,10 @@ export const NAV_MANIFEST = [
     // Reversible: split the rows back out + re-add their routes.
     to: "/branches",
     icon: "Building2",
-    labelKey: "branches",
+    // "Locations" not "Branches": an owner has locations, a bank has
+    // branches. Both strings already exist in en + da; the `branches` string
+    // itself stays put so the Filialer tab inside the hub keeps its name.
+    labelKey: "locations",
     group: "manage",
     pillar: null,
     frequency: "rare",
@@ -551,7 +554,9 @@ export const NAV_MANIFEST = [
   },
   {
     to: "/channel-settings",
-    icon: "Bike",
+    // Wolt / Uber / Foodora reach the owner as APPS. The bicycle drew the
+    // courier, which is not the thing being configured here.
+    icon: "Smartphone",
     labelKey: "orderChannels",
     group: "manage",
     pillar: null,

@@ -45,6 +45,7 @@ import {
   // Manage
   Settings, Building2, Monitor, Bike, LayoutGrid, Mail, Network,
   Building, UserCog, Trash, MessageCircle, MessageSquare, Link2,
+  KeyRound, Menu,
   // Account
   Sparkles,
   // Personal mode
@@ -132,6 +133,12 @@ const ICONS = {
   // Manage group
   Settings, Building2, Monitor, Bike, LayoutGrid, Mail, Network,
   Building, UserCog, Trash, MessageCircle, MessageSquare,
+  // Link2 was imported but never registered, so every <Icon name="Link2"/>
+  // rendered a blank Circle: the /connections nav row, ConnectionsProgressCard,
+  // the schedule share button and the bank-import screen. KeyRound was not
+  // imported at all (revisor login, bookkeeping export, profile). Menu was
+  // special-cased in MobileBottomNav to work around this very gap.
+  Link2, KeyRound, Menu,
   // Account group
   Sparkles,
   // Personal mode

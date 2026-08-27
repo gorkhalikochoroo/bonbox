@@ -4,6 +4,7 @@ import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
 import { FadeIn } from "../components/AnimationKit";
+import { Icon } from "../components/ui";
 
 /**
  * Order Channel Settings — per-owner catalogue of order channels.
@@ -207,7 +208,8 @@ export default function ChannelSettingsPage() {
         <div className="flex items-start justify-between gap-3 mb-2 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              {"🛵"} {t("channelsPageTitle") || "Order Channels"}
+              <Icon name="Smartphone" size={22} className="text-gray-400" aria-hidden="true" />
+              {t("channelsPageTitle")}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-xl">
               {t("channelsPageSubtitle") ||
