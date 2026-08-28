@@ -74,12 +74,19 @@ export default function ConnectionsProgressCard() {
     const accountantEmail = !!profile?.accountant_email;
     const revisor = (grants || []).some(g => g.status === "active");
     const brief = !!prefs?.daily_brief_email_enabled;
+    // `to` is where the item can ACTUALLY be completed. This card used to
+    // send every one of them to /connections, which hosts none of the five:
+    // bank + MobilePay are payment fields on Profile, the accountant email and
+    // the brief toggle are on Profile too, and the revisor invite moved to
+    // /team (see ProfilePage's note about Task #204 P2.8). An owner who
+    // followed the nudge landed on a page that could not finish a single
+    // thing it had just asked them for.
     return [
-      { id: "bank",        done: bank,            label: t("connsProgBank",       "Bank account") },
-      { id: "mobilepay",   done: mobilepay,       label: t("connsProgMobilePay",  "MobilePay number") },
-      { id: "accountant",  done: accountantEmail, label: t("connsProgAccountant", "Accountant email") },
-      { id: "revisor",     done: revisor,         label: t("connsProgRevisor",    "Revisor invited") },
-      { id: "briefEmail",  done: brief,           label: t("connsProgBrief",      "Brief email on") },
+      { id: "bank",        done: bank,            to: "/profile#billing", label: t("connsProgBank",       "Bank account") },
+      { id: "mobilepay",   done: mobilepay,       to: "/profile#billing", label: t("connsProgMobilePay",  "MobilePay number") },
+      { id: "accountant",  done: accountantEmail, to: "/profile#billing", label: t("connsProgAccountant", "Accountant email") },
+      { id: "revisor",     done: revisor,         to: "/team",    label: t("connsProgRevisor",    "Revisor invited") },
+      { id: "briefEmail",  done: brief,           to: "/profile#notifications", label: t("connsProgBrief",      "Brief email on") },
     ];
   }, [loaded, profile, grants, prefs, t]);
 
@@ -154,13 +161,14 @@ export default function ConnectionsProgressCard() {
       {/* Missing items — short row, capped at 4 visible */}
       <div className="flex flex-wrap gap-1.5 mb-4">
         {missing.slice(0, 4).map(item => (
-          <span
+          <Link
             key={item.id}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11.5px] bg-gray-100 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300"
+            to={item.to}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11.5px] bg-gray-100 dark:bg-gray-700/60 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
           >
             <span className="w-1 h-1 rounded-full bg-gray-400 dark:bg-gray-500" aria-hidden="true" />
             {item.label}
-          </span>
+          </Link>
         ))}
         {missing.length > 4 && (
           <span className="text-[11.5px] text-gray-500 dark:text-gray-400 px-1">
@@ -170,7 +178,7 @@ export default function ConnectionsProgressCard() {
       </div>
 
       <Link
-        to="/connections"
+        to={missing[0]?.to || "/profile"}
         className="inline-flex items-center gap-1 text-[13px] font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition"
       >
         {t("connsProgCta", "Finish setup")} <span aria-hidden="true">→</span>

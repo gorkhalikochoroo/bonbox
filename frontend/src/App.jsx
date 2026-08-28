@@ -754,10 +754,38 @@ function AppRoutes() {
  * hoisting, for the same reason.
  */
 function ScrollManager() {
-  const { pathname } = useLocation();
+  const { pathname, hash } = useLocation();
   useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [pathname]);
+    // No anchor: plain top-of-page, as before.
+    if (!hash) {
+      window.scrollTo(0, 0);
+      return;
+    }
+    // WITH an anchor: scroll to it. Nothing in the app handled location.hash
+    // at all, so every "/profile#billing"-style link silently landed the owner
+    // at the top of a 2,500-line settings page — and on a phone there is no
+    // section rail to recover with. Connections had three CTAs doing exactly
+    // that.
+    //
+    // Retried across a few frames because the target section often renders
+    // only after its own fetch resolves, so it is not in the DOM on the first
+    // pass. Bounded (~0.5s) and cancelled on unmount — a bare loop here is the
+    // kind of cleverness that white-screened this component once already.
+    let frames = 0;
+    let raf = 0;
+    const findAndScroll = () => {
+      const el = document.getElementById(hash.slice(1));
+      if (el) {
+        el.scrollIntoView({ block: "start" });
+        return;
+      }
+      if (frames++ < 30) raf = requestAnimationFrame(findAndScroll);
+    };
+    findAndScroll();
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [pathname, hash]);
   return null;
 }
 
