@@ -321,7 +321,17 @@ export default function LoginPage() {
 
       <div className="min-h-screen flex flex-col bg-slate-50 text-gray-900">
         {/* Top bar — wordmark left, language dropdown right (Copenhagen-style minimal nav) */}
-        <header className="px-6 sm:px-10 py-5 flex items-center justify-between border-b border-gray-200/60">
+        {/* Sticky + glass-static. capacitor.config sets
+            StatusBar.overlaysWebView:true (the fix for the dark strips above
+            the header and below the tab bar), which means the webview owns the
+            full screen and scrolled content passes UNDER a transparent status
+            bar. body pads by env(safe-area-inset-top) so this sits correctly at
+            rest — but a plain non-sticky header scrolled straight up into the
+            clock. The signed-in app never showed this because Layout's header
+            is fixed .glass; the signed-out screens had no equivalent.
+            .glass-static, not .glass: a transform on a sticky element causes
+            the documented iOS scroll wobble (see index.css). */}
+        <header className="sticky top-0 z-40 glass-static px-6 sm:px-10 py-5 flex items-center justify-between border-b border-gray-200/60">
           {/* Brand mark — emerald-600 per the "BRAND GREEN" token block.
               Migrated from `bg-[#22c55e]` (green-500) to the canonical
               emerald-600 (#059669) so the login logo matches the sidebar,
