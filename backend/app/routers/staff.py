@@ -51,7 +51,7 @@ from fastapi.responses import Response, StreamingResponse
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from app.utils.client_ip import client_ip
-from sqlalchemy import case, func
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 import json
 from pydantic import BaseModel, EmailStr
@@ -3275,17 +3275,46 @@ def _require_time_registration(user: User):
         })
 
 
-def _active_staff(db: Session, user_id) -> list[StaffMember]:
-    return (
-        db.query(StaffMember)
-        .filter(
-            StaffMember.user_id == user_id,
-            StaffMember.active.is_(True),
-            StaffMember.is_deleted.isnot(True),
-        )
-        .order_by(StaffMember.name)
-        .all()
+def _register_staff(
+    db: Session, user_id, from_date: date | None = None, to_date: date | None = None
+) -> list[StaffMember]:
+    """Everyone who belongs in the working-time register for a period.
+
+    Active staff, PLUS anyone who actually logged hours inside the window even
+    if they have since been deactivated. Filtering on active alone dropped
+    departed staff out of their own statutory record: a seasonal barista who
+    worked all of July and left in August did not appear in a July register
+    pulled in August. Hospitality churn makes that the normal case, not an
+    edge one, and Arbejdstidsloven requires the record be retained for five
+    years — so "they left" cannot be why it is missing.
+
+    is_deleted stays excluded: that is the GDPR erasure marker, and erasure is
+    its own legal obligation.
+    """
+    q = db.query(StaffMember).filter(
+        StaffMember.user_id == user_id,
+        StaffMember.is_deleted.isnot(True),
     )
+    if from_date is None or to_date is None:
+        q = q.filter(StaffMember.active.is_(True))
+    else:
+        worked = (
+            db.query(HoursLogged.staff_id)
+            .filter(
+                HoursLogged.user_id == user_id,
+                HoursLogged.date >= from_date,
+                HoursLogged.date <= to_date,
+            )
+            .distinct()
+            .subquery()
+        )
+        q = q.filter(
+            or_(
+                StaffMember.active.is_(True),
+                StaffMember.id.in_(select(worked.c.staff_id)),
+            )
+        )
+    return q.order_by(StaffMember.name).all()
 
 
 @router.get("/time-registration")
@@ -3298,7 +3327,7 @@ def time_registration_summary(
     """Owner overview — one compliance scan-line per active employee."""
     _require_time_registration(user)
     from app.services import time_registration as tr
-    members = _active_staff(db, user.id)
+    members = _register_staff(db, user.id, from_date, to_date)
     return tr.venue_compliance_summary(db, user.id, members, from_date, to_date)
 
 
@@ -3315,7 +3344,7 @@ def time_registration_csv(
     import io as _io
     from app.services import time_registration as tr
     from app.utils.csv_safe import csv_safe
-    members = _active_staff(db, user.id)
+    members = _register_staff(db, user.id, from_date, to_date)
     # Kilde stays Danish — this CSV is an Arbejdstilsynet-facing artifact,
     # so raw entry_method enums ("clock") must not leak into it.
     kilde = {"clock": "Stempelur", "schedule": "Vagtplan"}
@@ -3332,8 +3361,12 @@ def time_registration_csv(
             ])
     buf.seek(0)
     fname = f"tidsregistrering_{from_date.isoformat()}_{to_date.isoformat()}.csv"
+    # utf-8-sig: without the BOM, Windows Excel reads this as Windows-1252
+    # and mangles Æ Ø Å — Søren, Bæk and Åse all break on the one file an
+    # inspector opens. Every other Danish-facing CSV in this backend already
+    # does this, including one in this same router (~line 4708).
     return StreamingResponse(
-        iter([buf.getvalue()]),
+        iter([buf.getvalue().encode("utf-8-sig")]),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f"attachment; filename={fname}"},
     )
@@ -3377,10 +3410,21 @@ def log_hours(
     total_hours = data.total_hours
     entry_method = data.entry_method
 
-    # If clock-in/out times provided, calculate hours from them
+    # If clock-in/out times provided, calculate hours from them.
     if data.start_time and data.end_time:
         total_hours = _calc_shift_hours(data.start_time, data.end_time, data.break_minutes)
-        entry_method = "clock"
+        # Do NOT stamp entry_method="clock" here. Supplying a start and end is
+        # exactly what the Arbejdstidsloven register requires of a manual
+        # entry, so this branch is the NORMAL owner path, not evidence of a
+        # punch clock. Stamping it made an owner-typed shift indistinguishable
+        # from a machine reading, and the Arbejdstilsynet CSV then printed
+        # "Stempelur" (kilde map, ~line 3321) against a shift nobody clocked.
+        # The real punch clock sets entry_method="clock" itself
+        # (staff_portal.py:1398), so it is unaffected. update_hours() 400 lines
+        # below already refuses to do this and explains why — the same
+        # falsification "arriving through a different door". This is that door.
+        # The caller's declared method stands (schema default "quick"), which
+        # the CSV renders as "Manuel".
 
     # Pick rate and compute earned
     rate = data.rate_applied if data.rate_applied else _pick_rate(staff, data.date, data.start_time)
