@@ -192,7 +192,17 @@ def employee_compliance(db: Session, user_id, member: StaffMember,
     total_hours = round(sum(float(r.total_hours or 0) for r in period_rows), 1)
 
     over_cap = weekly_avg > MAX_WEEKLY_HOURS
-    status = "over" if over_cap else ("warn" if violations else "ok")
+    # An employee with NO registered time is not compliant — they are the one
+    # case Arbejdstidsloven is actually about. Reading it as "ok" was the
+    # arithmetic of absence: no rows means no violations and a 0.0 weekly
+    # average, so every check passes precisely because nothing was recorded.
+    # "gap" is the status the owner UI already renders for this row
+    # (TimeRegistrationPage STATUS map) — it just had to compute it client-side
+    # because the server insisted the employee was fine.
+    if not period_rows:
+        status = "gap"
+    else:
+        status = "over" if over_cap else ("warn" if violations else "ok")
 
     return {
         "staff_id": str(member.id),
@@ -228,8 +238,13 @@ def venue_compliance_summary(db: Session, user_id, members: list[StaffMember],
         ],
         "totals": {
             "staff_count": len(rows),
+            # A venue with employees but no register is NOT compliant. This
+            # previously answered "Yes" for exactly that venue, while the
+            # per-employee rows underneath it showed "No time registered" —
+            # the headline contradicting its own drill-down.
             "all_compliant": all(r["status"] == "ok" for r in rows),
             "with_rest_violations": sum(1 for r in rows if r["rest_violation_count"] > 0),
             "over_weekly_cap": sum(1 for r in rows if r["over_weekly_cap"]),
+            "without_registration": sum(1 for r in rows if r["days_registered"] == 0),
         },
     }

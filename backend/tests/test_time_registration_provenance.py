@@ -190,3 +190,47 @@ class TestCsvSurvivesDanishNames:
         assert r.status_code == 200, r.text
         assert r.content.startswith(b"\xef\xbb\xbf")
         assert "Søren Bæk" in r.content.decode("utf-8-sig")
+
+
+class TestAnEmptyRegisterIsNotCompliance:
+    """The headline must not contradict the rows underneath it.
+
+    With no rows there are no rest violations and the weekly average is 0.0, so
+    every check passed *because* nothing was recorded — the arithmetic of
+    absence. The owner UI already drew that employee as "No time registered"
+    client-side while the server called the venue compliant.
+    """
+
+    def _summary(self, client, day):
+        r = client.get(
+            "/api/staff/time-registration",
+            params={"from": day.isoformat(), "to": day.isoformat()},
+        )
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def test_staff_with_no_registered_time_is_not_compliant(self, client, db):
+        u = _cafe(db)
+        _staff(db, u, name="Ingen Timer")
+        out = self._summary(client, date(2026, 7, 10))
+        assert out["totals"]["all_compliant"] is False
+        assert out["totals"]["without_registration"] == 1
+        assert out["staff"][0]["status"] == "gap"
+
+    def test_a_properly_registered_shift_is_still_compliant(self, client, db):
+        """The guard: this must not turn into "nothing is ever compliant"."""
+        u = _cafe(db)
+        m = _staff(db, u, name="Registreret")
+        day = date(2026, 7, 11)
+        assert _log(client, m, day, start_time="09:00", end_time="15:00").status_code in (200, 201)
+        out = self._summary(client, day)
+        assert out["totals"]["all_compliant"] is True
+        assert out["totals"]["without_registration"] == 0
+        assert out["staff"][0]["status"] == "ok"
+
+    def test_a_venue_with_no_staff_is_not_a_false_alarm(self, client, db):
+        """Nothing to register is not the same as failing to register."""
+        _cafe(db)
+        out = self._summary(client, date(2026, 7, 12))
+        assert out["totals"]["staff_count"] == 0
+        assert out["totals"]["all_compliant"] is True
