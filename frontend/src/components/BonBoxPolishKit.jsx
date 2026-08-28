@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLanguage } from "../hooks/useLanguage";
+import { Icon } from "./ui";
 
 // === ANIMATED COUNTER — Numbers count up on load ===
 export function AnimatedCounter({
@@ -203,7 +204,7 @@ export function ShortcutsHelp({ open, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-900 rounded-xl p-6 w-[360px] shadow-sm border border-gray-200 dark:border-gray-700 animate-scaleIn" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white dark:bg-gray-900 rounded-xl p-6 w-full max-w-[360px] mx-4 shadow-sm border border-gray-200 dark:border-gray-700 animate-scaleIn" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{t("kshTitle", "Keyboard Shortcuts")}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl">&times;</button>
@@ -327,10 +328,27 @@ export function QuickSaleModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-900 rounded-xl p-8 w-[400px] shadow-sm border border-gray-200 dark:border-gray-700 animate-scaleIn" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
-          {t("quickSale") || "Quick Sale"}
-        </h3>
+      {/* w-full + max-w, not a fixed w-[400px]: at 400px this overflowed every
+          phone narrower than that (iPhone SE / mini are 375pt) and sat edge to
+          edge on a 402pt Pro. */}
+      <div className="bg-white dark:bg-gray-900 rounded-xl p-6 sm:p-8 w-full max-w-[400px] mx-4 shadow-sm border border-gray-200 dark:border-gray-700 animate-scaleIn" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            {t("quickSale") || "Quick Sale"}
+          </h3>
+          {/* A visible way out. This sheet had none: Escape is meaningless on a
+              phone and the backdrop tap is invisible, so the ONLY affordance an
+              owner could see was "Log sale" — on a money-writing form they may
+              have opened by mistake. */}
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("close") || "Close"}
+            className="-mr-2 -mt-1 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition"
+          >
+            <Icon name="X" size={18} aria-hidden="true" />
+          </button>
+        </div>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
           {t("quickSaleSubtitle") || "Log today's revenue in seconds"}
         </p>
