@@ -187,8 +187,11 @@ export default function MultiTerminalClosePage() {
             final_json: finalJson,
           });
         } catch {
-          // Commit failures are non-fatal — the aggregated close is
-          // still recorded; just no learning loop benefit for that one.
+          // Commit failures are non-fatal — these POSTs only feed the OCR
+          // learning loop. NOTE: nothing here records a DailyClose. This
+          // flow BUILDS a report (close-pdf / close-excel); it does not
+          // persist a close and does not send anything to anyone. The copy
+          // now says so.
         }
       }
       setDoneSummary({
@@ -721,7 +724,7 @@ function ReviewView({ aggregated, currency, t, onBack, onSend, sending }) {
           disabled={sending}
           className="flex-1 sm:flex-none px-6 py-2.5 bg-[#22c55e] hover:bg-[#16a34a] text-white text-sm font-semibold rounded-xl disabled:opacity-50 transition"
         >
-          {sending ? (t("sending") || "Sending…") : (t("confirmAndSend") || "Confirm & send")}
+          {sending ? t("mtcBuilding") : t("confirmAndSend")}
         </button>
       </div>
     </div>
@@ -946,7 +949,7 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
       <div className="text-center">
         <div className="text-5xl mb-3">✅</div>
         <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
-          {t("closeSentTitle") || "Lukning sendt"}
+          {t("closeSentTitle")}
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
           {(t("closeSentSubtitle") ||
@@ -1091,12 +1094,6 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
       )}
 
       <div className="flex gap-2 justify-center flex-wrap">
-        <Link
-          to="/daily-close"
-          className="px-5 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 text-sm font-medium rounded-lg transition"
-        >
-          {t("openHistory") || "Open daily-close history"}
-        </Link>
         <button
           onClick={onReset}
           className="px-5 py-2 min-h-[44px] sm:min-h-0 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold rounded-lg transition"
