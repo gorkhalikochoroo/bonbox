@@ -42,6 +42,14 @@ from app.models.user import User
 # Each module's "id" is the storage value; "name"/"description" are the
 # display strings the picker UI shows. Keeping name/description in
 # English here — frontend translates via i18n keys (modules.<id>.name).
+# REMOVED: "staff_payroll" ("Staff Payroll Suite"). It was wired to nothing —
+# the only module ids any code actually reads are bar_pour, wine_sommelier and
+# workshop (navManifest requiresModule / requiresAnyModule). Enabling it
+# changed no nav row, no page and no behaviour, while consuming the single
+# module slot a Free/Starter account gets. It also advertised "lønseddel-ready
+# exports", i.e. payroll — which is explicitly OUT of scope for this product
+# (staff = hour/shift tracking, not payroll). Accounts that stored it are
+# unaffected: parse_enabled() drops unknown ids, so their slot simply frees up.
 MODULES: tuple[dict, ...] = (
     {
         "id": "bar_pour",
@@ -57,11 +65,6 @@ MODULES: tuple[dict, ...] = (
         "id": "workshop",
         "name": "Workshop",
         "description": "Job tickets, parts inventory, labor logging — for auto-repair shops and similar service trades.",
-    },
-    {
-        "id": "staff_payroll",
-        "name": "Staff Payroll Suite",
-        "description": "Shift scheduling, hour logging, tip pool, lønseddel-ready exports — for venues with employees.",
     },
 )
 

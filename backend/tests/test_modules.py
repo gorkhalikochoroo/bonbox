@@ -66,10 +66,14 @@ def _user(db, plan: str = "free", in_trial: bool = False) -> User:
 
 # ─── Allowlist + catalog shape ─────────────────────────────────────────
 
-def test_modules_catalog_has_at_least_four_entries():
+def test_modules_catalog_has_at_least_three_entries():
     """Marketing claim 'Bar Pour + Workshop + etc.' implies multiple
-    modules. Pin minimum count so accidental deletion fails loudly."""
-    assert len(MODULES) >= 4
+    modules. Pin minimum count so accidental deletion fails loudly.
+
+    Lowered from 4 when "staff_payroll" was removed: it gated nothing (the
+    only ids any code reads are bar_pour / wine_sommelier / workshop) while
+    eating the single slot a Free/Starter account gets."""
+    assert len(MODULES) >= 3
 
 
 def test_every_module_has_required_fields():
@@ -92,7 +96,12 @@ def test_advertised_modules_present():
     assert "bar_pour" in ids        # advertised on bar/restaurant spotlight
     assert "workshop" in ids        # advertised on landing tags
     assert "wine_sommelier" in ids  # advertised in features grid
-    assert "staff_payroll" in ids   # advertised in staff features
+    # NOT staff_payroll. The landing does advertise "Payroll PDF + lønseddel"
+    # (landingCatStaff3), and that claim is BACKED — by StaffPayrollPage, the
+    # Løn tab, which renders unconditionally, and by the lønseddel PDF endpoint
+    # covered in test_loenseddel_pdf.py. The module of the same name gated none
+    # of it: it was an inert catalog entry no code read. Removing it does not
+    # touch the advertised feature.
 
 
 def test_list_modules_returns_copy_caller_cannot_mutate():
