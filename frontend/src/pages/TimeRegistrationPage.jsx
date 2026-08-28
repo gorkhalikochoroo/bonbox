@@ -5,9 +5,10 @@
 // render an upgrade card on a 402).
 import { useState, useEffect, useCallback } from "react";
 import api from "../services/api";
-import { Link } from "react-router-dom";
 import { useLanguage } from "../hooks/useLanguage";
 import { PageHeader, Button, StatCard, Card, Empty, Icon } from "../components/ui";
+import UpgradeNudge from "../components/ui/UpgradeNudge";
+import { isNativeApp } from "../utils/platform";
 import { Clock } from "lucide-react";
 
 function monthBounds(d) {
@@ -92,17 +93,35 @@ export default function TimeRegistrationPage() {
     return (
       <div className="p-4 sm:p-6 max-w-5xl mx-auto page-enter">
         <PageHeader eyebrow={t("navStaff", "Staff")} title={t("tregTitle", "Tidsregistrering")} />
-        <Card variant="emphasis" className="mt-4">
-          <div className="flex flex-col items-start gap-3 p-1">
-            <span className="inline-flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
-              <Icon name="Clock" size={18} strokeWidth={1.75} /> {t("tregLockedTitle", "Legal time-registration — Starter+")}
-            </span>
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              {t("tregLockedBody", "Danish law (Arbejdstidsloven, since 2024) requires you to register every employee's working hours. BonBox turns your clock-ins into a compliant, inspection-ready register — on Starter and Pro.")}
-            </p>
-            <Link to="/subscription"><Button variant="primary">{t("seePlans", "See plans")}</Button></Link>
-          </div>
-        </Card>
+        {/* APP STORE 3.1.1. This used to be a hand-rolled upgrade card that
+            named the tier ("Starter+", "on Starter and Pro") and linked to
+            /subscription — and it shipped in the iOS bundle, reachable by a
+            Free owner in one tap, because neither this page nor the tab row
+            carries a native gate. UpgradeNudge exists precisely to prevent
+            that: it returns null on native (UpgradeNudge.jsx:141, "a single
+            missed CTA on iOS = another rejection"). 32 other files already go
+            through it, including this tab's own sibling StaffPayrollPage.
+            Web keeps the full nudge; native gets a purely informational note
+            with no tier name, no price and no purchase link. */}
+        {isNativeApp() ? (
+          <Card className="mt-4">
+            <div className="flex items-start gap-2.5 p-1">
+              <Icon name="Clock" size={18} strokeWidth={1.75} className="shrink-0 mt-0.5 text-gray-400" />
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {t("tregNativeUnavailable")}
+              </p>
+            </div>
+          </Card>
+        ) : (
+          <UpgradeNudge
+            intent="card"
+            tier="starter"
+            iconName="Clock"
+            benefit={t("tregLockedBody")}
+            ctaLabel={t("seePlans", "See plans")}
+            className="mt-4"
+          />
+        )}
       </div>
     );
   }

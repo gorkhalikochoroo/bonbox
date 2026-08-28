@@ -7134,6 +7134,9 @@ const translations = {
     dcPayCash: "Cash",
     dcPayCard: "Card",
     dcPayCardOnline: "Card (online)",
+    // Native-only: states the legal fact, names no tier and links nowhere
+    // (App Store 3.1.1 — see TimeRegistrationPage's locked branch).
+    tregNativeUnavailable: "Danish law (Arbejdstidsloven) requires a working-hours register for every employee. This account does not have time registration switched on.",
     // Toast messages — replaced native alert() call sites (C-8). The server's
     // `detail` still takes priority at every call site; these are the fallbacks.
     fakturaAcceptFailed: "Could not accept",
@@ -14859,6 +14862,7 @@ const translations = {
     dcPayCash: "Kontant",
     dcPayCard: "Kort",
     dcPayCardOnline: "Kort (online)",
+    tregNativeUnavailable: "Arbejdstidsloven kræver et arbejdstidsregister for hver medarbejder. Denne konto har ikke tidsregistrering slået til.",
     // Toast-beskeder — erstattede native alert() (C-8).
     fakturaAcceptFailed: "Kunne ikke godkende",
     fakturaRejectFailed: "Kunne ikke afvise",
