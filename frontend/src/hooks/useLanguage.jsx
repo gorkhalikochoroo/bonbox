@@ -7105,6 +7105,10 @@ const translations = {
     fsFundDetail: "~{amt} due {date} · tap to add your balance and see if you're covered",
     fsFundDetailEstimated: "~{amt} due {date} · {realized} booked, rest estimated",
     fsConnectDetailEstimated: "MOMS ~{amt} due {date} · {realized} booked, rest estimated",
+    // Final week — a weekly rate is meaningless this close to the deadline.
+    fsDueTodayHeadline: "MOMS ~{amt} is due today",
+    fsDueTomorrowHeadline: "MOMS ~{amt} is due tomorrow",
+    fsDueInDaysHeadline: "MOMS ~{amt} is due in {n} days",
     // Daily Close — revenue categories + payment methods. These used to be
     // hardcoded bilingual literals in DailyClosePage.jsx ("Food / Mad").
     // MobilePay and PayPal are brands and are intentionally NOT keyed.
@@ -14839,6 +14843,9 @@ const translations = {
     fsFundDetail: "~{amt} forfalder {date} · tryk for at tilføje din saldo og se, om du er dækket",
     fsFundDetailEstimated: "~{amt} forfalder {date} · {realized} bogført, resten er skøn",
     fsConnectDetailEstimated: "MOMS ~{amt} forfalder {date} · {realized} bogført, resten er skøn",
+    fsDueTodayHeadline: "MOMS ~{amt} forfalder i dag",
+    fsDueTomorrowHeadline: "MOMS ~{amt} forfalder i morgen",
+    fsDueInDaysHeadline: "MOMS ~{amt} forfalder om {n} dage",
     // Dagsafslutning — omsætningskategorier + betalingsmetoder.
     dcCatFood: "Mad",
     dcCatDrinks: "Drikkevarer",

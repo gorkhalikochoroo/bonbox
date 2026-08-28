@@ -234,15 +234,38 @@ export default function ComplianceCountdownCard({
     // the deadline (conservative; adding a balance only lowers it). Turns
     // the hero from a "type your balance" ask into an actionable number.
     // Rounded up to a clean 100 kr so it reads tidy and never under-funds.
-    const _weeksToDeadline = Math.max(1, Math.round(Number(dl.days_until ?? 0) / 7));
+    const _daysUntil = Number(dl.days_until ?? 0);
+    const _weeksToDeadline = Math.max(1, Math.round(_daysUntil / 7));
+    // Inside the final week a weekly RATE is the wrong frame. With 4 days left
+    // Math.round(4/7) collapses to 1, so "set aside ~101.800 kr./week" is
+    // arithmetically just the whole bill — but it reads as a recurring
+    // commitment, and next to a shop that has taken 1.234 kr it reads as
+    // broken. Same number, honest framing: say it is due, and when.
+    const _dueImminently = _daysUntil >= 0 && _daysUntil < 7;
     const weeklyToFund =
-      noBalance && expectedNum > 0
+      noBalance && expectedNum > 0 && !_dueImminently
         ? Math.ceil(expectedNum / _weeksToDeadline / 100) * 100
         : 0;
 
     let displayHeadline = headline;
     let detail;
-    if (noBalance && weeklyToFund > 0) {
+    if (noBalance && _dueImminently && expectedNum > 0) {
+      displayHeadline = (
+        _daysUntil <= 0
+          ? t("fsDueTodayHeadline")
+          : _daysUntil === 1
+            ? t("fsDueTomorrowHeadline")
+            : t("fsDueInDaysHeadline").replace("{n}", String(_daysUntil))
+      ).replace("{amt}", expected || "—");
+      detail = (
+        momsIsMostlyEstimate
+          ? t("fsFundDetailEstimated", "~{amt} due {date} · {realized} booked, rest estimated")
+              .replace("{realized}", realizedStr)
+          : t("fsConnectDetail", "Expected MOMS ~{amt} · due {date}")
+      )
+        .replace("{amt}", expected || "—")
+        .replace("{date}", fmtDate(dl.date));
+    } else if (noBalance && weeklyToFund > 0) {
       displayHeadline = t("fsFundHeadline", "Set aside ~{amt}/week to cover MOMS")
         .replace("{amt}", formatKr(weeklyToFund, { decimals: 0 }));
       detail = (
