@@ -4083,6 +4083,13 @@ def hours_summary(
     # Staff names + pay/limit fields — wrapped so a corrupt member row doesn't
     # kill the report. base_rate → hourly_rate, max_hours_month → work_limit.
     staff_ids = list(hours_staff_ids | set(tips_map.keys()) | set(sched_map.keys()))
+    # WAGE VISIBILITY. cashier / viewer are the low-privilege seats (the same
+    # split main.py calls _LOW_PRIV_MEMBER_ROLES); manager is not, because a
+    # manager approves hours and is deliberately allowed the wage-cost estimate.
+    _hide_wages = getattr(user, "_is_member_view", False) and (
+        getattr(user, "_actor_role", "") in {"cashier", "viewer"}
+    )
+
     staff_names: dict[str, str] = {}
     rate_map: dict[str, float | None] = {}
     limit_map: dict[str, float | None] = {}
@@ -4125,10 +4132,16 @@ def hours_summary(
             # keys the Hours "Period summary" table reads
             "actual_hours": actual,
             "scheduled_hours": scheduled,
-            "hourly_rate": rate_map.get(sid),
-            "earned": earned,
+            # WAGES. /members already strips base_rate for a member view so a
+            # low-privilege seat "can never harvest coworkers' pay" — and then
+            # this sibling endpoint handed the same numbers straight back.
+            # cashier/viewer get nulls; manager keeps them (they approve hours
+            # and are deliberately allowed the wage-cost estimate — see
+            # _MANAGER_READ_DENY_PREFIXES, which omits /api/staff/payroll).
+            "hourly_rate": None if _hide_wages else rate_map.get(sid),
+            "earned": None if _hide_wages else earned,
             "tips": tips,
-            "total": round(earned + tips, 2),
+            "total": None if _hide_wages else round(earned + tips, 2),
             "work_limit": limit_map.get(sid),
             # Per-shift truth. `worst_state` is what the row should SAY; the
             # aggregates above are only what it should show as numbers.

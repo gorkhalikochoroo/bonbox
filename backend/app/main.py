@@ -3821,6 +3821,13 @@ _MEMBER_READ_DENY_PREFIXES = (
     # under other prefixes (/api/sales, /api/staff, /api/dashboard), so denying
     # the whole /api/reports prefix costs a member nothing they need.
     "/api/reports",
+    # The bookkeeping export IS the books: every sale and every expense for the
+    # period, in Dinero / Billy / e-conomic format. routers/exports.py gates it
+    # on the custom_export_templates TIER only — its own "Multi-layer defense"
+    # comment lists tier, format validation, date bounds and range cap, and no
+    # role layer at all. Without this prefix a cashier on Starter downloads the
+    # whole ledger, one tap from "Send til revisor" in their own More menu.
+    "/api/exports",
 )
 # Owner financials a MANAGER must not read — the full set MINUS the wage-cost
 # estimate (/api/staff/payroll). Subset of _MEMBER_READ_DENY_PREFIXES, so the
@@ -3833,6 +3840,12 @@ _MANAGER_READ_DENY_PREFIXES = (
     "/api/bank-import",
     "/api/cashflow",
     "/api/reports",
+    # Also manager-denied: a shift manager has no more business exporting the
+    # books than a cashier does. This entry additionally closes the curtained-
+    # tablet hole, because _SHARED_DEVICE_DENY_PREFIXES reuses this set — so
+    # "Delt enhed" was hiding the revenue hero while the full ledger stayed one
+    # tap away.
+    "/api/exports",
 )
 _LOW_PRIV_MEMBER_ROLES = frozenset({"cashier", "viewer"})
 
