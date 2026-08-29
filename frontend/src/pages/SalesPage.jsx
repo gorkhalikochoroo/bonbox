@@ -1161,7 +1161,16 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
   const handleSubmit = () => {
     if (!selectedItem || !qtyNum || !priceNum) return;
     onSale({
-      date: localIso(),
+      // Deliberately NO `date` — the backend resolves it via
+      // business_today_local(user), so an item sale rung up at 02:00 CEST
+      // (after midnight wall-clock but BEFORE the 06:00 business-day cutoff)
+      // lands on the correct business day instead of tomorrow.
+      // This form has no date field, so the owner has no way to notice or
+      // correct a mis-stamped row. DashboardPage's Quick Sale carries the
+      // same comment: sending localIso() here "silently mis-routed
+      // post-midnight sales to the next business day — they didn't show up
+      // in today's KPIs and the user reported 'Quick sale doesn't add'."
+      // That fix landed on Quick Sale only; this path kept the bug.
       inventory_item_id: selectedItem.id,
       quantity_sold: qtyNum,
       unit_price: priceNum,
