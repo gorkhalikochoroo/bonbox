@@ -31,7 +31,8 @@ import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { errText } from "../utils/errText";
 import { displayCurrency, getTaxConfig, formatOwnerMoney } from "../utils/currency";
-import { formatDate, formatDateClear, localIso } from "../utils/dateFormat";
+import { formatDate, formatDateClear, localIso, businessTodayIso } from "../utils/dateFormat";
+import { cutoffHourFor } from "../config/archetypes";
 import TaxBreakdown from "../components/TaxBreakdown";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
@@ -64,7 +65,36 @@ export default function SalesPage() {
   const [sales, setSales] = useState([]);
   const [salesLoading, setSalesLoading] = useState(true);
   const [amount, setAmount] = useState("");
-  const [saleDate, setSaleDate] = useState(localIso());
+  // BUSINESS-DAY CUTOFF. Seeded from the archetype default (food_service /
+  // bar → 6, else 0 — the client twin of archetype.py) so the first render is
+  // already correct for an uncustomised account, then replaced by the owner's
+  // stored day_cutoff_hour from /business. Before this, everything on this
+  // page used the wall-clock date: at 00:30 the TODAY tile reported 0 kr.
+  // while the dashboard — which asks the server for the business day —
+  // correctly showed the evening's takings.
+  const [cutoffHour, setCutoffHour] = useState(() => cutoffHourFor(user?.business_type));
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get("/business")
+      .then((r) => {
+        const h = r?.data?.day_cutoff_hour;
+        if (!cancelled && h != null && Number.isFinite(Number(h))) setCutoffHour(Number(h));
+      })
+      .catch(() => {}); // keep the archetype default — never block the page
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const businessToday = businessTodayIso(cutoffHour);
+
+  // Defaults to the BUSINESS day, not the wall-clock day. The field stays
+  // visible and editable, and the backdate warning below still fires, so an
+  // owner whose stored cutoff differs from the archetype default can still
+  // see and correct it in the window before /business resolves.
+  const [saleDate, setSaleDate] = useState(() =>
+    businessTodayIso(cutoffHourFor(user?.business_type)),
+  );
   // Sticky payment method — seeds from the owner's last choice (DK default:
   // card). commitMethod persists on a deliberate tap (cash excluded — it's the
   // only method that posts to the cashbook). See useStickyMethod. The setter is
@@ -149,7 +179,7 @@ export default function SalesPage() {
   const sessionAgg = useMemo(() => {
     const sessionAt = sessionMountedAtRef.current;
     const sessionSales = sales.filter((s) => (s.created_at || "") >= sessionAt);
-    const todayStr = localIso();
+    const todayStr = businessToday;
     const todaySales = sales.filter((s) => s.date === todayStr);
     const eventSales = eventFilter && eventFilter !== "__none__"
       ? sales.filter((s) => s.event_id === eventFilter)
@@ -165,7 +195,10 @@ export default function SalesPage() {
       eventCount: eventSales.length,
       eventTotal: sum(eventSales),
     };
-  }, [sales, eventFilter]);
+    // businessToday IS a dependency: it changes when /business resolves the
+    // owner's real cutoff. Without it the TODAY tile would keep the value
+    // computed from the archetype default and the fix would be inert.
+  }, [sales, eventFilter, businessToday]);
 
 
   const fetchSales = async (from, to, eventId) => {
@@ -331,7 +364,7 @@ export default function SalesPage() {
     setAmount("");
     setNotes("");
     setIsTaxExempt(false);
-    setSaleDate(localIso());
+    setSaleDate(businessToday);
     try {
       const res = await api.post("/sales", {
         date: submittedSnapshot.saleDate,
@@ -348,7 +381,7 @@ export default function SalesPage() {
         // Defensive fallback — server didn't return a row, refetch.
         fetchSales(filterFrom, filterTo);
       }
-      const isBackdated = submittedSnapshot.saleDate !== localIso();
+      const isBackdated = submittedSnapshot.saleDate !== businessToday;
       trackEvent("sale_logged", "sales", `${value} ${currency} via ${method}`);
       setSuccess(`${formatOwnerMoney(value, user?.currency)}${isBackdated ? ` (${formatDate(submittedSnapshot.saleDate)})` : ""}!`);
       // Refresh inventory / aggregates / cross-page subscribers — but
@@ -895,7 +928,7 @@ export default function SalesPage() {
             extras={
               <>
                 <TaxBreakdown amount={amount} currencyCode={user?.currency} isTaxExempt={isTaxExempt} onTaxExemptChange={setIsTaxExempt} />
-                {saleDate !== localIso() && (
+                {saleDate !== businessToday && (
                   <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 font-medium">{t("backdatedEntry")}</p>
                 )}
               </>

@@ -156,6 +156,34 @@ export function localIso(d = new Date()) {
 }
 
 /**
+ * The date the current BUSINESS day belongs to — the client twin of the
+ * backend's `business_today_local()` (services/tz_utils.py:146).
+ *
+ * Before the cutoff hour this returns YESTERDAY, so a café closing at 02:00
+ * still counts that service against the day it started. Without this, a page
+ * that filtered on localIso() reported "0 sales today" at 00:30 while the
+ * dashboard — which asks the server — correctly showed the evening's takings.
+ * Two screens, two answers to "what did I take today".
+ *
+ * Semantics match the backend exactly: `now.hour < cutoff ? yesterday : today`.
+ * One known divergence: the backend resolves in the ACCOUNT's timezone and
+ * this resolves in the DEVICE's. Identical for a Danish owner on a Danish
+ * phone; a traveling owner can still disagree by a day, and closing that
+ * needs the account timezone on the client.
+ *
+ * @param {number} [cutoffHour=0] - 0-23. DK restaurants use 6.
+ * @param {Date} [d=new Date()]
+ * @returns {string} YYYY-MM-DD
+ */
+export function businessTodayIso(cutoffHour = 0, d = new Date()) {
+  const raw = Number(cutoffHour);
+  const cutoff = Number.isFinite(raw) ? Math.min(23, Math.max(0, Math.trunc(raw))) : 0;
+  const ref = new Date(d.getTime());
+  if (ref.getHours() < cutoff) ref.setDate(ref.getDate() - 1);
+  return localIso(ref);
+}
+
+/**
  * ISO date for N days before today, in local timezone.
  * `localDaysAgo(7)` returns the day 7 days ago. For "Last 7 days INCLUSIVE
  * of today" use `localDaysAgo(6)` and pair with `localIso()` as the end.
