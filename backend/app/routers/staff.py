@@ -1252,7 +1252,6 @@ def list_share_links(
     )
     out = []
     dirty = False
-    used: set = set()  # codes assigned in THIS batch (not yet committed → invisible to DB query)
     for m in members:
         link = (
             db.query(StaffLink)
@@ -1272,23 +1271,32 @@ def list_share_links(
                 active=True,
             )
             db.add(link)
+            db.flush()  # give it an identity before _ensure_join_code may commit
             dirty = True
-        if not link.join_code:
-            for _ in range(8):
-                code = _gen_join_code()
-                if code in used:
-                    continue
-                clash = db.query(StaffLink.id).filter(StaffLink.join_code == code).first()
-                if not clash:
-                    link.join_code = code
-                    used.add(code)
-                    dirty = True
-                    break
+        # _ensure_join_code, NOT an inline mint. The block that used to live here
+        # gated on `if not link.join_code:` — bare falsiness — and redeeming a code
+        # does NOT clear the column, it stamps code_used_at (staff_portal.py). So a
+        # burned code stayed populated forever, the guard stayed False, and this
+        # endpoint re-served a dead string that /join answers with 404 "Ukendt kode".
+        # First connect worked; every reconnect (reinstall, new phone, retry) did not.
+        #
+        # The helper is the only code path that also clears code_used_at, which is
+        # why swapping the guard for `_join_code_live` here would be WORSE than the
+        # bug: it would mint a fresh-looking code onto a row redeem still rejects.
+        # It also stamps code_expires_at, which the inline block never did — codes
+        # born in this endpoint had no TTL at all, and both liveness gates
+        # grandfather a NULL expiry as live.
+        #
+        # Rotation-safe: _ensure_join_code returns early while the code is live, so
+        # a code the owner has already shared is never swapped out from under them.
+        # The batch-local `used` set is gone with it — the helper queries for a
+        # clash and commits each mint, so the next iteration sees it.
+        code = _ensure_join_code(db, link)
         out.append({
             "staff_id": str(m.id),
             "staff_name": m.name,
             "email": m.email,
-            "join_code": link.join_code,
+            "join_code": code,
             "has_pin": bool(link.pin_hash),
             "portal_url": portal_path(link.token, user.business_name, m.name),
         })

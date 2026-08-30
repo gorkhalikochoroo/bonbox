@@ -1588,7 +1588,13 @@ export default function StaffSchedulePage() {
           if (row.staff_id) pins[row.staff_id] = !!row.has_pin;
         }
         setShareLinks((prev) => ({ ...map, ...prev }));
-        setShareCodes((prev) => ({ ...codes, ...prev }));
+        // Server LAST for codes: `prev` spread last meant a cached code could
+        // never be replaced by a fresh fetch. Harmless while the endpoint never
+        // re-minted — and a live bug the moment it does, because the screen
+        // would keep showing the burned code it had already cached.
+        // shareLinks deliberately keeps prev-wins: a portal token is durable and
+        // that ordering protects an in-flight per-staff mint. A code is not.
+        setShareCodes((prev) => ({ ...prev, ...codes }));
         setPinHas(pins);
       })
       .catch(() => { /* fall back to per-staff mint on copy */ });
@@ -2103,6 +2109,9 @@ export default function StaffSchedulePage() {
               onRefresh={fetchStaff}
               branchId={branchId}
               joinCodes={shareCodes}
+              onCodeMinted={(id, code) =>
+                setShareCodes((prev) => ({ ...prev, [id]: code }))
+              }
             />
           )}
         </div>
@@ -3405,7 +3414,7 @@ function StaffDetailModal({
 /* ═══════════════════════════════════════════════════════════
    STAFF MANAGEMENT PANEL
    ═══════════════════════════════════════════════════════════ */
-function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {} }) {
+function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCodeMinted }) {
   const { t } = useLanguage();
   const confirm = useConfirm();
   // Which row's code was just copied. Local on purpose — the parent has its
@@ -3458,6 +3467,12 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {} }) {
       const res = await api.post(`/staff/members/${member.id}/link`);
       const origin = window.location.origin;
       const fullUrl = `${origin}${res.data.portal_url}`;
+      // This endpoint routes through _ensure_join_code, so its join_code is the
+      // one value guaranteed live — it re-mints a burned or expired one. The
+      // response used to be read for portal_url only and the code thrown away,
+      // which would leave the roster chip four lines above showing the OLD code
+      // right after the owner pressed the button that replaced it.
+      if (res.data.join_code) onCodeMinted?.(member.id, res.data.join_code);
       setLinkModal({ staffName: member.name, portalUrl: fullUrl, loading: false });
     } catch (err) {
       setPanelError(errText(err, "Failed to generate link"));
