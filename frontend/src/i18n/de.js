@@ -73,7 +73,7 @@ export const de = {
   ocrNotAvailable: "OCR nicht verfügbar — Betrag manuell eingeben", receiptText: "Erkannten Text anzeigen",
   enterTotal: "Gesamtbetrag eingeben...", confirmLog: "Bestätigen & Verkauf erfassen",
   saleLoggedReceipt: "Verkauf aus Beleg erfasst!",
-  quickEntry: "Schnelleingabe", personalEntry: "Persönlicher Eintrag", logSaleTab: "Verkauf erfassen", addExpenseTab: "Ausgabe hinzufügen",
+  quickEntry: "Schnelleingabe", logSaleTab: "Verkauf erfassen", addExpenseTab: "Ausgabe hinzufügen",
   quickAmount: "Schnellbetrag", orTypeAmount: "Oder Betrag eingeben...",
   category: "Kategorie", addCategoriesFirst: "Zuerst Kategorien auf der Ausgabenseite hinzufügen",
   whatForExpense: "Wofür? (z.B. Tomaten)",

@@ -44,7 +44,7 @@ export const np = {
   smartPastePlaceholder: "तपाईंका कुञ्जीहरू टाँस्नुहोस् (वा पोर्टलबाट सम्पूर्ण ब्लक) — BonBox ले सही ठाउँमा छुट्याइदिन्छ",
   smartPasteAllFilled: "सबै {n} फिल्ड स्वतः भरियो — तल समीक्षा गरेर Test & Connect मा थिच्नुहोस्",
   smartPastePartialFilled: "{total} मध्ये {found} कुञ्जी फेला पर्‍यो — बाँकी तल भर्नुहोस्",
-  clear: "खाली गर्नुहोस्", looksGood: "ठीक देखियो",
+  looksGood: "ठीक देखियो",
   fmtMsn: "६–८ अंकको हुनुपर्छ — लाग्छ कुनै अंक छुटेको छ",
   fmtUuid: "a1b2c3d4-e5f6-7890-1234-567890abcdef जस्तो हुनुपर्छ",
   fmtLong: "यो छोटो देखिन्छ — पूरै कुञ्जी कपी गर्नुभयो?",
@@ -82,7 +82,6 @@ export const np = {
   trialEndedAgoSingular: "तपाईंको ट्रायल {n} दिन अघि सकिएको थियो।",
   trialEndedAgoPlural: "तपाईंको ट्रायल {n} दिन अघि सकिएको थियो।",
   trialEndedBackOnFree: "तपाईं Free मा फर्किनुभयो — सबै सुविधा अझै काम गर्छ, केवल प्रयोग सीमासहित। संस्थापक-सदस्य 249 kr/महिना अझै उपलब्ध छ (पहिलो 100 ग्राहक)।",
-  upgrade: "अपग्रेड",
   smartSaleEntry: "स्मार्ट बिक्री प्रविष्टि", whatDidYouSell: "तपाईंले के बेच्नुभयो?",
   smartSalePlaceholder: "जस्तै ३ एस्प्रेसो र १ क्रोइसा ९५ DKK नगदमा",
   characters: "अक्षर", parsing: "विश्लेषण गर्दै…", parseWithAI: "AI ले पढ्नुहोस्",
@@ -92,7 +91,7 @@ export const np = {
   matchedAndNew: "{matched} मिल्यो · {new} नयाँ",
   oneItemMatched: "{n} वस्तु मिल्यो", nItemsMatched: "{n} वस्तुहरू मिले",
   notInInventorySavedAsNote: "स्टकमा छैन — नोटको रूपमा सेभ भयो",
-  price: "मूल्य", unitPrice: "एकाइ मूल्य", removeLine: "लाइन हटाउनुहोस्",
+  price: "मूल्य", removeLine: "लाइन हटाउनुहोस्",
   paymentMethod: "भुक्तानी विधि", paymentMethodPlaceholder: "भुक्तानी विधि…",
   payCash: "नगद", payCard: "कार्ड", payBankTransfer: "बैंक स्थानान्तरण", payMixed: "मिश्रित",
   saleLoggedSingular: "{n} बिक्री दर्ता", saleLoggedPlural: "{n} बिक्रीहरू दर्ता",
@@ -339,7 +338,6 @@ export const np = {
   barUnstockedTitle: "तपाईंको bar सूचीमा, अहिलेसम्म स्टक नभएको",
   barEmptyBottle: "स्टक छैन",
   stockedItems: "स्टकमा",
-  perBottle: "प्रति बोतल",
   barModuleDisabledTitle: "Bar Pour मोड्युल अक्षम छ।",
   barModuleDisabledBody: "Sidebar मा Bar थप्न सक्रिय गर्नुहोस् — तपाईंका विद्यमान बोतलहरूले जे भए पनि काम गर्छन्।",
   barModuleEnable: "Modules मा सक्रिय गर्नुहोस् →",
@@ -403,7 +401,7 @@ export const np = {
   terminalSaveFailed: "टर्मिनल सेभ गर्न सकिएन",
   terminalDeleteFailed: "मेटाउन सकिएन",
   terminalConfirmDelete: "टर्मिनल {name} मेटाउने? पुराना लुकाइहरू सुरक्षित रहन्छन्।",
-  edit: "सम्पादन", "delete": "मेटाउने", branch: "शाखा",
+  "delete": "मेटाउने", branch: "शाखा",
   // Multi-terminal daily close
   multiClose: "बहु-टर्मिनल लुकाइ",
   terminalsScanned: "टर्मिनलहरू स्क्यान भए",
@@ -490,7 +488,6 @@ export const np = {
   downloadPdf: "PDF डाउनलोड",
   pdfShared: "PDF साझा गरियो",
   pdfDownloaded: "PDF डाउनलोड भयो",
-  pdfFailed: "PDF बनाउन सकिएन",
   shareExcel: "Excel साझा गर्नुहोस्",
   excelShareHint: "Excel अट्याचमेन्टको रूपमा साझा गर्नुहोस् — आफ्नो साप्ताहिक वर्कबुकमा टाँस्नुहोस्",
   downloadExcel: "Excel डाउनलोड",
@@ -520,7 +517,7 @@ export const np = {
   // Sales
   salesTracker: "बिक्री ट्र्याकर", logSale: "आजको बिक्री राख्नुहोस्",
   tapAmount: "रकम छान्नुहोस् वा आफ्नो टाइप गर्नुहोस्", customAmount: "आफ्नो रकम...", log: "राख्नुहोस्",
-  recentSales: "हालका बिक्रीहरू", date: "मिति", amount: "रकम", payment: "भुक्तानी",
+  recentSales: "हालका बिक्रीहरू", date: "मिति", payment: "भुक्तानी",
   noSalesYet: "अहिलेसम्म बिक्री छैन — माथि रकम थिच्नुहोस्!",
   importCsv: "CSV बाट आयात", csvColumns: "स्तम्भहरू: date, amount, payment_method (ऐच्छिक)",
   uploading: "अपलोड हुँदैछ...", chooseFile: "फाइल छान्नुहोस्",
@@ -529,7 +526,7 @@ export const np = {
   expenseTracker: "खर्च ट्र्याकर", addExpense: "खर्च थप्नुहोस्",
   pickCategory: "कोटि छान्नुहोस्, विवरण लेख्नुहोस्, रकम थिच्नुहोस्",
   whatWasIt: "के थियो? (जस्तै: गोलभेडा, बिजुलीको बिल)", add: "थप्नुहोस्",
-  recentExpenses: "हालका खर्चहरू", description: "विवरण",
+  recentExpenses: "हालका खर्चहरू",
   noExpensesYet: "अहिलेसम्म खर्च छैन — कोटि छानेर माथि थप्नुहोस्!",
   firstTimeSetup: "पहिलो पटक? एक थिचाइमा सामान्य कोटिहरू सेटअप गर्नुहोस्",
   setupCategories: "कोटिहरू सेटअप",
@@ -549,14 +546,14 @@ export const np = {
   predictedRevenue: "अनुमानित आम्दानी", day: "दिन", level: "स्तर",
   staffNeeded: "चाहिने कर्मचारी", confidence: "विश्वसनीयता", staffingRules: "स्टाफिङ नियमहरू",
   staffingRulesDesc: "विभिन्न आम्दानी स्तरमा कति कर्मचारी चाहिन्छ भनेर तोक्नुहोस्।",
-  addRule: "नियम थप्नुहोस्", remove: "हटाउनुहोस्", staff: "कर्मचारी",
+  addRule: "नियम थप्नुहोस्", staff: "कर्मचारी",
   next7days: "अर्को ७ दिन", next14days: "अर्को १४ दिन", next30days: "अर्को ३० दिन",
   totalStaffNeeded: "कुल चाहिने कर्मचारी", basedOnPatterns: "अनुमानित आम्दानी ढाँचामा आधारित",
   minRevenue: "न्यूनतम आम्दानी", maxRevenue: "अधिकतम आम्दानी",
   slow: "सुस्त", normal: "सामान्य", busy: "व्यस्त",
   // Staff Module
   staffSchedule: "तालिका", staffHours: "घण्टा", staffTips: "टिप्स", staffPayroll: "तलब",
-  addStaff: "कर्मचारी थप्नुहोस्", staffName: "कर्मचारीको नाम",
+  addStaff: "कर्मचारी थप्नुहोस्",
   // Waste
   logWaste: "फोहोर राख्नुहोस्", trackWaste: "के फालियो ट्र्याक गर्नुहोस्",
   wasteLogged: "फोहोर रेकर्ड भयो!", monthlyWasteCost: "मासिक फोहोर खर्च",
@@ -579,12 +576,10 @@ export const np = {
   inputVat: "इनपुट भ्याट", vatPayable: "तिर्नुपर्ने भ्याट",
   payableToSkat: "कर कार्यालयलाई तिर्नुपर्ने रकम", refundFromSkat: "कर कार्यालयबाट फिर्ता हुने रकम",
   loadingVat: "कर रिपोर्ट लोड हुँदैछ...", vatError: "कर रिपोर्ट लोड गर्न सकिएन।",
-  vatMonthly: "मासिक", vatQuarterly: "त्रैमासिक",
-  vatDownloading: "डाउनलोड हुँदैछ...", vatDownloadPdf: "PDF डाउनलोड",
-  vatDownloadFailed: "PDF डाउनलोड गर्न सकिएन",
+
+
   vatMyBusiness: "मेरो व्यवसाय",
-  vatRateLabel: "दर",
-  vatBreakdown: "विवरण",
+
   vatDisclaimer: "यो केवल अनुमान हो। कर कार्यालयमा पेश गर्नुअघि आफ्नो लेखापालसँग परामर्श गर्नुहोस्",
   vatMonthJan: "जनवरी", vatMonthFeb: "फेब्रुअरी", vatMonthMar: "मार्च",
   vatMonthApr: "अप्रिल", vatMonthMay: "मे", vatMonthJun: "जुन",
@@ -609,7 +604,7 @@ export const np = {
   predictedTotal: "अनुमानित जम्मा", avgDaily: "औसत/दिन",
   trendUp: "बढ्दो", trendDown: "घट्दो", trendStable: "स्थिर",
   forecastConfidence: "विश्वसनीयता", noForecastData: "पूर्वानुमानको लागि थप बिक्री डाटा चाहिन्छ",
-  predicted: "अनुमानित", actual: "वास्तविक",
+  predicted: "अनुमानित",
   // Feedback
   feedback: "प्रतिक्रिया", sendFeedback: "प्रतिक्रिया पठाउनुहोस्", yourFeedback: "तपाईंको प्रतिक्रिया",
   feedbackSent: "प्रतिक्रियाको लागि धन्यवाद!", rateExperience: "आफ्नो अनुभव मूल्याङ्कन गर्नुहोस्",
@@ -618,8 +613,8 @@ export const np = {
   complaint: "उजुरी", praise: "प्रशंसा", noFeedbackYet: "अहिलेसम्म प्रतिक्रिया छैन",
   stars: "तारा",
   // Payment methods
-  cash: "नगद", card: "कार्ड", mobilepay: "MobilePay", online: "अनलाइन", mixed: "मिश्रित",
-  dankort: "Dankort", bankTransfer: "बैंक ट्रान्सफर",
+  cash: "नगद", card: "कार्ड", mobilepay: "MobilePay", mixed: "मिश्रित",
+  dankort: "Dankort",
   // Quick Sale
   quickSale: "छिटो बिक्री",
   // Time periods
@@ -631,7 +626,7 @@ export const np = {
   planBilling: "योजना र बिलिङ", sendToAccountant: "लेखापालकलाई पठाउनुहोस्", account: "खाता",
   restockFirst: "पहिले पुनःभरण गर्नुहोस्",
   // Property Financial Report
-  dailyReport: "दैनिक रिपोर्ट", dailyClose: "दिन समाप्ति",
+  dailyClose: "दिन समाप्ति",
   sixAmToSixAm: "बिहान ६:०० देखि भोलि बिहान ६:००",
   sixAm: "बिहान ६:०० (रेस्टुरेन्ट)",
   midnight: "मध्यरात (००:००)",
@@ -707,7 +702,6 @@ export const np = {
   actions: "कार्य", notes: "टिप्पणी",
   // Cash Book
   cashBook: "खाता",
-  cashFlow: "नगद प्रवाह",
   taxAutopilot: "कर स्वचालित",
   dailyClose: "दैनिक बन्द", dailyCloseDesc: "दिनको अन्त्यमा — आम्दानी, भुक्तानी, नगद गणना, टिप्स।",
   newClose: "नयाँ बन्द", historyTab: "इतिहास", insightsTab: "अन्तर्दृष्टि",
@@ -729,16 +723,15 @@ export const np = {
   // Cash Book page
   cashBalance: "नगद मौज्दात", totalCashIn: "कुल नगद आउने", totalCashOut: "कुल नगद जाने",
   cashIn: "नगद आउने", cashOut: "नगद जाने", addIn: "आउने थप्नुहोस्", addOut: "जाने थप्नुहोस्",
-  avgPerSale: "औसत/बिक्री", avgDailySales: "औसत/दिन", days: "दिन",
+  avgPerSale: "औसत/बिक्री", avgDailySales: "औसत/दिन",
   whatWasItFor: "के को लागि थियो?", transactionHistory: "कारोबार इतिहास",
   noCashTransactionsYet: "अहिलेसम्म नगद कारोबार छैन", autoSynced: "स्वचालित",
   updated: "अपडेट भयो!", movedToDeleted: "हालै मेटाइएकोमा सारियो",
-  catSales: "बिक्री", catTips: "टिप्स", catLoan: "ऋण", catOther: "अन्य",
-  catPurchase: "खरिद", catWages: "तलब", catSupplies: "सामग्री", catRent: "भाडा",
-  failedToAddTransaction: "कारोबार थप्न सकिएन", autoTag: "स्वचालित",
+
+
   // Khata page
   khataTitle: "खाता — ग्राहक खाता", khataSubtitle: "तपाईंका थोक ग्राहकहरूको उधारो र भुक्तानी ट्र्याक गर्नुहोस्",
-  totalReceivable: "कुल लिनुपर्ने", customers: "ग्राहकहरू", topDebtors: "शीर्ष ऋणीहरू",
+  totalReceivable: "कुल लिनुपर्ने", topDebtors: "शीर्ष ऋणीहरू",
   noPendingBalances: "बाँकी रकम छैन", searchCustomers: "ग्राहक खोज्नुहोस्...",
   noCustomersYet: "अहिलेसम्म ग्राहक छैन", selectCustomer: "ग्राहक छान्नुहोस्",
   selectCustomerDesc: "उनीहरूको खाता हेर्न सूचीबाट ग्राहक छान्नुहोस्",
@@ -760,14 +753,14 @@ export const np = {
   restore: "पुनर्स्थापना", deleteForever: "सधैंको लागि मेट्नुहोस्",
   noDeletedItems: "मेटिएका सामानहरू छैनन्", waste: "फोहोर",
   // Personal Finance page
-  personalFinance: "व्यक्तिगत वित्त", trackPersonalIncome: "तपाईंको व्यक्तिगत आम्दानी र खर्च ट्र्याक गर्नुहोस्",
+  trackPersonalIncome: "तपाईंको व्यक्तिगत आम्दानी र खर्च ट्र्याक गर्नुहोस्",
   setupPersonalCategories: "व्यक्तिगत कोटिहरू सेटअप गर्नुहोस्", createCategories: "कोटिहरू बनाउनुहोस्",
   youHave: "तपाईंसँग छ", youreShort: "तपाईंलाई कम छ", spent: "खर्च",
   loans: "ऋण", owedToYou: "तपाईंलाई तिर्नुपर्ने", youOwe: "तपाईंले तिर्नुपर्ने", netWorth: "कुल सम्पत्ति",
   balancePlusLoans: "मौज्दात + ऋण", budgetExceeded: "बजेट नाघ्यो",
   over: "बढी", approachingBudgetLimit: "बजेट सीमा नजिक",
   used: "प्रयोग", monthlyBudget: "मासिक बजेट", setBudget: "बजेट राख्नुहोस्",
-  hideBudgetSettings: "बजेट सेटिङ लुकाउनुहोस्", monthlyReport: "मासिक रिपोर्ट",
+  hideBudgetSettings: "बजेट सेटिङ लुकाउनुहोस्",
   hideMonthlyReport: "मासिक रिपोर्ट लुकाउनुहोस्", monthlyBudgetSettings: "मासिक बजेट सेटिङ",
   totalMonthlyBudget: "कुल मासिक बजेट", saveBudget: "बजेट सेभ", saved: "सेभ भयो",
   incomeSources: "आम्दानीका स्रोतहरू", spendingByCategory: "कोटि अनुसार खर्च",
@@ -812,7 +805,7 @@ export const np = {
   // Additional UI strings
   saleUpdated: "बिक्री अपडेट भयो!", expenseUpdated: "खर्च अपडेट भयो!",
   copiedToClipboard: "क्लिपबोर्डमा कपी भयो!", voiceInput: "आवाज इनपुट",
-  addNoteOptional: "नोट थप्नुहोस् (ऐच्छिक)", profit: "नाफा",
+  addNoteOptional: "नोट थप्नुहोस् (ऐच्छिक)",
   searchSalesPlaceholder: "रकम, नोट, भुक्तानी खोज्नुहोस्...",
   searchExpensesPlaceholder: "रकम, नाम, कोटि, भुक्तानी खोज्नुहोस्...",
   searchInventory: "स्टकमा खोज्नुहोस्...",
@@ -828,7 +821,7 @@ export const np = {
   payroll: "तलब", sickCallTracker: "बिरामी कलहरू", lastMonth: "गत महिना",
   weatherDays: "मौसम दिनहरू", noSickCalls: "अहिलेसम्म कुनै बिरामी कल छैन",
   couldNotLogSickCall: "बिरामी कल रेकर्ड गर्न सकिएन",
-  tips: "टिप्स", tipsDesc: "टिप्स न्यायपूर्ण रूपमा वितरण गर्नुहोस्",
+  tipsDesc: "टिप्स न्यायपूर्ण रूपमा वितरण गर्नुहोस्",
   newTipEntry: "नयाँ प्रविष्टि", tipHistory: "इतिहास",
   myBusiness: "मेरो व्यापार", paymentReceived: "भुक्तानी प्राप्त भयो",
   personalCategoriesCreated: "व्यक्तिगत कोटिहरू बनाइयो!",
@@ -1029,7 +1022,6 @@ export const np = {
   estimatedAmount: "अनुमानित रकम",
   period: "अवधि",
   deadline: "अन्तिम मिति",
-  payable: "तिर्नुपर्ने",
   status: "स्थिति",
   taxPreferences: "कर प्राथमिकता",
   filingFrequency: "दाखिला फ्रिक्वेन्सी",
@@ -1049,7 +1041,6 @@ export const np = {
   scheduled: "तालिकाबद्ध",
   actual: "वास्तविक",
   diff: "अन्तर",
-  rate: "दर",
   earned: "कमाई",
   logHours: "घण्टा लग गर्नुहोस्",
   totalHours: "कुल घण्टा",
@@ -1240,7 +1231,6 @@ export const np = {
   purposePlaceholder: "Tihar event सेटअप",
   purposeRequired: "लेखापरीक्षण अनुपालनको लागि Skattestyrelsen द्वारा आवश्यक।",
   vehicleReg: "गाडीको नम्बर प्लेट",
-  days: "दिन",
   upgrade: "अपग्रेड",
   loading: "लोड हुँदै…",
   saving: "सुरक्षित गर्दै…",
@@ -1278,7 +1268,7 @@ export const np = {
   byPayment: "भुक्तानी अनुसार", todaysBreakdown: "आजको विवरण",
   revenueByDay: "दिन अनुसार आम्दानी", saleDistribution: "बिक्री वितरण",
   min: "न्यूनतम", median: "मध्यमा", max: "अधिकतम", days: "दिन",
-  logFirstSale: "पहिलो बिक्री राख्नुहोस्", selected: "चयन गरिएको",
+  logFirstSale: "पहिलो बिक्री राख्नुहोस्",
   copySummary: "सारांश कपी गर्नुहोस्", pickItemDesc: "स्टकबाट सामान छान्नुहोस्, परिमाण र मूल्य राख्नुहोस्",
   noItemsWithStock: "स्टकमा सामान भेटिएन", stock: "स्टक",
   change: "बदल्नुहोस्", sellPrice: "बिक्री मूल्य", sell: "बेच्नुहोस्",
@@ -1704,15 +1694,12 @@ export const np = {
   eanHintOptional: "वैकल्पिक। ग्राहकलाई NemHandel-routed faktura चाहिएमा मात्र।",
   deliveryDateToggle: "Delivery date सेट गर्नुहोस् (issue date भन्दा फरक भएमा मात्र)",
   deliveryDateHint: "वस्तु/सेवा वास्तवमा कहिले delivery भयो। उहीदिन को कामका लागि खाली छोड्नुहोस्।",
-
   // Apple Sign-In
   appleSignInFailed: "Apple मा साइन-इन असफल भयो।",
   signInWithApple: "Apple मार्फत साइन इन गर्नुहोस्",
   signUpWithApple: "Apple मार्फत साइन अप गर्नुहोस्",
-
   // B2B price note (keeps Moms / Skat in Danish per jurisdiction rules)
   b2bPriceNote: "तपाईंका मूल्यहरू नेट (B2B) मा प्रविष्ट छन्। ग्राहकले दायाँ रहेको कुल रकम तिर्छन्; तपाईंले MOMS SKAT लाई बुझाउनुपर्छ।",
-
   // Branch summary cards
   branchDefaultBadge: "पूर्वनिर्धारित",
   branchSummaryActive: "यो शाखाको लागि सीमित",
@@ -1720,12 +1707,10 @@ export const np = {
   branchSummaryProfit: "नाफा",
   branchSummaryTitle: "यो महिनाका तपाईंका ठाउँहरू",
   branchSummaryTotal: "जम्मा {amount}",
-
   // CVR branchekode hinting (Danish term, kept)
   branchekodeApplyBtn: "पूर्वनिर्धारित लागू गर्नुहोस्",
   branchekodeDetected: "पहिचान भयो",
   branchekodeFuzzyHint: "branchekode प्रिफिक्सबाट अनुमान",
-
   // Single-word labels
   budget: "बजेट",
   closePlural: "बन्द",
@@ -1736,7 +1721,6 @@ export const np = {
   increase: "बढाउनुहोस्",
   personal: "व्यक्तिगत",
   weather: "मौसम",
-
   // Confidence labels (used on detected values)
   confidenceGuess: "उत्तम अनुमान",
   confidenceHigh: "उच्च विश्वास",
@@ -1744,27 +1728,22 @@ export const np = {
   confidenceLow: "न्यून विश्वास",
   confidenceMedium: "मध्यम विश्वास",
   confidenceVerified: "प्रमाणित",
-
   // CVR signup auto-detect (Danish company register — term kept)
   cvrSignupApplied: "स्वतः भरियो —",
   cvrSignupClear: "खाली गर्नुहोस्",
   cvrSignupNotMine: "यी कुनै पनि होइन — म आफैं टाइप गर्छु",
   cvrSignupSearching: "CVR मा तपाईंको कम्पनी खोजिँदै…",
   cvrSignupTitle: "कम्पनी दर्तामा मिल्दो भेटियो",
-
   // DAWA (Danish postal register — term kept)
   dawaAddressVerified: "ठेगाना DAWA हुलाक दर्तासँग प्रमाणित",
   dawaFromCvrLabel: "CVR बाट",
   dawaFromDawaLabel: "DAWA हुलाक दर्ताबाट (सिफारिस गरिएको)",
   dawaMismatchTitle: "DAWA ले अलि फरक मानक ठेगाना सुझाव दिन्छ:",
-
   // Downloads / fallbacks
   downloadedFallback: "डाउनलोड भयो — इमेलमा आफैं संलग्न गर्नुहोस्",
-
   // Accountant export panel
   exportToAccountantDesc: "मिति दायरा छान्नुहोस् र सबै बन्दहरू PDF वा CSV का रूपमा डाउनलोड गर्नुहोस्। CSV अर्धविरामले छुट्याइएको + UTF-8 BOM मा छ, त्यसैले डेनिस Excel ले सजिलै खोल्छ।",
   exportToAccountantTitle: "एकाउन्टेन्टलाई निर्यात",
-
   // Feature bullets across plan tiers
   featFreeDriftSuggestions: "तपाईंको व्यावसायिक ढाँचा बदलिँदा drift सुझावहरू",
   featFreeExport7d: "७-दिने एकाउन्टेन्ट निर्यात विन्डो (PDF + CSV)",
@@ -1772,7 +1751,6 @@ export const np = {
   featProExportYear: "पूरा-वर्ष एकाउन्टेन्ट निर्यात — त्रैमासिक + वार्षिक समीक्षा",
   featStarterCloseGuard: "बन्दको बेलामा live anomaly guard — सुरक्षित हुनुअघि गलत रकम चिनेर देखाउँछ",
   featStarterExport31d: "३१-दिने एकाउन्टेन्ट निर्यात विन्डो — महिनाको अन्तमा सुपुर्द",
-
   // First-run / Smart Setup onboarding
   firstRunNext: "अर्को",
   firstRunOptionLater: "पछि सेटअप गर्छु",
@@ -1787,13 +1765,11 @@ export const np = {
   firstRunSubtitle: "६० सेकेन्डको सेटअप — ड्यासबोर्ड खोल्ने बित्तिकै तपाईंको व्यवसाय बारे थाहा हुनेछ।",
   firstRunTitle: "छिटो सेटअप",
   firstRunWelcome: "BonBox मा स्वागत छ",
-
   // CVR flag tooltips (Danish legal status labels)
   flagKonkursDetail: "यो कम्पनी अवसायनमा छ। सञ्चालनमा छ भने सुरक्षित गर्न ठीक छ, तर कानुनी अवस्था जाँच गर्नुहोस्।",
   flagNoVatDetail: "कम्पनीसँग CVR छ तर VAT-दर्ता छैन। दर्ता नहुँदासम्म Kasserapport ले MOMS हिसाब छाड्नेछ।",
   flagOphoertDetail: "CVR रेकर्डले देखाउँछ यो कम्पनी बन्द भएको छ।",
   flagProtectedDetail: "यो संरक्षित-नाम दर्ता हो। केही खोज नतिजाहरूमा सार्वजनिक देखिने छैन।",
-
   // PDF / sending
   generatingPdfBtn: "बनाउँदै…",
   pdfDownloadFailed: "रिपोर्ट डाउनलोड हुन सकेन — कृपया फेरि प्रयास गर्नुहोस्।",
@@ -1804,7 +1780,6 @@ export const np = {
   sendToAccountantBtn: "एकाउन्टेन्टलाई पठाउनुहोस्",
   sendToAccountantTooltipNoEmail: "एकाउन्टेन्टलाई पठाउनुहोस् — टाइप नगर्न Profile मा इमेल राख्नुहोस्",
   sendToTooltip: "यसलाई पठाउनुहोस्:",
-
   // Global search
   globalSearchAria: "BonBox खोज्नुहोस्",
   hideSidebar: "साइडबार लुकाउनुहोस्",
@@ -1821,7 +1796,6 @@ export const np = {
   searchPlaceholder: "बिक्री, खर्च, मालसामान, पृष्ठहरू खोज्नुहोस्…",
   searchRecent: "हालैको",
   searchTryThese: "यी खोज्न प्रयास गर्नुहोस्",
-
   // Tax / Moms summary (Moms kept in Danish)
   grossSalesInclMoms: "कुल बिक्री (MOMS सहित)",
   momsAddedOnTop: "मूल्यमाथि MOMS थपिएको",
@@ -1834,7 +1808,6 @@ export const np = {
   taxSummaryPrefix: "कर विवरण",
   totalCustomerPaid: "ग्राहकले तिरेको कुल रकम",
   totalSales: "कुल बिक्री",
-
   // Inventory smart-usage editor
   inventoryConsumptionDaysLeft: "हाल बिक्रिको गतिमा ~{n} दिनको स्टक",
   inventoryConsumptionExample: "उदाहरण: एक एस्प्रेसो प्रति २० ग्राम कफी बीन्स → सर्भिङ साइज २०, इकाइ g",
@@ -1858,7 +1831,6 @@ export const np = {
   inventoryConsumptionUnknownItem: "हामीले चिनेनौं — विवरण सम्पादन गर्नुहोस्",
   inventoryConsumptionUnrecognisedTitle: "अहिलेसम्म हाम्रो रेसिपी पुस्तकालयमा छैन",
   inventoryConsumptionWouldCatch: "यसले समात्थ्यो",
-
   // Landing — Smart Setup section
   landingFeature14Desc: "खुला दिनहरू, चर्को घण्टा, भूमिका लक्ष्य, टर्मिनलहरू — हामी तपाईंका बिक्री र रसिदबाट पढ्छौं। एक ट्यापमा पुष्टि गर्नुहोस्, कुनै फारम भर्नुपर्दैन।",
   landingFeature14Title: "Smart Setup",
@@ -1878,10 +1850,8 @@ export const np = {
   landingTagAutoDetectTerminals: "स्वतः-पहिचान टर्मिनल",
   landingTagDriftSuggestions: "Drift सुझावहरू",
   landingTagSmartSetup: "Smart Setup",
-
   // Login Google hint (cross-platform sign-in bridge)
   loginGoogleHintNative: "वेबमा Google मार्फत साइन अप गर्नुभयो? माथिको \"Forgot password\" ट्याप गरेर एप पासवर्ड सेट गर्नुहोस् — ३० सेकेन्ड लाग्छ।",
-
   // Onboarding heading + steps
   onbAllSet: "🎉 तपाईं तयार हुनुहुन्छ!",
   onbAllSetSub: "तपाईंको सेटअप सकियो। केही थप बिक्री लगाएपछि यो लुकाउनेछौं।",
@@ -1894,7 +1864,6 @@ export const np = {
   onbStepExpenseCat: "खर्च कोटिहरू सेटअप गर्नुहोस्",
   onbStepFirstSale: "तपाईंको पहिलो बिक्री लग गर्नुहोस्",
   onbStepInventory: "एउटा मालसामान थप्नुहोस्",
-
   // Operating profile editor
   operatingProfileClosed: "बन्द",
   operatingProfileHours: "प्रति दिन घण्टा",
@@ -1906,7 +1875,6 @@ export const np = {
   operatingProfileStaffPerShift: "प्रति शिफ्ट सामान्य कर्मचारी",
   operatingProfileSubtitle: "AI लाई तपाईंको व्यवसाय कसरी चल्छ भनी बताउँछ — त्यसैले तालिका सुझाव र विसंगति पहिचान गर्न सक्छ।",
   operatingProfileTitle: "सञ्चालन प्रोफाइल",
-
   // Plan labels + caps
   planBusiness: "व्यवसाय",
   planCapHintCta: "पूरा वर्षको लागि अपग्रेड →",
@@ -1921,14 +1889,12 @@ export const np = {
   plus: "",
   pricingComparePlansSubtitle: "प्रत्येक टियरमा के पाउनुहुन्छ। वार्षिकले २०% बचत गराउँछ।",
   pricingComparePlansTitle: "प्लानहरू तुलना गर्नुहोस्",
-
   // Date-range presets
   rangePreset14d: "अन्तिम १४ दिन",
   rangePreset1m: "अन्तिम १ महिना",
   rangePreset3m: "अन्तिम ३ महिना",
   rangePreset7d: "अन्तिम ७ दिन",
   rangePresetCustom: "अनुकूल",
-
   // Receipt viewer modal
   receiptViewerExpenseTitle: "खर्च रसिद",
   receiptViewerImageAlt: "रसिदको फोटो",
@@ -1939,19 +1905,16 @@ export const np = {
   receiptViewerRecordedAmount: "रेकर्ड गरिएको रकम",
   receiptViewerReviewLink: "रसिद पूरा-साइजमा हेर्नुहोस्",
   receiptViewerSaleTitle: "बिक्री रसिद",
-
   // Sanity-check before send
   sanityCheckLetMeCheck: "म जाँच गर्छु",
   sanityCheckSendAnyway: "हो, पठाउनुहोस्",
   sanityCheckTitle: "छिटो दोहोरो-जाँच",
-
   // Schedule confirmations
   scheduleConfirmAll: "सबै {n} कर्मचारीले यो हप्ताको तालिका पुष्टि गरे।",
   scheduleConfirmNone: "तालिका {total} कर्मचारीलाई पठाइयो — कसैले अझै पुष्टि गरेनन्। उनीहरूले लिङ्क खोल्दा देख्नेछन्।",
   scheduleConfirmPartial: "यो हप्ता {total} मध्ये {confirmed} कर्मचारीले पुष्टि गरे।",
   schedulePdfFailed: "PDF निर्यात गर्न सकिएन।",
   schedulePdfTitle: "तालिका PDF का रूपमा निर्यात गर्नुहोस् (कर्मचारी बोर्डको लागि)",
-
   // Sick-call card on Profile
   sickCallAcknowledge: "स्वीकार",
   sickCallAssign: "तोक्नुहोस्",
@@ -1961,19 +1924,16 @@ export const np = {
   sickCallFindCover: "कभर खोज्नुहोस्",
   sickCallNoCandidates: "आज उपलब्ध कर्मचारी छैनन्।",
   sickCallSuggested: "सुझाव गरिएको कभर",
-
   // Smart drift notifications
   smartDriftApplyFailed: "खोल्न सकिएन।",
   smartDriftDismissFailed: "हटाउन सकिएन।",
   smartDriftNotNow: "अहिले होइन",
   smartDriftUpdate: "अद्यावधिक गर्नुहोस्",
-
   // Smart language picker
   smartLangPicked: "हामीले {lang} छान्यौं {source}।",
   smartLangSourceBrowser: "तपाईंको ब्राउजरबाट",
   smartLangSourceCurrency: "तपाईंको मुद्राबाट",
   smartLangSwitchEn: "अंग्रेजीमा बदल्नुहोस्",
-
   // Smart staffing (Profile + dashboard)
   smartStaffingBasedOn: "{days} दिनको {sales} बिक्रीमा आधारित।",
   smartStaffingEdit: "विवरण सम्पादन गर्नुहोस्",
@@ -1994,7 +1954,6 @@ export const np = {
   smartStaffingShowAdvanced: "एडभान्स्ड सञ्चालन-प्रोफाइल एडिटर देखाउनुहोस्",
   smartStaffingSubtitle: "हामीले अन्तिम {n} दिनको तपाईंको बिक्री हेर्‍यौं। मिल्यो?",
   smartStaffingTitle: "तपाईंको व्यवसाय कसरी चल्छ",
-
   // Smart terminals onboarding (Danish term 'kasserapport' kept)
   smartTerminalsAdvancedHint: "आफैं सेटअप गर्न चाहनुहुन्छ?",
   smartTerminalsAdvancedLink: "Terminals सेटिङ्ग्स् खोल्नुहोस्",
@@ -2024,10 +1983,8 @@ export const np = {
   smartTerminalsSlipSeen: "रसिद देखियो",
   smartTerminalsSlipsSeen: "रसिदहरू देखिए",
   smartTerminalsTitle: "तपाईंका टर्मिनलहरू — सजिलो तरिकाले सेटअप गर्नुहोस्",
-
   // Staffing forecast
   staffingForecast: "कर्मचारी पूर्वानुमान",
-
   // Support / feedback chip
   supportChipAria: "सहयोग पाउनुहोस् / प्रतिक्रिया पठाउनुहोस्",
   supportKind: "कस्तो प्रकार?",
@@ -2041,7 +1998,6 @@ export const np = {
   supportSubjectPlaceholder: "एक-पंक्तिको सारांश",
   supportSubtitle: "सिधै संस्थापकलाई जान्छ। हामी इमेलबाट जवाफ दिनेछौं।",
   supportTitle: "हामी कसरी मद्दत गर्न सक्छौं?",
-
   // Shift swap approvals
   swapApprove: "स्वीकृत",
   swapCardSubtitle: "{n} बाँकी। दुवै कर्मचारी सहमत; अन्तिम निर्णय तपाईंको।",
@@ -2050,14 +2006,12 @@ export const np = {
   swapDeny: "अस्वीकृत",
   swapDenyReasonPlaceholder: "किन? (वैकल्पिक, कर्मचारीले देख्नेछन्)",
   swapShiftGives: "दिन्छन्",
-
   // Trial chip in nav
   trialChipManyDays: "परीक्षणमा {n} दिन बाँकी",
   trialChipOneDay: "परीक्षणमा १ दिन बाँकी",
   trialChipTooltip: "Pro प्लानहरू हेर्नुहोस्",
   trialChipUpgradeLink: "प्लान हेर्नुहोस्",
   trialChipUrgentTooltip: "परीक्षण चाँडै सकिँदै — प्लान हेर्नुहोस्",
-
   // Upgrade modal
   upgradeAIAnomaly: "AI विसंगति पहिचान",
   upgradeCTA: "प्लानहरू हेर्नुहोस् →",
@@ -2076,12 +2030,10 @@ export const np = {
   upgradeUnlimitedTeam: "असीमित टोली सदस्य",
   upgradeWhatYouGet: "तपाईंले के पाउनुहुन्छ",
   upgradeWhiteLabelPdf: "व्हाइट-लेबल PDF (कुनै BonBox ब्रान्डिङ छैन)",
-
   // Verticals
   vertBakery: "बेकरी",
   vertRetail: "खुद्रा",
   vertWorkshop: "वर्कशप / मर्मत",
-
   // Welcome onboarding tips
   welcomeIntroLine: "BonBox मा स्वागत{name}। पहिले तीन कुराले सबभन्दा बढी मूल्य दिनेछन्:",
   welcomeSkip: "छाड्नुहोस्",
@@ -2090,7 +2042,6 @@ export const np = {
   welcomeTipCmdK: "कहीँबाट पनि ⌘K थिचेर कुनै पृष्ठमा जानुहोस्",
   welcomeTipSnap: "रसिद स्न्याप गर्नुहोस् — OCR ले फारम भरिदिन्छ",
   welcomeTipsHeading: "अरू पनि जान्नयोग्य",
-
   // WhatsApp shift updates (coming soon)
   whatsappComingSoonBody: "अहिले तल कर्मचारीका फोन नम्बरहरू थप्नुहोस्। यो सुविधा लाइभ हुने दिन हामी उनीहरूको पहिलो सन्देश पठाउनेछौं — त्यतिञ्जेल नम्बरहरू निजी रहन्छन्।",
   whatsappComingSoonTitle: "WhatsApp शिफ्ट अपडेट — चाँडै आउँदै",

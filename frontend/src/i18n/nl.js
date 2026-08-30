@@ -73,7 +73,7 @@ export const nl = {
   ocrNotAvailable: "OCR niet beschikbaar — typ het bedrag handmatig", receiptText: "Herkende tekst bekijken",
   enterTotal: "Voer totaalbedrag in...", confirmLog: "Bevestigen & verkoop registreren",
   saleLoggedReceipt: "Verkoop geregistreerd vanaf bon!",
-  quickEntry: "Snelle invoer", personalEntry: "Persoonlijke invoer", logSaleTab: "Verkoop registreren", addExpenseTab: "Uitgave toevoegen",
+  quickEntry: "Snelle invoer", logSaleTab: "Verkoop registreren", addExpenseTab: "Uitgave toevoegen",
   quickAmount: "Snel bedrag", orTypeAmount: "Of typ een bedrag...",
   category: "Categorie", addCategoriesFirst: "Voeg eerst categorieën toe op de Uitgavenpagina",
   whatForExpense: "Waarvoor? (bijv. Tomaten)",

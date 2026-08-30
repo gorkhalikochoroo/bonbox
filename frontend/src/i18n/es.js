@@ -73,7 +73,7 @@ export const es = {
   ocrNotAvailable: "OCR no disponible — escriba el monto manualmente", receiptText: "Ver texto reconocido",
   enterTotal: "Ingrese el monto total...", confirmLog: "Confirmar y registrar venta",
   saleLoggedReceipt: "¡Venta registrada desde el recibo!",
-  quickEntry: "Entrada rápida", personalEntry: "Entrada personal", logSaleTab: "Registrar venta", addExpenseTab: "Agregar gasto",
+  quickEntry: "Entrada rápida", logSaleTab: "Registrar venta", addExpenseTab: "Agregar gasto",
   quickAmount: "Monto rápido", orTypeAmount: "O escriba un monto...",
   category: "Categoría", addCategoriesFirst: "Primero agregue categorías en la página de Gastos",
   whatForExpense: "¿Para qué fue? (ej. Tomates)",

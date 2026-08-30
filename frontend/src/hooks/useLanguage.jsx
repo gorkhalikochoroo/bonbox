@@ -1230,7 +1230,6 @@ const translations = {
     gkCopyLink: "Copy link",
     gkLinkCopied: "Copied",
     gkScanToReceive: "Scan to get the gavekort",
-    gkClose: "Close",
     // Public recipient page (/g/:token) — the live card the customer holds.
     gpkEyebrow: "Gavekort",
     gpkValueLabel: "Value",
@@ -2339,7 +2338,7 @@ const translations = {
     smartPastePlaceholder: "Paste your keys (or the whole block from the portal) — BonBox sorts them into the right fields",
     smartPasteAllFilled: "All {n} fields auto-filled — review below and tap Test & Connect",
     smartPastePartialFilled: "Found {found} of {total} keys — fill the rest below",
-    clear: "Clear", looksGood: "Looks good",
+    looksGood: "Looks good",
     fmtMsn: "Should be 6–8 digits — looks like a number is missing",
     fmtUuid: "Should look like a1b2c3d4-e5f6-7890-1234-567890abcdef",
     fmtLong: "This looks short — did you copy the whole value?",
@@ -2386,7 +2385,7 @@ const translations = {
     matchedAndNew: "{matched} matched · {new} new",
     oneItemMatched: "{n} item matched", nItemsMatched: "{n} items matched",
     notInInventorySavedAsNote: "Not in inventory — saved as note",
-    price: "Price", unitPrice: "Unit price", removeLine: "Remove line",
+    price: "Price", removeLine: "Remove line",
     paymentMethod: "Payment method", paymentMethodPlaceholder: "Payment method…",
     payCash: "Cash", payCard: "Card", payBankTransfer: "Bank transfer", payMixed: "Mixed",
     saleLoggedSingular: "{n} sale logged", saleLoggedPlural: "{n} sales logged",
@@ -2588,9 +2587,7 @@ const translations = {
     staffHoursSubtitle: "Track working hours, clock in/out, and confirm schedules.",
     staffHoursRecentOutOfPeriod: "Clocked hours landed just before this period",
     staffHoursViewPrevPeriod: "Show previous period",
-    periodPrev: "Previous period",
     periodPrevShort: "Previous",
-    periodNext: "Next period",
     periodNextShort: "Next",
     payrollSubtitle: "Generate payroll reports for your revisor",
     loadingPayroll: "Loading payroll...",
@@ -3125,7 +3122,7 @@ const translations = {
     terminalSaveFailed: "Could not save terminal",
     terminalDeleteFailed: "Could not delete",
     terminalConfirmDelete: "Delete terminal {name}? Past closes are preserved.",
-    edit: "Edit", "delete": "Delete", branch: "Branch",
+    branch: "Branch",
     // Multi-terminal daily close
     multiClose: "Multi-terminal close",
     terminalsScanned: "terminals scanned",
@@ -3218,7 +3215,7 @@ const translations = {
     excelDownloaded: "Excel downloaded",
     excelFailed: "Could not generate Excel",
     generating: "Generating…",
-    smartStaffing: "Smart Staffing", weatherSmart: "Weather Smart", wasteTracker: "Waste Tracker", weeklyReport: "Weekly Report",
+    smartStaffing: "Smart Staffing", weatherSmart: "Weather Smart", wasteTracker: "Waste Tracker",
     momsVat: "Tax/VAT", darkMode: "Dark Mode", lightMode: "Light Mode", signOut: "Sign Out", appearance: "Appearance",
     language: "Dansk",
     // Dashboard
@@ -3234,13 +3231,13 @@ const translations = {
     noRevenueData: "No revenue data yet", noExpenseData: "No expense data yet",
     recentReceipts: "Recent Receipts", dailyGoal: "Daily Goal", monthlyGoal: "Monthly Target", reached: "Reached!",
     setDailyGoal: "Set a daily revenue goal", trackProgress: "Set a target to track progress",
-    setGoal: "Set Goal", editGoal: "Edit goal", save: "Save", cancel: "Cancel",
+    setGoal: "Set Goal", editGoal: "Edit goal",
     yesterdayCopied: "Yesterday's sale copied to today!", noYesterdaySale: "No sale found for yesterday",
     // Sales
     salesTracker: "Sales Tracker", logSale: "Log Today's Sale",
     logSaleForDate: "Log sale for {date}",
     tapAmount: "Tap an amount or type your own", customAmount: "Custom amount...", log: "Log",
-    recentSales: "Recent Sales", date: "Date", amount: "Amount", payment: "Payment",
+    recentSales: "Recent Sales", date: "Date", payment: "Payment",
     importCsv: "Import from CSV", csvColumns: "Columns: date, amount, payment_method (optional)",
     uploading: "Uploading...", chooseFile: "Choose File",
     salesImported: "sales imported", rowsSkipped: "rows skipped",
@@ -3248,7 +3245,7 @@ const translations = {
     expenseTracker: "Expense Tracker", addExpense: "Add Expense",
     pickCategory: "Pick a category, describe it, tap an amount",
     whatWasIt: "What was it? (e.g. Tomatoes, Electric bill)", add: "Add",
-    recentExpenses: "Recent Expenses", description: "Description",
+    recentExpenses: "Recent Expenses",
     noExpensesYet: "No expenses yet — pick a category and add one above!",
     firstTimeSetup: "First time? Set up common categories in one tap",
     setupCategories: "Set Up Categories",
@@ -3269,7 +3266,7 @@ const translations = {
     predictedRevenue: "Predicted Revenue", day: "Day", level: "Level",
     staffNeeded: "Staff Needed", confidence: "Confidence", staffingRules: "Staffing Rules",
     staffingRulesDesc: "Define how many staff you need at different revenue levels.",
-    addRule: "Add Rule", remove: "Remove", staff: "staff",
+    addRule: "Add Rule", staff: "staff",
     next7days: "Next 7 days", next14days: "Next 14 days", next30days: "Next 30 days",
     totalStaffNeeded: "Total Staff Needed", basedOnPatterns: "Based on predicted revenue patterns",
     minRevenue: "Min revenue", maxRevenue: "Max revenue",
@@ -3280,17 +3277,16 @@ const translations = {
     // Waste
     logWaste: "Log Waste", trackWaste: "Track what gets thrown out",
     wasteLogged: "Waste logged!", monthlyWasteCost: "Monthly Waste Cost",
-    itemsWasted: "Items Wasted", noDataYet: "No data yet",
-    whatWasWasted: "What was wasted? (e.g. Chicken breast)", qty: "Qty",
+    itemsWasted: "Items Wasted",
+    whatWasWasted: "What was wasted? (e.g. Chicken breast)",
     estimatedCost: "Estimated cost (DKK)", customCost: "Custom cost...",
     recentWaste: "Recent Waste", item: "Item", reason: "Reason", cost: "Cost",
     noWasteYet: "No waste logged yet",
     expired: "expired", overcooked: "overcooked", damaged: "damaged", other: "other",
-    portions: "Portions", failedToLogWaste: "Failed to log waste", itemsMovedToTrash: "items moved to trash",
     // Weekly Report
     weeklySalesReport: "Weekly Sales Report", dailyAvg: "Daily Avg",
     daysRecorded: "Days Recorded", bestDay: "Best Day", slowestDay: "Slowest Day",
-    revenue: "Revenue", vsLastWeek: "vs last week",
+    revenue: "Revenue",
     loadingReport: "Loading report...", noSalesData: "No sales data available yet.",
     // VAT — these are now generic fallbacks; currency-specific terms come from getVatTerms()
     vatReport: "Tax Report", salesSection: "Sales",
@@ -3301,8 +3297,7 @@ const translations = {
     inputVat: "Input Tax", vatPayable: "Tax Payable",
     payableToSkat: "Amount payable to tax authority", refundFromSkat: "Tax refund",
     loadingVat: "Loading tax report...", vatError: "Could not load tax report.",
-    vatMonthly: "Monthly", vatQuarterly: "Quarterly",
-    vatDownloading: "Downloading...", vatDownloadPdf: "Download PDF",
+
     vatMonthJan: "January", vatMonthFeb: "February", vatMonthMar: "March",
     vatMonthApr: "April", vatMonthMay: "May", vatMonthJun: "June",
     vatMonthJul: "July", vatMonthAug: "August", vatMonthSep: "September",
@@ -3334,7 +3329,7 @@ const translations = {
     enterTotal: "Enter total amount...", confirmLog: "Confirm & Log Sale",
     saleLoggedReceipt: "Sale logged from receipt!",
     // Quick Add
-    quickEntry: "Quick Entry", personalEntry: "Personal Entry", logSaleTab: "Log Sale", addExpenseTab: "Add Expense",
+    quickEntry: "Quick Entry", logSaleTab: "Log Sale", addExpenseTab: "Add Expense",
     quickAmount: "Quick amount (DKK)", orTypeAmount: "Or type amount...",
     category: "Category", addCategoriesFirst: "Add categories in Expenses page first",
     whatForExpense: "What was it for? (e.g. Tomatoes)",
@@ -3344,9 +3339,9 @@ const translations = {
     predictedTotal: "Predicted Total", avgDaily: "Avg/Day",
     trendUp: "Trending Up", trendDown: "Trending Down", trendStable: "Stable",
     forecastConfidence: "Confidence", noForecastData: "Need more sales data for predictions",
-    predicted: "Predicted", actual: "Actual",
+    predicted: "Predicted",
     // Feedback
-    feedback: "Feedback", sendFeedback: "Send Feedback", yourFeedback: "Your Feedback",
+    sendFeedback: "Send Feedback", yourFeedback: "Your Feedback",
     feedbackSent: "Thank you for your feedback!", rateExperience: "Rate your experience",
     feedbackLaunchTitle: "Got feedback or found a bug?",
     feedbackLaunchBody: "Tell us anything — a bug, an idea, a question. It goes straight to the founder, and we reply by email.",
@@ -3357,7 +3352,7 @@ const translations = {
     complaint: "Complaint", praise: "Praise", noFeedbackYet: "No feedback submitted yet",
     stars: "stars",
     // Payment methods
-    cash: "Cash", card: "Card", mobilepay: "MobilePay", online: "Online", mixed: "Mixed",
+    cash: "Cash", card: "Card", mobilepay: "MobilePay", mixed: "Mixed",
     dankort: "Dankort", bankTransfer: "Bank Transfer",
     // Quick Sale
     quickSale: "Quick Sale",
@@ -3378,12 +3373,12 @@ const translations = {
     today: "Today", thisWeek: "This Week", thisMonth: "This Month", last30Days: "Last 30 Days",
     // Layout / Nav
     businessMode: "Business Mode", personalMode: "Personal Mode",
-    reports: "Reports", khata: "Khata", loanTracker: "Loan Tracker", bankImport: "Bank Import",
-    budgetOverview: "Budget", notifications: "Notifications", setBudget: "Set Budgets", team: "Team",
+    loanTracker: "Loan Tracker",
+    budgetOverview: "Budget", notifications: "Notifications", setBudget: "Set Budgets",
     planBilling: "Plan & Billing", sendToAccountant: "Send to revisor", account: "Account",
     restockFirst: "Restock first",
     // Property Financial Report — Danish-restaurant daily close
-    dailyReport: "Daily Report", dailyClose: "Daily Close",
+
     sixAmToSixAm: "06:00 to 06:00 next day", sixAm: "06:00 (restaurant)",
     midnight: "Midnight (00:00)", dayBoundary: "When does your day end?",
     totalRevenue: "Total Revenue", taxableSales: "Taxable Sales",
@@ -3412,16 +3407,16 @@ const translations = {
     deleteAccount: "Delete Account", deleteAccountDesc: "Permanently delete your account and all data. This cannot be undone.",
     deleteMyAccount: "Delete My Account", deleteConfirmWarning: "This will permanently delete ALL your data: sales, expenses, inventory, reports, everything. Enter your password to confirm.",
     enterPassword: "Enter your password", confirmDelete: "Confirm Delete", deleting: "Deleting...",
-    deleteFailed: "Failed to delete account", cancel: "Cancel",
+    deleteFailed: "Failed to delete account",
     // Payment imports
     paymentImports: "Payment Imports", paymentImportsDesc: "Connect payment providers to auto-import transactions",
     connectedProviders: "Connected", availableProviders: "Available Providers",
     connect: "Connect", disconnect: "Disconnect", connected: "Connected",
     syncNow: "Sync Now", syncing: "Syncing...", transactionsFound: "transactions found",
-    importSelected: "Import", transactions: "transactions", imported: "imported",
+    importSelected: "Import", imported: "imported",
     duplicatesSkipped: "duplicates skipped", connecting: "Connecting...",
     saveConnection: "Save Connection", connectionLabel: "Label (optional)",
-    selectAll: "Select all", importing: "Importing...",
+    importing: "Importing...",
     upiNote: "UPI, Google Pay, PhonePe (India)",
     upiNoteDesc: "UPI transactions appear in your bank statement. Use Bank CSV Import to import them from your bank's downloaded CSV file.",
     // Payment imports v2 (2026-05-25 — DK reframe, CSV-first hierarchy)
@@ -3503,9 +3498,9 @@ const translations = {
     koBurstCapReached: "scan limit reached",
     koBurstFailed: "Could not scan the pile",
     typeCustomCategory: "Type custom category...", moveToTrash: "Move to trash",
-    actions: "Actions", notes: "Notes",
+    actions: "Actions",
     // Cash Book
-    dailyClose: "Daily Close", dailyCloseDesc: "End-of-day closing — revenue, payments, cash drawer, tips.",
+    dailyCloseDesc: "End-of-day closing — revenue, payments, cash drawer, tips.",
     newClose: "New Close", historyTab: "History", insightsTab: "Insights",
     addCategory: "Add category...",
     priceOptimization: "Price Optimization",
@@ -3577,13 +3572,12 @@ const translations = {
     // Cash Book page
     cashBalance: "Cash Balance", totalCashIn: "Total Cash In", totalCashOut: "Total Cash Out",
     cashIn: "Cash In", cashOut: "Cash Out", addIn: "Add In", addOut: "Add Out",
-    avgPerSale: "Avg/Sale", avgDailySales: "Avg/Day", days: "days",
+    avgPerSale: "Avg/Sale", avgDailySales: "Avg/Day",
     whatWasItFor: "What was it for?", transactionHistory: "Transaction History",
     noCashTransactionsYet: "No cash transactions yet", autoSynced: "Auto-synced",
     updated: "Updated!", movedToDeleted: "Moved to recently deleted",
-    catSales: "Sales", catTips: "Tips", catLoan: "Loan", catOther: "Other",
-    catPurchase: "Purchase", catWages: "Wages", catSupplies: "Supplies", catRent: "Rent",
-    failedToAddTransaction: "Failed to add transaction", autoTag: "auto",
+
+
     // Khata page
     khataTitle: "Khata — Customer Ledger", khataSubtitle: "Track credit purchases and payments for your wholesale customers",
     // Task #89 P3-7 — header CTA that opens CustomerOutreachModal
@@ -3624,14 +3618,14 @@ const translations = {
     connFakturaTitle: "Faktura (invoicing)",
     connFakturaDesc: "Send EU-compliant fakturaer with CVR auto-lookup, MOMS 25 %, gap-less numbering, and bank-match auto-paid.",
     connFakturaReady: "Ready",
-    totalReceivable: "Total Receivable", customers: "Customers", topDebtors: "Top Debtors",
+    totalReceivable: "Total Receivable", topDebtors: "Top Debtors",
     noPendingBalances: "No pending balances", searchCustomers: "Search customers...",
     noCustomersYet: "No customers yet", selectCustomer: "Select a customer",
     selectCustomerDesc: "Choose a customer from the list to view their ledger",
     owed: "owed", overpaid: "overpaid", settled: "Settled",
     recordPayment: "Record Payment", totalPurchased: "Total Purchased", totalPaid: "Total Paid",
     remaining: "Remaining", full: "Full", pay: "Pay",
-    purchased: "Purchased", paid: "Paid", balance: "Balance",
+    purchased: "Purchased", balance: "Balance",
     noTransactionsYet: "No transactions yet", addFirstAbove: "— add the first one above",
     update: "Update",
     // Loan Tracker page
@@ -3644,16 +3638,16 @@ const translations = {
     noPeopleYet: "No people yet",
     // Recently Deleted page
     restore: "Restore", deleteForever: "Delete Forever",
-    noDeletedItems: "No deleted items", waste: "Waste",
+    noDeletedItems: "No deleted items",
     // Personal Finance page
-    personalFinance: "Personal Finance", trackPersonalIncome: "Track your personal income and spending",
+    trackPersonalIncome: "Track your personal income and spending",
     setupPersonalCategories: "Set up personal categories", createCategories: "Create Categories",
     youHave: "You have", youreShort: "You're short", spent: "spent",
-    loans: "Loans", owedToYou: "owed to you", youOwe: "you owe", netWorth: "Net Worth",
+    owedToYou: "owed to you", youOwe: "you owe", netWorth: "Net Worth",
     balancePlusLoans: "balance + loans", budgetExceeded: "Budget Exceeded",
     over: "over", approachingBudgetLimit: "Approaching Budget Limit",
     used: "used", monthlyBudget: "Monthly Budget", setBudget: "Set Budget",
-    hideBudgetSettings: "Hide Budget Settings", monthlyReport: "Monthly Report",
+    hideBudgetSettings: "Hide Budget Settings",
     hideMonthlyReport: "Hide Monthly Report", monthlyBudgetSettings: "Monthly Budget Settings",
     totalMonthlyBudget: "Total Monthly Budget", saveBudget: "Save Budget", saved: "Saved",
     incomeSources: "Income Sources", spendingByCategory: "Spending by Category",
@@ -3683,12 +3677,12 @@ const translations = {
     generatingPdf: "Generating PDF...", reportsDisclaimer: "Reports are estimates for reference only.",
     dailyKasserapport: "Daily Kasserapport", kasserapport: "Kasserapport", subtotal: "Subtotal",
     totalInclVat: "Total", transactionCount: "Transactions", paymentBreakdown: "Payment Breakdown",
-    kasseBalance: "Cash Register Balance", printReport: "Print", dailyReport: "Daily Report",
+    kasseBalance: "Cash Register Balance", printReport: "Print",
     expensesTotal: "Expenses", netCash: "Net Cash", noSalesOnDate: "No sales on this date",
     monthlyReport: "Monthly Report",
     salesBreakdown: "Sales Breakdown", expenseBreakdownReport: "Expense Breakdown",
     inventoryReport: "Inventory Report", khataSummary: "Khata Summary",
-    cashFlow: "Cash Flow", wasteReport: "Waste Report", staffRules: "Staff Rules",
+    wasteReport: "Waste Report", staffRules: "Staff Rules",
     stockValue: "Stock Value", khataOutstanding: "Khata Outstanding",
     creditOwed: "Credit owed", lowStock: "low stock",
     netProfit: "Net Profit",
@@ -3786,7 +3780,7 @@ const translations = {
     // Additional UI strings
     saleUpdated: "Sale updated!", expenseUpdated: "Expense updated!",
     copiedToClipboard: "Copied to clipboard!", voiceInput: "Voice input",
-    addNoteOptional: "Add a note (optional)", profit: "Profit",
+    addNoteOptional: "Add a note (optional)",
     searchSalesPlaceholder: "Search amount, notes, payment...",
     searchExpensesPlaceholder: "Search amount, name, category, payment...",
     searchInventory: "Search inventory...",
@@ -3998,11 +3992,11 @@ const translations = {
     payroll: "Payroll", sickCallTracker: "Sick Calls", lastMonth: "Last Month",
     weatherDays: "Weather Days", noSickCalls: "No sick calls recorded yet",
     couldNotLogSickCall: "Could not log sick call",
-    tips: "Tips", tipsDesc: "Distribute tips fairly — by hours, role, or custom split",
+    tipsDesc: "Distribute tips fairly — by hours, role, or custom split",
     newTipEntry: "New Entry", tipHistory: "History",
     myBusiness: "My Business", paymentReceived: "Payment received",
     personalCategoriesCreated: "Personal categories created!",
-    whatsappUnlinked: "WhatsApp unlinked", detecting: "Detecting...",
+    whatsappUnlinked: "WhatsApp unlinked",
     descriptionOptional: "Description (optional)",
     allItemsInInventory: "All items already in your inventory.",
     quickExpense: "Quick expense", type: "Type",
@@ -4727,8 +4721,8 @@ const translations = {
     itemSale: "Item Sale", latestDay: "Latest Day", avgSale: "Avg Sale",
     byPayment: "By Payment", todaysBreakdown: "Today's Breakdown",
     revenueByDay: "Revenue by Day", saleDistribution: "Sale Distribution",
-    min: "Min", median: "Median", max: "Max", days: "days",
-    logFirstSale: "Log your first sale", selected: "selected",
+    min: "Min", median: "Median", max: "Max",
+    logFirstSale: "Log your first sale",
     copySummary: "Copy Summary", pickItemDesc: "Pick item from inventory, set qty & price",
     noItemsWithStock: "No items with stock found", stock: "Stock",
     change: "Change", sellPrice: "Sell Price", sell: "Sell",
@@ -4765,7 +4759,7 @@ const translations = {
     lowLabel: "Low", perBottle: "per bottle", currently: "Currently",
     adding: "Adding", perPour: "per pour",
     pickTemplateDesc: "Pick a template. Items already in your inventory won't be duplicated.",
-    loadingTemplate: "Loading template...", done: "Done", go: "Go",
+    loadingTemplate: "Loading template...", go: "Go",
     // Expenses page extras
     detailed: "Detailed", quickMode: "Quick",
     quickAmountAndGo: "Amount, payment & go — filed under Other, change it any time",
@@ -5826,7 +5820,6 @@ const translations = {
     businessNameRequired: "Business name *",
     competitorTypePlaceholder: "Type (cafe, restaurant...)",
     itemNamePlaceholder: "Item name (e.g. Latte, Burger)",
-
     // ───────────────────────────────────────────────────────────
     // Daily-close range export + Send-to-accountant flow
     // (introduced May 2026 — DailyClosePage history tab)
@@ -5865,7 +5858,6 @@ const translations = {
     planCapTooltip: "{tier} plan exports up to {days} days. Upgrade to Pro for full year.",
     // Native-only (Apple 3.1.1): factual cap, no "Upgrade to Pro".
     planCapTooltipNative: "Your plan exports up to {days} days.",
-
     // ───────────────────────────────────────────────────────────
     // Profile — accountant contact + verified-CVR banner
     // ───────────────────────────────────────────────────────────
@@ -5982,7 +5974,6 @@ const translations = {
     deliveryDateToggle: "Set delivery date (only if different from issue date)",
     deliveryDateHint: "When the goods/service was actually delivered. Leave empty for same-day work.",
     save: "Save",
-
     // ───────────────────────────────────────────────────────────
     // BusinessLookup — multilayer CVR (badges, banners, address verifier)
     // ───────────────────────────────────────────────────────────
@@ -6009,7 +6000,6 @@ const translations = {
     cvrSignupApplied: "Auto-filled from",
     cvrSignupClear: "Clear",
     cvrSignupNotMine: "None of these — I'll type manually",
-
     // ───────────────────────────────────────────────────────────
     // Daily-report Tax breakdown (mode-aware: incl / excl / none)
     // ───────────────────────────────────────────────────────────
@@ -6025,7 +6015,6 @@ const translations = {
     b2bPriceNote: "Your prices are entered as net (B2B). Customers pay the gross amount on the right; you owe MOMS to SKAT.",
     totalSales: "Total sales",
     noVatHint: "No VAT applied — either rate is 0% in your jurisdiction or all sales were tax-exempt.",
-
     // ───────────────────────────────────────────────────────────
     // Daily-report PDF download + sidebar collapse
     // ───────────────────────────────────────────────────────────
@@ -6034,14 +6023,12 @@ const translations = {
     pdfDownloadFailed: "Could not download the report — please try again.",
     hideSidebar: "Hide sidebar",
     showSidebar: "Show sidebar",
-
     // ───────────────────────────────────────────────────────────
     // Subscription page — tier export-days feature lines
     // ───────────────────────────────────────────────────────────
     featFreeExport7d: "7-day accountant export window (PDF + CSV)",
     featStarterExport31d: "31-day accountant export window — month-end handoff",
     featProExportYear: "Full-year accountant export — quarterly + yearly review",
-
     // ───────────────────────────────────────────────────────────
     // Trial countdown chip (sidebar — replaces old TrialBanner stripe)
     // ───────────────────────────────────────────────────────────
@@ -6053,7 +6040,6 @@ const translations = {
     // Quieter pricing-page heading for users already on a plan
     pricingComparePlansTitle: "Compare plans",
     pricingComparePlansSubtitle: "What you get on each tier. Annual saves 20%.",
-
     // ───────────────────────────────────────────────────────────
     // First-run welcome modal + onboarding checklist
     // (Vertical-specific bullets stay in source language — they're
@@ -6077,7 +6063,6 @@ const translations = {
     onbStepBusinessProfile: "Verify your business (CVR/org)",
     onbStepAccountant: "Add your accountant's email",
     onbStepDailyGoal: "Set your daily revenue goal",
-
     // ───────────────────────────────────────────────────────────
     // Tier-gating UI (Locked / UpgradePrompt / TierBadge)
     // ───────────────────────────────────────────────────────────
@@ -6104,7 +6089,6 @@ const translations = {
     upgradeMaybeLater: "Maybe later",
     upgradeCTA: "See plans →",
     close: "Close",
-
     // ───────────────────────────────────────────────────────────
     // Receipt review modal (sales + expenses + Snap Receipt preview)
     // ───────────────────────────────────────────────────────────
@@ -6117,7 +6101,6 @@ const translations = {
     receiptViewerOcrLegend: "{n} amount{s} found",
     receiptViewerOpenOriginal: "Open full size in new tab",
     receiptViewerReviewLink: "Review receipt full-size",
-
     // ───────────────────────────────────────────────────────────
     // Sick-call flow (staff portal + owner dashboard card)
     // ───────────────────────────────────────────────────────────
@@ -6138,7 +6121,6 @@ const translations = {
     sickCallAssign: "Assign",
     sickCallCovered: "Covered by {name}",
     staff: "Staff",
-
     // ───────────────────────────────────────────────────────────
     // Shift swap requests (staff portal + owner dashboard card)
     // ───────────────────────────────────────────────────────────
@@ -6149,7 +6131,6 @@ const translations = {
     swapConfirmDeny: "Confirm deny",
     swapDenyReasonPlaceholder: "Why? (optional, staff will see this)",
     swapShiftGives: "gives",
-
     // ───────────────────────────────────────────────────────────
     // Smart Staffing operating profile (Profile page section)
     // ───────────────────────────────────────────────────────────
@@ -6166,7 +6147,6 @@ const translations = {
     saving: "Saving…",
     decrease: "Decrease",
     increase: "Increase",
-
     // ───────────────────────────────────────────────────────────
     // Smart Inventory consumption modal
     // ───────────────────────────────────────────────────────────
@@ -6182,7 +6162,6 @@ const translations = {
     inventoryConsumptionTest: "Test",
     inventoryConsumptionMatchHint: "Would match: {names}",
     inventoryConsumptionDaysLeft: "~{n} days of stock at current pace",
-
     // ───────────────────────────────────────────────────────────
     // Smart Staffing — inference-first proposal card (May 2026 rebuild)
     // ───────────────────────────────────────────────────────────
@@ -6214,7 +6193,6 @@ const translations = {
     confidenceHigh: "High confidence",
     confidenceMedium: "Medium confidence",
     confidenceLow: "Low confidence",
-
     // Smart Inventory — suggestion-first modal copy
     inventoryConsumptionRecognised: "We recognise this item",
     inventoryConsumptionShape: "Shape",
@@ -6224,7 +6202,6 @@ const translations = {
     inventoryConsumptionLooksRight: "Looks right ✓",
     inventoryConsumptionUnknownItem: "We don't recognise this — edit details",
     inventoryConsumptionUnrecognisedTitle: "Not in our recipe library yet",
-
     // ───────────────────────────────────────────────────────────
     // Smart Terminals — inference-first POS terminal setup (May 2026)
     // ───────────────────────────────────────────────────────────
@@ -6323,7 +6300,6 @@ const translations = {
     smartLangSwitchEn: "Switch to English",
     remove: "Remove",
     done: "Done",
-
     // ───────────────────────────────────────────────────────────
     // Global search command palette (⌘K)
     // ───────────────────────────────────────────────────────────
@@ -6363,7 +6339,6 @@ const translations = {
     khata: "Khata",
     dailyClose: "Daily Close",
     reports: "Reports",
-
     // Profile page redesign (sections + navigation)
     profileSubtitle: "Manage your account, business profile, and preferences.",
     profileNavOnThisPage: "On this page",
@@ -6456,7 +6431,6 @@ const translations = {
     recurringDeleted: "Recurring expense archived",
     recurringStarterTier: "Auto-post monthly bills",
     recurringUpgradeBenefit: "Set rent and subscriptions once — BonBox posts them every month",
-
     // ── First-run onboarding wizard (Task #55) ──
     // 4-step welcome shown to brand-new owners after signup. Skippable
     // at every step — Skip still stamps completion so we never nag.
@@ -6952,7 +6926,6 @@ const translations = {
     filterByEvent: "Filter by event",
     filterAllEvents: "All events",
     filterNoEvent: "No event",
-
     // ── Receipt-forwarding email inbox v0.1 ─────────────────────────
     // Sudip-style owners forward receipts from their phone-mail app to
     // a personal `<short>-<rnd>@in.bonbox.dk` alias. We OCR and draft
@@ -7947,7 +7920,6 @@ const translations = {
     pricingAfterTrialCapNoFaktura: 'Faktura locked (Starter+)',
     pricingAfterTrialClosingNew: 'No card needed to start the trial — it runs automatically when you sign up. You only enter a card if you click "Lock in founding rate". Otherwise the trial just ends and you drop to Free.',
     terminalsFreeOneCap: 'Free includes 1 POS terminal. {planLabel} unlocks multi-terminal close — see /subscription.',
-
     // ── Slice-4 chart polish: CashFlow forecast + Revenue trend + Weekly statement ──
     cfpTitle: "Cash flow forecast",
     cfpSubtitle: "Estimate based on your recent sales and recurring expenses",
@@ -9175,7 +9147,6 @@ const translations = {
     gkCopyLink: "Kopiér link",
     gkLinkCopied: "Kopieret",
     gkScanToReceive: "Scan for at få gavekortet",
-    gkClose: "Luk",
     gpkEyebrow: "Gavekort",
     gpkValueLabel: "Værdi",
     gpkBalanceLabel: "Saldo",
@@ -10240,7 +10211,7 @@ const translations = {
     smartPastePlaceholder: "Indsæt dine nøgler (eller hele blokken fra portalen) — BonBox sorterer dem i de rigtige felter",
     smartPasteAllFilled: "Alle {n} felter blev udfyldt — gennemgå nedenfor og tryk Test & Forbind",
     smartPastePartialFilled: "Fandt {found} ud af {total} nøgler — udfyld resten nedenfor",
-    clear: "Ryd", looksGood: "Ser godt ud",
+    looksGood: "Ser godt ud",
     fmtMsn: "Skal være 6–8 cifre — der mangler vist et tal",
     fmtUuid: "Skal ligne a1b2c3d4-e5f6-7890-1234-567890abcdef",
     fmtLong: "Dette ser kort ud — kopierede du hele værdien?",
@@ -10485,9 +10456,7 @@ const translations = {
     staffHoursSubtitle: "Følg arbejdstimer, stempl ind/ud, og bekræft vagtplaner.",
     staffHoursRecentOutOfPeriod: "Stemplede timer landede lige før denne periode",
     staffHoursViewPrevPeriod: "Vis forrige periode",
-    periodPrev: "Forrige periode",
     periodPrevShort: "Forrige",
-    periodNext: "Næste periode",
     periodNextShort: "Næste",
     payrollSubtitle: "Generér lønrapporter til din revisor",
     loadingPayroll: "Indlæser løn...",
@@ -10991,7 +10960,7 @@ const translations = {
     terminalSaveFailed: "Kunne ikke gemme terminal",
     terminalDeleteFailed: "Kunne ikke slette",
     terminalConfirmDelete: "Slet terminal {name}? Tidligere lukninger bevares.",
-    edit: "Rediger", "delete": "Slet", branch: "Filial",
+    branch: "Filial",
     // Multi-terminal daily close
     multiClose: "Multi-terminal lukning",
     terminalsScanned: "terminaler scannet",
@@ -11084,7 +11053,7 @@ const translations = {
     excelDownloaded: "Excel hentet",
     excelFailed: "Kunne ikke generere Excel",
     generating: "Genererer…",
-    smartStaffing: "Vagtplanlægning", weatherSmart: "Vejr Smart", wasteTracker: "Madspild", weeklyReport: "Ugerapport",
+    smartStaffing: "Vagtplanlægning", weatherSmart: "Vejr Smart", wasteTracker: "Madspild",
     momsVat: "MOMS", darkMode: "Mørk tilstand", lightMode: "Lys tilstand", signOut: "Log ud", appearance: "Udseende",
     language: "English",
     // Dashboard
@@ -11101,13 +11070,13 @@ const translations = {
     noRevenueData: "Ingen omsætningsdata endnu", noExpenseData: "Ingen udgiftsdata endnu",
     recentReceipts: "Seneste kvitteringer", dailyGoal: "Dagligt mål", monthlyGoal: "Månedligt mål", reached: "Nået!",
     setDailyGoal: "Sæt et dagligt omsætningsmål", trackProgress: "Sæt et mål for at følge fremskridt",
-    setGoal: "Sæt mål", editGoal: "Rediger mål", save: "Gem", cancel: "Annuller",
+    setGoal: "Sæt mål", editGoal: "Rediger mål",
     yesterdayCopied: "Gårsdagens salg kopieret til i dag!", noYesterdaySale: "Intet salg fundet for i går",
     // Sales
     salesTracker: "Salgsregistrering", logSale: "Registrer dagens salg",
     logSaleForDate: "Registrer salg for {date}",
     tapAmount: "Tryk på et beløb eller skriv dit eget", customAmount: "Andet beløb...",
-    log: "Registrer", recentSales: "Seneste salg", date: "Dato", amount: "Beløb",
+    log: "Registrer", date: "Dato",
     payment: "Betaling", noSalesYet: "Ingen salg endnu — tryk på et beløb ovenfor!",
     importCsv: "Importer fra CSV", csvColumns: "Kolonner: dato, beløb, betalingsmetode (valgfri)",
     uploading: "Uploader...", chooseFile: "Vælg fil",
@@ -11116,7 +11085,7 @@ const translations = {
     expenseTracker: "Udgiftsregistrering", addExpense: "Tilføj udgift",
     pickCategory: "Vælg en kategori, beskriv den, tryk på et beløb",
     whatWasIt: "Hvad var det? (f.eks. Tomater, Elregning)", add: "Tilføj",
-    recentExpenses: "Seneste udgifter", description: "Beskrivelse",
+    recentExpenses: "Seneste udgifter",
     noExpensesYet: "Ingen udgifter endnu — vælg en kategori og tilføj ovenfor!",
     firstTimeSetup: "Første gang? Opret standardkategorier med ét tryk",
     setupCategories: "Opret kategorier",
@@ -11137,7 +11106,7 @@ const translations = {
     predictedRevenue: "Forventet omsætning", day: "Dag", level: "Niveau",
     staffNeeded: "Personale", confidence: "Sikkerhed", staffingRules: "Bemandingsregler",
     staffingRulesDesc: "Definer hvor mange ansatte du har brug for ved forskellige omsætningsniveauer.",
-    addRule: "Tilføj regel", remove: "Fjern", staff: "personale",
+    addRule: "Tilføj regel", staff: "personale",
     next7days: "Næste 7 dage", next14days: "Næste 14 dage", next30days: "Næste 30 dage",
     totalStaffNeeded: "Samlet personale nødvendigt", basedOnPatterns: "Baseret på forventede omsætningsmønstre",
     minRevenue: "Min. omsætning", maxRevenue: "Maks. omsætning",
@@ -11148,13 +11117,13 @@ const translations = {
     // Waste
     logWaste: "Registrer spild", trackWaste: "Hold styr på hvad der smides ud",
     wasteLogged: "Spild registreret!", monthlyWasteCost: "Månedlig spildudgift",
-    itemsWasted: "Varer smidt ud", noDataYet: "Ingen data endnu",
-    whatWasWasted: "Hvad blev smidt ud? (f.eks. Kyllingebryst)", qty: "Antal",
+    itemsWasted: "Varer smidt ud",
+    whatWasWasted: "Hvad blev smidt ud? (f.eks. Kyllingebryst)",
     estimatedCost: "Anslået pris (DKK)", customCost: "Anden pris...",
     recentWaste: "Seneste spild", item: "Vare", reason: "Årsag", cost: "Pris",
     noWasteYet: "Intet spild registreret endnu",
     expired: "udløbet", overcooked: "overkogt", damaged: "beskadiget", other: "andet",
-    portions: "Portioner", failedToLogWaste: "Kunne ikke registrere spild", itemsMovedToTrash: "varer flyttet til papirkurv",
+    itemsMovedToTrash: "varer flyttet til papirkurv",
     // Weekly Report
     weeklySalesReport: "Ugentlig salgsrapport", dailyAvg: "Dagligt gns.",
     daysRecorded: "Dage registreret", bestDay: "Bedste dag", slowestDay: "Langsomste dag",
@@ -11168,8 +11137,7 @@ const translations = {
     inputVat: "Indgående moms", vatPayable: "Moms til betaling",
     payableToSkat: "Beløb der skal indbetales til SKAT", refundFromSkat: "Beløb til gode fra SKAT",
     loadingVat: "Indlæser momsrapport...", vatError: "Kunne ikke indlæse momsrapporten.",
-    vatMonthly: "Månedlig", vatQuarterly: "Kvartalsvis",
-    vatDownloading: "Downloader...", vatDownloadPdf: "Download PDF",
+
     vatMonthJan: "Januar", vatMonthFeb: "Februar", vatMonthMar: "Marts",
     vatMonthApr: "April", vatMonthMay: "Maj", vatMonthJun: "Juni",
     vatMonthJul: "Juli", vatMonthAug: "August", vatMonthSep: "September",
@@ -11211,7 +11179,7 @@ const translations = {
     predictedTotal: "Forventet total", avgDaily: "Gns./dag",
     trendUp: "Stigende", trendDown: "Faldende", trendStable: "Stabil",
     forecastConfidence: "Sikkerhed", noForecastData: "Flere salgsdata nødvendige for prognoser",
-    predicted: "Forventet", actual: "Faktisk",
+    predicted: "Forventet",
     // Feedback
     feedback: "Tilbagemelding", sendFeedback: "Send tilbagemelding", yourFeedback: "Din tilbagemelding",
     feedbackSent: "Tak for din tilbagemelding!", rateExperience: "Bedøm din oplevelse",
@@ -11224,8 +11192,8 @@ const translations = {
     complaint: "Klage", praise: "Ros", noFeedbackYet: "Ingen tilbagemelding endnu",
     stars: "stjerner",
     // Payment methods
-    cash: "Kontant", card: "Kort", mobilepay: "MobilePay", online: "Online", mixed: "Blandet",
-    dankort: "Dankort", bankTransfer: "Bankoverførsel",
+    cash: "Kontant", card: "Kort", mobilepay: "MobilePay", mixed: "Blandet",
+    dankort: "Dankort",
     // Quick Sale
     quickSale: "Hurtig salg",
     quickSaleSubtitle: "Log dagens omsætning på sekunder",
@@ -11245,7 +11213,7 @@ const translations = {
     // Layout / Nav
     businessMode: "Virksomhed", personalMode: "Personlig",
     reports: "Rapporter", khata: "Khata", loanTracker: "Lånoversigt", bankImport: "Bankimport",
-    budgetOverview: "Budget", notifications: "Notifikationer", setBudget: "Sæt budget", team: "Hold",
+    budgetOverview: "Budget", notifications: "Notifikationer", team: "Hold",
     planBilling: "Abonnement & betaling", sendToAccountant: "Send til revisor", account: "Konto",
     restockFirst: "Genopfyld først",
     // Property Financial Report — Danish daily close ("Dagsrapport")
@@ -11278,16 +11246,16 @@ const translations = {
     deleteAccount: "Slet konto", deleteAccountDesc: "Slet permanent din konto og alle data. Dette kan ikke fortrydes.",
     deleteMyAccount: "Slet min konto", deleteConfirmWarning: "Dette vil permanent slette ALLE dine data: salg, udgifter, lager, rapporter, alt. Indtast din adgangskode for at bekræfte.",
     enterPassword: "Indtast din adgangskode", confirmDelete: "Bekræft sletning", deleting: "Sletter...",
-    deleteFailed: "Kunne ikke slette konto", cancel: "Annuller",
+    deleteFailed: "Kunne ikke slette konto",
     // Payment imports
     paymentImports: "Betalingsimport", paymentImportsDesc: "Forbind betalingsudbydere og importer transaktioner automatisk",
     connectedProviders: "Forbundet", availableProviders: "Tilgængelige udbydere",
     connect: "Forbind", disconnect: "Afbryd", connected: "Forbundet",
     syncNow: "Synkroniser", syncing: "Synkroniserer...", transactionsFound: "transaktioner fundet",
-    importSelected: "Importer", transactions: "transaktioner", imported: "importeret",
+    importSelected: "Importer", imported: "importeret",
     duplicatesSkipped: "dubletter sprunget over", connecting: "Forbinder...",
     saveConnection: "Gem forbindelse", connectionLabel: "Navn (valgfri)",
-    selectAll: "Vælg alle", importing: "Importerer...",
+    importing: "Importerer...",
     upiNote: "UPI, Google Pay, PhonePe (Indien)",
     upiNoteDesc: "UPI-transaktioner vises i din bankkontoudtog. Brug Bank CSV Import til at importere dem.",
     // Betalingsimport v2 (2026-05-25 — DK-genskrivning, CSV-først).
@@ -11371,7 +11339,7 @@ const translations = {
     koBurstCapReached: "scannegrænse nået",
     koBurstFailed: "Kunne ikke scanne bunken",
     typeCustomCategory: "Skriv egen kategori...", moveToTrash: "Flyt til papirkurv",
-    actions: "Handlinger", notes: "Noter",
+    actions: "Handlinger",
     // Cash Book
     dailyClose: "Daglig Lukning", dailyCloseDesc: "Afslutning af dagen — omsætning, betalinger, kassebeholdning, drikkepenge.",
     newClose: "Ny Lukning", historyTab: "Historik", insightsTab: "Indsigter",
@@ -11444,13 +11412,12 @@ const translations = {
     // Cash Book page
     cashBalance: "Kassebeholdning", totalCashIn: "Total indgående", totalCashOut: "Total udgående",
     cashIn: "Indgående", cashOut: "Udgående", addIn: "Tilføj ind", addOut: "Tilføj ud",
-    avgPerSale: "Gns/Salg", avgDailySales: "Gns/Dag", days: "dage",
+    avgPerSale: "Gns/Salg", avgDailySales: "Gns/Dag",
     whatWasItFor: "Hvad var det til?", transactionHistory: "Transaktionshistorik",
     noCashTransactionsYet: "Ingen kontanttransaktioner endnu", autoSynced: "Auto-synkroniseret",
     updated: "Opdateret!", movedToDeleted: "Flyttet til nyligt slettet",
-    catSales: "Salg", catTips: "Drikkepenge", catLoan: "Lån", catOther: "Andet",
-    catPurchase: "Indkøb", catWages: "Løn", catSupplies: "Forsyninger", catRent: "Husleje",
-    failedToAddTransaction: "Kunne ikke tilføje transaktion", autoTag: "auto",
+
+
     // Khata page
     khataTitle: "Khata — Kundekladde", khataSubtitle: "Hold styr på kreditkøb og betalinger for dine engros-kunder",
     // Task #89 P3-7 — DA translation for the header CTA.
@@ -11483,14 +11450,14 @@ const translations = {
     connFakturaTitle: "Faktura",
     connFakturaDesc: "Send EU-compliant fakturaer med CVR-opslag, MOMS 25 %, løbende nummerering, og automatisk bank-match.",
     connFakturaReady: "Klar",
-    totalReceivable: "Samlet tilgodehavende", customers: "Kunder", topDebtors: "Top skyldnere",
+    totalReceivable: "Samlet tilgodehavende", topDebtors: "Top skyldnere",
     noPendingBalances: "Ingen udestående beløb", searchCustomers: "Søg kunder...",
     noCustomersYet: "Ingen kunder endnu", selectCustomer: "Vælg en kunde",
     selectCustomerDesc: "Vælg en kunde fra listen for at se deres kladde",
     owed: "skyldig", overpaid: "overbetalt", settled: "Udlignet",
     recordPayment: "Registrer betaling", totalPurchased: "Samlet købt", totalPaid: "Samlet betalt",
     remaining: "Resterende", full: "Fuld", pay: "Betal",
-    purchased: "Købt", paid: "Betalt", balance: "Saldo",
+    purchased: "Købt", balance: "Saldo",
     noTransactionsYet: "Ingen transaktioner endnu", addFirstAbove: "— tilføj den første ovenfor",
     update: "Opdater",
     // Loan Tracker page
@@ -11547,7 +11514,7 @@ const translations = {
     monthlyReport: "Månedlig rapport",
     salesBreakdown: "Salgsfordeling", expenseBreakdownReport: "Udgiftsfordeling",
     inventoryReport: "Lagerrapport", khataSummary: "Khata oversigt",
-    cashFlow: "Pengestrøm", wasteReport: "Spildrapport", staffRules: "Personaleregler",
+    wasteReport: "Spildrapport", staffRules: "Personaleregler",
     stockValue: "Lagerværdi", khataOutstanding: "Khata udestående",
     creditOwed: "Udestående kredit", lowStock: "lav beholdning",
     netProfit: "Nettoresultat",
@@ -11641,7 +11608,7 @@ const translations = {
     // Additional UI strings
     saleUpdated: "Salg opdateret!", expenseUpdated: "Udgift opdateret!",
     copiedToClipboard: "Kopieret til udklipsholder!", voiceInput: "Stemmeindtastning",
-    addNoteOptional: "Tilføj en note (valgfri)", profit: "Overskud",
+    addNoteOptional: "Tilføj en note (valgfri)",
     searchSalesPlaceholder: "Søg beløb, noter, betaling...",
     searchExpensesPlaceholder: "Søg beløb, navn, kategori, betaling...",
     searchInventory: "Søg i lageret...",
@@ -11854,7 +11821,7 @@ const translations = {
     newTipEntry: "Ny registrering", tipHistory: "Historik",
     myBusiness: "Min virksomhed", paymentReceived: "Betaling modtaget",
     personalCategoriesCreated: "Personlige kategorier oprettet!",
-    whatsappUnlinked: "WhatsApp afbrudt", detecting: "Registrerer...",
+    whatsappUnlinked: "WhatsApp afbrudt",
     descriptionOptional: "Beskrivelse (valgfri)",
     allItemsInInventory: "Alle varer er allerede i dit lager.",
     quickExpense: "Hurtig udgift", type: "Type",
@@ -12573,8 +12540,8 @@ const translations = {
     itemSale: "Varesalg", latestDay: "Seneste dag", avgSale: "Gns. salg",
     byPayment: "Efter betaling", todaysBreakdown: "Dagens fordeling",
     revenueByDay: "Omsætning pr. dag", saleDistribution: "Salgsfordeling",
-    min: "Min", median: "Median", max: "Maks", days: "dage",
-    logFirstSale: "Registrer dit første salg", selected: "valgt",
+    min: "Min", median: "Median", max: "Maks",
+    logFirstSale: "Registrer dit første salg",
     copySummary: "Kopier oversigt", pickItemDesc: "Vælg vare fra lager, angiv antal og pris",
     noItemsWithStock: "Ingen varer med lager fundet", stock: "Lager",
     change: "Skift", sellPrice: "Salgspris", sell: "Sælg",
@@ -12611,7 +12578,7 @@ const translations = {
     lowLabel: "Lav", perBottle: "per flaske", currently: "I øjeblikket",
     adding: "Tilføjer", perPour: "per skænk",
     pickTemplateDesc: "Vælg en skabelon. Varer der allerede findes i dit lager duplikeres ikke.",
-    loadingTemplate: "Indlæser skabelon...", done: "Færdig", go: "Kør",
+    loadingTemplate: "Indlæser skabelon...", go: "Kør",
     // Expenses page extras
     detailed: "Detaljeret", quickMode: "Hurtig",
     quickAmountAndGo: "Beløb, betaling & færdig — bogføres som Andet, kan ændres",
@@ -13655,7 +13622,6 @@ const translations = {
     businessNameRequired: "Forretningsnavn *",
     competitorTypePlaceholder: "Type (café, restaurant...)",
     itemNamePlaceholder: "Varenavn (f.eks. Latte, Burger)",
-
     // Daily-close range export + Send-to-accountant flow
     exportToAccountantTitle: "Send til revisor",
     exportToAccountantDesc: "Vælg en periode og hent alle lukninger som PDF eller CSV. CSV bruger semikolon + UTF-8 BOM så Excel åbner den korrekt med Æ/Ø/Å.",
@@ -13690,7 +13656,6 @@ const translations = {
     planCapTooltip: "{tier} plan kan eksportere op til {days} dage. Opgrader til Pro for hele året.",
     // Native-only (Apple 3.1.1): faktuel kvote, uden "Opgrader til Pro".
     planCapTooltipNative: "Din plan kan eksportere op til {days} dage.",
-
     // Profile — accountant contact + verified CVR banner
     accountantContact: "Revisor-kontakt",
     accountantContactDesc: "Forudfylder Send-knappen på Daglig Lukning periodeeksport. Valgfrit.",
@@ -13798,7 +13763,6 @@ const translations = {
     deliveryDateToggle: "Sæt leveringsdato (kun hvis forskellig fra fakturadato)",
     deliveryDateHint: "Hvornår varen/ydelsen blev leveret. Lad stå tom for samme-dags arbejde.",
     save: "Gem",
-
     // BusinessLookup — multilayer CVR
     confidenceVerified: "Verificeret",
     confidenceLikely: "Sandsynlig match",
@@ -13822,7 +13786,6 @@ const translations = {
     cvrSignupApplied: "Auto-udfyldt fra",
     cvrSignupClear: "Ryd",
     cvrSignupNotMine: "Ingen af disse — jeg skriver selv",
-
     // Daily-report Tax breakdown (mode-aware: incl / excl / none)
     moms: "MOMS",
     taxSummaryPrefix: "MOMS-opgørelse",
@@ -13836,19 +13799,16 @@ const translations = {
     b2bPriceNote: "Dine priser er nettopriser (B2B). Kunderne betaler bruttobeløbet til højre; du skylder MOMS til SKAT.",
     totalSales: "Salg i alt",
     noVatHint: "Ingen MOMS pålagt — enten er satsen 0% i din jurisdiktion, eller alle salg var momsfrie.",
-
     // Daily-report PDF download + sidebar collapse
     downloadPdf: "Hent PDF",
     generatingPdf: "Genererer PDF…",
     pdfDownloadFailed: "Kunne ikke hente rapporten — prøv igen.",
     hideSidebar: "Skjul sidebar",
     showSidebar: "Vis sidebar",
-
     // Subscription page — tier export-days feature lines
     featFreeExport7d: "7-dages periodeeksport til revisor (PDF + CSV)",
     featStarterExport31d: "31-dages periodeeksport — månedsafslutning",
     featProExportYear: "Helårs eksport til revisor — kvartal + årsregnskab",
-
     // Trial countdown chip (sidebar)
     trialChipOneDay: "1 dag tilbage i prøveperiode",
     trialChipManyDays: "{n} dage tilbage i prøveperiode",
@@ -13857,7 +13817,6 @@ const translations = {
     trialChipUpgradeLink: "se planer",
     pricingComparePlansTitle: "Sammenlign planer",
     pricingComparePlansSubtitle: "Hvad du får på hver plan. Årlig sparer 20%.",
-
     // First-run welcome modal + onboarding checklist
     welcomeIntroLine: "Velkommen til BonBox{name}. Tre ting giver dig mest værdi til at starte med:",
     welcomeTipsHeading: "Værd at vide",
@@ -13877,7 +13836,6 @@ const translations = {
     onbStepBusinessProfile: "Verificer din virksomhed (CVR)",
     onbStepAccountant: "Tilføj din revisors e-mail",
     onbStepDailyGoal: "Sæt dit daglige omsætningsmål",
-
     // Tier-gating UI (Locked / UpgradePrompt / TierBadge)
     planFree: "Gratis",
     planStarter: "Starter",
@@ -13902,7 +13860,6 @@ const translations = {
     upgradeMaybeLater: "Måske senere",
     upgradeCTA: "Se planer →",
     close: "Luk",
-
     // Receipt review modal (sales + expenses + Snap Receipt preview)
     receiptViewerSaleTitle: "Salgskvittering",
     receiptViewerExpenseTitle: "Udgiftskvittering",
@@ -13913,7 +13870,6 @@ const translations = {
     receiptViewerOcrLegend: "{n} beløb fundet",
     receiptViewerOpenOriginal: "Åbn i fuld størrelse i ny fane",
     receiptViewerReviewLink: "Gennemse kvittering i fuld størrelse",
-
     // Sick-call flow (staff portal + owner dashboard card)
     sickCallCardTitle: "Sygemeldinger kræver din opmærksomhed",
     absenceCardTitle: "Fravær kræver din opmærksomhed",
@@ -13932,7 +13888,6 @@ const translations = {
     sickCallAssign: "Tildel",
     sickCallCovered: "Dækket af {name}",
     staff: "Personale",
-
     // Shift swap requests (staff portal + owner dashboard card)
     swapCardTitle: "Vagtskift kræver din godkendelse",
     swapCardSubtitle: "{n} afventer. Begge er enige; du har det sidste ord.",
@@ -13941,7 +13896,6 @@ const translations = {
     swapConfirmDeny: "Bekræft afvis",
     swapDenyReasonPlaceholder: "Hvorfor? (valgfrit, personalet ser dette)",
     swapShiftGives: "giver",
-
     // Smart Staffing operating profile
     operatingProfileTitle: "Driftsprofil",
     operatingProfileSubtitle: "Fortæller AI'en hvordan din virksomhed kører, så den kan foreslå vagter og opdage afvigelser.",
@@ -13956,7 +13910,6 @@ const translations = {
     saving: "Gemmer…",
     decrease: "Reducer",
     increase: "Øg",
-
     // Smart Inventory consumption modal
     inventoryConsumptionTitle: "Smart forbrug",
     inventoryConsumptionPattern: "Hvordan bruges denne?",
@@ -13970,7 +13923,6 @@ const translations = {
     inventoryConsumptionTest: "Test",
     inventoryConsumptionMatchHint: "Matcher: {names}",
     inventoryConsumptionDaysLeft: "~{n} dages lager ved nuværende tempo",
-
     // ───────────────────────────────────────────────────────────
     // Smart Staffing — forslagsbaseret kort (maj 2026)
     // ───────────────────────────────────────────────────────────
@@ -14000,7 +13952,6 @@ const translations = {
     confidenceHigh: "Høj sikkerhed",
     confidenceMedium: "Mellem sikkerhed",
     confidenceLow: "Lav sikkerhed",
-
     // Smart Inventory — forslagsbaseret modal-tekst
     inventoryConsumptionRecognised: "Vi genkender denne vare",
     inventoryConsumptionShape: "Type",
@@ -14010,7 +13961,6 @@ const translations = {
     inventoryConsumptionLooksRight: "Det passer ✓",
     inventoryConsumptionUnknownItem: "Vi genkender ikke denne — rediger detaljer",
     inventoryConsumptionUnrecognisedTitle: "Ikke i vores opskriftsbibliotek endnu",
-
     // ───────────────────────────────────────────────────────────
     // Smart Terminals — forslagsbaseret POS-opsætning (maj 2026)
     // ───────────────────────────────────────────────────────────
@@ -14108,7 +14058,6 @@ const translations = {
     smartLangSwitchEn: "Skift til engelsk",
     remove: "Fjern",
     done: "Færdig",
-
     // Global search command palette (⌘K)
     search: "Søg",
     globalSearchAria: "Søg i BonBox",
@@ -14135,7 +14084,6 @@ const translations = {
     expiry: "Udløb",
     personal: "Personligt",
     weather: "Vejr",
-
     // Profil-side redesign (sektioner + navigation)
     profileSubtitle: "Administrér din konto, virksomhedsprofil og indstillinger.",
     profileNavOnThisPage: "På denne side",
@@ -14230,7 +14178,6 @@ const translations = {
     recurringDeleted: "Tilbagevendende udgift arkiveret",
     recurringStarterTier: "Auto-postér månedlige regninger",
     recurringUpgradeBenefit: "Sæt husleje og abonnementer op én gang — BonBox posterer dem hver måned",
-
     // ── Velkomstguide (Task #55) ──
     onbStepCounter: "Trin {n} af {total}",
     onbSkipExplore: "Spring over og udforsk",
@@ -14699,7 +14646,6 @@ const translations = {
     filterByEvent: "Filtrér efter event",
     filterAllEvents: "Alle events",
     filterNoEvent: "Intet event",
-
     // ── Receipt-forwarding email inbox v0.1 (DA) ────────────────────
     // DK terminology lock: `revisor`, `Bogføringsloven §10`, `kvittering`,
     // `bilag`, `udgift` stay Danish. Address example mirrors a Nepali
@@ -15657,7 +15603,6 @@ const translations = {
     pricingAfterTrialCapNoFaktura: 'Faktura låst (Starter+)',
     pricingAfterTrialClosingNew: 'Du behøver ikke et kort for at starte prøveperioden — den kører automatisk, når du opretter dig. Du indtaster kun et kort, hvis du klikker "Lås founder-prisen". Ellers slutter prøveperioden bare, og du falder tilbage til Free.',
     terminalsFreeOneCap: 'Free inkluderer 1 POS-terminal. {planLabel} låser op for multi-terminal kasserapport — se /subscription.',
-
     // ── Slice-4 chart polish: Pengestrømsprognose + Omsætningstrend + Ugestatement ──
     cfpTitle: "Pengestrømsprognose",
     cfpSubtitle: "Estimat baseret på dit seneste salg og faste udgifter",
