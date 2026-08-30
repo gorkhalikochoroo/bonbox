@@ -2,6 +2,7 @@ import { ChevronRight } from "lucide-react";
 import AppStoreLink from "./AppStoreLink";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../../../hooks/useLanguage";
+import { dateLocale } from "../../../utils/dateFormat";
 
 /**
  * Landing v2 — hero section (#top).
@@ -14,6 +15,30 @@ import { useLanguage } from "../../../hooks/useLanguage";
  */
 export default function HeroV2() {
   const { t } = useLanguage();
+
+  // The card greets the visitor with "Good morning" over a date. That date was
+  // the hardcoded string "Monday, 27 July 2026", so the preview aged into a
+  // screenshot of a product nobody had touched in weeks — and it would only
+  // get worse. The FIGURES are demo data and the figcaption says so; the date
+  // is the frame around them, and today's date is the honest frame.
+  // Not memoised on purpose: dateLocale() reads the stored language rather
+  // than taking it as an argument, so a memo keyed on `lang` looks like an
+  // unused dependency to the linter and a memo keyed on [] would freeze the
+  // date in the old language when the visitor switches. One Intl format per
+  // render of a hero card costs nothing.
+  const heroDate = (() => {
+    try {
+      return new Intl.DateTimeFormat(dateLocale(), {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      }).format(new Date());
+    } catch {
+      // A bad locale must never take the hero down.
+      return "";
+    }
+  })();
 
   const eyebrow =
     "text-[12px] min-[861px]:text-[9.5px] font-semibold uppercase tracking-[0.14em] text-slate-400";
@@ -109,7 +134,7 @@ export default function HeroV2() {
                 {t("landingV2HeroCardGreeting", "Good morning")}
               </div>
               <div className="mt-0.5 text-[12.5px] text-slate-500">
-                {t("landingV2HeroCardDate", "Monday, 27 July 2026")}
+                {heroDate || t("landingV2HeroCardDate", "Monday, 27 July 2026")}
               </div>
             </div>
             <div className="flex flex-none gap-2">
