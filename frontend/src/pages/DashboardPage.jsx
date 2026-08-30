@@ -25,6 +25,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { MoreHorizontal } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
+import { isStaffMemberRole } from "../config/navManifest";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import api from "../services/api";
@@ -113,6 +114,16 @@ const ExpiryWarningsCard = ExpiryAlertsCard;
 function curtainFinancial(Card) {
   function Curtained(props) {
     const { enabled, locked } = useDeviceShare();
+    const { user } = useAuth();
+    // An invited seat gets NOTHING here, not a curtain. FinancialCurtain is a
+    // tap-to-reveal PIN pad, which is right for the owner's own shared tablet
+    // — they can unlock it — and wrong for a cashier, who has nothing to
+    // reveal and would just be told there is a number being kept from them.
+    //
+    // The server is the real boundary: /dashboard/batch now withholds
+    // month_revenue / month_profit / profit_margin for a member view, so this
+    // is the chrome half of that, not a substitute for it.
+    if (isStaffMemberRole(user?.role)) return null;
     if (enabled && locked) return <FinancialCurtain />;
     return <Card {...props} />;
   }

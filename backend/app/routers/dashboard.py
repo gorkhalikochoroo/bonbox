@@ -384,16 +384,36 @@ def get_dashboard_batch(
     _week_monday = today - timedelta(days=today.weekday())
     week_rev = effective_revenue_total(db, user.id, _week_monday, today)
 
+    # THE OWNER'S MONEY. "Revenue belongs to the owner. The person locking up
+    # doesn't need to see it to do their job" is the product's published rule —
+    # it is on the landing page — and until now the app did not honour it: an
+    # invited seat saw the profit hero, the revenue trend and the month tile.
+    # Only the SKAT figure was withheld (see month_moms above).
+    #
+    # Withheld as None, never 0. A zero would be a lie the UI cannot tell from
+    # a genuinely quiet month, and <Amount> already renders null as an honest
+    # em dash. Doing it HERE rather than only hiding cards is the point: the
+    # figures reach KpiStrip, the AI copilot's data cards and BranchSummaryCard
+    # too, so a chrome-only fix would leave the number one surface away.
+    #
+    # today_revenue / week_revenue deliberately STAY: a cashier logging sales
+    # needs to see the till moving, and those are the numbers they themselves
+    # just entered. The rule is about the owner's position, not about hiding a
+    # server's own shift from them.
+    _hide_owner_money = getattr(user, "_is_member_view", False) or getattr(
+        user, "_shared_device_locked", False
+    )
+
     summary = {
         "today_revenue": today_rev,
         "today_revenue_change": today_change,
         "week_revenue": week_rev,
-        "month_revenue": month_rev,
-        "month_expenses": month_exp,
-        "month_profit": month_profit,
-        "prev_month_profit": prev_month_profit,
+        "month_revenue": None if _hide_owner_money else month_rev,
+        "month_expenses": None if _hide_owner_money else month_exp,
+        "month_profit": None if _hide_owner_money else month_profit,
+        "prev_month_profit": None if _hide_owner_money else prev_month_profit,
         "month_moms": month_moms,
-        "profit_margin": profit_margin,
+        "profit_margin": None if _hide_owner_money else profit_margin,
         "top_expense_category": top_cat[0] if top_cat else None,
         "top_expense_amount": float(top_cat[1]) if top_cat else 0,
         "inventory_alerts": alert_count,
