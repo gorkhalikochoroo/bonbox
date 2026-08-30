@@ -1562,19 +1562,20 @@ export default function StaffSchedulePage() {
   // ─── Unified Share sheet helpers (this component owns the toolbar + state) ──
   const shareActiveStaff = () => activeStaff;
 
-  const openShareSheet = () => {
-    // Default selection = everyone active (the "share to all" path; owner
-    // unchecks who they don't want).
-    setShareSel(new Set(activeStaff.map((s) => s.id)));
-    setShareCopiedN(0);
-    setShareRowCopied(null);
-    setPinReveal({}); // never carry a shown-once PIN across opens
-    setShowPinControls(false); // extra-PIN section starts collapsed each open
-    setShareSheet(true);
-    // Pre-fetch every link in ONE call so "Copy links" is instant and runs
-    // inside the click gesture (no per-staff POST storm). mintLinkFor reads
-    // this cache first; if the fetch fails we fall back to per-staff mint.
-    api.get("/staff/schedules/share-links")
+  /** Portal links + join codes for every staff member, in ONE round-trip.
+   *
+   *  Extracted from openShareSheet because the Manage Staff roster needs the
+   *  same data: a join code is the ONLY way into the Scheduler app, and the
+   *  roster is where an owner is actually thinking about a person. Having it
+   *  live solely inside the Share sheet meant the credential was two screens
+   *  away from the row that names its owner.
+   *
+   *  Owner-only on the server (_require_owner_actor), so a staff seat gets a
+   *  403 here and simply renders no code — which is the correct outcome, not
+   *  an error state.
+   */
+  const loadShareLinks = useCallback(() => {
+    return api.get("/staff/schedules/share-links")
       .then((r) => {
         const map = {};
         const codes = {};
@@ -1591,6 +1592,21 @@ export default function StaffSchedulePage() {
         setPinHas(pins);
       })
       .catch(() => { /* fall back to per-staff mint on copy */ });
+  }, []);
+
+  const openShareSheet = () => {
+    // Default selection = everyone active (the "share to all" path; owner
+    // unchecks who they don't want).
+    setShareSel(new Set(activeStaff.map((s) => s.id)));
+    setShareCopiedN(0);
+    setShareRowCopied(null);
+    setPinReveal({}); // never carry a shown-once PIN across opens
+    setShowPinControls(false); // extra-PIN section starts collapsed each open
+    setShareSheet(true);
+    // Pre-fetch every link in ONE call so "Copy links" is instant and runs
+    // inside the click gesture (no per-staff POST storm). mintLinkFor reads
+    // this cache first; if the fetch fails we fall back to per-staff mint.
+    loadShareLinks();
   };
 
   const shareAllSelected = () =>
@@ -2061,7 +2077,14 @@ export default function StaffSchedulePage() {
       <FadeIn delay={0.1}>
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
           <button
-            onClick={() => setShowManageStaff(!showManageStaff)}
+            onClick={() => {
+              // Fetch the codes on EXPAND, not on mount: this is owner-only
+              // data and most visits to the schedule never open the roster.
+              // From the click handler rather than an effect so the state
+              // write stays in an event, per react-hooks/set-state-in-effect.
+              if (!showManageStaff) loadShareLinks();
+              setShowManageStaff(!showManageStaff);
+            }}
             aria-expanded={showManageStaff}
             className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700/40 transition rounded-xl"
           >
@@ -2079,6 +2102,7 @@ export default function StaffSchedulePage() {
               currency={currency}
               onRefresh={fetchStaff}
               branchId={branchId}
+              joinCodes={shareCodes}
             />
           )}
         </div>
@@ -3381,9 +3405,14 @@ function StaffDetailModal({
 /* ═══════════════════════════════════════════════════════════
    STAFF MANAGEMENT PANEL
    ═══════════════════════════════════════════════════════════ */
-function StaffPanel({ staff, currency, onRefresh, branchId }) {
+function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {} }) {
   const { t } = useLanguage();
   const confirm = useConfirm();
+  // Which row's code was just copied. Local on purpose — the parent has its
+  // own copied-state for the Share sheet and the two should not fight over
+  // one flag. Cleared on a timer, and guarded so a later row's copy cannot
+  // be cleared by an earlier row's timeout.
+  const [codeCopied, setCodeCopied] = useState(null);
   // `user` is referenced below for the admin-only WhatsApp setup block
   // (`user?.is_admin`). The parent had it via useAuth() but sub-components
   // each need their own destructure — this exact pattern crashed the
@@ -3770,6 +3799,50 @@ function StaffPanel({ staff, currency, onRefresh, branchId }) {
                       )}
                     </div>
                     <div className="flex items-center gap-4">
+                      {/* Join code — the ONLY way this person gets into the
+                          Scheduler app. It already existed inside the "Share
+                          with staff" sheet, two screens from the row that
+                          names its owner; this is the same value where you are
+                          already thinking about the person.
+
+                          NOT hidden on mobile the way the rate card beside it
+                          is: a rate is something you read, a code is something
+                          you read ALOUD to someone standing in front of you,
+                          which is exactly when you are holding the phone.
+
+                          Tap copies. Renders nothing when there is no code —
+                          the endpoint is owner-only, so a staff seat simply
+                          sees the row without one rather than an error. */}
+                      {!isInactive && joinCodes[member.id] && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const code = joinCodes[member.id];
+                            try {
+                              await navigator.clipboard.writeText(code);
+                            } catch {
+                              const ta = document.createElement("textarea");
+                              ta.value = code;
+                              document.body.appendChild(ta);
+                              ta.select();
+                              document.execCommand("copy");
+                              document.body.removeChild(ta);
+                            }
+                            setCodeCopied(member.id);
+                            setTimeout(
+                              () => setCodeCopied((c) => (c === member.id ? null : c)),
+                              1500,
+                            );
+                          }}
+                          title={t("schedCopyJoinCode", "Copy join code")}
+                          aria-label={`${t("schedCopyJoinCode", "Copy join code")} — ${member.name}`}
+                          className="shrink-0 px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-700 font-mono text-xs font-semibold tracking-wider tabular-nums text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
+                        >
+                          {codeCopied === member.id
+                            ? t("copied", "Copied")
+                            : joinCodes[member.id]}
+                        </button>
+                      )}
                       {/* Rate card */}
                       <div className="hidden sm:flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500 tabular-nums">
                         <span title={t("baseRate")}>{t("baseRate")}: {rates.base}{currency}/hr</span>

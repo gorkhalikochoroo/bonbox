@@ -3181,6 +3181,7 @@ const translations = {
     shareOpened: "Share sheet opened",
     shareFailed: "Could not open share sheet",
     copied: "Copied",
+    schedCopyJoinCode: "Copy join code",
     copyText: "Copy text",
     // Share recipients settings
     shareRecipients: "Share recipients",
@@ -11051,6 +11052,7 @@ const translations = {
     shareOpened: "Delingsmenu åbnet",
     shareFailed: "Kunne ikke åbne delingsmenu",
     copied: "Kopieret",
+    schedCopyJoinCode: "Kopiér kode",
     copyText: "Kopier tekst",
     // Share recipients settings
     shareRecipients: "Modtagere",
