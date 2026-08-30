@@ -325,11 +325,35 @@ body.portal-shell {
     min-height: 44px;
   }
 
-  /* Active press state — native touch feel */
+  /* Active press state — the one tactile beat.
+     Three things made the old version feel cheap rather than premium, and
+     all three fixes are subtractions:
+
+     1. `opacity: 0.7` — the button GHOSTED toward the background on press.
+        Physical controls compress; they do not become see-through. On a
+        gray-900 primary over white it washed to a flat mid-grey, which is
+        the single thing that read as "web page" instead of "app". Gone.
+
+     2. `transition: all 0.1s ease` lived only in the :active rule, so the
+        press-down was DELAYED 100ms and the release snapped instantly —
+        exactly backwards. A press must answer the finger immediately; it is
+        the RELEASE that can afford to ease. 60ms in is felt as instant.
+
+     3. `all` animated every property including layout ones. Scoped to the
+        one property that moves.
+
+     `scale:` rather than `transform: scale()` on purpose — the standalone
+     property composes with any transform a component already sets, where
+     the shorthand would silently overwrite it (Tailwind v4 emits `scale:`
+     for the same reason).
+
+     Still touch-only: the block comment above records that a desktop press
+     made every mouse click "flash + shrink", so `pointer: fine` keeps its
+     native chrome. The global prefers-reduced-motion rule collapses this to
+     0.01ms for anyone who asked for that. */
   button:active, a:active, [role="button"]:active {
-    opacity: 0.7;
-    transform: scale(0.97);
-    transition: all 0.1s ease;
+    scale: 0.97;
+    transition: scale 60ms ease-out;
   }
 }
 
