@@ -73,7 +73,7 @@ export const no_ = {
   ocrNotAvailable: "OCR ikke tilgjengelig — skriv beløpet manuelt", receiptText: "Vis gjenkjent tekst",
   enterTotal: "Skriv inn totalbeløp...", confirmLog: "Bekreft & registrer salg",
   saleLoggedReceipt: "Salg registrert fra kvittering!",
-  quickEntry: "Hurtigregistrering", personalEntry: "Personlig registrering", logSaleTab: "Registrer salg", addExpenseTab: "Legg til utgift",
+  quickEntry: "Hurtigregistrering", logSaleTab: "Registrer salg", addExpenseTab: "Legg til utgift",
   quickAmount: "Hurtigbeløp", orTypeAmount: "Eller skriv beløp...",
   category: "Kategori", addCategoriesFirst: "Legg til kategorier på Utgiftssiden først",
   whatForExpense: "Hva var det til? (f.eks. Tomater)",

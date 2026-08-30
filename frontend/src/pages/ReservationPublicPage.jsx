@@ -112,7 +112,7 @@ function DateStrip({ today, dayMap, value, onPick, t, lang }) {
             disabled={closed}
             onClick={() => !closed && onPick(iso)}
             aria-pressed={active}
-            aria-label={closed ? `${fmt(iso)} — ${t("rsvpClosed", "lukket")}` : fmt(iso)}
+            aria-label={closed ? `${fmt(iso)} — ${t("rsvpDayClosed", "lukket")}` : fmt(iso)}
             className={[
               "shrink-0 rounded-xl px-3 py-2 text-sm border transition text-center min-w-[76px] min-h-[44px] sm:min-h-0 leading-tight",
               active
@@ -124,7 +124,8 @@ function DateStrip({ today, dayMap, value, onPick, t, lang }) {
             <span className="capitalize block">{fmt(iso)}</span>
             {closed && (
               <span className="block text-[10px] text-gray-400">
-                {t("rsvpClosed", "lukket")}
+                {/* rsvpDayClosed — the chip word. rsvpClosed is the page <h1>. */}
+                {t("rsvpDayClosed", "lukket")}
               </span>
             )}
           </button>

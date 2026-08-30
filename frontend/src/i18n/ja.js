@@ -73,7 +73,7 @@ export const ja = {
   ocrNotAvailable: "OCR利用不可 — 金額を手動で入力", receiptText: "認識テキストを表示",
   enterTotal: "合計金額を入力...", confirmLog: "確認して売上を記録",
   saleLoggedReceipt: "レシートから売上を記録しました！",
-  quickEntry: "クイック入力", personalEntry: "個人入力", logSaleTab: "売上記録", addExpenseTab: "経費追加",
+  quickEntry: "クイック入力", logSaleTab: "売上記録", addExpenseTab: "経費追加",
   quickAmount: "クイック金額", orTypeAmount: "または金額を入力...",
   category: "カテゴリ", addCategoriesFirst: "先に経費ページでカテゴリを追加してください",
   whatForExpense: "何のためですか？（例：トマト）",

@@ -77,7 +77,7 @@ export const np = {
   trialDaysLeftPlural: "तपाईंको निःशुल्क Pro ट्रायलमा {n} दिन बाँकी।",
   trialClosingDetail: "सकिएपछि तपाईं Free मा रहनुहुन्छ। सबै सुविधा अझै काम गर्छ — केवल प्रयोग सीमासहित। कुनै कार्ड चाहिँदैन, कुनै आश्चर्य छैन।",
   trialOpenDetail: "कार्ड चाहिँदैन। यदि Pro राख्ने निर्णय गर्नुभयो भने, संस्थापक मूल्य 249 kr/महिना पहिलो 100 ग्राहकका लागि लक हुन्छ।",
-  seeWhatChanges: "के बदलिन्छ हेर्नुहोस्", seePlans: "योजनाहरू हेर्नुहोस्", hideForToday: "आज लुकाउनुहोस्",
+  seeWhatChanges: "के बदलिन्छ हेर्नुहोस्", hideForToday: "आज लुकाउनुहोस्",
   trialEndedToday: "तपाईंको ट्रायल आज सकियो।",
   trialEndedAgoSingular: "तपाईंको ट्रायल {n} दिन अघि सकिएको थियो।",
   trialEndedAgoPlural: "तपाईंको ट्रायल {n} दिन अघि सकिएको थियो।",
@@ -273,8 +273,8 @@ export const np = {
   closerPromptNoOwnerEmail: "तपाईंको खाताको इमेल छैन",
   closerPromptSaveFailed: "सेभ गर्न सकिएन — फेरि प्रयास गर्नुहोस्",
   dismiss: "बन्द",
-  back: "फिर्ता",
-  saving: "सेभ हुँदै…",
+
+
   trialFinalLastDay: "अन्तिम दिन",
   trialFinalTwoDays: "२ दिन बाँकी",
   trialFinalSavings: "founding 249 kr/महिना जीवनभर लक — नियमित 349 भन्दा वार्षिक 1,200 kr बचत।",
@@ -311,9 +311,9 @@ export const np = {
   consolidatedProGateBody: "क्रस-आउटलेट दैनिक क्लोज संयुक्तीकरण २-३ लोकेसन भएका रेस्टुरेन्ट र barहरूको लागि हो। हरेक शाखाको दैनिक क्लोजलाई एउटै super-क्लोजमा रूप दिन्छ।",
   consolidatedProGateAvailability: "Pro (founding 249 kr/महिना) र तपाईंको १४-दिने Pro ट्रायलमा उपलब्ध।",
   consolidatedProGateCta: "Pro योजना हेर्नुहोस्",
-  closedBy: "बन्द गरेको",
+
   cashDiff: "नगद diff.",
-  total: "कुल",
+
   branchesUnlimited: "तपाईंको योजनामा असीमित शाखाहरू",
   branchesUsedOfCap: "{cap} मध्ये {used} शाखाहरू प्रयोग",
   branchAtCapHint: "शाखा सीमा पुगेको — थपको लागि अपग्रेड",
@@ -401,13 +401,13 @@ export const np = {
   terminalSaveFailed: "टर्मिनल सेभ गर्न सकिएन",
   terminalDeleteFailed: "मेटाउन सकिएन",
   terminalConfirmDelete: "टर्मिनल {name} मेटाउने? पुराना लुकाइहरू सुरक्षित रहन्छन्।",
-  "delete": "मेटाउने", branch: "शाखा",
+  branch: "शाखा",
   // Multi-terminal daily close
   multiClose: "बहु-टर्मिनल लुकाइ",
   terminalsScanned: "टर्मिनलहरू स्क्यान भए",
   scanFailed: "स्क्यान असफल — फेरि प्रयास गर्नुहोस् वा यो टर्मिनल छोड्नुहोस्",
   aggregateFailed: "लुकाइ एकत्रित गर्न सकिएन",
-  sendFailed: "रिपोर्ट पठाउन सकिएन",
+
   multiCloseNoTerminalsTitle: "पहिले आफ्ना टर्मिनलहरू सेट अप गर्नुहोस्",
   multiCloseNoTerminalsBody: "बहु-टर्मिनल लुकाइलाई कम्तीमा एक POS स्टेशन कन्फिगर गरिएको चाहिन्छ।",
   goToTerminals: "टर्मिनल सेटिङ खोल्नुहोस्",
@@ -435,12 +435,12 @@ export const np = {
   reviewSubtitle: "तपाईंको साप्ताहिक Excel जस्तै क्रम। केही गलत भए पठाउनु अघि फर्केर सच्याउनुहोस्।",
   flaggedTitle: "नगद फरक सीमा नाघ्यो",
   confirmAndSend: "पुष्टि र पठाउनुहोस्",
-  sending: "पठाउँदै…",
+
   closeSentTitle: "लुकाइ पठाइयो",
   closeSentSubtitle: "{count} टर्मिनल समेकित। नगद फरक: {diff}।",
   flaggedReviewWithOwner: "मालिकको समीक्षाको लागि चिन्ह लगाइयो",
   openHistory: "लुकाइ इतिहास खोल्नुहोस्",
-  newClose: "अर्को लुकाइ सुरु गर्नुहोस्",
+
   sendToTeam: "मालिक / टिमलाई पठाउनुहोस्",
   sendToTeamHint: "WhatsApp · Messenger · email — तपाईंको रोजाइ",
   sendNow: "अहिले पठाउनुहोस्",
@@ -485,7 +485,7 @@ export const np = {
   send: "पठाउनुहोस्",
   sharePdf: "PDF साझा गर्नुहोस्",
   pdfShareHint: "WhatsApp / इमेलमा PDF अट्याचमेन्ट",
-  downloadPdf: "PDF डाउनलोड",
+
   pdfShared: "PDF साझा गरियो",
   pdfDownloaded: "PDF डाउनलोड भयो",
   shareExcel: "Excel साझा गर्नुहोस्",
@@ -506,21 +506,21 @@ export const np = {
   aiInsights: "AI सुझावहरू",
   todayRevenue: "आजको आम्दानी", monthlyProfit: "मासिक नाफा",
   topExpense: "सबैभन्दा ठूलो खर्च", inventoryAlerts: "स्टक अलर्ट", snapReceipt: "रसिद खिच्नुहोस्",
-  repeatYesterday: "हिजोको बिक्री दोहोर्‍याउनुहोस्", downloadPdf: "PDF रिपोर्ट डाउनलोड",
+  repeatYesterday: "हिजोको बिक्री दोहोर्‍याउनुहोस्",
   loadingDashboard: "ड्यासबोर्ड लोड हुँदैछ...", vsYesterday: "हिजोको तुलनामा", margin: "मार्जिन",
   none: "छैन", revenueTrend: "आम्दानीको प्रवृत्ति", expenseBreakdown: "खर्चको विवरण",
   noRevenueData: "अहिलेसम्म आम्दानी डाटा छैन", noExpenseData: "अहिलेसम्म खर्च डाटा छैन",
   recentReceipts: "हालका रसिदहरू", dailyGoal: "दैनिक लक्ष्य", monthlyGoal: "मासिक लक्ष्य", reached: "पुग्यो!",
   setDailyGoal: "दैनिक आम्दानीको लक्ष्य राख्नुहोस्", trackProgress: "प्रगति ट्र्याक गर्न लक्ष्य राख्नुहोस्",
-  setGoal: "लक्ष्य राख्नुहोस्", editGoal: "लक्ष्य सम्पादन", save: "सेभ", cancel: "रद्द",
+  setGoal: "लक्ष्य राख्नुहोस्", editGoal: "लक्ष्य सम्पादन",
   yesterdayCopied: "हिजोको बिक्री आजमा कपी भयो!", noYesterdaySale: "हिजोको बिक्री भेटिएन",
   // Sales
   salesTracker: "बिक्री ट्र्याकर", logSale: "आजको बिक्री राख्नुहोस्",
   tapAmount: "रकम छान्नुहोस् वा आफ्नो टाइप गर्नुहोस्", customAmount: "आफ्नो रकम...", log: "राख्नुहोस्",
-  recentSales: "हालका बिक्रीहरू", date: "मिति", payment: "भुक्तानी",
-  noSalesYet: "अहिलेसम्म बिक्री छैन — माथि रकम थिच्नुहोस्!",
+  date: "मिति", payment: "भुक्तानी",
+
   importCsv: "CSV बाट आयात", csvColumns: "स्तम्भहरू: date, amount, payment_method (ऐच्छिक)",
-  uploading: "अपलोड हुँदैछ...", chooseFile: "फाइल छान्नुहोस्",
+  chooseFile: "फाइल छान्नुहोस्",
   salesImported: "बिक्री आयात भयो", rowsSkipped: "पङ्क्ति छोडियो",
   // Expenses
   expenseTracker: "खर्च ट्र्याकर", addExpense: "खर्च थप्नुहोस्",
@@ -557,8 +557,8 @@ export const np = {
   // Waste
   logWaste: "फोहोर राख्नुहोस्", trackWaste: "के फालियो ट्र्याक गर्नुहोस्",
   wasteLogged: "फोहोर रेकर्ड भयो!", monthlyWasteCost: "मासिक फोहोर खर्च",
-  itemsWasted: "फालिएका सामानहरू", noDataYet: "अहिलेसम्म डाटा छैन",
-  whatWasWasted: "के फालियो? (जस्तै: कुखुराको मासु)", qty: "परिमाण",
+  itemsWasted: "फालिएका सामानहरू",
+  whatWasWasted: "के फालियो? (जस्तै: कुखुराको मासु)",
   estimatedCost: "अनुमानित मूल्य", customCost: "आफ्नो मूल्य...",
   recentWaste: "हालको फोहोर", item: "सामान", reason: "कारण", cost: "मूल्य",
   noWasteYet: "अहिलेसम्म फोहोर रेकर्ड छैन",
@@ -578,9 +578,9 @@ export const np = {
   loadingVat: "कर रिपोर्ट लोड हुँदैछ...", vatError: "कर रिपोर्ट लोड गर्न सकिएन।",
 
 
-  vatMyBusiness: "मेरो व्यवसाय",
 
-  vatDisclaimer: "यो केवल अनुमान हो। कर कार्यालयमा पेश गर्नुअघि आफ्नो लेखापालसँग परामर्श गर्नुहोस्",
+
+
   vatMonthJan: "जनवरी", vatMonthFeb: "फेब्रुअरी", vatMonthMar: "मार्च",
   vatMonthApr: "अप्रिल", vatMonthMay: "मे", vatMonthJun: "जुन",
   vatMonthJul: "जुलाई", vatMonthAug: "अगस्ट", vatMonthSep: "सेप्टेम्बर",
@@ -594,7 +594,7 @@ export const np = {
   enterTotal: "कुल रकम लेख्नुहोस्...", confirmLog: "पुष्टि गरी बिक्री राख्नुहोस्",
   saleLoggedReceipt: "रसिदबाट बिक्री रेकर्ड भयो!",
   // Quick Add
-  quickEntry: "छिटो एन्ट्री", personalEntry: "व्यक्तिगत एन्ट्री", logSaleTab: "बिक्री राख्नुहोस्", addExpenseTab: "खर्च थप्नुहोस्",
+  quickEntry: "छिटो एन्ट्री", logSaleTab: "बिक्री राख्नुहोस्", addExpenseTab: "खर्च थप्नुहोस्",
   quickAmount: "छिटो रकम", orTypeAmount: "वा रकम टाइप गर्नुहोस्...",
   category: "कोटि", addCategoriesFirst: "पहिले खर्च पेजमा कोटिहरू थप्नुहोस्",
   whatForExpense: "के को लागि थियो? (जस्तै: गोलभेडा)",
@@ -622,11 +622,11 @@ export const np = {
   // Layout / Nav
   businessMode: "व्यापार मोड", personalMode: "व्यक्तिगत मोड",
   reports: "रिपोर्टहरू", khata: "खाता", loanTracker: "ऋण ट्र्याकर", bankImport: "बैंक आयात",
-  budgetOverview: "बजेट", notifications: "सूचनाहरू", setBudget: "बजेट सेट गर्नुहोस्", team: "टोली",
+  budgetOverview: "बजेट", notifications: "सूचनाहरू", team: "टोली",
   planBilling: "योजना र बिलिङ", sendToAccountant: "लेखापालकलाई पठाउनुहोस्", account: "खाता",
   restockFirst: "पहिले पुनःभरण गर्नुहोस्",
   // Property Financial Report
-  dailyClose: "दिन समाप्ति",
+
   sixAmToSixAm: "बिहान ६:०० देखि भोलि बिहान ६:००",
   sixAm: "बिहान ६:०० (रेस्टुरेन्ट)",
   midnight: "मध्यरात (००:००)",
@@ -662,16 +662,16 @@ export const np = {
   connectedProviders: "जोडिएको", availableProviders: "उपलब्ध प्रदायकहरू",
   connect: "जोड्नुहोस्", disconnect: "विच्छेद गर्नुहोस्", connected: "जोडिएको",
   syncNow: "सिंक गर्नुहोस्", syncing: "सिंक हुँदैछ...", transactionsFound: "लेनदेन फेला पर्यो",
-  importSelected: "आयात गर्नुहोस्", transactions: "लेनदेनहरू", imported: "आयात भयो",
+  importSelected: "आयात गर्नुहोस्", imported: "आयात भयो",
   duplicatesSkipped: "दोहोरो छोडियो", connecting: "जोडिँदैछ...",
   saveConnection: "जडान बचत गर्नुहोस्", connectionLabel: "नाम (ऐच्छिक)",
-  selectAll: "सबै चयन गर्नुहोस्", importing: "आयात हुँदैछ...",
+  importing: "आयात हुँदैछ...",
   upiNote: "UPI, Google Pay, PhonePe (भारत)",
   upiNoteDesc: "UPI लेनदेनहरू तपाईंको बैंक विवरणमा देखिन्छ। बैंक CSV Import प्रयोग गर्नुहोस्।",
   // Common actions
   delete: "मेट्नुहोस्", edit: "सम्पादन", or: "वा",
   search: "खोज्नुहोस्...", exportCsv: "CSV निर्यात", clear: "खाली गर्नुहोस्",
-  noData: "डाटा छैन", loading: "लोड हुँदैछ...",
+  noData: "डाटा छैन",
   // QuickAdd personal
   income: "आम्दानी", expense: "खर्च", incomeSource: "आम्दानीको स्रोत",
   spendingCategory: "खर्चको कोटि", amountReceived: "प्राप्त रकम",
@@ -699,7 +699,7 @@ export const np = {
   backdatedEntry: "पुरानो मितिको एन्ट्री", personalExpense: "व्यक्तिगत खर्च",
   businessExpense: "व्यापारिक खर्च", excludedFromReports: "रिपोर्ट र भ्याटबाट बाहिर",
   typeCustomCategory: "आफ्नो कोटि लेख्नुहोस्...", moveToTrash: "रद्दीमा सार्नुहोस्",
-  actions: "कार्य", notes: "टिप्पणी",
+  actions: "कार्य",
   // Cash Book
   cashBook: "खाता",
   taxAutopilot: "कर स्वचालित",
@@ -732,13 +732,13 @@ export const np = {
   // Khata page
   khataTitle: "खाता — ग्राहक खाता", khataSubtitle: "तपाईंका थोक ग्राहकहरूको उधारो र भुक्तानी ट्र्याक गर्नुहोस्",
   totalReceivable: "कुल लिनुपर्ने", topDebtors: "शीर्ष ऋणीहरू",
-  noPendingBalances: "बाँकी रकम छैन", searchCustomers: "ग्राहक खोज्नुहोस्...",
-  noCustomersYet: "अहिलेसम्म ग्राहक छैन", selectCustomer: "ग्राहक छान्नुहोस्",
+  noPendingBalances: "बाँकी रकम छैन",
+  selectCustomer: "ग्राहक छान्नुहोस्",
   selectCustomerDesc: "उनीहरूको खाता हेर्न सूचीबाट ग्राहक छान्नुहोस्",
   owed: "बाँकी", overpaid: "बढी तिरेको", settled: "चुक्ता",
   recordPayment: "भुक्तानी राख्नुहोस्", totalPurchased: "कुल खरिद", totalPaid: "कुल तिरेको",
   remaining: "बाँकी", full: "पूरा", pay: "तिर्नुहोस्",
-  purchased: "खरिद", paid: "तिरेको", balance: "मौज्दात",
+  purchased: "खरिद", balance: "मौज्दात",
   noTransactionsYet: "अहिलेसम्म कारोबार छैन", addFirstAbove: "— माथि पहिलो थप्नुहोस्",
   update: "अपडेट",
   // Loan Tracker page
@@ -778,7 +778,7 @@ export const np = {
   all: "सबै", noneSelect: "कुनै पनि होइन", sectionsSelected: "खण्डहरू छानिएको",
   includingOverview: "सारांश सहित", downloadReportPdf: "रिपोर्ट PDF डाउनलोड",
   generatingPdf: "PDF बनाउँदै...", reportsDisclaimer: "रिपोर्टहरू अनुमान मात्र हुन्।",
-  dailyKasserapport: "दैनिक नगद प्रतिवेदन", kasserapport: "नगद प्रतिवेदन", subtotal: "उपकुल",
+  dailyKasserapport: "दैनिक नगद प्रतिवेदन", kasserapport: "नगद प्रतिवेदन",
   totalInclVat: "जम्मा", transactionCount: "कारोबारहरू", paymentBreakdown: "भुक्तानी विवरण",
   kasseBalance: "क्यास ब्यालेन्स", printReport: "प्रिन्ट", dailyReport: "दैनिक रिपोर्ट",
   expensesTotal: "खर्चहरू", netCash: "शुद्ध नगद", noSalesOnDate: "यो मितिमा कुनै बिक्री छैन",
@@ -809,7 +809,7 @@ export const np = {
   searchSalesPlaceholder: "रकम, नोट, भुक्तानी खोज्नुहोस्...",
   searchExpensesPlaceholder: "रकम, नाम, कोटि, भुक्तानी खोज्नुहोस्...",
   searchInventory: "स्टकमा खोज्नुहोस्...",
-  saveChanges: "परिवर्तन सेभ गर्नुहोस्", saving: "सेभ हुँदैछ...", changing: "परिवर्तन हुँदैछ...",
+  saveChanges: "परिवर्तन सेभ गर्नुहोस्", changing: "परिवर्तन हुँदैछ...",
   changePassword: "पासवर्ड परिवर्तन", passwordChanged: "पासवर्ड परिवर्तन भयो!",
   profileUpdated: "प्रोफाइल अपडेट भयो!", downloading: "डाउनलोड हुँदैछ...",
   sendTestDigest: "टेस्ट डाइजेस्ट पठाउनुहोस्", sending: "पठाउँदैछ...",
@@ -825,7 +825,7 @@ export const np = {
   newTipEntry: "नयाँ प्रविष्टि", tipHistory: "इतिहास",
   myBusiness: "मेरो व्यापार", paymentReceived: "भुक्तानी प्राप्त भयो",
   personalCategoriesCreated: "व्यक्तिगत कोटिहरू बनाइयो!",
-  whatsappUnlinked: "WhatsApp विच्छेद भयो", detecting: "पत्ता लगाउँदैछ...",
+  whatsappUnlinked: "WhatsApp विच्छेद भयो",
   descriptionOptional: "विवरण (ऐच्छिक)",
   allItemsInInventory: "सबै सामान पहिल्यै तपाईंको स्टकमा छन्।",
   quickExpense: "छिटो खर्च", type: "प्रकार",
@@ -908,7 +908,7 @@ export const np = {
   dayShort: "दिन",
   profit: "नाफा",
   // ─── AI / agent cards ───
-  items: "वस्तुहरू",
+
   transactions: "कारोबार",
   moreLabel: "थप",
   online: "अनलाइन",

@@ -3313,13 +3313,18 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
                 destructive: true,
               }
             : {
-                title: t("rsvpCancelConfirmTitle", "Cancel this booking?"),
+                // rsvpOwnerCancelConfirm*, not rsvpCancelConfirm* — the latter
+                // is the GUEST self-cancel on the public booking page, written
+                // in the second person and carrying no name. Sharing one key
+                // meant this dialog told the owner "You're welcome to book
+                // again" and silently dropped {name}.
+                title: t("rsvpOwnerCancelConfirmTitle", "Cancel this booking?"),
                 message: t(
-                  "rsvpCancelConfirmBody",
+                  "rsvpOwnerCancelConfirmBody",
                   "The booking for {name} is cancelled. They're notified if possible.",
                   { name: who },
                 ),
-                confirmLabel: t("rsvpCancelConfirmYes", "Cancel booking"),
+                confirmLabel: t("rsvpOwnerCancelConfirmYes", "Cancel booking"),
                 cancelLabel: t("rsvpCancelConfirmKeep", "Keep"),
                 destructive: true,
               },

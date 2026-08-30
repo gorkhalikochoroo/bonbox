@@ -2447,6 +2447,10 @@ export const tr = {
   rsvpCancelConfirmBody: "Masa hemen serbest kalır ve bu geri alınamaz. Dilediğinde yeniden rezervasyon yapabilirsin.",
   rsvpCancelConfirmYes: "Evet, iptal et",
   rsvpCancelConfirmKeep: "Kalsın",
+  // The OWNER dialog's own keys — the three above are the guest self-cancel.
+  rsvpOwnerCancelConfirmTitle: "Bu rezervasyon iptal edilsin mi?",
+  rsvpOwnerCancelConfirmBody: "{name} adına yapılan rezervasyon iptal ediliyor. Mümkünse bilgilendirilir.",
+  rsvpOwnerCancelConfirmYes: "Rezervasyonu iptal et",
   rsvpLateBy: "{n} dk gecikmeli",
   rsvpStandTitle: "Rezervasyonlar",
   rsvpStandTitleProvider: "Randevular",
@@ -2815,7 +2819,11 @@ export const tr = {
   rsvpLoading: "Yükleniyor…",
   rsvpNotFound: "Sayfayı bulamadık",
   rsvpNotFoundHint: "Bağlantı yanlış olabilir ya da mekan şu anda rezervasyon almıyor.",
-  rsvpClosed: "kapalı",
+  // tr hit the same collision independently: it defined rsvpClosed as the
+  // one-word day-chip label even though it sits with the ClosedScreen family,
+  // so an un-named venue's public page was headlined "kapalı".
+  rsvpClosed: "Rezervasyon almıyor",
+  rsvpDayClosed: "kapalı",
   rsvpClosedNamed: "{name} rezervasyon almıyor",
   rsvpClosedHint: "Daha sonra tekrar dene ya da masa ayırtmak için doğrudan mekanla iletişime geç.",
   rsvpEyebrow: "Rezervasyon",

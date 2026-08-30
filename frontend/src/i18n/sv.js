@@ -73,7 +73,7 @@ export const sv = {
   ocrNotAvailable: "OCR inte tillgängligt — skriv beloppet manuellt", receiptText: "Visa igenkänd text",
   enterTotal: "Ange totalbelopp...", confirmLog: "Bekräfta & registrera försäljning",
   saleLoggedReceipt: "Försäljning registrerad från kvitto!",
-  quickEntry: "Snabbregistrering", personalEntry: "Personlig registrering", logSaleTab: "Registrera försäljning", addExpenseTab: "Lägg till utgift",
+  quickEntry: "Snabbregistrering", logSaleTab: "Registrera försäljning", addExpenseTab: "Lägg till utgift",
   quickAmount: "Snabbbelopp", orTypeAmount: "Eller skriv belopp...",
   category: "Kategori", addCategoriesFirst: "Lägg till kategorier på Utgiftssidan först",
   whatForExpense: "Vad var det för? (t.ex. Tomater)",

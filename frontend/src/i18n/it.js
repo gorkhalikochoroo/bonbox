@@ -73,7 +73,7 @@ export const it = {
   ocrNotAvailable: "OCR non disponibile — digita l'importo manualmente", receiptText: "Visualizza testo riconosciuto",
   enterTotal: "Inserisci l'importo totale...", confirmLog: "Conferma e registra vendita",
   saleLoggedReceipt: "Vendita registrata da scontrino!",
-  quickEntry: "Inserimento rapido", personalEntry: "Inserimento personale", logSaleTab: "Registra vendita", addExpenseTab: "Aggiungi spesa",
+  quickEntry: "Inserimento rapido", logSaleTab: "Registra vendita", addExpenseTab: "Aggiungi spesa",
   quickAmount: "Importo rapido", orTypeAmount: "O digita un importo...",
   category: "Categoria", addCategoriesFirst: "Prima aggiungi categorie nella pagina Spese",
   whatForExpense: "Per cosa? (es. Pomodori)",
