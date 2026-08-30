@@ -13,6 +13,7 @@ import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, Amount } from "../components/ui";
 import { errText } from "../utils/errText";
+import { useUndoToast } from "../hooks/useUndoToast";
 
 const IN_CATEGORIES = ["Sales", "Tips", "Loan", "Other"];
 const OUT_CATEGORIES = ["Purchase", "Wages", "Supplies", "Rent", "Other"];
@@ -23,6 +24,7 @@ export default function CashBookPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
+  const { show: showUndo, ToastUI: undoToastUI } = useUndoToast();
   const [transactions, setTransactions] = useState([]);
   const [balance, setBalance] = useState({ balance: 0, total_in: 0, total_out: 0 });
   const [tab, setTab] = useState("cash_in");
@@ -104,8 +106,16 @@ export default function CashBookPage() {
       await api.delete(`/cashbook/${id}`);
       setDeleteConfirm(null);
       fetchData(filterFrom, filterTo);
-      setSuccess(t("movedToDeleted"));
-      setTimeout(() => setSuccess(""), 2500);
+      // NOTE: this page dispatches no bonbox-data-changed on delete (unlike
+      // Sales/Expenses), so undo stays symmetric and doesn't either. If the
+      // cash position ever feeds a cached figure, BOTH need the dispatch.
+      showUndo({
+        message: t("movedToDeleted"),
+        onUndo: async () => {
+          await api.put(`/cashbook/${id}/restore`);
+          fetchData(filterFrom, filterTo);
+        },
+      });
     } catch (err) {
       setError(errText(err, t("failedToDelete")));
     }
@@ -398,6 +408,7 @@ export default function CashBookPage() {
           </table>
         </div>
       </div>
+      {undoToastUI}
     </div>
   );
 }

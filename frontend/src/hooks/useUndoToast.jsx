@@ -28,10 +28,16 @@
  */
 import { useCallback, useRef, useState } from "react";
 import { errText } from "../utils/errText";
+import { useLanguage } from "./useLanguage";
 
 const DEFAULT_TIMEOUT_MS = 8000;
 
 export function useUndoToast() {
+  // The action label was hardcoded English while `undo` and `dismiss` had DK
+  // translations sitting unused — so a Danish owner read "Undo" in an
+  // otherwise Danish UI, on the one control they reach for when something has
+  // just gone wrong.
+  const { t } = useLanguage();
   const [toast, setToast] = useState(null);  // { message, onUndo, error?, undoing? } | null
   const timerRef = useRef(null);
 
@@ -56,13 +62,13 @@ export function useUndoToast() {
       await toast.onUndo();
       dismiss();
     } catch (err) {
-      const msg = errText(err, "Undo failed.");
+      const msg = errText(err, t("undoFailed"));
       setToast((prev) => prev ? { ...prev, undoing: false, error: msg } : null);
       // Keep it up a little longer so they can read the error.
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => setToast(null), 6000);
     }
-  }, [toast, dismiss]);
+  }, [toast, dismiss, t]);
 
   const ToastUI = toast ? (
     <div
@@ -82,14 +88,14 @@ export function useUndoToast() {
           disabled={toast.undoing}
           className="text-sm font-semibold text-gray-300 hover:text-gray-200 disabled:opacity-50 underline-offset-2 hover:underline"
         >
-          {toast.undoing ? "…" : "Undo"}
+          {toast.undoing ? "…" : t("undo")}
         </button>
       )}
       <button
         type="button"
         onClick={dismiss}
         className="text-gray-400 hover:text-white text-xs"
-        aria-label="Dismiss"
+        aria-label={t("dismiss")}
       >
         ×
       </button>

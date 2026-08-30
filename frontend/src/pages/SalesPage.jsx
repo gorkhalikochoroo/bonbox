@@ -24,6 +24,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
+import { useUndoToast } from "../hooks/useUndoToast";
 import { useStickyMethod } from "../hooks/useStickyMethod";
 import ReceiptCapture from "../components/ReceiptCapture";
 import ReceiptViewer from "../components/ReceiptViewer";
@@ -62,6 +63,11 @@ export default function SalesPage() {
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const confirm = useConfirm();
+  // Recovery was real but unreachable: the restore endpoints existed and the
+  // page said "moved to deleted", but getting a sale back meant knowing that
+  // More → Recently Deleted exists and then finding the right tab. One tap to
+  // undo, at the moment it matters.
+  const { show: showUndo, ToastUI: undoToastUI } = useUndoToast();
   const [sales, setSales] = useState([]);
   const [salesLoading, setSalesLoading] = useState(true);
   const [amount, setAmount] = useState("");
@@ -430,12 +436,21 @@ export default function SalesPage() {
   const bulkDelete = async () => {
     if (!(await confirm({ message: `${t("moveToTrash")} ${selected.size}?`, destructive: true }))) return;
     try {
-      await Promise.all([...selected].map(id => api.delete(`/sales/${id}`)));
+      // Snapshot the ids BEFORE clearing the selection — undo needs them and
+      // setSelected(new Set()) is about to drop the only copy.
+      const deletedIds = [...selected];
+      await Promise.all(deletedIds.map(id => api.delete(`/sales/${id}`)));
       setSelected(new Set());
       fetchSales(filterFrom, filterTo);
       window.dispatchEvent(new Event("bonbox-data-changed"));
-      setSuccess(`${selected.size} ${t("movedToDeleted")}`);
-      setTimeout(() => setSuccess(""), 2500);
+      showUndo({
+        message: `${deletedIds.length} ${t("movedToDeleted")}`,
+        onUndo: async () => {
+          await Promise.all(deletedIds.map(id => api.put(`/sales/${id}/restore`)));
+          fetchSales(filterFrom, filterTo);
+          window.dispatchEvent(new Event("bonbox-data-changed"));
+        },
+      });
     } catch {
       setError(t("failedToDeleteSome"));
     }
@@ -446,8 +461,17 @@ export default function SalesPage() {
       await api.delete(`/sales/${id}`);
       fetchSales(filterFrom, filterTo);
       window.dispatchEvent(new Event("bonbox-data-changed"));
-      setSuccess(t("movedToDeleted"));
-      setTimeout(() => setSuccess(""), 2500);
+      showUndo({
+        message: t("movedToDeleted"),
+        onUndo: async () => {
+          await api.put(`/sales/${id}/restore`);
+          fetchSales(filterFrom, filterTo);
+          // Restoring a sale moves revenue — the dashboard hero, the KPI strip
+          // and the trend chip all read cached figures, so this dispatch is
+          // not optional.
+          window.dispatchEvent(new Event("bonbox-data-changed"));
+        },
+      });
     } catch (err) {
       setError(errText(err, t("failedToDeleteSale")));
     }
@@ -1152,6 +1176,7 @@ export default function SalesPage() {
         description={receiptViewing?.notes}
         kind="sale"
       />
+      {undoToastUI}
     </PageShell>
   );
 }

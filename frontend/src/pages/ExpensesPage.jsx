@@ -41,6 +41,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useStickyMethod } from "../hooks/useStickyMethod";
+import { useUndoToast } from "../hooks/useUndoToast";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { displayCurrency, getTaxConfig, formatOwnerMoney, parseMoneyInput, moneyLocale } from "../utils/currency";
@@ -114,6 +115,7 @@ export default function ExpensesPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
+  const { show: showUndo, ToastUI: undoToastUI } = useUndoToast();
   const [expenses, setExpenses] = useState([]);
   const [categories, setCategories] = useState([]);
   const [catId, setCatId] = useState("");
@@ -697,8 +699,16 @@ export default function ExpensesPage() {
       setDeleteConfirm(null);
       fetchData(filterFrom, filterTo);
       window.dispatchEvent(new Event("bonbox-data-changed"));
-      setSuccess(t("movedToRecentlyDeleted"));
-      setTimeout(() => setSuccess(""), 2500);
+      showUndo({
+        message: t("movedToRecentlyDeleted"),
+        onUndo: async () => {
+          await api.put(`/expenses/${id}/restore`);
+          fetchData(filterFrom, filterTo);
+          // An expense feeds profit AND the MOMS input-VAT figure, so the
+          // freshness bus has to hear about the restore too.
+          window.dispatchEvent(new Event("bonbox-data-changed"));
+        },
+      });
     } catch (err) {
       setError(errText(err, t("failedToDeleteExpense")));
     }
@@ -1580,6 +1590,7 @@ export default function ExpensesPage() {
         description={receiptViewing?.description}
         kind="expense"
       />
+      {undoToastUI}
     </PageShell>
   );
 }

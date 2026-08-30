@@ -6,6 +6,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
 import { formatDate, formatDateShort, localIso, dateLocale } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
+import { useUndoToast } from "../hooks/useUndoToast";
 
 const PERSONAL_CATEGORIES = [
   "Salary", "Freelance", "Side Income", "Gift Received",
@@ -23,6 +24,7 @@ const QUICK_AMOUNTS = [100, 500, 1000, 2500, 5000];
 export default function PersonalPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const { show: showUndo, ToastUI: undoToastUI } = useUndoToast();
   const currency = displayCurrency(user?.currency);
   const [entries, setEntries] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -234,7 +236,19 @@ export default function PersonalPage() {
     try {
       await api.delete(`/expenses/${id}`);
       fetchData();
-    } catch {}
+      showUndo({
+        message: t("movedToRecentlyDeleted"),
+        onUndo: async () => {
+          await api.put(`/expenses/${id}/restore`);
+          fetchData();
+        },
+      });
+    } catch (err) {
+      // Was `catch {}`. The row is deleted by a bare "Delete" link with no
+      // confirmation step, so a failure looked exactly like a success: the
+      // entry stayed on screen and nothing said why.
+      setError(errText(err, t("failedToDeleteExpense")));
+    }
   };
 
   // Personal categories that exist (deduplicated by name, keeping first match)
@@ -739,6 +753,7 @@ export default function PersonalPage() {
           </table>
         </div>
       </div>
+      {undoToastUI}
     </div>
   );
 }

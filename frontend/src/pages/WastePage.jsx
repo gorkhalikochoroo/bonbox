@@ -9,6 +9,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
+import { useUndoToast } from "../hooks/useUndoToast";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { errText } from "../utils/errText";
@@ -29,6 +30,7 @@ export default function WastePage() {
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const confirm = useConfirm();
+  const { show: showUndo, ToastUI: undoToastUI } = useUndoToast();
   const [logs, setLogs] = useState([]);
   const [summary, setSummary] = useState(null);
   const [item, setItem] = useState("");
@@ -117,11 +119,18 @@ export default function WastePage() {
   const bulkDelete = async () => {
     if (!(await confirm({ message: `${selected.size} ${t("moveToTrash")}?`, destructive: true }))) return;
     try {
-      await Promise.all([...selected].map(id => api.delete(`/waste/${id}`)));
+      // Snapshot before setSelected clears it — undo needs the ids.
+      const deletedIds = [...selected];
+      await Promise.all(deletedIds.map(id => api.delete(`/waste/${id}`)));
       setSelected(new Set());
       fetchData(filterFrom, filterTo);
-      setSuccess(`${selected.size} ${t("itemsMovedToTrash")}`);
-      setTimeout(() => setSuccess(""), 2500);
+      showUndo({
+        message: `${deletedIds.length} ${t("itemsMovedToTrash")}`,
+        onUndo: async () => {
+          await Promise.all(deletedIds.map(id => api.put(`/waste/${id}/restore`)));
+          fetchData(filterFrom, filterTo);
+        },
+      });
     } catch {
       setError(t("failedToDeleteSome"));
     }
@@ -132,8 +141,13 @@ export default function WastePage() {
       await api.delete(`/waste/${id}`);
       setDeleteConfirm(null);
       fetchData(filterFrom, filterTo);
-      setSuccess(t("movedToRecentlyDeleted"));
-      setTimeout(() => setSuccess(""), 2500);
+      showUndo({
+        message: t("movedToRecentlyDeleted"),
+        onUndo: async () => {
+          await api.put(`/waste/${id}/restore`);
+          fetchData(filterFrom, filterTo);
+        },
+      });
     } catch (err) {
       setError(errText(err, t("failedToDelete")));
     }
@@ -433,6 +447,7 @@ export default function WastePage() {
           </table>
         </div>
       </div>
+      {undoToastUI}
     </div>
   );
 }
