@@ -658,7 +658,7 @@ function AppRoutes() {
           {/* C5 Imports merge — one destination, two tabs. The legacy paths
               stay registered but redirect into the matching tab so old
               bookmarks / deep links / Connections-page links don't break. */}
-          <Route path="/imports" element={<ImportsPage />} />
+          <Route path="/imports" element={<OwnerOnlyRoute><ImportsPage /></OwnerOnlyRoute>} />
           <Route path="/bank-import" element={<Navigate to="/imports?tab=bank" replace />} />
           <Route path="/payment-imports" element={<Navigate to="/imports?tab=payments" replace />} />
           <Route path="/budgets" element={<BudgetPage />} />

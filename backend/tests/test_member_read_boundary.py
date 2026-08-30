@@ -22,8 +22,11 @@ manager ever gained a prefix members lack, that path would stop catching it
 and the guard would silently weaken.
 """
 from app.main import (
+    _MANAGER_READ_ALLOW_PREFIXES,
     _MANAGER_READ_DENY_PREFIXES,
     _MEMBER_READ_DENY_PREFIXES,
+    _SHARED_DEVICE_DENY_PREFIXES,
+    _is_manager_denied_path,
     _is_sensitive_member_read_path,
 )
 
@@ -60,11 +63,78 @@ class TestTheOwnerFinancialCornerStaysShut:
         ):
             assert prefix in _MEMBER_READ_DENY_PREFIXES, prefix
 
-    def test_manager_keeps_the_wage_cost_estimate(self):
-        # Deliberate: the manager set is the member set MINUS payroll, because
-        # a manager builds the rota and needs the wage-cost estimate.
-        assert "/api/staff/payroll" not in _MANAGER_READ_DENY_PREFIXES
+    def test_payroll_stays_denied_to_low_privilege_members(self):
         assert "/api/staff/payroll" in _MEMBER_READ_DENY_PREFIXES
+
+
+class TestTheManagerPayrollExemptionIsNarrow:
+    """The exemption was written for ONE route and granted the whole prefix.
+
+    The comment on the manager set said it keeps "the wage-cost estimate" —
+    singular, and there is literally a /payroll/estimate route. But expressing
+    that as "omit /api/staff/payroll from the deny list" also handed over
+    /payroll/csv and /payroll/loenseddel: every colleague's payslip PDF, with
+    net_pay, am_bidrag, a_skat and the tax-card type and rate. A manager reached
+    it from the Løn tab of /staff/hours, which is not an ownerOnly destination.
+
+    So the prefix is denied by default now and the estimate is carved back out —
+    a payroll route added next year is owner-only until someone decides
+    otherwise, rather than public to managers the day it merges.
+    """
+
+    def test_the_payslip_pdf_is_denied(self):
+        assert _is_manager_denied_path("/api/staff/payroll/loenseddel") is True
+
+    def test_the_payroll_csv_is_denied(self):
+        assert _is_manager_denied_path("/api/staff/payroll/csv") is True
+
+    def test_the_wage_cost_estimate_is_still_allowed(self):
+        """The guard: this must not become "a manager can't plan a rota"."""
+        assert _is_manager_denied_path("/api/staff/payroll/estimate") is False
+
+    def test_a_future_payroll_route_is_denied_by_default(self):
+        # The point of the inversion — fail closed on the ones nobody has
+        # thought about yet.
+        assert _is_manager_denied_path("/api/staff/payroll/whatever-ships-next") is True
+
+    def test_the_carve_out_did_not_reopen_the_owner_financials(self):
+        for denied in (
+            "/api/tax/filing",
+            "/api/bank-connect/start",
+            "/api/cashflow",
+            "/api/reports/monthly",
+            "/api/exports/dinero",
+        ):
+            assert _is_manager_denied_path(denied) is True, denied
+
+    def test_a_manager_still_reads_their_ordinary_work(self):
+        for ok in ("/api/sales", "/api/staff/hours", "/api/reservations", "/api/dashboard/batch"):
+            assert _is_manager_denied_path(ok) is False, ok
+
+    def test_the_fast_path_still_screens_every_manager_denied_payroll_route(self):
+        """main.py screens the MEMBER union before any DB lookup. If the payroll
+        paths were not caught there, the manager branch would never be reached
+        and this whole fix would be dead code."""
+        for path in ("/api/staff/payroll/loenseddel", "/api/staff/payroll/csv"):
+            assert _is_sensitive_member_read_path(path) is True, path
+
+
+class TestTheCurtainedTabletHidesWageDataToo:
+    """_SHARED_DEVICE_DENY_PREFIXES reuses the manager deny set, and
+    deliberately does NOT consult the manager allow-list: on a handed-over
+    tablet the actor is the OWNER, so the reveal-PIN is the only gate, and
+    colleagues' wage costs are exactly what it exists to hide."""
+
+    def test_all_payroll_is_behind_the_pin_including_the_estimate(self):
+        assert any(
+            "/api/staff/payroll/estimate".startswith(p)
+            for p in _SHARED_DEVICE_DENY_PREFIXES
+        )
+
+    def test_the_allow_list_is_not_wired_into_the_shared_device_gate(self):
+        # Guard against a future "tidy" that reuses _is_manager_denied_path in
+        # shared_device_pin_gate and silently reopens wage data on the curtain.
+        assert _MANAGER_READ_ALLOW_PREFIXES == ("/api/staff/payroll/estimate",)
 
 
 class TestManagerIsASubsetOfMember:

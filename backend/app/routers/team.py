@@ -90,11 +90,22 @@ limiter = Limiter(key_func=client_ip)
 VALID_ROLES = {"manager", "cashier", "viewer"}
 
 # Permissions per role
+# NOTE: this map is a UI HINT, not the enforcement point — main.py's
+# member_read_guard + member write-guard are. It drifted out of sync with them
+# on 2026-07-06, when Reports & MOMS became owner-only: it kept advertising
+# "reports" to manager AND to viewer, whose entry was {"reports"} — i.e. the
+# single thing that role is now denied. Reads are enforced by
+# _MEMBER_READ_DENY_PREFIXES / _MANAGER_READ_DENY_PREFIXES; writes are
+# default-denied for every invited seat, so these sets describe what a role can
+# SEE, never what it can change.
 ROLE_PERMISSIONS = {
     "owner": {"sales", "expenses", "inventory", "reports", "cashbook", "settings", "team", "budgets", "waste", "khata"},
-    "manager": {"sales", "expenses", "inventory", "reports", "cashbook", "budgets", "waste"},
+    "manager": {"sales", "expenses", "inventory", "cashbook", "budgets", "waste"},
     "cashier": {"sales", "cashbook"},
-    "viewer": {"reports"},
+    # Identical to cashier today: _LOW_PRIV_MEMBER_ROLES treats the two the
+    # same, so the only honest entry is the same set. Whether "Viewer" should
+    # remain a separate invite option is a product call, not a code one.
+    "viewer": {"sales", "cashbook"},
 }
 
 # Token / TTL constants — 256-bit random token + sha256-hash at rest.

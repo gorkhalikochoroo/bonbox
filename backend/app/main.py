@@ -3829,24 +3829,33 @@ _MEMBER_READ_DENY_PREFIXES = (
     # whole ledger, one tap from "Send til revisor" in their own More menu.
     "/api/exports",
 )
-# Owner financials a MANAGER must not read — the full set MINUS the wage-cost
-# estimate (/api/staff/payroll). Subset of _MEMBER_READ_DENY_PREFIXES, so the
-# fast-path _is_sensitive_member_read_path() still catches every manager-denied
-# path (it screens the union) before any DB lookup.
-_MANAGER_READ_DENY_PREFIXES = (
-    "/api/tax",
-    "/api/bank-connect",
-    "/api/bank-connections",
-    "/api/bank-import",
-    "/api/cashflow",
-    "/api/reports",
-    # Also manager-denied: a shift manager has no more business exporting the
-    # books than a cashier does. This entry additionally closes the curtained-
-    # tablet hole, because _SHARED_DEVICE_DENY_PREFIXES reuses this set — so
-    # "Delt enhed" was hiding the revenue hero while the full ledger stayed one
-    # tap away.
-    "/api/exports",
-)
+# Owner financials a MANAGER must not read.
+#
+# This is now the member set itself, and deliberately so. The manager's one
+# extra privilege used to be expressed by OMITTING a prefix here, which was
+# fail-open in two ways at once:
+#
+#   1. It granted three routes to justify one. The exemption was written for
+#      the wage-cost ESTIMATE — singular, and there is a /payroll/estimate
+#      route — but omitting "/api/staff/payroll" also handed over
+#      /payroll/csv and /payroll/loenseddel. Both carry per-employee net_pay,
+#      am_bidrag and a_skat; the PDF adds the tax-card type and rate. A manager
+#      reached them from the Løn tab of /staff/hours, which is not an ownerOnly
+#      destination.
+#   2. It made the subset invariant something a TEST had to police, so a prefix
+#      added for cashiers and forgotten for managers stayed a live hole until
+#      someone noticed.
+#
+# Aliasing fixes both: a prefix added for cashiers is a prefix managers lose
+# too, and the single place that says what a manager keeps is the allow-list
+# below. A payroll route added next year is owner-only until someone decides
+# otherwise, instead of public to managers the day it merges.
+_MANAGER_READ_DENY_PREFIXES = _MEMBER_READ_DENY_PREFIXES
+# The ONE payroll read a manager keeps: the wage/labor-cost estimate they build
+# rotas against. Applies to the MANAGER branch only — deliberately NOT consulted
+# by shared_device_pin_gate, because a curtained tablet is in a stranger's hands
+# and colleagues' wage costs are exactly what that gate exists to hide.
+_MANAGER_READ_ALLOW_PREFIXES = ("/api/staff/payroll/estimate",)
 _LOW_PRIV_MEMBER_ROLES = frozenset({"cashier", "viewer"})
 
 
@@ -3855,6 +3864,19 @@ def _is_sensitive_member_read_path(path: str) -> bool:
     low-privilege invited member (cashier/viewer) must not pull. Kept as a
     standalone helper so the gate is unit-testable (see test_member_seat)."""
     return any(path.startswith(p) for p in _MEMBER_READ_DENY_PREFIXES)
+
+
+def _is_manager_denied_path(path: str) -> bool:
+    """True iff a MANAGER seat must not read this path.
+
+    Standalone for the same reason as _is_sensitive_member_read_path: the deny
+    set now carries a carve-out (/payroll/estimate), and a carve-out that lives
+    only inline in middleware is one no unit test can reach. The allow-check
+    runs FIRST — it is the narrower rule.
+    """
+    if any(path.startswith(p) for p in _MANAGER_READ_ALLOW_PREFIXES):
+        return False
+    return any(path.startswith(p) for p in _MANAGER_READ_DENY_PREFIXES)
 
 
 @app.middleware("http")
@@ -3918,7 +3940,7 @@ async def member_read_guard(request: Request, call_next):
     if role in _LOW_PRIV_MEMBER_ROLES:
         deny = _is_sensitive_member_read_path(path)
     elif role == "manager":
-        deny = any(path.startswith(p) for p in _MANAGER_READ_DENY_PREFIXES)
+        deny = _is_manager_denied_path(path)
     else:
         deny = False
 

@@ -233,11 +233,18 @@ def test_member_read_guard_denies_only_low_priv_roles():
 def test_manager_read_scope_denies_owner_financials_keeps_wage_cost():
     """GDPR least-privilege: a manager loses the OWNER's tax/bank/cashflow but
     keeps the wage/labor-cost estimate (hours×rate — no payslip/CPR PII, since
-    BonBox does not do payroll). Mirrors the guard's role='manager' branch."""
-    from app.main import _MANAGER_READ_DENY_PREFIXES, _MEMBER_READ_DENY_PREFIXES
+    BonBox does not do payroll).
 
-    def _manager_denied(path):
-        return any(path.startswith(p) for p in _MANAGER_READ_DENY_PREFIXES)
+    This used to re-implement the guard's manager branch inline, which is how
+    the branch and this test drifted apart: the local copy could not see the
+    allow-list, so it kept agreeing with itself while the real rule changed.
+    It now calls the guard's own helper.
+    """
+    from app.main import (
+        _MANAGER_READ_DENY_PREFIXES,
+        _MEMBER_READ_DENY_PREFIXES,
+        _is_manager_denied_path as _manager_denied,
+    )
 
     # Owner financials — denied to a manager (incl. the whole Reports & MOMS
     # router, which egresses the SKAT liability via /monthly + /vat-export).
@@ -253,7 +260,15 @@ def test_manager_read_scope_denies_owner_financials_keeps_wage_cost():
         assert _manager_denied(denied) is True, denied
     # Wage/labor-cost estimate — a manager KEEPS it (their shift-planning tool).
     assert _manager_denied("/api/staff/payroll/estimate") is False
-    assert _manager_denied("/api/staff/payroll/csv") is False
-    # Strict subset of the cashier/viewer set → the fast-path gate (which screens
-    # the union) still catches every manager-denied path before any DB lookup.
-    assert set(_MANAGER_READ_DENY_PREFIXES) < set(_MEMBER_READ_DENY_PREFIXES)
+    # ...but NOT the payroll artefacts. This line asserted False until
+    # 2026-08-30, which was the bug: /payroll/csv carries per-employee
+    # "AM-bidrag (8%), A-skat (est.), Net pay" columns, so it is payslip data in
+    # CSV form — the exact PII this test's own docstring says a manager does not
+    # get. The assertion had been written to match the implementation (the whole
+    # prefix was exempt) rather than the intent stated one line above it.
+    assert _manager_denied("/api/staff/payroll/csv") is True
+    assert _manager_denied("/api/staff/payroll/loenseddel") is True
+    # The manager deny set IS the member set now (the carve-out expresses the
+    # difference), so the fast-path gate — which screens the member union before
+    # any DB lookup — still catches every manager-denied path.
+    assert set(_MANAGER_READ_DENY_PREFIXES) <= set(_MEMBER_READ_DENY_PREFIXES)

@@ -204,6 +204,11 @@ export const NAV_MANIFEST = [
     pillar: null,
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search", "bottomnav"],
+    // App.jsx already wraps this route in OwnerOnlyRoute and the server denies
+    // /api/cashflow to every staff seat — but the nav row was ungated, so a
+    // cashier got "Cash Flow" in their BOTTOM NAV and was bounced on tap. The
+    // route guard stops the leak; this stops the dead door.
+    ownerOnly: true,
   },
   {
     to: "/budgets",
@@ -229,6 +234,11 @@ export const NAV_MANIFEST = [
     pillar: null,
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
+    // Reconciling the owner's bank statement against sales is owner work, and
+    // the server agrees twice over: /api/bank-import is member-denied on read,
+    // and the member write-guard 403s the preview/confirm POSTs this page runs.
+    // Ungated it was a door that opened onto a 403.
+    ownerOnly: true,
     aliases: ["imports", "bank import", "payment imports", "csv", "mobilepay", "bankimport", "betalingsimport"],
   },
   {

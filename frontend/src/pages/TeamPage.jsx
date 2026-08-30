@@ -338,6 +338,16 @@ export default function TeamPage() {
                       </button>
                     ))}
                   </div>
+                  {/* main.py's member write-guard default-denies EVERY mutation
+                      from an invited seat (_MEMBER_WRITE_ALLOWED is just
+                      /api/auth/logout), so all three roles are observer seats
+                      today. The role names read like job descriptions — a
+                      "Cashier" who cannot ring up a sale is a promise the
+                      server breaks with a 403. Say it here instead. Remove this
+                      line when per-router write scopes land (task #375). */}
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-2 leading-relaxed">
+                    {t("teamRolesViewOnlyNote")}
+                  </p>
                 </div>
 
                 <button

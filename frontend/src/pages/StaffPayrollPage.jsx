@@ -10,6 +10,7 @@ import { formatDate, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
+import { isStaffMemberRole } from "../config/navManifest";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
@@ -49,6 +50,13 @@ export default function StaffPayrollPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
+  // A manager reaches this tab (/staff/hours is not an ownerOnly destination)
+  // and keeps the wage-cost estimate they build rotas against. The two payroll
+  // ARTEFACTS are a different thing — the CSV is a payroll-bureau handoff and
+  // the Lønseddel is every colleague's payslip. The server denies both to any
+  // staff seat (_MANAGER_READ_DENY_PREFIXES); hiding them here keeps that from
+  // reading as a broken button.
+  const isStaffSeat = isStaffMemberRole(user?.role);
 
   // ─── Pay Period ───
   const [period, setPeriod] = useState(null);
@@ -771,6 +779,7 @@ export default function StaffPayrollPage() {
                   {dkEstimate.estimate_note}
                 </p>
 
+                {!isStaffSeat && (
                 <div className="mt-3 flex items-center gap-2 flex-wrap">
                   <button
                     onClick={async () => {
@@ -815,6 +824,7 @@ export default function StaffPayrollPage() {
                     {t("payrollLoenseddelPdf", "Lønseddel PDF (one per employee)")}
                   </button>
                 </div>
+                )}
 
                 {dkEstimate.per_staff?.length > 0 && (
                   <details className="mt-3">
