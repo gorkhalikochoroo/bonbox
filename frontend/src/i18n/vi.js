@@ -1100,7 +1100,7 @@ export const vi = {
   teamAtCapHint: "Đã chạm giới hạn ghế — nâng cấp để có thêm",
   teamCapHitTitle: "{cap} ghế trên gói của bạn",
   teamCapHitBody: "Nâng cấp Pro để có 5 ghế, hoặc Business để không giới hạn.",
-  seePlans: "Xem gói →",
+  seePlans: "Xem gói",
   bar: "Bar",
   barPageTitle: "Bar — Rót",
   barPageSubtitle: "Các mặt hàng theo dõi pour-cost — rượu mạnh, bia, rượu vang theo ly, mixers. Chạm để rót, chạm + để nhập kho theo chai.",

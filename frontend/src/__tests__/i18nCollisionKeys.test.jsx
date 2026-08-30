@@ -181,6 +181,74 @@ describe("count units and button verbs", () => {
   });
 });
 
+describe("the component owns the arrow, not the string", () => {
+  beforeEach(() => localStorage.clear());
+
+  it.each(["en", "da"])("%s: seePlans carries no trailing arrow", (lang) => {
+    // UpgradeNudge's card branch draws its own SVG arrow after {ctaLabel}, and
+    // 8 of the 13 call sites pass seePlans as ctaLabel — so an arrow in the
+    // string rendered TWO. ReceiptCapture appended a literal "→" on top of
+    // that. The component's own default prop is already "See plans".
+    expect(resolve("seePlans", { lang })).not.toMatch(/[→>]\s*$/);
+  });
+
+  it("no locale pack reintroduces the arrow", async () => {
+    for (const code of ["tr", "th", "vi", "np"]) {
+      const mod = await import(`../i18n/${code}.js`);
+      const dict = mod[code] ?? mod[`${code}_`];
+      if (!dict?.seePlans) continue;
+      expect(dict.seePlans, `${code}.js seePlans`).not.toMatch(/[→>]\s*$/);
+    }
+  });
+});
+
+describe("strings that claimed more than the screen knows", () => {
+  beforeEach(() => localStorage.clear());
+
+  it.each([
+    ["en", /today/i],
+    ["da", /i dag/i],
+  ])("%s: the empty sales table does not claim 'today'", (lang, todayWord) => {
+    // SalesPage's <Empty> sits under a table filtered by status, free-text
+    // search AND a user-chosen date range — none of them today-scoped. The
+    // string asserted a fact the screen could not support: search "pizza" with
+    // no match and it said no sales had been recorded TODAY.
+    expect(resolve("noSalesYet", { lang })).not.toMatch(todayWord);
+  });
+});
+
+describe("Danish names one thing one way", () => {
+  beforeEach(() => localStorage.clear());
+
+  it("the monthly-report button does not rename itself when toggled", () => {
+    // PersonalPage renders `showMonthlyReport ? hideMonthlyReport : monthlyReport`
+    // — one control. It read "Månedlig rapport" ⇄ "Skjul månedsrapport".
+    const shown = resolve("monthlyReport", { lang: "da" });
+    const hidden = resolve("hideMonthlyReport", { lang: "da" });
+    expect(hidden.toLowerCase()).toContain(shown.toLowerCase());
+  });
+
+  it("the tips tab and the tips page heading agree", () => {
+    // StaffBackOfficePage labels the tab t("staffTips") = "Drikkepenge" and
+    // mounts StaffTipsPage, whose heading was t("tips") = "Tips", above a
+    // subtitle that says drikkepenge. Three treatments in one viewport.
+    expect(resolve("tips", { lang: "da" })).toBe(resolve("staffTips", { lang: "da" }));
+  });
+
+  it("MOMS keeps its uppercase in the report label", () => {
+    const v = resolve("vatReport", { lang: "da" });
+    expect(v).toContain("MOMS");
+    expect(v).not.toMatch(/\bMoms\b/);
+  });
+
+  it("English is NOT given the Danish tax word", () => {
+    // en is the fallback pack for every locale, and currency.js already
+    // parameterises the tax name per COUNTRY (MOMS/MVA/MwSt/BTW/TVA). Putting
+    // MOMS here would mislabel every non-DK account.
+    expect(resolve("vatReport", { lang: "en" })).not.toMatch(/MOMS/);
+  });
+});
+
 describe("useConfirm default labels exist in Danish", () => {
   beforeEach(() => localStorage.clear());
 

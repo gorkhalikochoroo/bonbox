@@ -1094,7 +1094,7 @@ export const th = {
   teamAtCapHint: "ถึงจำกัดที่นั่ง — อัปเกรดเพื่อเพิ่ม",
   teamCapHitTitle: "{cap} ที่นั่งในแพลนของคุณ",
   teamCapHitBody: "อัปเกรด Pro เพื่อ 5 ที่นั่ง หรือ Business เพื่อไม่จำกัด",
-  seePlans: "ดูแพลน →",
+  seePlans: "ดูแพลน",
   bar: "บาร์",
   barPageTitle: "บาร์ — รินขาย",
   barPageSubtitle: "รายการที่ติดตาม pour-cost — สุรา เบียร์ ไวน์เป็นแก้ว มิกเซอร์ แตะเพื่อริน แตะ + เพื่อเติมสต็อกตามขวด",

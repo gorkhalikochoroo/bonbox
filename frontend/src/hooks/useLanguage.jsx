@@ -2926,7 +2926,7 @@ const translations = {
     teamAtCapHint: "Seat limit reached on your plan — upgrade for more",
     teamCapHitTitle: "{cap} seats on your plan",
     teamCapHitBody: "Upgrade to Pro for 5 seats, or to Business for unlimited.",
-    seePlans: "See plans →",
+    seePlans: "See plans",
     // DK i18n leak fix — TeamPage chrome. `medarbejder` is DK-only; the EN
     // CTA stays "Invite team member" so the noun reads naturally for owners
     // running BonBox in English. Role names translate, but the badge stays
@@ -3402,7 +3402,7 @@ const translations = {
     staffExceptions: "Things to look at",
     operationalAlerts: "Voids, manager overrides, and corrections",
     voids: "Voids", managerVoids: "Manager Voids", errorCorrects: "Error Corrects",
-    returns: "Returns", noSalesYet: "No sales recorded yet today",
+    returns: "Returns", noSalesYet: "No sales yet",
     voidsToday: "voids today — worth a look", inSalesToday: "in sales today",
     ordersToday: "orders", ordersTodayPlural: "orders", order: "order",
     guestsToday: "guests", guestsTodayPlural: "guests",
@@ -10805,7 +10805,7 @@ const translations = {
     teamAtCapHint: "Pladsgrænse nået — opgrader for flere",
     teamCapHitTitle: "{cap} pladser på din plan",
     teamCapHitBody: "Opgrader til Pro for 5 pladser, eller til Business for ubegrænset.",
-    seePlans: "Se planer →",
+    seePlans: "Se planer",
     // DK i18n leak fix — TeamPage chrome (Danish locale).
     teamInviteCta: "+ Inviter medarbejder",
     teamInviteHeader: "Inviter en medarbejder",
@@ -11273,7 +11273,7 @@ const translations = {
     staffExceptions: "Ting at kigge på",
     operationalAlerts: "Annulleringer, manager-godkendelser og korrektioner",
     voids: "Annulleringer", managerVoids: "Manager-annulleringer", errorCorrects: "Fejlrettelser",
-    returns: "Returneringer", noSalesYet: "Ingen salg registreret endnu i dag",
+    returns: "Returneringer", noSalesYet: "Ingen salg endnu",
     voidsToday: "annulleringer i dag — værd at kigge på", inSalesToday: "i salg i dag",
     ordersToday: "ordrer", ordersTodayPlural: "ordrer", order: "ordre",
     guestsToday: "gæster", guestsTodayPlural: "gæster",
@@ -11557,7 +11557,7 @@ const translations = {
     totalInclVat: "Total", transactionCount: "Transaktioner", paymentBreakdown: "Betalingsoversigt",
     kasseBalance: "Kasse beholdning", printReport: "Udskriv",
     expensesTotal: "Udgifter", netCash: "Netto kontant", noSalesOnDate: "Ingen salg på denne dato",
-    monthlyReport: "Månedlig rapport",
+    monthlyReport: "Månedsrapport",
     salesBreakdown: "Salgsfordeling", expenseBreakdownReport: "Udgiftsfordeling",
     inventoryReport: "Lagerrapport", khataSummary: "Khata oversigt",
     wasteReport: "Spildrapport", staffRules: "Personaleregler",
@@ -11999,7 +11999,7 @@ const translations = {
     whatIsDailyClose: "Hvad er dagsafslutning?",
     noDailyClosesYet: "Ingen dagsafslutninger endnu",
     cashVariance: "Kasse-difference",
-    totalTips: "Samlede tips",
+    totalTips: "Samlede drikkepenge",
     hoverDayForDetails: "Hold over en dag for detaljer",
     notEnoughDataYet: "Ikke nok data endnu",
     noBranchData: "Ingen filialdata",
@@ -12384,7 +12384,14 @@ const translations = {
     hoursLabel: "Timer",
     baseEarned: "Grundløn",
     overtime: "Overarbejde",
-    tips: "Tips",
+    // "Drikkepenge", not "Tips". The staff back-office TAB already says
+    // Drikkepenge (staffTips) and the page's own subtitle says drikkepenge —
+    // so the heading in between was the odd one out, three treatments of one
+    // word in a single viewport. Bare "Tips" is also ambiguous in Danish; this
+    // same pack uses tipsHints for "Tips & hints". The short form kept for the
+    // bottom nav has its own key (navTips), which is what proves the full word
+    // is the intended default elsewhere.
+    tips: "Drikkepenge",
     danishPayrollBreakdown: "Dansk løn-opsummering",
     estimate: "Estimat",
     skatRemittance: "SKAT-indberetning for perioden",
@@ -14121,7 +14128,7 @@ const translations = {
     dailyReport: "Daglig rapport",
     cashBook: "Kassebog",
     cashFlow: "Pengestrøm",
-    vatReport: "Moms-rapport",
+    vatReport: "MOMS-rapport",
     weeklyReport: "Ugerapport",
     taxAutopilot: "Skat",
     // ─── single-word labels that slipped past earlier fills ─────────────

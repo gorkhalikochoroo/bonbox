@@ -152,7 +152,7 @@ export default function BranchPage() {
             {" "}
             {canPurchaseInApp() && (
               <Link to="/subscription" className="font-semibold underline whitespace-nowrap">
-                {t("seePlans") || "See plans →"}
+                {t("seePlans") || "See plans"}
               </Link>
             )}
           </SectionBanner>

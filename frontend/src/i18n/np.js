@@ -326,7 +326,7 @@ export const np = {
   teamAtCapHint: "सिट सीमा पुगेको — थपको लागि अपग्रेड",
   teamCapHitTitle: "तपाईंको योजनामा {cap} सिट",
   teamCapHitBody: "Pro मा अपग्रेड गर्नुहोस् — ५ सिट, वा Business — असीमित।",
-  seePlans: "योजनाहरू हेर्नुहोस् →",
+  seePlans: "योजनाहरू हेर्नुहोस्",
   bar: "Bar",
   barPageTitle: "Bar — Pour",
   barPageSubtitle: "Pour-cost ट्र्याक हुने items — spirits, beer, wine-by-glass, mixers। पोर गर्न ट्याप गर्नुहोस्, बोतलले रिस्टक गर्न + ट्याप गर्नुहोस्।",

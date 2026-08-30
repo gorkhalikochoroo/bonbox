@@ -1090,7 +1090,7 @@ export const tr = {
   teamAtCapHint: "Koltuk limiti aşıldı — daha fazlası için yükselt",
   teamCapHitTitle: "Planınızda {cap} koltuk",
   teamCapHitBody: "5 koltuk için Pro'ya, sınırsız için Business'a yükselt.",
-  seePlans: "Planları gör →",
+  seePlans: "Planları gör",
   bar: "Bar",
   barPageTitle: "Bar — Servis",
   barPageSubtitle: "Pour-cost takip edilen ürünler — alkollü içecekler, bira, kadeh-bardakla şarap, mikserler. Servis için dokunun, şişeyle stoklamak için + dokunun.",

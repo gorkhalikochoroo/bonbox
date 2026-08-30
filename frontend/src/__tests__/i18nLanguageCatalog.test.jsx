@@ -76,6 +76,31 @@ describe("the catalog and the picker agree", () => {
     }
   });
 
+  it("no NEW orphan dictionary appears", async () => {
+    // Eight packs sit in src/i18n/ with working loaders in useLanguage.jsx but
+    // appear in NEITHER the catalog NOR SUPPORTED, so no user can select them.
+    // They still build: ~210KB of lazy chunks shipped to the CDN that nobody
+    // can ever load. They are lazy, so this costs deploy weight rather than
+    // anything a visitor downloads — which is why it went unnoticed.
+    //
+    // Deleting them is a product call (the packs are real work, and the same
+    // note in languageCatalog.js records that hiding a language deliberately
+    // keeps its dictionary on disk). So this test does NOT demand removal — it
+    // pins the known set, so adding a NINTH orphan fails instead of drifting in
+    // quietly the way these did.
+    const KNOWN_ORPHANS = ["es", "fr", "it", "ja", "nl", "no", "pt", "sv"];
+
+    const modules = import.meta.glob("../i18n/*.js");
+    const codes = Object.keys(modules)
+      .map((p) => p.split("/").pop().replace(/\.js$/, ""))
+      .filter((c) => c !== "languageCatalog");
+
+    const catalogued = new Set(ALL_LANGUAGES.map((l) => l.code));
+    const orphans = codes.filter((c) => !catalogued.has(c)).sort();
+
+    expect(orphans).toEqual([...KNOWN_ORPHANS].sort());
+  });
+
   it("no offered language is missing a catalog entry", () => {
     for (const code of OFFERED) {
       const entry = ALL_LANGUAGES.find((l) => l.code === code);

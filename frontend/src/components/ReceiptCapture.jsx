@@ -447,7 +447,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                     to="/subscription"
                     className="inline-block px-3 py-1.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded-lg text-xs font-medium hover:bg-gray-700 dark:hover:bg-gray-200 transition"
                   >
-                    {t("seePlans")} →
+                    {t("seePlans")}
                   </Link>
                 )}
               </div>
