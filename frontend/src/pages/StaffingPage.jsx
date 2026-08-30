@@ -467,7 +467,7 @@ export default function StaffingPage({ embedded = false }) {
                   <div key={rule.id} className="flex items-center justify-between bg-gray-50 dark:bg-gray-700/50 px-4 py-2.5 rounded-lg">
                     <span className="text-sm dark:text-gray-200">
                       <span className="font-medium">{rule.label}</span> — <Amount value={rule.revenue_min} currency={currency} />–<Amount value={rule.revenue_max} currency={currency} />
-                      → <span className="font-bold">{rule.recommended_staff} {t("staff")}</span>
+                      → <span className="font-bold">{rule.recommended_staff} {t("stStaffCountSuffix")}</span>
                     </span>
                     <button onClick={() => deleteRule(rule.id)} className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-sm min-h-[44px] sm:min-h-0">{t("remove")}</button>
                   </div>

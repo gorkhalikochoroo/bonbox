@@ -601,7 +601,7 @@ export default function ReportsPage() {
                   <StatCard dense label={t("revenue")} value={money(overview.revenue)} helper={`${fmt(overview.total_sales_count)} ${t("sales")}`} />
                   <StatCard dense label={t("expenses")} value={money(overview.expenses)} helper={`${fmt(overview.total_expense_count)} ${t("entries")}`} />
                   <StatCard dense label={t("netProfit")} value={money(overview.net_profit)} helper={overview.has_expenses && overview.revenue > 0 ? `${Math.round((overview.net_profit/overview.revenue)*100)}% ${t("margin")}` : "—"} accent={overview.net_profit < 0 ? "critical" : "neutral"} />
-                  <StatCard dense label={`${vat.vatName} ${t("payable")}`} value={money(overview.vat_payable)} helper={`${t("to")} ${vat.taxAuthority}`} />
+                  <StatCard dense label={`${vat.vatName} ${t("payable")}`} value={money(overview.vat_payable)} helper={`${t("toAuthority")} ${vat.taxAuthority}`} />
                   <StatCard dense label={t("stockValue")} value={money(overview.inventory_value)} helper={`${overview.low_stock_count} ${t("lowStock")}`} accent={overview.low_stock_count > 0 ? "warn" : "neutral"} />
                   <StatCard dense label={t("khataOutstanding")} value={money(overview.khata_outstanding)} helper={t("creditOwed")} />
                   <StatCard dense label={t("cashIn")} value={money(overview.cash_in)} />

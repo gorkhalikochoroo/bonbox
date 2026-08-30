@@ -111,6 +111,76 @@ describe("reservation cancel — owner dialog vs guest dialog", () => {
   });
 });
 
+describe("from/to are a matched pair again", () => {
+  beforeEach(() => localStorage.clear());
+
+  it.each(["en", "da"])("%s: `to` is a capitalised field label like `from`", (lang) => {
+    // `to` had been redefined as the lowercase preposition for ReportsPage's
+    // "payable to SKAT", which is also the label paired with `from` on the
+    // mileage address fields and the Sales / Payment-imports date filters — so
+    // those rendered a lowercase "to" under a capitalised "From".
+    const from = resolve("from", { lang });
+    const to = resolve("to", { lang });
+    expect(to[0]).toBe(to[0].toUpperCase());
+    expect(from[0]).toBe(from[0].toUpperCase());
+  });
+
+  it.each(["en", "da"])("%s: the sentence fragment stays lowercase", (lang) => {
+    // ReportsPage builds `${t("toAuthority")} ${vat.taxAuthority}` → "to SKAT".
+    const frag = resolve("toAuthority", { lang });
+    expect(frag).toBe(frag.toLowerCase());
+    expect(frag).not.toBe("toAuthority");
+  });
+
+  it("the fragment is not confused with currency.js's vat.payableTo", () => {
+    // That one holds a whole sentence ("Beløb der skal indbetales til SKAT").
+    // Two different things under one name is how this file got into trouble.
+    expect(resolve("toAuthority", { lang: "da" }).split(" ").length).toBe(1);
+  });
+});
+
+describe("ledger and invoicing no longer share copy", () => {
+  beforeEach(() => localStorage.clear());
+
+  it.each(["en", "da"])("%s: the Khata ledger has its own search placeholder", (lang) => {
+    const khata = resolve("khataSearchCustomers", { lang });
+    const invoicing = resolve("searchCustomers", { lang });
+    expect(khata).not.toBe(invoicing);
+    expect(khata).not.toBe("khataSearchCustomers");
+    // The ledger filters on neither CVR nor email; the invoicing list does.
+    expect(khata).not.toMatch(/CVR/i);
+  });
+
+  it.each(["en", "da"])("%s: the ledger empty state does not mention invoicing", (lang) => {
+    const khata = resolve("khataNoCustomersYet", { lang });
+    expect(khata).not.toBe(resolve("noCustomersYet", { lang }));
+    expect(khata).not.toMatch(/invoic|faktur/i);
+  });
+});
+
+describe("count units and button verbs", () => {
+  beforeEach(() => localStorage.clear());
+
+  it.each(["en", "da"])("%s: the staffing count unit is a lowercase plural", (lang) => {
+    // StaffingPage renders `{n} {t("stStaffCountSuffix")}` — "3 staff" /
+    // "3 medarbejdere". It had been borrowing `staff`, a standalone noun the
+    // notification cards use as a name substitute ("Staff" / "Personale").
+    const unit = resolve("stStaffCountSuffix", { lang });
+    const noun = resolve("staff", { lang });
+    expect(unit).toBe(unit.toLowerCase());
+    expect(unit).not.toBe(noun);
+  });
+
+  it.each(["en", "da"])("%s: the multi-terminal reset button reads as an action", (lang) => {
+    const btn = resolve("mtcStartAnotherClose", { lang });
+    const tab = resolve("newClose", { lang });
+    expect(btn).not.toBe(tab);
+    expect(btn).not.toBe("mtcStartAnotherClose");
+    // A tab label is short; an action button says what it does.
+    expect(btn.split(" ").length).toBeGreaterThan(tab.split(" ").length);
+  });
+});
+
 describe("useConfirm default labels exist in Danish", () => {
   beforeEach(() => localStorage.clear());
 

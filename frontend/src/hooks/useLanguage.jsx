@@ -3442,7 +3442,9 @@ const translations = {
     advancedAutoSync: "Advanced — auto-sync with API keys",
     yourConnections: "Your connections",
     manualFetchForDates: "Manual fetch for specific dates",
-    from: "From", fetching: "Fetching...",
+    // Field labels, and a matched pair: mileage (from/to address) and the date
+    // filters on Sales and Payment imports render them side by side.
+    from: "From", to: "To", fetching: "Fetching...",
     autoImporting: "Auto-importing new transactions",
     autoImportPaused: "Auto-import paused",
     checksEvery6h: "Checks every 6 hours",
@@ -3512,7 +3514,10 @@ const translations = {
     actions: "Actions",
     // Cash Book
     dailyCloseDesc: "End-of-day closing — revenue, payments, cash drawer, tips.",
-    newClose: "New Close", historyTab: "History", insightsTab: "Insights",
+    // newClose is the TAB label on Daily Close, so it stays a short noun phrase.
+    // The multi-terminal reset button wants a verb and had been borrowing it.
+    newClose: "New Close", mtcStartAnotherClose: "Start another close",
+    historyTab: "History", insightsTab: "Insights",
     addCategory: "Add category...",
     priceOptimization: "Price Optimization",
     customerRetention: "Customer Retention",
@@ -3591,6 +3596,13 @@ const translations = {
 
     // Khata page
     khataTitle: "Khata — Customer Ledger", khataSubtitle: "Track credit purchases and payments for your wholesale customers",
+    // The ledger's own search + empty state. It used to share searchCustomers /
+    // noCustomersYet with the INVOICING customer list, whose wording won — so
+    // this page offered to search "by name, CVR, or email" (it filters on
+    // neither CVR nor email) and told the owner to add a customer "to start
+    // invoicing", on a page that does not invoice.
+    khataSearchCustomers: "Search by name or phone",
+    khataNoCustomersYet: "No customers yet. Add your first one to track credit purchases.",
     // Task #89 P3-7 — header CTA that opens CustomerOutreachModal
     // pre-filled with at-risk regulars. Kept short so the button
     // fits next to the page title on mobile.
@@ -4853,7 +4865,16 @@ const translations = {
     deleted: "Deleted", deletePersonConfirm: "Delete this person?", deleteConfirm: "Delete?",
     failedToLoadOverview: "Failed to load overview", failedToGeneratePdf: "Failed to generate PDF",
     name: "Name", phone: "Phone", address: "Address",
-    entries: "entries", payable: "Payable", to: "to", detail: "Detail",
+    // toAuthority, not `to`: this is the sentence fragment in ReportsPage's
+    // `${t("toAuthority")} ${vat.taxAuthority}` → "to SKAT", so it must stay
+    // lowercase. It used to be keyed as `to`, which is also the FIELD LABEL
+    // paired with `from` on the mileage and date filters — so those rendered a
+    // lowercase "to" under a capitalised "From".
+    // Deliberately NOT named payableTo: currency.js already has a per-country
+    // vat.payableTo holding the FULL sentence ("Beløb der skal indbetales til
+    // SKAT"), and two different things under one name is how this file got
+    // into trouble in the first place.
+    entries: "entries", payable: "Payable", toAuthority: "to", detail: "Detail",
     linkInventory: "Link Inventory Items", deleteCustomerConfirm: "Delete this customer and all their transactions?",
     deleteTransactionConfirm: "Delete this transaction?",
     currency: "Currency",
@@ -11294,7 +11315,7 @@ const translations = {
     advancedAutoSync: "Avanceret — auto-sync med API-nøgler",
     yourConnections: "Dine forbindelser",
     manualFetchForDates: "Hent manuelt for bestemte datoer",
-    from: "Fra", fetching: "Henter...",
+    from: "Fra", to: "Til", fetching: "Henter...",
     autoImporting: "Auto-importerer nye transaktioner",
     autoImportPaused: "Auto-import sat på pause",
     checksEvery6h: "Tjekker hver 6. time",
@@ -11364,7 +11385,8 @@ const translations = {
     actions: "Handlinger",
     // Cash Book
     dailyClose: "Daglig Lukning", dailyCloseDesc: "Afslutning af dagen — omsætning, betalinger, kassebeholdning, drikkepenge.",
-    newClose: "Ny Lukning", historyTab: "Historik", insightsTab: "Indsigter",
+    newClose: "Ny Lukning", mtcStartAnotherClose: "Start endnu en lukning",
+    historyTab: "Historik", insightsTab: "Indsigter",
     addCategory: "Tilføj kategori...",
     priceOptimization: "Prisoptimering",
     customerRetention: "Kundefastholdelse",
@@ -11442,6 +11464,8 @@ const translations = {
 
     // Khata page
     khataTitle: "Khata — Kundekladde", khataSubtitle: "Hold styr på kreditkøb og betalinger for dine engros-kunder",
+    khataSearchCustomers: "Søg efter navn eller telefon",
+    khataNoCustomersYet: "Ingen kunder endnu. Tilføj den første for at holde styr på kreditkøb.",
     // Task #89 P3-7 — DA translation for the header CTA.
     khataReachOut: "Skriv til faste gæster",
     // Task #100 — Connections hub (#62) — DA copy.
@@ -12677,7 +12701,7 @@ const translations = {
     deleted: "Slettet", deletePersonConfirm: "Slet denne person?", deleteConfirm: "Slet?",
     failedToLoadOverview: "Kunne ikke indlæse oversigt", failedToGeneratePdf: "Kunne ikke generere PDF",
     name: "Navn", phone: "Telefon", address: "Adresse",
-    entries: "poster", payable: "Skyldig", to: "til", detail: "Detalje",
+    entries: "poster", payable: "Skyldig", toAuthority: "til", detail: "Detalje",
     linkInventory: "Tilknyt lagervarer", deleteCustomerConfirm: "Slet denne kunde og alle transaktioner?",
     deleteTransactionConfirm: "Slet denne transaktion?",
     currency: "Valuta",

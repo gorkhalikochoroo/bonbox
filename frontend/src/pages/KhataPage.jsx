@@ -259,7 +259,7 @@ export default function KhataPage() {
               >{`+ ${t("add")}`}</button>
             </div>
             <input
-              type="text" placeholder={t("searchCustomers")} value={search} onChange={(e) => setSearch(e.target.value)}
+              type="text" placeholder={t("khataSearchCustomers")} value={search} onChange={(e) => setSearch(e.target.value)}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-white"
             />
           </div>
@@ -308,7 +308,7 @@ export default function KhataPage() {
               </div>
             ))}
             {filtered.length === 0 && (
-              <p className="p-4 text-center text-gray-400 text-sm">{t("noCustomersYet")}</p>
+              <p className="p-4 text-center text-gray-400 text-sm">{t("khataNoCustomersYet")}</p>
             )}
           </div>
         </div>

@@ -1098,7 +1098,7 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
           onClick={onReset}
           className="px-5 py-2 min-h-[44px] sm:min-h-0 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold rounded-lg transition"
         >
-          {t("newClose") || "Start another close"}
+          {t("mtcStartAnotherClose")}
         </button>
       </div>
     </div>
