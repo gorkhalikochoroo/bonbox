@@ -134,7 +134,7 @@ export default function BudgetPage() {
               variant={editing ? "secondary" : "primary"}
               onClick={() => setEditing(!editing)}
             >
-              {editing ? t("cancel", "Cancel") : t("setBudget") || "Set Budgets"}
+              {editing ? t("cancel", "Cancel") : t("setBudget") || "Set budget"}
             </Button>
           }
         />
@@ -363,7 +363,7 @@ export default function BudgetPage() {
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">{t("bgtEmptyTitle", "No budgets yet")}</h3>
                 <p className="text-sm text-gray-500 mb-4">{t("bgtEmptyDesc", "Set spending limits per category to track your expenses.")}</p>
                 <Button variant="primary" onClick={() => setEditing(true)}>
-                  {t("setBudget") || "Set Budgets"}
+                  {t("setBudget") || "Set budget"}
                 </Button>
               </div>
             </FadeIn>

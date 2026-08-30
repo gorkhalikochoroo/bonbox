@@ -88,16 +88,50 @@ if (!enBody) {
 }
 const en = extractPairs(enBody);
 
+/**
+ * Which locales this guard ENFORCES on.
+ *
+ * Only the ones the picker offers (languageCatalog.js `offered: true`). A pack
+ * nobody can select cannot mislead anybody, and holding the commit hostage to
+ * translations in a hidden pack is how a guard ends up permanently skipped.
+ *
+ * This is deliberately derived rather than listed, so it moves with the product
+ * decision: flip a language to `offered: true` and its locked-term violations
+ * become blocking that same commit. That is the right gate — a pack is not
+ * ready to be offered while it still calls a kasserapport a "Kassenbericht".
+ *
+ * Non-offered packs are still REPORTED at the end, just not fatal.
+ */
+function offeredCodes() {
+  const cat = path.join(I18N_DIR, "languageCatalog.js");
+  if (!fs.existsSync(cat)) return null; // degrade to checking everything
+  const src = fs.readFileSync(cat, "utf8");
+  const codes = new Set();
+  const re = /\{\s*code:\s*"([a-z_]+)"[^}]*offered:\s*(true|false)\s*\}/g;
+  let m;
+  while ((m = re.exec(src)) !== null) if (m[2] === "true") codes.add(m[1]);
+  return codes.size ? codes : null;
+}
+
+const OFFERED = offeredCodes();
+const isOffered = (code) => !OFFERED || OFFERED.has(code);
+
 /** Every locale: the inline ones plus each i18n/*.js module. */
 const locales = [];
+const skipped = [];
 for (const inline of ["da", "np"]) {
   const body = sliceBlock(hookSrc, inline);
-  if (body) locales.push({ name: `useLanguage.jsx (${inline})`, pairs: extractPairs(body) });
+  if (!body) continue;
+  const entry = { name: `useLanguage.jsx (${inline})`, code: inline, pairs: extractPairs(body) };
+  (isOffered(inline) ? locales : skipped).push(entry);
 }
 if (fs.existsSync(I18N_DIR)) {
   for (const f of fs.readdirSync(I18N_DIR).filter((f) => f.endsWith(".js")).sort()) {
+    if (f === "languageCatalog.js") continue;
+    const code = f.replace(/\.js$/, "");
     const body = fs.readFileSync(path.join(I18N_DIR, f), "utf8");
-    locales.push({ name: `i18n/${f}`, pairs: extractPairs(body) });
+    const entry = { name: `i18n/${f}`, code, pairs: extractPairs(body) };
+    (isOffered(code) ? locales : skipped).push(entry);
   }
 }
 
@@ -117,12 +151,39 @@ for (const { name, pairs } of locales) {
   }
 }
 
+/** Non-blocking visibility: what a hidden pack would owe if it were offered. */
+function reportSkipped() {
+  if (!skipped.length) return;
+  const counts = skipped
+    .map((l) => {
+      let n = 0;
+      for (const [key, translated] of l.pairs) {
+        const source = en.get(key);
+        if (!source) continue;
+        for (const term of LOCKED) {
+          if (!source.toLowerCase().includes(term.toLowerCase())) continue;
+          if (!translated.toLowerCase().includes(term.toLowerCase())) n++;
+        }
+      }
+      return { name: l.name, n };
+    })
+    .filter((x) => x.n > 0);
+  if (!counts.length) return;
+  const total = counts.reduce((s, c) => s + c.n, 0);
+  console.log(
+    `\nℹ️  Not enforced — ${total} violation(s) in ${counts.length} pack(s) the picker does ` +
+      `not offer. These become BLOCKING the moment one is set offered: true:`,
+  );
+  for (const c of counts) console.log(`     ${c.name.padEnd(24)} ${c.n}`);
+}
+
 const checked = locales.reduce((n, l) => n + l.pairs.size, 0);
 if (violations.length === 0) {
   console.log(
     `✅ i18n locked-terms guard: 0 violations. ` +
-      `${locales.length} locales, ${checked} strings, ${LOCKED.length} locked terms.`,
+      `${locales.length} offered locale(s), ${checked} strings, ${LOCKED.length} locked terms.`,
   );
+  reportSkipped();
   process.exit(0);
 }
 

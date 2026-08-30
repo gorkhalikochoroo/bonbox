@@ -235,10 +235,30 @@ describe("Danish names one thing one way", () => {
     expect(resolve("tips", { lang: "da" })).toBe(resolve("staffTips", { lang: "da" }));
   });
 
-  it("MOMS keeps its uppercase in the report label", () => {
-    const v = resolve("vatReport", { lang: "da" });
-    expect(v).toContain("MOMS");
-    expect(v).not.toMatch(/\bMoms\b/);
+  it("the VAT screen is named for the artefact it produces", () => {
+    // momsangivelse is the FILING, momsregnskab the continuous bookkeeping,
+    // and momsopgørelse the period statement computing salgsmoms − købsmoms.
+    // VatReportPage produces the last of those and files nothing, so that is
+    // its name — the revisor's word, which the app already used for this exact
+    // artefact in fullTaxBreakdown.
+    expect(resolve("vatReport", { lang: "da" })).toBe("Momsopgørelse");
+  });
+
+  it("every string naming that screen agrees with it", () => {
+    // The reason this had to be a sweep rather than one key: the label, the
+    // link that navigates there, and the page's own loading and error lines
+    // all name the same document.
+    for (const key of ["taxViewVatReport", "loadingVat", "vatError"]) {
+      expect(resolve(key, { lang: "da" }).toLowerCase()).toContain("momsopgørelse");
+    }
+  });
+
+  it("keeps Danish compound casing — lowercase inside a sentence", () => {
+    // MOMS is uppercase as a standalone token ("MOMS-frist"), but a compound
+    // common noun is one lowercase word mid-sentence. Both forms are correct
+    // Danish; using the wrong one for the position is what looks machine-made.
+    expect(resolve("vatReport", { lang: "da" })).toBe("Momsopgørelse");
+    expect(resolve("taxViewVatReport", { lang: "da" })).toContain("momsopgørelse");
   });
 
   it("English is NOT given the Danish tax word", () => {
