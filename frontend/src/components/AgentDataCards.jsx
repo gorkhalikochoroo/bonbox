@@ -527,8 +527,15 @@ export function HealthCard({ data, currency }) {
   } = data;
 
   // Neutral values by default; only margin + stock alerts are status-colored.
+  // An ABSENT margin is not a zero margin. /dashboard/batch withholds
+  // profit_margin (null) for an invited seat or a curtained shared device, and
+  // `null >= 0` is true in JS — so without this guard the card painted a
+  // confident amber "0.0%" for a business whose margin it was never told.
+  const marginUnknown = profit_margin == null;
   const marginColor =
-    profit_margin >= 20
+    marginUnknown
+      ? "text-gray-500 dark:text-gray-400"
+      : profit_margin >= 20
       ? "text-emerald-700 dark:text-emerald-400"
       : profit_margin >= 0
         ? "text-amber-600 dark:text-amber-400"
@@ -540,7 +547,7 @@ export function HealthCard({ data, currency }) {
     { label: t("expenses"), display: formatOwnerMoney(month_expenses, currency) },
     {
       label: t("margin"),
-      display: `${(profit_margin ?? 0).toFixed(1)}%`,
+      display: marginUnknown ? "—" : `${profit_margin.toFixed(1)}%`,
       color: marginColor,
     },
     {
