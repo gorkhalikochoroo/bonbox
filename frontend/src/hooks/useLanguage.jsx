@@ -15757,9 +15757,18 @@ export function getLangForCurrency(currencyCode) {
 // trust the user's explicit choice. Auto-picks are flagged via
 // `bonbox_lang_auto_picked` so the welcome toast can offer "switch back".
 //
-// Map browser locale to the 6 supported languages. Falls through to null
+// Map browser locale to the supported languages. Falls through to null
 // when the locale isn't supported (caller falls to currency hint).
-const SUPPORTED = new Set(["en", "da", "np", "vi", "th", "tr"]);
+//
+// MUST contain every language the picker offers (languageCatalog.js
+// `offered: true`), because detectInitialLanguage() gates the STORED choice on
+// this set. "de" was offered but missing here, so picking Deutsch did not
+// survive a reload — and not merely by being ignored: detectInitialLanguage
+// falls through to browser detection and then WRITES that result back, so the
+// stored "de" was overwritten with "en". Directly contradicts the promise four
+// lines up, that once "lang" is in localStorage we trust the user's choice.
+// i18nLanguageCatalog.test.js now fails if the two lists drift apart again.
+const SUPPORTED = new Set(["en", "da", "np", "vi", "th", "tr", "de"]);
 const BROWSER_LANG_MAP = {
   // Danish & Faroese (Faroese owners often run DK ops)
   "da": "da", "da-dk": "da", "fo": "da",
