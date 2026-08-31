@@ -790,7 +790,7 @@ export default function ProfilePage() {
   if (!user) return <div className="p-6 text-center text-gray-500">{t("loading")}</div>;
 
   return (
-    <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto">
       {/* Task #120 polish (Agent E): migrated H1 → PageHeader, KPI cards →
           StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
           + i18n + a11y unchanged. */}
