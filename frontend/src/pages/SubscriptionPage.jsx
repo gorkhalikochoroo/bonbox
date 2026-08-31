@@ -560,7 +560,7 @@ export default function SubscriptionPage() {
   }
 
   return (
-    <div className="px-4 sm:px-6 py-6 sm:py-10 pb-32 sm:pb-16 max-w-6xl mx-auto">
+    <div className="px-4 sm:px-6 py-6 sm:py-10 pb-32 sm:pb-16 max-w-6xl 2xl:max-w-[1400px] mx-auto">
       {/* Post-payment acknowledgment — shown on the Stripe success return */}
       {paymentAck && (
         <Card variant="emphasis" className="mb-6">

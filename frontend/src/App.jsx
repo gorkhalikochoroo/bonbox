@@ -38,6 +38,28 @@ function useKeepAlive() {
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
+/**
+ * Google's identity SDK, scoped to the two routes that actually use it.
+ *
+ * @react-oauth/google injects <script src="accounts.google.com/gsi/client">
+ * the moment this provider mounts, from an effect that knows nothing about the
+ * route. Mounted at the app root it therefore loaded Google's script for every
+ * visitor on every page — including anonymous guests on an owner's public
+ * booking link, where BonBox is the first party and no consent had been given.
+ *
+ * Keep this wrapper on <GoogleLogin> routes ONLY. If you add a third one,
+ * wrap it here too — the failure mode is a runtime throw inside the page, not
+ * a build error, so the compiler will not catch it for you.
+ */
+function WithGoogleAuth({ children }) {
+  if (!GOOGLE_CLIENT_ID) return children;
+  return (
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      {children}
+    </GoogleOAuthProvider>
+  );
+}
+
 // Loading spinner for lazy-loaded pages
 function PageLoader() {
   return (
@@ -481,12 +503,12 @@ function AppRoutes() {
       <Routes>
         <Route path="/" element={<PublicOrDashboard />} />
         <Route path="/v2" element={<LandingV2Page />} />
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login" element={<WithGoogleAuth><LoginPage /></WithGoogleAuth>} />
         {/* Task #61 — magic-link landing. Token in ?token=… is the only
             credential; the page POSTs to /auth/magic-link/verify on
             mount and redirects to /dashboard on success. */}
         <Route path="/login/magic" element={<LoginMagicPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/register" element={<WithGoogleAuth><RegisterPage /></WithGoogleAuth>} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/verify-email" element={<VerifyEmailRoute />} />
         {/* Task #55 — First-run welcome wizard. Sits OUTSIDE the
@@ -771,20 +793,57 @@ function ScrollManager() {
     // only after its own fetch resolves, so it is not in the DOM on the first
     // pass. Bounded (~0.5s) and cancelled on unmount — a bare loop here is the
     // kind of cleverness that white-screened this component once already.
+    // The rAF budget below used to be the WHOLE strategy, capped at 30 frames
+    // (~0.5s). That is far too short for the pages these links point at:
+    // ProfilePage returns a loading stub until the /auth/me fetch resolves, and
+    // the API is on Render, which cold-starts in tens of seconds. So the anchor
+    // gave up while the page still said "loading", never looked again, and the
+    // owner landed mid-page — which is the original bug, not a fix for it.
+    // Every /profile#billing CTA in ConnectionsProgressCard and ConnectionsPage
+    // hits this path.
+    //
+    // Now: fast rAF path for the common case (section already mounted), then a
+    // MutationObserver that waits for the node to actually appear. Bounded by a
+    // hard timeout so a wrong/stale anchor can never leave an observer running,
+    // and torn down on unmount or hash change.
+    const HARD_TIMEOUT_MS = 20000;
     let frames = 0;
     let raf = 0;
-    const findAndScroll = () => {
-      const el = document.getElementById(hash.slice(1));
-      if (el) {
-        el.scrollIntoView({ block: "start" });
-        return;
-      }
-      if (frames++ < 30) raf = requestAnimationFrame(findAndScroll);
-    };
-    findAndScroll();
-    return () => {
+    let observer = null;
+    let timeout = 0;
+    let done = false;
+
+    const cleanup = () => {
       if (raf) cancelAnimationFrame(raf);
+      if (observer) { try { observer.disconnect(); } catch { /* noop */ } }
+      if (timeout) clearTimeout(timeout);
     };
+
+    const tryScroll = () => {
+      if (done) return true;
+      const el = document.getElementById(hash.slice(1));
+      if (!el) return false;
+      done = true;
+      el.scrollIntoView({ block: "start" });
+      cleanup();
+      return true;
+    };
+
+    const rafProbe = () => {
+      if (tryScroll()) return;
+      if (frames++ < 30) raf = requestAnimationFrame(rafProbe);
+    };
+    rafProbe();
+
+    if (!done) {
+      try {
+        observer = new MutationObserver(() => { tryScroll(); });
+        observer.observe(document.body, { childList: true, subtree: true });
+        timeout = setTimeout(cleanup, HARD_TIMEOUT_MS);
+      } catch { /* MutationObserver unavailable — rAF path already ran */ }
+    }
+
+    return cleanup;
   }, [pathname, hash]);
   return null;
 }
@@ -867,10 +926,19 @@ function AppInner() {
 }
 
 export default function App() {
-  if (!GOOGLE_CLIENT_ID) return <AppInner />;
-  return (
-    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-      <AppInner />
-    </GoogleOAuthProvider>
-  );
+  // GoogleOAuthProvider used to wrap ALL of AppInner. @react-oauth/google
+  // appends <script src="https://accounts.google.com/gsi/client"> to the body
+  // from a bare, route-blind mount effect — so Google's identity script loaded
+  // on EVERY route, including the anonymous public booking pages served by the
+  // catch-all "/:slug". A restaurant guest opening a booking link had a
+  // third-party script from Google in their browser before they had consented
+  // to anything, on a page where BonBox is the first party and owns consent.
+  // The cookie banner did not gate it: the script loads regardless of what the
+  // guest clicks, so the banner was asking permission it could not enforce.
+  //
+  // The provider is now scoped to the only two routes that consume it —
+  // <GoogleLogin> in LoginPage.jsx:521 and RegisterPage.jsx:449 are the sole
+  // importers of the library anywhere in src/. Verified before moving it: a
+  // missed consumer would throw at runtime, not fail the build.
+  return <AppInner />;
 }
