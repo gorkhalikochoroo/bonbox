@@ -8,6 +8,7 @@
 Both isolate per-row errors so one bad row never poisons the batch, and
 both are idempotent (reminder_sent_at / purged_at short-circuit re-runs).
 """
+import html as _html
 import logging
 import uuid
 from datetime import timedelta
@@ -151,10 +152,21 @@ def send_reservation_reminders() -> int:
                         "<p>Vi glæder os til at se dig! Skriv eller ring til os, "
                         "hvis du skal ændre eller aflyse.</p>"
                     )
+                    # guest_name is typed by an ANONYMOUS booker on the public
+                    # page — POST /public/reservations/{slug} accepts any 160
+                    # chars with no character restriction. Interpolated raw it
+                    # let a stranger author HTML (a phishing anchor, a tracking
+                    # pixel) inside a mail sent from noreply@bonbox.dk, SPF/DKIM
+                    # aligned, to any address they typed. Every sibling mailer
+                    # already escapes — _send_confirmation and _notify_owner_email
+                    # in routers/public_reservations.py, and
+                    # jobs/reservation_request_expiry.py — this one was missed.
+                    # Subject stays unescaped on purpose: it is not HTML, and
+                    # escaping there would render literal &amp; to the guest.
                     html = (
-                        f"<p>Hej {r.guest_name},</p>"
+                        f"<p>Hej {_html.escape(r.guest_name or '')},</p>"
                         f"<p>Bare en venlig påmindelse om din reservation hos "
-                        f"<strong>{biz}</strong>:</p>"
+                        f"<strong>{_html.escape(biz or '')}</strong>:</p>"
                         f"<p>{r.starts_at.strftime('%d/%m/%Y %H:%M')} · {r.party_size} personer</p>"
                         f"{cancel_line}"
                     )
@@ -170,15 +182,37 @@ def send_reservation_reminders() -> int:
                 if channel and outcome.get("ok"):
                     r.reminder_sent_at = utc_now()
                     sent += 1
+                    # notification_log.staff_id is NOT NULL in prod (verified
+                    # 2026-08-31) — the table was built from the model, which
+                    # declares it non-nullable because it was originally "log of
+                    # notifications sent to STAFF". A guest reservation reminder
+                    # has no staff member, so this insert cannot succeed today.
+                    #
+                    # The old code wrapped db.add() in try/except and looked
+                    # safe. It was not: db.add() only stages the object, so the
+                    # IntegrityError fired at the batch db.commit() below —
+                    # outside both handlers. That rolls back every
+                    # reminder_sent_at in the batch AFTER the emails have already
+                    # been sent, so the same guests would be reminded again the
+                    # next night, and every night until their booking passes.
+                    #
+                    # SAVEPOINT so a failed log write can never cost us the
+                    # reminder_sent_at that stops the re-send. Losing an audit
+                    # row is acceptable; mailing a guest nightly is not.
                     try:
-                        db.add(NotificationLog(
-                            id=uuid.uuid4(), user_id=r.user_id, staff_id=None,
-                            channel=channel, event_type="reservation_reminder",
-                            subject=f"Reminder {when}", body=f"{r.party_size} pers",
-                            status="sent",
-                        ))
-                    except Exception:  # noqa: BLE001
-                        pass
+                        with db.begin_nested():
+                            db.add(NotificationLog(
+                                id=uuid.uuid4(), user_id=r.user_id, staff_id=None,
+                                channel=channel, event_type="reservation_reminder",
+                                subject=f"Reminder {when}", body=f"{r.party_size} pers",
+                                status="sent",
+                            ))
+                            db.flush()   # force the INSERT inside the savepoint
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "reservation reminder logged send but could not write "
+                            "notification_log for %s: %s", r.id, exc,
+                        )
             except Exception as exc:  # noqa: BLE001 — isolate per-row
                 logger.warning("reservation reminder failed for %s: %s", r.id, exc)
         db.commit()

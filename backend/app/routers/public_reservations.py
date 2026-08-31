@@ -782,7 +782,11 @@ def _create_public_provider_booking(db: Session, owner: User, profile, payload,
 def create_reservation(request: Request, background_tasks: BackgroundTasks,
                        slug: str = Path(...),
                        payload: PublicReservationCreate = Body(...),
-                       idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key"),
+                       # Bounded at the edge: the column is VARCHAR(80), so an
+                       # oversized header from an anonymous caller reached the DB
+                       # and raised — a guaranteed unauthenticated 500. 422 here
+                       # instead, before any query runs.
+                       idempotency_key: str | None = Header(default=None, alias="X-Idempotency-Key", max_length=80),
                        db: Session = Depends(get_db)):
     profile, owner = _resolve_owner(db, slug)
 
