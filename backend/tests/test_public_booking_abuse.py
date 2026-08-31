@@ -169,6 +169,60 @@ def test_cancelled_bookings_do_not_burn_the_monthly_cap(client, db):
     )
 
 
+def test_pending_group_requests_do_not_burn_the_monthly_cap(client, db):
+    """THE SAME EXPLOIT, THROUGH A DOOR THAT DOES NOT EVEN NEED CANCELLING.
+
+    A party at or above group_request_threshold takes the is_request branch,
+    which runs NO availability engine — it is a plain insert, so it ALWAYS
+    succeeds. There is no capacity to bounce off and no table is held.
+
+    While "requested" counted toward the monthly cap, an anonymous caller
+    could post ~20 of them dated far enough ahead and hold a Free venue's
+    entire allowance. expire_stale_requests only sweeps rows within 6h of the
+    sitting, so distant junk never cleared itself — the attacker chose how
+    long the venue stayed dark, and the owner saw a dead booking page with an
+    empty floor plan and no cause.
+
+    A pending request holds nothing, so by the same rule the cancellation test
+    above establishes, it consumes nothing. It starts counting when the owner
+    confirms it and a table is actually held.
+    """
+    owner, profile = _restaurant(db, plan="free", tables=40)
+    for _ in range(20):
+        db.add(Reservation(
+            user_id=owner.id,
+            starts_at=datetime.now() + timedelta(days=45),
+            ends_at=datetime.now() + timedelta(days=45, minutes=120),
+            party_size=8, guest_name="Troll", status="requested",
+        ))
+    db.commit()
+
+    r = _book(client, profile.reservation_slug)
+    assert r.status_code == 200, (
+        "parked group requests consumed the venue's quota — an anonymous "
+        "stranger can dark a customer's booking page for as long as they like"
+    )
+
+
+def test_a_confirmed_group_request_does_count(client, db):
+    """The other half of the rule: once the owner approves it, a table IS
+    held, so it spends quota like any other booking. Otherwise this fix would
+    just be a hole."""
+    owner, profile = _restaurant(db, plan="free", tables=40)
+    for _ in range(20):
+        db.add(Reservation(
+            user_id=owner.id,
+            starts_at=datetime.now() + timedelta(days=45),
+            ends_at=datetime.now() + timedelta(days=45, minutes=120),
+            party_size=8, guest_name="Real party", status="confirmed",
+        ))
+    db.commit()
+
+    r = _book(client, profile.reservation_slug)
+    assert r.status_code == 409, "approved group bookings must still count"
+    assert r.json()["detail"]["error"] == "not_accepting"
+
+
 def test_live_bookings_still_count_toward_the_cap(client, db):
     """The cap must remain a real cap — this is a tier boundary, not a
     formality."""

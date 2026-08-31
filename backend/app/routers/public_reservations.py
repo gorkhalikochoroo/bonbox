@@ -836,6 +836,21 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
     #
     # no_show and completed DO count: the table was held, the cover was
     # real. Only a cancellation gives the capacity back.
+    #
+    # "requested" does NOT count, by that same rule — and leaving it in was a
+    # live outage an anonymous stranger could trigger with curl. A group
+    # request (party_size >= group_request_threshold) skips the availability
+    # engine entirely and is a plain insert, so it ALWAYS succeeds: there is no
+    # capacity to bounce off. It also holds no table and no occupancy row until
+    # the owner approves it. So by the cancellation rule above, it consumes
+    # nothing.
+    #
+    # Counting it meant ~20 posts dated far enough out — expire_stale_requests
+    # only sweeps rows within 6h of the sitting, so distant junk never clears —
+    # held a Free venue's ENTIRE monthly allowance for as long as the attacker
+    # chose, and the venue's real guests then got 409 not_accepting with the
+    # owner seeing no cause. It starts counting the moment the owner confirms
+    # it, which is when a table is actually held.
     month_start = _now_local().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     used = (
         db.query(func.count(Reservation.id))
@@ -843,7 +858,7 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
                 Reservation.created_at >= month_start,
                 Reservation.is_deleted.is_(False),
                 Reservation.status.in_(
-                    ("requested", "confirmed", "seated", "completed", "no_show")
+                    ("confirmed", "seated", "completed", "no_show")
                 ))
         .scalar()
     ) or 0
