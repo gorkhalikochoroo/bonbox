@@ -51,6 +51,90 @@ def _no_mail(monkeypatch):
     monkeypatch.setattr(es, "send_email", lambda **k: True)
 
 
+@pytest.fixture
+def sent(monkeypatch) -> list:
+    """Capture recipients instead of swallowing them."""
+    import app.services.email_service as es
+    box: list = []
+    monkeypatch.setattr(es, "send_email",
+                        lambda **k: (box.append(k.get("to")), True)[1])
+    return box
+
+
+class TestOneAddressCannotBeMailedOncePerParkedRow:
+    """THE CANNON.
+
+    A group request skips the availability engine — plain insert, always
+    succeeds, no table held — so an anonymous caller can park unlimited rows
+    against one typed address. This sweep used to mail every one of them:
+    ~360/hour, ~8,640/day at a victim, from noreply@bonbox.dk with our SPF and
+    DKIM on it.
+
+    The bound already existed in _send_confirmation. It was simply never
+    consulted here, which is the real defect class — a cap enforced in one
+    mailer is not a cap.
+    """
+
+    def test_fifty_parked_rows_do_not_send_fifty_mails(self, db, sent):
+        u = _owner(db)
+        # The abuser's rows: all one address, all inside the expiry window.
+        # Only the first few ever carried a confirmation stamp, because
+        # _send_confirmation stops stamping once the daily cap is reached.
+        for i in range(50):
+            r = _req(db, u, hours_out=1, email="victim@example.com")
+            if i < 3:
+                r.confirmation_sent_at = datetime.now(timezone.utc)
+        db.commit()
+
+        out = expire_stale_requests(db)
+
+        assert out["requests_expired"] == 50, "every row must still be expired"
+        assert len(sent) == 0, (
+            f"mailed the victim {len(sent)} times off one booking form — "
+            f"this is the 8,640/day cannon"
+        )
+
+    def test_every_row_is_still_declined_even_when_the_mail_is_suppressed(self, db, sent):
+        """Suppressing mail must never leave rows parked forever — the venue's
+        capacity and the owner's queue still have to clear."""
+        u = _owner(db)
+        for _ in range(10):
+            r = _req(db, u, hours_out=1, email="victim@example.com")
+            r.confirmation_sent_at = datetime.now(timezone.utc)
+        db.commit()
+
+        expire_stale_requests(db)
+        db.expire_all()
+        left = (db.query(Reservation)
+                .filter(Reservation.user_id == u.id,
+                        Reservation.status == "requested").count())
+        assert left == 0
+
+    def test_twelve_real_parties_all_still_hear_back(self, db, sent):
+        """The false-positive guard, and the one that matters most. Twelve
+        genuine parties at one venue are twelve addresses — the cap is
+        per-address, so nobody is silenced by anybody else."""
+        u = _owner(db)
+        for i in range(12):
+            _req(db, u, hours_out=1, email=f"gaest{i}@example.com")
+        db.commit()
+
+        out = expire_stale_requests(db)
+
+        assert len(sent) == 12, f"only {len(sent)} of 12 real guests were told"
+        assert out["guests_notified"] == 12
+
+    def test_a_real_guest_whose_request_expires_is_still_told(self, db, sent):
+        """One booking is one stamp, so 1 < 3 and the decline goes out."""
+        u = _owner(db)
+        r = _req(db, u, hours_out=1, email="sita@example.com")
+        r.confirmation_sent_at = datetime.now(timezone.utc)
+        db.commit()
+
+        expire_stale_requests(db)
+        assert sent == ["sita@example.com"]
+
+
 def _owner(db) -> User:
     u = User(email=f"o-{uuid.uuid4().hex[:6]}@bonbox.test", password_hash="x",
              business_name="Bistro", business_type="restaurant",

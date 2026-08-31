@@ -113,6 +113,38 @@ def _tell_the_guest(db: Session, r: Reservation) -> bool:
     fixing, so a send failure is logged rather than swallowed."""
     if not r.guest_email:
         return False
+
+    # THE CANNON. A group request (party_size >= group_request_threshold) skips
+    # the availability engine entirely — plain insert, always succeeds, no table
+    # held — so an anonymous caller could park unlimited rows against one typed
+    # address. This sweep then mailed EVERY parked row. At the public rate limit
+    # that is ~360/hour, ~8,640/day at one victim, from noreply@bonbox.dk with
+    # our SPF/DKIM on it. That is BonBox's sending reputation, not just one
+    # inbox.
+    #
+    # The bound already existed — it was simply never consulted here. That is
+    # the drift worth naming: a cap enforced in ONE mailer is not a cap, and
+    # this is the third mailer to be found missing a control its siblings have.
+    #
+    # Read-only against the existing ledger, deliberately. _send_confirmation
+    # stamps confirmation_sent_at only when it really sends, and it already
+    # refuses past the daily cap — so an abuser's 4th row onward is never
+    # stamped and the count stays pinned. We do NOT stamp here: writing a
+    # decline into a column named confirmation_sent_at would make every surface
+    # that reads it claim a confirmation was sent, and the create-path stamp is
+    # already a sufficient ledger.
+    #
+    # A real guest is unaffected: one booking is one stamp, so their decline
+    # mail is 1 < 3 and goes out. Guests at the same venue are counted per
+    # address, so twelve real parties all still hear back.
+    from app.routers.public_reservations import _confirmation_quota_left
+    if not _confirmation_quota_left(db, r.user_id, r.guest_email):
+        logger.warning(
+            "request-expiry mail suppressed: per-address daily cap reached "
+            "(owner=%s reservation=%s)", r.user_id, r.id,
+        )
+        return False
+
     try:
         from app.services.email_service import send_email
         import html as _html
