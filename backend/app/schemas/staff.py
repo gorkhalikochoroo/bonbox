@@ -263,6 +263,37 @@ class HoursLogCreate(BaseModel):
     notes: str | None = None
 
 
+class HoursLogUpdate(BaseModel):
+    """PARTIAL edit of an existing hours row. Every field optional on purpose.
+
+    PUT /staff/hours/{id} used to bind HoursLogCreate, where staff_id and date
+    are required with no default. The only caller — the pencil-edit on the
+    owner's Details tab — sends `{total_hours}` alone, so FastAPI rejected it
+    with 422 before the handler ever ran. Every correction failed, and the
+    frontend swallowed the error, so the owner saw the number they had typed
+    sitting in the field and believed it was saved. On a pay record.
+
+    The obvious repair — make the client send the whole row — is worse. The
+    handler full-replaces, so any field the client omitted would be written as
+    NULL: start_time, end_time and break_minutes would be blanked on rows that
+    are the venue's Arbejdstidsloven register, which must be kept for five
+    years and must show daily working time. A partial body plus
+    `model_fields_set` in the handler means an untouched field is left exactly
+    as it was.
+    """
+    staff_id: uuid.UUID | None = None
+    date: datetime.date | None = None
+    start_time: str | None = None
+    end_time: str | None = None
+    break_minutes: int | None = None
+    total_hours: float | None = None
+    rate_applied: float | None = None
+    earned: float | None = None
+    entry_method: str | None = None
+    is_overtime: bool | None = None
+    notes: str | None = None
+
+
 class HoursLogResponse(BaseModel):
     id: uuid.UUID
     staff_id: uuid.UUID

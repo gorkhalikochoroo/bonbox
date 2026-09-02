@@ -4457,6 +4457,7 @@ const translations = {
     hovOvertimeHrs: "{n} t overtime",
     hovEmptyTitle: "No hours logged yet for this period",
     hovEmptyBody: "Log hours or confirm the schedule to see cost and labor %.",
+    hovEmptyPlanned: "{planned} planned on the schedule · nothing clocked yet",
     hovSummaryEyebrow: "This period",
     // Narrative lines (code → template). Params filled client-side.
     hovNarZero: "No hours logged yet for this period.",
@@ -4511,6 +4512,7 @@ const translations = {
     shpResolveConfirm: "The record is correct",
     shpResolveCancel: "Not now",
     shpResolveFailed: "Could not save. Try again.",
+    shpEditHoursFailed: "Could not save. Try again.",
     scheduled: "Scheduled",
     actual: "Actual",
     diff: "Diff",
@@ -12304,6 +12306,7 @@ const translations = {
     hovOvertimeHrs: "{n} t overarbejde",
     hovEmptyTitle: "Ingen timer registreret endnu i denne periode",
     hovEmptyBody: "Registrér timer eller bekræft vagtplanen for at se omkostning og lønprocent.",
+    hovEmptyPlanned: "{planned} planlagt i vagtplanen · intet stemplet endnu",
     hovSummaryEyebrow: "Denne periode",
     // Narrative lines (code → template). Params filled client-side.
     hovNarZero: "Ingen timer registreret endnu i denne periode.",
@@ -12358,6 +12361,7 @@ const translations = {
     shpResolveConfirm: "Registreringen er korrekt",
     shpResolveCancel: "Ikke nu",
     shpResolveFailed: "Kunne ikke gemmes. Prøv igen.",
+    shpEditHoursFailed: "Kunne ikke gemmes. Prøv igen.",
     scheduled: "Planlagt",
     actual: "Faktisk",
     diff: "Forskel",

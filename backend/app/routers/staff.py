@@ -82,6 +82,7 @@ from app.schemas.staff import (
     ScheduleCreate,
     ScheduleResponse,
     HoursLogCreate,
+    HoursLogUpdate,
     HoursLogResponse,
     TipCreate,
     TipResponse,
@@ -1613,7 +1614,22 @@ def get_current_pay_period(
     # Include the frame fields alongside the computed window so the client can
     # hydrate its picker + navigate prev/next on the correct frame from first
     # load (without a second GET /pay-period). Back-compatible: purely additive.
-    result = _compute_pay_period(config, date.today())
+    #
+    # Anchor on the VENUE's business day, not the server's calendar day. This
+    # used to be a bare date.today(), which is why the owner opening the page on
+    # 31 August landed on "1 Sept – 30 Sept": a server already past midnight UTC
+    # rolls the month before Copenhagen does, and monthly_1st then snaps to the
+    # next window. The period label frames every number on the Hours page, so
+    # this endpoint disagreeing with the rest of the file about what day it is
+    # decides which month the owner thinks they are paying.
+    #
+    # Same try/except shape as the overview endpoint below — a timezone lookup
+    # must never be what takes the pay period down.
+    try:
+        anchor_today = business_today_local(user)
+    except Exception:  # noqa: BLE001
+        anchor_today = date.today()
+    result = _compute_pay_period(config, anchor_today)
     result["period_type"] = config.period_type
     result["custom_start_day"] = config.custom_start_day
     return result
@@ -3798,10 +3814,24 @@ def resolve_hours(
 @router.put("/hours/{hours_id}", response_model=HoursLogResponse)
 def update_hours(
     hours_id: str,
-    data: HoursLogCreate,
+    data: HoursLogUpdate,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    """PARTIAL update. Only fields the caller actually sent are written.
+
+    This bound HoursLogCreate until 2026-09-02, where staff_id and date are
+    required. The one caller — the pencil-edit on the owner's Details tab —
+    sends {total_hours} alone, so every correction 422'd before this body ran,
+    and the frontend's `catch { // silent }` showed the owner their typed
+    number as if it had saved. On a pay record.
+
+    Why partial rather than "make the client send everything": this handler
+    full-replaces. A client omitting start_time/end_time/break_minutes would
+    blank them, and these rows ARE the venue's Arbejdstidsloven register —
+    daily working time, kept five years. Losing the times to fix a total is a
+    worse bug than the one being fixed.
+    """
     entry = db.query(HoursLogged).filter(
         HoursLogged.id == hours_id,
         HoursLogged.user_id == user.id,
@@ -3809,18 +3839,34 @@ def update_hours(
     if not entry:
         raise HTTPException(status_code=404, detail="Hours entry not found")
 
+    sent = data.model_fields_set   # explicitly provided keys, not defaults
+
+    # Fall back to what the row already holds so an omitted field is never a
+    # silent NULL. staff_id may be re-pointed, but only if the caller says so.
+    staff_id = data.staff_id if "staff_id" in sent else entry.staff_id
     staff = db.query(StaffMember).filter(
-        StaffMember.id == data.staff_id,
+        StaffMember.id == staff_id,
         StaffMember.user_id == user.id,
     ).first()
     if not staff:
         raise HTTPException(status_code=404, detail="Staff member not found")
 
-    total_hours = data.total_hours
-    entry_method = data.entry_method
+    eff_date = data.date if "date" in sent else entry.date
+    start_time = data.start_time if "start_time" in sent else entry.start_time
+    end_time = data.end_time if "end_time" in sent else entry.end_time
+    break_minutes = (
+        data.break_minutes if "break_minutes" in sent and data.break_minutes is not None
+        else (entry.break_minutes or 0)
+    )
 
-    if data.start_time and data.end_time:
-        total_hours = _calc_shift_hours(data.start_time, data.end_time, data.break_minutes)
+    total_hours = data.total_hours if "total_hours" in sent else entry.total_hours
+    entry_method = data.entry_method if "entry_method" in sent else entry.entry_method
+
+    # Recompute from times ONLY when the caller actually supplied times this
+    # request. Deriving from the row's stored times would silently overwrite a
+    # deliberate total-hours correction with the old clock span.
+    if ("start_time" in sent or "end_time" in sent) and start_time and end_time:
+        total_hours = _calc_shift_hours(start_time, end_time, break_minutes)
         # NOT "clock". A human editing times is the owner DECIDING, not the
         # punch clock measuring, and only the clock may claim to have measured.
         # This previously stamped entry_method="clock" on every owner edit,
@@ -3835,20 +3881,22 @@ def update_hours(
     if entry.clock_hours is None and entry.entry_method == "clock":
         entry.clock_hours = entry.total_hours
 
-    rate = data.rate_applied if data.rate_applied else _pick_rate(staff, data.date, data.start_time)
+    rate = data.rate_applied if data.rate_applied else _pick_rate(staff, eff_date, start_time)
     earned = data.earned if data.earned is not None else round(total_hours * rate, 2)
 
-    entry.staff_id = data.staff_id
-    entry.date = data.date
-    entry.start_time = data.start_time
-    entry.end_time = data.end_time
-    entry.break_minutes = data.break_minutes
+    entry.staff_id = staff_id
+    entry.date = eff_date
+    entry.start_time = start_time
+    entry.end_time = end_time
+    entry.break_minutes = break_minutes
     entry.total_hours = total_hours
     entry.rate_applied = rate
     entry.earned = earned
     entry.entry_method = entry_method
-    entry.is_overtime = data.is_overtime
-    entry.notes = data.notes
+    if "is_overtime" in sent:
+        entry.is_overtime = data.is_overtime
+    if "notes" in sent:
+        entry.notes = data.notes
     # An owner edit IS an answer — the shift should not still be asking.
     entry.resolution = "adjusted"
     entry.resolved_by = user.id

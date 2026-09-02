@@ -675,7 +675,7 @@ function NarrativeBanner({ lines, severity, currencyCode, inProgress = false }) 
 }
 
 function HoursOverview({ overview, loading, currency, onGoLog }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
 
   if (loading && !overview) {
     return (
@@ -694,10 +694,24 @@ function HoursOverview({ overview, loading, currency, onGoLog }) {
   // Empty period → ONE honest card, never four "0"-value tiles that read like a
   // real slow week.
   if (!overview.has_any_hours) {
+    // THE GAP, STATED. The payload already carries hours.scheduled_total — the
+    // roster's planned hours for this window — and this branch used to return
+    // before anything read it, so on the one screen where "93,8 t planned,
+    // 0 t logged" IS the whole story, the owner was told only "no hours logged
+    // yet". That single unrendered figure is the difference between a closed
+    // schedule→clock-in→payroll loop and an open one: nothing else on the
+    // surface announces that the two halves disagree.
+    const plannedT = (overview.hours || {}).scheduled_total;
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
         <Icon name="Clock" size={28} className="text-gray-400 mx-auto mb-2" />
         <p className="text-gray-800 dark:text-gray-100 font-medium">{t("hovEmptyTitle", "No hours logged yet for this period")}</p>
+        {plannedT > 0 && (
+          <p className="text-gray-800 dark:text-gray-100 text-sm mt-2">
+            {t("hovEmptyPlanned", "{planned} planned on the schedule · nothing clocked yet")
+              .split("{planned}").join(fmtHours(plannedT, lang))}
+          </p>
+        )}
         <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{t("hovEmptyBody", "Log hours or confirm the schedule to see cost and labor %.")}</p>
         {onGoLog && (
           <button
@@ -1705,6 +1719,16 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
   // The delete used to `catch { // silent }`. A payroll record vanishing with
   // no word is worse than one that fails loudly, so failures land here.
   const [delErr, setDelErr] = useState("");
+  // The EDIT had the same silent catch, and it was worse than the delete's.
+  // handleEdit sent {total_hours} to an endpoint binding HoursLogCreate, where
+  // staff_id and date are required — so every correction 422'd before the
+  // handler ran. Because setEditingId(null) only ran on success, a failure left
+  // the editor open still showing the number the owner had typed, spinner
+  // stopped. It read exactly like a save. The owner types 8, sees 8, walks
+  // away, and pays 6.25. Same class as the resolve bug this file already
+  // records fixing 750 lines above: "a failed save looked exactly like a
+  // successful one — on a pay record."
+  const [editErr, setEditErr] = useState("");
 
   // Build a name lookup
   const nameMap = useMemo(() => {
@@ -1715,14 +1739,23 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
 
   const handleEdit = async (id) => {
     if (!editHours) return;
+    setEditErr("");
     setEditSaving(true);
     try {
+      // PARTIAL body on purpose. The endpoint now binds HoursLogUpdate and
+      // applies only the keys actually sent, so the row's start_time, end_time
+      // and break_minutes survive a total-hours correction — those columns are
+      // the venue's Arbejdstidsloven register and must show daily working time
+      // for five years. Sending a "full" body to satisfy the old schema would
+      // have blanked them.
       await api.put(`/staff/hours/${id}`, { total_hours: parseFloat(editHours) });
       setEditingId(null);
       setEditHours("");
       onUpdated();
-    } catch {
-      // silent
+    } catch (e) {
+      // Stay open, keep what they typed, and SAY SO. Closing the editor here
+      // would be the original bug wearing a different mask.
+      setEditErr(errText(e, t("shpEditHoursFailed", "Could not save. Try again.")));
     } finally {
       setEditSaving(false);
     }
@@ -1858,7 +1891,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                 {/* Hours + Earned */}
                 <div className="text-right flex-shrink-0">
                   {isEditing ? (
-                    <div className="flex items-center gap-1">
+                    <div className="flex flex-wrap items-center gap-1">
                       <input
                         type="number"
                         step="0.25"
@@ -1881,11 +1914,16 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                         {editSaving ? "..." : t("save", "Save")}
                       </button>
                       <button
-                        onClick={() => { setEditingId(null); setEditHours(""); }}
+                        onClick={() => { setEditingId(null); setEditHours(""); setEditErr(""); }}
                         className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xs"
                       >
                         {t("cancel", "Cancel")}
                       </button>
+                      {editErr && (
+                        <span role="alert" className="w-full text-xs text-red-600 dark:text-red-400">
+                          {editErr}
+                        </span>
+                      )}
                     </div>
                   ) : (
                     <>
