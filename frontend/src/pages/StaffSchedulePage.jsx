@@ -522,6 +522,7 @@ function ClockGeofenceSettings() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [savedMsg, setSavedMsg] = useState(""); // honest success confirmation
+  const [open, setOpen] = useState(false);      // expanded only when unset, or on demand
   useEffect(() => {
     let alive = true;
     api.get("/staff/clock-geofence")
@@ -567,6 +568,41 @@ function ClockGeofenceSettings() {
       { enableHighAccuracy: true, timeout: 8000 },
     );
   };
+
+  // COLLAPSED once the venue anchor exists. This panel is a Settings control
+  // that lives on a work surface: the owner sets the anchor once, ever, and
+  // then opens this page 52 times a year to build a rota. Expanded it occupied
+  // the first strip of the page — the explainer, two checkboxes and a button —
+  // pushing the week nav and the grid down by a card-height on every visit.
+  //
+  // Not moved to Settings, because the punch-clock rules genuinely belong beside
+  // the roster they police. Collapsed instead: one line of state plus a way in.
+  // When there is NO location yet it stays open — an unconfigured geofence is a
+  // real call to action, not a setting.
+  if (cfg.has_location && !open) {
+    return (
+      <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+        <Icon name="MapPin" size={14} className="text-gray-400 dark:text-gray-500 shrink-0" />
+        <span className="text-gray-600 dark:text-gray-300">
+          {cfg.enabled
+            ? t("schedGeoSet", "Venue set · within {m} m", { m: cfg.radius_m })
+            : t("schedGeoOffSummary", "Clock-in is not locked to the venue")}
+        </span>
+        {cfg.enabled && cfg.window_enabled && (
+          <span className="text-gray-400 dark:text-gray-500">
+            · {t("schedWindowNote", "Opens 15 min before the shift")}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="ml-auto text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100 font-medium underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 rounded"
+        >
+          {t("change", "Change")}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -627,6 +663,15 @@ function ClockGeofenceSettings() {
       {msg && <span className="w-full text-[12px] text-red-500 dark:text-red-400">{msg}</span>}
       {savedMsg && !msg && (
         <span className="w-full text-[12px] text-emerald-600 dark:text-emerald-400">{savedMsg}</span>
+      )}
+      {cfg.has_location && (
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="w-full text-left text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 rounded"
+        >
+          {t("done", "Done")}
+        </button>
       )}
     </div>
   );
