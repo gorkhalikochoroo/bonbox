@@ -2,6 +2,49 @@
 <html lang="da">
   <head>
     <meta charset="UTF-8" />
+    <!-- Chrome decides whether to offer/auto-apply translation from the STATIC
+         shell, long before React mounts. The shell ships lang="da" because
+         Denmark is the market and that is what crawlers index — but a returning
+         visitor whose stored language is English then loads a page Chrome has
+         already labelled Danish. With "always translate Danish" on, Chrome
+         translates the ENGLISH text React renders as if it were Danish, which
+         is how "Online" came out as "onion".
+
+         So correct the attribute here, synchronously, from the same
+         localStorage key the app uses — before Chrome's detector runs. React's
+         effect still sets it on every later switch; this only fixes the gap
+         between first paint and hydration. Wrapped in try/catch because
+         private mode can throw on localStorage access, and a blank page is a
+         worse outcome than a mistranslated one. -->
+    <script>
+      (function () {
+        var l = null;
+        // localStorage access alone can throw (private mode, blocked cookies).
+        // Scope the catch to JUST that read — an earlier version wrapped the
+        // whole block, so in private mode it bailed before the navigator
+        // fallback and left the shell mislabelled, which is the exact bug this
+        // guard exists to prevent.
+        try { l = localStorage.getItem("lang"); } catch (e) { l = null; }
+        if (!l) {
+          // FIRST VISIT (or no storage): the app is about to auto-pick from
+          // navigator.language — see detectInitialLanguage. Mirror only that
+          // step. The currency hint and the final "en" fallback are NOT
+          // mirrored: they need app state, and guessing wrong is worse here.
+          try {
+            var n = (navigator.language || "").toLowerCase();
+            var map = { da: "da", fo: "da", en: "en", ne: "np", np: "np",
+                        vi: "vi", th: "th", tr: "tr" };
+            l = map[n] || map[n.split("-")[0]] || null;
+          } catch (e) { l = null; }
+        }
+        // Never override the shell default with Danish-or-unknown: lang="da"
+        // is already right for crawlers and the Danish market. This guard
+        // exists to prevent a WRONG label, not to restate a correct one.
+        if (l && l !== "da") {
+          try { document.documentElement.lang = l; } catch (e) {}
+        }
+      })();
+    </script>
     <!-- Favicon, in the order a crawler resolves it.
          /favicon.ico MUST exist as a real file: vercel.json rewrites /(.*) -> /
          for the SPA, so before this file existed a request for /favicon.ico
@@ -218,17 +261,16 @@
     </script>
 
     <title>BonBox — Bagkontoret din virksomhed faktisk kører på</title>
-    <script type="module" crossorigin src="/assets/index-BJqCBovD.js"></script>
+    <script type="module" crossorigin src="/assets/index-CW_Huif5.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/rolldown-runtime-COnpUsM8.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-charts-3Io-QhMO.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-Dg2yyCRX.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-i18n-V4z9R0EP.js">
     <link rel="modulepreload" crossorigin href="/assets/dist-N3LOKtlT.js">
     <link rel="modulepreload" crossorigin href="/assets/platform-BI5k6Ixa.js">
     <link rel="modulepreload" crossorigin href="/assets/createLucideIcon-DroOUvy5.js">
-    <link rel="modulepreload" crossorigin href="/assets/wrench-zSmH_4gW.js">
+    <link rel="modulepreload" crossorigin href="/assets/wrench-YL0Hawx6.js">
     <link rel="modulepreload" crossorigin href="/assets/thermometer-DMA6xTRN.js">
     <link rel="modulepreload" crossorigin href="/assets/calendar-check-BgHM9rpe.js">
-    <link rel="modulepreload" crossorigin href="/assets/utensils-D_mu5TWY.js">
+    <link rel="modulepreload" crossorigin href="/assets/utensils-BRZu9C4b.js">
     <link rel="modulepreload" crossorigin href="/assets/calendar-jMnqS0GV.js">
     <link rel="modulepreload" crossorigin href="/assets/timer-C68Lm9jT.js">
     <link rel="modulepreload" crossorigin href="/assets/chart-column-DRNtSRlI.js">
@@ -236,42 +278,45 @@
     <link rel="modulepreload" crossorigin href="/assets/chevron-down-cVL4Wsxb.js">
     <link rel="modulepreload" crossorigin href="/assets/chevron-right-DcIY0t_U.js">
     <link rel="modulepreload" crossorigin href="/assets/circle-alert-CmKw60iR.js">
-    <link rel="modulepreload" crossorigin href="/assets/clock-D1Swltmr.js">
-    <link rel="modulepreload" crossorigin href="/assets/rotate-ccw-7x0Gw6Fs.js">
-    <link rel="modulepreload" crossorigin href="/assets/file-text-cJKzAh-t.js">
-    <link rel="modulepreload" crossorigin href="/assets/gift-CCDPbH6W.js">
-    <link rel="modulepreload" crossorigin href="/assets/info-3i9ftsc0.js">
-    <link rel="modulepreload" crossorigin href="/assets/mail-zskppUoL.js">
-    <link rel="modulepreload" crossorigin href="/assets/minus-C9dL9797.js">
-    <link rel="modulepreload" crossorigin href="/assets/users-round-B0ybBPer.js">
-    <link rel="modulepreload" crossorigin href="/assets/plus-BPzDGJUM.js">
-    <link rel="modulepreload" crossorigin href="/assets/shield-check-C1tQIa_2.js">
-    <link rel="modulepreload" crossorigin href="/assets/thumbs-up-DBYIetpn.js">
-    <link rel="modulepreload" crossorigin href="/assets/trash-2-CHYbTsfc.js">
-    <link rel="modulepreload" crossorigin href="/assets/triangle-alert-DiDOLiwh.js">
-    <link rel="modulepreload" crossorigin href="/assets/users-DpPg3amc.js">
-    <link rel="modulepreload" crossorigin href="/assets/wallet-C0XNlOYw.js">
-    <link rel="modulepreload" crossorigin href="/assets/x-BAeyZths.js">
-    <link rel="modulepreload" crossorigin href="/assets/Icon-DbvMxMua.js">
-    <link rel="modulepreload" crossorigin href="/assets/vendor-react-QanNUueU.js">
-    <link rel="modulepreload" crossorigin href="/assets/currency-vSt_hpJ7.js">
-    <link rel="modulepreload" crossorigin href="/assets/Amount-DEzwT7V_.js">
-    <link rel="modulepreload" crossorigin href="/assets/Button-CgKSXdZW.js">
-    <link rel="modulepreload" crossorigin href="/assets/Card-C6k9zRxM.js">
-    <link rel="modulepreload" crossorigin href="/assets/inbox-Di2ePHV3.js">
-    <link rel="modulepreload" crossorigin href="/assets/Empty-D2xhwf8G.js">
-    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-B6Kc4h55.js">
-    <link rel="modulepreload" crossorigin href="/assets/StatCard-l5QyQNYF.js">
-    <link rel="modulepreload" crossorigin href="/assets/TabPills-4Eijp5sw.js">
+    <link rel="modulepreload" crossorigin href="/assets/circle-check-B6fvFU1j.js">
+    <link rel="modulepreload" crossorigin href="/assets/circle-question-mark-DVZKHTDI.js">
+    <link rel="modulepreload" crossorigin href="/assets/clock-D4jv_Z3j.js">
+    <link rel="modulepreload" crossorigin href="/assets/rotate-ccw-DgTEyyuI.js">
+    <link rel="modulepreload" crossorigin href="/assets/file-text-BpKBpjDi.js">
+    <link rel="modulepreload" crossorigin href="/assets/gift-Ju9gCXD5.js">
+    <link rel="modulepreload" crossorigin href="/assets/info-CIR_nWhR.js">
+    <link rel="modulepreload" crossorigin href="/assets/key-round-BYdGUtPz.js">
+    <link rel="modulepreload" crossorigin href="/assets/mail-CYFSKumC.js">
+    <link rel="modulepreload" crossorigin href="/assets/minus-DSLXMvmA.js">
+    <link rel="modulepreload" crossorigin href="/assets/users-round-BlSUAZDq.js">
+    <link rel="modulepreload" crossorigin href="/assets/plus-Bq1Ljjh3.js">
+    <link rel="modulepreload" crossorigin href="/assets/shield-check-K_ke38U6.js">
+    <link rel="modulepreload" crossorigin href="/assets/thumbs-up-BEGyussQ.js">
+    <link rel="modulepreload" crossorigin href="/assets/trash-2-BjO0DoAH.js">
+    <link rel="modulepreload" crossorigin href="/assets/triangle-alert-Bbj_ZJCv.js">
+    <link rel="modulepreload" crossorigin href="/assets/users-Bc_XAiBY.js">
+    <link rel="modulepreload" crossorigin href="/assets/wallet-DgJyKrEz.js">
+    <link rel="modulepreload" crossorigin href="/assets/x-Br-ATSXc.js">
+    <link rel="modulepreload" crossorigin href="/assets/Icon-D139V00o.js">
+    <link rel="modulepreload" crossorigin href="/assets/vendor-react-H-wKCg39.js">
+    <link rel="modulepreload" crossorigin href="/assets/currency-tR8Tq8nl.js">
+    <link rel="modulepreload" crossorigin href="/assets/Amount-C3couKcf.js">
+    <link rel="modulepreload" crossorigin href="/assets/Button-HsvnHwtS.js">
+    <link rel="modulepreload" crossorigin href="/assets/Card-DVyCZlui.js">
+    <link rel="modulepreload" crossorigin href="/assets/inbox-BWajf-TE.js">
+    <link rel="modulepreload" crossorigin href="/assets/Empty-CQjE5P67.js">
+    <link rel="modulepreload" crossorigin href="/assets/SectionBanner-D9OksbrC.js">
+    <link rel="modulepreload" crossorigin href="/assets/StatCard-DjVXuIgi.js">
+    <link rel="modulepreload" crossorigin href="/assets/TabPills-CBQWA5x0.js">
     <link rel="modulepreload" crossorigin href="/assets/api-OG2N4cJa.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEventLog-CeFg_BYe.js">
-    <link rel="modulepreload" crossorigin href="/assets/useAuth-D7ZaK-nk.js">
-    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-uCrQIpJs.js">
-    <link rel="modulepreload" crossorigin href="/assets/UpgradeNudge-CvrvXkLm.js">
-    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-D3wJ5nK2.js">
-    <link rel="modulepreload" crossorigin href="/assets/errText-e9v5XCBy.js">
-    <link rel="modulepreload" crossorigin href="/assets/sound-BNC8Wlcd.js">
-    <link rel="stylesheet" crossorigin href="/assets/index-CrhqvuRW.css">
+    <link rel="modulepreload" crossorigin href="/assets/useEventLog-QYeTZ7f0.js">
+    <link rel="modulepreload" crossorigin href="/assets/useAuth-CGKf4SdJ.js">
+    <link rel="modulepreload" crossorigin href="/assets/useEntitlements-BYRMu_EA.js">
+    <link rel="modulepreload" crossorigin href="/assets/UpgradeNudge-BPk4cXRN.js">
+    <link rel="modulepreload" crossorigin href="/assets/useDeviceShare-DFrVBpoL.js">
+    <link rel="modulepreload" crossorigin href="/assets/errText-nIPKUfxt.js">
+    <link rel="modulepreload" crossorigin href="/assets/sound-Wl0vMhN_.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-C-nYvecW.css">
   </head>
   <body>
     <script>
