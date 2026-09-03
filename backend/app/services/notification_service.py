@@ -922,6 +922,90 @@ def notify_owner_shift_claimed(
     return result
 
 
+def notify_owner_sick_call(
+    db: Session, *, owner, staff_name: str, absence_date, shift=None,
+) -> dict:
+    """Best-effort push to the OWNER when a staffer calls in sick.
+
+    This did not exist. create_sick_call wrote a pending StaffAbsence row and a
+    log line and nothing else, so the most time-critical message in the whole
+    product — "I can't come in today" — reached nobody. The staffer taps the
+    button, sees a confirmation, and believes the venue knows. The venue finds
+    out when the shift starts and they are one person short.
+
+    That the omission was never noticed is itself telling: create_sick_call's
+    own docstring says idempotency "lets the staff tap the button twice without
+    spamming the owner", so the notification was always intended.
+
+    Same shape as notify_owner_shift_claimed: owner devices only
+    (staff_id IS NULL), one NotificationLog row, PII-light (first name + slot),
+    and it must NEVER block the sick call — an absence that failed to save
+    because a push failed would be strictly worse than a silent one.
+    """
+    result = {"attempted": 0, "sent": 0}
+    try:
+        from app.services.push_sender import send_to_subscription
+    except Exception:  # noqa: BLE001
+        return result
+
+    subs = (
+        db.query(PushSubscription)
+        .filter(
+            PushSubscription.user_id == owner.id,
+            PushSubscription.staff_id.is_(None),   # owner devices, not staff
+        )
+        .all()
+    )
+    try:
+        when = absence_date.strftime("%d/%m")
+    except Exception:  # noqa: BLE001
+        when = str(absence_date)
+
+    # Name the SLOT when we know it. "Sofie 03/09" makes the owner open the app
+    # to find out what is uncovered; "Sofie 03/09 16:00–23:00" is already the
+    # decision — that is the shift with a hole in it.
+    slot = ""
+    try:
+        if shift is not None and getattr(shift, "start_time", None) and getattr(shift, "end_time", None):
+            slot = f" {shift.start_time}–{shift.end_time}"
+    except Exception:  # noqa: BLE001
+        slot = ""
+
+    title = "BonBox · Sygemelding"
+    body_text = f"{staff_name} har meldt sig syg {when}{slot}"
+    payload = {
+        "title": title,
+        "body": body_text,
+        "tag": f"bonbox-sick-{when}",   # collapses repeat taps on one device
+        "data": {"url": "/staff/schedule"},
+    }
+    for sub in subs:
+        result["attempted"] += 1
+        try:
+            outcome = send_to_subscription(sub, payload)
+            if outcome.get("ok"):
+                result["sent"] += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("sick-call push threw: %s", exc)
+
+    try:
+        db.add(NotificationLog(
+            id=uuid.uuid4(),
+            user_id=owner.id,
+            staff_id=None,
+            channel="push",
+            event_type="sick_call",
+            subject=title,
+            body=body_text,
+            status="sent" if result["sent"] else "failed",
+            error_message=None if result["sent"] else "no_active_subscription",
+        ))
+        db.commit()
+    except Exception:  # noqa: BLE001
+        db.rollback()
+    return result
+
+
 def notify_owner_swap_executed(db: Session, *, owner_id, swap) -> dict:
     """Best-effort owner notification when a peer-to-peer shift swap
     auto-executes (both staff accepted → schedules already reassigned).

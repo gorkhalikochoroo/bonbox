@@ -2283,6 +2283,37 @@ def portal_call_sick(
         # L3: service-layer validation failure → 422 with the message.
         raise HTTPException(status_code=422, detail=str(e))
 
+    # TELL THE OWNER. This did not happen: create_sick_call wrote a pending
+    # absence row and a log line, so the most time-critical message in the
+    # product — "I can't come in today" — reached nobody. The staffer saw a
+    # confirmation and reasonably believed the venue knew; the venue found out
+    # when the shift started and they were a person short.
+    #
+    # Best-effort and AFTER the absence is committed, deliberately: an absence
+    # that failed to save because a push failed would be strictly worse than a
+    # silent one. The staffer's call is recorded either way.
+    try:
+        from app.models.user import User as _User
+        from app.services.notification_service import notify_owner_sick_call
+        _owner = db.query(_User).filter(_User.id == member.user_id).first()
+        if _owner is not None:
+            _shift = None
+            if absence.schedule_id:
+                _shift = db.query(Schedule).filter(
+                    Schedule.id == absence.schedule_id,
+                ).first()
+            notify_owner_sick_call(
+                db,
+                owner=_owner,
+                # First name only — the owner knows their own roster, and a
+                # push notification renders on a lock screen.
+                staff_name=(member.name or "").split(" ")[0] or "En medarbejder",
+                absence_date=absence.date,
+                shift=_shift,
+            )
+    except Exception:  # noqa: BLE001 — never let a push failure surface here
+        logger.warning("sick-call owner notification failed", exc_info=True)
+
     return SickCallPortalResponse(
         id=str(absence.id),
         date=absence.date,

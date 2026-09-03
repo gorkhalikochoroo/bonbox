@@ -1602,13 +1602,22 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // Build all 7 days for current + next week (OFF days included as silent dots).
   const thisWeek = [];
   const nextWeek = [];
+  // `all` carries EVERY shift on the day; `shift` stays as the first one for
+  // the strip, which draws one bar per day whatever happens on it. This used
+  // to be `shifts.find()`, which kept the first and silently dropped the rest:
+  // a split day (lunch, then back for dinner) showed one shift, and the week
+  // total under-counted the hours the staffer is actually working. Splits are
+  // normal in this trade, so the bug is common, invisible, and about pay.
+  const dayShifts = (d) => shifts.filter((s) => s.date === d);
   for (let i = 0; i < 7; i++) {
     const d = addDays(weekStart, i);
-    thisWeek.push({ date: d, shift: shifts.find((s) => s.date === d) });
+    const all = dayShifts(d);
+    thisWeek.push({ date: d, shift: all[0], all });
   }
   for (let i = 0; i < 7; i++) {
     const d = addDays(nextWeekStart, i);
-    nextWeek.push({ date: d, shift: shifts.find((s) => s.date === d) });
+    const all = dayShifts(d);
+    nextWeek.push({ date: d, shift: all[0], all });
   }
 
   const hasLater = shifts.some((s) => s.date >= laterStart);
@@ -1660,17 +1669,16 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
 
   const weekTotals = useMemo(() => {
 
-    const withShift = weekDays.filter((d) => d.shift);
+    // Flatten to shifts, not days — a split day is two shifts and two lots of
+    // hours, and the old day-keyed reduce counted it once.
+    const all = weekDays.flatMap((d) => d.all || (d.shift ? [d.shift] : []));
 
-    const hours = withShift.reduce((a, d) => a + (Number(d.shift.net_hours) || 0), 0);
+    const hours = all.reduce((a, s) => a + (Number(s.net_hours) || 0), 0);
 
-    return { hours: Math.round(hours * 100) / 100, count: withShift.length };
+    return { hours: Math.round(hours * 100) / 100, count: all.length };
 
   }, [weekDays]);
   const weekLabelStart = weekView === "this" ? weekStart : nextWeekStart;
-  const expandedShift = expandedDate
-    ? shifts.find((s) => s.date === expandedDate)
-    : null;
 
   // The ONE ceremonial beat: hero settles in once per page load. useRef pins
   // the decision for this mount so mid-animation re-renders (clock fetch,
@@ -1945,7 +1953,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                     className="shrink-0 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-xl bg-white/10 ring-1 ring-white/15 text-gray-200 text-sm font-medium hover:bg-white/20 active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
                   >
                     <CalendarPlus className="w-4 h-4 shrink-0" strokeWidth={2} aria-hidden />
-                    <span>{t("portalSyncCalendar", "Sync shifts")}</span>
+                    <span>{t("portalSyncCalendar", "Add to my calendar")}</span>
                   </button>
                 </div>
               )}
@@ -2014,11 +2022,28 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
         ) : (
           <>
             <div className="mt-1 text-2xl font-bold text-gray-500">{t("portalNoUpcomingShift")}</div>
-            {/* Honesty crumb: an empty hero says what happens next, not just
-                "nothing" — the portal will light up when the plan is published. */}
-            <div className="mt-2 text-[13px] text-gray-400">
-              {t("portalNoShiftHint", "You'll get notified here when {venue} publishes the schedule.", { venue: restaurantName || "" })}
-            </div>
+            {/* TWO empty states, not one. "You'll get notified when the venue
+                publishes the schedule" is true only while nothing is published.
+                Once the rota IS out and this staffer simply isn't on it, that
+                sentence tells them to keep waiting for a message that will
+                never come — the app quietly lies about why they have no work.
+                `teamShifts` already tells us which case we're in (it's a prop
+                on this component, so no backend call): if teammates have
+                upcoming shifts, the plan exists and the honest line is that
+                they're not on it. */}
+            {(teamShifts || []).some((s) => s.date >= today) ? (
+              <div className="mt-2 text-[13px] text-gray-400">
+                {t(
+                  "portalNoShiftPublished",
+                  "The schedule is out and you're not on it. Ask {venue} if that looks wrong.",
+                  { venue: restaurantName || "" },
+                )}
+              </div>
+            ) : (
+              <div className="mt-2 text-[13px] text-gray-400">
+                {t("portalNoShiftHint", "You'll get notified here when {venue} publishes the schedule.", { venue: restaurantName || "" })}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -2175,7 +2200,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           style={{ marginTop: 13, paddingTop: 11, borderTop: "1px solid #eef2f7" }}
         >
           <span className="tabular-nums" style={{ font: "600 12px/1 var(--font-text)", color: "#475569" }}>
-            {weekTotals.hours} {t("portalHrsShort")} · {t("portalWeekShiftCount", "{n} shifts", { n: weekTotals.count })}
+            {fmtHM(weekTotals.hours)} · {t("portalWeekShiftCount", "{n} shifts", { n: weekTotals.count })}
           </span>
         </div>
 
@@ -2186,72 +2211,104 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
         {/* Selected-day detail, with v2's eyebrow above it: the DAY on the left,
             the station on the right. Without it the shift row floats free of the
             strip and you have to work out which day you tapped. */}
-        {weekView === "this" && (() => {
-          const fs = expandedShift || nextShift;
-          const dayLabel = fs
-            ? new Date(fs.date + "T00:00:00")
-                .toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" })
-                .toUpperCase()
-            : "";
+        {/* THE WEEK'S TIMES — every shift in the week on screen, not one
+            tapped day at a time.
+
+            This used to be gated on `weekView === "this"`, which meant paging
+            to NEXT week rendered the bars, the chevrons and the totals and then
+            nothing at all: next week's start and end times were unreachable in
+            this app at any number of taps. Next week is the only reason a
+            staffer opens this app on purpose — the rota comes out, the whole
+            team looks at once, and the app showed them coloured bars. They
+            texted the manager, which is the behaviour the owner bought this to
+            stop.
+
+            The old panel also answered only "which day did I tap". A staffer
+            writing the week on the fridge, or checking whether Friday finishes
+            before the last train, needs the days side by side. The strip stays
+            the glance layer (which days); this list is the answer layer (what
+            times). A tapped day still highlights here rather than hiding the
+            rest.
+
+            Multiple shifts on one day render as separate rows — see `all` on
+            the week arrays. `shifts.find()` used to keep only the first, so a
+            double shift showed one and the week total under-counted it. */}
+        {(() => {
+          const daysWithShifts = weekDays.filter((d) => (d.all || []).length);
+          if (!daysWithShifts.length) return null;
           return (
-            <>
-            {fs && (
-              <div className="flex items-baseline justify-between gap-2" style={{ marginTop: 18 }}>
-                <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: "#94a3b8" }}>
-                  {dayLabel}
-                  {isToday(fs.date) ? ` · ${t("portalToday", "Today")}` : ""}
-                </span>
-                {fs.role_on_shift && (
-                  <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>
-                    {fs.role_on_shift}
-                  </span>
-                )}
-              </div>
-            )}
-            <div className={`flex items-center justify-between gap-3${fs ? " mt-3 pt-3 border-t border-[#f1f5f9]" : ""}`}>
-              {fs ? (
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span className={`w-1.5 h-8 rounded-full shrink-0 ${roleBarColor(fs.role_on_shift)}`} aria-hidden />
-                  <div className="min-w-0">
-                    <div className="text-[13px] font-semibold text-gray-900 tabular-nums truncate">
-                      {new Date(fs.date + "T00:00:00").toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" })} · {fs.start_time}–{fs.end_time}
+            <div style={{ marginTop: 16 }} className="border-t border-[#f1f5f9] pt-1">
+              {daysWithShifts.map(({ date: d, all }) => {
+                const selected = expandedDate === d;
+                const today = isToday(d);
+                return (
+                  <div
+                    key={d}
+                    className="pt-3"
+                    style={{
+                      // The tapped day is emphasised, never isolated — the rest
+                      // of the week stays readable underneath it.
+                      background: selected ? "#f8fafc" : "transparent",
+                      borderRadius: selected ? 12 : 0,
+                      paddingLeft: selected ? 10 : 0,
+                      paddingRight: selected ? 10 : 0,
+                      paddingBottom: selected ? 10 : 0,
+                      transition: "background 140ms ease-out",
+                    }}
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: today ? "#0f172a" : "#94a3b8" }}>
+                        {new Date(d + "T00:00:00")
+                          .toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" })
+                          .toUpperCase()}
+                        {today ? ` · ${t("portalToday", "Today")}` : ""}
+                      </span>
+                      {all[0]?.role_on_shift && (
+                        <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>
+                          {all[0].role_on_shift}
+                        </span>
+                      )}
                     </div>
-                    <div className="text-[11px] text-gray-500 truncate">
-                      {fs.role_on_shift ? `${fs.role_on_shift} · ` : ""}{fs.net_hours}{t("portalHrsShort")}
-                    </div>
-                    {/* Venue lives here rather than in a second card — it
-                        was that row's only unique fact, and a staffer working
-                        two places needs it on the day they tapped, not on
-                        whatever the hero happens to be showing. */}
-                    {fs.branch_name && (
-                      <a
-                        href={`https://maps.apple.com/?q=${encodeURIComponent([fs.branch_name, fs.branch_address].filter(Boolean).join(", "))}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-gray-400 underline truncate"
-                      >
-                        <MapPin className="w-3 h-3 shrink-0" strokeWidth={2} aria-hidden />
-                        {fs.branch_name}
-                      </a>
-                    )}
+
+                    {all.map((fs) => (
+                      <div key={fs.id || `${fs.date}-${fs.start_time}`} className="flex items-center justify-between gap-3 mt-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className={`w-1.5 h-8 rounded-full shrink-0 ${roleBarColor(fs.role_on_shift)}`} aria-hidden />
+                          <div className="min-w-0">
+                            <div className="text-[13px] font-semibold text-gray-900 tabular-nums truncate">
+                              {fs.start_time}–{fs.end_time}
+                            </div>
+                            <div className="text-[11px] text-gray-500 truncate">
+                              {fs.role_on_shift ? `${fs.role_on_shift} · ` : ""}{fmtHM(fs.net_hours)}
+                            </div>
+                            {/* Venue on the day it belongs to — a staffer
+                                working two places needs it here, not on
+                                whatever the hero happens to be showing. */}
+                            {fs.branch_name && (
+                              <a
+                                href={`https://maps.apple.com/?q=${encodeURIComponent([fs.branch_name, fs.branch_address].filter(Boolean).join(", "))}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-gray-400 underline truncate"
+                              >
+                                <MapPin className="w-3 h-3 shrink-0" strokeWidth={2} aria-hidden />
+                                {fs.branch_name}
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="tabular-nums" style={{ font: "700 13px/1 var(--font-display)", color: "#0f172a" }}>
+                            {fmtHM(fs.net_hours)}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              ) : <span aria-hidden />}
-              {/* v2 puts the hours on the RIGHT of the shift row, over a tiny
-                  HRS label — the number a staffer scans for, at display weight. */}
-              {fs && (
-                <div className="text-right shrink-0">
-                  <div className="tabular-nums" style={{ font: "700 13px/1 var(--font-display)", color: "#0f172a" }}>
-                    {fs.net_hours}
-                  </div>
-                  <div style={{ marginTop: 4, font: "600 9.5px/1 var(--font-text)", letterSpacing: "0.1em", textTransform: "uppercase", color: "#94a3b8" }}>
-                    {t("portalHrsUnit", "hrs")}
-                  </div>
-                </div>
-              )}
+                );
+              })}
             </div>
-            </>
           );
         })()}
 
@@ -4960,7 +5017,7 @@ function WeekStrip({ weekOffset, onShiftWeek, oneOffByDate, recurringSet, absenc
   );
 }
 
-function AvailabilityTab({ token, shifts }) {
+function AvailabilityTab({ token, shifts, onNavigate }) {
   const { t, lang } = useLanguage();
   const [avail, setAvail] = useState(null);     // null = loading
   const [absence, setAbsence] = useState([]);
@@ -4971,6 +5028,7 @@ function AvailabilityTab({ token, shifts }) {
   const [recurOpen, setRecurOpen] = useState(false);
   const [expandedDate, setExpandedDate] = useState(null);
   const [confirmWeekday, setConfirmWeekday] = useState(null); // { wd }
+  const [confirmRostered, setConfirmRostered] = useState(null); // { iso }
   // Which kind a tap writes. "unavailable" is the default because it is the one
   // that actually constrains the roster; "preferred" is a soft signal.
   const [mode, setMode] = useState("unavailable");
@@ -5051,6 +5109,31 @@ function AvailabilityTab({ token, shifts }) {
       return;
     }
     if (oneOffByDate[iso]) return;                       // dedupe guard vs rapid double-tap
+    // ROSTERED DAY + "can't work" = the app's most dangerous silent moment.
+    // The tap succeeds, the dot turns red, and the staffer walks away believing
+    // they have told someone they can't come in. They have not: availability is
+    // a PLANNING signal the owner reads when building a future roster, and it
+    // does nothing at all to a shift that is already published. Nobody is
+    // notified, the shift stays on the roster, and the venue is short on the
+    // night. `shiftSet` was already computed and handed to both strips to tint
+    // the cell — the tap handler just never asked it. Say what the mark does
+    // and does not do, and point at the channel that reaches a human.
+    if (mode === "unavailable" && shiftSet.has(iso)) {
+      setConfirmRostered({ iso });
+      return;
+    }
+    withSaving(iso, true);
+    setAvail((rows) => [...(rows || []), { id: "tmp-" + iso, kind: mode, date: iso, weekday: null, start_time: null, end_time: null, note: null }]);
+    try { await portalApi.post(`/portal/${token}/availability`, { date: iso, kind: mode }); await loadAvail(); }
+    catch { setErr(t("kanIkkeSaveFailed", "Couldn't save — try again.")); await loadAvail(); }
+    finally { withSaving(iso, false); }
+  };
+
+  // Same write as tapDay's tail, reached only after the rostered-day sheet has
+  // told the staffer the shift is NOT cancelled by this.
+  const markAnyway = async (iso) => {
+    setConfirmRostered(null);
+    if (oneOffByDate[iso]) return;
     withSaving(iso, true);
     setAvail((rows) => [...(rows || []), { id: "tmp-" + iso, kind: mode, date: iso, weekday: null, start_time: null, end_time: null, note: null }]);
     try { await portalApi.post(`/portal/${token}/availability`, { date: iso, kind: mode }); await loadAvail(); }
@@ -5240,6 +5323,35 @@ function AvailabilityTab({ token, shifts }) {
 
       {/* Fravær — a request the owner approves (distinct from the soft calendar taps) */}
       <AbsenceSection token={token} onChanged={loadAbsence} />
+
+      {/* Rostered-day confirm: the mark is a planning signal, not a cancellation. */}
+      {confirmRostered && (
+        <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true">
+          <button type="button" className="absolute inset-0 bg-[#080e16]/50 backdrop-blur-[2px]" onClick={() => setConfirmRostered(null)} aria-label={t("portalCancel", "Cancel")} />
+          <div className="relative w-full max-w-lg mx-auto bg-white rounded-t-2xl p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] space-y-3">
+            <div className="text-base font-bold text-gray-900">{t("kanIkkeRosteredTitle", "You already have a shift that day")}</div>
+            <p className="text-[13px] text-gray-600">
+              {t("kanIkkeRosteredBody", "Marking this only tells the manager how to plan future weeks. It does not cancel the shift and nobody is notified — message them if you can't work it.")}
+            </p>
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => { setConfirmRostered(null); onNavigate?.("messages"); }}
+                className="flex-1 py-2.5 rounded-[14px] bg-gray-900 text-white font-text text-[13px] font-bold hover:bg-gray-800 transition"
+              >
+                {t("kanIkkeRosteredMessage", "Message manager")}
+              </button>
+              <button
+                type="button"
+                onClick={() => markAnyway(confirmRostered.iso)}
+                className="flex-1 py-2.5 rounded-[14px] bg-[#f1f5f9] text-gray-700 font-text text-[13px] font-bold hover:bg-[#e2e8f0] transition"
+              >
+                {t("kanIkkeRosteredAnyway", "Mark anyway")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Remove-weekly-rule scoped confirm (blast-radius honesty) */}
       {confirmWeekday && (
@@ -6249,6 +6361,10 @@ export default function StaffPortalPage() {
   // refresh that finds no news is indistinguishable from a refresh that never
   // ran, and people pull again.
   const [pullState, setPullState] = useState(null);   // null | "pulling" | "busy" | "same" | "new"
+  // Mirrors read by the touch listeners, which must outlive a state change —
+  // see the dep-array note on the effect below.
+  const pullBusy = useRef(false);
+  const doRefreshRef = useRef(null);
   const pullY = useRef(0);
 
   const doRefresh = useCallback(async () => {
@@ -6258,6 +6374,8 @@ export default function StaffPortalPage() {
     setPullState(changed ? "new" : "same");
     setTimeout(() => setPullState(null), 2200);
   }, [loadData, loadHours]);
+  useEffect(() => { pullBusy.current = pullState === "busy"; }, [pullState]);
+  useEffect(() => { doRefreshRef.current = doRefresh; }, [doRefresh]);
 
   useEffect(() => {
     if (!(pinVerified && info)) return;
@@ -6271,7 +6389,7 @@ export default function StaffPortalPage() {
       pullY.current = 0;
     };
     const onMove = (e) => {
-      if (startY === null || pullState === "busy") return;
+      if (startY === null || pullBusy.current) return;
       const dy = e.touches[0].clientY - startY;
       if (dy > 0 && el.scrollTop <= 0) {
         pullY.current = dy;
@@ -6282,7 +6400,7 @@ export default function StaffPortalPage() {
       const dy = pullY.current;
       startY = null;
       pullY.current = 0;
-      if (dy > 70) doRefresh();
+      if (dy > 70) doRefreshRef.current?.();
       else setPullState((p) => (p === "pulling" ? null : p));
     };
 
@@ -6294,7 +6412,15 @@ export default function StaffPortalPage() {
       el.removeEventListener("touchmove", onMove);
       el.removeEventListener("touchend", onEnd);
     };
-  }, [pinVerified, info, pullState, doRefresh]);
+    // `pullState` and `doRefresh` are DELIBERATELY not deps. Crossing the 12px
+    // threshold sets pullState to "pulling", which re-ran this effect, tore the
+    // listeners down and rebuilt them — and `startY`, a plain closure variable,
+    // came back null with the finger still down. Every later touchmove bailed
+    // on `startY === null`, so `pullY.current` froze at ~13px and the touchend
+    // test `dy > 70` could never pass. Pull-to-refresh looked implemented,
+    // rendered its own "Release to refresh" label, and had never once fired.
+    // Reading both through refs keeps the listeners bound for the whole gesture.
+  }, [pinVerified, info]);
 
   // Same-length window immediately before the one on screen, so "vs last
   // period" compares like with like even when the owner runs a 15–14 cycle.
@@ -7128,7 +7254,7 @@ export default function StaffPortalPage() {
             nonsense — the user IS in the app. Native push arrives with the
             APNs slice; until then the card simply doesn't render there. */}
         {tab === "schedule" && !isNativeApp() && <InstallNotifyCard token={token} />}
-        {tab === "availability" && <AvailabilityTab token={token} shifts={visibleShifts} />}
+        {tab === "availability" && <AvailabilityTab token={token} shifts={visibleShifts} onNavigate={setTab} />}
         {tab === "messages" && (
           <MessagesTab
             token={token}
