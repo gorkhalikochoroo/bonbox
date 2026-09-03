@@ -877,13 +877,14 @@ function PinGate({ onVerified, token, staffName }) {
  *     contains date + reason. UI doesn't even ask for staff_id.
  */
 function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [open, setOpen] = useState(autoOpen);
   const todayIso = useState(() => toLocalISO(new Date()))[0];
   const [date, setDate] = useState(todayIso);
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
 
   // The schedule_id IS optional — the backend auto-finds the shift
   // by date if we don't pass one — but if the staff picks a date
@@ -900,10 +901,14 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false })
         reason: reason.trim() || null,
         schedule_id: matchingShift?.id || null,
       });
-      // Reset + close + tell parent so it can refetch.
+      // Was: reset, close, done — the sheet vanished and NOTHING said it
+      // worked. For the one message in this product that means "I cannot come
+      // in", silence is the wrong answer: the staffer is left guessing whether
+      // to phone as well. Confirm what was recorded, then close on its own.
       setReason("");
-      setOpen(false);
+      setSent(true);
       onCalledIn?.();
+      setTimeout(() => { setSent(false); setOpen(false); }, 2600);
     } catch (err) {
       setError(errText(err, t("portalSickSendFailed", "Couldn't send. Try again.")));
     } finally {
@@ -926,6 +931,30 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false })
   // 14-day forward window matches the backend MAX_FUTURE_DAYS soft cap;
   // backend allows up to 60 but most call-ins are same-day or near.
   const maxIso = toLocalISO(addDaysToDate(new Date(), 14));
+
+  if (sent) {
+    // "2026-09-03" is the value we POST, not a date a person reads — and for a
+    // Danish reader it is not even the local convention.
+    const prettyDate = new Date(date + "T00:00:00").toLocaleDateString(localeFor(lang), {
+      weekday: "long", day: "numeric", month: "long",
+    });
+    return (
+      <div className="rounded-[20px] bg-white border border-[#e8edf3] p-5 text-center space-y-1.5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
+        <Check className="w-6 h-6 mx-auto text-emerald-600" strokeWidth={2.5} aria-hidden />
+        <div className="font-display text-[15px] font-bold text-gray-900">
+          {t("portalSickSentTitle", "Sick call registered")}
+        </div>
+        {/* States what is TRUE. The row is written and the manager sees it in
+            BonBox the moment they look. A push is attempted but may reach
+            nothing, so this must not promise one. */}
+        <div className="text-[12px] text-gray-500 leading-snug">
+          {matchingShift
+            ? t("portalSickSentBodyShift", "{date}, {from}–{to}. Your manager sees it in BonBox.", { date: prettyDate, from: matchingShift.start_time, to: matchingShift.end_time })
+            : t("portalSickSentBody", "{date}. Your manager sees it in BonBox.", { date: prettyDate })}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-[20px] bg-white border border-[#e8edf3] p-4 space-y-3 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_16px_32px_-24px_rgba(15,23,42,0.35)]">
@@ -978,7 +1007,12 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false })
         {submitting ? t("portalSending", "Sending...") : t("portalSickSubmit", "Send sick call")}
       </button>
       <div className="text-[10px] text-gray-400 text-center leading-snug">
-        {t("portalSickFootnote", "Your owner will be notified. They can assign someone to cover.")}
+        {/* Was "Your owner will be notified". Measured 2026-09-03: this
+            account has ZERO owner push subscriptions, so the push had nothing
+            to deliver to and the sentence was false. What IS always true is
+            that the absence row is written and shows in the owner's app. Say
+            that, and point at the channel that reaches a human. */}
+        {t("portalSickFootnote", "Your manager sees this in BonBox straight away. If it's urgent, message them too.")}
       </div>
     </div>
   );
@@ -1651,11 +1685,27 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // re-polls the feed, so a newly published or changed shift appears on its
   // own — no per-event add that iOS drops into Files. Falls back to https for
   // a manual add on clients without webcal.
+  // This opens a webcal: SUBSCRIPTION, not a one-off "add". Once iOS accepts
+  // it the calendar keeps itself up to date, so tapping again just offers a
+  // duplicate — which is what a button that permanently reads "Add to my
+  // calendar" invites you to do.
+  //
+  // The honest limit: webcal: hands off to the OS and never calls back, so we
+  // cannot know whether the subscription was completed or the sheet was
+  // cancelled. This flag therefore records that the button was TAPPED on this
+  // device, and the copy it drives is conditional ("if you subscribed") rather
+  // than a claim of success. Per token, so a shared phone doesn't inherit it.
+  const calKey = token ? `bb_cal_${token.slice(0, 8)}` : null;
+  const [calTapped, setCalTapped] = useState(() => {
+    try { return !!(calKey && localStorage.getItem(calKey)); } catch { return false; }
+  });
   const subscribeCalendar = () => {
     if (!token) return;
     const base = (portalApi.defaults.baseURL || "https://api.bonbox.dk/api").replace(/\/+$/, "");
     const url = `${base}/portal/${token}/schedule.ics`;
     window.open(url.replace(/^https?:/, "webcal:"), "_blank", "noopener");
+    try { if (calKey) localStorage.setItem(calKey, "1"); } catch { /* private mode */ }
+    setCalTapped(true);
   };
 
   const weekDays = weekView === "this" ? thisWeek : nextWeek;
@@ -1950,10 +2000,10 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                     type="button"
                     onClick={subscribeCalendar}
                     title={t("portalSyncCalendarHint", "Subscribe once — your calendar updates itself when shifts change")}
-                    className="shrink-0 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-xl bg-white/10 ring-1 ring-white/15 text-gray-200 text-sm font-medium hover:bg-white/20 active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900"
+                    className={"shrink-0 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-xl bg-white/10 ring-1 ring-white/15 text-sm font-medium hover:bg-white/20 active:scale-[0.98] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-1 focus-visible:ring-offset-gray-900 " + (calTapped ? "text-gray-400" : "text-gray-200")}
                   >
                     <CalendarPlus className="w-4 h-4 shrink-0" strokeWidth={2} aria-hidden />
-                    <span>{t("portalSyncCalendar", "Add to my calendar")}</span>
+                    <span>{calTapped ? t("portalSyncCalendarAgain", "Calendar") : t("portalSyncCalendar", "Add to my calendar")}</span>
                   </button>
                 </div>
               )}
