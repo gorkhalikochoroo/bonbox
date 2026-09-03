@@ -43,6 +43,38 @@ const config: CapacitorConfig = {
     // status bar, so the two stack → a fat empty gap under the notch. "never"
     // hands safe-area handling entirely to CSS (single, correct inset). The
     // owner app keeps "automatic" (its chrome doesn't do CSS insets).
+    // 2026-09-03 — SCHEDULER REVERTS TO "automatic". iOS OWNS THE TOP INSET.
+    //
+    // The CSS-owns-it model below is correct in theory and stopped working in
+    // practice: on iOS 26.4 / Capacitor 8, overlaysWebView:true no longer
+    // propagates a top safe-area inset to web content. env(safe-area-inset-top)
+    // resolves to 0 while the webview still covers the status bar, so the
+    // portal header rendered UNDER the notch, on top of the clock. Measured:
+    // the title row and the status-bar clock both land at y=80-110 in a device
+    // screenshot; with this change the clock stays at 80-110 and the title
+    // moves to 210-260 where it belongs.
+    //
+    // NOT a regression from the bar-material work — a build from the previous
+    // source reproduced it exactly. The bottom inset was never affected
+    // (nav height identical at 262px before and after), which is what makes
+    // this specifically a top-inset propagation failure rather than a layout
+    // bug of ours.
+    //
+    // The old comment warned that "automatic" double-insets into a fat gap.
+    // It cannot now: the two mechanisms are mutually exclusive. iOS insets the
+    // webview below the status bar, which makes env(safe-area-inset-top) 0, so
+    // the CSS padding that would have stacked contributes nothing. Verified on
+    // device — no gap, and the sticky header stays pinned to the pixel across
+    // 18 mid-fling frames.
+    //
+    // CONSEQUENCE, stated rather than discovered later: the portal's notch cap
+    // (.bb-lg-cap) is sized by env(safe-area-inset-top), so it is now zero-height
+    // and inert in the iOS app. Nothing needs it there — the native view paints
+    // the status-bar strip. It still applies on bonbox.dk/s/<token> in browsers
+    // that report a top inset.
+    //
+    // The owner app keeps "never" — its chrome does its own CSS insets and it
+    // is not affected by this.
     // BOTH targets now: "never" hands safe-area handling entirely to CSS.
     //
     // With "automatic" WKWebView is inset inside the safe areas, so the strips
@@ -56,7 +88,7 @@ const config: CapacitorConfig = {
     // background paints those strips and they follow the live theme. body
     // already pads by env(safe-area-inset-*), and Layout's mobile header pads
     // by env(safe-area-inset-top) itself, so content stays clear.
-    contentInset: "never",
+    contentInset: isScheduler ? "automatic" : "never",
     allowsLinkPreview: false,
     backgroundColor: shellBg,
     // Do NOT set preferredContentMode: 'mobile' — breaks iPad responsive layout
@@ -98,7 +130,8 @@ const config: CapacitorConfig = {
       // Required alongside contentInset "never" — the config note below is
       // right that "never" alone is not enough, because iOS also offsets the
       // webview FRAME, not just the scroll inset.
-      overlaysWebView: true,
+      // false for the scheduler — see the contentInset note above.
+      overlaysWebView: !isScheduler,
     },
     Keyboard: {
       resize: "body",

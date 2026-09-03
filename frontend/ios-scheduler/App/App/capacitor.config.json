@@ -4,7 +4,7 @@
 	"webDir": "dist-scheduler",
 	"ios": {
 		"path": "ios-scheduler",
-		"contentInset": "never",
+		"contentInset": "automatic",
 		"allowsLinkPreview": false,
 		"backgroundColor": "#f9fafb",
 		"scrollEnabled": true
@@ -22,7 +22,7 @@
 		"StatusBar": {
 			"style": "LIGHT",
 			"backgroundColor": "#f9fafb",
-			"overlaysWebView": true
+			"overlaysWebView": false
 		},
 		"Keyboard": {
 			"resize": "body",
