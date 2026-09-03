@@ -503,6 +503,196 @@ body.modal-open {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   STAFF-PORTAL BAR MATERIAL  (.bb-lg-*)              ADDITIVE / PAGE-SCOPED
+   Append AFTER the .glass / .glass-static blocks (index.css ~505) and
+   BEFORE the "THEME SYSTEM" banner.
+
+   ORDER IS LOAD-BEARING. .glass sets `background` as a SHORTHAND, which
+   resets background-image. Move this block above it and .bb-lg-tabbar's
+   ramp silently disappears — build green, lint green, screenshot changed.
+
+   NOT a redefinition. .glass and .glass-static are untouched and keep all
+   five live consumers byte-identical: Layout.jsx:550 (owner mobile header),
+   MobileBottomNav.jsx:119 (owner bottom nav), FloorPlan.jsx:1302,
+   LoginPage.jsx:334, StaffPortalPage.jsx:4343 (chat composer). These classes
+   land on four elements inside StaffPortalPage.jsx and nowhere else, so the
+   owner app dk.bonbox.app and every marketing page render pixel-identical.
+
+   PER-FRAME BUDGET. Zero new backdrop-filter passes. Blur stays ONE pass at
+   10px on both bars, exactly as the note at .glass requires. No saturate(),
+   no brightness(), no second filter function, no stacked backdrop layers,
+   and no pseudo-elements at all (a pseudo would grow the composited layer's
+   bounds, which is the blur source region, and would paint over the very
+   hairlines below). The only added work is one gradient quad on the tab bar.
+
+   STICKY SAFETY — read this before adding anything. The rule is NOT "creates
+   no containing block": backdrop-filter on .glass-static ALREADY creates a
+   containing block and a stacking context, and the header does not wobble.
+   The real mechanism is layer-position ownership — WebKit repositions sticky
+   layers on the scrolling thread, and anything that makes the layer's
+   position main-thread-authored desyncs it during momentum scroll (same
+   mechanism as the -webkit-overflow-scrolling note at index.css ~400). So:
+   never add transform / filter / will-change / contain / perspective to the
+   sticky header. This block adds only border-color to it.
+
+   MOTION. No keyframes, no transitions, nothing that animates. There is
+   nothing here for the global prefers-reduced-motion rule to collapse.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── 1. HAIRLINES ───────────────────────────────────────────────────────
+   Same 1px border BOX (no layout shift, no bar-height change), softer ink:
+   gray-200/70 is ~8% warm grey drawn as a rule; 6% slate reads as an edge.
+   Deliberately a real `border-color` override and NOT a 0-blur box-shadow —
+   a sub-pixel or shadow-drawn hairline on a sticky element lands on
+   fractional device pixels during momentum scroll and shimmers.
+   Beats Tailwind's border-gray-200/70 with no !important: Tailwind v4 emits
+   utilities inside @layer utilities and index.css is unlayered, so unlayered
+   author CSS wins regardless of specificity or class order in the JSX. */
+.bb-lg-header   { border-bottom-color: rgb(15 23 42 / 0.06); }
+.bb-lg-tabbar,
+.bb-lg-composer { border-top-color: rgb(15 23 42 / 0.06); }
+.dark .bb-lg-header   { border-bottom-color: rgb(255 255 255 / 0.08); }
+.dark .bb-lg-tabbar,
+.dark .bb-lg-composer { border-top-color: rgb(255 255 255 / 0.08); }
+
+/* ── 2. TAB BAR DENSITY RAMP ────────────────────────────────────────────
+   The one material change, and it is free (a background gradient, not a
+   filter). Flat 0.88 — DENSER than .glass's flat 0.85, so tab legibility
+   improves — across the entire icon+label row, thinning to 0.80 only across
+   the empty home-indicator reserve, which is what lets content visibly
+   continue under the bar.
+
+   The stop is keyed to env(safe-area-inset-bottom), NOT to a percentage.
+   A percentage stop lands under the 10px label on every non-notched device
+   (SE-class, Android, and bonbox.dk/s/<token> in a browser), where the bar
+   is ~58px and a 56% stop falls at 32px. Keyed to the inset, the ramp
+   collapses to a flat 0.88 whenever the inset is 0 — labels never sit on
+   thinned material anywhere, on any device. */
+.bb-lg-tabbar {
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.88) 0,
+    rgb(255 255 255 / 0.88) calc(100% - env(safe-area-inset-bottom, 0px)),
+    rgb(255 255 255 / 0.80) 100%
+  );
+}
+.dark .bb-lg-tabbar {
+  background: linear-gradient(
+    180deg,
+    rgb(17 24 39 / 0.88) 0,
+    rgb(17 24 39 / 0.88) calc(100% - env(safe-area-inset-bottom, 0px)),
+    rgb(17 24 39 / 0.80) 100%
+  );
+}
+
+/* ── 3. NOTCH CAP ───────────────────────────────────────────────────────
+   Fixes a shipped defect, not an addition. Today the cap is bg-white/95
+   composited over an 85% header — ~0.9925 effective — meeting the header's
+   0.85 at a hard horizontal line exactly at env(safe-area-inset-top). Three
+   tones in a header that is supposed to be one material.
+
+   The ramp ENDS AT ALPHA 0, which is the whole point: a cap that ends at any
+   non-zero alpha still steps against the header underneath. At 0 the
+   header's own 0.85 governs at the boundary and there is nothing to see.
+   Top stop 0.80 over 0.85 = 0.97 effective, so the iOS status-bar glyphs
+   keep a dense ground (see open_risks for the device check and the lever). */
+.bb-lg-cap {
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.80) 0%,
+    rgb(255 255 255 / 0.34) 58%,
+    rgb(255 255 255 / 0) 100%
+  );
+}
+.dark .bb-lg-cap {
+  background: linear-gradient(
+    180deg,
+    rgb(17 24 39 / 0.82) 0%,
+    rgb(17 24 39 / 0.36) 58%,
+    rgb(17 24 39 / 0) 100%
+  );
+}
+
+/* ── 4. ACTIVE TAB — a tint of the glass, not an object on it ───────────
+   Replaces linear-gradient(180deg,#dcfce7,#bbf7d0) PLUS
+   inset 0 1px 0 rgba(255,255,255,.8) PLUS 0 4px 10px -6px rgba(22,163,74,.7).
+   That trio makes three incompatible claims in one capsule: an inset sheen
+   (lit from above), a coloured drop shadow (floating above the bar), and an
+   opaque pastel fill (not glass). A flat tint reads as the material being
+   tinted there, which is the one adaptive-tint gesture CSS can make without
+   lying. The capsule SHAPE stays — iOS 26 tab bars do carry one.
+
+   Measured, not eyeballed: 0.16 green over the bar composites to ~#D9EFE1,
+   which is 1.19:1 against the bar — the current pill spans 1.09:1 (top stop)
+   to 1.20:1 (bottom stop), so the flat tint is at the TOP of today's range,
+   not below it. Active ink #15803d on it is 4.17:1, clearing the 3:1
+   non-text floor. Literal rgb() on purpose: index.css remaps .bg-green-* to
+   --brand-* with !important and this must stay BonBox green under any owner
+   theme. */
+.bb-lg-pill      { background: rgb(22 163 74 / 0.16); }
+.dark .bb-lg-pill { background: rgb(74 222 128 / 0.18); }
+
+/* ── 5. DEGRADE: no backdrop-filter ─────────────────────────────────────
+   .glass's own @supports-not steps it to 0.95, but .bb-lg-tabbar owns
+   `background` outright and would otherwise keep its translucent ramp with
+   no blur behind it. Both the base AND the .dark rule must be re-declared
+   here: without the .dark line, the (0,2,0) dark rule above beats this
+   (0,1,0) fallback and dark mode never degrades. (For the record, the
+   shipped .glass / .glass-static kit has exactly that bug — its dark rules
+   outrank their own fallbacks. Not fixed here: fixing it means editing
+   .glass, which the blast-radius constraint forbids. Filed separately.)
+   The cap goes solid: at 0.96 the header can no longer hide a translucent
+   cap, so the status bar needs its own ground back. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .bb-lg-tabbar {
+    background: linear-gradient(
+      180deg,
+      rgb(255 255 255 / 0.96) 0,
+      rgb(255 255 255 / 0.96) calc(100% - env(safe-area-inset-bottom, 0px)),
+      rgb(255 255 255 / 0.90) 100%
+    );
+  }
+  .dark .bb-lg-tabbar {
+    background: linear-gradient(
+      180deg,
+      rgb(17 24 39 / 0.96) 0,
+      rgb(17 24 39 / 0.96) calc(100% - env(safe-area-inset-bottom, 0px)),
+      rgb(17 24 39 / 0.90) 100%
+    );
+  }
+  .bb-lg-cap       { background: rgb(255 255 255); }
+  .dark .bb-lg-cap { background: rgb(17 24 39); }
+}
+
+/* ── 6. DEGRADE: iOS Increase Contrast ──────────────────────────────────
+   The whole treatment is a softer edge, so give the separation back rather
+   than pretending. The pill is bumped too — a user who asked for more
+   contrast must not get a WEAKER active-tab indicator than the default. */
+@media (prefers-contrast: more) {
+  .bb-lg-header   { border-bottom-color: rgb(15 23 42 / 0.16); }
+  .bb-lg-tabbar,
+  .bb-lg-composer { border-top-color: rgb(15 23 42 / 0.16); }
+  .dark .bb-lg-header   { border-bottom-color: rgb(255 255 255 / 0.18); }
+  .dark .bb-lg-tabbar,
+  .dark .bb-lg-composer { border-top-color: rgb(255 255 255 / 0.18); }
+  .bb-lg-pill       { background: rgb(22 163 74 / 0.24); }
+  .dark .bb-lg-pill { background: rgb(74 222 128 / 0.26); }
+}
+
+/* ── 7. DEGRADE: iOS Reduce Transparency ────────────────────────────────
+   Insurance, and honestly labelled as such: prefers-reduced-transparency has
+   no prior art in this codebase and I have NOT confirmed that WKWebView on
+   iOS 26.4 forwards the UIAccessibility trait to it. If it does not parse,
+   the whole block is dropped and nothing regresses. Only the tab bar needs
+   it — it is the sole surface whose translucency this change increases. */
+@media (prefers-reduced-transparency: reduce) {
+  .bb-lg-tabbar       { background: rgb(255 255 255 / 0.98); }
+  .dark .bb-lg-tabbar { background: rgb(17 24 39 / 0.98); }
+  .bb-lg-cap          { background: rgb(255 255 255); }
+  .dark .bb-lg-cap    { background: rgb(17 24 39); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    THEME SYSTEM — accent color overrides via [data-theme] on <html>
 
    We keep all "green" success states (✓ checkmarks, success toasts) as

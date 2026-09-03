@@ -4340,7 +4340,7 @@ function Conversation({ token, thread, restaurantName, onBack, onRead, onLeft })
 
       {/* Composer — fixed above the bottom nav, notch-aware. */}
       <div
-        className="fixed inset-x-0 z-20 glass border-t border-gray-200/70"
+        className={`fixed inset-x-0 z-20 glass border-t border-gray-200/70${BAR_V2 ? " bb-lg-composer" : ""}`}
         style={{ bottom: "calc(3.5rem + env(safe-area-inset-bottom))" }}
       >
         <div className="max-w-lg mx-auto px-3 pt-2">
@@ -5371,6 +5371,29 @@ function AvailabilityTab({ token, shifts, onNavigate }) {
   );
 }
 
+/* Bar material for the portal's chrome (sticky header, notch cap, tab bar,
+   chat composer). Scoped BY PAGE, not by build target: these classes land on
+   four elements in this file and nowhere else, so .glass / .glass-static keep
+   every other consumer (Layout.jsx:550, MobileBottomNav.jsx:119,
+   FloorPlan.jsx:1302, LoginPage.jsx:334) byte-identical.
+
+   NOT gated on VITE_APP_MODE on purpose. This same page is what a staff member
+   gets at bonbox.dk/s/<token> from the SMS link, which is how most of them
+   reach it before they install anything. Gating on the build would hand one
+   person two visibly different products depending on which icon they tapped.
+   The consequence is disclosed rather than hidden: this ships to the public
+   web the moment the web bundle deploys, not only to dk.bonbox.scheduler.
+
+   OFF SWITCHES, both failing toward today's appearance:
+     1. VITE_PORTAL_BARS=off in the build env — compile-time, Vite dead-strips.
+     2. localStorage bb_bars="v1" — per-device, no rebuild. A DEV/QA lever so
+        one binary can be A/B'd on a phone with Web Inspector attached. It is
+        NOT a field kill switch: staff cannot set it. */
+const BAR_V2 = (() => {
+  if (import.meta.env.VITE_PORTAL_BARS === "off") return false;
+  try { return localStorage.getItem("bb_bars") !== "v1"; } catch { return true; }
+})();
+
 const TABS = [
   { key: "schedule", Icon: Calendar, labelKey: "navSchedule", labelFallback: "Schedule" },
   { key: "availability", Icon: CalendarOff, labelKey: "navKanIkke", labelFallback: "Kan ikke" },
@@ -6267,8 +6290,17 @@ export default function StaffPortalPage() {
   // 2. Load data once verified
   const loadData = useCallback(() => {
     // Set inside the .then below; the returned promise resolves to it so a
-    // pull-to-refresh can distinguish "new roster" from "nothing moved".
-    let changed = false;
+    // pull-to-refresh can distinguish "new roster" from "nothing moved" — and,
+    // critically, from "we could not ask". A boolean cannot carry that third
+    // case: it collapses a 500 or a dead radio into `false`, which the chip
+    // then renders as "Up to date — no changes" over week-old data. Observed
+    // live 2026-09-03 (a bad row 500'd the schedule endpoint). The outcome is
+    // keyed on the SCHEDULE leg alone, the same leg that gates lastSynced, so
+    // the chip and the "Synced" pill can never contradict each other.
+    // Defaults to "failed" on purpose — fail CLOSED. If a later edit ever adds
+    // a path that forgets to set this, the chip under-claims ("couldn't check")
+    // instead of resurrecting the exact bug this replaces.
+    let outcome = "failed";      // "changed" | "unchanged" | "failed"
     // Schedule — the freshness source of truth. On success we stamp
     // lastSynced (drives the "Synced" pill) and diff the published shifts
     // against the last-rendered signature to decide whether to toast.
@@ -6289,7 +6321,7 @@ export default function StaffPortalPage() {
         const nextShifts = sched.value.data.shifts || [];
         const nextSig = publishedScheduleSignature(nextShifts);
         const prevSig = scheduleSigRef.current;
-        changed = prevSig !== null && prevSig !== nextSig;
+        outcome = prevSig !== null && prevSig !== nextSig ? "changed" : "unchanged";
         // Only toast on a REAL change after we already had data — never on the
         // first successful load (prevSig === null means we've shown nothing yet).
         if (prevSig !== null && prevSig !== nextSig) {
@@ -6298,9 +6330,13 @@ export default function StaffPortalPage() {
         scheduleSigRef.current = nextSig;
         setShifts(nextShifts);
         setLastSynced(new Date());
+      } else {
+        // Fail honest: do NOT advance lastSynced on a failed schedule fetch, so
+        // the pill keeps showing the real last-good time (or Offline). Keeping
+        // the last-good shifts on screen is right; the caller just has to be
+        // told the screen is last-KNOWN, not last-CHECKED.
+        outcome = "failed";
       }
-      // Fail honest: do NOT advance lastSynced on a failed schedule fetch, so
-      // the pill keeps showing the real last-good time (or Offline).
       if (team.status === "fulfilled") {
         setTeamShifts(team.value.data || []);
       }
@@ -6313,7 +6349,7 @@ export default function StaffPortalPage() {
       if (covers.status === "fulfilled") {
         setCoversByShift(coversMapFrom(covers.value.data));
       }
-      return changed;
+      return outcome;
     });
 
   }, [token]);
@@ -6360,7 +6396,10 @@ export default function StaffPortalPage() {
   // honest answer includes "yes, and nothing had changed". Without that, a
   // refresh that finds no news is indistinguishable from a refresh that never
   // ran, and people pull again.
-  const [pullState, setPullState] = useState(null);   // null | "pulling" | "busy" | "same" | "new"
+  // "failed" is the honest third answer: we tried, we could not reach the
+  // schedule, and what you are looking at is the last KNOWN roster — not a
+  // confirmed-current one.
+  const [pullState, setPullState] = useState(null);   // null | "pulling" | "busy" | "same" | "new" | "failed"
   // Mirrors read by the touch listeners, which must outlive a state change —
   // see the dep-array note on the effect below.
   const pullBusy = useRef(false);
@@ -6369,10 +6408,21 @@ export default function StaffPortalPage() {
 
   const doRefresh = useCallback(async () => {
     setPullState("busy");
-    const changed = await Promise.resolve(loadData()).catch(() => false);
+    // Anything that is not a clean answer from the schedule leg is "failed" —
+    // including a synchronous throw out of loadData itself, which is why the
+    // call is inside the try rather than handed to a trailing .catch().
+    let outcome;
+    try {
+      outcome = await loadData();
+    } catch {
+      outcome = "failed";
+    }
     loadHours();
-    setPullState(changed ? "new" : "same");
-    setTimeout(() => setPullState(null), 2200);
+    setPullState(outcome === "changed" ? "new" : outcome === "failed" ? "failed" : "same");
+    // The failure chip has to survive being read: it is the one message the
+    // staffer must actually act on (pull again / find signal), and it lands on
+    // a screen that otherwise looks perfectly normal.
+    setTimeout(() => setPullState(null), outcome === "failed" ? 4000 : 2200);
   }, [loadData, loadHours]);
   useEffect(() => { pullBusy.current = pullState === "busy"; }, [pullState]);
   useEffect(() => { doRefreshRef.current = doRefresh; }, [doRefresh]);
@@ -6718,14 +6768,14 @@ export default function StaffPortalPage() {
       {/* Header — sticks to the top of the internal scroller. Uses .glass-static
           (no translateZ) so the sticky header doesn't wobble during momentum
           scroll on iOS. */}
-      <div className="sticky top-0 z-10 glass-static border-b border-gray-200/70 pt-[env(safe-area-inset-top)]">
+      <div className={`sticky top-0 z-10 glass-static border-b border-gray-200/70 pt-[env(safe-area-inset-top)]${BAR_V2 ? " bb-lg-header" : ""}`}>
         {/* Opaque cap over the status-bar / notch inset. The header glass is
             translucent (85%), so without this the content scrolling underneath
             bleeds up into the status bar — this keeps the notch clean and the
             scroll transition crisp. Theme-aware; sized to the safe-area inset. */}
         <div
           aria-hidden
-          className="absolute inset-x-0 top-0 bg-white/95 dark:bg-gray-900"
+          className={`absolute inset-x-0 top-0 ${BAR_V2 ? "bb-lg-cap" : "bg-white/95 dark:bg-gray-900"}`}
           style={{ height: "env(safe-area-inset-top)" }}
         />
         <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
@@ -7203,7 +7253,9 @@ export default function StaffPortalPage() {
 
       {/* Pull-to-refresh readout. "same" is the case that matters: a refresh
           that finds no news must SAY so, or it is indistinguishable from one
-          that never ran — and people just pull again. */}
+          that never ran — and people just pull again. "failed" is the case
+          that must NEVER be dressed as "same": the shifts below are the last
+          known ones, not confirmed-current ones, and only this chip says so. */}
       {pullState && (
         <div
           className="fixed left-0 right-0 z-40 flex justify-center pointer-events-none"
@@ -7215,18 +7267,20 @@ export default function StaffPortalPage() {
             className="inline-flex items-center gap-2"
             style={{
               padding: "7px 13px", borderRadius: 999,
-              background: pullState === "new" ? "#dcfce7" : "#fff",
-              border: `1px solid ${pullState === "new" ? "#a7f3d0" : "#e8edf3"}`,
+              background: pullState === "new" ? "#dcfce7" : pullState === "failed" ? "#fef3c7" : "#fff",
+              border: `1px solid ${pullState === "new" ? "#a7f3d0" : pullState === "failed" ? "#fde68a" : "#e8edf3"}`,
               boxShadow: "0 6px 16px -8px rgba(15,23,42,.4)",
               font: "600 12px/1 var(--font-text)",
-              color: pullState === "new" ? "#15803d" : "#64748b",
+              color: pullState === "new" ? "#15803d" : pullState === "failed" ? "#92400e" : "#64748b",
             }}
           >
             {pullState === "busy" && <RefreshCw size={13} strokeWidth={2.5} className="animate-spin" aria-hidden />}
+            {pullState === "failed" && <CloudOff size={13} strokeWidth={2.5} aria-hidden />}
             {pullState === "pulling" && t("portalPullRelease", "Release to refresh")}
             {pullState === "busy" && t("portalPullBusy", "Checking…")}
             {pullState === "same" && t("portalPullSame", "Up to date — no changes")}
             {pullState === "new" && t("portalPullNew", "Schedule updated")}
+            {pullState === "failed" && t("portalPullFailed", "Couldn't check — showing last known")}
           </span>
         </div>
       )}
@@ -7270,7 +7324,7 @@ export default function StaffPortalPage() {
       </div>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20">
+      <nav className={`fixed bottom-0 left-0 right-0 glass border-t border-gray-200/70 z-20${BAR_V2 ? " bb-lg-tabbar" : ""}`}>
         <div className="max-w-lg mx-auto flex justify-around py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
           {TABS.filter(
             // Alerts moved to the header bell (design).
@@ -7285,7 +7339,14 @@ export default function StaffPortalPage() {
                 aria-current={active ? "page" : undefined}
                 className="relative flex flex-col items-center gap-1 px-1.5 sm:px-4 py-1 rounded-lg active:opacity-60"
                 style={{
-                  color: active ? "#15803d" : "#94a3b8",
+                  // #64748b (slate-500), not #94a3b8 (slate-400). The label is
+                  // text-[10px] font-semibold — never "large text" — so WCAG AA
+                  // wants 4.5:1. #94a3b8 on this bar measures 2.59:1: a shipped
+                  // failure, and nothing to do with the bar material. #64748b is
+                  // 4.70:1. Deliberately OUTSIDE the BAR_V2 flag — an
+                  // accessibility fix must not be revertible by a cosmetic
+                  // toggle. Same hue family, no geometry change.
+                  color: active ? "#15803d" : "#64748b",
                   transition: "color 250ms ease",
                 }}
               >
@@ -7298,12 +7359,16 @@ export default function StaffPortalPage() {
                   {active && (
                     <span
                       aria-hidden
-                      className="absolute -inset-x-3.5 -inset-y-[4px] rounded-full"
-                      style={{
-                        background: "linear-gradient(180deg,#dcfce7,#bbf7d0)",
-                        boxShadow:
-                          "inset 0 1px 0 rgba(255,255,255,.8), 0 4px 10px -6px rgba(22,163,74,.7)",
-                      }}
+                      className={`absolute -inset-x-3.5 -inset-y-[4px] rounded-full${BAR_V2 ? " bb-lg-pill" : ""}`}
+                      style={
+                        BAR_V2
+                          ? undefined
+                          : {
+                              background: "linear-gradient(180deg,#dcfce7,#bbf7d0)",
+                              boxShadow:
+                                "inset 0 1px 0 rgba(255,255,255,.8), 0 4px 10px -6px rgba(22,163,74,.7)",
+                            }
+                      }
                     />
                   )}
                   <item.Icon
