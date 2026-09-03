@@ -6788,8 +6788,14 @@ export default function StaffPortalPage() {
                 : tab === "hours" ? t("portalTitleHours", "My hours")
                 : t("portalTitleAlerts", "Alerts")}
             </h1>
+            {/* Venue name ink is #64748b, not #94a3b8: 12px at weight 500 is
+                body text, so WCAG AA wants 4.5:1 and #94a3b8 measured 2.56:1
+                here. Same hue family, same size, same weight — only the ink
+                darkens. (Comment lives OUTSIDE the && so the expression keeps
+                exactly one child; two adjacent JSX children there need a
+                fragment and fail the build.) */}
             {info?.restaurant_name && (
-              <div style={{ marginTop: 5, font: "500 12px/1 var(--font-text)", letterSpacing: "0.005em", color: "#94a3b8" }}>
+              <div style={{ marginTop: 5, font: "500 12px/1 var(--font-text)", letterSpacing: "0.005em", color: "#64748b" }}>
                 {info.restaurant_name}
                 {/* Live/offline moves here off the chip slot, which the
                     department switcher now owns. Only ever states what is
@@ -6832,7 +6838,7 @@ export default function StaffPortalPage() {
               <Bell className="w-[18px] h-[18px]" strokeWidth={2} aria-hidden />
               {alertsUnread > 0 && tab !== "alerts" && (
                 <span
-                  className="absolute z-10 -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold leading-[16px] text-center ring-2 ring-white"
+                  className="absolute z-10 -top-1 -right-1 min-w-[16px] h-[16px] px-1 rounded-full bg-red-600 text-white text-[9px] font-bold leading-[16px] text-center ring-2 ring-white"
                   aria-label={t("portalAlertsUnreadBadge", "Unread updates")}
                 >
                   {alertsUnread > 9 ? "9+" : alertsUnread}
@@ -7378,7 +7384,7 @@ export default function StaffPortalPage() {
                   />
                   {item.key === "messages" && chatUnread > 0 && (
                     <span
-                      className="absolute z-10 -top-1 -right-1.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold leading-[14px] text-center"
+                      className="absolute z-10 -top-1 -right-1.5 min-w-[14px] h-[14px] px-1 rounded-full bg-red-600 text-white text-[9px] font-bold leading-[14px] text-center"
                       aria-label={t("staffChatUnreadBadge", "Unread messages")}
                     >
                       {chatUnread > 9 ? "9+" : chatUnread}

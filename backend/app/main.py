@@ -2395,6 +2395,19 @@ _migrations = [
     # show for it — wrong MOMS period and wrong voucher year, one tap
     # from being booked.
     "ALTER TABLE expenses ADD COLUMN IF NOT EXISTS date_source VARCHAR(12)",
+    # ── Migration 070 (2026-09-03): notification_log.staff_id nullable ──
+    # notification_log.staff_id was NOT NULL, but three owner-directed
+    # notifications legitimately have no staffer — reservation_created /
+    # reservation_cancelled and waitlist_freed_table are about a BOOKING.
+    # Each passed staff_id=None into a NOT NULL column inside a
+    # try/except: db.rollback(), so the push went out and the audit row
+    # vanished, silently, every time. Measured in prod 2026-09-03:
+    # notification_log held 71 rows across exactly three staff-directed
+    # event types and ZERO owner-directed rows of any kind.
+    # PG-only on purpose: SQLite cannot DROP NOT NULL without rebuilding
+    # the table, and the SQLite branch builds from the model via
+    # create_all, which now declares the column nullable.
+    "ALTER TABLE notification_log ALTER COLUMN staff_id DROP NOT NULL",
 ]
 
 

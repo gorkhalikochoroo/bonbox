@@ -923,7 +923,7 @@ def notify_owner_shift_claimed(
 
 
 def notify_owner_sick_call(
-    db: Session, *, owner, staff_name: str, absence_date, shift=None,
+    db: Session, *, owner, staff_name: str, absence_date, shift=None, staff_id=None,
 ) -> dict:
     """Best-effort push to the OWNER when a staffer calls in sick.
 
@@ -938,7 +938,8 @@ def notify_owner_sick_call(
     spamming the owner", so the notification was always intended.
 
     Same shape as notify_owner_shift_claimed: owner devices only
-    (staff_id IS NULL), one NotificationLog row, PII-light (first name + slot),
+    (PushSubscription.staff_id IS NULL), one NotificationLog row stamped with
+    the staffer who called in, PII-light on the wire (first name + slot),
     and it must NEVER block the sick call — an absence that failed to save
     because a push failed would be strictly worse than a silent one.
     """
@@ -992,7 +993,13 @@ def notify_owner_sick_call(
         db.add(NotificationLog(
             id=uuid.uuid4(),
             user_id=owner.id,
-            staff_id=None,
+            # The staffer IS known here, unlike the booking-driven owner
+            # notifications, so name them: a sick-call audit row whose whole
+            # point is "who called in" should not be anonymous. This was
+            # staff_id=None into a NOT NULL column, which meant the insert
+            # below threw into its own except and the row was never written
+            # — the push landed and nothing was recorded. See Migration 070.
+            staff_id=staff_id,
             channel="push",
             event_type="sick_call",
             subject=title,

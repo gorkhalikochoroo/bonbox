@@ -2310,6 +2310,8 @@ def portal_call_sick(
                 staff_name=(member.name or "").split(" ")[0] or "En medarbejder",
                 absence_date=absence.date,
                 shift=_shift,
+                # Stamps the audit row. The push body stays first-name-only.
+                staff_id=member.id,
             )
     except Exception:  # noqa: BLE001 — never let a push failure surface here
         logger.warning("sick-call owner notification failed", exc_info=True)

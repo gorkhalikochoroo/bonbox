@@ -480,3 +480,62 @@ def test_suggest_replacements_prefers_same_role_when_available(
     ids = {s.id for s in suggestions}
     assert lars.id in ids
     assert anna.id not in ids
+
+
+# ── The audit row ──────────────────────────────────────────────────────
+#
+# notify_owner_sick_call wrote NotificationLog(staff_id=None) into a column
+# that was NOT NULL, inside `try: ... except: db.rollback()`. The push to the
+# owner went out (it happens before the insert) and the audit row was never
+# written — silently, every single time.
+#
+# Nothing failed, because nothing asserted the row existed. Measured in prod
+# on 2026-09-03: notification_log held 71 rows across exactly three
+# staff-directed event types and ZERO owner-directed rows of any kind, which
+# is the same bug in notify_owner_new_reservation and notify_owner_freed_table.
+#
+# These two tests pin the fix from both ends: the column must accept NULL
+# (Migration 070, for the booking-driven callers that genuinely have no
+# staffer) AND the sick call must stamp the staffer it knows about.
+
+def test_notification_log_accepts_null_staff_id(db, owner):
+    """Migration 070. Owner-directed rows have no staffer by nature."""
+    from app.models.staff import NotificationLog
+
+    db.add(NotificationLog(
+        id=uuid.uuid4(), user_id=owner.id, staff_id=None,
+        channel="push", event_type="reservation_created",
+        subject="s", body="b", status="sent",
+    ))
+    db.commit()          # was: IntegrityError, swallowed by the caller
+    row = db.query(NotificationLog).filter(
+        NotificationLog.event_type == "reservation_created",
+    ).one()
+    assert row.staff_id is None
+
+
+def test_sick_call_writes_an_audit_row_naming_the_staffer(db, owner, sara):
+    """The push is best-effort; the audit row is not optional."""
+    from app.models.staff import NotificationLog
+    from app.services.notification_service import notify_owner_sick_call
+
+    today = date.today()
+    sched = _make_schedule(db, owner=owner, staff=sara, on_date=today)
+
+    # No PushSubscription rows exist, so zero devices are reached. The audit
+    # row must still be written — "we tried and nobody was subscribed" is
+    # exactly the state an owner needs to be able to see afterwards.
+    result = notify_owner_sick_call(
+        db, owner=owner, staff_name="Sara",
+        absence_date=today, shift=sched, staff_id=sara.id,
+    )
+    assert result["attempted"] == 0
+
+    row = db.query(NotificationLog).filter(
+        NotificationLog.event_type == "sick_call",
+    ).one()
+    assert row.staff_id == sara.id          # not None, and not anonymous
+    assert row.user_id == owner.id
+    assert row.status == "failed"           # honest: nothing was delivered
+    assert row.error_message == "no_active_subscription"
+    assert "Sara" in (row.body or "")

@@ -342,7 +342,13 @@ class NotificationLog(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID(), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("users.id"))
-    staff_id: Mapped[uuid.UUID] = mapped_column(GUID(), ForeignKey("staff_members.id"))
+    # Nullable: owner-directed rows (reservation_created / _cancelled,
+    # waitlist_freed_table) are about a booking and have no staffer. See
+    # Migration 070 — this was NOT NULL, so every one of those inserts
+    # failed into a try/except and the audit trail was empty.
+    staff_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID(), ForeignKey("staff_members.id"), nullable=True,
+    )
     channel: Mapped[str] = mapped_column(String(20))  # 'email', 'push', 'whatsapp'
     event_type: Mapped[str] = mapped_column(String(50))  # 'schedule_published', 'shift_changed', etc.
     subject: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
