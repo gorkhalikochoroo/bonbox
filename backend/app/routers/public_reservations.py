@@ -241,7 +241,12 @@ def public_page(request: Request, slug: str = Path(...), db: Session = Depends(g
         # picker. PII-safe: only public label + resource id. [] for table venues.
         "providers": providers,
         "city": getattr(profile, "city", None),
-        "address": getattr(profile, "address", None),
+        # public_address wins when set. `address` is the BOOKKEEPING address —
+        # it prints on invoices and the kasserapport — and for a home-run venue
+        # it carries a floor and door number that has no business being served
+        # to anonymous visitors. Unset for most venues, so this is a no-op there.
+        "address": (getattr(profile, "public_address", None)
+                    or getattr(profile, "address", None)),
         # Reservation-specific "call us" number wins; falls back to the
         # business phone on the profile. Owner sets it in Reservations → Settings.
         "phone": settings.get("contact_phone") or getattr(profile, "phone", None),

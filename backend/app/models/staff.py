@@ -240,7 +240,14 @@ class HoursLogged(Base):
     start_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
     end_time: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
     break_minutes: Mapped[int] = mapped_column(Integer, default=0)
-    total_hours: Mapped[float] = mapped_column(Numeric(5, 1))
+    # Numeric(5,2), not (5,1). The standard shift here is 16:00-23:00 less a
+    # 45-minute break = exactly 6.25h, which scale 1 cannot hold: Postgres
+    # rounds halves away from zero, so it stored 6.3 (verified in production —
+    # 8 rows at 6.3, none at 6.2). The direction is not the point; the point is
+    # that the column which PAYS people could not represent a quarter hour,
+    # while clock_hours below has always been (5,2) and carried 6.25 exactly.
+    # Measured and paid disagreed by rounding alone. See Migration 071.
+    total_hours: Mapped[float] = mapped_column(Numeric(5, 2))
     rate_applied: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
     earned: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
     entry_method: Mapped[str] = mapped_column(String(20), default="quick")

@@ -20,6 +20,17 @@ class BusinessProfile(Base):
     country: Mapped[str] = mapped_column(String(5), default="DK")
     # Address
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # What the PUBLIC booking page shows, when the real address should not be
+    # published. Falls back to `address` when unset, so nothing changes for a
+    # venue that is happy to be found.
+    #
+    # This exists because a large share of the verticals BonBox targets are run
+    # from home — salons, trainers, bakers — and `address` is the accountant's
+    # address: it prints on invoices and the kasserapport and is retained under
+    # bogføringsloven §10. Editing THAT to hide a flat number would corrupt
+    # records that must not change. So the public surface gets its own field
+    # instead, and the books keep the truth.
+    public_address: Mapped[str | None] = mapped_column(Text, nullable=True)
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
     zipcode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Industry

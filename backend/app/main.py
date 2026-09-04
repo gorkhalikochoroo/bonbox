@@ -2408,6 +2408,51 @@ _migrations = [
     # the table, and the SQLite branch builds from the model via
     # create_all, which now declares the column nullable.
     "ALTER TABLE notification_log ALTER COLUMN staff_id DROP NOT NULL",
+    # ── Migration 071: hours_logged.total_hours scale 1 -> 2 ─────────────
+    # 16:00-23:00 less a 45-min break is exactly 6.25h, which Numeric(5,1)
+    # cannot hold. Postgres rounds halves AWAY FROM ZERO, so it stored 6.3 —
+    # verified in production: 8 rows at 6.3, none at 6.2. Staff were credited
+    # three extra minutes on the most common shift in the product, not shorted
+    # (an earlier note in this file had that backwards). Before 2026-05-31
+    # _calc_shift_hours itself rounded to one decimal, which is the era where
+    # a value could genuinely land low.
+    #
+    # Either direction is the same defect: the number that PAYS people could
+    # not round-trip a quarter hour, while clock_hours next to it — already
+    # (5,2) — carried 6.25 exactly. Measured and paid disagreed by rounding.
+    # Widening only — every existing value fits unchanged (36 rows, 5.5-8.5,
+    # none with more than 1 decimal), so this cannot lose data. It does NOT
+    # recover precision already rounded away on historical rows; those stay as
+    # stored, and that is the honest outcome — there is nothing to recompute
+    # them from once the break was subtracted.
+    "ALTER TABLE hours_logged ALTER COLUMN total_hours TYPE NUMERIC(5,2)",
+    # ── Migration 072 (2026-09-04): stamp a TTL on legacy join codes ──────
+    # _join_code_live() in routers/staff.py treats a NULL code_expires_at as
+    # LIVE — deliberately, so an owner mid-onboarding does not find a code they
+    # just shared stopped working because of a deploy. The cost of that kindness
+    # is that every code minted before the TTL existed never expires at all.
+    # Measured 2026-09-04: 16 links carried a join_code with no expiry.
+    #
+    # Unused codes get a full 7 days from now (JOIN_CODE_TTL_DAYS), NOT now() —
+    # expiring them on contact would break exactly the person the NULL case was
+    # written to protect. Both statements are guarded on IS NULL, so they are
+    # idempotent: a second boot finds nothing to do and cannot keep pushing the
+    # window forward.
+    "UPDATE staff_links SET code_expires_at = NOW() + INTERVAL '7 days' "
+    "WHERE join_code IS NOT NULL AND code_expires_at IS NULL AND code_used_at IS NULL",
+    # Already-redeemed codes are dead by the code_used_at check regardless, but
+    # leaving a NULL expiry on them reads as "live forever" to anyone auditing
+    # the table. Stamp the moment they were actually consumed.
+    "UPDATE staff_links SET code_expires_at = code_used_at "
+    "WHERE join_code IS NOT NULL AND code_expires_at IS NULL AND code_used_at IS NOT NULL",
+    # ── Migration 073 (2026-09-04): business_profiles.public_address ──────
+    # The public booking page served profile.address verbatim. That column is
+    # the bookkeeping address (invoices, kasserapport, §10 retention), and for
+    # a venue run from home it includes the floor and door — served to any
+    # anonymous visitor who opens the booking link. Measured 2026-09-04 on a
+    # live slug. NULL = publish `address` exactly as today, so this changes
+    # nothing for a venue that wants to be found.
+    "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS public_address TEXT",
 ]
 
 
@@ -2924,6 +2969,11 @@ def _run_migrations():
                 pass
             ok += _add("staff_links", "code_expires_at", "TIMESTAMP")
             ok += _add("staff_links", "code_used_at", "TIMESTAMP")
+            # Mirror of Migration 073. The PG branch above and this list are two
+            # separate sources of truth, and create_all() papers over the gap on
+            # a FRESH sqlite db — so a missing mirror cannot fail a test and only
+            # shows up on someone's existing dev database. Kept in step by hand.
+            ok += _add("business_profiles", "public_address", "TEXT")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",

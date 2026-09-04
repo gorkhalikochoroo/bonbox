@@ -10,6 +10,12 @@ class BusinessProfileCreate(BaseModel):
     vat_number: str | None = None
     country: str = "DK"
     address: str | None = None
+    # What the PUBLIC booking page shows instead of `address`, when the real
+    # one should not be published. Falls back to `address` when unset. Needed
+    # HERE or the column is unwritable: the profile writer is a blanket
+    # setattr over model_dump(exclude_unset=True), so a field missing from this
+    # model is dropped by Pydantic before it is ever seen.
+    public_address: str | None = None
     city: str | None = None
     zipcode: str | None = None
     industry: str | None = None
@@ -56,6 +62,7 @@ class BusinessProfileResponse(BaseModel):
     vat_number: str | None = None
     country: str
     address: str | None = None
+    public_address: str | None = None
     city: str | None = None
     zipcode: str | None = None
     industry: str | None = None

@@ -160,8 +160,9 @@ class TestProvenanceStillHolds:
     def test_the_clock_measurement_is_captured_before_the_override(self, client, db):
         """Write-once. A disputed payslip has to keep something to appeal to.
 
-        6.5 rather than 6.25 on purpose — see the xfail below for why 6.25
-        cannot survive a round trip today.
+        6.5 rather than 6.25 for historical reasons — 6.25 could not survive a
+        round trip until Migration 071 widened the column; it can now, and the
+        test below pins that.
         """
         o = _owner(db); m = _staff(db, o)
         h = _row(db, o, m, hours=6.5, method="clock")
@@ -174,20 +175,14 @@ class TestProvenanceStillHolds:
         assert float(again.clock_hours) == 6.5, "what the clock measured was lost"
         assert float(again.total_hours) == 8
 
-    @pytest.mark.xfail(
-        reason=(
-            "hours_logged.total_hours is numeric(5,1) — verified in production "
-            "2026-09-02 — so it cannot hold 6.25 and stores 6.2. The venue's "
-            "STANDARD shift is 16:00-23:00 with a 45-min break = exactly 6.25h, "
-            "so the most common shift in the product silently loses 3 minutes "
-            "on save. The schedule grid, the clock-in form and clock_hours "
-            "(numeric(5,2)) all carry 6.25 correctly; only the column that pays "
-            "people rounds. Fixing it is an ALTER on a live payroll table and is "
-            "the owner's call, so this is recorded rather than silently adjusted. "
-            "It flips to XPASS the day the column is widened to numeric(5,2)."
-        ),
-        strict=False,
-    )
+    # Was an xfail: total_hours was numeric(5,1), so the venue's STANDARD shift
+    # (16:00-23:00 less a 45-min break = exactly 6.25h) could not round-trip.
+    # It stored 6.3, not 6.2 — Postgres rounds halves away from zero, and
+    # production holds 8 rows at 6.3. So that shift was over-credited by three
+    # minutes rather than shorted; either way the paid number disagreed with
+    # the measured one by rounding alone. Widened to numeric(5,2) by Migration
+    # 071. This runs on SQLite, so what it actually pins is the MODEL's
+    # declared scale — if it fails again, the model has been narrowed.
     def test_a_quarter_hour_survives_the_round_trip(self, client, db):
         o = _owner(db); m = _staff(db, o)
         h = _row(db, o, m, hours=6.25, method="clock")
