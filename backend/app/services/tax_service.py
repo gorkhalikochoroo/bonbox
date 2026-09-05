@@ -740,7 +740,7 @@ def _calc_vat(db: Session, user_id, start_date: date, end_date: date,
 
 
 def _get_next_deadlines(currency: str, frequency: str | None = None,
-                        count: int = 4) -> list[dict]:
+                        count: int = 4, as_of: date | None = None) -> list[dict]:
     """
     Get next N upcoming filing deadlines for this currency + frequency.
 
@@ -757,7 +757,23 @@ def _get_next_deadlines(currency: str, frequency: str | None = None,
     if freq_data is None:
         return []
 
-    today = date.today()
+    # as_of lets a caller ask "what is next from THIS business day", which is not
+    # always the wall clock. BonBox's business day rolls at 06:00 Europe/Copenhagen
+    # (see business_day_window), so between midnight and 06:00 the business day is
+    # still yesterday. Foresight composes its whole payload around that business
+    # day; resolving the deadline off date.today() instead put the two halves of
+    # one payload on different days. Defaults to date.today(), so every existing
+    # caller is byte-identical.
+    #
+    # SCOPE, so nobody reads this as more than it is: this fixes the 00:00-06:00
+    # window only. The `deadline <= today` filter below STILL skips the deadline
+    # on the day it falls, so from 06:00 to midnight on a frist the next one is
+    # returned instead. Fixing that is not a two-character flip — it needs this
+    # filter, the monthly branch above, and the two fail-closed guards in
+    # foresight_service (project() and build_envelope(), both of which bail on
+    # deadline <= as_of) changed together, or a covered owner gets
+    # INSUFFICIENT_DATA on the exact day the bill is due. Separate commit.
+    today = as_of or date.today()
     deadlines: list[dict] = []
 
     if freq == "monthly":

@@ -170,22 +170,26 @@ def test_timeline_surfaces_a_subweek_trough():
 
 def test_resolve_deadline_half_yearly_filer():
     user = SimpleNamespace(currency="DKK", tax_filing_frequency="half_yearly")
-    out = fs.resolve_next_deadline(user)
+    # Explicit as_of. Calling with no as_of and asserting "> date.today()" was
+    # TAUTOLOGICAL: the resolver filters on `deadline <= today: continue`, so
+    # that assertion could never fail and the test stayed green on a frist day
+    # while production returned a date six months out.
+    out = fs.resolve_next_deadline(user, as_of=date(2026, 6, 14))
     assert out is not None
     assert out["frequency"] == "half_yearly"
     # DK half-yearly afregningsfrist months are March and September.
     assert out["deadline"].month in (3, 9)
-    assert out["deadline"] > date.today()
+    assert out["deadline"] == date(2026, 9, 1)
 
 
 def test_resolve_deadline_quarterly_filer():
     user = SimpleNamespace(currency="DKK", tax_filing_frequency="quarterly")
-    out = fs.resolve_next_deadline(user)
+    out = fs.resolve_next_deadline(user, as_of=date(2026, 6, 14))
     assert out is not None
     assert out["frequency"] == "quarterly"
     # DK quarterly afregningsfrist months are Mar / Jun / Sep / Dec.
     assert out["deadline"].month in (3, 6, 9, 12)
-    assert out["deadline"] > date.today()
+    assert out["deadline"] > date(2026, 6, 14)
 
 
 def test_resolve_deadline_defaults_to_half_yearly_for_dk():

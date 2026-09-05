@@ -49,7 +49,12 @@ def test_covered_when_balance_far_exceeds_moms(user, patched):
     assert out["moms"]["expected"] >= 50000      # realized + projected ≥ realized
     assert out["moms"]["high"] >= out["moms"]["expected"]
     assert out["envelope"]["target"] == out["moms"]["high"]   # envelope rings the high bill
-    assert out["deadline"]["date"] > AS_OF.isoformat()
+    # Pinned, not just "> AS_OF" — that was satisfied by ANY future date,
+    # including the wrong one the wall clock used to produce, which is how the
+    # as_of bug hid here for months.
+    assert out["deadline"]["date"] == "2026-09-01"
+    assert out["deadline"]["period_label"] == "H1 2026"
+    assert out["deadline"]["days_until"] == 79
 
 
 def test_short_when_balance_zero_surfaces_action(user, patched):
@@ -206,3 +211,48 @@ def test_explicit_bank_balance_wins_over_manual(patched):
     out = fp.build_foresight_payload(u, db=None, as_of=AS_OF, bank_balance=Decimal("0"))
     assert out["balance_source"] == "bank"   # explicit (future PSD2) takes precedence
     assert out["verdict"] == "SHORT"
+
+
+# ── The deadline must come from as_of, not the wall clock ──────────────────
+#
+# build_foresight_payload takes an as_of business day and used it for the
+# revenue window while resolve_next_deadline() ran off date.today(), so the two
+# halves of one payload could describe different days. BonBox business days roll
+# at 06:00 Europe/Copenhagen, so between midnight and 06:00 the business day is
+# still yesterday — and on a MOMS frist morning that difference moved the bill
+# from "due tomorrow" to a date ~6 months out.
+#
+# It also made the tests above time-bombs: they pin AS_OF, passed when written,
+# and started failing once the wall clock crossed the next real deadline. They
+# were failing on main. Determinism is the point of these two.
+
+class TestDeadlineFollowsTheBusinessDay:
+    def test_wall_clock_in_another_filing_period_does_not_leak_in(self, user, patched, monkeypatch):
+        """The discriminating test. Put date.today() in a DIFFERENT half-year
+        than AS_OF: if as_of is threaded we get H1's frist, if the kwarg is ever
+        dropped in a refactor we get the wall clock's and this goes red."""
+        import app.services.tax_service as ts
+
+        real_date = ts.date
+
+        class _FakeDate(real_date):
+            @classmethod
+            def today(cls):
+                return real_date(2026, 12, 1)     # H2 — the NEXT frist is 2027-03-01
+
+        monkeypatch.setattr(ts, "date", _FakeDate)
+
+        out = fp.build_foresight_payload(user, db=None, as_of=AS_OF,
+                                         bank_balance=Decimal("10000000"))
+        assert out["deadline"]["date"] == "2026-09-01", (
+            "deadline followed the wall clock instead of the as_of business day"
+        )
+
+    def test_the_pre_0600_window_this_fix_exists_for(self, user, patched):
+        """00:00-06:00 on the day before a frist: the business day is still the
+        28th, and the frist is TOMORROW. This is the case that was wrong."""
+        out = fp.build_foresight_payload(user, db=None, as_of=date(2026, 2, 28),
+                                         bank_balance=Decimal("10000000"))
+        assert out["deadline"]["date"] == "2026-03-01"
+        assert out["deadline"]["days_until"] == 1
+        assert out["deadline"]["period_label"] == "H2 2025"

@@ -112,7 +112,10 @@ def build_foresight_payload(user, db, *, as_of, bank_balance=None, reserved=Deci
             balance_source = "manual"
             balance_at = getattr(user, "manual_bank_balance_at", None)
 
-    deadline_info = fs.resolve_next_deadline(user)
+    # Pass the business day. This function takes `as_of` and used it for the
+    # revenue window while the deadline resolved off the wall clock, so the two
+    # halves of the same payload could describe different days.
+    deadline_info = fs.resolve_next_deadline(user, as_of=as_of)
     if not deadline_info:
         return {"available": False, "reason": "no_moms_config"}
 

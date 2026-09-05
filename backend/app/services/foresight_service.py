@@ -521,7 +521,7 @@ def build_envelope(
     )
 
 
-def resolve_next_deadline(user) -> dict | None:
+def resolve_next_deadline(user, as_of=None) -> dict | None:
     """Resolve the owner's NEXT MOMS afregningsfrist + filing frequency by
     reusing the DK deadline calendar in ``tax_service`` — never hardcodes
     half-yearly (#357 correction: a 5–10M kr venue files quarterly, so its
@@ -544,7 +544,9 @@ def resolve_next_deadline(user) -> dict | None:
         return None
 
     frequency = _resolve_frequency(user, config)
-    upcoming = _get_next_deadlines(currency, frequency, count=1)
+    # as_of = the caller's business day. None keeps the previous behaviour
+    # (wall clock) for any caller that does not care.
+    upcoming = _get_next_deadlines(currency, frequency, count=1, as_of=as_of)
     if not upcoming:
         return None
 
