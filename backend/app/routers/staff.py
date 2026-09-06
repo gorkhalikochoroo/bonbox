@@ -1847,8 +1847,14 @@ def schedule_week_cost(
     # "fix" this to match without pricing that change.
     covers_by_date = booked_covers_by_business_day(db, user, week_start, week_end)
 
+    # A day is SETTLED once its business day has closed — see the week block
+    # below for why the week labor% may only count settled days.
+    today_local = business_today_local(user)
+
     daily = []
     week_hours = week_gross = week_loaded = week_rev = 0.0
+    settled_gross = settled_loaded = settled_rev = 0.0
+    settled_days = 0
     for i in range(7):
         d = week_start + timedelta(days=i)
         di = d.isoformat()
@@ -1858,6 +1864,17 @@ def schedule_week_cost(
         week_gross += da["cost_gross"]
         week_loaded += da["cost_loaded"]
         week_rev += rev
+        # `settled` = the business day is over AND it registered revenue. Both
+        # halves matter. A day still in progress has partial revenue against a
+        # full roster; a closed day with no revenue is ambiguous (genuinely shut
+        # vs. simply not registered yet) and we refuse to guess which — same
+        # rule the per-day labor% below already applies by returning null.
+        is_settled = d < today_local and rev > 0
+        if is_settled:
+            settled_days += 1
+            settled_rev += rev
+            settled_gross += da["cost_gross"]
+            settled_loaded += da["cost_loaded"]
         daily.append({
             "date": di,
             "hours": round(da["hours"], 2),
@@ -1866,6 +1883,10 @@ def schedule_week_cost(
             "revenue": round(rev, 2) if rev > 0 else None,
             "labor_pct_gross": round(da["cost_gross"] / rev, 4) if rev > 0 else None,
             "labor_pct_loaded": round(da["cost_loaded"] / rev, 4) if rev > 0 else None,
+            # Lets the client pair each day's cost with the right denominator
+            # (its own revenue, or the forecast) without re-deriving "today"
+            # from a browser clock that may not be in the venue's timezone.
+            "settled": is_settled,
             # null = not a reservations venue (render nothing) — NOT the same as
             # 0 = reservations on, empty book. Never collapse the two.
             "covers_booked": (
@@ -1907,8 +1928,39 @@ def schedule_week_cost(
             "cost_gross": round(week_gross, 2),
             "cost_loaded": round(week_loaded, 2),
             "revenue": round(week_rev, 2) if week_rev > 0 else None,
-            "labor_pct_gross": round(week_gross / week_rev, 4) if week_rev > 0 else None,
-            "labor_pct_loaded": round(week_loaded / week_rev, 4) if week_rev > 0 else None,
+            # ── labor_pct_* covers SETTLED DAYS ONLY, both sides ──────────
+            #
+            # This used to be `week_gross / week_rev`: a whole week of roster
+            # cost over only the revenue that had actually happened. Visit on
+            # a Wednesday and the numerator carried seven days while the
+            # denominator carried two — the headline read ~110% on a week that
+            # was fine, and on a week not yet started it read null, i.e. the
+            # number was dead during the exact task it exists for (planning).
+            # Wrong in both directions, and neither direction was visible as
+            # wrong from the screen.
+            #
+            # Now numerator and denominator name the same days. This figure is
+            # therefore "labor% on the part of the week that has happened" —
+            # true, and useless on a future week, which is the honest shape for
+            # an actuals number. The forecast half of the answer is the client's
+            # job (utils/weekLaborPct.js) because the grid already holds the
+            # forecast payload; recomputing it here would let the headline % and
+            # the per-day "demand ~40h" line disagree on the same screen.
+            "labor_pct_gross": (
+                round(settled_gross / settled_rev, 4) if settled_rev > 0 else None
+            ),
+            "labor_pct_loaded": (
+                round(settled_loaded / settled_rev, 4) if settled_rev > 0 else None
+            ),
+            # What that pct actually covers. `days` is how the client tells
+            # "the whole week is in" from "two days are in", which decides
+            # whether the headline needs the forventet treatment at all.
+            "settled": {
+                "days": settled_days,
+                "revenue": round(settled_rev, 2) if settled_rev > 0 else None,
+                "cost_gross": round(settled_gross, 2),
+                "cost_loaded": round(settled_loaded, 2),
+            },
         },
     }
 
@@ -4847,6 +4899,7 @@ def export_payroll_csv(
 
     csv_bytes = buf.getvalue().encode("utf-8-sig")  # BOM for Excel locale handling
     filename = f"bonbox_payroll_{period_start}_{period_end}.csv"
+
     return StreamingResponse(
         iter([csv_bytes]),
         media_type="text/csv",

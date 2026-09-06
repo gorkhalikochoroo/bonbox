@@ -14,6 +14,7 @@ import { useEntitlements } from "../hooks/useEntitlements";
 import { useBranch } from "../components/BranchSelector";
 import { displayCurrency, formatKr } from "../utils/currency";
 import { errText } from "../utils/errText";
+import { expectedWeekLabor } from "../utils/weekLaborPct";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
 import { useLocation } from "react-router-dom";
@@ -1607,16 +1608,39 @@ export default function StaffSchedulePage() {
     const w = weekCost?.week || null;
     const hours = typeof w?.hours === "number" ? w.hours : stats.totalHours;
     const cost = w ? costByBasis(w, costBasis) : stats.totalCost;
-    const laborPct = w
+
+    // The headline labor%. `w.labor_pct_*` is now an ACTUALS number over
+    // settled days only (matched numerator/denominator — see staff.py), so on
+    // a week that has not closed it is legitimately blank. `expected` fills
+    // that in from the forecast the day cells are already showing, and says so
+    // via isForecast; we never present a projection unlabelled.
+    const expected = expectedWeekLabor({
+      daily: weekCost?.daily,
+      forecast,
+      costBasis,
+    });
+    const actualPct = w
       ? (costBasis === "loaded" ? w.labor_pct_loaded : w.labor_pct_gross)
       : null;
+    // Prefer the fuller answer: expected covers every day we have a basis for,
+    // actuals cover only the closed ones. When no forecast qualified they are
+    // the same number and isForecast is false, so nothing gets mislabelled.
+    const laborPct =
+      typeof expected.pct === "number"
+        ? expected.pct
+        : (typeof actualPct === "number" ? actualPct : null);
+
     return {
       hours: Math.round((hours || 0) * 10) / 10,
       cost: Math.round(cost ?? 0),
-      laborPct: typeof laborPct === "number" ? laborPct : null,
-      hasRevenue: w ? w.revenue != null : false,
+      laborPct,
+      isForecast: typeof expected.pct === "number" && expected.isForecast,
+      daysActual: expected.daysActual,
+      daysForecast: expected.daysForecast,
+      daysUnknown: expected.daysUnknown,
+      hasRevenue: laborPct != null,
     };
-  }, [weekCost, costBasis, stats.totalHours, stats.totalCost]);
+  }, [weekCost, forecast, costBasis, stats.totalHours, stats.totalCost]);
 
   // ─── Unified Share sheet helpers (this component owns the toolbar + state) ──
   const shareActiveStaff = () => activeStaff;
@@ -2394,6 +2418,31 @@ export default function StaffSchedulePage() {
                     >
                       {pctLabel(weekSummary.laborPct)}
                     </div>
+                    {/* A projected number never wears an actuals label. The
+                        chip is the whole point of Option B: the figure is only
+                        useful while planning, and it is only honest if it says
+                        it is a projection while it is one. */}
+                    {weekSummary.isForecast && (
+                      <div className="mt-1 flex items-center justify-end gap-1.5">
+                        <span className="inline-flex items-center rounded-md bg-gray-100 dark:bg-gray-700/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          {t("schedLaborForecast", "projected")}
+                        </span>
+                        <span className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums">
+                          {(t("schedLaborForecastMix", "{a} days actual · {f} forecast") || "")
+                            .replace("{a}", String(weekSummary.daysActual))
+                            .replace("{f}", String(weekSummary.daysForecast))}
+                        </span>
+                      </div>
+                    )}
+                    {/* Days we could not price at all are named, not hidden —
+                        otherwise the % silently describes fewer days than the
+                        cost strip beside it. */}
+                    {weekSummary.daysUnknown > 0 && (
+                      <div className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums mt-1">
+                        {(t("schedLaborDaysUnknown", "{n} days without a revenue basis") || "")
+                          .replace("{n}", String(weekSummary.daysUnknown))}
+                      </div>
+                    )}
                     {targetPct != null && (
                       <div className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums mt-1">
                         {t("schedLaborTarget")} {pctLabel(targetPct)}
