@@ -876,7 +876,7 @@ function PinGate({ onVerified, token, staffName }) {
  *   • staff_id is fixed by the magic-link token — the body only
  *     contains date + reason. UI doesn't even ask for staff_id.
  */
-function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false }) {
+function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false, onDismiss }) {
   const { t, lang } = useLanguage();
   const [open, setOpen] = useState(autoOpen);
   const todayIso = useState(() => toLocalISO(new Date()))[0];
@@ -908,7 +908,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false })
       setReason("");
       setSent(true);
       onCalledIn?.();
-      setTimeout(() => { setSent(false); setOpen(false); }, 2600);
+      setTimeout(() => { setSent(false); setOpen(false); onDismiss?.(); }, 2600);
     } catch (err) {
       setError(errText(err, t("portalSickSendFailed", "Couldn't send. Try again.")));
     } finally {
@@ -916,17 +916,12 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false })
     }
   };
 
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="w-full px-4 py-3 rounded-xl bg-white border border-gray-200 hover:bg-gray-50 text-sm font-medium text-gray-700 transition flex items-center justify-center gap-2"
-      >
-        <Thermometer className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />
-        {t("portalCallInSick", "Call in sick")}
-      </button>
-    );
-  }
+  // Closed = render NOTHING. The only mount site passes autoOpen and sits
+  // directly under the "Report sick" pill that reveals it (see the call site),
+  // so a collapsed button here stacked a second identical CTA under the first —
+  // which is precisely what autoOpen's comment says it exists to avoid. The
+  // pill is the entry point; dismissing the sheet returns you to it.
+  if (!open) return null;
 
   // 14-day forward window matches the backend MAX_FUTURE_DAYS soft cap;
   // backend allows up to 60 but most call-ins are same-day or near.
@@ -961,7 +956,7 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false })
       <div className="flex items-center justify-between">
         <div className="font-display text-[14.5px] font-bold tracking-[-0.02em] leading-[1.1] text-gray-900 flex items-center gap-1.5"><Thermometer className="w-4 h-4 text-gray-500" strokeWidth={2} aria-hidden />{t("portalCallInSick", "Call in sick")}</div>
         <button
-          onClick={() => { setOpen(false); setError(""); setReason(""); }}
+          onClick={() => { setOpen(false); setError(""); setReason(""); onDismiss?.(); }}
           className="text-gray-500 hover:text-gray-700 text-lg leading-none w-6 h-6 flex items-center justify-center"
           aria-label={t("close", "Close")}
         >
@@ -2129,8 +2124,11 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           token={token}
           upcomingShifts={upcoming}
           onCalledIn={onShiftsChanged}
-          // Straight to the form. "Need a change?" already asked the question;
-          // an intermediate "Call in sick" button is a third stacked CTA that
+          // Dismissing the sheet unmounts it, so you land back on the single
+          // "Report sick" pill instead of a second identical CTA beneath it.
+          onDismiss={() => setShowSick(false)}
+          // Straight to the form. "Report sick" already stated the intent; an
+          // intermediate "Call in sick" button is a second stacked CTA that
           // only repeats it.
           autoOpen
         />
