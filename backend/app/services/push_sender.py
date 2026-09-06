@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Any
 
@@ -48,6 +49,41 @@ from app.models.user import User
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
+
+# ── Keeping the SKAT liability figure off the lock screen ──────────────
+# See _compose_brief_payload for the reasoning. Two stages, because the
+# brief body can arrive in two forms:
+#
+#   1. Deterministic (Layer 5) — the candidate's exact wording, so the
+#      ", est. 78.000 kr. owed" clause can be lifted out whole and the
+#      sentence still reads naturally.
+#   2. LLM-polished (Layer 3) — Claude rephrases freely ("— 78.000 kr. is
+#      due"), so stage 1 will miss it. Stage 2 is the backstop: in a body
+#      that mentions a Danish tax term at all, every money token becomes a
+#      neutral placeholder. Grammar survives; the figure does not.
+#
+# Both stages are gated on the body mentioning MOMS/SKAT, so pushes that
+# never touch tax — the revenue lines owners already get — are untouched.
+_TAX_TERM_RE = re.compile(r"\b(?:MOMS|SKAT)\b", re.IGNORECASE)
+# Both money shapes _fmt_money produces: DKK "78.000 kr." and the
+# currency-code form "9,000 EUR". The \b around [A-Z]{3} matters: without
+# it "your 2026 MOMS filing" reads as digits + "MOM" and the redaction
+# eats the locked term itself ("your an amountS filing").
+_MONEY_RE = re.compile(r"\d[\d.,]*\s*(?:[Kk][Rr]\.?|\b[A-Z]{3}\b)")
+_MOMS_OWED_CLAUSE_RE = re.compile(
+    r",\s*est\.\s*[\d.,]+\s*(?:[Kk][Rr]\.?|\b[A-Z]{3}\b)\s*owed",
+    re.IGNORECASE,
+)
+
+
+def _redact_tax_figures(body: str) -> str:
+    """Strip kroner figures from a push body that talks about MOMS/SKAT."""
+    if not _TAX_TERM_RE.search(body):
+        return body
+    body = _MOMS_OWED_CLAUSE_RE.sub("", body)
+    if _MONEY_RE.search(body):
+        body = _MONEY_RE.sub("an amount", body)
+    return re.sub(r"\s{2,}", " ", body).strip()
 
 # The fail threshold — when a row hits this number of CONSECUTIVE
 # failures, we consider the device permanently gone and the row is
@@ -251,6 +287,31 @@ def _compose_brief_payload(brief: dict[str, Any] | None) -> dict[str, Any] | Non
         insights = brief.get("insights") or []
         if insights and isinstance(insights[0], dict):
             body = (insights[0].get("text") or "").strip()
+    if not body:
+        return None
+
+    # Strip the MOMS liability figure before it reaches a lock screen.
+    #
+    # The key whitelist below is STRUCTURAL — it proves no extra field rides
+    # along, which is what test_send_brief_push_payload_strips_financial_data
+    # checks. It says nothing about the body, and the body is the lead
+    # candidate's own sentence. MOMS candidates carry the top weights in
+    # generate_candidates (0.92-0.98), so from the moment the MOMS brief
+    # started working (2026-09-05 — it had been dead since it shipped) the
+    # most likely morning push became "MOMS filing for H2 2026 in 3 days,
+    # est. 78.000 kr. owed". That is the one figure this codebase treats as
+    # owner-only everywhere else — member_read_guard denies it, the shared-
+    # device curtain nulls it, the dashboard strip zeroes it for members —
+    # and a notification tray on an unlocked-by-anyone phone is a weaker
+    # boundary than any of them.
+    #
+    # Only the figure goes; the countdown and the call to action stay, so
+    # the push still says the useful part and still earns the tap through
+    # to /tax where the figure is properly gated. Scoped to bodies that
+    # mention MOMS/SKAT: revenue amounts in other candidates reach the tray
+    # exactly as before, which is a real but pre-existing gap and a
+    # separate call to make.
+    body = _redact_tax_figures(body)
     if not body:
         return None
 

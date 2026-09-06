@@ -15,6 +15,8 @@ member). Guarantees:
 
 Run: cd backend && python3 -m pytest tests/test_daily_brief_moms_member.py -q
 """
+from datetime import date, timedelta
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -85,11 +87,40 @@ def _owner(db):
 
 
 def _patch_tax(monkeypatch):
-    # A real upcoming MOMS deadline with an owed figure — the sensitive data.
+    """A real upcoming MOMS deadline with an owed figure — the sensitive data.
+
+    The stub MUST mirror what tax_service.get_tax_overview actually emits.
+    It used to invent `{"type", "date", "estimated_amount"}` — a shape the
+    producer has never returned — which is precisely why the suite stayed
+    green while compute_precompute read a `date` key that was always absent
+    and no owner ever saw a MOMS line in the brief. A stub that asserts a
+    fiction is worse than no stub: the two negative tests below (member and,
+    in test_device_pin.py, shared-device) would have passed vacuously,
+    "proving" the guard hides a figure that was never produced.
+
+    Contract pinned independently in test_daily_brief_moms_contract.py.
+    """
+    # Relative to today so the deadline always lands inside the candidate's
+    # ≤14-day window; a hardcoded date drifts out of it and the candidate
+    # assertions go vacuous without anyone noticing.
+    dl = date.today() + timedelta(days=10)
+
     def _fake(_user, _db):
         return {
             "upcoming_deadlines": [
-                {"type": "vat", "date": "2026-12-31", "estimated_amount": 45000.0}
+                {
+                    "deadline": str(dl),
+                    "period_label": "H2 2026",
+                    "period_start": str(dl - timedelta(days=190)),
+                    "period_end": str(dl - timedelta(days=1)),
+                    "days_until": 10,
+                    "status": "approaching",
+                    "estimated_amount": 45000.0,
+                    "output_vat": 60000.0,
+                    "input_vat": 15000.0,
+                    "sales_total": 300000.0,
+                    "expenses_total": 75000.0,
+                }
             ],
             "ytd": {"vat_payable": 45000.0},
         }
@@ -100,8 +131,19 @@ def test_compute_precompute_gives_owner_the_moms_figure(db, monkeypatch):
     _patch_tax(monkeypatch)
     owner = _owner(db)  # a normal owner session — no _is_member_view flag
     pc = compute_precompute(owner, db)
-    assert pc.moms_days_left is not None
+    assert pc.moms_days_left == 10
     assert pc.moms_estimated_owed == 45000.0
+    assert pc.moms_period_label == "H2 2026"
+    # …and it must actually survive into a candidate. Asserting only on the
+    # precompute is what let the real bug hide: the fields could be right
+    # and the owner still see nothing.
+    cands = _moms_cands(generate_candidates(pc))
+    assert len(cands) == 1
+    # Locked term: uppercase MOMS in every language, never "Moms".
+    assert "MOMS" in cands[0].text and "Moms filing" not in cands[0].text
+    # The period is named so this figure can't be confused with the
+    # dashboard's month_moms strip, which reports a different window.
+    assert "H2 2026" in cands[0].text
 
 
 def test_compute_precompute_hides_moms_from_member(db, monkeypatch):

@@ -178,11 +178,40 @@ def test_locked_shared_device_hides_moms_in_brief(db, monkeypatch):
     device that hasn't been PIN-revealed sees no SKAT figure."""
     from app.services.daily_brief import compute_precompute, generate_candidates
 
+    # Mirrors the real tax_service.get_tax_overview row shape (`deadline`,
+    # not `date`). The old stub invented a `date` key the producer never
+    # emits; with the key bug fixed, that stub would have made this test
+    # pass vacuously — asserting the curtain hides a figure that was never
+    # computed in the first place. Hence the un-curtained control below.
+    #
+    # The deadline is relative to today so it always lands inside the
+    # candidate's ≤14-day window. A hardcoded date would drift past the
+    # window and quietly turn the candidate assertions vacuous again.
+    from datetime import date as _date, timedelta as _td
+    _dl = _date.today() + _td(days=10)
+
     def _fake(_u, _d):
-        return {"upcoming_deadlines": [{"type": "vat", "date": "2026-12-31", "estimated_amount": 45000.0}],
-                "ytd": {"vat_payable": 45000.0}}
+        return {"upcoming_deadlines": [{
+            "deadline": str(_dl), "period_label": "H2 2026",
+            "period_start": str(_dl - _td(days=190)),
+            "period_end": str(_dl - _td(days=1)),
+            "days_until": 10, "status": "approaching",
+            "estimated_amount": 45000.0, "output_vat": 60000.0,
+            "input_vat": 15000.0, "sales_total": 300000.0,
+            "expenses_total": 75000.0,
+        }], "ytd": {"vat_payable": 45000.0}}
     monkeypatch.setattr("app.services.tax_service.get_tax_overview", _fake)
+
     owner = _owner(db)
+
+    # Control: the SAME owner, SAME stub, curtain OFF must produce the
+    # figure AND the candidate. Without this the assertions below prove
+    # nothing — they would hold just as well if MOMS never computed at all.
+    control = compute_precompute(owner, db)
+    assert control.moms_days_left == 10
+    assert control.moms_estimated_owed == 45000.0
+    assert [c for c in generate_candidates(control) if c.cta_url == "/tax"]
+
     owner._shared_device_locked = True  # curtained shared device
     pc = compute_precompute(owner, db)
     assert pc.moms_days_left is None and pc.moms_estimated_owed is None

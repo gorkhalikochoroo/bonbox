@@ -144,6 +144,12 @@ class Precompute:
     moms_days_left: int | None = None
     moms_estimated_owed: float | None = None
     moms_deadline_date: str | None = None   # ISO YYYY-MM-DD
+    # Which filing period the countdown + figure describe ("H2 2026",
+    # "Q3 2026", "August 2026"). Named in the copy on purpose: the
+    # ProfitAnswerCard MOMS strip on the same screen reports THIS MONTH's
+    # set-aside, so the two kroner figures legitimately differ. Naming the
+    # period is what stops that reading as a contradiction.
+    moms_period_label: str | None = None
 
     # Recurring expenses materializing in the next 3 days — gives
     # owners a "head's up your rent posts tomorrow" before the cron
@@ -481,29 +487,78 @@ def compute_precompute(user: User, db: Session) -> Precompute:
     moms_days_left = None
     moms_estimated_owed = None
     moms_deadline_date = None
+    moms_period_label = None
     try:
         from app.services.tax_service import get_tax_overview
         tx = get_tax_overview(user, db) or {}
         deadlines = tx.get("upcoming_deadlines") or []
-        # First deadline = the soonest. Skip payroll deadlines — those
-        # are handled separately by the staff brief.
+        # First deadline = the soonest (get_tax_overview sorts ascending).
+        # Payroll deadlines can't appear here — get_tax_overview emits those
+        # under a separate `payroll_deadlines` key — so every row is already
+        # a MOMS row and none of them carries a `type`. The filter stays
+        # anyway: it treats a type-less row as VAT, so it is a no-op today
+        # and still correct if a typed row is ever added.
         next_vat = next(
             (d for d in deadlines if (d.get("type") or "vat") in ("vat", "moms")),
             deadlines[0] if deadlines else None,
         )
-        if next_vat and next_vat.get("date"):
-            try:
-                _d = date.fromisoformat(str(next_vat["date"])[:10])
-                moms_days_left = (_d - today).days
-                moms_deadline_date = _d.isoformat()
-                # estimated_amount may live on the deadline OR on ytd.vat_payable.
-                amt = next_vat.get("estimated_amount")
-                if amt is None:
-                    amt = (tx.get("ytd") or {}).get("vat_payable")
-                if amt is not None:
-                    moms_estimated_owed = float(amt)
-            except (ValueError, TypeError):
-                pass
+        if next_vat:
+            # THE KEY IS `deadline`, NOT `date`.
+            #
+            # This read was `next_vat.get("date")` from the day the MOMS
+            # countdown shipped. get_tax_overview has never emitted a `date`
+            # key — its rows are {deadline, period_label, period_start,
+            # period_end, days_until, status, estimated_amount, output_vat,
+            # input_vat, sales_total, expenses_total}. So the guard was always
+            # false, moms_days_left stayed None, and the gate in
+            # generate_candidates (`moms_days_left is not None`) dropped the
+            # MOMS candidate on every single brief ever generated. No owner
+            # has ever been shown a MOMS line in the ~06:00 brief.
+            #
+            # Two unit tests stubbed get_tax_overview with a hand-written
+            # {type, date, estimated_amount} dict — a shape the producer does
+            # not emit — so the bug was invisible to the suite. Those stubs
+            # now mirror the real payload, and test_daily_brief_moms_contract
+            # pins the producer/consumer key agreement so this cannot rot
+            # silently again.
+            raw_deadline = next_vat.get("deadline")
+            if not raw_deadline:
+                # Loud, not silent. A missing key here costs the owner the
+                # single most important compliance signal in the product, and
+                # the previous silence is exactly why it went unnoticed for
+                # months. If the producer shape drifts again, say so.
+                logger.warning(
+                    "daily_brief: upcoming_deadlines row has no 'deadline' key "
+                    "(keys=%s) — MOMS candidate suppressed",
+                    sorted(next_vat.keys()),
+                )
+            else:
+                try:
+                    _d = date.fromisoformat(str(raw_deadline)[:10])
+                    moms_days_left = (_d - today).days
+                    moms_deadline_date = _d.isoformat()
+                    moms_period_label = next_vat.get("period_label") or None
+                    # `estimated_amount` is _calc_vat's `vat_payable` for THIS
+                    # deadline's filing period — the same engine (via
+                    # compute_filing_data) that produces the dashboard's
+                    # month_moms strip. Never a naive rate × revenue number.
+                    #
+                    # The old `ytd.vat_payable` fallback is deliberately gone:
+                    # it measures a DIFFERENT window (year-to-date, not the
+                    # filing period), so whenever it fired it would have put a
+                    # wrong kroner figure behind a right deadline — in an email
+                    # about a SKAT liability. A countdown with no figure is
+                    # honest; a countdown with the wrong figure is not. The
+                    # candidate copy already degrades cleanly to a bare
+                    # countdown when moms_estimated_owed is None.
+                    amt = next_vat.get("estimated_amount")
+                    if amt is not None:
+                        moms_estimated_owed = float(amt)
+                except (ValueError, TypeError):
+                    logger.warning(
+                        "daily_brief: unparseable MOMS deadline %r — candidate suppressed",
+                        raw_deadline,
+                    )
     except Exception as e:  # noqa: BLE001
         logger.debug("daily_brief: tax_overview unavailable: %s", e)
 
@@ -520,6 +575,7 @@ def compute_precompute(user: User, db: Session) -> Precompute:
         moms_days_left = None
         moms_estimated_owed = None
         moms_deadline_date = None
+        moms_period_label = None
 
     # ── Brief 2.0 signals — recurring expenses due in next 3 days ──
     # Owners need a heads-up before a 18k rent posts. Idempotent and
@@ -693,6 +749,7 @@ def compute_precompute(user: User, db: Session) -> Precompute:
         moms_days_left=moms_days_left,
         moms_estimated_owed=moms_estimated_owed,
         moms_deadline_date=moms_deadline_date,
+        moms_period_label=moms_period_label,
         recurring_due_soon=recurring_due_soon,
         recurring_due_soon_total=round(recurring_due_soon_total, 2),
         last_close_variance_pct=last_close_variance_pct,
@@ -925,17 +982,39 @@ def generate_candidates(
     # Single most anxiety-reducing signal for a DK biz owner. Weight
     # scales with urgency — overdue is highest, then ≤3 days, then ≤14,
     # then ≤30. Beyond 30 days we suppress (don't be noisy).
+    #
+    # "MOMS" is uppercase in every language — same locked-term rule the
+    # frontend enforces via check-i18n-locked-terms.cjs, which does not
+    # reach backend copy. These strings read "Moms" until 2026-09-05
+    # because they had never actually rendered: compute_precompute read a
+    # `date` key the tax service does not emit, so the gate below was
+    # never true. See the comment on that read.
+    #
+    # NOTE — the `< 0` (overdue) and `== 0` (due today) branches are still
+    # unreachable in production, and fixing this key does not change that.
+    # tax_service._get_next_deadlines() drops any deadline with
+    # `deadline <= today`, so the soonest row is always at least tomorrow
+    # and moms_days_left is always ≥ 1. Those two branches only fire once
+    # that filter is corrected — deliberately a separate change (see the
+    # SCOPE note in _get_next_deadlines). They are kept, not deleted, so
+    # the copy is ready when it lands.
     if p.moms_days_left is not None and p.moms_days_left <= 30:
         owed_text = (
             f", est. {_fmt_money(p.moms_estimated_owed, cur)} owed"
             if p.moms_estimated_owed and p.moms_estimated_owed > 0
             else ""
         )
+        # Name the filing period. The ProfitAnswerCard MOMS strip renders on
+        # the same dashboard and reports THIS MONTH's set-aside, computed off
+        # the same _calc_vat engine but over a different window — so the two
+        # kroner figures differ by design. Saying "for H2 2026" is what keeps
+        # that from reading as the app contradicting itself.
+        period_text = f" for {p.moms_period_label}" if p.moms_period_label else ""
         if p.moms_days_left < 0:
             n = abs(p.moms_days_left)
             out.append(Candidate(
                 type="watch",
-                text=f"Moms filing is {n} day{'s' if n != 1 else ''} overdue{owed_text} — file before SKAT fines accrue.",
+                text=f"MOMS filing{period_text} is {n} day{'s' if n != 1 else ''} overdue{owed_text} — file before SKAT fines accrue.",
                 weight=0.98,
                 facts=[str(n)] + ([_fmt_money(p.moms_estimated_owed, cur)] if p.moms_estimated_owed else []),
                 cta_label="Open Tax Autopilot",
@@ -944,7 +1023,7 @@ def generate_candidates(
         elif p.moms_days_left == 0:
             out.append(Candidate(
                 type="action",
-                text=f"Moms filing is due today{owed_text} — file before midnight.",
+                text=f"MOMS filing{period_text} is due today{owed_text} — file before midnight.",
                 weight=0.97,
                 facts=([_fmt_money(p.moms_estimated_owed, cur)] if p.moms_estimated_owed else []),
                 cta_label="File now",
@@ -953,7 +1032,7 @@ def generate_candidates(
         elif p.moms_days_left <= 3:
             out.append(Candidate(
                 type="action",
-                text=f"Moms filing in {p.moms_days_left} day{'s' if p.moms_days_left != 1 else ''}{owed_text} — review now to avoid the rush.",
+                text=f"MOMS filing{period_text} in {p.moms_days_left} day{'s' if p.moms_days_left != 1 else ''}{owed_text} — review now to avoid the rush.",
                 weight=0.92,
                 facts=[str(p.moms_days_left)] + ([_fmt_money(p.moms_estimated_owed, cur)] if p.moms_estimated_owed else []),
                 cta_label="Review filing",
@@ -962,7 +1041,7 @@ def generate_candidates(
         elif p.moms_days_left <= 14:
             out.append(Candidate(
                 type="watch",
-                text=f"Moms filing in {p.moms_days_left} days{owed_text}.",
+                text=f"MOMS filing{period_text} in {p.moms_days_left} days{owed_text}.",
                 weight=0.75,
                 facts=[str(p.moms_days_left)] + ([_fmt_money(p.moms_estimated_owed, cur)] if p.moms_estimated_owed else []),
                 cta_label="Open Tax Autopilot",
@@ -1290,6 +1369,10 @@ _SYSTEM_PROMPT = (
     "  item, or fact. If a number is in the data and you reference it, format "
     "  it the same way (with the same currency suffix and thousand separators).\n"
     "- One sentence per insight. Active verbs (push, order, schedule, review).\n"
+    "- Danish domain terms are locked: copy MOMS, SKAT, kasserapport, revisor "
+    "  and faktura EXACTLY as they appear in the candidate — same spelling, "
+    "  same casing. MOMS and SKAT are always fully uppercase, never 'Moms' or "
+    "  'Skat', and are never translated.\n"
     "- The first selected candidate becomes the headline; the rest are insights.\n"
     "- Output exclusively via the publish_daily_brief tool — never plain text.\n"
 )
