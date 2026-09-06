@@ -1642,6 +1642,9 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
   // Local UI state: which week-strip is shown + which day is expanded.
   const [weekView, setWeekView] = useState("this"); // 'this' | 'next'
   const [expandedDate, setExpandedDate] = useState(null);
+  // Which teammate's upcoming shifts are open, keyed "<shiftId>|<mateId>" so
+  // the same person expanded on two different days stays independent.
+  const [openMate, setOpenMate] = useState(null);
 
   // Own "kan ikke arbejde" marks, so a free day in the strip is tappable to
   // mark unavailable right from the schedule (same StaffAvailability rows the
@@ -2336,7 +2339,13 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             <div style={{ marginTop: 16 }} className="border-t border-[#f1f5f9] pt-1">
               {daysWithShifts.map(({ date: d, all }) => {
                 const selected = expandedDate === d;
-                const today = isToday(d);
+                // NOT `today` — that name is already the ISO date string in
+                // this component's scope (line ~1636), and shadowing it here
+                // silently broke the past-date guard below: `fs.date < today`
+                // became string < boolean, which coerces to NaN and is always
+                // false, so "On your own" printed on days we have no team data
+                // for. Distinct name, so the guard can never be shadowed again.
+                const isTodayCell = isToday(d);
                 return (
                   <div
                     key={d}
@@ -2353,11 +2362,11 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                     }}
                   >
                     <div className="flex items-baseline justify-between gap-2">
-                      <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: today ? "#0f172a" : "#94a3b8" }}>
+                      <span style={{ font: "700 10px/1 var(--font-text)", letterSpacing: "0.15em", textTransform: "uppercase", color: isTodayCell ? "#0f172a" : "#94a3b8" }}>
                         {new Date(d + "T00:00:00")
                           .toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" })
                           .toUpperCase()}
-                        {today ? ` · ${t("portalToday", "Today")}` : ""}
+                        {isTodayCell ? ` · ${t("portalToday", "Today")}` : ""}
                       </span>
                       {all[0]?.role_on_shift && (
                         <span style={{ font: "500 11px/1 var(--font-text)", color: "#94a3b8" }}>
@@ -2404,14 +2413,63 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                                   </div>
                                 );
                               }
-                              const names = mates.map((m) => firstName(m.staff_name)).filter(Boolean);
-                              const shown = names.slice(0, 3).join(", ");
-                              const extra = names.length - Math.min(names.length, 3);
+                              // Names are TAPPABLE. The row already carries the
+                              // time, role and hours, so an expansion repeating
+                              // those would be ceremony. The one fact NOT on
+                              // screen — and the one actually wanted mid-shift
+                              // ("is Aksel on tomorrow so I can hand this
+                              // over?") — is when else they are in. Already in
+                              // teamShifts; this fetches nothing.
+                              const rowKey = fs.id || `${fs.date}-${fs.start_time}`;
+                              const midOf = (m, i) => m.staff_id ?? m.staff_name ?? i;
+                              const openIdx = mates.findIndex((m, i) => openMate === `${rowKey}|${midOf(m, i)}`);
+                              const open = openIdx >= 0 ? mates[openIdx] : null;
                               return (
-                                <div className="text-[11px] text-gray-400 truncate mt-0.5">
-                                  {t("portalWithMates", "With {names}", {
-                                    names: extra > 0 ? `${shown} +${extra}` : shown,
-                                  })}
+                                <div className="mt-0.5">
+                                  <div className="text-[11px] text-gray-400 flex flex-wrap items-baseline gap-x-1">
+                                    <span>{t("portalWithLabel", "With")}</span>
+                                    {mates.slice(0, 4).map((m, mi) => {
+                                      const key = `${rowKey}|${midOf(m, mi)}`;
+                                      const isOpen = openMate === key;
+                                      return (
+                                        <button
+                                          key={key}
+                                          type="button"
+                                          onClick={(e) => { e.stopPropagation(); setOpenMate(isOpen ? null : key); }}
+                                          className={`underline underline-offset-2 decoration-dotted active:opacity-60 ${isOpen ? "text-gray-700" : ""}`}
+                                        >
+                                          {firstName(m.staff_name) || m.staff_name}
+                                          {mi < Math.min(mates.length, 4) - 1 ? "," : ""}
+                                        </button>
+                                      );
+                                    })}
+                                    {mates.length > 4 && <span>+{mates.length - 4}</span>}
+                                  </div>
+                                  {open && (() => {
+                                    // Their OTHER shifts, from data already on
+                                    // the client. teamShifts starts at today and
+                                    // runs 21 days, so this is "what the rota
+                                    // shows" — never a claim about anything
+                                    // outside that window.
+                                    const others = (teamShifts || [])
+                                      .filter((x) => (x.staff_id ?? x.staff_name) === (open.staff_id ?? open.staff_name))
+                                      .filter((x) => x.date !== fs.date)
+                                      .sort((a, b) => a.date.localeCompare(b.date))
+                                      .slice(0, 3);
+                                    return (
+                                      <div className="mt-1 pl-2 border-l-2 border-[#eef2f7] text-[11px] text-gray-400 space-y-0.5">
+                                        {others.length === 0 ? (
+                                          <div>{t("portalMateNoOther", "{name} has no other shift on the rota.", { name: firstName(open.staff_name) || open.staff_name })}</div>
+                                        ) : others.map((x, xi) => (
+                                          <div key={`${x.date}-${xi}`} className="tabular-nums">
+                                            {new Date(x.date + "T00:00:00").toLocaleDateString(localeFor(lang), { weekday: "short", day: "numeric" })}
+                                            {" · "}{x.start_time}–{x.end_time}
+                                            {x.role ? ` · ${x.role}` : ""}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               );
                             })()}
