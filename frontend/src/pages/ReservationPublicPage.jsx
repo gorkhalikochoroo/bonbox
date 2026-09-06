@@ -358,6 +358,11 @@ export default function ReservationPublicPage() {
   const [groupRequest, setGroupRequest] = useState(false);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [slotsError, setSlotsError] = useState("");
+  // "not_accepting" when the venue is at its plan's monthly booking ceiling.
+  // Distinct from slotsError (a fetch failure) and from an empty slots array
+  // (a closed or fully-booked day) — this one means no date will work, so the
+  // date strip must not invite the guest to keep hunting.
+  const [closedReason, setClosedReason] = useState("");
 
   // 14-day open/closed map for the date strip + next-open-day auto-advance.
   // dayMap === null → the summary hasn't resolved yet (show loading, never a
@@ -732,10 +737,18 @@ export default function ReservationPublicPage() {
               : {},
           );
           setGroupRequest(!!res.data?.group_request);
+          // The venue is at its monthly booking ceiling — every time we could
+          // show would be refused by the create endpoint. Say so HERE, at the
+          // top of the flow, instead of letting the guest pick a table and type
+          // their name, phone and allergy notes first. `closed_reason` is
+          // additive; when the server doesn't send it we clear the state and
+          // behave exactly as before.
+          setClosedReason(res.data?.closed_reason || "");
         }
       } catch (err) {
         setSlots([]);
         setGroupRequest(false);
+        setClosedReason("");
         setSlotsError(
           err?.response?.data?.detail?.error ||
             t("rsvpSlotsError", "Couldn't load times — please try again."),
@@ -937,6 +950,20 @@ export default function ReservationPublicPage() {
           else fetchAvailability(day, party);
           // The slot is genuinely gone, so the next attempt is a NEW
           // intent — rotate the key the retry will carry.
+          idempotencyKey.current = null;
+          setStep(1);
+        } else if (code === "not_accepting" && status === 409) {
+          // The venue hit its monthly ceiling between loading the page and
+          // submitting. Before this, the guest was left on a filled-in form
+          // with a red line and no way forward — retrying could only fail
+          // again, on every date. Send them back to step 1, where the closed
+          // state and the phone fallback now render.
+          //
+          // 410 is deliberately excluded: that means reservations are switched
+          // off entirely, which the page already handles as its own dead state.
+          setClosedReason("not_accepting");
+          setSlots([]);
+          setSlotRemaining({});
           idempotencyKey.current = null;
           setStep(1);
         }
@@ -1781,6 +1808,34 @@ export default function ReservationPublicPage() {
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     {slotsError}
                   </p>
+                ) : closedReason === "not_accepting" ? (
+                  // The venue is at its monthly ceiling, so NO date works. This
+                  // sits above the slotGroups branch on purpose: the branches
+                  // below offer "next open day" and a 14-day hunt, and sending
+                  // the guest looking for an evening that cannot exist is worse
+                  // than the dead form this replaces. Phone fallback stays — the
+                  // venue is open, it just can't take another ONLINE booking.
+                  <div className="space-y-3">
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      {t(
+                        "rsvpNotAcceptingOnline",
+                        "Stedet tager ikke imod flere online reservationer lige nu.",
+                      )}
+                    </p>
+                    {telHref(page.phone) && (
+                      <a
+                        href={telHref(page.phone)}
+                        className="inline-flex items-center justify-center gap-2 h-11 px-5 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
+                      >
+                        <Phone size={16} strokeWidth={1.75} aria-hidden="true" />
+                        <span>
+                          {t("rsvpNoSlotsCall", "Ring til os: {phone}", {
+                            phone: page.phone,
+                          })}
+                        </span>
+                      </a>
+                    )}
+                  </div>
                 ) : slotGroups.length === 0 ? (
                   !isProvider && dayMap === null ? (
                     // Open/closed overview still resolving → don't flash a

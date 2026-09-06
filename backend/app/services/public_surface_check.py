@@ -54,6 +54,29 @@ def check_slug(db, *, profile, owner, now) -> dict:
     if not biz or biz.lower() == "bonbox":
         codes.append("stale_meta")
 
+    # monthly_cap_reached — the page is alive and the calendar is open, but the
+    # create endpoint refuses every booking because the venue is at its plan's
+    # monthly ceiling. Invisible to every other detector here: summarize_days
+    # asks the availability engine, which knows nothing about billing, so a
+    # cap-dead page scored a clean "open 14/14" and the venue was told nothing
+    # while guests were turned away at the final tap.
+    #
+    # Deliberately its own code rather than folding into dead_on_arrival: the
+    # cause and the fix are completely different (upgrade or wait for the 1st,
+    # versus fix your opening hours), and the owner-facing copy has to differ.
+    try:
+        from app.routers.public_reservations import _month_reservations_used
+        from app.services.billing import at_cap, get_cap
+
+        used = _month_reservations_used(db, owner)
+        cap = get_cap(owner, "reservations_per_month")
+        detail["reservations_used_this_month"] = used
+        detail["reservations_cap"] = cap
+        if at_cap(owner, "reservations_per_month", used):
+            codes.append("monthly_cap_reached")
+    except Exception as e:  # inconclusive — never flag on our own probe error
+        detail["cap_check_error"] = str(e)[:160]
+
     # no_bookable_resources — structurally un-bookable (explains a dead page).
     try:
         n = len(rsvc.active_resources(db, owner.id))
@@ -63,7 +86,8 @@ def check_slug(db, *, profile, owner, now) -> dict:
     except Exception as e:
         detail["resource_check_error"] = str(e)[:160]
 
-    severity = ("urgent" if "dead_on_arrival" in codes
+    severity = ("urgent" if ("dead_on_arrival" in codes
+                             or "monthly_cap_reached" in codes)
                 else "warn" if codes else None)
     healthy = not codes
     summary = (

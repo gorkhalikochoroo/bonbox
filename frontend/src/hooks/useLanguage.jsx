@@ -1963,6 +1963,7 @@ const translations = {
     rsvpFloorLegPick: "Your table",
     rsvpFloorLegTaken: "Taken",
     rsvpNoSlotsCall: "Call us: {phone}",
+    rsvpNotAcceptingOnline: "This venue isn't taking any more online bookings right now.",
     // Install-as-app hint (owner Settings tab — host-stand PC/tablet).
     rsvpInstallTitle: "Open the book as an app",
     rsvpInstallBody: "Install BonBox on your host PC / tablet so the reservation book opens as an app.",
@@ -9915,6 +9916,7 @@ const translations = {
     rsvpFloorLegPick: "Dit bord",
     rsvpFloorLegTaken: "Optaget",
     rsvpNoSlotsCall: "Ring til os: {phone}",
+    rsvpNotAcceptingOnline: "Stedet tager ikke imod flere online reservationer lige nu.",
     // Installér-som-app hint (ejer Indstillinger — vært-PC/tablet).
     rsvpInstallTitle: "Åbn bogen som en app",
     rsvpInstallBody: "Installér BonBox på din vært-PC / tablet, så reservationsbogen åbner som en app.",

@@ -32,6 +32,12 @@ from app.models.reservation import Reservation
 from app.models.reservation_occupancy import ReservationOccupancy
 from app.models.reservation_waitlist import ReservationWaitlistEntry
 from app.models.user import User
+from app.routers.public_reservations import (
+    # ONE definition of "used this month", shared with the public create guard
+    # and the availability endpoints. A second local count here is exactly how
+    # the owner's number and the gate that closes their page drift apart.
+    _month_reservations_used as _month_usage,
+)
 from app.services import audit_service
 from app.services.allergens import allergen_set_for, SEVERITY_LEVELS
 from app.services.auth import get_current_user
@@ -518,6 +524,14 @@ def get_settings(db: Session = Depends(get_db), user: User = Depends(get_current
         "allergen_set": allergen_set_for(btype),
         "severity_levels": list(SEVERITY_LEVELS),
         "resources_cap": get_cap(user, "bookable_resources_max"),
+        # Monthly booking quota — the owner's only view of a ceiling that
+        # silently closes their public page. It was enforced in the create
+        # handler and reported NOWHERE: no endpoint returned the usage, no
+        # screen read it, and the public-surface monitor scored a cap-dead
+        # page as healthy. An owner could only discover it from a guest.
+        # -1 means unlimited; the UI renders nothing in that case.
+        "reservations_used_this_month": _month_usage(db, user),
+        "reservations_cap": get_cap(user, "reservations_per_month"),
     }
 
 

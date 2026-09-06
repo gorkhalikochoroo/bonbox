@@ -156,6 +156,79 @@ def _resolve_owner(db: Session, slug: str) -> tuple[BusinessProfile, User]:
     return profile, owner
 
 
+def _month_reservations_used(db: Session, owner: User) -> int:
+    """Bookings this calendar month that CONSUME the owner's monthly quota.
+
+    Extracted verbatim from the create handler so the availability endpoints,
+    the create guard and the owner's own usage read can never disagree about
+    what "used" means. Three prior outages are encoded in this filter — do not
+    widen the status list without re-reading them:
+
+    Counts bookings that EXIST, not creation attempts. Counting cancelled
+    rows made the cap a denial-of-business weapon: at the 6/min public
+    limit, ~20 create-then-cancel round trips (about four minutes) burned
+    a Free venue's entire month, and cancelling left the floor plan clean
+    so the owner saw a dead booking page with no cause. A cancelled table
+    consumes nothing — the guest freed it — so it must not consume quota.
+
+    no_show and completed DO count: the table was held, the cover was
+    real. Only a cancellation gives the capacity back.
+
+    "requested" does NOT count, by that same rule — and leaving it in was a
+    live outage an anonymous stranger could trigger with curl. A group
+    request (party_size >= group_request_threshold) skips the availability
+    engine entirely and is a plain insert, so it ALWAYS succeeds: there is no
+    capacity to bounce off. It also holds no table and no occupancy row until
+    the owner approves it. So by the cancellation rule above, it consumes
+    nothing.
+
+    Counting it meant ~20 posts dated far enough out — expire_stale_requests
+    only sweeps rows within 6h of the sitting, so distant junk never clears —
+    held a Free venue's ENTIRE monthly allowance for as long as the attacker
+    chose, and the venue's real guests then got 409 not_accepting with the
+    owner seeing no cause. It starts counting the moment the owner confirms
+    it, which is when a table is actually held.
+    """
+    month_start = _now_local().replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
+    return int(
+        (
+            db.query(func.count(Reservation.id))
+            .filter(Reservation.user_id == owner.id,
+                    Reservation.created_at >= month_start,
+                    Reservation.is_deleted.is_(False),
+                    Reservation.status.in_(
+                        ("confirmed", "seated", "completed", "no_show")
+                    ))
+            .scalar()
+        ) or 0
+    )
+
+
+def _at_month_cap(db: Session, owner: User) -> bool:
+    """True when this venue may not accept another online booking this month.
+
+    Called from the AVAILABILITY endpoints as well as create. Before this, the
+    cap was checked only inside the POST: a venue at its ceiling still
+    advertised open evenings and per-slot "2 left" scarcity hints, and the
+    guest learned the truth only after typing their name, phone, party size and
+    allergy notes — with the client's 409 handler leaving them on a filled-in
+    dead form, because it only returns to step 1 for slot_unavailable.
+
+    Fails OPEN on error: a billing hiccup must never take a venue's booking
+    page down. The create guard is the barrier that actually enforces the cap;
+    this one only decides whether to show a closed page instead of a trap.
+    """
+    try:
+        return at_cap(owner, "reservations_per_month",
+                      _month_reservations_used(db, owner))
+    except Exception:  # noqa: BLE001 — never break the public page on this
+        logger.warning("reservation cap check failed for owner %s", owner.id,
+                       exc_info=True)
+        return False
+
+
 @router.get("/{slug}")
 @_limiter.limit("60/minute")
 def public_page(request: Request, slug: str = Path(...), db: Session = Depends(get_db)):
@@ -279,6 +352,14 @@ def availability(request: Request, slug: str = Path(...),
     if target < today or target > today + timedelta(days=max_advance):
         return {"date": day, "party_size": party, "slots": [], "group_request": False}
 
+    # At the monthly ceiling the answer is "closed", not a list of times the
+    # create endpoint is about to refuse. `closed_reason` is additive — an
+    # older client sees an empty `slots` array and renders its normal
+    # no-availability state, which is already the honest outcome.
+    if _at_month_cap(db, owner):
+        return {"date": day, "party_size": party, "slots": [],
+                "group_request": False, "closed_reason": "not_accepting"}
+
     group_threshold = settings.get("group_request_threshold")
     group_request = bool(group_threshold and party >= group_threshold)
 
@@ -320,6 +401,19 @@ def availability_summary(request: Request, slug: str = Path(...),
         base = datetime.strptime(start, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(status_code=422, detail={"error": "bad_date"})
+    # Same rule as /availability: at the ceiling every in-window day is closed,
+    # and next_open_day is None so the date strip's auto-advance stops instead
+    # of walking the whole horizon looking for an evening that cannot exist.
+    if _at_month_cap(db, owner):
+        return {
+            "from": base.isoformat(), "party_size": party, "next_open_day": None,
+            "days": [
+                {"date": (base + timedelta(days=i)).isoformat(),
+                 "has_slots": False, "reason": "not_accepting"}
+                for i in range(days)
+            ],
+        }
+
     summary = rsvc.summarize_days(
         db, profile=profile, user_id=owner.id, start_date=base,
         days=days, party_size=party, now=_now_local(),
@@ -831,43 +925,9 @@ def create_reservation(request: Request, background_tasks: BackgroundTasks,
         raise HTTPException(status_code=409, detail={"error": "party_too_large"})
 
     # L7 — owner's monthly cap → generic 409 (no tier leak to the visitor).
-    #
-    # Counts bookings that EXIST, not creation attempts. Counting cancelled
-    # rows made the cap a denial-of-business weapon: at the 6/min public
-    # limit, ~20 create-then-cancel round trips (about four minutes) burned
-    # a Free venue's entire month, and cancelling left the floor plan clean
-    # so the owner saw a dead booking page with no cause. A cancelled table
-    # consumes nothing — the guest freed it — so it must not consume quota.
-    #
-    # no_show and completed DO count: the table was held, the cover was
-    # real. Only a cancellation gives the capacity back.
-    #
-    # "requested" does NOT count, by that same rule — and leaving it in was a
-    # live outage an anonymous stranger could trigger with curl. A group
-    # request (party_size >= group_request_threshold) skips the availability
-    # engine entirely and is a plain insert, so it ALWAYS succeeds: there is no
-    # capacity to bounce off. It also holds no table and no occupancy row until
-    # the owner approves it. So by the cancellation rule above, it consumes
-    # nothing.
-    #
-    # Counting it meant ~20 posts dated far enough out — expire_stale_requests
-    # only sweeps rows within 6h of the sitting, so distant junk never clears —
-    # held a Free venue's ENTIRE monthly allowance for as long as the attacker
-    # chose, and the venue's real guests then got 409 not_accepting with the
-    # owner seeing no cause. It starts counting the moment the owner confirms
-    # it, which is when a table is actually held.
-    month_start = _now_local().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    used = (
-        db.query(func.count(Reservation.id))
-        .filter(Reservation.user_id == owner.id,
-                Reservation.created_at >= month_start,
-                Reservation.is_deleted.is_(False),
-                Reservation.status.in_(
-                    ("confirmed", "seated", "completed", "no_show")
-                ))
-        .scalar()
-    ) or 0
-    if at_cap(owner, "reservations_per_month", int(used)):
+    # Counting semantics live in _month_reservations_used; read that comment
+    # before changing anything here.
+    if _at_month_cap(db, owner):
         raise HTTPException(status_code=409, detail={"error": "not_accepting"})
 
     # Salon appointment (S3a) — a behandling and/or a pinned stylist routes to
