@@ -4775,18 +4775,35 @@ def export_payroll_csv(
     user: User = Depends(get_current_user),
 ):
     """
-    Hours + gross wages CSV — drop-in import for DataLøn / Zenegy / Salary.
+    Hours + wages CSV for the owner to map into their lønsystem.
 
-    Format: Name, Role, Contract type, Hours, Gross wage, Period start, Period end.
-    Names match the universal columns these systems accept; users map them
-    once in their lønsystem then re-import each period.
+    COLUMNS, as actually written below — ten, not the seven this docstring
+    used to claim:
+        Name; Role; Contract; Hours; Gross (DKK); AM-bidrag (8%);
+        A-skat (est.); Net pay; Period start; Period end
+    Semicolon-delimited with a UTF-8 BOM, because DK Excel locales split on ";".
 
-    Why CSV (not direct submit): submitting to SKAT/eIndkomst requires
-    certification we don't have. The user's lønsystem (already certified)
-    handles the official submission — we just save them the typing.
+    NOT a drop-in import. The previous wording promised "drop-in import for
+    DataLøn / Zenegy / Salary" and that these "match the universal columns
+    these systems accept" — nothing has ever verified that against any of
+    them, and the A-skat column is an ESTIMATE (see /payroll/estimate, which
+    is scrupulous about this: the official figure comes from each employee's
+    trækkort via eIndkomst, which only certified providers can call). Treat
+    this as a CSV the owner maps once in their own system.
 
-    Multi-layer defense: if payroll service errors, we still export an
-    empty CSV with headers so the user's import job doesn't crash.
+    Why CSV and not direct submit: submitting to SKAT/eIndkomst requires
+    certification we do not have. Their lønsystem is already certified and
+    handles the official submission — we save them the typing.
+
+    FAILS CLOSED. This used to swallow any exception into
+    {"per_staff": []} and return 200 with a header-only file, reasoning that
+    "the user's import job doesn't crash". That is the wrong trade on money:
+    a crashed import is loud and recoverable, a silent empty payroll file at
+    the 10th-of-month deadline means somebody does not get paid and nothing
+    said so. An error is now a 503 that names itself.
+
+    A genuinely empty period (no hours logged) still returns a header-only
+    file — that one is honest, because there really is nothing to pay.
     """
     import csv
     import io
@@ -4795,8 +4812,18 @@ def export_payroll_csv(
 
     try:
         est = estimate_period_payroll(db, user.id, period_start, period_end)
-    except Exception:  # noqa: BLE001
-        est = {"per_staff": []}
+    except Exception as exc:  # noqa: BLE001
+        # Fail CLOSED — see the docstring. Never hand back a well-formed,
+        # empty payroll file and let it read as "nobody worked".
+        import logging as _logging  # module does not import logging at top level
+        _logging.getLogger(__name__).exception("payroll CSV export failed")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Kunne ikke beregne lønnen for perioden. Prøv igen — "
+                "din eksport er IKKE tom, den blev ikke lavet."
+            ),
+        ) from exc
 
     buf = io.StringIO()
     writer = csv.writer(buf, delimiter=";")  # DK lønsystems prefer ; (Excel locale)

@@ -219,3 +219,50 @@ def test_net_plus_deductions_equals_gross():
         # Conservation: gross == net + am_bidrag + a_skat (rounding tolerance .01)
         total = r["net_pay"] + r["am_bidrag"] + r["a_skat"]
         assert abs(total - r["gross"]) < 0.01, f"conservation failed at {gross}"
+
+
+# ── The export must FAIL CLOSED ────────────────────────────────────────
+#
+# GET /payroll/csv used to swallow ANY exception from estimate_period_payroll
+# into {"per_staff": []} and return 200 with a header-only file. The comment
+# defending it said "so the user's import job doesn't crash" — which is the
+# wrong trade on money. A crashed import is loud and recoverable; a
+# well-formed, empty payroll CSV at the 10th-of-month deadline means somebody
+# does not get paid and nothing said so.
+#
+# This test drives the route through its error path and asserts the owner
+# gets an error rather than an empty file. It fails on the old code.
+
+def test_payroll_csv_fails_closed_instead_of_exporting_an_empty_file(monkeypatch):
+    import app.routers.staff as staff_router
+    from fastapi import HTTPException
+
+    def _boom(*a, **k):
+        raise RuntimeError("payroll service down")
+
+    # The route imports the service INSIDE the function, so patch at source.
+    import app.services.payroll_service as payroll_service
+    monkeypatch.setattr(payroll_service, "estimate_period_payroll", _boom)
+
+    from datetime import date
+    try:
+        staff_router.export_payroll_csv(
+            period_start=date(2026, 8, 1),
+            period_end=date(2026, 8, 31),
+            db=None,
+            user=type("U", (), {"id": "u1"})(),
+        )
+    except HTTPException as e:
+        assert e.status_code == 503, f"expected 503, got {e.status_code}"
+        # The message must tell the owner the export was NOT made, so an
+        # empty download is never mistaken for an empty payroll.
+        assert "IKKE tom" in e.detail
+        return
+    except RuntimeError:
+        raise AssertionError(
+            "route let the service error escape raw — it should be a named 503"
+        )
+    raise AssertionError(
+        "route returned a CSV on a failed payroll calculation — this is the "
+        "fail-open bug: a header-only file reads as 'nobody worked'"
+    )
