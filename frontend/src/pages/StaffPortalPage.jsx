@@ -1403,6 +1403,40 @@ function firstName(name) {
 // to published/confirmed shifts server-side (no draft leak), and we ALSO restrict
 // to nextShift.date only as defense-in-depth — never widen beyond the one date
 // the staffer is already trusted to see.
+/**
+ * matesForShift — who else is on THIS shift's date, at this shift's location.
+ *
+ * Lifted out of WhosOnStrip so the week list can answer the same question for
+ * every shift, not only the hero's next one. Previously "who am I on with?"
+ * was answerable for exactly one day; a staffer looking at Friday got nothing.
+ *
+ * Rules preserved verbatim from the strip: same date only (defense-in-depth —
+ * never widen past the one date the staffer is already trusted to see), own row
+ * excluded structurally by matching start/end/role since the client has no
+ * staff_id, dedupe by staff_id, and multi-location scoping where a shift with a
+ * location only sees that location while a shift without one sees everyone.
+ */
+function matesForShift(teamShifts, shift) {
+  if (!shift || !Array.isArray(teamShifts)) return [];
+  const myBranch = shift.branch_name || null;
+  const seen = new Set();
+  const mates = [];
+  for (const s of teamShifts) {
+    if (s.date !== shift.date) continue;
+    if (myBranch && s.branch_name && s.branch_name !== myBranch) continue;
+    const isMine =
+      s.start_time === shift.start_time &&
+      s.end_time === shift.end_time &&
+      (s.role || "") === (shift.role_on_shift || "");
+    if (isMine) continue;
+    const id = s.staff_id ?? `${s.staff_name}|${s.start_time}|${s.end_time}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    mates.push(s);
+  }
+  return mates;
+}
+
 function WhosOnStrip({ teamShifts, nextShift }) {
   const { t } = useLanguage();
 
@@ -1415,21 +1449,7 @@ function WhosOnStrip({ teamShifts, nextShift }) {
   // location, which belongs everywhere). A shift with no location keeps the
   // whole-team view, so single-venue tenants see zero change.
   const myBranch = nextShift.branch_name || null;
-  const seen = new Set();
-  const mates = [];
-  for (const s of teamShifts) {
-    if (s.date !== nextShift.date) continue;
-    if (myBranch && s.branch_name && s.branch_name !== myBranch) continue;
-    const isMine =
-      s.start_time === nextShift.start_time &&
-      s.end_time === nextShift.end_time &&
-      (s.role || "") === (nextShift.role_on_shift || "");
-    if (isMine) continue;
-    const id = s.staff_id ?? `${s.staff_name}|${s.start_time}|${s.end_time}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    mates.push(s);
-  }
+  const mates = matesForShift(teamShifts, nextShift);
 
   const CAP = 6;
   const shown = mates.slice(0, CAP);
@@ -1439,7 +1459,21 @@ function WhosOnStrip({ teamShifts, nextShift }) {
   // for that surface, which is why they looked orphaned on the gray page).
   // Renders NOTHING on a solo shift, so stillness costs zero chrome. No
   // per-avatar role bar — role colour lives only on the hero's left-bar.
-  if (mates.length === 0) return null;
+  // A solo shift used to render nothing at all — and 63% of venue-days in
+  // production ARE solo, so the most common answer to "who am I on with?" was
+  // silence, which reads as "not loaded yet" rather than "nobody". Say it.
+  if (mates.length === 0) {
+    return (
+      <div className="mt-4 pt-4 border-t border-white/10">
+        <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">
+          {t("portalWhosOnTitle")}
+        </div>
+        <div className="text-[13px] text-gray-400">
+          {t("portalWhosOnSolo", "You're on your own this shift.")}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="mt-4 pt-4 border-t border-white/10">
       <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
@@ -2341,6 +2375,44 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                             <div className="text-[11px] text-gray-500 truncate">
                               {fs.role_on_shift ? `${fs.role_on_shift} · ` : ""}{fmtHM(fs.net_hours)}
                             </div>
+                            {/* Who you are on with, for EVERY shift — not just
+                                the hero's next one. "Who am I on with?" was
+                                answerable for exactly one day; a staffer
+                                looking at Friday got nothing. Same matching
+                                rule as the hero strip (matesForShift), so the
+                                two can never disagree.
+                                First names only, three then "+N" — this is a
+                                glance line under a time, not a roster. */}
+                            {(() => {
+                              // GET /team-schedule starts at TODAY, so it has
+                              // nothing to say about a past day. Silence there
+                              // means UNKNOWN, and rendering the same silence
+                              // for a future solo shift would let a staffer
+                              // read "I was on my own on Friday" out of missing
+                              // data. So: only speak about dates we can see.
+                              //   future + mates -> name them
+                              //   future + none  -> say alone (we KNOW)
+                              //   past           -> say nothing (we do not)
+                              if (fs.date < today) return null;
+                              const mates = matesForShift(teamShifts, fs);
+                              if (!mates.length) {
+                                return (
+                                  <div className="text-[11px] text-gray-400 truncate mt-0.5">
+                                    {t("portalWhosOnSoloShort", "On your own")}
+                                  </div>
+                                );
+                              }
+                              const names = mates.map((m) => firstName(m.staff_name)).filter(Boolean);
+                              const shown = names.slice(0, 3).join(", ");
+                              const extra = names.length - Math.min(names.length, 3);
+                              return (
+                                <div className="text-[11px] text-gray-400 truncate mt-0.5">
+                                  {t("portalWithMates", "With {names}", {
+                                    names: extra > 0 ? `${shown} +${extra}` : shown,
+                                  })}
+                                </div>
+                              );
+                            })()}
                             {/* Venue on the day it belongs to — a staffer
                                 working two places needs it here, not on
                                 whatever the hero happens to be showing. */}
