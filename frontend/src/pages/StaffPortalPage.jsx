@@ -973,7 +973,12 @@ function SickCallButton({ token, upcomingShifts, onCalledIn, autoOpen = false })
         <input
           type="date"
           value={date}
-          min={todayIso}
+          // Backdating matters once the Availability sick chip is gone: someone
+          // ill over the weekend registers it Monday. The service allows 30 days
+          // back (MAX_BACKDATE_DAYS); 14 is the honest UI floor — far enough for
+          // a real weekend or a lost phone, short enough that a typo'd year
+          // cannot silently land a sygemelding in a closed pay period.
+          min={toLocalISO(addDaysToDate(new Date(), -14))}
           max={maxIso}
           onChange={(e) => setDate(e.target.value)}
           className="w-full px-3 py-2 rounded-[14px] bg-[#fbfdff] border border-[#e2e8f0] text-sm text-gray-900 outline-none focus:border-amber-500/40"
@@ -4540,6 +4545,15 @@ function AbsenceSection({ token, onChanged }) {
     barns_syg: t("fravaerBarns", "Child's sick day"),
     andet: t("fravaerAndet", "Other"),
   };
+  // Sygdom is REGISTERED; ferie is REQUESTED. GET /portal/{token}/absence has no
+  // kind filter (staff_portal.py ~2382 — staff_id + user_id + date only), so a
+  // sick call made on the Schedule tab has always rendered in this list too. It
+  // arrives status="pending" and was therefore labelled with an amber
+  // "Afventer" under a heading reading "kræver godkendelse" — while the Schedule
+  // tab told the same staffer "Sygemelding registreret" about the same row.
+  // One row, two opposite stories. Nobody applies for permission to be ill.
+  const isNotifyKind = (k) => k === "sick" || k === "barns_syg";
+  const REGISTERED = { label: t("fravaerStatusRegistered", "Registered"), cls: "bg-gray-100 text-gray-600" };
   const STATUS = {
     pending: { label: t("fravaerStatusPending", "Pending"), cls: "bg-amber-100 text-amber-700" },
     acknowledged: { label: t("fravaerStatusApproved", "Approved"), cls: "bg-emerald-100 text-emerald-700" },
@@ -4587,12 +4601,15 @@ function AbsenceSection({ token, onChanged }) {
   return (
     <div className="space-y-3">
       <div>
+        {/* Neutral heading. This list holds BOTH kinds — GET /absence has no kind
+            filter (staff_portal.py ~2382), so a Schedule-tab sygemelding lands
+            here too — and labelling the whole section "needs approval" put those
+            words directly above a row chipped "Registered". Each row carries its
+            own truth now: amber Afventer for a request, grey Registreret for a
+            sick day. The approval sentence moved to the button it describes. */}
         <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
-          {t("fravaerHeading", "Time off · needs approval")}
+          {t("fravaerHeadingNeutral", "Time off")}
         </div>
-        <p className="text-[12px] text-gray-500 mt-0.5 leading-snug">
-          {t("fravaerNeedsApprovalSub", "This is a request — your manager approves it. You'll see Pending, then Approved.")}
-        </p>
       </div>
 
       {rows === null ? (
@@ -4600,7 +4617,12 @@ function AbsenceSection({ token, onChanged }) {
       ) : groups.length > 0 ? (
         <div className="space-y-2">
           {groups.map((g) => {
-            const st = STATUS[g.status] || STATUS.pending;
+            // A sygemelding is a fact, not an application, so it never wears
+            // the amber "Afventer". Cancelled still shows for both kinds —
+            // that one IS a real state change the staffer made.
+            const st = isNotifyKind(g.kind) && g.status !== "cancelled"
+              ? REGISTERED
+              : (STATUS[g.status] || STATUS.pending);
             return (
               <div key={g.ids[0]} className="rounded-[18px] bg-white border border-[#e8edf3] p-3 flex items-center gap-3 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                 <div className="w-9 h-9 rounded-xl bg-gray-100 flex items-center justify-center shrink-0">
@@ -4619,7 +4641,9 @@ function AbsenceSection({ token, onChanged }) {
                     onClick={() => withdraw(g)}
                     className="shrink-0 text-[11px] font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
                   >
-                    {t("fravaerWithdraw", "Withdraw")}
+                    {isNotifyKind(g.kind)
+                      ? t("fravaerUndo", "Undo")
+                      : t("fravaerWithdraw", "Withdraw")}
                   </button>
                 )}
               </div>
@@ -4629,17 +4653,28 @@ function AbsenceSection({ token, onChanged }) {
       ) : null}
 
       {!adding ? (
+        <div>
         <button
           onClick={() => { reset(); setAdding(true); }}
           className="w-full px-4 py-2.5 rounded-xl bg-gray-100 text-gray-700 hover:bg-gray-200 text-sm font-semibold transition flex items-center justify-center gap-2"
         >
           <CalendarPlus className="w-4 h-4" strokeWidth={2.25} aria-hidden />
-          {t("fravaerAdd", "Request holiday / sick leave")}
+          {t("fravaerAdd", "Request time off")}
         </button>
+        <p className="text-[12px] text-gray-500 leading-snug mt-2">
+          {t("fravaerNeedsApprovalSub", "This is a request — your manager approves it. You'll see Pending, then Approved.")}
+        </p>
+        </div>
       ) : (
         <div className="rounded-xl bg-white border border-gray-200 p-4 space-y-4">
           <div className="grid grid-cols-2 gap-1.5">
-            {["ferie", "sick", "barns_syg", "andet"].map((k) => (
+            {/* Sygdom deliberately absent: this form's banner promises manager
+                approval, and that is a lie for a sick day. Sick lives on the
+                Schedule tab, which notifies the owner and binds the shift —
+                register_absence does neither. VALID_ABSENCE_KINDS still accepts
+                "sick" server-side so an un-updated App Store bundle keeps
+                working; only this picker stops creating them. */}
+            {["ferie", "andet"].map((k) => (
               <button
                 key={k}
                 onClick={() => setKind(k)}
