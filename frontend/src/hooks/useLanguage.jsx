@@ -429,6 +429,7 @@ const translations = {
     // Bank account — staff-entered, encrypted, owner reads it to pay them.
     portalBankSection: "Bank account",
     portalWeekShiftCount: "{n} shifts",
+    portalWeekShiftCountOne: "{n} shift",
     portalWeekLive: "Live",
     portalHrsUnit: "hrs",
     portalHoursLastNWeeks: "last {n} weeks",
@@ -8406,6 +8407,7 @@ const translations = {
     // Bankkonto \u2014 medarbejderen indtaster selv; krypteret; ejeren l\u00e6ser den for at udbetale l\u00f8n.
     portalBankSection: "Bankkonto",
     portalWeekShiftCount: "{n} vagter",
+    portalWeekShiftCountOne: "{n} vagt",
     portalWeekLive: "Live",
     portalHrsUnit: "t",
     portalHoursLastNWeeks: "sidste {n} uger",
