@@ -257,6 +257,17 @@ export default function PricingV2() {
               <span className="text-[13.5px] text-slate-400 line-through">
                 349
               </span>
+              {/* Pro's 249 is rationed exactly like Starter's 129 — both come
+                  from the founding Stripe price, granted only while
+                  _is_founding_member_slot_open() is true (stripe_billing.py:134,
+                  FOUNDING_MEMBER_LIMIT = 100). Only Starter carried the badge,
+                  so the Pro column read as "249 now, 349 was the old price"
+                  when it actually means "249 for the first 100, then 349".
+                  Buyer 101 clicked Start on Pro and was charged 100 kr/mo more
+                  than the column quoted. Same tag, same rule, same words. */}
+              <span className="rounded-full bg-slate-100 px-[9px] py-1 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-slate-600">
+                {t("landingV2.pricing.starter.foundingTag", "First 100")}
+              </span>
             </div>
             <div className={trialNote}>
               {t(

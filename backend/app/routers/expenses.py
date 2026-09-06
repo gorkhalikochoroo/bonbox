@@ -36,7 +36,7 @@ from app.services.auth import get_current_user
 from app.services.cash_sync import sync_cash_out_for_expense, delete_cash_entry_by_ref, update_cash_entry_for_ref
 from app.services.expense_status import not_pending
 from app.services.receipt_ocr import parse_expense_receipt
-from app.services.billing import get_cap, effective_plan
+from app.services.billing import PLAN_CAPS, get_cap, effective_plan
 from app.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -431,7 +431,15 @@ async def parse_receipt(
                     "monthly_cap": cap,
                     "message": (
                         f"You've used your {cap} receipt scans this month. "
-                        "Upgrade to Starter for 200 / month."
+                        # Read the real Starter cap instead of hardcoding it.
+                        # This string said "200 / month" from before the
+                        # 2026-05-28 recalibration to 300, so the upgrade wall
+                        # undersold Starter by a third at the exact moment the
+                        # owner was deciding whether to pay for it — and
+                        # contradicted the pricing page they had just read.
+                        f"Upgrade to Starter for "
+                        f"{PLAN_CAPS['starter']['expense_receipt_scans_per_month']}"
+                        f" / month."
                     ),
                 },
             )
@@ -1368,7 +1376,15 @@ async def upload_expense_receipt(
                     "monthly_cap": cap,
                     "message": (
                         f"You've used your {cap} receipt scans this month. "
-                        "Upgrade to Starter for 200 / month."
+                        # Read the real Starter cap instead of hardcoding it.
+                        # This string said "200 / month" from before the
+                        # 2026-05-28 recalibration to 300, so the upgrade wall
+                        # undersold Starter by a third at the exact moment the
+                        # owner was deciding whether to pay for it — and
+                        # contradicted the pricing page they had just read.
+                        f"Upgrade to Starter for "
+                        f"{PLAN_CAPS['starter']['expense_receipt_scans_per_month']}"
+                        f" / month."
                     ),
                 },
             )

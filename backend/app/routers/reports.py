@@ -34,7 +34,7 @@ from app.services.auth import get_current_user
 from app.services.expense_status import not_pending
 from collections import namedtuple
 from app.services.revenue_resolver import effective_revenue_total, effective_revenue_by_date, effective_revenue_for_date
-from app.services.billing import effective_plan, get_cap
+from app.services.billing import PLAN_CAPS, effective_plan, get_cap
 from app.services.tax_filing_pdf import (
     build_moms_filing_pdf, compute_filing_data, make_bilagsnummer,
 )
@@ -1336,13 +1336,19 @@ def vat_export_pdf(
                     "monthly_cap": cap,
                     # DK-first phrasing — the surface is jurisdiction-
                     # locked (MOMS / kr stay Danish even on EN UI).
+                    # Starter's cap is READ, not restated. The sibling wall in
+                    # expenses.py typed its number and spent months telling
+                    # owners Starter gave 200 receipt scans when it gave 300.
                     "message": (
                         f"Du har brugt dine {cap} MOMS PDF-eksporter "
-                        f"denne måned. Opgrader til Starter for 100/md."
+                        f"denne måned. Opgrader til Starter for "
+                        f"{PLAN_CAPS['starter']['moms_pdf_exports_per_month']}/md."
                     ),
                     "message_en": (
                         f"You've used your {cap} MOMS PDF exports this "
-                        f"month. Upgrade to Starter for 100 / month."
+                        f"month. Upgrade to Starter for "
+                        f"{PLAN_CAPS['starter']['moms_pdf_exports_per_month']}"
+                        f" / month."
                     ),
                 },
             )
