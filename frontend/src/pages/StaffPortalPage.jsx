@@ -15,6 +15,7 @@ import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, C
 import { exportToCsv } from "../utils/exportCsv";
 import portalApi, { storePinProof } from "../services/portalApi";
 import { useLanguage } from "../hooks/useLanguage";
+import { sectionFor } from "../config/roleSections";
 import { errText } from "../utils/errText";
 import { isNativeApp } from "../utils/platform";
 import { capturePhoto } from "../utils/camera";
@@ -168,21 +169,27 @@ function fmtClock(d) {
 // that thin element only. Match is case-insensitive + DK/EN aware; unknown
 // roles fall back to neutral gray (no rainbow). Status-color discipline holds:
 // these are identity hints on a hairline, not status semantics.
-function roleBarColor(role) {
-  const r = (role || "").toLowerCase();
-  if (r.includes("køkken") || r.includes("kitchen") || r.includes("chef") || r.includes("kok")) {
-    return "bg-red-500";
+function roleBarColor(role, businessType) {
+  // Was a four-branch substring chain that left 3 of 6 restaurant roles on the
+  // neutral gray — Dishwasher, Runner and Manager — i.e. 33 of 80 production
+  // shifts, every dishwasher shift among them. It also had no idea what
+  // vertical it was in, so a salon "Barber" was filed behind a bar because the
+  // word contains "bar".
+  //
+  // Now the same archetype-keyed resolver the OWNER's schedule maker calls, so
+  // the two surfaces bucket a role identically. Colour still lives here: this
+  // app paints floor VIOLET, not the owner grid's emerald, because green is
+  // reserved exclusively for live/now (the Live pill, the clocked-in ping) and
+  // painting the majority persona green flooded every page with false live
+  // signals. Only the SECTION has to agree, never the palette.
+  switch (sectionFor(role, businessType)) {
+    case "kitchen": return "bg-red-500";
+    case "bar": return "bg-blue-500";
+    case "floor": return "bg-violet-500";
+    case "treatment": return "bg-violet-500";
+    case "front": return "bg-blue-500";
+    default: return "bg-gray-600";   // genuinely unclassified — no rainbow
   }
-  if (r.includes("bar") || r.includes("barista")) {
-    return "bg-blue-500";
-  }
-  if (r.includes("floor") || r.includes("gulv") || r.includes("tjener") || r.includes("waiter") || r.includes("server")) {
-    // Violet, NOT emerald — green is reserved exclusively for "live/now"
-    // (Live pill + clocked-in ping). Tjener is the majority persona; painting
-    // it green flooded every page with false "live" signals.
-    return "bg-violet-500";
-  }
-  return "bg-gray-600";
 }
 
 // ─── Client-side .ics (calendar) export for a single shift ─────────────────
@@ -1503,7 +1510,7 @@ function WhosOnStrip({ teamShifts, nextShift }) {
 // model — appears only when there's something to take, never a notification
 // blast). Claim is atomic + overlap-guarded server-side; on success the shift
 // lands in the staffer's own schedule, so we refresh.
-function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts }) {
+function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts, businessType }) {
   // PURE-PROPS rows: hoisted to the page-level loadData (same Promise.allSettled
   // as the schedule) so this card paints WITH the first render instead of
   // inserting itself after settle. Claim refreshes via onClaimed → loadData.
@@ -1552,7 +1559,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts }) {
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-[14px] font-semibold text-gray-900">
-                <span className={`block h-[3px] w-5 rounded-full ${roleBarColor(o.role)}`} aria-hidden />
+                <span className={`block h-[3px] w-5 rounded-full ${roleBarColor(o.role, businessType)}`} aria-hidden />
                 {fmtDate(o.date, lang)}
               </div>
               <div className="text-[13px] text-gray-500 tabular-nums mt-0.5">
@@ -1584,7 +1591,7 @@ function OpenShiftsClaimCard({ token, rows, onClaimed, ownShifts }) {
 }
 
 
-function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, coversByShift, onShiftsChanged, allShifts}) {
+function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaurantName, restaurantCity, restaurantAddress, businessType, coversByShift, onShiftsChanged, allShifts}) {
   const { t, lang } = useLanguage();
   const WD = useMemo(() => weekdayNames(lang), [lang]);
   // Defense-in-depth: the portal API already filters to published shifts
@@ -1804,7 +1811,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
             when there IS a shift: an empty hero has no role to signal. */}
         {nextShift && (
           <span
-            className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl ${roleBarColor(nextShift.role_on_shift)}`}
+            className={`absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl ${roleBarColor(nextShift.role_on_shift, businessType)}`}
             aria-hidden
           />
         )}
@@ -2099,7 +2106,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
       </div>
 
       {/* Åbne vagter — open shifts this staffer can pick up one-tap. */}
-      {token && <OpenShiftsClaimCard token={token} rows={openShifts || []} onClaimed={onShiftsChanged} ownShifts={shifts} />}
+      {token && <OpenShiftsClaimCard token={token} rows={openShifts || []} onClaimed={onShiftsChanged} ownShifts={shifts} businessType={businessType} />}
 
       {/* Bidirectional confirmation — calm "Jeg har set det" strip. Truth logic
           (allConfirmed gated on every confirmed_at) untouched; only the CTA
@@ -2326,7 +2333,7 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
                     {all.map((fs) => (
                       <div key={fs.id || `${fs.date}-${fs.start_time}`} className="flex items-center justify-between gap-3 mt-2">
                         <div className="flex items-center gap-2.5 min-w-0">
-                          <span className={`w-1.5 h-8 rounded-full shrink-0 ${roleBarColor(fs.role_on_shift)}`} aria-hidden />
+                          <span className={`w-1.5 h-8 rounded-full shrink-0 ${roleBarColor(fs.role_on_shift, businessType)}`} aria-hidden />
                           <div className="min-w-0">
                             <div className="text-[13px] font-semibold text-gray-900 tabular-nums truncate">
                               {fs.start_time}–{fs.end_time}
@@ -7388,6 +7395,9 @@ export default function StaffPortalPage() {
             restaurantName={info?.restaurant_name}
             restaurantCity={info?.restaurant_city}
             restaurantAddress={info?.restaurant_address}
+            // The venue's vertical, so role→section resolves the same way the
+            // owner's schedule maker does. New field on PortalInfo.
+            businessType={info?.business_type}
             onShiftsChanged={loadData}
           />
         )}

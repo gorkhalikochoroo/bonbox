@@ -6,6 +6,7 @@ import api from "../services/api";
 import StaffBankRow from "../components/StaffBankRow";
 import StaffDocumentsRow from "../components/StaffDocumentsRow";
 import { useAuth } from "../hooks/useAuth";
+import { sectionFor } from "../config/roleSections";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
@@ -82,14 +83,27 @@ const CONTRACT_TYPES = [
   { value: "freelance", label: "Freelance" },
 ];
 
-const ROLE_CATEGORY = {
-  Chef: "kitchen",
-  Dishwasher: "kitchen",
-  Bartender: "bar",
-  Server: "floor",
-  Runner: "floor",
-  Manager: "floor",
-};
+// ROLE_CATEGORY used to live here as a literal map keyed on CAPITALISED names.
+// Two problems, both measured 2026-09-06:
+//   1. staff_members.role is free text and 12 of 25 live rows are LOWERCASE
+//      (server, barista, manager, kitchen, dishwasher), so ROLE_CATEGORY
+//      ["kitchen"] / ["dishwasher"] / ["barista"] all missed and fell through
+//      `|| "floor"` — a kitchen hand and a barista were painted Gulv/emerald
+//      on this very grid.
+//   2. It held six restaurant roles, so every non-hospitality vertical also
+//      landed on "floor". A whole salon read as one undifferentiated Floor.
+// Both are now the shared, archetype-keyed resolver in config/roleSections.js,
+// which the STAFF app calls too — one map, not two that drift.
+//
+// Colour stays local: this grid paints floor emerald, the staff app paints it
+// violet (green is reserved there for live/now). Only the SECTION agrees.
+function useCatFor() {
+  const { user } = useAuth();
+  const bt = user?.business_type;
+  // `|| "floor"` preserves today's behaviour for anything unresolved, so an
+  // unknown role lands exactly where it always has.
+  return (role) => sectionFor(role, bt) || "floor";
+}
 
 const ROLE_COLORS = {
   kitchen: {
@@ -131,9 +145,9 @@ const ROLE_BAR = {
 // kitchen shift reads "Køkken", never the ambiguous "Chef" (= boss in Danish).
 const ROLE_LABEL_KEY = { kitchen: "roleKitchen", bar: "roleBar", floor: "roleFloor" };
 const ROLE_LABEL_FALLBACK = { kitchen: "Kitchen", bar: "Bar", floor: "Floor" };
-function roleLabel(role, t) {
-  const cat = ROLE_CATEGORY[role] || "floor";
-  return t(ROLE_LABEL_KEY[cat], ROLE_LABEL_FALLBACK[cat]);
+function roleLabel(cat, t) {
+  const c = cat || "floor";
+  return t(ROLE_LABEL_KEY[c], ROLE_LABEL_FALLBACK[c]);
 }
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -3004,6 +3018,7 @@ function StaffDetailModal({
   roles = ROLES_RESTAURANT,
   t,
 }) {
+  const catFor = useCatFor();
   const cardRef = useRef(null);
   // Hold the latest onClose in a ref so the focus/Esc effect can depend only
   // on `member` (open/close). Without this, the parent re-renders on every
@@ -3074,7 +3089,7 @@ function StaffDetailModal({
 
   if (!member) return null;
 
-  const cat = ROLE_CATEGORY[member.role] || "floor";
+  const cat = catFor(member.role);
   const colors = ROLE_COLORS[cat];
   const isInactive = member.active === false;
   const initial = (member.name || "?").trim().charAt(0).toUpperCase() || "?";
@@ -3460,6 +3475,7 @@ function StaffDetailModal({
    STAFF MANAGEMENT PANEL
    ═══════════════════════════════════════════════════════════ */
 function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCodeMinted }) {
+  const catFor = useCatFor();
   const { t } = useLanguage();
   const confirm = useConfirm();
   // Which row's code was just copied. Local on purpose — the parent has its
@@ -3814,7 +3830,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
           <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">{t("currentStaff")}</h3>
           <div className="divide-y divide-gray-100 dark:divide-gray-700 border border-gray-100 dark:border-gray-700 rounded-xl overflow-hidden">
             {staff.map((member) => {
-              const cat = ROLE_CATEGORY[member.role] || "floor";
+              const cat = catFor(member.role);
               const colors = ROLE_COLORS[cat];
               const rates = getRateCard(member);
               const isInactive = member.active === false;
@@ -4236,6 +4252,7 @@ function CostControls({ showCost, onToggleShowCost, costBasis, onCostBasis, t })
 }
 
 function MobileSchedule({ staff, weekDates, getShiftForCell, costForShift, showCost, weekCost, costBasis, targetPct, t, onCellClick, unavailFor, preferredFor, absenceFor }) {
+  const catFor = useCatFor();
   // Default to today within the current week range. If the user navigated
   // to a different week (Previous/Next), today falls outside — pick the
   // middle of the week (Thursday) as a sensible default.
@@ -4412,10 +4429,10 @@ function MobileSchedule({ staff, weekDates, getShiftForCell, costForShift, showC
           </div>
         ) : (
           staff.map((member) => {
-            const cat = ROLE_CATEGORY[member.role] || "floor";
+            const cat = catFor(member.role);
             const colors = ROLE_COLORS[cat];
             const shift = getShiftForCell(member.id, selectedDate);
-            const shiftCat = shift ? (ROLE_CATEGORY[shift.role_on_shift || member.role] || cat) : cat;
+            const shiftCat = shift ? (catFor(shift.role_on_shift || member.role)) : cat;
             const hrs = shift ? calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0) : 0;
             const isDraft = shift?.status === "draft";
             const shiftCost = shift ? costForShift?.(shift.id) : null;
@@ -4575,13 +4592,14 @@ function DroppableCell({ staffId, dateIso, occupied, className, onClick, title, 
    armed template). Tap again to disarm. Pure client-side; the "New" button
    opens a tiny modal to define one. */
 function ShiftTemplatesTray({ templates, armedId, onArm, onAddClick, onRemove, t }) {
+  const catFor = useCatFor();
   return (
     <div className="flex items-center gap-2 flex-wrap">
       <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mr-0.5">
         {t("schedTemplates", "Templates")}
       </span>
       {templates.map((tpl) => {
-        const cat = ROLE_CATEGORY[tpl.role] || "floor";
+        const cat = catFor(tpl.role);
         const armed = tpl.id === armedId;
         return (
           <div
@@ -4731,7 +4749,8 @@ const OPEN_ROLE_CHOICES = [
 ];
 
 function OpenShiftChip({ row, t, onCancel }) {
-  const cat = ROLE_CATEGORY[row.role_on_shift] || "floor";
+  const catFor = useCatFor();
+  const cat = catFor(row.role_on_shift);
   if (row.status === "filled") {
     return (
       <div className="rounded-lg ring-1 ring-emerald-200 dark:ring-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1.5 text-[11px] leading-tight">
@@ -4754,7 +4773,7 @@ function OpenShiftChip({ row, t, onCancel }) {
         <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
         {formatShiftTime(row.start_time, row.end_time)}
       </div>
-      <div className="text-gray-400 dark:text-gray-500 mt-0.5">{roleLabel(row.role_on_shift, t)}</div>
+      <div className="text-gray-400 dark:text-gray-500 mt-0.5">{roleLabel(catFor(row.role_on_shift), t)}</div>
       <button
         onClick={() => onCancel(row.id)}
         title={t("openCancel", "Remove")}
@@ -5018,6 +5037,7 @@ function ScheduleGrid({
   weekLoad,
   t,
 }) {
+  const catFor = useCatFor();
   // Map server `daily` entries by date for O(1) footer lookups.
   const dailyByDate = useMemo(() => {
     const m = {};
@@ -5056,7 +5076,7 @@ function ScheduleGrid({
   // 3px ROLE_BAR + the time line), lifted with a shadow and a tiny rotate. We
   // respect prefers-reduced-motion: no rotate when the OS asks for less motion.
   const ghostCat = activeShift
-    ? ROLE_CATEGORY[activeShift.role_on_shift] || "floor"
+    ? catFor(activeShift.role_on_shift)
     : "floor";
 
   return (
@@ -5129,7 +5149,7 @@ function ScheduleGrid({
           </thead>
           <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
             {staff.map((member) => {
-              const cat = ROLE_CATEGORY[member.role] || "floor";
+              const cat = catFor(member.role);
               const colors = ROLE_COLORS[cat];
 
               return (
@@ -5270,7 +5290,7 @@ function ScheduleGrid({
                       );
                     }
 
-                    const shiftCat = ROLE_CATEGORY[shift.role_on_shift || member.role] || cat;
+                    const shiftCat = catFor(shift.role_on_shift || member.role);
                     const hrs = calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0);
                     const isDraft = shift.status === "draft";
                     const shiftCost = costForShift?.(shift.id);
@@ -5303,7 +5323,7 @@ function ScheduleGrid({
                               {formatShiftHours(hrs, t("schedHoursUnit", "h"))}
                               {shift.role_on_shift && shift.role_on_shift !== member.role && (
                                 <span className="ml-1.5 inline-block rounded px-1 py-px bg-gray-100 dark:bg-gray-700 text-[9px] font-medium text-gray-500 dark:text-gray-400 align-middle leading-none">
-                                  {roleLabel(shift.role_on_shift, t)}
+                                  {roleLabel(catFor(shift.role_on_shift), t)}
                                 </span>
                               )}
                             </div>

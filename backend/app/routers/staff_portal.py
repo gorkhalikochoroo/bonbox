@@ -146,6 +146,16 @@ class PortalInfo(BaseModel):
     # business's own address), so it's returned un-gated like the venue name.
     restaurant_city: str | None = None
     restaurant_address: str | None = None
+    # The venue's VERTICAL, so the staff app can resolve role→section the same
+    # way the owner's schedule maker does (frontend config/roleSections.js,
+    # keyed by archetype). Without it the staff app had no way to know whether
+    # "Barber" means a bar or a salon chair, and its role colouring was a
+    # substring guess that left a third of shifts uncategorised.
+    #
+    # Not PII and not a secret: it is the business category the owner picked at
+    # signup, already public on their booking page. No rates, no counts, nothing
+    # about other staff.
+    business_type: str | None = None
     has_pin: bool = False
     max_hours_month: float | None = None
     max_hours_week: float | None = None
@@ -468,6 +478,7 @@ def get_portal_info(token: str, request: Request, db: Session = Depends(get_db))
         # profile; the staff hero shows it + offers tap-for-directions.
         restaurant_city=(profile.city if profile else None),
         restaurant_address=(profile.address if profile else None),
+        business_type=(getattr(owner, "business_type", None) if owner else None),
         has_pin=bool(link.pin_hash),
         pin_ok=pin_ok,
         max_hours_month=float(member.max_hours_month) if (pii_ok and member.max_hours_month) else None,
