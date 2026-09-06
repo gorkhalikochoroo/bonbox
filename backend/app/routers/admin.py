@@ -1040,3 +1040,122 @@ def admin_terminal_providers_list(
             for r in rows
         ],
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  ACTIVATION FUNNEL — the Vagtplan loop, end to end
+# ═══════════════════════════════════════════════════════════════════════
+#
+# WHY THIS EXISTS
+#
+# Every activation number quoted during the 2026-09-06 readiness review was
+# produced by hand-written SQL against production. That is fine once and
+# corrosive as a habit: it means nobody can answer "did the last change move
+# anything?" without a database session, so in practice nobody asks.
+#
+# The five steps below ARE the product's core loop. A venue that completes it
+# has replaced a paper roster; a venue that stalls at step 2 has a schedule
+# nobody ever saw.
+#
+#   1. rostered   — any shift exists
+#   2. published  — a shift left draft, i.e. staff could actually see it
+#   3. link_opened— a staffer opened their portal (staff_links.last_accessed)
+#   4. clocked_in — a staffer punched in (hours_logged.entry_method == 'clock')
+#   5. exported   — the owner took hours to their lønsystem
+#
+# HONESTY NOTES, because a funnel is exactly the kind of number that flatters:
+#
+#  • Steps 1-4 are DERIVED from durable rows, so they are retroactive: they
+#    describe every venue that ever did the thing, not only those active since
+#    this endpoint shipped. Step 5 is the exception — the payroll CSV wrote no
+#    trace before `staff.payroll_csv_exported` was added, so `exported` counts
+#    only from that deploy. `exported.retroactive: false` says so in the
+#    payload rather than in a comment nobody reads.
+#
+#  • The steps are NOT forced to be monotonic. A venue can clock in without a
+#    published shift (quick-add hours), and pretending otherwise by taking a
+#    running minimum would hide exactly the odd paths worth seeing. Each count
+#    is independent; `funnel_note` says so.
+#
+#  • Founder/test accounts are excluded via services/internal_accounts, the
+#    SAME list the thesis export uses. An eight-venue funnel that silently
+#    counts three of my own accounts is worse than no funnel — and using a
+#    second, local list here is how the product and the thesis end up
+#    reporting different populations from one database.
+_ACTIVATION_STEPS = ("rostered", "published", "link_opened", "clocked_in", "exported")
+
+
+@router.get("/activation")
+def admin_activation(
+    days: int = Query(0, ge=0, le=3650,
+                      description="0 = all time; otherwise only venues created in the last N days"),
+    admin: User = Depends(require_super_admin),
+    db: Session = Depends(get_db),
+):
+    """Vagtplan activation funnel — one call instead of five ad-hoc queries."""
+    from app.models.staff import HoursLogged, Schedule, StaffLink
+    from app.models.audit_log import AuditLog
+    from app.services.internal_accounts import EXCLUDED_ACCOUNTS
+
+    base = db.query(User.id)
+    if days:
+        base = base.filter(User.created_at >= utc_now() - timedelta(days=days))
+    # Compare as str: User.id is a UUID column on PG and a string on SQLite,
+    # and the exclusion list is keyed by the canonical string form.
+    cohort = {row[0] for row in base.all() if str(row[0]) not in EXCLUDED_ACCOUNTS}
+
+    def _venues(q) -> set:
+        if not cohort:
+            return set()
+        return {row[0] for row in q.all()} & cohort
+
+    rostered = _venues(db.query(distinct(Schedule.user_id)))
+    published = _venues(
+        db.query(distinct(Schedule.user_id))
+        .filter(Schedule.status.in_(("published", "confirmed")))
+    )
+    link_opened = _venues(
+        db.query(distinct(StaffLink.user_id))
+        .filter(StaffLink.last_accessed.isnot(None))
+    )
+    clocked_in = _venues(
+        db.query(distinct(HoursLogged.user_id))
+        .filter(HoursLogged.entry_method == "clock")
+    )
+    exported = _venues(
+        db.query(distinct(AuditLog.user_id))
+        .filter(AuditLog.action == "staff.payroll_csv_exported")
+    )
+
+    counts = {
+        "rostered": rostered,
+        "published": published,
+        "link_opened": link_opened,
+        "clocked_in": clocked_in,
+        "exported": exported,
+    }
+    n = len(cohort)
+    return {
+        "cohort_days": days or None,
+        "cohort_size": n,
+        "steps": [
+            {
+                "key": k,
+                "venues": len(counts[k]),
+                # An empty cohort is 0.0%, not a 500 and not a fake 100%.
+                "pct": round(len(counts[k]) / n * 100, 1) if n else 0.0,
+                # Only step 5 starts from its deploy; the rest read durable rows.
+                "retroactive": k != "exported",
+            }
+            for k in _ACTIVATION_STEPS
+        ],
+        # The one number the concierge week is judged on: venues that finished
+        # the loop. Named separately because reading it off the last funnel row
+        # invites treating the rows as monotonic, which they are not.
+        "completed_loop": len(rostered & published & link_opened & clocked_in),
+        "funnel_note": (
+            "Steps are counted independently, not as a monotonic funnel — a venue "
+            "can clock in without ever publishing (quick-add hours). "
+            "`exported` counts only since staff.payroll_csv_exported shipped."
+        ),
+    }

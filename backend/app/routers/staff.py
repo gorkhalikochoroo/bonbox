@@ -4900,6 +4900,39 @@ def export_payroll_csv(
     csv_bytes = buf.getvalue().encode("utf-8-sig")  # BOM for Excel locale handling
     filename = f"bonbox_payroll_{period_start}_{period_end}.csv"
 
+    # ── Activation signal ────────────────────────────────────────────────
+    # Exporting hours is the LAST step of the Vagtplan loop — the owner has
+    # rostered, published, had staff clock in, and is now taking the numbers
+    # to their lønsystem. It was the only one of the five funnel steps that
+    # left no trace anywhere: the other four are derivable from schedules,
+    # staff_links.last_accessed and hours_logged.entry_method, but a CSV
+    # download wrote nothing, so "how many venues finished the loop?" had no
+    # answer at all. /admin/activation reads this action.
+    #
+    # NEVER blocks the download — the owner's payroll file does not wait on
+    # our telemetry. NO row-level data in `after`: counts and the period only.
+    try:
+        audit_service.record(
+            db, user=user,
+            action="staff.payroll_csv_exported",
+            entity_type="payroll_export",
+            entity_id=None,
+            before=None,
+            after={
+                "period_start": period_start.isoformat(),
+                "period_end": period_end.isoformat(),
+                "staff_count": len(est.get("per_staff", [])),
+                "format": "csv",
+            },
+        )
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "staff.payroll_csv_exported audit log failed: %s", e
+        )
+        db.rollback()
+
     return StreamingResponse(
         iter([csv_bytes]),
         media_type="text/csv",
