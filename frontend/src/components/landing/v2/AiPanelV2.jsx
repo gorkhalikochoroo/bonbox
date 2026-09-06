@@ -1,5 +1,10 @@
 import { Send, Sparkles, TrendingUp, X } from "lucide-react";
 import { useLanguage } from "../../../hooks/useLanguage";
+import {
+  formatFrist,
+  formatPeriod,
+  nextMomsDeadline,
+} from "../../../utils/nextMomsDeadline";
 
 /**
  * Landing v2 — "BonBox AI" section.
@@ -12,7 +17,13 @@ import { useLanguage } from "../../../hooks/useLanguage";
  * decorative (aria-hidden) rather than focusable no-op buttons.
  */
 export default function AiPanelV2() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
+
+  // Same computed frist the hero card uses. These two surfaces sit on one
+  // scroll and both quoted the deadline from frozen copy — so when it aged,
+  // it aged in two places, and a reader comparing them would have seen the
+  // product disagree with itself as well as with the calendar.
+  const moms = nextMomsDeadline();
 
   const chips = [
     t("landingV2.ai.chip1", "Hvor meget skylder jeg i MOMS?"),
@@ -120,14 +131,16 @@ export default function AiPanelV2() {
                   <strong className="font-semibold text-slate-50">
                     {t("landingV2.ai.answerAmount", "88.777 kr.")}
                   </strong>
-                  {t("landingV2.ai.answerMid", " for H1, due ")}
+                  {(t("landingV2.ai.answerMid", " for {period}, due ") || "")
+                    .replace("{period}", formatPeriod(moms, lang))}
                   <strong className="font-semibold text-slate-50">
-                    {t("landingV2.ai.answerDue", "1 September")}
+                    {(t("landingV2.ai.answerDue", "{frist}") || "")
+                      .replace("{frist}", formatFrist(moms.date, lang))}
                   </strong>
-                  {t(
+                  {(t(
                     "landingV2.ai.answerPost",
-                    " — 36 days out. At this pace you'd want to set aside ~17.800 kr. a week. Shall I add it as a reminder?"
-                  )}
+                    " — {days} days out. At this pace you'd want to set aside ~17.800 kr. a week. Shall I add it as a reminder?"
+                  ) || "").replace("{days}", String(moms.daysUntil))}
                 </p>
 
                 {/* Inline metric card */}

@@ -3,6 +3,12 @@ import AppStoreLink from "./AppStoreLink";
 import { Link } from "react-router-dom";
 import { useLanguage } from "../../../hooks/useLanguage";
 import { dateLocale } from "../../../utils/dateFormat";
+import {
+  formatFrist,
+  formatPeriod,
+  nextMomsDeadline,
+  weeklySetAside,
+} from "../../../utils/nextMomsDeadline";
 
 /**
  * Landing v2 — hero section (#top).
@@ -14,7 +20,26 @@ import { dateLocale } from "../../../utils/dateFormat";
  *   223.022 − 40.718 = 182.304   and   182.304 / 223.022 ≈ 82 % margin.
  */
 export default function HeroV2() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
+
+  // The MOMS card had the countdown TYPED IN: "MOMS · H1 2026 · in 36 days"
+  // beside "~88.777 kr. due 1 Sept 2026". Read on 6 September 2026 that is a
+  // frist five days GONE, called 36 days away — and 36 days from that day is
+  // 12 October, so the card contradicted itself as well as the calendar. On the
+  // card that demonstrates the MOMS countdown, to a Danish owner who knows the
+  // fristerne by heart.
+  //
+  // Exactly the failure the greeting date above was already fixed for; this
+  // card sits four lines below it and was missed. Computed for the same reason:
+  // a hardcoded date in a countdown ages into a lie by construction, and
+  // rolling it forward by hand only resets the clock on the next one.
+  //
+  // The kroner stay invented — a mockup may show made-up money; it may not
+  // show a date that has passed.
+  const moms = nextMomsDeadline();
+  // The invented bill the mockup shows. Kept as ONE constant so the weekly
+  // set-aside beside it is derived from the same figure, not a second guess.
+  const MOMS_DEMO_KR = 88777;
 
   // The card greets the visitor with "Good morning" over a date. That date was
   // the hardcoded string "Monday, 27 July 2026", so the preview aged into a
@@ -221,16 +246,19 @@ export default function HeroV2() {
           <div className="mx-[18px] my-4 flex items-center justify-between gap-[14px] rounded-xl border border-slate-200 px-4 py-[14px]">
             <div>
               <div className={`${eyebrow} mb-[5px]`}>
-                {t("landingV2HeroCardMomsEyebrow", "MOMS · H1 2026 · in 36 days")}
+                {(t("landingV2HeroCardMomsEyebrow", "MOMS · {period} · in {days} days") || "")
+                  .replace("{period}", formatPeriod(moms, lang))
+                  .replace("{days}", String(moms.daysUntil))}
               </div>
               <div className="text-[15px] font-semibold text-slate-900">
-                {t(
+                {(t(
                   "landingV2HeroCardMomsSetAside",
-                  "Set aside ~17.800 kr./week to cover MOMS",
-                )}
+                  "Set aside ~{weekly} kr./week to cover MOMS",
+                ) || "").replace("{weekly}", weeklySetAside(MOMS_DEMO_KR, moms.daysUntil))}
               </div>
               <div className="mt-[3px] text-[12.5px] text-slate-500">
-                {t("landingV2HeroCardMomsDue", "~88.777 kr. due 1 Sept 2026")}
+                {(t("landingV2HeroCardMomsDue", "~88.777 kr. due {frist}") || "")
+                  .replace("{frist}", formatFrist(moms.date, lang))}
               </div>
             </div>
             <ChevronRight
