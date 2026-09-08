@@ -1698,7 +1698,12 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
     nextWeek.push({ date: d, shift: all[0], all });
   }
 
-  const hasLater = shifts.some((s) => s.date >= laterStart);
+  // The actual rows beyond next week, not just whether any exist — the strip
+  // below names their dates so a staffer who got an email about a later week
+  // can see it is really rostered. Sorted, because the server orders by id.
+  const laterShifts = shifts
+    .filter((s) => s.date >= laterStart)
+    .sort((a, b) => a.date.localeCompare(b.date) || String(a.start_time).localeCompare(String(b.start_time)));
 
   // Hours / counts for the muted summary line under the strip.
 
@@ -2504,9 +2509,36 @@ function ScheduleTab({ shifts: rawShifts, teamShifts, openShifts, token, restaur
           );
         })()}
 
-        {/* Quiet pointer to shifts beyond next week. */}
-        {weekView === "next" && hasLater && (
-          <div className="mt-2 text-[11px] text-gray-400">{t("portalSecComingUp", "Coming up")}</div>
+        {/* Shifts beyond next week.
+            This was the bare words "Coming up" with no dates, no times and no
+            tap target. An owner can publish a rota any distance out — publish
+            has no upper date bound — and the confirm sheet tells them "N shifts
+            are now live on your team's schedule", so staff get an email titled
+            "Schedule updated · Week of 05 Oct", open the app, tap Next week and
+            find nothing. They text the manager, which is the behaviour the app
+            exists to stop. Naming the dates does not extend the two-week view,
+            but it does tell the truth about what is already rostered. */}
+        {weekView === "next" && laterShifts.length > 0 && (
+          <div className="mt-3 border-t border-gray-100 dark:border-gray-800 pt-2">
+            <div className="text-[11px] font-medium text-gray-400">
+              {(t("portalSecComingUpCount", "Coming up · {n} more shifts") || "")
+                .replace("{n}", String(laterShifts.length))}
+            </div>
+            <ul className="mt-1 space-y-0.5">
+              {laterShifts.slice(0, 4).map((s) => (
+                <li key={s.id || `${s.date}-${s.start_time}`}
+                    className="text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
+                  {fmtShort(s.date, lang)} · {s.start_time}–{s.end_time}
+                </li>
+              ))}
+            </ul>
+            {laterShifts.length > 4 && (
+              <div className="mt-0.5 text-[11px] text-gray-400">
+                {(t("portalSecComingUpMore", "+{n} more") || "")
+                  .replace("{n}", String(laterShifts.length - 4))}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

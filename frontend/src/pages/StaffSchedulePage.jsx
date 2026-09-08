@@ -268,14 +268,18 @@ function absKindLabel(kind, t) {
   }[kind] || kind;
 }
 
-/** Sum a staffer's net hours across the visible week (uses the same per-cell
-    getShiftForCell the grid renders, so the Timer column can never disagree
-    with the blocks above it). */
-function weeklyHoursFor(memberId, weekDates, getShiftForCell) {
+/** Sum a staffer's net hours across the visible week.
+ *
+ *  Takes the PLURAL cell accessor. It used to take the singular one and so
+ *  silently dropped a second same-day shift — which is how the Timer column
+ *  came to read 18.8t beside a server-computed Vagtplan Shield chip reading
+ *  25t, on the same row, for the same person. */
+function weeklyHoursFor(memberId, weekDates, getShiftsForCell) {
   let total = 0;
   for (const d of weekDates) {
-    const s = getShiftForCell(memberId, d);
-    if (s) total += calcHours(s.start_time, s.end_time, s.break_minutes || 0);
+    for (const s of getShiftsForCell(memberId, d)) {
+      total += calcHours(s.start_time, s.end_time, s.break_minutes || 0);
+    }
   }
   return total;
 }
@@ -1562,12 +1566,33 @@ export default function StaffSchedulePage() {
   };
 
   /* ─── Shift helpers ─── */
-  const getShiftForCell = (staffId, date) => {
+  // ALL shifts in a cell, not the first one.
+  //
+  // This was `shifts.find(...)`, so a cell rendered exactly one shift per
+  // person per day and the second was invisible AND uneditable — no way to
+  // open, move or delete it from the grid. Meanwhile the Vagtplan Shield chip
+  // beside the same name came from the server and counted every shift, and the
+  // publish sheet counted the full array, so the screen contradicted itself:
+  // Timer read 18.8t, the chip read 25t, the sheet said 8 drafts over 7 blocks.
+  // The staff app showed the hidden shift the whole time.
+  //
+  // Second same-day shifts are reachable three ways in production: a staffer
+  // claiming an open shift (writes a published row behind an overlap-only
+  // guard), copy-week, and the Add-Shift modal's free staff+date picker — the
+  // backend explicitly allows non-overlapping same-day shifts (staff.py:2187).
+  // Sorted by start time so the earlier shift reads first.
+  const getShiftsForCell = (staffId, date) => {
     const dateStr = toISO(date);
-    return shifts.find(
-      (s) => (s.staff_member_id === staffId || s.staff_id === staffId) && s.date === dateStr
-    );
+    return shifts
+      .filter(
+        (s) => (s.staff_member_id === staffId || s.staff_id === staffId) && s.date === dateStr
+      )
+      .sort((a, b) => String(a.start_time || "").localeCompare(String(b.start_time || "")));
   };
+
+  // Kept for the paths that legitimately want just one (the modal a plain cell
+  // click opens). Defined in terms of the plural so the two can never disagree.
+  const getShiftForCell = (staffId, date) => getShiftsForCell(staffId, date)[0];
 
   const activeStaff = useMemo(() => staff.filter((s) => s.active !== false), [staff]);
 
@@ -2280,6 +2305,7 @@ export default function StaffSchedulePage() {
                 staff={activeStaff}
                 weekDates={weekDates}
                 getShiftForCell={getShiftForCell}
+                getShiftsForCell={getShiftsForCell}
                 unavailFor={unavailFor}
                 preferredFor={preferredFor}
                 absenceFor={absenceFor}
@@ -2310,6 +2336,7 @@ export default function StaffSchedulePage() {
                 staff={activeStaff}
                 weekDates={weekDates}
                 getShiftForCell={getShiftForCell}
+                getShiftsForCell={getShiftsForCell}
                 unavailFor={unavailFor}
                 preferredFor={preferredFor}
                 absenceFor={absenceFor}
@@ -5071,6 +5098,7 @@ function ScheduleGrid({
   staff,
   weekDates,
   getShiftForCell,
+  getShiftsForCell,
   unavailFor,
   preferredFor,
   absenceFor,
@@ -5270,7 +5298,14 @@ function ScheduleGrid({
                     </div>
                   </td>
                   {weekDates.map((date, dayIdx) => {
-                    const shift = getShiftForCell(member.id, date);
+                    const cellShifts = getShiftsForCell(member.id, date);
+                    const shift = cellShifts[0];
+                    // Everything after the first. Rendered below the primary
+                    // block so a second same-day shift is visible AND has its
+                    // own click target — before this it existed in the data,
+                    // in the hours chip and in the staff app, but could not be
+                    // opened, moved or deleted from the owner's own grid.
+                    const extraShifts = cellShifts.slice(1);
                     const isToday = toISO(date) === toISO(new Date());
 
                     if (!shift) {
@@ -5391,6 +5426,54 @@ function ScheduleGrid({
                             )}
                           </div>
                         </DraggableShiftBlock>
+                        {/* Split shift — the second (and any further) shift on
+                            this day. Each carries its own click target and its
+                            own drag handle, so it can be opened, moved and
+                            deleted like the first. stopPropagation because the
+                            cell's own onClick opens shifts[0]; without it a tap
+                            on the second block would edit the first. */}
+                        {extraShifts.map((ex) => {
+                          const exHrs = calcHours(
+                            ex.start_time, ex.end_time, ex.break_minutes || 0,
+                          );
+                          const exCat = catFor(ex.role_on_shift || member.role);
+                          const exCost = costForShift?.(ex.id);
+                          return (
+                            <div
+                              key={ex.id}
+                              className="mt-1"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onCellClick(member.id, date, ex);
+                              }}
+                            >
+                              <DraggableShiftBlock shift={ex} member={member} dateIso={toISO(date)}>
+                                <div
+                                  className={`text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 border-l-[3px] ${ROLE_BAR[exCat] || ROLE_BAR.floor} ${
+                                    ex.status === "draft" ? "border-dashed" : ""
+                                  }`}
+                                >
+                                  <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                                    {formatShiftTime(ex.start_time, ex.end_time)}
+                                  </div>
+                                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                                    {formatShiftHours(exHrs, t("schedHoursUnit", "h"))}
+                                  </div>
+                                  {showCost && exCost != null && (
+                                    <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-px tabular-nums">
+                                      ≈ {formatKr(exCost, { decimals: 0 })}
+                                    </div>
+                                  )}
+                                  {ex.status === "draft" && (
+                                    <div className="text-[9px] text-amber-500 dark:text-amber-400 mt-0.5 font-medium uppercase tracking-wide">
+                                      {t("schedDraft")}
+                                    </div>
+                                  )}
+                                </div>
+                              </DraggableShiftBlock>
+                            </div>
+                          );
+                        })}
                       </DroppableCell>
                     );
                   })}
@@ -5398,7 +5481,7 @@ function ScheduleGrid({
                       their max_hours_week cap, with the over-amount beneath. */}
                   <td className="px-3 py-2 text-right align-middle">
                     {(() => {
-                      const wh = weeklyHoursFor(member.id, weekDates, getShiftForCell);
+                      const wh = weeklyHoursFor(member.id, weekDates, getShiftsForCell);
                       if (wh <= 0) {
                         return <span className="text-[12px] text-gray-300 dark:text-gray-600">—</span>;
                       }
@@ -5535,7 +5618,7 @@ function ScheduleGrid({
                 <td className="px-3 py-3 text-right align-top">
                   {(() => {
                     const total = staff.reduce(
-                      (sum, m) => sum + weeklyHoursFor(m.id, weekDates, getShiftForCell),
+                      (sum, m) => sum + weeklyHoursFor(m.id, weekDates, getShiftsForCell),
                       0
                     );
                     return (
