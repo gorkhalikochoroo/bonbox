@@ -27,6 +27,23 @@ from __future__ import annotations
 # Match only the canonical DK accounting term to avoid false positives.
 _ZERO_FRADRAG = ("repræsentation", "representation", "repræs", "repr.")
 
+# 0 % — but for a DIFFERENT REASON, kept separate on purpose.
+#
+# These are not §42-limited purchases. They are not purchases at all: the
+# "Waste" category is written by the waste tracker (routers/waste.py) when an
+# owner bins stock, so no supplier, no invoice and no bilag exists behind the
+# row. It reached _calc_vat as an ordinary expense and, matching no rule here,
+# took the 1.0 default — so binning 150 kr of milk quietly added 30 kr of
+# købsmoms to the owner's MOMS-angivelse for a purchase that never happened.
+# Either the goods were already expensed when they arrived (a second deduction
+# on the same milk) or they were not (a deduction with no bilag). Both are
+# wrong on an angivelse, and 25 such rows were already in production.
+#
+# NOT folded into _ZERO_FRADRAG because the reason must survive: §42 is a legal
+# limitation on a real purchase, this is the absence of a purchase. A future
+# reader relaxing §42 rules must not accidentally re-enable this.
+_NO_PURCHASE_FRADRAG = ("waste", "spild", "svind")
+
 # 25 % fradrag — restaurant- og hotelydelser i erhverv (Momsloven §42 stk. 2).
 _QUARTER_FRADRAG = (
     "restaurantbesøg", "restaurantbesoeg", "restauration",
@@ -56,6 +73,10 @@ def fradrag_factor(category_name) -> float:
     n = (category_name or "").strip().lower()
     if not n:
         return 1.0
+    # Checked FIRST and kept distinct from §42: a write-off is not a purchase,
+    # so there is no købsmoms to deduct at any rate. See _NO_PURCHASE_FRADRAG.
+    if any(k in n for k in _NO_PURCHASE_FRADRAG):
+        return 0.0
     if any(k in n for k in _ZERO_FRADRAG):
         return 0.0
     if any(k in n for k in _QUARTER_FRADRAG):

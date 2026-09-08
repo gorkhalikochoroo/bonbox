@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session
 
 from app.models.inventory import InventoryItem
 from app.models.waste import WasteLog
+from app.services.tz_utils import business_today_local
 
 
 def get_expiry_forecast(user_id: str, db: Session) -> dict:
@@ -544,7 +545,10 @@ def record_expiry_action(
                 unit=item.unit or "pieces",
                 estimated_cost=item_value,
                 reason="expired",
-                date=date.today(),
+                # business_today_local, not date.today() — the one-tap
+                # "Wasted" chip must file the waste on the same business day
+                # the service's revenue lands on. See routers/waste.py.
+                date=business_today_local(user),
             ))
         except Exception:  # noqa: BLE001
             # WasteLog signature may evolve; do not block the user's

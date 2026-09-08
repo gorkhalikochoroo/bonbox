@@ -11,6 +11,7 @@ from app.models.waste import WasteLog
 from app.models.expense import Expense, ExpenseCategory
 from app.schemas.waste import WasteLogCreate, WasteLogUpdate, WasteLogResponse, WasteSummary
 from app.services.auth import get_current_user
+from app.services.tz_utils import business_today_local
 from app.utils.time import utc_now
 
 
@@ -126,7 +127,15 @@ def create_waste(
 ):
     log = WasteLog(
         user_id=user.id,
-        date=data.date or date.today(),
+        # business_today_local, not date.today(). The DK business day rolls at
+        # 06:00 Europe/Copenhagen, and revenue for the same service is already
+        # dated that way. A venue closing at 01:00 and binning the milk while
+        # cashing up booked the takings to Thursday and the milk to Friday — so
+        # Thursday showed revenue with no waste against it and Friday carried a
+        # cost from a service it never had. The landing page promises the exact
+        # opposite: "the milk that goes out on Thursday shows up in Thursday's
+        # numbers".
+        date=data.date or business_today_local(user),
         item_name=data.item_name,
         quantity=data.quantity,
         unit=data.unit,
