@@ -136,6 +136,19 @@ export default function PricingV2() {
                   "1 user, 1 branch, 7 days of export history"
                 )}
               </Feature>
+              {/* The reservation ceiling. It was enforced in the public create
+                  handler (billing.py:238) and appeared on NO column of this
+                  table, so a venue could not learn it existed until a guest was
+                  turned away — the trial is unlimited, so it engages silently on
+                  day 15. A limit the buyer cannot discover is a trap; a limit
+                  printed on the card is a limit. The NUMBER is a pricing
+                  decision and is unchanged here. */}
+              <Feature>
+                {t(
+                  "landingV2.pricing.free.f7",
+                  "Reservations, 20 a month — booking page, floor plan, waitlist"
+                )}
+              </Feature>
             </div>
           </div>
 
@@ -227,6 +240,21 @@ export default function PricingV2() {
               <Feature>
                 {t("landingV2.pricing.starter.f7", "Inventory expiry alerts")}
               </Feature>
+              {/* Unlimited reservations — the Free ceiling lifting is a real
+                  reason to upgrade and was invisible on both columns. */}
+              <Feature>
+                {t("landingV2.pricing.starter.f9", "Reservations, unlimited")}
+              </Feature>
+              {/* PLAN_CAPS["starter"]["modules"] = 1 against Pro's unlimited.
+                  A wine-led venue can enable Bar Pour OR Wine & Sommelier, not
+                  both — a genuine Starter→Pro differentiator that appeared on
+                  no column, so it could not enter the purchase decision. */}
+              <Feature>
+                {t(
+                  "landingV2.pricing.starter.f10",
+                  "One add-on module — Bar Pour, Wine & Sommelier or Workshop"
+                )}
+              </Feature>
               <Feature>
                 {t(
                   "landingV2.pricing.starter.f8",
@@ -305,6 +333,12 @@ export default function PricingV2() {
                   "landingV2.pricing.pro.f5",
                   "White-label faktura PDFs — your logo, not ours"
                 )}
+              </Feature>
+              {/* The other side of Starter's modules: 1. Naming it on both
+                  columns is what makes the Starter limit legible as a limit
+                  rather than an omission. */}
+              <Feature>
+                {t("landingV2.pricing.pro.f8", "All add-on modules")}
               </Feature>
               <Feature>
                 {t("landingV2.pricing.pro.f7", "Priority email support")}
