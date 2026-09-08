@@ -560,38 +560,39 @@ def export_moms_summary(user: User, db: Session, start: date, end: date) -> byte
     Columns: Periode start · Periode slut · Momssats · Salg ekskl. moms ·
              Moms af salg · Køb ekskl. moms · Moms af køb · Netto moms.
     """
-    sales = _query_sales(user, db, start, end)
-    expenses = _query_expenses(user, db, start, end)
+    # ── ONE ENGINE. This used to do the math here, and it was a SECOND,
+    # naive one: it read only Sale + Expense rows, hardcoded 25%, split gross
+    # with a flat gross/(1+rate), ignored prices_include_moms, and applied a
+    # blanket 100% købsmoms with no Momsloven §42 fradrag weighting.
+    #
+    # compute_filing_data → _calc_vat does all four things it did not, and
+    # additionally adds the DailyClose (kasserapport) revenue stream and the
+    # Invoice stream. So a café that closes each evening with a kasserapport
+    # downloaded a revisor bundle whose moms-summary.csv read "Salg ekskl.
+    # moms 0,00" while the MOMS-angivelse PDF for the identical period showed
+    # the real figure — and the bundle README tells the revisor this file
+    # CONFIRMS the angivelse.
+    #
+    # compute_filing_data's own docstring says it plainly: "If you ever feel
+    # tempted to do the math here directly, STOP — the whole point is that
+    # screen + PDF + revisor email all show the same numbers." This file was
+    # the counter-example.
+    from app.services.tax_filing_pdf import compute_filing_data
 
-    # Aggregate at 25% bucket vs 0% bucket. We don't yet support
-    # multi-rate (DK is 25% flat for almost every SMB), so the buckets
-    # collapse but the structure scales when reduced-rate sectors are
-    # added later.
-    bucket_25 = {"sales": 0.0, "expenses": 0.0}
-    bucket_0 = {"sales": 0.0, "expenses": 0.0}
-    for s in sales:
-        amt = float(getattr(s, "amount", 0) or 0)
-        if getattr(s, "is_tax_exempt", False):
-            bucket_0["sales"] += amt
-        else:
-            bucket_25["sales"] += amt
-    for e in expenses:
-        amt = float(getattr(e, "amount", 0) or 0)
-        if getattr(e, "is_tax_exempt", False):
-            bucket_0["expenses"] += amt
-        else:
-            bucket_25["expenses"] += amt
+    data = compute_filing_data(db, user, start, end)
 
-    def _split(gross: float, rate: float) -> tuple[float, float]:
-        """Return (net, vat) given a gross-incl-VAT amount and rate."""
-        if rate <= 0:
-            return gross, 0.0
-        net = gross / (1.0 + rate)
-        return net, gross - net
+    salg_net = data["salg_med_moms"]
+    salg_moms = data["moms_af_salg"]
+    kob_net = data["kob_med_moms"]
+    kob_moms = data["moms_af_kob"]
+    netto_moms = data["moms_til_skat"]
+    rate_label = f"{data['vat_rate_pct']:g}%"
 
-    salg_net, salg_moms = _split(bucket_25["sales"], 0.25)
-    kob_net, kob_moms = _split(bucket_25["expenses"], 0.25)
-    netto_moms = salg_moms - kob_moms
+    # Exempt / zero-rated turnover — reverse-charge, exports, §13 nr.17,
+    # gavekort. Previously derived from a local is_tax_exempt scan that saw
+    # only Sale rows; now it is the same `salg_uden_moms` the angivelse
+    # reports, so the two documents cannot disagree about what was exempt.
+    exempt_sales = data.get("salg_uden_moms", 0.0)
 
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=",", quoting=csv.QUOTE_MINIMAL, lineterminator="\n")
@@ -602,21 +603,23 @@ def export_moms_summary(user: User, db: Session, start: date, end: date) -> byte
         "Netto moms (positiv = skyldig)", "Currency",
     ])
     w.writerow([
-        start.isoformat(), end.isoformat(), "25%",
+        start.isoformat(), end.isoformat(), rate_label,
         _money_dot(salg_net), _money_dot(salg_moms),
         _money_dot(kob_net), _money_dot(kob_moms),
         _money_dot(netto_moms),
-        user.currency or "DKK",
+        data["currency"],
     ])
     # 0% / exempt — render only when there's content so the file stays
-    # uncluttered for the typical SMB.
-    if bucket_0["sales"] or bucket_0["expenses"]:
+    # uncluttered for the typical SMB. Zero køb on this row by construction:
+    # exempt SALES are what salg_uden_moms measures; an exempt purchase
+    # carries no købsmoms and is already inside kob_med_moms above.
+    if exempt_sales:
         w.writerow([
             start.isoformat(), end.isoformat(), "0%",
-            _money_dot(bucket_0["sales"]), "0.00",
-            _money_dot(bucket_0["expenses"]), "0.00",
+            _money_dot(exempt_sales), "0.00",
+            "0.00", "0.00",
             "0.00",
-            user.currency or "DKK",
+            data["currency"],
         ])
 
     return buf.getvalue().encode("utf-8-sig")
