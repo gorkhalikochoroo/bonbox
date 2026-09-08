@@ -25,6 +25,24 @@ const TOK = "tok1";
 let scheduleCalls = 0;
 let secondSchedule = null;
 
+/** An ISO date N days from today, always inside a week the portal renders.
+ *
+ *  These fixtures were hardcoded "2026-09-04" / "2026-09-05". They passed on
+ *  the day they were written and went red two days later: the rendered week
+ *  rolled over, those dates fell into the PREVIOUS week, the page stopped
+ *  listing them, and the assertion for "17:00" failed. The test was measuring
+ *  the calendar, not the pull-to-refresh behaviour it is named for.
+ *
+ *  Anchored to today instead — +1 and +2 are always in the current or next
+ *  week, and the portal renders both. */
+const inDays = (n) => {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+const DAY_1 = inDays(1);
+const DAY_2 = inDays(2);
+
 const shift = (date) => ({
   id: `s-${date}`, date, start_time: "17:00", end_time: "23:00", status: "published",
 });
@@ -37,7 +55,7 @@ const get = vi.fn((url) => {
   if (url.startsWith(`/portal/${TOK}/schedule`)) {
     scheduleCalls += 1;
     // First load seeds the signature; the second is what each test varies.
-    if (scheduleCalls === 1) return ok({ shifts: [shift("2026-09-04")] });
+    if (scheduleCalls === 1) return ok({ shifts: [shift(DAY_1)] });
     return secondSchedule();
   }
   if (url.includes("/notifications")) return ok({ notifications: [] });
@@ -140,7 +158,7 @@ describe("pull-to-refresh chip", () => {
   });
 
   it("still says 'no changes' when the fetch SUCCEEDS and nothing moved", async () => {
-    secondSchedule = () => ok({ shifts: [shift("2026-09-04")] });
+    secondSchedule = () => ok({ shifts: [shift(DAY_1)] });
     await mountPortal();
     await pullToRefresh();
 
@@ -159,7 +177,7 @@ describe("pull-to-refresh chip", () => {
   });
 
   it("still says 'updated' when the roster actually changed", async () => {
-    secondSchedule = () => ok({ shifts: [shift("2026-09-04"), shift("2026-09-05")] });
+    secondSchedule = () => ok({ shifts: [shift(DAY_1), shift(DAY_2)] });
     await mountPortal();
     await pullToRefresh();
 
