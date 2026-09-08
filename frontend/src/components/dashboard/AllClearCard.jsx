@@ -41,10 +41,18 @@ export default function AllClearCard({ ctx = {}, className = "" }) {
   // primary all-clear line.
   let deadlineSentence = null;
   if (nextLabel && typeof daysAway === "number" && daysAway >= 0) {
-    deadlineSentence = t(
-      "dashAllClearNext",
-      "Next deadline: {label} in {days} days",
-    )
+    // daysAway === 0 became reachable on 2026-09-08 when the backend stopped
+    // skipping the frist day. The gate was already `>= 0`, so this rendered
+    // "Next deadline: MOMS filing in 0 days" — on the dashboard, which more
+    // owners see than /tax. Singular is handled too: "in 1 days" was reachable
+    // before and simply never noticed.
+    const key =
+      daysAway === 0
+        ? ["dashAllClearNextToday", "Next deadline: {label} — today"]
+        : daysAway === 1
+          ? ["dashAllClearNextTomorrow", "Next deadline: {label} — tomorrow"]
+          : ["dashAllClearNext", "Next deadline: {label} in {days} days"];
+    deadlineSentence = t(key[0], key[1])
       .replace("{label}", nextLabel)
       .replace("{days}", String(daysAway));
   }

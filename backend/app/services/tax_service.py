@@ -765,14 +765,29 @@ def _get_next_deadlines(currency: str, frequency: str | None = None,
     # one payload on different days. Defaults to date.today(), so every existing
     # caller is byte-identical.
     #
-    # SCOPE, so nobody reads this as more than it is: this fixes the 00:00-06:00
-    # window only. The `deadline <= today` filter below STILL skips the deadline
-    # on the day it falls, so from 06:00 to midnight on a frist the next one is
-    # returned instead. Fixing that is not a two-character flip — it needs this
-    # filter, the monthly branch above, and the two fail-closed guards in
-    # foresight_service (project() and build_envelope(), both of which bail on
-    # deadline <= as_of) changed together, or a covered owner gets
-    # INSUFFICIENT_DATA on the exact day the bill is due. Separate commit.
+    # THE FRIST DAY IS NOW INCLUDED (was: skipped). Until 2026-09-08 the filters
+    # here dropped any deadline falling on `today`, so days_until could never be
+    # 0 and the countdown was silent on the one day it exists for: on 1 September
+    # a DK half-yearly filer saw "181 days" (March's frist) instead of "due
+    # today". Every downstream `== 0` branch — the daily brief's due-today
+    # candidate, get_tax_overview's status, TaxAutopilotPage — was unreachable.
+    #
+    # The note that used to live here was right that it is not a two-character
+    # flip. It listed the four places that had to move together, and they did:
+    # this filter, the monthly branch below, and the two fail-closed guards in
+    # foresight_service (project() and build_envelope()). Changing only this one
+    # would have handed a covered owner INSUFFICIENT_DATA on the exact day the
+    # bill is due — a worse regression than the bug.
+    #
+    # STILL DELIBERATELY EXCLUDED: deadlines in the PAST. `days_until < 0` and
+    # the "overdue" states remain unreachable, and that is a product decision,
+    # not an oversight. BonBox has no signal that an owner has filed — there is
+    # no filings table, no filed flag, no SKAT integration, and most DK small
+    # businesses file through their revisor without BonBox ever seeing it. An
+    # "overdue — SKAT fines accrue" alert would therefore fire at owners who
+    # filed on time, every morning, with no way to dismiss it. Silence is worse
+    # than nothing here only once a "mark as filed" signal exists; until then it
+    # is the honest state. Do not enable the overdue branches without it.
     today = as_of or date.today()
     deadlines: list[dict] = []
 
@@ -785,7 +800,8 @@ def _get_next_deadlines(currency: str, frequency: str | None = None,
                 deadline = d.replace(day=day_num)
             except ValueError:
                 deadline = _last_day_of_month(d.year, d.month)
-            if deadline > today:
+            # >= not >: the frist day itself counts. See the note above.
+            if deadline >= today:
                 p_start, p_end, label = _derive_period(deadline, freq)
                 deadlines.append({
                     "deadline": deadline,
@@ -804,7 +820,11 @@ def _get_next_deadlines(currency: str, frequency: str | None = None,
                     deadline = date(yr, m, d)
                 except ValueError:
                     deadline = _last_day_of_month(yr, m)
-                if deadline <= today:
+                # < not <=: the frist day itself counts. See the note above.
+                # _derive_period reads only the DEADLINE, never `today`, so
+                # including it shifts no period — on 1 Sep it returns H1 (the
+                # one actually due) instead of H2. That is the fix, not drift.
+                if deadline < today:
                     continue
                 p_start, p_end, label = _derive_period(deadline, freq)
                 deadlines.append({
@@ -1075,13 +1095,32 @@ def _generate_tax_alerts(upcoming, config, currency, ytd, recon=None) -> list[di
                 "action": f"File your {tax_name} return with {config['authority']} today.",
             })
         elif dl["status"] == "urgent":
+            # days == 0 became reachable on 2026-09-08, when _get_next_deadlines
+            # stopped skipping the frist day. This title is an f-string over the
+            # number, so on that day it rendered "MOMS due in 0 days!" — directly
+            # beneath a hero that correctly reads "Frist I DAG!", so the page
+            # contradicted its own tone on the one day the fix exists to serve.
+            #
+            # Branch on the NUMBER, not a new status string: the hero's red
+            # treatment is gated on status being exactly "overdue" or "urgent",
+            # so introducing a "due_today" status would drop the most urgent day
+            # of the period onto the calm surface.
             alerts.append({
                 "type": "urgent",
                 "severity": "critical",
                 "icon": "⏰",
-                "title": f"{tax_name} due in {days} days! ({dl['period_label']})",
+                "title": (
+                    f"{tax_name} is due TODAY ({dl['period_label']})"
+                    if days == 0
+                    else f"{tax_name} due in {days} day{'s' if days != 1 else ''}! "
+                         f"({dl['period_label']})"
+                ),
                 "detail": f"Deadline: {dl['deadline']}. Estimated amount: {round(amt):,}.",
-                "action": f"Prepare and file your {tax_name} return now.",
+                "action": (
+                    f"File your {tax_name} return with {config['authority']} before midnight."
+                    if days == 0
+                    else f"Prepare and file your {tax_name} return now."
+                ),
             })
         elif dl["status"] == "soon":
             alerts.append({

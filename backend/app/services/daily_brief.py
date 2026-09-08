@@ -990,14 +990,21 @@ def generate_candidates(
     # `date` key the tax service does not emit, so the gate below was
     # never true. See the comment on that read.
     #
-    # NOTE — the `< 0` (overdue) and `== 0` (due today) branches are still
-    # unreachable in production, and fixing this key does not change that.
-    # tax_service._get_next_deadlines() drops any deadline with
-    # `deadline <= today`, so the soonest row is always at least tomorrow
-    # and moms_days_left is always ≥ 1. Those two branches only fire once
-    # that filter is corrected — deliberately a separate change (see the
-    # SCOPE note in _get_next_deadlines). They are kept, not deleted, so
-    # the copy is ready when it lands.
+    # NOTE — the `== 0` (due today) branch became REACHABLE on 2026-09-08:
+    # _get_next_deadlines now includes the frist day itself, so an owner
+    # whose MOMS is due today gets the "file before midnight" line in the
+    # ~06:00 brief. It carries weight 0.97, second only to the overdue
+    # branch, so on that one morning it is the headline — which is the
+    # intent.
+    #
+    # The `< 0` (overdue) branch remains UNREACHABLE, deliberately. BonBox
+    # has no signal that an owner has filed: no filings table, no filed
+    # flag, no SKAT integration, and most DK small businesses file through
+    # their revisor without BonBox ever seeing it. Enabling it would push
+    # "MOMS filing is N days overdue — file before SKAT fines accrue" at
+    # owners who filed on time, every morning, with no way to dismiss it.
+    # The copy is kept, not deleted, so it is ready the day a "mark as
+    # filed" signal exists — and it must not be switched on before then.
     if p.moms_days_left is not None and p.moms_days_left <= 30:
         owed_text = (
             f", est. {_fmt_money(p.moms_estimated_owed, cur)} owed"

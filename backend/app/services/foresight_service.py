@@ -108,12 +108,25 @@ def project(inputs: ForesightInputs) -> ForesightProjection:
     the deadline. Pure — no DB, no I/O.
     """
     # ── Fail-closed guard (#352): never emit a numeric verdict on unknown /
-    # stale data. A missing balance, a missing deadline, or a deadline that is
-    # not in the future ⇒ INSUFFICIENT_DATA with all numerics None.
+    # stale data. A missing balance, a missing deadline, or a deadline that has
+    # PASSED ⇒ INSUFFICIENT_DATA with all numerics None.
+    #
+    # `< as_of`, not `<=`. The frist day itself is the single most useful moment
+    # this function has — "the bill lands today, does your balance cover it?" —
+    # and it was the one day the answer was withheld. With the tax_service
+    # filters now returning the same-day deadline, keeping `<=` here would have
+    # meant a covered owner opening the app on the due date and being told there
+    # was not enough data. horizon_days and weeks_to_deadline become 0, which is
+    # correct and safe: nothing divides by them (checked — the only other
+    # `horizon_days` in the codebase is an unrelated reservations constant).
+    #
+    # A deadline strictly in the past still fails closed, because the overdue
+    # states are deliberately unreachable — BonBox cannot tell whether the owner
+    # filed. See the note in tax_service._get_next_deadlines.
     if (
         inputs.current_balance is None
         or inputs.deadline is None
-        or inputs.deadline <= inputs.as_of
+        or inputs.deadline < inputs.as_of
     ):
         return ForesightProjection(
             as_of=inputs.as_of,
@@ -187,7 +200,15 @@ def project(inputs: ForesightInputs) -> ForesightProjection:
     else:
         state = STATE_ON_TRACK
 
-    weeks_to_deadline = max(1, (horizon_days + 6) // 7)
+    # 0 on the frist itself, not 1. `max(1, …)` was safe while a same-day
+    # deadline was impossible; now that the frist day reaches this function it
+    # would claim one week of runway that does not exist, and solve_weekly_rate
+    # would divide the WHOLE shortfall by that phantom week and present it as a
+    # weekly savings rate — "set aside 78.000 kr./week" on the morning the
+    # 78.000 kr is due. solve_weekly_rate still guards with max(1, …) so nothing
+    # divides by zero; it simply never gets a chance to, because callers branch
+    # on weeks_to_deadline == 0 first.
+    weeks_to_deadline = 0 if horizon_days == 0 else max(1, (horizon_days + 6) // 7)
 
     return ForesightProjection(
         as_of=inputs.as_of,
@@ -389,12 +410,22 @@ def build_cone(
             headline_plan=None,
         )
 
-    weekly_plan = solve_weekly_rate(
-        shortfall=mid.shortfall, weeks=mid.weeks_to_deadline, round_to=round_to,
-    )
-    weekly_plan_safe = solve_weekly_rate(
-        shortfall=worst.shortfall, weeks=worst.weeks_to_deadline, round_to=round_to,
-    )
+    # On the frist itself there is no week left to save over, so there is no
+    # honest weekly plan — only the shortfall, which the verdict already
+    # carries. None (not a rate of zero, and not the full amount labelled
+    # "per week") is the truthful shape, and it is the same one the
+    # INSUFFICIENT_DATA branch above already emits, so no consumer meets a new
+    # type. See the note on weeks_to_deadline in project().
+    if mid.weeks_to_deadline == 0:
+        weekly_plan = None
+        weekly_plan_safe = None
+    else:
+        weekly_plan = solve_weekly_rate(
+            shortfall=mid.shortfall, weeks=mid.weeks_to_deadline, round_to=round_to,
+        )
+        weekly_plan_safe = solve_weekly_rate(
+            shortfall=worst.shortfall, weeks=worst.weeks_to_deadline, round_to=round_to,
+        )
 
     worst_case_short = bool(mid.covers_moms) and not bool(worst.covers_moms)
 
@@ -501,11 +532,32 @@ def build_envelope(
         remaining = Decimal("0")
     funded_pct = float(min(Decimal("1"), reserved / target)) if target > 0 else 1.0
 
-    if deadline is None or deadline <= as_of:
+    if deadline is None or deadline < as_of:
         return ReserveEnvelope(
             deadline=deadline, target=target, target_basis=target_basis,
             reserved=reserved, remaining=remaining, funded_pct=round(funded_pct, 2),
             weeks=None, weekly_contribution=Decimal("0"), status=STATE_INSUFFICIENT_DATA,
+        )
+
+    # ── The frist itself ────────────────────────────────────────────────
+    # `< as_of` above, not `<=` — which is what the docstring always said
+    # ("a missing / PAST deadline") while the code quietly also caught today.
+    #
+    # On the due date, target / reserved / remaining / funded_pct are all still
+    # exactly right and are the numbers the owner needs. Only the SCHEDULE is
+    # meaningless: there are no weeks left to spread a contribution over. So
+    # those two fields go None/0 — the same shape the INSUFFICIENT_DATA branch
+    # already emits, so no consumer sees a new type — while the status stays
+    # honest: FUNDED if the money is there, FUNDING if it is not.
+    #
+    # Returning INSUFFICIENT_DATA here instead would have said "we don't know"
+    # about a figure we know perfectly well, on the one day it is due.
+    if deadline == as_of:
+        return ReserveEnvelope(
+            deadline=deadline, target=target, target_basis=target_basis,
+            reserved=reserved, remaining=remaining, funded_pct=round(funded_pct, 2),
+            weeks=None, weekly_contribution=Decimal("0"),
+            status=ENVELOPE_FUNDED if remaining <= 0 else ENVELOPE_FUNDING,
         )
 
     weeks = max(1, ((deadline - as_of).days + 6) // 7)

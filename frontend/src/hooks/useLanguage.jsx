@@ -7058,6 +7058,8 @@ const translations = {
     dashAllClearBody:
       "Nothing urgent right now. Reports and Daily Brief continue to track everything in the background.",
     dashAllClearNext: "Next deadline: {label} in {days} days",
+    dashAllClearNextToday: "Next deadline: {label} — today",
+    dashAllClearNextTomorrow: "Next deadline: {label} — tomorrow",
     dashAllClearViewDeadlines: "View deadlines",
     dashOutstandingTitle: "Outstanding fakturaer",
     dashOutstandingSubtitle: "{count} overdue · {total}",
@@ -14823,6 +14825,8 @@ const translations = {
     dashAllClearBody:
       "Intet presser sig på lige nu. Rapporter og dagsbrief sporer alt i baggrunden.",
     dashAllClearNext: "Næste frist: {label} om {days} dage",
+    dashAllClearNextToday: "Næste frist: {label} — i dag",
+    dashAllClearNextTomorrow: "Næste frist: {label} — i morgen",
     dashAllClearViewDeadlines: "Se frister",
     dashOutstandingTitle: "Udestående fakturaer",
     dashOutstandingSubtitle: "{count} forfaldne · {total}",
