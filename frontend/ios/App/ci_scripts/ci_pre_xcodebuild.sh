@@ -60,12 +60,24 @@ fi
 LAST_MANUAL=244
 NEW_BUILD=$((LAST_MANUAL + CI_BUILD_NUMBER))
 
-# Hard floor: the App Store rejected build 536 (Apple Guideline 3.1.1).
-# Every NEW submission for MARKETING_VERSION 1.4.2 must carry a build number
-# strictly greater than 536, regardless of where CI_BUILD_NUMBER happens to
-# sit. Clamp upward so we can never re-upload <= 536 even if the workflow's
-# build counter is reset or runs out of order.
-MIN_BUILD=537
+# Hard floor — the highest build number Apple has EVER seen for this app.
+#
+# This exists for one failure mode: if the Xcode Cloud workflow is recreated
+# or its counter otherwise resets, CI_BUILD_NUMBER drops back toward 1 and
+# NEW_BUILD would land far below what Apple already has. The upload is then
+# rejected with ITMS-90186 / ITMS-90062 and the cause looks like a mystery,
+# because the pbxproj in git says something else entirely.
+#
+# RAISE THIS whenever a higher build reaches App Store Connect. It was 537,
+# set when build 536 was rejected under MARKETING_VERSION 1.4.2 — five
+# marketing versions and ~440 builds ago. Build 975 (1.9.2) has since been
+# uploaded, so the floor had quietly stopped protecting anything: a counter
+# reset would have produced ~537 and been rejected exactly as before.
+#
+# 976 = the next number after the highest Apple has seen (975, uploaded
+# 2026-09-09 under 1.9.2 and rejected for the closed version train, not for
+# its build number).
+MIN_BUILD=976
 if [ "$NEW_BUILD" -lt "$MIN_BUILD" ]; then
     echo "   (NEW_BUILD $NEW_BUILD below floor — clamping up to $MIN_BUILD)"
     NEW_BUILD=$MIN_BUILD
