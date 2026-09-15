@@ -151,6 +151,120 @@ def test_address_resolves_to_the_surveyed_access_point(monkeypatch):
     assert got["dawa_id"]
 
 
+def test_the_floor_is_left_out_of_a_venue_label(monkeypatch):
+    """DAWA returns the etage for a postal address, so "Vestergade 1" comes
+    back as "Vestergade 1, 1." and rendered as "Vestergade 1, 1., 1456 …" —
+    which reads like a typo on the panel. It is also meaningless for a venue:
+    the geofence anchor is the building access point, identical on every
+    floor. Caught on the live page, not in review."""
+    _stub_dawa(monkeypatch, [{
+        "vejnavn": "Vestergade", "husnr": "1", "etage": "1",
+        "postnr": "1456", "postnrnavn": "København K",
+        "x": DK_LNG, "y": DK_LAT,
+    }])
+    label = venue_locate.from_address("Vestergade 1")["label"]
+    assert label == "Vestergade 1, 1456 København K"
+    assert ", 1.," not in label
+
+
+def _stub_nominatim(monkeypatch, payload, status=200):
+    class _Resp:
+        status_code = status
+        def json(self): return payload
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **k):
+            # DAWA is asked first and must miss for the name path to run.
+            if "dataforsyningen" in str(url):
+                class _Empty:
+                    status_code = 200
+                    def json(self): return []
+                return _Empty()
+            return _Resp()
+
+    monkeypatch.setattr(venue_locate.httpx, "Client", _Client)
+
+
+def test_a_venue_name_falls_back_to_the_public_map(monkeypatch):
+    """Owners type "Silberbauer Bistro", not a street address — it is the name
+    they think in. Before this it failed with no explanation of why."""
+    _stub_nominatim(monkeypatch, [{
+        "lat": "55.683903", "lon": "12.587567",
+        "display_name": "Rosé Rosé Bistro København, Store Kongensgade, "
+                        "Frederiksstaden, København, 1264, Danmark",
+    }])
+    got = venue_locate.resolve("Rosé Rosé Bistro")
+    assert got["source"] == "place_name"
+    assert got["lat"] == pytest.approx(55.683903, abs=1e-5)
+    # The full display_name is a postal essay — keep it to the first components.
+    assert got["label"] == "Rosé Rosé Bistro København, Store Kongensgade, Frederiksstaden"
+
+
+def test_the_address_register_wins_over_the_name_search(monkeypatch):
+    """Order matters: a fuzzy name match must never beat an exact address."""
+    calls = []
+
+    class _Resp:
+        status_code = 200
+        def json(self):
+            return [{
+                "vejnavn": "Vestergade", "husnr": "1", "postnr": "1456",
+                "postnrnavn": "København K", "x": DK_LNG, "y": DK_LAT,
+            }]
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **k):
+            calls.append(str(url))
+            return _Resp()
+
+    monkeypatch.setattr(venue_locate.httpx, "Client", _Client)
+    got = venue_locate.resolve("Vestergade 1, 1456")
+    assert got["source"] == "address"
+    assert not any("nominatim" in c for c in calls), (
+        "the name search ran even though the address register had a match"
+    )
+
+
+def test_a_name_with_no_map_entry_still_fails_honestly(monkeypatch):
+    """Silberbauer Bistro is genuinely not in OpenStreetMap. The honest outcome
+    is None so the panel can say 'type your street address instead' — not a
+    confident wrong pin."""
+    _stub_nominatim(monkeypatch, [])
+    assert venue_locate.resolve("Silberbauer Bistro") is None
+
+
+def test_the_name_search_is_scoped_to_denmark(monkeypatch):
+    """Unscoped, "Silberbauer" returns a street in Bavaria — which would anchor
+    a Copenhagen venue in Germany and fail every clock-in."""
+    seen = {}
+
+    class _Resp:
+        status_code = 200
+        def json(self): return []
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, **k):
+            if "nominatim" in str(url):
+                seen.update(k.get("params") or {})
+            class _Empty:
+                status_code = 200
+                def json(self): return []
+            return _Empty()
+
+    monkeypatch.setattr(venue_locate.httpx, "Client", _Client)
+    venue_locate.resolve("Silberbauer")
+    assert seen.get("countrycodes") == "dk"
+
+
 def test_x_and_y_are_not_transposed(monkeypatch):
     """DAWA's x is LONGITUDE and y is LATITUDE. Swapping them puts a Copenhagen
     venue in the Indian Ocean and every staff clock-in fails the geofence."""

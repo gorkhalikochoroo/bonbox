@@ -757,12 +757,28 @@ function ClockGeofenceSettings() {
           >
             {t("schedGeoUseThis", "Use this")}
           </button>
+          {/* The caveat has to match the METHOD. It was unconditional, and on
+              a pasted pin it read "An address points at the building
+              entrance…" — a sentence that is simply not true of a map pin,
+              sitting under coordinates the owner is about to trust with
+              clock-in. Caught on the live panel, not in review. */}
           <p className="w-full text-[11px] text-gray-500 dark:text-gray-400 leading-snug">
-            {t(
-              "schedGeoAddrCaveat",
-              "An address points at the building entrance — close enough for the {m} m radius, but standing at the venue is more exact.",
-              { m: cfg.radius_m },
-            )}
+            {found.source === "map_link" &&
+              t(
+                "schedGeoPinCaveat",
+                "A dropped pin is only as exact as where it was placed — check it sits on the venue, not the street.",
+              )}
+            {found.source === "place_name" &&
+              t(
+                "schedGeoNameCaveat",
+                "Found by name on a public map — check the address above is really yours before using it.",
+              )}
+            {found.source === "address" &&
+              t(
+                "schedGeoAddrCaveat",
+                "An address points at the building entrance — close enough for the {m} m radius, but standing at the venue is more exact.",
+                { m: cfg.radius_m },
+              )}
           </p>
         </div>
       )}

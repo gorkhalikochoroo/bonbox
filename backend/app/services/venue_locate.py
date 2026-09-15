@@ -49,6 +49,12 @@ logger = logging.getLogger(__name__)
 _DAWA_SEARCH = "https://api.dataforsyningen.dk/adresser"
 _TIMEOUT = 5.0
 
+# Venue-NAME fallback, used only after the address register has no match.
+# Nominatim's usage policy asks for an identifying User-Agent and light
+# traffic; an owner anchors a venue about once, ever, so both hold.
+_NOMINATIM_SEARCH = "https://nominatim.openstreetmap.org/search"
+_NOMINATIM_UA = "BonBox/1.0 (+https://bonbox.dk)"
+
 # Hosts we will follow a link to. An owner-only endpoint is still an outbound
 # fetch, so the host is allowlisted rather than "anything that looks like a
 # URL" — that is the difference between a feature and an SSRF hole.
@@ -194,10 +200,15 @@ def from_address(query: str) -> dict | None:
         return None
 
     # Rebuild the canonical one-line form DAWA's mini struktur omits.
+    #
+    # ETAGE IS DELIBERATELY DROPPED. DAWA returns the floor for a postal
+    # address, so "Vestergade 1" comes back as "Vestergade 1, 1." — which
+    # renders as "Vestergade 1, 1., 1456 København K" and reads like a typo.
+    # It is also meaningless here: this label names a VENUE whose geofence
+    # anchor is the building's access point, and that point is identical on
+    # every floor. Seen on the live panel, not reasoned about — it looked
+    # broken before it looked wrong.
     bits = " ".join(str(p) for p in (top.get("vejnavn"), top.get("husnr")) if p)
-    etage = top.get("etage")
-    if etage:
-        bits = f"{bits}, {etage}."
     tail = " ".join(str(p) for p in (top.get("postnr"), top.get("postnrnavn")) if p)
     label = ", ".join(p for p in (bits.strip(), tail.strip()) if p) or q
 
@@ -210,11 +221,81 @@ def from_address(query: str) -> dict | None:
     }
 
 
+def from_place_name(query: str) -> dict | None:
+    """{lat, lng, label, source} for a venue NAME via OpenStreetMap, or None.
+
+    A FALLBACK, never the first choice. Owners naturally type "Silberbauer
+    Bistro" rather than a street address — it is the name they think in — and
+    before this that simply failed with no explanation of why.
+
+    Why it is second and not first: coverage is whatever volunteers have
+    mapped. "bistro københavn" resolves fine; "Silberbauer Bistro" is not in
+    OSM at all. An owner always knows their own address; they cannot know
+    whether their venue is on the map. So the address path is the reliable
+    one and this only runs when that has already failed.
+
+    The wrong-match risk is contained by the caller, not here: /resolve never
+    saves, so a bad hit shows up as an obviously wrong address in the confirm
+    row and the owner rejects it. That two-step design is what makes an
+    imperfect lookup safe to offer at all.
+
+    Scoped to Denmark (countrycodes=dk) so a name that also exists in Austria
+    cannot anchor a Copenhagen venue in Lohberg — which is exactly what an
+    unscoped search for "Silberbauer" returns.
+
+    Nominatim's usage policy asks for a identifying User-Agent and light use.
+    Both hold: an owner sets a venue anchor roughly once, ever.
+    """
+    q = (query or "").strip()
+    if len(q) < 3:
+        return None
+    try:
+        with httpx.Client(timeout=_TIMEOUT) as c:
+            resp = c.get(
+                _NOMINATIM_SEARCH,
+                params={"q": q, "format": "json", "limit": 1, "countrycodes": "dk"},
+                headers={"User-Agent": _NOMINATIM_UA, "Accept": "application/json"},
+            )
+    except (httpx.TimeoutException, httpx.HTTPError) as e:
+        logger.info("Nominatim unavailable for %r: %s", q, e)
+        return None
+    if resp.status_code != 200:
+        return None
+    try:
+        rows = resp.json()
+    except ValueError:
+        return None
+    if not isinstance(rows, list) or not rows:
+        return None
+
+    top = rows[0]
+    lat, lng = top.get("lat"), top.get("lon")
+    if not _valid(lat, lng):
+        return None
+
+    # Keep the first few components — the full display_name is a postal essay
+    # ("…, Indre By, København, Region Hovedstaden, 1234, Danmark").
+    parts = [p.strip() for p in str(top.get("display_name") or q).split(",")]
+    label = ", ".join(parts[:3]) or q
+
+    return {
+        "lat": round(float(lat), 6),
+        "lng": round(float(lng), 6),
+        "label": label,
+        "source": "place_name",
+    }
+
+
 def resolve(query: str) -> dict | None:
-    """Map link or Danish address — whichever the owner pasted."""
+    """Map link, Danish address, or — failing both — a venue name.
+
+    Order is deliberate: the address register is authoritative and exact, the
+    name search is best-effort. Trying the name first would let a fuzzy match
+    beat an exact one.
+    """
     q = (query or "").strip()
     if not q:
         return None
     if q.lower().startswith(("http://", "https://")):
         return from_map_link(q)
-    return from_address(q)
+    return from_address(q) or from_place_name(q)
