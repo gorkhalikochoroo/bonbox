@@ -542,6 +542,8 @@ function ClockGeofenceSettings() {
   const [msg, setMsg] = useState("");
   const [savedMsg, setSavedMsg] = useState(""); // honest success confirmation
   const [open, setOpen] = useState(false);      // expanded only when unset, or on demand
+  const [query, setQuery] = useState("");       // address or pasted map link
+  const [found, setFound] = useState(null);     // resolved candidate, not yet saved
   useEffect(() => {
     let alive = true;
     api.get("/staff/clock-geofence")
@@ -579,13 +581,55 @@ function ClockGeofenceSettings() {
     setBusy(true);
     setMsg("");
     navigator.geolocation.getCurrentPosition(
-      (p) => save({ enabled: true, lat: p.coords.latitude, lng: p.coords.longitude }),
+      (p) => save({
+        enabled: true, lat: p.coords.latitude, lng: p.coords.longitude,
+        anchor_source: "gps",
+      }),
       () => {
         setBusy(false);
         setMsg(t("schedGeoDenied", "Allow location to set the venue."));
       },
       { enableHighAccuracy: true, timeout: 8000 },
     );
+  };
+
+  // ── Anchor from an address or a pasted map pin ────────────────────────
+  // Standing at the venue is the most accurate way and stays the default, but
+  // it is the ONLY way this panel used to offer — so an owner setting up at
+  // home simply could not finish the step, and the geofence is what decides
+  // who may clock in. A setup step that needs physical presence is one many
+  // owners never complete.
+  //
+  // Two-step on purpose: resolve, show what was found, THEN save. A silent
+  // one-tap "set from address" would let a typo re-point a live payroll
+  // control with nothing on screen to catch it.
+  const resolveQuery = async () => {
+    const q = query.trim();
+    if (q.length < 4) return;
+    setBusy(true);
+    setMsg("");
+    setSavedMsg("");
+    setFound(null);
+    try {
+      const res = await api.post("/staff/clock-geofence/resolve", { query: q });
+      setFound(res.data);
+    } catch (err) {
+      setMsg(
+        err?.response?.status === 404
+          ? t("schedGeoNotFound", "Couldn't find that. Try a full address, or paste a map link.")
+          : t("schedGeoErr", "Couldn't save. Try again."),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmFound = () => {
+    if (!found) return;
+    save({
+      enabled: true, lat: found.lat, lng: found.lng,
+      anchor_source: found.source, anchor_label: found.label || null,
+    }).then(() => { setFound(null); setQuery(""); });
   };
 
   // COLLAPSED once the venue anchor exists. This panel is a Settings control
@@ -607,6 +651,18 @@ function ClockGeofenceSettings() {
             ? t("schedGeoSet", "Venue set · within {m} m", { m: cfg.radius_m })
             : t("schedGeoOffSummary", "Clock-in is not locked to the venue")}
         </span>
+        {/* Which method anchored it. Absent on every anchor set before this
+            shipped — those render nothing rather than an invented method. */}
+        {cfg.enabled && cfg.anchor_label && (
+          <span className="text-gray-400 dark:text-gray-500 truncate max-w-[16rem]">
+            · {cfg.anchor_label}
+          </span>
+        )}
+        {cfg.enabled && !cfg.anchor_label && cfg.anchor_source === "gps" && (
+          <span className="text-gray-400 dark:text-gray-500">
+            · {t("schedGeoFromGps", "set at the venue")}
+          </span>
+        )}
         {cfg.enabled && cfg.window_enabled && (
           <span className="text-gray-400 dark:text-gray-500">
             · {t("schedWindowNote", "Opens 15 min before the shift")}
@@ -629,7 +685,7 @@ function ClockGeofenceSettings() {
           the Schedule page above the actual grid. The toggle + status below
           still convey the essential state. */}
       <p className="hidden sm:block w-full text-[12px] text-gray-500 dark:text-gray-400 leading-snug">
-        {t("schedGeoHelp", "Staff can only clock in near the venue. Stand at the venue and set it as the anchor — their phone's location is checked at that moment only, never saved or tracked.")}
+        {t("schedGeoHelp", "Staff can only clock in near the venue. Set the anchor from where you're standing, or type the address — their phone's location is checked at that moment only, never saved or tracked.")}
       </p>
       <label className="flex items-center gap-2 cursor-pointer">
         <input
@@ -656,6 +712,60 @@ function ClockGeofenceSettings() {
       >
         {cfg.has_location ? t("schedGeoReset", "Update location") : t("schedGeoUseHere", "Use my current location")}
       </button>
+
+      {/* Address / map-link path. Sits UNDER the GPS button, not beside it:
+          standing at the venue is still the accurate default, and this is the
+          fallback for everyone who isn't there right now. */}
+      <div className="w-full flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setFound(null); }}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); resolveQuery(); } }}
+          placeholder={t("schedGeoAddrPlaceholder", "…or type the address, or paste a map link")}
+          className="flex-1 min-w-[220px] min-h-[36px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+        />
+        <button
+          type="button"
+          onClick={resolveQuery}
+          disabled={busy || query.trim().length < 4}
+          className="inline-flex items-center justify-center min-h-[36px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 hover:bg-gray-50 hover:border-gray-300 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+        >
+          {t("schedGeoLookUp", "Find")}
+        </button>
+      </div>
+
+      {/* Confirm step. The owner sees WHAT was found before it becomes the
+          anchor — and is told plainly that an address lands on the building
+          entrance, not on the spot where staff stand. Computed is not
+          measured, and a 150 m radius is only forgiving if you know which
+          one you got. */}
+      {found && (
+        <div className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 px-3 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <Icon name="MapPin" size={14} className="text-gray-400 shrink-0" />
+          <span className="text-[13px] text-gray-800 dark:text-gray-200 font-medium">
+            {found.label || t("schedGeoFoundPin", "Pin from map link")}
+          </span>
+          <span className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums">
+            {Number(found.lat).toFixed(5)}, {Number(found.lng).toFixed(5)}
+          </span>
+          <button
+            type="button"
+            onClick={confirmFound}
+            disabled={busy}
+            className="ml-auto inline-flex items-center justify-center min-h-[34px] px-3 rounded-lg bg-gray-900 dark:bg-gray-100 text-sm font-medium text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-white transition-colors disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900"
+          >
+            {t("schedGeoUseThis", "Use this")}
+          </button>
+          <p className="w-full text-[11px] text-gray-500 dark:text-gray-400 leading-snug">
+            {t(
+              "schedGeoAddrCaveat",
+              "An address points at the building entrance — close enough for the {m} m radius, but standing at the venue is more exact.",
+              { m: cfg.radius_m },
+            )}
+          </p>
+        </div>
+      )}
       {/* Clock-in TIME window — one toggle, no knobs. Flip it on and staff can't
           clock in until 15 min before their shift (before that the staff app
           shows a calm "Låst" state with the exact open time). A fixed sensible

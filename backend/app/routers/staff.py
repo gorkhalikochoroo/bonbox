@@ -3591,6 +3591,15 @@ def _load_clock_settings(profile):
         "lat": d.get("lat"),
         "lng": d.get("lng"),
         "radius_m": int(d.get("radius_m") or 150),
+        # HOW the anchor was set: "gps" (owner stood at the venue), "address"
+        # (resolved from a Danish address via DAWA) or "map_link" (a pasted
+        # pin). Recorded so the panel can never tell an owner a DERIVED point
+        # was measured on site — an address resolves to the building's access
+        # point, which in a large venue sits 20-40 m from where staff actually
+        # stand. Absent on every anchor set before this shipped, which renders
+        # as the neutral "venue set" line rather than a guess.
+        "anchor_source": d.get("anchor_source"),
+        "anchor_label": d.get("anchor_label"),
         # Clock-in TIME window (separate axis from the geofence LOCATION lock):
         # staff can clock in at most `window_minutes` before their shift start.
         # 0 / disabled → no time lock (clock-in open any time, as before).
@@ -3608,6 +3617,11 @@ class ClockGeofenceUpdate(BaseModel):
     radius_m: int | None = None
     window_enabled: bool | None = None
     window_minutes: int | None = None
+    # Provenance of the coordinates being saved. The client sends whichever
+    # path produced them; unknown values are normalised away server-side so a
+    # crafted body cannot invent a provenance the UI would then display.
+    anchor_source: str | None = None
+    anchor_label: str | None = None
 
 
 @router.get("/clock-geofence")
@@ -3617,6 +3631,57 @@ def get_clock_geofence(db: Session = Depends(get_db), user: User = Depends(get_c
     cfg = _load_clock_settings(profile)
     cfg["has_location"] = cfg["lat"] is not None and cfg["lng"] is not None
     return cfg
+
+
+class VenueLocateRequest(BaseModel):
+    query: str
+
+
+@router.post("/clock-geofence/resolve")
+@_limiter.limit("20/minute")
+def resolve_venue_location(
+    payload: VenueLocateRequest,
+    request: Request,
+    db: Session = Depends(get_db),          # noqa: ARG001 — owner scope via user
+    user: User = Depends(get_current_user),
+):
+    """Turn a Danish address or a pasted map link into venue coordinates.
+
+    Exists because the geofence could previously only be anchored by standing
+    inside the venue and tapping "use my current location". That is the most
+    accurate method and stays the default — but it makes the setup step
+    impossible from home, and the geofence is the control that decides who may
+    clock in, so a step that needs physical presence is a step many owners
+    never finish.
+
+    DOES NOT SAVE. It returns a candidate; the owner still confirms, and the
+    save goes through POST /clock-geofence like any other anchor. Separating
+    "look up" from "commit" means a wrong address never silently re-points a
+    live payroll control.
+
+    Rate-limited because it makes an outbound request (DAWA, or following a
+    maps short-link). Owner-only, and the link host is allowlisted in
+    services/venue_locate — an authenticated owner is still not a reason to
+    fetch an arbitrary URL from our network.
+    """
+    from app.services import venue_locate
+
+    q = (payload.query or "").strip()
+    if len(q) < 4:
+        raise HTTPException(status_code=422, detail={"error": "too_short"})
+
+    found = venue_locate.resolve(q)
+    if not found:
+        # Deliberately one generic code: the owner's next move is the same
+        # whether DAWA had no match, was unreachable, or the link carried no
+        # pin — retype it, or fall back to standing at the venue.
+        raise HTTPException(status_code=404, detail={"error": "not_found"})
+
+    import logging  # module-local, matching this file's existing pattern
+    logging.getLogger(__name__).info(
+        "venue anchor resolved for user=%s via %s", user.id, found.get("source"),
+    )
+    return found
 
 
 @router.post("/clock-geofence")
@@ -3642,6 +3707,23 @@ def set_clock_geofence(
     win_enabled = payload.window_enabled if payload.window_enabled is not None else cur["window_enabled"]
     win_minutes = payload.window_minutes if payload.window_minutes is not None else cur["window_minutes"]
     win_minutes = max(0, min(240, int(win_minutes or 0)))  # cap at 4h before start
+
+    # Provenance. Only three values may ever reach the UI, and the label is
+    # length-capped — it is echoed back into the panel, so an unbounded
+    # client-supplied string is a stored-text vector, not just untidy.
+    # A save that MOVES the anchor must carry its own provenance: otherwise a
+    # later partial save (radius only) would leave a stale "set from address"
+    # line under coordinates that were since re-anchored by GPS.
+    moved = payload.lat is not None or payload.lng is not None
+    if moved:
+        src = payload.anchor_source if payload.anchor_source in ("gps", "address", "map_link") else None
+        label = (payload.anchor_label or "").strip()[:120] or None
+    else:
+        src = cur.get("anchor_source")
+        label = cur.get("anchor_label")
+    if lat is None or lng is None:
+        src, label = None, None      # no anchor, no provenance
+
     profile.clock_settings_json = json.dumps({
         "enabled": bool(enabled),
         "lat": lat,
@@ -3649,6 +3731,8 @@ def set_clock_geofence(
         "radius_m": radius,
         "window_enabled": bool(win_enabled) and win_minutes > 0,
         "window_minutes": win_minutes,
+        "anchor_source": src,
+        "anchor_label": label,
     })
     db.commit()
     out = _load_clock_settings(profile)
