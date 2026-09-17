@@ -529,6 +529,12 @@ const translations = {
     roleKitchen: "Kitchen",
     roleBar: "Bar",
     roleFloor: "Floor",
+    // Salon sections (config/roleSections.js SECTION_META referenced these two
+    // keys before they existed anywhere, so a salon legend rendered the raw
+    // key). "Reception" is the same word in both locales — a DK salon's front
+    // desk IS called receptionen.
+    sectionTreatment: "Treatments",
+    sectionFront: "Reception",
     schedOffNoShift: "OFF / No shift",
     schedNoStaffYet: "No staff members yet. Open \"Manage Staff\" above to add your team.",
     schedEmailOptional: "Email (optional)",
@@ -546,6 +552,10 @@ const translations = {
     schedNextDay: "Next day",
     schedNoActiveStaff: "No active staff. Add staff members from the Manage Staff section above.",
     schedEditShiftAria: "Edit {name}'s shift",
+    // Split-shift days give the phone list one tap target per shift, so the
+    // label has to name WHICH one — "Edit Agnes's shift" twice in a row tells
+    // a screen-reader user nothing about where they are.
+    schedEditShiftAtAria: "Edit {name}'s {time} shift",
     schedAddShiftAria: "Add shift for {name}",
     stTipsViewAria: "Tips view",
     stErrEnterAmount: "Please enter a tip amount.",
@@ -8530,6 +8540,8 @@ const translations = {
     roleKitchen: "Køkken",
     roleBar: "Bar",
     roleFloor: "Gulv",
+    sectionTreatment: "Behandling",
+    sectionFront: "Reception",
     schedOffNoShift: "FRI / Ingen vagt",
     schedNoStaffYet: "Ingen medarbejdere endnu. Åbn \"Administrér medarbejdere\" ovenfor for at tilføje dit team.",
     schedEmailOptional: "E-mail (valgfri)",
@@ -8547,6 +8559,7 @@ const translations = {
     schedNextDay: "Næste dag",
     schedNoActiveStaff: "Ingen aktive medarbejdere. Tilføj medarbejdere i afsnittet Administrér medarbejdere ovenfor.",
     schedEditShiftAria: "Rediger {name}s vagt",
+    schedEditShiftAtAria: "Rediger {name}s vagt {time}",
     schedAddShiftAria: "Tilføj vagt for {name}",
     stTipsViewAria: "Drikkepenge-visning",
     stErrEnterAmount: "Indtast venligst et beløb for drikkepenge.",

@@ -2292,6 +2292,34 @@ def update_schedule(
             },
         )
 
+    # HONESTY — a MATERIAL change invalidates the staffer's acknowledgement.
+    #
+    # confirmed_at is the staff-side "Jeg har set det", and the owner grid shows
+    # a green check on it. This PUT is also what the grid's drag-to-move calls,
+    # so a shift the staffer confirmed could be handed to someone else, moved to
+    # another day, or retimed — and the grid kept asserting "seen" about a shift
+    # nobody had ever read. Clear it, and the staff portal re-surfaces the
+    # "Jeg har set det" action on its own (portal confirm-schedule selects on
+    # confirmed_at IS NULL; the strip's allConfirmed reads every confirmed_at).
+    #
+    # Only the four fields a staffer would have to re-read count. Notes, break
+    # and role are the owner annotating a shift whose WHEN and WHO are unchanged
+    # — clearing on those would train everyone to ignore the badge.
+    #
+    # `model_fields_set` keeps this honest if ScheduleCreate ever loosens: today
+    # all four are required, so an absent field can't be mistaken for a change.
+    sent = data.model_fields_set
+
+    def _changed(field: str, old, new) -> bool:
+        return field in sent and str(old or "").strip() != str(new or "").strip()
+
+    material = (
+        _changed("staff_id", old_staff_id, data.staff_id)
+        or _changed("date", old_date, data.date)
+        or _changed("start_time", old_start, data.start_time)
+        or _changed("end_time", old_end, data.end_time)
+    )
+
     shift.staff_id = data.staff_id
     shift.date = data.date
     shift.start_time = data.start_time
@@ -2301,6 +2329,8 @@ def update_schedule(
     shift.status = data.status
     shift.notes = data.notes
     shift.branch_id = _validated_branch_id(db, user, data.branch_id)
+    if material:
+        shift.confirmed_at = None
     db.commit()
     db.refresh(shift)
 
