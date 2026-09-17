@@ -546,6 +546,11 @@ export default function EventsPage() {
       }
       setEvents((prev) => [finalEvent, ...prev]);
       setSelectedId(finalEvent.id);
+      // The owner's FIRST event is what graduates the usage-gated Events
+      // pillar back into the nav (useActivation re-pulls /api/activation on
+      // this event). Without it the owner would create an event and still not
+      // find Arrangementer in the menu until a reload.
+      window.dispatchEvent(new Event("bonbox-data-changed"));
       // If we hit the publish error path we surfaced it via setError —
       // keep the form open so the user can see the message + pick
       // "upgrade" or "keep as draft". Otherwise reset.

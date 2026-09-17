@@ -4,14 +4,23 @@ Two halves:
 
   A. Pure function — services.pillars.preset_hidden_pillars(business_type):
      the LOCKED DK OFF-list per business type (panel + founder verdict,
-     June 2026). restaurant hides nothing; cafe/bakery/tea_shop hide
-     events+insights; takeaway hides reservations+events+inventory+insights
-     (staff stays); kiosk hides only reservations+events (inventory-first
-     retail); bar hides events+insights; salon/service/general hide events;
-     retail/food_truck hide reservations+events; personal hides reservations+
-     events+inventory+staff (only Insights stays); unknown/null/blank -> {}
-     (fail-open). Sibling retail tokens inherit {reservations, events} and
-     services tokens inherit {reservations, events} via the archetype fallback.
+     June 2026; events removed from every BUSINESS preset Sep 2026 — see
+     below). restaurant/salon/service/general hide nothing; cafe/tea_shop hide
+     insights; bakery hides reservations+insights; takeaway hides
+     reservations+inventory+insights (staff stays); kiosk hides only
+     reservations (inventory-first retail); bar hides insights;
+     retail/food_truck hide reservations; personal hides reservations+events+
+     inventory+staff (only Insights stays); unknown/null/blank -> {}
+     (fail-open). Sibling retail tokens inherit {reservations} and services
+     tokens inherit {reservations} via the archetype fallback.
+
+     EVENTS: no BUSINESS preset hides it any more. `hidden_pillars` is an
+     owner-shaped value (it survives as a "Slå til" tile + a /modules switch),
+     which is the wrong lever for "nobody uses this". The frontend USAGE GATE
+     hides Events for every owner with no Event row and returns it on their
+     first one. `personal` is the deliberate exception — private-finance mode
+     hides the business pillars wholesale. test_no_business_preset_hides_events
+     is the guard.
 
   B. Endpoint + apply-once wiring:
      - GET /api/pillars/preset returns the suggested chips (pure read,
@@ -56,30 +65,31 @@ _db_ready.set()
 _EXPECTED_PRESETS = {
     # food service
     "restaurant": set(),
-    "cafe": {"events", "insights"},
+    "cafe": {"insights"},
     # Phase A (BUG #2): a bakery is counter trade with NO booking primitive —
     # Reservations OFF (was leaking ON). pre-order/click-collect doesn't exist.
-    "bakery": {"reservations", "events", "insights"},
-    "tea_shop": {"events", "insights"},
-    "takeaway": {"reservations", "events", "inventory", "insights"},
+    "bakery": {"reservations", "insights"},
+    "tea_shop": {"insights"},
+    "takeaway": {"reservations", "inventory", "insights"},
     # kiosk is the MOST inventory-first retail sibling — it inherits inventory-ON
-    # like every retail sibling (only reservations + events hidden). The earlier
+    # like every retail sibling (only reservations hidden). The earlier
     # {…, inventory, …} list was copy-pasted from takeaway and wrongly hid stock.
-    "kiosk": {"reservations", "events"},
+    "kiosk": {"reservations"},
     # bar (reservations + inventory STAY on; bar_pour is a separate module)
-    "bar": {"events", "insights"},
-    # salon / service / general stay {events}-only
-    "salon": {"events"},
-    "service": {"events"},
-    "general": {"events"},
+    "bar": {"insights"},
+    # salon / service / general hid ONLY events, so their preset is now empty.
+    "salon": set(),
+    "service": set(),
+    "general": set(),
     # Phase A (BUG #2): retail is inventory-led, no floor — Reservations OFF
     # (was leaking ON via the {events}-only list).
-    "retail": {"reservations", "events"},
+    "retail": {"reservations"},
     # food_truck: food-service rhythm but a mobile counter with NO table floor —
-    # hide reservations + events (the booking book it can't use).
-    "food_truck": {"reservations", "events"},
+    # hide reservations (the booking book it can't use).
+    "food_truck": {"reservations"},
     # personal-finance mode: none of the business pillars apply — only Insights
-    # stays (reservations/events/inventory/staff all hidden).
+    # stays (reservations/events/inventory/staff all hidden). The ONE preset
+    # that still carries events; see the module docstring.
     "personal": {"reservations", "events", "inventory", "staff"},
 }
 
@@ -101,14 +111,14 @@ def test_takeaway_keeps_staff_on():
     rosters people, so Staff must remain visible."""
     off = preset_hidden_pillars("takeaway")
     assert "staff" not in off
-    assert off == {"reservations", "events", "inventory", "insights"}
+    assert off == {"reservations", "inventory", "insights"}
 
 
 def test_bar_keeps_reservations_and_inventory_on():
     """Bars take bookings + run stock; only events + insights are hidden."""
     off = preset_hidden_pillars("bar")
     assert "reservations" not in off and "inventory" not in off
-    assert off == {"events", "insights"}
+    assert off == {"insights"}
 
 
 @pytest.mark.parametrize("business_type", ["other", "", "   ", None, "zxqv_unknown"])
@@ -123,20 +133,23 @@ def test_unknown_or_blank_type_is_fail_open(business_type):
 @pytest.mark.parametrize(
     "business_type,expected",
     [
-        # Phase A (BUG #2): retail-archetype siblings inherit {reservations,
-        # events} — inventory-led, no floor/booking.
-        ("clothing", {"reservations", "events"}),
-        ("grocery", {"reservations", "events"}),
-        ("electronics", {"reservations", "events"}),
-        ("pharmacy", {"reservations", "events"}),
-        ("wholesale", {"reservations", "events"}),
-        # services-archetype siblings inherit {reservations, events} — invoice-
-        # led with NO table/booking primitive (was leaking the restaurant-vocab
-        # booking book ON via the earlier {events}-only list).
-        ("mobile_repair", {"reservations", "events"}),
-        ("laundry", {"reservations", "events"}),
-        ("workshop", {"reservations", "events"}),
-        ("freelancer", {"reservations", "events"}),
+        # Phase A (BUG #2): retail-archetype siblings inherit {reservations}
+        # — inventory-led, no floor/booking.
+        ("clothing", {"reservations"}),
+        ("grocery", {"reservations"}),
+        ("electronics", {"reservations"}),
+        ("pharmacy", {"reservations"}),
+        ("wholesale", {"reservations"}),
+        # services-archetype siblings inherit {reservations} — invoice-led with
+        # NO table/booking primitive (was leaking the restaurant-vocab booking
+        # book ON via the earlier {events}-only list).
+        ("mobile_repair", {"reservations"}),
+        ("laundry", {"reservations"}),
+        ("workshop", {"reservations"}),
+        ("freelancer", {"reservations"}),
+        # event_organizer resolves to the services archetype too — and its
+        # preset must NOT hide events (see test_event_organizer_keeps_events).
+        ("event_organizer", {"reservations"}),
     ],
 )
 def test_sibling_tokens_inherit_archetype_offlist(business_type, expected):
@@ -145,10 +158,40 @@ def test_sibling_tokens_inherit_archetype_offlist(business_type, expected):
     assert preset_hidden_pillars(business_type) == expected
 
 
+def test_event_organizer_preset_does_not_hide_events():
+    """An event organizer's whole business IS events — its preset must never
+    hide the Events pillar. (It resolves via the services archetype, which
+    hides reservations only.) The frontend usage gate exempts this same token
+    (USAGE_GATE_EXEMPT_TYPES), so an event organizer sees Events from minute
+    one, before any Event row exists."""
+    off = preset_hidden_pillars("event_organizer")
+    assert "events" not in off
+    assert off == {"reservations"}
+
+
+def test_no_business_preset_hides_events():
+    """THE GUARD for the Sep-2026 verdict: no BUSINESS preset hides events.
+    `hidden_pillars` is an owner-shaped value (an OFF pillar survives as a
+    "Slå til" tile + a /modules switch), so it is the wrong lever for a
+    feature nobody uses — the frontend USAGE GATE hides Events until the
+    owner's first Event row and returns it automatically after.
+
+    `personal` is the ONE deliberate exception: private-finance mode hides the
+    business pillars wholesale, which IS a statement about business shape."""
+    for bt in _EXPECTED_PRESETS:
+        if bt == "personal":
+            assert "events" in preset_hidden_pillars(bt)
+            continue
+        assert "events" not in preset_hidden_pillars(bt), bt
+    # The archetype fallback path too (sibling tokens, not in the exact table).
+    for bt in ("clothing", "mobile_repair", "event_organizer", "freelancer"):
+        assert "events" not in preset_hidden_pillars(bt), bt
+
+
 def test_preset_is_case_insensitive():
-    assert preset_hidden_pillars("CAFE") == {"events", "insights"}
+    assert preset_hidden_pillars("CAFE") == {"insights"}
     assert preset_hidden_pillars(" TakeAway ") == {
-        "reservations", "events", "inventory", "insights"
+        "reservations", "inventory", "insights"
     }
 
 
@@ -156,7 +199,7 @@ def test_preset_returns_fresh_mutable_copy():
     """Mutating the returned set must not corrupt the lock table."""
     a = preset_hidden_pillars("cafe")
     a.add("zzz_not_real")
-    assert preset_hidden_pillars("cafe") == {"events", "insights"}
+    assert preset_hidden_pillars("cafe") == {"insights"}
 
 
 # ─── Endpoint / wiring fixtures ────────────────────────────────────────
@@ -246,7 +289,7 @@ def test_preset_endpoint_uses_query_param(client, db):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["business_type"] == "cafe"
-    assert set(body["suggested"]) == {"events", "insights"}
+    assert set(body["suggested"]) == {"insights"}
     assert body["available"] == list(PILLARS)
     # Pure read — stored hidden_pillars untouched.
     db.refresh(user)
@@ -263,7 +306,7 @@ def test_preset_endpoint_falls_back_to_stored_type(client, db):
     body = r.json()
     assert body["business_type"] == "takeaway"
     assert set(body["suggested"]) == {
-        "reservations", "events", "inventory", "insights"
+        "reservations", "inventory", "insights"
     }
 
 
@@ -277,7 +320,7 @@ def test_preset_endpoint_requires_auth(client):
 
 def test_complete_applies_preset_on_null(client, db):
     """First onboarding completion with hidden_pillars NULL seeds the
-    preset for the business type (cafe -> events+insights)."""
+    preset for the business type (cafe -> insights)."""
     user = _make_user(db, "applycafe@bonbox.test", business_type="cafe")
     assert user.hidden_pillars is None
     _override_user(user)
@@ -286,7 +329,7 @@ def test_complete_applies_preset_on_null(client, db):
     assert r.status_code == 200, r.text
 
     db.refresh(user)
-    assert parse_hidden(user.hidden_pillars) == {"events", "insights"}
+    assert parse_hidden(user.hidden_pillars) == {"insights"}
 
 
 def test_complete_restaurant_leaves_nothing_hidden(client, db):

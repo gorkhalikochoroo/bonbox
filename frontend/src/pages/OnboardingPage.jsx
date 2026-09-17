@@ -59,7 +59,41 @@ import { errText } from "../utils/errText";
 import { Button, Icon, UpgradeNudge } from "../components/ui";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { archetypeFor } from "../config/archetypes";
-import { PILLAR_DISPLAY } from "../config/navManifest";
+import { PILLAR_DISPLAY, USAGE_GATED_PILLARS } from "../config/navManifest";
+
+// The pillar catalog the preset chips are drawn from: every pillar EXCEPT the
+// usage-gated ones. A usage-gated pillar (today: Events) is hidden from the
+// nav until the owner's first real row, so asking a brand-new owner to make a
+// keep-or-hide decision about it at signup is a question about something they
+// will never see — and a "no" would persist as an owner-hidden pillar, which
+// is a stronger, stickier state than the gate we already apply.
+const PRESET_PILLAR_CATALOG = PILLAR_DISPLAY.filter(
+  (p) => !USAGE_GATED_PILLARS.includes(p.id),
+);
+
+/* eslint-disable react-refresh/only-export-components -- the two pure helpers
+   below are exported for the preset-card TESTS only. Keeping them here (rather
+   than re-deriving the same filter in the test) is the point: the test calls
+   the exact functions the wizard renders from, so the card's "show nothing
+   when the preset hides nothing" rule can't drift from what owners see. The
+   cost is fast-refresh on this one file during local dev. */
+
+/** Split the server's suggested OFF-list into the two chip rows (pre-checked
+ *  "we turned these on" + unchecked "easy adds"), over the filtered catalog. */
+export function presetChipLists(presetOff) {
+  const off = presetOff instanceof Set ? presetOff : new Set(presetOff || []);
+  return {
+    onPillars: PRESET_PILLAR_CATALOG.filter((p) => !off.has(p.id)),
+    offPillars: PRESET_PILLAR_CATALOG.filter((p) => off.has(p.id)),
+  };
+}
+
+/** True when the preset card would say nothing: every chip on, nothing offered
+ *  as an add. Compared against the FILTERED catalog length — with Events out of
+ *  the catalog, restaurant/salon/service/general all land here. */
+export function presetCardIsEmpty(onPillars, offPillars) {
+  return onPillars.length === PRESET_PILLAR_CATALOG.length && offPillars.length === 0;
+}
 
 // ── Archetype semantic-key → owner-facing label + real route ─────────
 //
@@ -115,8 +149,9 @@ const BRANCH_TYPES = [
   { id: "bakery",     iconName: "Croissant",       labelKey: "branchBakery",     labelFallback: "Bakery" },
   { id: "bar",        iconName: "Beer",            labelKey: "branchBar",        labelFallback: "Bar" },
   // C12: takeaway / fast food — counter trade, no table reservations. A real
-  // signup business_type with its own DK preset (hides reservations/events/
-  // inventory/insights; Staff stays on). Bike reads as takeaway/delivery.
+  // signup business_type with its own DK preset (hides reservations/inventory/
+  // insights; Staff stays on). Bike reads as takeaway/delivery. Events left the
+  // preset with the usage gate — it is hidden by never-used now, not by shape.
   { id: "takeaway",   iconName: "Bike",            labelKey: "branchTakeaway",   labelFallback: "Takeaway" },
   // Phase A — salon is now self-selectable (the #1 onboarding blocker). Salon
   // is reservations-first (Aftaler/Tidsbestilling); Scissors icon.
@@ -415,12 +450,8 @@ export default function OnboardingPage() {
   // into the chips that are ON by preset (shown first, pre-checked) and the
   // ones the preset turned OFF (shown after, as easy adds). Both are derived
   // from the SUGGESTION so the layout is stable while the owner toggles.
-  const presetOnPillars = useMemo(
-    () => PILLAR_DISPLAY.filter((p) => !presetOff.has(p.id)),
-    [presetOff],
-  );
-  const presetOffPillars = useMemo(
-    () => PILLAR_DISPLAY.filter((p) => presetOff.has(p.id)),
+  const { onPillars: presetOnPillars, offPillars: presetOffPillars } = useMemo(
+    () => presetChipLists(presetOff),
     [presetOff],
   );
 
@@ -676,8 +707,16 @@ export default function OnboardingPage() {
       // auto-apply guard so the owner's CONFIRMED selection wins over the
       // blind preset. Fail-soft — a PUT error must never block onboarding;
       // the backend auto-apply then seeds the plain preset at /complete.
+      // USAGE-GATED pillars are stripped from the committed OFF-list: they
+      // aren't offered as chips (see PRESET_PILLAR_CATALOG), and committing
+      // one as hidden would make it an owner CHOICE — a "Slå til" tile on the
+      // discovery floor and an OFF switch in /modules. The usage gate already
+      // keeps it out of the nav and returns it on the first real row.
       try {
-        await api.put("/pillars", { hidden: [...pillarOff] });
+        const committedOff = [...pillarOff].filter(
+          (id) => !USAGE_GATED_PILLARS.includes(id),
+        );
+        await api.put("/pillars", { hidden: committedOff });
       } catch { /* non-blocking — backend auto-apply covers this owner */ }
 
       goNext();
@@ -1695,9 +1734,12 @@ function PillarChip({ icon, label, on, sublabel, onToggle, ariaLabel }) {
 
 function PresetPillarChips({ typeLabel, ready, onPillars, offPillars, pillarOff, onToggle, t }) {
   // Nothing to show if the preset neither hides nor offers anything (e.g. the
-  // restaurant preset = all on with no OFF adds). Showing all-5-on-no-adds is
-  // noise; the discovery floor + /modules already cover later changes.
-  const nothingToShow = ready && onPillars.length === 5 && offPillars.length === 0;
+  // restaurant preset = all on with no OFF adds). Showing every-chip-on-no-adds
+  // is noise; the discovery floor + /modules already cover later changes.
+  // The comparison is against the FILTERED catalog length (not a literal 5):
+  // the usage-gated pillars never appear as chips, so a preset that hides
+  // nothing else now yields a full on-list of PRESET_PILLAR_CATALOG.length.
+  const nothingToShow = ready && presetCardIsEmpty(onPillars, offPillars);
   if (nothingToShow) return null;
 
   return (

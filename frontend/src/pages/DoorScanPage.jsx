@@ -40,6 +40,7 @@ import jsQR from "jsqr";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
+import { useActivation } from "../hooks/useActivation";
 import { platform } from "../utils/platform";
 import { haptic } from "../utils/haptics";
 import { formatKr } from "../utils/currency";
@@ -457,6 +458,12 @@ function GavekortRedeemSheet({ t, card, onClose, onRedeemed }) {
 export default function DoorScanPage() {
   const { t } = useLanguage();
   const { user } = useAuth(); // eslint-disable-line no-unused-vars
+  // USAGE GATE — an owner who has never created an event doesn't have Events
+  // in their nav, so the ticket-scanning tile here would be the one remaining
+  // door into it. usageKnownDormant (not usageDormantPillars) on purpose: the
+  // tile must never vanish from under a finger while /activation is loading.
+  const { usageKnownDormant } = useActivation();
+  const eventsUsageHidden = usageKnownDormant.has("events");
 
   // ── Event picker state ─────────────────────────────────────────────
   const [events, setEvents] = useState([]);
@@ -896,17 +903,33 @@ export default function DoorScanPage() {
   ) : null;
 
   // ── Render ─────────────────────────────────────────────────────────
+  // USAGE GATE, second half — the FRAMING has to follow the tiles.
+  //
+  // The ticket tile and the event picker are both suppressed below for an
+  // events-hidden owner, which leaves the ticket-mode landing as nothing but
+  // the gavekort tile. The header still said "Vælg arrangement" / "Tjek gæster
+  // ind ved døren" — instructing an action the page no longer offers, on a
+  // screen that is ONE tap away: every in-app door into /scan is
+  // ?mode=gavekort (QuickAdd, GavekortPage — /scan is in neither the nav
+  // manifest nor ⌘K), and both exitGavekort ("Tilbage") and handleStop ("Stop
+  // scanner", fired after every gavekort scan) drop back into ticket mode.
+  // So for that owner the landing wears the gavekort framing it actually has.
+  // Reuses the two strings the gavekort mode already shows — no new key, and
+  // the back/stop path now returns to a screen that reads the same as the one
+  // it left. `selectedEvent` still wins: the gate never hides a chosen event.
+  const gavekortOnlyLanding = eventsUsageHidden && !selectedEvent;
+  const showGavekortFraming = scanMode === "gavekort" || gavekortOnlyLanding;
   return (
     <PageShell width="default">
       <PageHeader
         eyebrow={t("scanEyebrow", "DØR-SCAN")}
         title={
-          scanMode === "gavekort"
+          showGavekortFraming
             ? t("gkScanEyebrow", "Indløs gavekort")
             : selectedEvent?.name || t("scanTitle", "Vælg arrangement")
         }
         subtitle={
-          scanMode === "gavekort"
+          showGavekortFraming
             ? t("scanGavekortTileSub", "Scan et gavekort-QR")
             : selectedEvent
               ? `${selectedEvent.event_date}${selectedEvent.venue ? " · " + selectedEvent.venue : ""}`
@@ -915,25 +938,31 @@ export default function DoorScanPage() {
         actions={headerActions}
       />
 
-      {/* No event selected, ticket mode → landing with two entry tiles */}
+      {/* No event selected, ticket mode → landing with the entry tiles. The
+          ticket tile is dropped for an owner the usage gate hides Events from
+          (it leads to the event picker, whose empty state links to /events —
+          a door back into a pillar we just took out of the nav). Gavekort
+          redeem stays: it needs no event. */}
       {scanMode === "ticket" && !selectedEvent && !scanning && (
         <div className="space-y-3">
           {/* Tile 1 — Scan billetter → reveal the event picker below. */}
-          <Card onClick={() => setTicketPickerOpen(true)}>
-            <div className="flex items-center gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-                <Ticket size={20} strokeWidth={1.75} aria-hidden="true" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                  {t("scanTicketTileTitle", "Scan billetter")}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                  {t("scanTicketTileSub", "Vælg et arrangement")}
-                </p>
+          {!eventsUsageHidden && (
+            <Card onClick={() => setTicketPickerOpen(true)}>
+              <div className="flex items-center gap-3">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                  <Ticket size={20} strokeWidth={1.75} aria-hidden="true" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    {t("scanTicketTileTitle", "Scan billetter")}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    {t("scanTicketTileSub", "Vælg et arrangement")}
+                  </p>
+                </div>
               </div>
-            </div>
-          </Card>
+            </Card>
+          )}
 
           {/* Tile 2 — Indløs gavekort → open the camera in gavekort mode with
               NO event required. This is the fix: always reachable. */}
@@ -956,8 +985,9 @@ export default function DoorScanPage() {
           {/* Event picker: auto-revealed when events exist so a ticket
               organizer keeps the one-tap flow (list already showing under the
               tiles); a gavekort-only venue with no events sees just the tiles
-              until it taps "Scan billetter". */}
-          {(ticketPickerOpen || events?.length > 0) && (
+              until it taps "Scan billetter". Suppressed entirely when the
+              usage gate hides Events — its empty state is a /events link. */}
+          {!eventsUsageHidden && (ticketPickerOpen || events?.length > 0) && (
             <UpcomingEventsList
               events={events}
               loading={eventsLoading}

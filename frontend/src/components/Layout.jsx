@@ -134,6 +134,10 @@ function filterNavGroups(groups, branchType, businessTypes, enabledModules, hasF
     activatedPillars: act.activatedPillars instanceof Set ? act.activatedPillars : undefined,
     isInScope: act.isInScope === true,
     activationEnabled: act.activationEnabled === true,
+    // USAGE GATE — a pillar this owner has never used (today: Events) is not
+    // in the sidebar at all. Cohort-wide + flag-free, unlike the activation
+    // axis above; it returns the moment the first real row exists.
+    usageDormant: act.usageDormantPillars instanceof Set ? act.usageDormantPillars : undefined,
     // OWNER-ONLY axis — hide the owner's financial surfaces (Reports & MOMS,
     // Tax) from invited staff members. Owner + accountant are not staff.
     isStaffMember,

@@ -66,6 +66,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
     isInScope,
     activationEnabled,
     isReady: activationReady,
+    usageDormantPillars,
   } = useActivation();
   const { show: showUndo, ToastUI } = useUndoToast();
   // Track which pillar id is mid-enable so we can show a busy state on its
@@ -76,9 +77,15 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
   // The OFF pillars, in the canonical PILLAR_DISPLAY order. This is exactly
   // "available minus visible": we walk the catalog and keep the ones the
   // owner has hidden. Resilient to `available` not having loaded yet.
+  // USAGE GATE — a never-used gated pillar (today: Events) is excluded: the
+  // discovery floor is a re-find affordance for something the owner hid, and
+  // offering "Slå til Arrangementer" would put the surface straight back into
+  // the nav we just removed it from.
   const offPillars = useMemo(
-    () => PILLAR_DISPLAY.filter((p) => hiddenPillars.has(p.id)),
-    [hiddenPillars],
+    () => PILLAR_DISPLAY.filter(
+      (p) => hiddenPillars.has(p.id) && !usageDormantPillars.has(p.id),
+    ),
+    [hiddenPillars, usageDormantPillars],
   );
 
   // DORMANT-RELEVANT pillars — the ACTIVATION discovery floor. A pillar is a
@@ -98,9 +105,10 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
         ACTIVATION_SETUP_ROUTE[p.id] &&   // a gateable pillar with a setup route
         relevant.has(p.id) &&             // relevant to this business type
         !hiddenPillars.has(p.id) &&       // not owner-hidden (that's "Slå til")
+        !usageDormantPillars.has(p.id) && // usage-gated: not offered at all
         !isActivated(p.id),               // dormant (no real usage row)
     );
-  }, [activationEnabled, isInScope, branchType, user?.business_type, hiddenPillars, isActivated]);
+  }, [activationEnabled, isInScope, branchType, user?.business_type, hiddenPillars, usageDormantPillars, isActivated]);
 
   // Nothing to surface (neither hidden re-enable tiles nor dormant setup tiles,
   // or state not settled) → no affordance at all. PillarDiscovery renders only

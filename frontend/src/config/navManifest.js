@@ -49,7 +49,19 @@
  *      pushed locked:true and is NEVER activation-hidden (Reservations stays
  *      visible-but-locked even when dormant). When activationEnabled=false OR
  *      isInScope=false, this axis is a NO-OP → IDENTICAL to today's nav (the
- *      established-owner firewall).
+ *      established-owner firewall) — with the ONE exception below.
+ *
+ *      THE EXCEPTION — the USAGE GATE (`ctx.usageDormant`). Events is not one
+ *      of the six jobs BonBox focuses on, and exactly one production account
+ *      has ever created an Event row. So the USAGE_GATED_PILLARS below are
+ *      hidden for EVERY owner (not just the new-account cohort, not behind the
+ *      activation flag) until a real usage row exists — see useActivation's
+ *      usageDormantPillars. Unlike ACTIVATION, LOCKED does NOT win here: a
+ *      usage-dormant pillar is a feature we are not selling, so leaving it as
+ *      a tier-locked upgrade funnel would be dishonest. It re-appears the
+ *      moment the owner creates their first row (EventsPage dispatches
+ *      'bonbox-data-changed' on create) and stays findable in ⌘K, which never
+ *      passes the gate.
  *
  * Hide (axes 1, 3, 4) and locked (axis 2) are different outcomes and must
  * never be conflated. filterDestinations returns the kept items with a
@@ -150,7 +162,15 @@ export const NAV_MANIFEST = [
     pillar: "events",
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
-    aliases: ["events", "tickets", "arrangement"],
+    // USAGE-GATED (see USAGE_GATED_PILLARS): hidden from the nav chrome until
+    // the owner has a real Event row. ⌘K deliberately does NOT pass the usage
+    // gate, so these aliases are the ONLY way back in for an owner who wants
+    // Events before they've used it — the DA singular/plural forms and "billet"
+    // matter because a Dane types "billetter", not "tickets".
+    aliases: [
+      "events", "tickets", "arrangement", "arrangementer",
+      "billet", "billetter", "event",
+    ],
   },
   {
     // Reservations — an ALL-TIER, usage-capped feature. billing.py sets the
@@ -674,14 +694,20 @@ export const NAV_MANIFEST = [
  * gateable pillar is treated as relevant (the conservative gate then only
  * hides a dormant pillar the owner could genuinely set up). Keep in sync with
  * the backend preset verdict (locked, June 2026):
- *   food_service → inventory, reservations, staff   (events hidden by preset)
- *   bar          → inventory, reservations, staff    (events hidden)
- *   salon        → reservations, staff               (events hidden; salons
- *                  don't run an inventory pillar by default)
- *   retail       → inventory, staff                  (events hidden)
- *   services     → staff                             (events hidden;
- *                  inventory/reservations not a default services pillar)
+ *   food_service → inventory, reservations, staff
+ *   bar          → inventory, reservations, staff
+ *   salon        → reservations, staff               (salons don't run an
+ *                  inventory pillar by default)
+ *   retail       → inventory, staff
+ *   services     → staff                             (inventory/reservations
+ *                  are not a default services pillar)
  *   generic/personal → all four (fail-open — never lose a setup affordance)
+ *
+ * `events` is absent from every list above. It USED to be "hidden by preset"
+ * for these archetypes; since Sep 2026 the backend BUSINESS presets no longer
+ * hide it (services/pillars.py) — the USAGE GATE hides it instead, for every
+ * owner, until the first real Event row. Leaving it out here keeps it from
+ * also becoming an activation "Sæt op" tile.
  */
 export const PILLAR_RELEVANCE_BY_ARCHETYPE = {
   food_service: ["inventory", "reservations", "staff"],
@@ -691,6 +717,35 @@ export const PILLAR_RELEVANCE_BY_ARCHETYPE = {
   services: ["staff"],
   // generic / personal deliberately omitted → fail-open (all relevant).
 };
+
+/**
+ * USAGE_GATED_PILLARS — pillars hidden from the nav chrome for EVERY owner
+ * until a real usage row exists (the "usage gate", Sep 2026).
+ *
+ * WHY THIS IS NOT THE ACTIVATION AXIS: activation is cohort-scoped (new
+ * accounts only), flag-gated, and its dormant pillars re-surface as "Sæt op"
+ * tiles — it is a DISCLOSURE ramp for features we do sell. The usage gate is
+ * the opposite statement: BonBox focuses on six jobs and Events is not one of
+ * them, so for an owner who has never created an Event the surface is not
+ * "not yet set up", it is NOISE. It therefore applies to every owner, hides
+ * the pillar from the discovery floor + the /modules toggle list as well, and
+ * is NOT an upgrade funnel (a tier-locked entry is dropped too).
+ *
+ * REVERSIBLE + never a dead end: emptying this array restores the previous
+ * nav exactly; the route, the page and the data are untouched; ⌘K never
+ * passes the gate; and the pillar auto-returns on the owner's first real row.
+ */
+export const USAGE_GATED_PILLARS = ["events"];
+
+/**
+ * Business types the usage gate NEVER applies to — the vertical whose whole
+ * business IS the gated pillar. `event_organizer` is the real token stored in
+ * users.business_type (frontend config/archetypes.js BUSINESS_TYPE_TO_ARCHETYPE
+ * + backend services/archetype.py; routers/onboarding.py maps the free-text
+ * "event"/"arrangør"/"eventbureau" answers onto it). An event organizer sees
+ * Events from minute one, before any row exists.
+ */
+export const USAGE_GATE_EXEMPT_TYPES = ["event_organizer"];
 
 const _ACTIVATION_GATEABLE = ["inventory", "reservations", "events", "staff"];
 
@@ -729,6 +784,10 @@ export function relevantPillarsForArchetype(archetypeId) {
  *   isInScope     : boolean (default false)  true only for the gateable
  *                                            NEW-account cohort
  *   activationEnabled : boolean (default false)  feature-flag kill-switch
+ *   usageDormant  : Set<string> (default empty)  USAGE GATE — pillars this
+ *                                            owner has never used (see
+ *                                            USAGE_GATED_PILLARS /
+ *                                            useActivation.usageDormantPillars)
  * }
  *
  * Outcome per axis:
@@ -739,6 +798,10 @@ export function relevantPillarsForArchetype(archetypeId) {
  *                                            a tier-locked entry is pushed
  *                                            locked:true and NEVER
  *                                            activation-hidden.
+ *   • USAGE GATE (pillar ∈ usageDormant)    → HIDE (dropped) INCLUDING a
+ *                                            tier-locked entry — a pillar we
+ *                                            are not selling must not become
+ *                                            an upgrade funnel.
  *
  * A tier-locked entry is NEVER dropped here — hiding it would unrender the
  * UpgradeNudge funnel. (Native App-Store compliance hiding is the caller's
@@ -763,6 +826,7 @@ export function filterDestinations(items, ctx = {}) {
     isInScope = false,
     activationEnabled = false,
     isStaffMember = false,
+    usageDormant,
   } = ctx;
 
   // OWNER-ONLY — an invited STAFF member (manager/cashier/viewer) never sees
@@ -842,7 +906,16 @@ export function filterDestinations(items, ctx = {}) {
   // requiresFeature branch below returns before us), so a tier-locked entry is
   // NEVER activation-hidden — it stays visible-but-locked (Reservations dormant
   // on Free still shows the lock). When the flag is off OR the account is out of
-  // scope, this returns true for EVERYTHING → IDENTICAL to today's nav.
+  // scope, this returns true for EVERYTHING → IDENTICAL to today's nav, except
+  // for the USAGE GATE above, which is deliberately cohort-wide and flag-free.
+  // USAGE GATE — a pillar the owner has never used (USAGE_GATED_PILLARS,
+  // resolved per-owner by useActivation). Default EMPTY, so every existing
+  // caller that doesn't thread it (⌘K on purpose, any test) behaves exactly as
+  // before. Unlike the four axes above this one also drops TIER-LOCKED items,
+  // which is why the check sits before the requiresFeature branch below.
+  const usageHidden = usageDormant instanceof Set ? usageDormant : new Set();
+  const passesUsage = (pillar) => !pillar || !usageHidden.has(pillar);
+
   const activated = activatedPillars instanceof Set ? activatedPillars : null;
   const relevantSet = relevantPillarsForArchetype(archetypeId);
   const passesActivation = (pillar) => {
@@ -860,6 +933,10 @@ export function filterDestinations(items, ctx = {}) {
     if (!passesType(item.visibleFor, item.visibleForArchetypes)) continue;
     if (!passesArchetype(item.hideForArchetypes)) continue;
     if (!passesModule(item.requiresModule, item.requiresAnyModule)) continue;
+    // USAGE GATE — BEFORE the entitlement branch on purpose: a usage-dormant
+    // pillar is a feature we're not selling, so it must not survive as a
+    // locked upgrade funnel the way an activation-dormant one does.
+    if (!passesUsage(item.pillar)) continue;
     // ENTITLEMENT (locked-but-visible) takes precedence over ACTIVATION — a
     // requiresFeature-missing entry is pushed locked:true and is NEVER
     // activation-hidden (the LOCKED-WINS invariant).

@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { usePillars } from "../hooks/usePillars";
+import { useActivation } from "../hooks/useActivation";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, SectionBanner, Button, Icon } from "../components/ui";
@@ -16,8 +17,10 @@ import { errText } from "../utils/errText";
 /**
  * FunktionerSection (C11) — the RELEVANCE-axis toggle UI.
  *
- * The 5 owner pillars (Reservations / Events / Inventory / Staff / Insights)
- * as plain on/off switches. Kept visually DISTINCT and ABOVE the capped
+ * The owner pillars (Reservations / Events / Inventory / Staff / Insights)
+ * as plain on/off switches — minus any USAGE-GATED pillar this owner has
+ * never used (it isn't in their nav, so a switch reading "on" would lie).
+ * Kept visually DISTINCT and ABOVE the capped
  * vertical-module section below: pillars are FREE + uncapped (no tier lock,
  * no cap, no UpgradeNudge) — a pure "show only what your business uses"
  * relevance filter. Wired to the pillar context (usePillars), so flipping a
@@ -31,6 +34,12 @@ import { errText } from "../utils/errText";
 function FunktionerSection() {
   const { t } = useLanguage();
   const { hiddenPillars, isReady, setPillarHidden } = usePillars();
+  // USAGE GATE — a pillar the owner has never used (today: Events) is not in
+  // their nav, so listing a switch for it here would be a lie: the switch
+  // would read "on" while nothing is on screen. We use usageKnownDormant (not
+  // usageDormantPillars) so a row never disappears from under a finger mid-tap
+  // — while the answer is still loading the list stays exactly as it was.
+  const { usageKnownDormant } = useActivation();
   const { show: showUndo, ToastUI } = useUndoToast();
   const [busyId, setBusyId] = useState(null);
   const [error, setError] = useState("");
@@ -66,7 +75,7 @@ function FunktionerSection() {
           {t("funktionerSectionSubtitle")}
         </p>
         <div className="space-y-2">
-          {PILLAR_DISPLAY.map((p) => {
+          {PILLAR_DISPLAY.filter((p) => !usageKnownDormant.has(p.id)).map((p) => {
             // While the pillar state is still resolving, treat every pillar as
             // ON (the grandfather default) so we never flash a pillar as OFF.
             const on = isReady ? !hiddenPillars.has(p.id) : true;

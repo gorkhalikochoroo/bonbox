@@ -102,6 +102,10 @@ export default function MorePage() {
     activatedPillars: activation.activatedPillars instanceof Set ? activation.activatedPillars : undefined,
     isInScope: activation.isInScope === true,
     activationEnabled: activation.activationEnabled === true,
+    // USAGE GATE — a never-used pillar (today: Events) is off the More grid
+    // exactly as it is off the sidebar. Same Set both places, so the two
+    // surfaces can't disagree.
+    usageDormant: activation.usageDormantPillars instanceof Set ? activation.usageDormantPillars : undefined,
     // Owner-only financial tiles (Reports/Tax) drop from the More grid for staff.
     isStaffMember: isStaffMemberRole(user?.role) || (_devShared && _devLocked),
   };

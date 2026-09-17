@@ -24,6 +24,20 @@ THE FOUR FIREWALLS (a violation breaks existing owners):
 `insights` is NOT gated (always-on) and is therefore absent from the per-pillar
 map. The accountant role is handled frontend-side (no-op); this endpoint is
 owner-scoped via get_current_user and never mutates.
+
+SECOND CONSUMER — THE USAGE GATE (Sep 2026, frontend-only, no change here):
+the frontend also reads the per-pillar booleans OUTSIDE the cohort firewall,
+to hide a pillar nobody uses (today: events — navManifest USAGE_GATED_PILLARS
++ useActivation.usageDormantPillars) from EVERY owner's nav until their first
+real row. That works because `in_scope` only gates the ACTIVATION axis
+frontend-side, while the booleans themselves are returned truthfully for
+out-of-scope accounts too (see the docstring below).
+
+The coupling to remember: those booleans are truthful only while
+ACTIVATION_DISCLOSURE_ENABLED is ON (its default — utils/features.py). With
+the flag OFF this endpoint forces every pillar True, so the usage gate resolves
+to "events used" and Events is VISIBLE for everyone. That is the safe
+direction, and it makes the one env var the kill-switch for both features.
 """
 from __future__ import annotations
 
@@ -85,8 +99,11 @@ def get_activation(
     When `enabled` is False the per-pillar booleans are all forced True (the
     frontend would treat them as activated anyway, but we make the payload
     self-consistent so a stale client can't mis-hide). When out of scope the
-    real derived booleans are returned but the frontend ignores them
-    (in_scope=False ⇒ nothing hidden) — kept truthful for diagnostics.
+    real derived booleans are returned but the ACTIVATION axis ignores them
+    (in_scope=False ⇒ nothing hidden) — kept truthful for diagnostics, and now
+    also LOAD-BEARING for the frontend usage gate, which reads them for every
+    account regardless of cohort. Flag OFF ⇒ all True ⇒ that gate hides
+    nothing either. Do not "simplify" this into returning False out of scope.
     """
     enabled = is_activation_disclosure_enabled()
     in_scope = _is_in_scope(user)

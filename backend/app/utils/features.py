@@ -60,6 +60,14 @@ def is_activation_disclosure_enabled() -> bool:
 
     Override via the ``ACTIVATION_DISCLOSURE_ENABLED`` env var (any of
     0/false/no/off → disabled). Absent / unrecognized → default TRUE.
+
+    TWO CONSUMERS, ONE SWITCH (Sep 2026). Besides the activation axis, the
+    frontend USAGE GATE (navManifest USAGE_GATED_PILLARS — today: events)
+    hides a never-used pillar from every owner's nav, and it reads the SAME
+    per-pillar booleans from GET /api/activation. Turning this flag off makes
+    that endpoint force every pillar True, so the usage gate also resolves to
+    "used" and Events becomes visible again for everyone — the safe direction,
+    and the intended kill-switch for both. Nothing else changes behaviour here.
     """
     raw = (os.environ.get("ACTIVATION_DISCLOSURE_ENABLED") or "").strip().lower()
     if raw in ("0", "false", "no", "off"):

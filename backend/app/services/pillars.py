@@ -78,21 +78,42 @@ _PILLAR_IDS: frozenset[str] = frozenset(PILLARS)
 # can never appear here. Mapping is LOCKED (founder + panel verdict):
 #
 #   restaurant                  → {} (full-service: nothing hidden)
-#   cafe / tea_shop             → {events, insights}      (DK brunch booking
+#   cafe / tea_shop             → {insights}              (DK brunch booking
 #                                  culture keeps Reservations ON)
-#   bakery                      → {reservations, events, insights}  (Phase A:
+#   bakery                      → {reservations, insights}  (Phase A:
 #                                  counter trade, NO booking primitive — was
 #                                  leaking Reservations ON, BUG #2)
-#   takeaway / kiosk            → {reservations, events, inventory, insights}
+#   takeaway                    → {reservations, inventory, insights}
 #                                  (counter trade — Staff stays on)
-#   bar                         → {events, insights}      (Reservations +
+#   kiosk                       → {reservations}          (inventory-first
+#                                  retail sibling)
+#   bar                         → {insights}              (Reservations +
 #                                  Inventory stay on; bar_pour is a separate
 #                                  capped module, untouched here)
-#   salon / service / general   → {events}
-#   retail                      → {reservations, events}  (Phase A: inventory-
+#   salon / service / general   → {}
+#   retail / food_truck         → {reservations}          (Phase A: inventory-
 #                                  led, no floor — was leaking Reservations ON)
+#   personal                    → {reservations, events, inventory, staff}
+#                                  (the ONE preset that still hides events —
+#                                   see the EVENTS note below)
 #   unknown / null / anything   → {} (FAIL-OPEN: hide nothing — a mis-typed
 #     else                         or blank type must never lose surfaces)
+#
+# EVENTS IS NO LONGER A PRESET CONCERN (Sep 2026). Every BUSINESS preset used
+# to carry "events"; none does now. Not because Events became relevant to a
+# café — because `hidden_pillars` is the wrong LEVER for it:
+#   • A preset is seeded ONCE and is then an owner-shaped value — it survives
+#     as a "Slå til Arrangementer" tile on the discovery floor and an OFF
+#     switch in /modules, i.e. the surface is still on screen, just demoted.
+#   • The frontend USAGE GATE (navManifest USAGE_GATED_PILLARS +
+#     useActivation.usageDormantPillars) hides Events for EVERY owner who has
+#     no Event row — new and established, every business type — and returns it
+#     automatically on the owner's first real event. That is the honest state:
+#     "you have never used this", not "you said you don't do this".
+# Keeping both would double-hide it and make the return path (create an event
+# → it reappears) fail for anyone whose preset had committed it as hidden.
+# `personal` is the deliberate exception: private-finance mode hides the
+# business pillars wholesale, and that IS a business-shape statement.
 #
 # Two-layer resolution (so the full real RegisterPage token set is covered
 # without re-listing every retail/services variant here):
@@ -101,37 +122,40 @@ _PILLAR_IDS: frozenset[str] = frozenset(PILLARS)
 #      tea_shop/takeaway/kiosk/bar/salon/retail/service/general).
 #   2. Fallback to the canonical ARCHETYPE OFF-list — so sibling tokens that
 #      resolve to the same archetype get the same treatment automatically
-#      (clothing/grocery/electronics/… → retail archetype → {events};
-#      mobile_repair/laundry/workshop/… → services archetype → {events}).
+#      (clothing/grocery/electronics/… → retail archetype → {reservations};
+#      mobile_repair/laundry/workshop/… → services archetype → {reservations}).
 #   3. Anything still unresolved → {} (fail-open).
 _PRESET_OFF_LISTS: dict[str, frozenset[str]] = {
     "restaurant": frozenset(),
-    "cafe": frozenset({"events", "insights"}),
+    "cafe": frozenset({"insights"}),
     # Phase A bug fix (BUG #2): a production bakery is counter trade with NO
     # table-booking primitive — Reservations must be OFF (was leaking ON). The
     # bakery pre-order / click-collect primitive does NOT exist; keep it OFF
     # rather than offer booking it can't use.
-    "bakery": frozenset({"reservations", "events", "insights"}),
-    "tea_shop": frozenset({"events", "insights"}),
+    "bakery": frozenset({"reservations", "insights"}),
+    "tea_shop": frozenset({"insights"}),
     # food_truck is food-service (keeps the food_service dashboard rhythm + 06:00
     # cutoff from archetype.py) but has NO table floor / booking primitive — a
-    # mobile counter can't seat a reservation. Hide Reservations + Events so it is
-    # not offered a booking book it can't use (venueProfiles maps it to the
+    # mobile counter can't seat a reservation. Hide Reservations so it is not
+    # offered a booking book it can't use (venueProfiles maps it to the
     # 'generic' no-floor venue in the same batch).
-    "food_truck": frozenset({"reservations", "events"}),
-    "takeaway": frozenset({"reservations", "events", "inventory", "insights"}),
+    "food_truck": frozenset({"reservations"}),
+    "takeaway": frozenset({"reservations", "inventory", "insights"}),
     # kiosk is the MOST inventory-first retail sibling — it must inherit
-    # inventory-on like every other shop (retail → {reservations, events}). The
+    # inventory-on like every other shop (retail → {reservations}). The
     # earlier {…, "inventory", …} list was copy-pasted from takeaway (counter
     # food, no stock module) and wrongly hid the Inventory pillar.
-    "kiosk": frozenset({"reservations", "events"}),
-    "bar": frozenset({"events", "insights"}),
-    "salon": frozenset({"events"}),
+    "kiosk": frozenset({"reservations"}),
+    "bar": frozenset({"insights"}),
+    # salon / service / general hid ONLY events, so their preset is now empty —
+    # the keys stay (pinned, not fail-open-by-accident) so a future verdict for
+    # these types has an obvious home.
+    "salon": frozenset(),
     # Phase A bug fix (BUG #2): retail is inventory-led with no floor/booking —
     # Reservations OFF by default (was leaking ON via the {events}-only list).
-    "retail": frozenset({"reservations", "events"}),
-    "service": frozenset({"events"}),
-    "general": frozenset({"events"}),
+    "retail": frozenset({"reservations"}),
+    "service": frozenset(),
+    "general": frozenset(),
     # Personal-finance mode: none of the business pillars apply — only Insights
     # stays. Reservations/Events/Inventory/Staff make no sense for a private user
     # (Layout.jsx also seeds mode='personal' from this business_type).
@@ -139,7 +163,7 @@ _PRESET_OFF_LISTS: dict[str, frozenset[str]] = {
 }
 
 # Archetype-level fallback (canonical ids from services/archetype.py). Keeps
-# the locked retail/services verdict ({reservations, events} — no floor/booking
+# the locked retail/services verdict ({reservations} — no floor/booking
 # primitive) applying to every sibling token of those archetypes without
 # enumerating them all above. food_service is deliberately ABSENT — restaurant
 # vs cafe vs takeaway diverge sharply, so food-service tokens must hit the exact
@@ -149,13 +173,16 @@ _PRESET_OFF_LISTS: dict[str, frozenset[str]] = {
 _PRESET_OFF_LISTS_BY_ARCHETYPE: dict[str, frozenset[str]] = {
     # Phase A (BUG #2): every retail sibling token (clothing/grocery/electronics/
     # …) hides Reservations by default — inventory-led, no floor/booking.
-    "retail": frozenset({"reservations", "events"}),
-    # services (mobile_repair/laundry/workshop/…) are invoice-led with NO table
-    # / booking primitive — hide Reservations too (was leaking the restaurant-
-    # vocab booking book ON via the {events}-only list). A real service-booking
-    # flow is a separate roadmap item; until then don't offer the mismatched one.
-    "services": frozenset({"reservations", "events"}),
-    "salon": frozenset({"events"}),
+    "retail": frozenset({"reservations"}),
+    # services (mobile_repair/laundry/workshop/… and event_organizer) are
+    # invoice-led with NO table / booking primitive — hide Reservations too (was
+    # leaking the restaurant-vocab booking book ON via the {events}-only list).
+    # A real service-booking flow is a separate roadmap item; until then don't
+    # offer the mismatched one. NOTE event_organizer resolves here: its preset
+    # must never hide events (its whole business is events — it is also exempt
+    # from the frontend usage gate, USAGE_GATE_EXEMPT_TYPES).
+    "services": frozenset({"reservations"}),
+    "salon": frozenset(),
 }
 
 
