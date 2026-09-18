@@ -72,7 +72,6 @@ function Harness(props) {
       staff={STAFF}
       weekDates={WEEK}
       getShiftsForCell={getShiftsForCell}
-      costForShift={() => null}
       showCost={false}
       weekCost={null}
       costBasis="gross"
@@ -102,8 +101,12 @@ describe("MobileSchedule — salon vertical", () => {
     // Pre-fix this was a TypeError on `colors.dot`, i.e. a white screen.
     const { container } = mount();
     expect(screen.getByText("Ida")).toBeInTheDocument();
-    // …and the salon section actually gets its own hue rather than falling
-    // back to the emerald Floor dot a salon has no floor for.
+    // …and the salon section gets a real dot rather than an undefined class.
+    // NOTE this no longer discriminates the way it did when it was written:
+    // the grid's `floor` moved from emerald to violet too (emerald became the
+    // "seen by staff" signal), so violet here proves the lookup resolved, not
+    // that it resolved to `treatment`. scheduleSectionColors.test.jsx holds
+    // the per-section assertion.
     expect(container.querySelector(".bg-violet-500")).toBeTruthy();
   });
 });

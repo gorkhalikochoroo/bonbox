@@ -34,12 +34,13 @@
  * would be vocabulary theatre. sectionFor() returns null there, and callers
  * render one ungrouped list — which is the honest shape for those verticals.
  *
- * THIS MODULE DOES NOT DECIDE COLOUR. The two surfaces deliberately differ:
- * the owner grid paints `floor` emerald, while the staff app paints it violet
- * because green is reserved exclusively for live/now (the Live pill and the
- * clocked-in ping) and painting the majority persona green flooded that app
- * with false live signals. Each surface maps section → its own colour; only
- * the SECTION has to agree.
+ * THIS MODULE DOES NOT DECIDE COLOUR. Each surface maps section → its own
+ * colour; only the SECTION has to agree. They no longer actually differ: the
+ * staff app paints `floor` violet because green is reserved there for live/now
+ * (the Live pill and the clocked-in ping), and the owner grid — which used to
+ * paint it emerald — moved to violet too when emerald became the grid's "seen
+ * by staff" signal. Two surfaces agreeing is a happy accident of two separate
+ * decisions, not a rule this module enforces.
  *
  * Labels are i18n keys, never literals — archetype doctrine.
  */

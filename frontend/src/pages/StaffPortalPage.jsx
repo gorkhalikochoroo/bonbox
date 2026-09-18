@@ -177,11 +177,13 @@ function roleBarColor(role, businessType) {
   // word contains "bar".
   //
   // Now the same archetype-keyed resolver the OWNER's schedule maker calls, so
-  // the two surfaces bucket a role identically. Colour still lives here: this
-  // app paints floor VIOLET, not the owner grid's emerald, because green is
-  // reserved exclusively for live/now (the Live pill, the clocked-in ping) and
-  // painting the majority persona green flooded every page with false live
-  // signals. Only the SECTION has to agree, never the palette.
+  // the two surfaces bucket a role identically. Colour still lives here, and
+  // the two maps are still decided independently — but they no longer disagree
+  // about floor: this app paints it VIOLET because green is reserved
+  // exclusively for live/now (the Live pill, the clocked-in ping), and the
+  // owner grid moved floor onto violet too when emerald there became the
+  // "seen by staff" signal. Same reasoning, arrived at twice. Only the SECTION
+  // has to agree, never the palette — so this stays a local decision.
   switch (sectionFor(role, businessType)) {
     case "kitchen": return "bg-red-500";
     case "bar": return "bg-blue-500";

@@ -6,17 +6,37 @@ import api from "../services/api";
 import StaffBankRow from "../components/StaffBankRow";
 import StaffDocumentsRow from "../components/StaffDocumentsRow";
 import { useAuth } from "../hooks/useAuth";
-import { sectionFor, sectionsFor } from "../config/roleSections";
+import { sectionFor, sectionsFor, hasSections } from "../config/roleSections";
 import {
   SECTION_COLORS,
   SECTION_BAR,
+  SECTION_BAR_NEUTRAL,
+  SECTION_HEADER,
   SECTION_LABEL_KEY,
   SECTION_LABEL_FALLBACK,
 } from "../config/scheduleSectionColors";
+// The grid's pure model (day tally, section grouping, contract labels, the
+// "seen by staff" read). Lives outside the page so it can be unit-tested
+// without mounting 6k lines of JSX — see config/scheduleGrid.js.
+import {
+  CONTRACT_TYPES,
+  DAY_DOT_CLASS,
+  contractLabel,
+  dayDotTone,
+  dayTallyText,
+  groupStaffBySection,
+  isSeenByStaff,
+  tallyDay,
+} from "../config/scheduleGrid";
+// Manager/cashier/viewer seats never see wage kroner on this page — the
+// backend denies the wage endpoint to them in parallel, this hides the chrome
+// so the denial doesn't read as a broken toggle.
+import { isStaffMemberRole } from "../config/navManifest";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
+import { useDeviceShare } from "../hooks/useDeviceShare";
 import { useBranch } from "../components/BranchSelector";
 import { displayCurrency, formatKr } from "../utils/currency";
 import { errText } from "../utils/errText";
@@ -24,7 +44,7 @@ import { expectedWeekLabor } from "../utils/weekLaborPct";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
 import { useLocation } from "react-router-dom";
-import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPin, MapPinOff, CalendarOff, Lock, LockKeyholeOpen } from "lucide-react";
+import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPin, MapPinOff, CalendarOff, Lock, LockKeyholeOpen, StickyNote } from "lucide-react";
 import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
 // Slice 1 of the [L] drag layer — drag a shift block from one cell onto an
 // EMPTY cell (different staff and/or day) to REASSIGN it. dnd-kit gives us an
@@ -83,12 +103,9 @@ function roleToShiftOption(r, roles = ROLES_RESTAURANT) {
   if (exact) return exact;
   return ROLE_TO_SHIFT_OPTION[String(r).toLowerCase()] || roles[0];
 }
-const CONTRACT_TYPES = [
-  { value: "full", label: "Full-time" },
-  { value: "part", label: "Part-time" },
-  { value: "student", label: "Student" },
-  { value: "freelance", label: "Freelance" },
-];
+// CONTRACT_TYPES moved to config/scheduleGrid.js when its labels became i18n
+// keys — a hardcoded "Full-time" was rendering English inside an otherwise
+// Danish staff drawer, and the grid now shows the same label as a row chip.
 
 // ROLE_CATEGORY used to live here as a literal map keyed on CAPITALISED names.
 // Two problems, both measured 2026-09-06:
@@ -102,8 +119,10 @@ const CONTRACT_TYPES = [
 // Both are now the shared, archetype-keyed resolver in config/roleSections.js,
 // which the STAFF app calls too — one map, not two that drift.
 //
-// Colour stays local: this grid paints floor emerald, the staff app paints it
-// violet (green is reserved there for live/now). Only the SECTION agrees.
+// Colour stays local (config/scheduleSectionColors.js). It happens to agree
+// with the staff app on all five sections now — this grid moved `floor` off
+// emerald and onto violet when emerald became the "seen by staff" signal — but
+// only the SECTION is contractually shared.
 function useCatFor() {
   const { user } = useAuth();
   const bt = user?.business_type;
@@ -122,6 +141,16 @@ const ROLE_COLORS = SECTION_COLORS;
 const ROLE_BAR = SECTION_BAR;
 const ROLE_LABEL_KEY = SECTION_LABEL_KEY;
 const ROLE_LABEL_FALLBACK = SECTION_LABEL_FALLBACK;
+
+// The 3px left bar on a shift card. `hasSecs` is the same gate as the row dot
+// (hasSections(businessType)): a retail / services / personal account has no
+// sections, so the legend renders no "Roller:" block — and a colour key with
+// nothing to read it by is decoration pretending to be information. Those
+// cards get a neutral edge instead. Everywhere else, the section hue.
+function roleBar(cat, hasSecs) {
+  if (!hasSecs) return SECTION_BAR_NEUTRAL;
+  return ROLE_BAR[cat] || ROLE_BAR.floor;
+}
 
 function roleLabel(cat, t) {
   // `|| "floor"` twice over: an unknown section must land on a real entry, not
@@ -190,20 +219,38 @@ function formatWeekRange(weekStart, lang = "en") {
   return `${da ? "Uge" : "Week"} ${num}: ${day(ws)} – ${day(we)} ${we.getFullYear()}`;
 }
 
-/** Phone variant — drops the year and collapses a same-month range.
- *  "Uge 35 · 24.–30. aug" instead of "Uge 35: 24. aug – 30. aug 2026".
- *  The full form does not fit beside the Previous/Next buttons at 402pt:
- *  it wrapped to two lines and squeezed them against the card edges. */
-function formatWeekRangeShort(weekStart, lang = "en") {
-  const { ws, we, da, m, num } = weekParts(weekStart, lang);
+/** "Uge 38" / "Week 38" — the WEEK NUMBER alone. A DK owner navigates by week
+    number ("kan du tage uge 38?"); the dates are confirmation, not the label.
+    Split out of formatWeekRange so the pill can weight the two halves
+    differently instead of shouting the whole string in semibold. */
+function formatWeekLabel(weekStart, lang = "en") {
+  const { da, num } = weekParts(weekStart, lang);
+  return `${da ? "Uge" : "Week"} ${num}`;
+}
+
+/** The date range alone — the quiet half of the week pill. */
+function formatWeekDates(weekStart, lang = "en") {
+  const { ws, we, da, m } = weekParts(weekStart, lang);
+  const day = (dt) => (da ? `${dt.getDate()}. ${m[dt.getMonth()]}` : `${dt.getDate()} ${m[dt.getMonth()]}`);
+  return `${day(ws)} – ${day(we)} ${we.getFullYear()}`;
+}
+
+/** Phone variant of the range alone — drops the year and collapses a same-month
+    range ("24.–30. aug"). The full form does not fit beside the Previous/Next
+    buttons at 402pt: it wrapped to two lines and squeezed them against the card
+    edges. (This replaced formatWeekRangeShort, which glued the week number to
+    the dates in one string the pill can no longer weight separately.) */
+function formatWeekDatesShort(weekStart, lang = "en") {
+  const { ws, we, da, m } = weekParts(weekStart, lang);
   const endStr = da ? `${we.getDate()}. ${m[we.getMonth()]}` : `${we.getDate()} ${m[we.getMonth()]}`;
   const startStr =
     ws.getMonth() === we.getMonth()
       ? (da ? `${ws.getDate()}.` : `${ws.getDate()}`)
       : (da ? `${ws.getDate()}. ${m[ws.getMonth()]} ` : `${ws.getDate()} ${m[ws.getMonth()]} `);
   const sep = ws.getMonth() === we.getMonth() ? "–" : "– ";
-  return `${da ? "Uge" : "Week"} ${num} · ${startStr}${sep}${endStr}`;
+  return `${startStr}${sep}${endStr}`;
 }
+
 
 /** Returns array of 7 Date objects starting from weekStart (Monday) */
 function getWeekDates(weekStart) {
@@ -361,10 +408,13 @@ function laborTone(ratio, target) {
   return "text-red-600 dark:text-red-400";
 }
 
-/** Footer/grid labor% tone — like laborTone but NEVER emerald: inside the grid
-    green is the Floor ROLE signal, so "good/under-budget" stays neutral
-    gray-900 and only over-budget colours (amber→red). Keeps the only greens in
-    the grid the role bars. under→gray-900, near→amber, over→red. */
+/** Footer/grid labor% tone — like laborTone but NEVER emerald. The reason has
+    changed but the rule has not: green used to be the Floor ROLE signal here;
+    now it is the "seen by staff" signal (the day-header dot, the check on a
+    card). Either way an emerald number in the footer would read as a status
+    claim about the roster, not a budget verdict. So "good/under-budget" stays
+    neutral gray-900 and only over-budget colours. under→gray-900, near→amber,
+    over→red. */
 function laborToneFooter(ratio, target) {
   if (ratio == null || target == null || Number.isNaN(ratio) || Number.isNaN(target)) {
     return "text-gray-400 dark:text-gray-500";
@@ -374,12 +424,82 @@ function laborToneFooter(ratio, target) {
   return "text-red-600 dark:text-red-400";
 }
 
+/* ─── Shift-card chrome (desktop block, split blocks, drag ghost, phone chip) ───
+   ONE definition for all four, because they are the same object seen from four
+   places and they used to drift.
+
+   PUBLISHED keeps the calm gray ring it has always had. A DRAFT drops the ring
+   entirely for a dashed amber OUTLINE. Why outline and not the old
+   `ring + border-dashed`: `border-dashed` dashed the 3px left ROLE BAR — the one
+   mark on the card that must stay solid, because it says which section the shift
+   belongs to, not what state it is in. An owner reading a half-built week saw
+   the section signal dissolve on exactly the shifts they were still writing.
+   `outline` sits outside the box model, so it dashes the card without touching
+   the bar; -outline-offset-1 tucks it inside a 58px column instead of bleeding
+   into the neighbour. */
+const CARD_PUBLISHED = "ring-1 ring-gray-200 dark:ring-gray-700";
+const CARD_DRAFT =
+  "outline-1 outline-dashed -outline-offset-1 outline-amber-400 dark:outline-amber-500/60";
+function cardChrome(isDraft) {
+  return isDraft ? CARD_DRAFT : CARD_PUBLISHED;
+}
+
+/** "Kladde" — 11px, sentence case, amber pill. It replaced a 9px UPPERCASE
+    amber label that read like a validation error. A draft is not a mistake; it
+    is a shift the owner has not sent yet, and the pill says so at a size an
+    owner over 40 can read across a 16-row grid. */
+function DraftPill({ t }) {
+  return (
+    <span className="inline-block rounded px-1 py-px text-[11px] font-medium leading-none bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
+      {t("schedDraft")}
+    </span>
+  );
+}
+
+/** Line-2 markers on a shift card: "the staffer has seen this" and "this shift
+    carries a note" (the grid never showed notes at all before — they existed
+    only inside the edit modal, so an allergy note on a Saturday shift was
+    invisible while building Saturday).
+
+    INLINE, deliberately. An absolutely-positioned corner icon collides with the
+    time in a card that is 58-80px wide — there is no corner that is not already
+    the most important thing on the card. */
+function ShiftMarkers({ shift, published, t }) {
+  const seen = published && isSeenByStaff(shift);
+  const note = String(shift?.notes || "").trim();
+  if (!seen && !note) return null;
+  return (
+    <>
+      {seen && (
+        <span
+          title={t("schedSeenByStaff", "Seen by the staffer")}
+          className="ml-1 inline-flex align-middle text-emerald-600 dark:text-emerald-400"
+        >
+          <Check className="w-3 h-3" strokeWidth={2.5} aria-hidden />
+        </span>
+      )}
+      {note && (
+        <span
+          title={note}
+          className="ml-1 inline-flex align-middle text-gray-400 dark:text-gray-500"
+        >
+          <StickyNote className="w-[11px] h-[11px]" strokeWidth={2} aria-hidden />
+        </span>
+      )}
+    </>
+  );
+}
+
 /** Per-staff confirmation rollup for the owner grid from the staff-side
-    "Jeg har set det" (confirmed_at on each published shift this week).
-    "all" → every published shift confirmed (green check); "partial"/"none" →
-    amber; null → no published shifts OR confirmed_at isn't in the payload yet
+    "Jeg har set det". Reads it through isSeenByStaff(), the same one line the
+    shift cards use: `confirmed_current ?? !!confirmed_at`, so the row badge and
+    the cards beside it can never tell the owner two different stories about the
+    same week. confirmed_current is the backend's computed "the acknowledgement
+    still applies to the shift AS IT NOW STANDS".
+    "all" → every published shift seen (green check); "partial"/"none" →
+    amber; null → no published shifts OR neither field is in the payload yet
     (degrade to NO badge — never a misleading "nobody confirmed"). HONESTY:
-    green is gated strictly on every published shift carrying confirmed_at.
+    green is gated strictly on every published shift carrying the signal.
 
     Takes the PLURAL cell accessor. It used to take the singular one, so on a
     split-shift day only the FIRST shift counted: a staffer who confirmed the
@@ -393,8 +513,8 @@ function staffConfirmState(memberId, weekDates, getShiftsForCell) {
     for (const s of getShiftsForCell(memberId, date)) {
       if (s && s.status === "published") {
         published += 1;
-        if ("confirmed_at" in s) fieldSeen = true;
-        if (s.confirmed_at) confirmed += 1;
+        if ("confirmed_at" in s || "confirmed_current" in s) fieldSeen = true;
+        if (isSeenByStaff(s)) confirmed += 1;
       }
     }
   }
@@ -833,6 +953,23 @@ export default function StaffSchedulePage() {
   const location = useLocation();
   const standalone = location.pathname.endsWith("/staff/schedule/stand");
   const currency = displayCurrency(user?.currency);
+  // A manager/cashier/viewer seat sees the roster but never the wage layer.
+  // The backend is locking the wage endpoint down to owners in parallel; this
+  // hides the chrome so the 403 lands as "no cost column" rather than as a
+  // toggle that does nothing and a total stuck on "—". We also stop ASKING for
+  // the data (see fetchShifts) — no point firing a call we know is denied.
+  //
+  // A CURTAINED shared device counts as one, same rule as Layout.jsx:243 and
+  // every other owner-financial gate. Two reasons, and the second is the one
+  // that bites: (1) the whole point of "Delt enhed" is that colleagues' wage
+  // costs are hidden while the tablet is out, and the client-side `stats`
+  // fallback would happily recompute them from base_rate; (2) week-cost is on
+  // the shared-device deny set now, so firing it on a curtained device answers
+  // 403 device_pin_required — which the api interceptor turns into
+  // "drop the reveal proof + raise the LockScreen". Merely opening the rota
+  // would pop the PIN curtain on a page that carries no financials.
+  const { enabled: devShared, locked: devLocked } = useDeviceShare();
+  const isStaffSeat = isStaffMemberRole(user?.role) || (devShared && devLocked);
   // Vertical-aware shift-role list (salon → Frisør/…; else restaurant). Stable
   // module-array reference, so it's safe in hook dep arrays.
   const roles = rolesFor(user?.business_type);
@@ -869,7 +1006,9 @@ export default function StaffSchedulePage() {
   }, [forecast]);
 
   // Owner display prefs (persisted so the choice sticks across sessions):
-  //   showCost  — show per-shift lønkroner in grid/mobile cells (default on)
+  //   showCost  — show the day/week wage TOTALS (footer, week header, mobile
+  //                day strip). Never per shift: kr on a card, above the hours
+  //                that produced it, IS that person's hourly rate (default on)
   //   costBasis — 'gross' (Løn) vs 'loaded' (Inkl. feriepenge) for all costs
   const [showCost, setShowCost] = useState(() => {
     try {
@@ -895,6 +1034,11 @@ export default function StaffSchedulePage() {
       localStorage.setItem("bonbox_sched_costbasis", costBasis);
     } catch { /* storage unavailable */ }
   }, [costBasis]);
+  // What the grid and the phone list actually receive. The owner's stored
+  // preference AND the seat gate, resolved once here rather than at each of the
+  // two call sites — a gate that has to be remembered twice is a gate that gets
+  // remembered once.
+  const costVisible = showCost && !isStaffSeat;
 
   // Staff management panel
   const [showManageStaff, setShowManageStaff] = useState(false);
@@ -1000,13 +1144,20 @@ export default function StaffSchedulePage() {
     }
     // Live labor cost — fetched alongside shifts so every refresh path
     // (initial load, copy-week, publish, autopilot-apply, modal save) keeps
-    // the cost layer in sync. Fail-soft: on error null it out and let the
-    // client `stats` fallback cover the summary. Does NOT block the grid.
-    try {
-      const costRes = await api.get("/staff/schedules/week-cost", { params });
-      setWeekCost(costRes.data || null);
-    } catch {
+    // the cost layer in sync. Fail-soft: on error (including the 403 a staff
+    // seat now gets) null it out — the grid renders exactly the same, minus a
+    // footer. Does NOT block the grid. Skipped outright for a staff seat: we
+    // know the answer is "denied", so asking is just a red line in their
+    // network tab and a wasted round trip.
+    if (isStaffSeat) {
       setWeekCost(null);
+    } else {
+      try {
+        const costRes = await api.get("/staff/schedules/week-cost", { params });
+        setWeekCost(costRes.data || null);
+      } catch {
+        setWeekCost(null);
+      }
     }
     // Vagtplan Shield — per-staff weekly load + DK labour signals (contract
     // cap, 48h ceiling, 11-timers reglen). Drives the hours chip on each grid
@@ -1049,7 +1200,7 @@ export default function StaffSchedulePage() {
     } catch {
       setAbsences([]);
     }
-  }, [weekStart, branchId]);
+  }, [weekStart, branchId, isStaffSeat]);
 
   // Map staff_id → their standing "unavailable" blocks; a soft signal the owner
   // sees but can still override (they can hand-place onto a red cell).
@@ -1275,6 +1426,11 @@ export default function StaffSchedulePage() {
     setWeekStart(getWeekStart(new Date()));
   };
 
+  // Drives the "Denne uge" escape hatch — shown only when it would change
+  // something. Compared as ISO strings, not Date identity: weekStart is a live
+  // Date object and `===` on two Dates is never true.
+  const isCurrentWeek = toISO(weekStart) === toISO(getWeekStart(new Date()));
+
   /* ─── Actions ─── */
   const handleCopyLastWeek = async () => {
     setCopying(true);
@@ -1296,8 +1452,8 @@ export default function StaffSchedulePage() {
 
   // Frontend mirror of the backend's _pick_rate: weekend (Sat/Sun) > evening
   // (≥18:00) > base, using each member's REAL premium rates (null → base). Keeps
-  // the publish summary's labor figure in lockstep with the grid's ≈ per-shift
-  // costs instead of silently billing everything at base.
+  // the publish summary's labor figure on the same basis as the day/week wage
+  // totals in the footer, instead of silently billing everything at base.
   const pickRate = (member, dateStr, startTime) => {
     const base = Number(member?.base_rate) || 0;
     const evening = Number(member?.evening_rate) || base;
@@ -1327,7 +1483,9 @@ export default function StaffSchedulePage() {
       cost += hrs * rate;
     });
     // Match the grid's basis: +12.5% feriepenge when "Inkl. feriepenge" is the
-    // active view, so this figure equals the per-shift ≈ costs shown above it.
+    // active view, so this figure adds up to the same week total the footer
+    // shows. (There is no per-shift figure to agree with any more — the grid's
+    // "≈ N kr." line is gone; see the note above the cost layer.)
     if (costBasis === "loaded") cost *= 1.125;
     return {
       draftCount: drafts.length,
@@ -1742,15 +1900,13 @@ export default function StaffSchedulePage() {
   }, [shifts, staff, activeStaff]);
 
   /* ─── Live labor-cost derivations ─── */
-  // Per-shift cost lookup for grid + mobile cells. Returns null (render
-  // nothing) when the cost layer is off, missing, or the shift isn't priced.
-  const costForShift = useCallback(
-    (shiftId) => {
-      if (!showCost || !weekCost?.per_shift) return null;
-      return costByBasis(weekCost.per_shift[shiftId], costBasis);
-    },
-    [showCost, weekCost, costBasis]
-  );
+  // costForShift() used to live here: a per-shift kroner lookup the grid and
+  // the phone chip printed under the hours. It is gone on purpose. That number
+  // divided by the hours printed directly above it IS the person's hourly rate,
+  // and the Vagtplan is a screen colleagues, a stand-in manager and anyone
+  // walking past the office look at. The cost layer still powers the DAY and
+  // WEEK totals below — an aggregate tells the owner what they need (is this
+  // week affordable?) without publishing anybody's wage.
 
   // Headline week summary — prefers the server's cost layer; falls back to the
   // client `stats` for hours/cost when the endpoint is unavailable. Labor% is
@@ -2022,12 +2178,25 @@ export default function StaffSchedulePage() {
               >
                 {"\u2190"}<span className="hidden sm:inline"> {t("schedPrevWeek", "Previous")}</span>
               </Button>
+              {/* Week pill. "Uge 38" carries the weight; the dates follow in
+                  normal gray as confirmation. It used to be one semibold run,
+                  which made the number \u2014 the thing a DK owner actually
+                  navigates by \u2014 no louder than the month names beside it.
+                  `title`, NOT aria-label: an aria-label REPLACES the visible
+                  text for a screen reader, so the old pattern would have
+                  announced "Go to this week" and never read the week out. */}
               <button
                 onClick={goToCurrentWeek}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 flex-1 sm:flex-none min-w-0 sm:min-w-[220px] text-center hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                title={t("schedGoToThisWeek", "Go to this week")}
+                className="px-4 py-2 rounded-lg text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 flex-1 sm:flex-none min-w-0 sm:min-w-[220px] text-center hover:bg-gray-100 dark:hover:bg-gray-800 transition"
               >
-                <span className="sm:hidden">{formatWeekRangeShort(weekStart, lang)}</span>
-                <span className="hidden sm:inline">{formatWeekRange(weekStart, lang)}</span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100">
+                  {formatWeekLabel(weekStart, lang)}
+                </span>{" "}
+                <span className="font-normal text-gray-600 dark:text-gray-400">
+                  <span className="sm:hidden">{formatWeekDatesShort(weekStart, lang)}</span>
+                  <span className="hidden sm:inline">{formatWeekDates(weekStart, lang)}</span>
+                </span>
               </button>
               <Button
                 variant="secondary"
@@ -2037,6 +2206,23 @@ export default function StaffSchedulePage() {
               >
                 <span className="hidden sm:inline">{t("schedNextWeek", "Next")} </span>{"\u2192"}
               </Button>
+              {/* "Denne uge" \u2014 the way back after browsing. Clicking the pill
+                  has always done this and nothing anywhere said so (the pill
+                  gained its title in the same change); three weeks forward, the
+                  owner's only route home was three taps on \u2190. Shown ONLY when
+                  it would do something, and sm:+ only \u2014 on a phone the row is
+                  already full. */}
+              {!isCurrentWeek && (
+                // The wrapper (not a `hidden` class on the Button) does the
+                // hiding: Button's own BASE already sets `inline-flex`, and two
+                // display utilities on one element is a coin-toss decided by
+                // stylesheet order, not by the order they are written.
+                <span className="hidden sm:block">
+                  <Button variant="ghost" size="sm" onClick={goToCurrentWeek}>
+                    {t("schedThisWeek", "This week")}
+                  </Button>
+                </span>
+              )}
             </div>
 
             {/* Action buttons — one accent (Publish = the money moment),
@@ -2352,28 +2538,47 @@ export default function StaffSchedulePage() {
         </div>
       </FadeIn>
 
-      {/* Color legend.
-          Lists only the sections THIS vertical actually has. It used to walk
-          Object.entries(ROLE_COLORS) — the full palette — which was harmless
-          while that map held exactly the three hospitality sections, and is a
-          lie the moment it holds five: a café would be told its grid colours
-          "Behandling" and "Reception", neither of which its roster can produce.
-          sectionsFor() returns [] for retail/services/personal, so those
-          verticals get no role legend at all — the honest shape, same reason
-          roleSections.js returns null there instead of inventing "Floor". */}
+      {/* Legend — STATUS first, roles second.
+          Status leads because it is the half an owner has to be taught: the
+          dashed amber card, the emerald column dot and the emerald check are
+          three new marks and none of them is guessable. Roles come second and
+          list only the sections THIS vertical actually has — sectionsFor()
+          returns [] for retail/services/personal, which is why those verticals
+          also get no row dot (a dot with nothing in the legend explaining it is
+          decoration pretending to be a key).
+          The old "FRI / Ingen vagt" gray dot is gone: it matched nothing on the
+          grid. An empty cell is SILENT — no dot was ever drawn in it — so the
+          legend was teaching a mark that does not exist. */}
       <FadeIn delay={0.12}>
-        <div className="flex items-center gap-4 flex-wrap text-xs text-gray-500 dark:text-gray-400">
-          <span className="font-medium">{t("schedShiftColors", "Shift colors:")}</span>
-          {sectionsFor(user?.business_type).map((s) => (
-            <span key={s} className="flex items-center gap-1.5">
-              <span className={`w-3 h-3 rounded-full ${(ROLE_COLORS[s] || ROLE_COLORS.floor).dot}`} />
-              {roleLabel(s, t)}
-            </span>
-          ))}
+        <div className="flex items-center gap-x-4 gap-y-2 flex-wrap text-xs text-gray-500 dark:text-gray-400">
+          <span className="font-medium">{t("schedLegendStatus", "Status:")}</span>
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full bg-gray-300 dark:bg-gray-600" />
-            {t("schedOffNoShift", "OFF / No shift")}
+            <span className="w-3 h-3 rounded-sm border border-dashed border-amber-400 dark:border-amber-500/60" aria-hidden="true" />
+            {t("schedLegendDraft", "Draft – not sent")}
           </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600" aria-hidden="true" />
+            {t("schedLegendPublished", "Published")}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" aria-hidden="true" />
+            {t("schedDayAllSeen", "Everyone has seen their shift")}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" strokeWidth={2.5} aria-hidden="true" />
+            {t("schedSeenByStaff", "Seen by the staffer")}
+          </span>
+          {sectionsFor(user?.business_type).length > 0 && (
+            <>
+              <span className="font-medium ml-1">{t("schedLegendRoles", "Roles:")}</span>
+              {sectionsFor(user?.business_type).map((s) => (
+                <span key={s} className="flex items-center gap-1.5">
+                  <span className={`w-2 h-2 rounded-full ${(ROLE_COLORS[s] || ROLE_COLORS.floor).dot}`} aria-hidden="true" />
+                  {roleLabel(s, t)}
+                </span>
+              ))}
+            </>
+          )}
         </div>
       </FadeIn>
 
@@ -2443,8 +2648,7 @@ export default function StaffSchedulePage() {
                 unavailFor={unavailFor}
                 preferredFor={preferredFor}
                 absenceFor={absenceFor}
-                costForShift={costForShift}
-                showCost={showCost}
+                showCost={costVisible}
                 currency={currency}
                 dailyCost={weekCost?.daily || null}
                 forecast={forecast}
@@ -2474,8 +2678,8 @@ export default function StaffSchedulePage() {
                 preferredFor={preferredFor}
                 absenceFor={absenceFor}
                 currency={currency}
-                costForShift={costForShift}
-                showCost={showCost}
+                showCost={costVisible}
+                isStaffSeat={isStaffSeat}
                 weekCost={weekCost}
                 costBasis={costBasis}
                 targetPct={targetPct}
@@ -2524,24 +2728,32 @@ export default function StaffSchedulePage() {
                 </div>
               </div>
 
-              <span className="hidden sm:block w-px h-9 bg-gray-200 dark:bg-gray-700" aria-hidden="true" />
+              {/* Lønomkostning — owner only. A manager seat gets the roster and
+                  the hours; the wage total is not theirs to read, and the
+                  client-side `stats` fallback would happily compute it from
+                  base_rate even with the server denying the cost endpoint. */}
+              {!isStaffSeat && (
+                <>
+                  <span className="hidden sm:block w-px h-9 bg-gray-200 dark:bg-gray-700" aria-hidden="true" />
 
-              <div className="flex items-center gap-2.5">
-                <Icon name="Banknote" size={16} className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
-                <div className="leading-tight">
-                  <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                    <span>{t("schedTotalCost")}</span>
-                    {costBasis === "loaded" && (
-                      <span className="normal-case tracking-normal font-normal text-gray-400 dark:text-gray-500">
-                        · {t("schedCostLoadedNote")}
-                      </span>
-                    )}
+                  <div className="flex items-center gap-2.5">
+                    <Icon name="Banknote" size={16} className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
+                    <div className="leading-tight">
+                      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                        <span>{t("schedTotalCost")}</span>
+                        {costBasis === "loaded" && (
+                          <span className="normal-case tracking-normal font-normal text-gray-400 dark:text-gray-500">
+                            · {t("schedCostLoadedNote")}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                        ≈ {formatKr(weekSummary.cost, { decimals: 0 })}
+                      </div>
+                    </div>
                   </div>
-                  <div className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                    ≈ {formatKr(weekSummary.cost, { decimals: 0 })}
-                  </div>
-                </div>
-              </div>
+                </>
+              )}
 
               <span className="hidden sm:block w-px h-9 bg-gray-200 dark:bg-gray-700" aria-hidden="true" />
 
@@ -2558,7 +2770,12 @@ export default function StaffSchedulePage() {
               </div>
             </div>
 
-            {/* Right: labor% hero + cost controls */}
+            {/* Right: labor% hero + cost controls. The whole cluster is
+                owner-only — lønprocent IS a wage figure (cost ÷ revenue), so
+                showing it to a manager seat while hiding the kroner beside it
+                would just be the same number with one step of arithmetic in
+                front of it. */}
+            {!isStaffSeat && (
             <div className="flex items-center gap-5">
               {/* Labor % — the hero number, color-coded vs target. Set off by a
                   divider and sized well above the context metrics so it reads
@@ -2629,10 +2846,13 @@ export default function StaffSchedulePage() {
                 t={t}
               />
             </div>
+            )}
           </div>
-          <p className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/60 text-[11px] leading-snug text-gray-400 dark:text-gray-500">
-            {t("schedCostEstimateNote")}
-          </p>
+          {!isStaffSeat && (
+            <p className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/60 text-[11px] leading-snug text-gray-400 dark:text-gray-500">
+              {t("schedCostEstimateNote")}
+            </p>
+          )}
         </div>
       </FadeIn>
 
@@ -3098,6 +3318,11 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
                 </span>
               </div>
             </div>
+            {/* Same rule as the grid: aggregates yes, per-person-per-shift no.
+                Each row names a staffer AND prints their start–end times, so a
+                trailing "≈ N kr." was the kr ÷ hours division the grid had the
+                per-shift line removed for, reproduced one click away. The
+                day total below is what the owner is actually deciding on. */}
             {day.shifts && day.shifts.length > 0 ? (
               <ul className="space-y-1">
                 {day.shifts.map((s, i) => (
@@ -3119,9 +3344,6 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
                           · {s.break_minutes}m brk
                         </span>
                       )}
-                    </span>
-                    <span className="text-gray-600 dark:text-gray-400 shrink-0">
-                      ≈ {Math.round(s.cost)} {currency}
                     </span>
                   </li>
                 ))}
@@ -3347,7 +3569,7 @@ function StaffDetailModal({
               )}
             </div>
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-              {CONTRACT_TYPES.find((c) => c.value === member.contract_type)?.label || member.contract_type}
+              {contractLabel(member.contract_type, t)}
             </p>
           </div>
           <button
@@ -3399,7 +3621,7 @@ function StaffDetailModal({
                 className={inputCls}
               >
                 {CONTRACT_TYPES.map((ct) => (
-                  <option key={ct.value} value={ct.value}>{ct.label}</option>
+                  <option key={ct.value} value={ct.value}>{t(ct.labelKey, ct.fallback)}</option>
                 ))}
               </select>
               {/* Vagtplan Shield toggle — hour-LIMIT warnings only (contract
@@ -3913,7 +4135,12 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
   };
 
   const getRateCard = (member) => {
-    const base = member.base_rate || 0;
+    // `|| 0` turned a REDACTED rate into a stated one: the server nulls
+    // base_rate for a delegated seat and for a curtained shared device, and
+    // every card then read "Grundløn: 0 kr/hr" — a figure asserted as fact,
+    // which is the opposite of the "—" the hours table gives the same value.
+    // null now means "not shown to you"; 0 still means the owner set 0.
+    const base = member.base_rate == null ? null : member.base_rate;
     // Premiums are REAL stored values, not derived — null means "not set"
     // (the shift is paid at base). We never fabricate a premium the owner
     // didn't enter, and the schedule's ≈ cost reads these same fields.
@@ -3973,7 +4200,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
             className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           >
             {CONTRACT_TYPES.map((ct) => (
-              <option key={ct.value} value={ct.value}>{ct.label}</option>
+              <option key={ct.value} value={ct.value}>{t(ct.labelKey, ct.fallback)}</option>
             ))}
           </select>
           <input
@@ -4077,7 +4304,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
                         </span>
                       )}
                       <span className="text-xs text-gray-400 dark:text-gray-500">
-                        {CONTRACT_TYPES.find((c) => c.value === member.contract_type)?.label || member.contract_type}
+                        {contractLabel(member.contract_type, t)}
                       </span>
                       {isInactive && (
                         <span className="text-xs text-red-500 font-medium">{t("inactive")}</span>
@@ -4130,7 +4357,11 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
                       )}
                       {/* Rate card */}
                       <div className="hidden sm:flex items-center gap-3 text-xs text-gray-400 dark:text-gray-500 tabular-nums">
-                        <span title={t("baseRate")}>{t("baseRate")}: {rates.base}{currency}/hr</span>
+                        <span title={t("baseRate")}>
+                          {t("baseRate")}: {rates.base == null
+                            ? "—"
+                            : `${rates.base}${currency}/hr`}
+                        </span>
                         {rates.evening != null && (
                           <span title={t("rateEvening", "Evening")}>{t("rateEveShort", "Eve")}: {rates.evening}</span>
                         )}
@@ -4397,9 +4628,14 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
 /* ═══════════════════════════════════════════════════════════
    COST CONTROLS  (owner toggles in the week summary bar)
    Two calm, status-color-free controls:
-     • "Show cost" switch — per-shift lønkroner in grid/mobile cells.
+     • "Vis lønsum" switch — the DAY and WEEK totals. It used to govern a
+       per-shift kroner line in every grid cell too, which is why its old label
+       ("Vis lønkroner") promised kroner the grid no longer prints: hours and
+       kroner on adjacent lines of one card is a person's hourly rate, published
+       on a screen the whole team walks past.
      • Løn / Inkl. feriepenge segmented control — gross vs holiday-loaded.
    Both persist to localStorage at the page level; this is pure UI.
+   Rendered for OWNERS only — a staff seat never sees this cluster at all.
    ═══════════════════════════════════════════════════════════ */
 function CostControls({ showCost, onToggleShowCost, costBasis, onCostBasis, t }) {
   return (
@@ -4411,6 +4647,7 @@ function CostControls({ showCost, onToggleShowCost, costBasis, onCostBasis, t })
         role="switch"
         aria-checked={showCost}
         onClick={onToggleShowCost}
+        title={t("schedCostShowHelp", "Shows the wage total per day and for the week. Never kroner per shift.")}
         className="flex items-center gap-2 h-9 px-1 text-xs font-medium text-gray-600 dark:text-gray-300 rounded-lg hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
       >
         <span
@@ -4470,8 +4707,12 @@ function CostControls({ showCost, onToggleShowCost, costBasis, onCostBasis, t })
  *  Exported (named) so MobileSchedule.salon.test.jsx can mount the real thing
  *  — the salon crash below was found by reading, never by running, and a page
  *  this size needs the regression pinned by a render, not by a grep. */
-export function MobileSchedule({ staff, weekDates, getShiftsForCell, costForShift, showCost, weekCost, costBasis, targetPct, t, onCellClick, unavailFor, preferredFor, absenceFor }) {
+export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, weekCost, costBasis, targetPct, t, onCellClick, unavailFor, preferredFor, absenceFor, isStaffSeat = false }) {
   const catFor = useCatFor();
+  const { user } = useAuth();
+  // Same rule as the desktop grid: the row dot only says something on a
+  // vertical that HAS sections. Elsewhere it is one colour on every row.
+  const showRowDot = hasSections(user?.business_type);
   // Default to today within the current week range. If the user navigated
   // to a different week (Previous/Next), today falls outside — pick the
   // middle of the week (Thursday) as a sensible default.
@@ -4491,6 +4732,20 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, costForShif
   const selectedDate = weekDates[dayIdx];
   const selectedISO = toISO(selectedDate);
   const isSelectedToday = selectedISO === todayISO;
+
+  // Same per-day rollup the desktop header dot uses, computed the same way, so
+  // an owner switching phone → laptop mid-week reads the identical status. On a
+  // phone this is the ONLY place the week's shape is visible at all: without it
+  // you would have to tap through seven days to find the one still in Kladde.
+  const dayTally = useMemo(() => {
+    const m = {};
+    for (const date of weekDates) {
+      const all = [];
+      for (const member of staff) all.push(...getShiftsForCell(member.id, date));
+      m[toISO(date)] = tallyDay(all);
+    }
+    return m;
+  }, [staff, weekDates, getShiftsForCell]);
 
   // Per-day stats — hours, cost, staff-on-shift count. Prefers the server's
   // daily cost (loaded/gross + labor%); falls back to a client estimate from
@@ -4553,8 +4808,12 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, costForShif
             <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {dayShort(dayIdx, t)} {selectedDate.getDate()}/{selectedDate.getMonth() + 1}
             </div>
+            {/* "I dag" in the brand accent, not emerald. Emerald now means
+                "seen by staff" on this surface — and it already meant "helst"
+                on the chips below, so green was doing three jobs on one
+                phone screen. */}
             {isSelectedToday && (
-              <div className="text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-semibold">
+              <div className="text-[10px] uppercase tracking-wider font-semibold text-[rgb(var(--brand-600))] dark:text-[rgb(var(--brand-400))]">
                 {t("schedToday")}
               </div>
             )}
@@ -4582,28 +4841,44 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, costForShif
             →
           </button>
         </div>
-        {/* 7 day pills — tap to switch */}
+        {/* 7 day pills — tap to switch. Each carries the same status dot as
+            the desktop column header, so the week's shape (which day is still
+            Kladde, which one everybody has read) is legible without tapping
+            through all seven. min-h-[44px] is the iOS tap-target floor: the
+            two-line pill was ~42px before the dot went in. */}
         <div className="grid grid-cols-7 gap-1">
           {weekDates.map((date, i) => {
             const iso = toISO(date);
             const isToday = iso === todayISO;
             const isSelected = i === dayIdx;
+            const tally = dayTally[iso] || { total: 0, drafts: 0, pub: 0, seen: 0 };
+            const tone = dayDotTone(tally);
+            const sentence = dayTallyText(tally, t);
             return (
               <button
                 key={i}
                 type="button"
                 onClick={() => setDayIdx(i)}
-                className={`flex flex-col items-center py-1.5 rounded-lg transition-colors ${
+                title={sentence}
+                className={`flex flex-col items-center justify-center gap-0.5 min-h-[44px] py-1.5 rounded-lg transition-colors ${
                   isSelected
                     ? "bg-gray-900 text-white dark:bg-white dark:text-gray-900"
                     : isToday
-                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+                    ? "bg-[rgb(var(--brand-50))] text-[rgb(var(--brand-600))] dark:bg-[rgb(var(--brand-600)/0.15)] dark:text-[rgb(var(--brand-400))]"
                     : "bg-gray-50 text-gray-600 dark:bg-gray-700/40 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
                 }`}
                 aria-pressed={isSelected}
               >
                 <span className="text-[11px] font-medium uppercase">{dayShort(i, t)}</span>
                 <span className="text-xs font-semibold tabular-nums">{date.getDate()}</span>
+                {/* 4px dot. Reserve the row even when there is no dot, or the
+                    pills jump height as days fill up. */}
+                <span className="h-1 flex items-center" aria-hidden="true">
+                  {tone !== "none" && (
+                    <span className={`w-1 h-1 rounded-full ${DAY_DOT_CLASS[tone]}`} />
+                  )}
+                </span>
+                <span className="sr-only">{sentence}</span>
               </button>
             );
           })}
@@ -4630,19 +4905,26 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, costForShif
               </span>
             </>
           )}
-          {/* Labor% — the day headline, pushed to the right edge; never shrinks. */}
-          <span className="ml-auto flex items-center gap-1 pl-1 flex-shrink-0">
-            <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
-              {t("schedLaborPct")}
-            </span>
-            {dayStats.hasRevenue && dayStats.laborPct != null ? (
-              <span className={`text-sm font-bold tabular-nums ${laborTone(dayStats.laborPct, targetPct)}`}>
-                {pctLabel(dayStats.laborPct)}
+          {/* Labor% — the day headline, pushed to the right edge; never shrinks.
+              Hidden entirely for a manager/cashier/viewer seat (and a curtained
+              shared device), exactly as the desktop cluster is. Their weekCost
+              is null by construction, so leaving it in printed the word
+              "Lønprocent" over a permanent "—": a label for a number the seat
+              is never going to be shown. */}
+          {!isStaffSeat && (
+            <span className="ml-auto flex items-center gap-1 pl-1 flex-shrink-0">
+              <span className="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                {t("schedLaborPct")}
               </span>
-            ) : (
-              <span className="text-sm font-bold text-gray-300 dark:text-gray-600 tabular-nums">—</span>
-            )}
-          </span>
+              {dayStats.hasRevenue && dayStats.laborPct != null ? (
+                <span className={`text-sm font-bold tabular-nums ${laborTone(dayStats.laborPct, targetPct)}`}>
+                  {pctLabel(dayStats.laborPct)}
+                </span>
+              ) : (
+                <span className="text-sm font-bold text-gray-300 dark:text-gray-600 tabular-nums">—</span>
+              )}
+            </span>
+          )}
         </div>
       </div>
 
@@ -4673,17 +4955,25 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, costForShif
               <>
                 {/* Role dot + initials avatar */}
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className={`w-2 h-2 rounded-full ${colors.dot}`} />
+                  {showRowDot && <span className={`w-2 h-2 rounded-full ${colors.dot}`} />}
                   <div className="w-9 h-9 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-xs font-bold text-gray-700 dark:text-gray-300">
                     {(member.name || "?").charAt(0).toUpperCase()}
                   </div>
                 </div>
-                {/* Name + role */}
+                {/* Name + role + contract type (same chip as the desktop row —
+                    it is what replaced the per-shift kroner). */}
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium text-gray-900 dark:text-white truncate">
                     {member.name}
                   </div>
-                  <div className="text-[11px] text-gray-500 dark:text-gray-400">{member.role}</div>
+                  <div className="text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1.5 min-w-0">
+                    <span className="truncate">{member.role}</span>
+                    {contractLabel(member.contract_type, t) && (
+                      <span className="px-1 py-px rounded bg-gray-100 dark:bg-gray-700/60 text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap flex-shrink-0">
+                        {contractLabel(member.contract_type, t)}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </>
             );
@@ -4740,7 +5030,6 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, costForShif
                     const shiftCat = catFor(shift.role_on_shift || member.role);
                     const hrs = calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0);
                     const isDraft = shift.status === "draft";
-                    const shiftCost = costForShift?.(shift.id);
                     const timeLabel = formatShiftTime(shift.start_time, shift.end_time);
                     return (
                       <button
@@ -4751,9 +5040,7 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, costForShif
                         // content is ~40px with one line of hours, so without
                         // this a split day would hand the owner two targets
                         // that are each a hair too small to hit reliably.
-                        className={`min-h-[44px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 border-l-[3px] ${ROLE_BAR[shiftCat] || ROLE_BAR.floor} tabular-nums text-right leading-tight transition-colors hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                          isDraft ? "border-dashed" : ""
-                        }`}
+                        className={`min-h-[44px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-gray-900 ${cardChrome(isDraft)} border-l-[3px] ${roleBar(shiftCat, showRowDot)} tabular-nums text-right leading-tight transition-colors hover:bg-gray-50 dark:hover:bg-gray-800`}
                         aria-label={t("schedEditShiftAtAria", "Edit {name}'s {time} shift")
                           .replace("{name}", member.name)
                           .replace("{time}", timeLabel)}
@@ -4761,14 +5048,16 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, costForShif
                         <div className="text-xs font-semibold text-gray-900 dark:text-gray-100">
                           {timeLabel}
                         </div>
-                        <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                        {/* Same line 2 as the desktop card, same order: hours,
+                            then the status marks. No kroner line — see the note
+                            where costForShift() used to be. */}
+                        <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
                           {formatShiftHours(hrs, t("schedHoursUnit", "h"))}
-                          {isDraft && <span className="ml-1 text-amber-500 dark:text-amber-400 font-medium">· {t("schedDraft")}</span>}
+                          <ShiftMarkers shift={shift} published={!isDraft} t={t} />
                         </div>
-                        {/* Cost-per-shift — quietest line in the chip (matches grid). */}
-                        {showCost && shiftCost != null && (
-                          <div className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums mt-px">
-                            ≈ {formatKr(shiftCost, { decimals: 0 })}
+                        {isDraft && (
+                          <div className="mt-0.5">
+                            <DraftPill t={t} />
                           </div>
                         )}
                       </button>
@@ -5281,7 +5570,15 @@ function OpenShiftsPanel({ weekStart, t }) {
 }
 
 
-function ScheduleGrid({
+/** The desktop/tablet week table.
+ *
+ *  Exported (named) for the SAME reason MobileSchedule is: the Option-B section
+ *  bodies and the day-header status line are structural JSX changes to a table,
+ *  and in this repo a green build has shipped a white screen before (a TDZ went
+ *  to production). ScheduleGrid.optionB.test.jsx mounts this, which is the only
+ *  way to find out that a <tbody> actually renders. Nothing outside the tests
+ *  imports it — the page's own use is the declaration below. */
+export function ScheduleGrid({
   staff,
   weekDates,
   getShiftsForCell,
@@ -5290,7 +5587,6 @@ function ScheduleGrid({
   absenceFor,
   onCellClick,
   onMoveShift,
-  costForShift,
   showCost,
   dailyCost,
   forecast,
@@ -5301,12 +5597,40 @@ function ScheduleGrid({
   t,
 }) {
   const catFor = useCatFor();
+  const { user } = useAuth();
+  const businessType = user?.business_type;
   // Map server `daily` entries by date for O(1) footer lookups.
   const dailyByDate = useMemo(() => {
     const m = {};
     for (const d of dailyCost || []) m[d.date] = d;
     return m;
   }, [dailyCost]);
+
+  // Option B — one <tbody> per section, with a tinted header band above its
+  // people. Gated inside groupStaffBySection(); below the gate `grouped` is
+  // false and the table renders exactly the single ungrouped body it always has.
+  const grouping = useMemo(
+    () => groupStaffBySection(staff, businessType),
+    [staff, businessType],
+  );
+  // The per-row colour dot only means something where sections exist. On a shop
+  // or a consultancy every role resolves through catFor's `|| "floor"`, so the
+  // dot is one violet full stop on every row with nothing in the legend that
+  // explains it — a decoration pretending to be a key. Silence instead.
+  const showRowDot = hasSections(businessType);
+
+  // Per-day rollup behind the column-header status dot, keyed by ISO date.
+  // Built from the SAME staff × getShiftsForCell walk the rows below use, so
+  // the header can never claim something the cells under it contradict.
+  const dayTally = useMemo(() => {
+    const m = {};
+    for (const date of weekDates) {
+      const all = [];
+      for (const member of staff) all.push(...getShiftsForCell(member.id, date));
+      m[toISO(date)] = tallyDay(all);
+    }
+    return m;
+  }, [staff, weekDates, getShiftsForCell]);
 
   // Drag-to-move is POINTER-only. 6px activation distance = a plain click still
   // opens the modal / blooms a draft (sub-6px travel is not a drag). We do NOT
@@ -5342,6 +5666,353 @@ function ScheduleGrid({
     ? catFor(activeShift.role_on_shift)
     : "floor";
 
+  // The tinted band above a section's people (Option B). A PLAIN <tr>/<td>:
+  // it must never register a droppable, or dnd-kit would offer the owner a
+  // drop target that belongs to nobody. Its seven day cells answer the one
+  // question a section header is for — "is the pass covered on Saturday?" —
+  // and the amber 0 is the whole point: a day that HAS a roster but nobody
+  // from this section is the gap you can't see by counting rows.
+  const renderSectionHeader = (sec) => {
+    const hdr = SECTION_HEADER[sec.id] || SECTION_HEADER.other;
+    const label = roleLabel(sec.id, t);
+    const sectionHours = sec.members.reduce(
+      (sum, m) => sum + weeklyHoursFor(m.id, weekDates, getShiftsForCell),
+      0,
+    );
+    return (
+      <tr key={`section-${sec.id}`} className={hdr.bg}>
+        <td className={`px-4 py-1.5 border-l-[3px] ${hdr.bar}`}>
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${hdr.dot} flex-shrink-0`} aria-hidden="true" />
+            <span className={`text-xs font-semibold ${hdr.text}`}>{label}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+              {sec.members.length}
+            </span>
+          </div>
+        </td>
+        {weekDates.map((date, i) => {
+          const onShift = sec.members.filter(
+            (m) => getShiftsForCell(m.id, date).length > 0,
+          ).length;
+          const dayEmpty = (dayTally[toISO(date)]?.total || 0) === 0;
+          return (
+            <td key={i} className="px-1 py-1.5 text-center">
+              {dayEmpty ? (
+                // Nobody at all is closed/quiet, not a hole in this section.
+                <span className="text-xs text-gray-300 dark:text-gray-600 tabular-nums">—</span>
+              ) : onShift === 0 ? (
+                <span
+                  className="inline-flex items-center justify-center rounded px-1.5 text-xs font-semibold tabular-nums bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"
+                  title={(t("schedSectionNobodyOn", "Nobody from {section} is on shift") || "").replace("{section}", label)}
+                >
+                  0
+                </span>
+              ) : (
+                <span className={`text-xs font-semibold tabular-nums ${hdr.text}`}>{onShift}</span>
+              )}
+            </td>
+          );
+        })}
+        <td className={`px-3 py-1.5 text-right text-xs font-semibold tabular-nums ${hdr.text}`}>
+          {sectionHours > 0 ? formatTimer(sectionHours, t("schedHoursUnit", "h")) : "—"}
+        </td>
+      </tr>
+    );
+  };
+
+  // ONE staff row. Extracted because Option B renders the roster from a
+  // different place depending on the gate — one flat <tbody>, or one per
+  // section — and two copies of a 280-line row is how the two would drift.
+  const renderStaffRow = (member) => {
+    const cat = catFor(member.role);
+    const colors = ROLE_COLORS[cat] || ROLE_COLORS.floor;
+
+    return (
+      <tr key={member.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-700/40">
+        <td className="px-4 py-2">
+          <div className="flex items-center gap-2">
+            {showRowDot && <span className={`w-2 h-2 rounded-full ${colors.dot} flex-shrink-0`} />}
+            <div>
+              <div className="flex items-center gap-1">
+                <span className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[104px]">
+                  {member.name}
+                </span>
+                {/* Confirmation badge — surfaces the staff-side "Jeg har
+                    set det". Green ONLY when every published shift this
+                    week is confirmed; amber otherwise; nothing when no
+                    published shifts (or confirmed_at not in payload). */}
+                {(() => {
+                  const cs = staffConfirmState(member.id, weekDates, getShiftsForCell);
+                  if (!cs) return null;
+                  return cs === "all" ? (
+                    <span title={t("schedConfirmedAll", "Confirmed")} className="shrink-0 leading-none">
+                      <Icon name="CheckCircle2" size={13} className="text-emerald-500 dark:text-emerald-400" />
+                    </span>
+                  ) : (
+                    <span title={t("schedConfirmedPartial", "Not everyone has confirmed yet")} className="shrink-0 leading-none">
+                      <Icon name="AlertTriangle" size={12} className="text-amber-500 dark:text-amber-400" />
+                    </span>
+                  );
+                })()}
+              </div>
+              <div className="text-[10px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+                <span>{member.role}</span>
+                {/* Contract type — Fuldtid / Deltid / Studerende / Freelance.
+                    This is what replaced the per-shift kroner: an owner
+                    building a week needs to know who is a student before they
+                    put them on Wednesday lunch, and unlike a wage it is not
+                    private from the person standing behind them. No chip at
+                    all when contract_type is empty — an empty chip is worse
+                    than none. */}
+                {contractLabel(member.contract_type, t) && (
+                  <span className="px-1 py-px rounded bg-gray-100 dark:bg-gray-700/60 text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap">
+                    {contractLabel(member.contract_type, t)}
+                  </span>
+                )}
+                {/* Vagtplan Shield hours chip — "34/37t". Amber past
+                    the contract cap, red past DK 48h or with an
+                    11-timers rest conflict; calm gray otherwise.
+                    Hidden when week-load is unavailable (fail-soft)
+                    or the staffer has no shifts this week. */}
+                {(() => {
+                  const e = (weekLoad?.staff || []).find((x) => x.staff_id === member.id);
+                  if (!e || !(e.hours > 0)) return null;
+                  const hasRest = (e.rest_warnings || []).length > 0;
+                  const cls = e.over_dk48 || e.over_month || hasRest
+                    ? "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
+                    : e.over_cap
+                      ? "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                      : "bg-gray-100 dark:bg-gray-700/60 text-gray-500 dark:text-gray-400";
+                  const label = e.cap != null
+                    ? `${e.hours}/${e.cap}t`
+                    : `${e.hours}t`;
+                  const title = [
+                    e.over_cap ? t("shieldOverCapTitle", "Over the contract cap ({cap}t/week)").replace("{cap}", e.cap) : "",
+                    e.over_dk48 ? t("shieldOver48Title", "Over the DK 48h weekly ceiling") : "",
+                    e.over_month ? t("shieldOverMonthTitle", "{period}: {h}t of {cap}t — over the monthly limit").replace("{period}", e.period_label || t("shieldMonthWord", "Month")).replace("{h}", e.month_hours).replace("{cap}", e.month_cap) : "",
+                    hasRest ? t("shieldRestTitle", "Under 11 hours' rest between shifts") : "",
+                    !e.over_month && e.month_cap != null ? t("shieldMonthInfoTitle", "{period}: {h}t of {cap}t").replace("{period}", e.period_label || t("shieldMonthWord", "Month")).replace("{h}", e.month_hours).replace("{cap}", e.month_cap) : "",
+                    e.warn_enabled === false ? t("shieldWarnOffTitle", "Hour-limit warnings are off for this staffer") : "",
+                  ].filter(Boolean).join(" · ");
+                  return (
+                    <span
+                      title={title || t("shieldHoursTitle", "Scheduled hours this week")}
+                      className={`px-1 py-px rounded font-medium tabular-nums ${cls}`}
+                    >
+                      {label}
+                    </span>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        </td>
+        {weekDates.map((date, dayIdx) => {
+          const cellShifts = getShiftsForCell(member.id, date);
+          const shift = cellShifts[0];
+          // Everything after the first. Rendered below the primary
+          // block so a second same-day shift is visible AND has its
+          // own click target — before this it existed in the data,
+          // in the hours chip and in the staff app, but could not be
+          // opened, moved or deleted from the owner's own grid.
+          const extraShifts = cellShifts.slice(1);
+          const isToday = toISO(date) === toISO(new Date());
+
+          if (!shift) {
+            // A concrete fravær (approved ferie/syg) outranks a standing
+            // "kan ikke" — both tint the empty cell so the owner sees
+            // who's off, but both stay legal drop targets (soft signals;
+            // the owner can still hand-place over them).
+            const abs = absenceFor?.(member.id, date) || null;
+            const blk = abs ? null : unavailFor(member.id, date);
+            // A soft "helst" — shown, never treated as a block.
+            const pref = abs || blk ? null : preferredFor(member.id, date);
+            const absLabel = abs ? absKindLabel(abs.kind, t) : "";
+            return (
+              <DroppableCell
+                key={dayIdx}
+                staffId={member.id}
+                dateIso={toISO(date)}
+                occupied={false}
+                className={`group px-1 py-2 text-center cursor-pointer transition-colors ${
+                  abs
+                    ? "bg-indigo-50/50 dark:bg-indigo-950/20"
+                    : blk
+                      ? "bg-red-50/60 dark:bg-red-950/20"
+                      : pref
+                        ? "bg-emerald-50/60 dark:bg-emerald-950/20"
+                        : isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
+                } hover:bg-gray-50 dark:hover:bg-gray-800/40`}
+                onClick={() => onCellClick(member.id, date, null)}
+                title={abs
+                  ? (abs.reason ? `${absLabel} · ${abs.reason}` : absLabel)
+                  : blk
+                    ? (blk.note
+                        ? `${t("schedKanIkkeCell", "Can't work")} · ${blk.note}`
+                        : t("schedKanIkkeCell", "Can't work"))
+                    : t("schedBloomHint", "Click to add a shift")}
+                aria-label={abs
+                  ? t("schedFravaerAria", "{name} is off this day").replace("{name}", member.name)
+                  : blk
+                    ? t("schedKanIkkeAria", "{name} can't work this day").replace("{name}", member.name)
+                    : t("schedAddShiftAria", "Add shift for {name}").replace("{name}", member.name)}
+              >
+                {/* Available cells render SILENCE — a single hover-Plus
+                    advertises one-tap add so the grid stays calm at 16×7.
+                    Fravær cells show a calm indigo kind-chip; "Kan ikke"
+                    a quiet red chip. Both fade to the Plus on hover
+                    (override). h-14 matches the occupied block. */}
+                <div className="h-14 relative flex items-center justify-center">
+                  {abs && (
+                    <span className="inline-flex items-center rounded-md px-1.5 py-0.5 bg-indigo-100/70 dark:bg-indigo-900/30 transition-opacity group-hover:opacity-0" aria-hidden>
+                      <span className="text-[9px] font-semibold text-indigo-500 dark:text-indigo-300 uppercase tracking-wide">{absLabel}</span>
+                    </span>
+                  )}
+                  {blk && (
+                    <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 bg-red-100/70 dark:bg-red-900/30 transition-opacity group-hover:opacity-0" aria-hidden>
+                      <CalendarOff className="w-[11px] h-[11px] text-red-400 dark:text-red-400" strokeWidth={2} />
+                      {blk.timeLabel && (
+                        <span className="text-[9px] font-medium text-red-400 dark:text-red-400 tabular-nums">{blk.timeLabel}</span>
+                      )}
+                    </span>
+                  )}
+                  <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                    <Icon name="Plus" size={14} className="text-gray-300 dark:text-gray-600" />
+                  </span>
+                </div>
+              </DroppableCell>
+            );
+          }
+
+          const shiftCat = catFor(shift.role_on_shift || member.role);
+          const hrs = calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0);
+          const isDraft = shift.status === "draft";
+
+          return (
+            // FILLED cell = NOT a drop target (occupied) — forbids
+            // overwrite. Its block is the DRAG SOURCE. The cell's
+            // onClick (open modal) still fires on a plain click thanks
+            // to the 6px PointerSensor activation distance.
+            <DroppableCell
+              key={dayIdx}
+              staffId={member.id}
+              dateIso={toISO(date)}
+              occupied
+              className={`px-1 py-2 text-center cursor-pointer transition-colors ${
+                isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
+              } hover:bg-gray-100 dark:hover:bg-gray-700/50`}
+              onClick={() => onCellClick(member.id, date, shift)}
+            >
+              <DraggableShiftBlock shift={shift} member={member} dateIso={toISO(date)}>
+                <div
+                  className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-gray-900 ${cardChrome(isDraft)} border-l-[3px] ${roleBar(shiftCat, showRowDot)}`}
+                >
+                  <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                    {formatShiftTime(shift.start_time, shift.end_time)}
+                  </div>
+                  {/* Line 2 carries everything that is NOT the time: hours, the
+                      cross-role chip, and the two status marks. There is no
+                      line 3 any more — the per-shift kroner used to live there,
+                      and hours + kroner on adjacent lines is a division anyone
+                      can do in their head. A rota is a screen other people
+                      stand in front of; a wage is not. */}
+                  <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                    {formatShiftHours(hrs, t("schedHoursUnit", "h"))}
+                    {shift.role_on_shift && shift.role_on_shift !== member.role && (
+                      <span className="ml-1.5 inline-block rounded px-1 py-px bg-gray-100 dark:bg-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 align-middle leading-none">
+                        {roleLabel(catFor(shift.role_on_shift), t)}
+                      </span>
+                    )}
+                    <ShiftMarkers shift={shift} published={!isDraft} t={t} />
+                  </div>
+                  {isDraft && (
+                    <div className="mt-0.5">
+                      <DraftPill t={t} />
+                    </div>
+                  )}
+                </div>
+              </DraggableShiftBlock>
+              {/* Split shift — the second (and any further) shift on
+                  this day. Each carries its own click target and its
+                  own drag handle, so it can be opened, moved and
+                  deleted like the first. stopPropagation because the
+                  cell's own onClick opens shifts[0]; without it a tap
+                  on the second block would edit the first. */}
+              {extraShifts.map((ex) => {
+                const exHrs = calcHours(
+                  ex.start_time, ex.end_time, ex.break_minutes || 0,
+                );
+                const exCat = catFor(ex.role_on_shift || member.role);
+                const exDraft = ex.status === "draft";
+                return (
+                  <div
+                    key={ex.id}
+                    className="mt-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCellClick(member.id, date, ex);
+                    }}
+                  >
+                    <DraggableShiftBlock shift={ex} member={member} dateIso={toISO(date)}>
+                      <div
+                        className={`text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-gray-900 ${cardChrome(exDraft)} border-l-[3px] ${roleBar(exCat, showRowDot)}`}
+                      >
+                        <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
+                          {formatShiftTime(ex.start_time, ex.end_time)}
+                        </div>
+                        <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                          {formatShiftHours(exHrs, t("schedHoursUnit", "h"))}
+                          <ShiftMarkers shift={ex} published={!exDraft} t={t} />
+                        </div>
+                        {exDraft && (
+                          <div className="mt-0.5">
+                            <DraftPill t={t} />
+                          </div>
+                        )}
+                      </div>
+                    </DraggableShiftBlock>
+                  </div>
+                );
+              })}
+            </DroppableCell>
+          );
+        })}
+        {/* Timer — this staffer's weekly net hours; amber when over
+            their max_hours_week cap, with the over-amount beneath. */}
+        <td className="px-3 py-2 text-right align-middle">
+          {(() => {
+            const wh = weeklyHoursFor(member.id, weekDates, getShiftsForCell);
+            if (wh <= 0) {
+              return <span className="text-[12px] text-gray-300 dark:text-gray-600">—</span>;
+            }
+            const cap = member.max_hours_week;
+            const over = cap && wh > cap;
+            const unit = t("schedHoursUnit", "h");
+            return (
+              <div className="leading-tight">
+                <div
+                  className={`text-[13px] font-semibold tabular-nums ${
+                    over
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-gray-900 dark:text-gray-100"
+                  }`}
+                  title={over ? t("schedOvertimeTip", "Over weekly hours") : undefined}
+                >
+                  {formatTimer(wh, unit)}
+                </div>
+                {over && (
+                  <div className="text-[10px] text-amber-500 dark:text-amber-400 tabular-nums">
+                    +{formatTimer(wh - cap, unit)}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </td>
+      </tr>
+    );
+  };
+
   return (
     <DndContext
       sensors={sensors}
@@ -5374,7 +6045,19 @@ function ScheduleGrid({
                         : "text-gray-500 dark:text-gray-400"
                     }`}
                   >
-                    <div>{dayShort(i, t)}</div>
+                    {/* Today's column says so in words. "I dag" in the brand
+                        accent, not emerald — emerald is now the "seen by staff"
+                        signal in this grid and a green weekday header would be
+                        read as a status claim about the whole column. */}
+                    <div
+                      className={
+                        isToday
+                          ? "text-[rgb(var(--brand-600))] dark:text-[rgb(var(--brand-400))]"
+                          : undefined
+                      }
+                    >
+                      {isToday ? t("schedToday") : dayShort(i, t)}
+                    </div>
                     <div className="font-normal text-[10px] mt-0.5 opacity-70">
                       {date.getDate()}/{date.getMonth() + 1}
                     </div>
@@ -5401,6 +6084,37 @@ function ScheduleGrid({
                         {coversBooked} {t("schedCoversBooked")}
                       </div>
                     )}
+                    {/* LAST header line — the day's roster STATUS. Amber = the
+                        owner still owes this day a publish; emerald = every
+                        published shift has been acknowledged; gray = sent, not
+                        everyone has looked yet (silence, not alarm — staff have
+                        hours to read a rota). The dot alone is not information,
+                        so the whole sentence goes in `title` AND sr-only. The
+                        word "vagter" is xl:-only: at 1024px this column is ~58px
+                        of content box and the number has to survive alone. */}
+                    {(() => {
+                      const tally = dayTally[toISO(date)] || { total: 0, drafts: 0, pub: 0, seen: 0 };
+                      const tone = dayDotTone(tally);
+                      const sentence = dayTallyText(tally, t);
+                      return (
+                        <div
+                          className="font-normal normal-case tracking-normal text-[10px] mt-1 whitespace-nowrap flex items-center justify-center gap-1 tabular-nums"
+                          title={sentence}
+                        >
+                          {tone !== "none" && (
+                            <span
+                              className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${DAY_DOT_CLASS[tone]}`}
+                              aria-hidden="true"
+                            />
+                          )}
+                          <span className={tone === "none" ? "text-gray-400 dark:text-gray-500" : "text-gray-500 dark:text-gray-400"}>
+                            {tally.total}
+                            <span className="hidden xl:inline"> {t("schedShiftsWord", "shifts")}</span>
+                          </span>
+                          <span className="sr-only">{sentence}</span>
+                        </div>
+                      );
+                    })()}
                   </th>
                 );
               })}
@@ -5410,295 +6124,23 @@ function ScheduleGrid({
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
-            {staff.map((member) => {
-              const cat = catFor(member.role);
-              const colors = ROLE_COLORS[cat] || ROLE_COLORS.floor;
-
-              return (
-                <tr key={member.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-700/40">
-                  <td className="px-4 py-2">
-                    <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${colors.dot} flex-shrink-0`} />
-                      <div>
-                        <div className="flex items-center gap-1">
-                          <span className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[104px]">
-                            {member.name}
-                          </span>
-                          {/* Confirmation badge — surfaces the staff-side "Jeg har
-                              set det". Green ONLY when every published shift this
-                              week is confirmed; amber otherwise; nothing when no
-                              published shifts (or confirmed_at not in payload). */}
-                          {(() => {
-                            const cs = staffConfirmState(member.id, weekDates, getShiftsForCell);
-                            if (!cs) return null;
-                            return cs === "all" ? (
-                              <span title={t("schedConfirmedAll", "Confirmed")} className="shrink-0 leading-none">
-                                <Icon name="CheckCircle2" size={13} className="text-emerald-500 dark:text-emerald-400" />
-                              </span>
-                            ) : (
-                              <span title={t("schedConfirmedPartial", "Not everyone has confirmed yet")} className="shrink-0 leading-none">
-                                <Icon name="AlertTriangle" size={12} className="text-amber-500 dark:text-amber-400" />
-                              </span>
-                            );
-                          })()}
-                        </div>
-                        <div className="text-[10px] text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
-                          <span>{member.role}</span>
-                          {/* Vagtplan Shield hours chip — "34/37t". Amber past
-                              the contract cap, red past DK 48h or with an
-                              11-timers rest conflict; calm gray otherwise.
-                              Hidden when week-load is unavailable (fail-soft)
-                              or the staffer has no shifts this week. */}
-                          {(() => {
-                            const e = (weekLoad?.staff || []).find((x) => x.staff_id === member.id);
-                            if (!e || !(e.hours > 0)) return null;
-                            const hasRest = (e.rest_warnings || []).length > 0;
-                            const cls = e.over_dk48 || e.over_month || hasRest
-                              ? "bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400"
-                              : e.over_cap
-                                ? "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400"
-                                : "bg-gray-100 dark:bg-gray-700/60 text-gray-500 dark:text-gray-400";
-                            const label = e.cap != null
-                              ? `${e.hours}/${e.cap}t`
-                              : `${e.hours}t`;
-                            const title = [
-                              e.over_cap ? t("shieldOverCapTitle", "Over the contract cap ({cap}t/week)").replace("{cap}", e.cap) : "",
-                              e.over_dk48 ? t("shieldOver48Title", "Over the DK 48h weekly ceiling") : "",
-                              e.over_month ? t("shieldOverMonthTitle", "{period}: {h}t of {cap}t — over the monthly limit").replace("{period}", e.period_label || t("shieldMonthWord", "Month")).replace("{h}", e.month_hours).replace("{cap}", e.month_cap) : "",
-                              hasRest ? t("shieldRestTitle", "Under 11 hours' rest between shifts") : "",
-                              !e.over_month && e.month_cap != null ? t("shieldMonthInfoTitle", "{period}: {h}t of {cap}t").replace("{period}", e.period_label || t("shieldMonthWord", "Month")).replace("{h}", e.month_hours).replace("{cap}", e.month_cap) : "",
-                              e.warn_enabled === false ? t("shieldWarnOffTitle", "Hour-limit warnings are off for this staffer") : "",
-                            ].filter(Boolean).join(" · ");
-                            return (
-                              <span
-                                title={title || t("shieldHoursTitle", "Scheduled hours this week")}
-                                className={`px-1 py-px rounded font-medium tabular-nums ${cls}`}
-                              >
-                                {label}
-                              </span>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  {weekDates.map((date, dayIdx) => {
-                    const cellShifts = getShiftsForCell(member.id, date);
-                    const shift = cellShifts[0];
-                    // Everything after the first. Rendered below the primary
-                    // block so a second same-day shift is visible AND has its
-                    // own click target — before this it existed in the data,
-                    // in the hours chip and in the staff app, but could not be
-                    // opened, moved or deleted from the owner's own grid.
-                    const extraShifts = cellShifts.slice(1);
-                    const isToday = toISO(date) === toISO(new Date());
-
-                    if (!shift) {
-                      // A concrete fravær (approved ferie/syg) outranks a standing
-                      // "kan ikke" — both tint the empty cell so the owner sees
-                      // who's off, but both stay legal drop targets (soft signals;
-                      // the owner can still hand-place over them).
-                      const abs = absenceFor?.(member.id, date) || null;
-                      const blk = abs ? null : unavailFor(member.id, date);
-                      // A soft "helst" — shown, never treated as a block.
-                      const pref = abs || blk ? null : preferredFor(member.id, date);
-                      const absLabel = abs ? absKindLabel(abs.kind, t) : "";
-                      return (
-                        <DroppableCell
-                          key={dayIdx}
-                          staffId={member.id}
-                          dateIso={toISO(date)}
-                          occupied={false}
-                          className={`group px-1 py-2 text-center cursor-pointer transition-colors ${
-                            abs
-                              ? "bg-indigo-50/50 dark:bg-indigo-950/20"
-                              : blk
-                                ? "bg-red-50/60 dark:bg-red-950/20"
-                                : pref
-                                  ? "bg-emerald-50/60 dark:bg-emerald-950/20"
-                                  : isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
-                          } hover:bg-gray-50 dark:hover:bg-gray-800/40`}
-                          onClick={() => onCellClick(member.id, date, null)}
-                          title={abs
-                            ? (abs.reason ? `${absLabel} · ${abs.reason}` : absLabel)
-                            : blk
-                              ? (blk.note
-                                  ? `${t("schedKanIkkeCell", "Can't work")} · ${blk.note}`
-                                  : t("schedKanIkkeCell", "Can't work"))
-                              : t("schedBloomHint", "Click to add a shift")}
-                          aria-label={abs
-                            ? t("schedFravaerAria", "{name} is off this day").replace("{name}", member.name)
-                            : blk
-                              ? t("schedKanIkkeAria", "{name} can't work this day").replace("{name}", member.name)
-                              : t("schedAddShiftAria", "Add shift for {name}").replace("{name}", member.name)}
-                        >
-                          {/* Available cells render SILENCE — a single hover-Plus
-                              advertises one-tap add so the grid stays calm at 16×7.
-                              Fravær cells show a calm indigo kind-chip; "Kan ikke"
-                              a quiet red chip. Both fade to the Plus on hover
-                              (override). h-14 matches the occupied block. */}
-                          <div className="h-14 relative flex items-center justify-center">
-                            {abs && (
-                              <span className="inline-flex items-center rounded-md px-1.5 py-0.5 bg-indigo-100/70 dark:bg-indigo-900/30 transition-opacity group-hover:opacity-0" aria-hidden>
-                                <span className="text-[9px] font-semibold text-indigo-500 dark:text-indigo-300 uppercase tracking-wide">{absLabel}</span>
-                              </span>
-                            )}
-                            {blk && (
-                              <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 bg-red-100/70 dark:bg-red-900/30 transition-opacity group-hover:opacity-0" aria-hidden>
-                                <CalendarOff className="w-[11px] h-[11px] text-red-400 dark:text-red-400" strokeWidth={2} />
-                                {blk.timeLabel && (
-                                  <span className="text-[9px] font-medium text-red-400 dark:text-red-400 tabular-nums">{blk.timeLabel}</span>
-                                )}
-                              </span>
-                            )}
-                            <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                              <Icon name="Plus" size={14} className="text-gray-300 dark:text-gray-600" />
-                            </span>
-                          </div>
-                        </DroppableCell>
-                      );
-                    }
-
-                    const shiftCat = catFor(shift.role_on_shift || member.role);
-                    const hrs = calcHours(shift.start_time, shift.end_time, shift.break_minutes || 0);
-                    const isDraft = shift.status === "draft";
-                    const shiftCost = costForShift?.(shift.id);
-
-                    return (
-                      // FILLED cell = NOT a drop target (occupied) — forbids
-                      // overwrite. Its block is the DRAG SOURCE. The cell's
-                      // onClick (open modal) still fires on a plain click thanks
-                      // to the 6px PointerSensor activation distance.
-                      <DroppableCell
-                        key={dayIdx}
-                        staffId={member.id}
-                        dateIso={toISO(date)}
-                        occupied
-                        className={`px-1 py-2 text-center cursor-pointer transition-colors ${
-                          isToday ? "bg-gray-50/60 dark:bg-gray-800/40" : ""
-                        } hover:bg-gray-100 dark:hover:bg-gray-700/50`}
-                        onClick={() => onCellClick(member.id, date, shift)}
-                      >
-                        <DraggableShiftBlock shift={shift} member={member} dateIso={toISO(date)}>
-                          <div
-                            className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 border-l-[3px] ${ROLE_BAR[shiftCat] || ROLE_BAR.floor} ${
-                              isDraft ? "border-dashed" : ""
-                            }`}
-                          >
-                            <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                              {formatShiftTime(shift.start_time, shift.end_time)}
-                            </div>
-                            <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                              {formatShiftHours(hrs, t("schedHoursUnit", "h"))}
-                              {shift.role_on_shift && shift.role_on_shift !== member.role && (
-                                <span className="ml-1.5 inline-block rounded px-1 py-px bg-gray-100 dark:bg-gray-700 text-[9px] font-medium text-gray-500 dark:text-gray-400 align-middle leading-none">
-                                  {roleLabel(catFor(shift.role_on_shift), t)}
-                                </span>
-                              )}
-                            </div>
-                            {/* Cost-per-shift is the quietest line in the cell —
-                                kept smaller + lighter than the hours above so the
-                                grid stays calm at 16 staff × 7 days. */}
-                            {showCost && shiftCost != null && (
-                              <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-px tabular-nums">
-                                ≈ {formatKr(shiftCost, { decimals: 0 })}
-                              </div>
-                            )}
-                            {isDraft && (
-                              <div className="text-[9px] text-amber-500 dark:text-amber-400 mt-0.5 font-medium uppercase tracking-wide">
-                                {t("schedDraft")}
-                              </div>
-                            )}
-                          </div>
-                        </DraggableShiftBlock>
-                        {/* Split shift — the second (and any further) shift on
-                            this day. Each carries its own click target and its
-                            own drag handle, so it can be opened, moved and
-                            deleted like the first. stopPropagation because the
-                            cell's own onClick opens shifts[0]; without it a tap
-                            on the second block would edit the first. */}
-                        {extraShifts.map((ex) => {
-                          const exHrs = calcHours(
-                            ex.start_time, ex.end_time, ex.break_minutes || 0,
-                          );
-                          const exCat = catFor(ex.role_on_shift || member.role);
-                          const exCost = costForShift?.(ex.id);
-                          return (
-                            <div
-                              key={ex.id}
-                              className="mt-1"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onCellClick(member.id, date, ex);
-                              }}
-                            >
-                              <DraggableShiftBlock shift={ex} member={member} dateIso={toISO(date)}>
-                                <div
-                                  className={`text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 border-l-[3px] ${ROLE_BAR[exCat] || ROLE_BAR.floor} ${
-                                    ex.status === "draft" ? "border-dashed" : ""
-                                  }`}
-                                >
-                                  <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                                    {formatShiftTime(ex.start_time, ex.end_time)}
-                                  </div>
-                                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
-                                    {formatShiftHours(exHrs, t("schedHoursUnit", "h"))}
-                                  </div>
-                                  {showCost && exCost != null && (
-                                    <div className="text-[10px] text-gray-400 dark:text-gray-500 mt-px tabular-nums">
-                                      ≈ {formatKr(exCost, { decimals: 0 })}
-                                    </div>
-                                  )}
-                                  {ex.status === "draft" && (
-                                    <div className="text-[9px] text-amber-500 dark:text-amber-400 mt-0.5 font-medium uppercase tracking-wide">
-                                      {t("schedDraft")}
-                                    </div>
-                                  )}
-                                </div>
-                              </DraggableShiftBlock>
-                            </div>
-                          );
-                        })}
-                      </DroppableCell>
-                    );
-                  })}
-                  {/* Timer — this staffer's weekly net hours; amber when over
-                      their max_hours_week cap, with the over-amount beneath. */}
-                  <td className="px-3 py-2 text-right align-middle">
-                    {(() => {
-                      const wh = weeklyHoursFor(member.id, weekDates, getShiftsForCell);
-                      if (wh <= 0) {
-                        return <span className="text-[12px] text-gray-300 dark:text-gray-600">—</span>;
-                      }
-                      const cap = member.max_hours_week;
-                      const over = cap && wh > cap;
-                      const unit = t("schedHoursUnit", "h");
-                      return (
-                        <div className="leading-tight">
-                          <div
-                            className={`text-[13px] font-semibold tabular-nums ${
-                              over
-                                ? "text-amber-600 dark:text-amber-400"
-                                : "text-gray-900 dark:text-gray-100"
-                            }`}
-                            title={over ? t("schedOvertimeTip", "Over weekly hours") : undefined}
-                          >
-                            {formatTimer(wh, unit)}
-                          </div>
-                          {over && (
-                            <div className="text-[10px] text-amber-500 dark:text-amber-400 tabular-nums">
-                              +{formatTimer(wh - cap, unit)}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
+          {/* Option B: one <tbody> per section, each under a tinted header
+              band. Below the gate (few staff, one section, or a vertical with
+              no sections at all) this is the SAME single ungrouped body the
+              grid has always rendered. Header rows register no droppable, so
+              drag-and-drop targets are unchanged. */}
+          {grouping.grouped ? (
+            grouping.sections.map((sec) => (
+              <tbody key={sec.id} className="divide-y divide-gray-50 dark:divide-gray-700/50">
+                {renderSectionHeader(sec)}
+                {sec.members.map(renderStaffRow)}
+              </tbody>
+            ))
+          ) : (
+            <tbody className="divide-y divide-gray-50 dark:divide-gray-700/50">
+              {staff.map(renderStaffRow)}
+            </tbody>
+          )}
           {/* Per-day footer — hours + (cost) + labor% per column, aligned to
               the day cells above. Only rendered when the server returned the
               daily cost layer; labor% color-codes vs target and shows "—" with
@@ -5823,14 +6265,15 @@ function ScheduleGrid({
     <DragOverlay dropAnimation={PREFERS_REDUCED_MOTION ? null : undefined}>
       {activeShift ? (
         <div
-          className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-gray-900 ring-1 ring-gray-200 dark:ring-gray-700 border-l-[3px] ${ROLE_BAR[ghostCat] || ROLE_BAR.floor} shadow-lg cursor-grabbing`}
+          className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-gray-900 ${cardChrome(activeShift.status === "draft")} border-l-[3px] ${roleBar(ghostCat, showRowDot)} shadow-lg cursor-grabbing`}
           style={PREFERS_REDUCED_MOTION ? undefined : { transform: "rotate(2deg)" }}
         >
           <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
             {formatShiftTime(activeShift.start_time, activeShift.end_time)}
           </div>
-          <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+          <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
             {formatShiftHours(calcHours(activeShift.start_time, activeShift.end_time, activeShift.break_minutes || 0), t("schedHoursUnit", "h"))}
+            <ShiftMarkers shift={activeShift} published={activeShift.status !== "draft"} t={t} />
           </div>
         </div>
       ) : null}
