@@ -43,6 +43,7 @@ import {
   relevantPillarsForArchetype,
 } from "../config/navManifest";
 import { archetypeIdFor } from "../config/archetypes";
+import { NAV_MUTED } from "../config/navChrome";
 import { errText } from "../utils/errText";
 
 // The setup landing route per activation-gateable pillar — where a "Sæt op X"
@@ -219,7 +220,11 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
   // visually distinct from the active nav items above it.
   return (
     <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700">
-      <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+      {/* Sidebar-variant chrome only. The AA-passing muted tier from
+          config/navChrome.js — the "more" variant above deliberately keeps its
+          own gray-400 so it still matches the other MorePage section headers
+          (that page is outside this change's scope). */}
+      <p className={`px-3 pb-1 text-[11px] font-semibold uppercase tracking-wider ${NAV_MUTED} flex items-center gap-1.5`}>
         <Icon name="Plus" size={12} className="shrink-0 opacity-70" />
         <span>{t("pillarDiscoveryTitle")}</span>
       </p>
@@ -240,7 +245,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
           >
             <Icon name={p.icon} size={16} strokeWidth={1.75} className="shrink-0" />
             <span className="flex-1 truncate text-left">{t(p.labelKey)}</span>
-            <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 shrink-0">
+            <span className={`text-[10px] font-semibold ${NAV_MUTED} shrink-0`}>
               {t("activationSetupEyebrow")}
             </span>
           </button>
@@ -264,7 +269,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
               className={`shrink-0 ${enablingId === p.id ? "animate-spin" : ""}`}
             />
             <span className="flex-1 truncate text-left">{t(p.labelKey)}</span>
-            <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 shrink-0">
+            <span className={`text-[10px] font-semibold ${NAV_MUTED} shrink-0`}>
               {t("pillarDiscoveryEnableCta")}
             </span>
           </button>

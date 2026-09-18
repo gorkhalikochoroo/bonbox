@@ -41,6 +41,7 @@ import { NAV_MANIFEST, filterDestinations, isStaffMemberRole } from "../config/n
 import { useDeviceShare } from "../hooks/useDeviceShare";
 import { archetypeIdFor } from "../config/archetypes";
 import { useAuth } from "../hooks/useAuth";
+import { NAV_MUTED } from "../config/navChrome";
 import { Icon } from "./ui";
 
 // How many recent destinations to surface. Intentionally small — this is an
@@ -126,7 +127,10 @@ export default function ResumeRow({ enabledModules, onNavigate }) {
 
   return (
     <div className="px-3 pt-1 pb-2 mb-1 border-b border-gray-100 dark:border-gray-700">
-      <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 flex items-center gap-1.5">
+      {/* The "Fortsæt" eyebrow is what tells the owner these two rows are
+          history and not a second nav — structural, so it uses the shared
+          AA-passing muted tier (config/navChrome.js) rather than gray-400. */}
+      <p className={`px-1 pb-1 text-[11px] font-semibold uppercase tracking-wider ${NAV_MUTED} flex items-center gap-1.5`}>
         <Icon name="Clock" size={12} className="shrink-0 opacity-70" />
         <span>{t("resumeEyebrow")}</span>
       </p>

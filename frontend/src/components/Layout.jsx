@@ -12,6 +12,14 @@ import { getVatTerms } from "../utils/currency";
 import { isNativeApp } from "../utils/platform";
 import { syncStatusBar } from "../utils/statusBar";
 import { NAV_MANIFEST, NAV_GROUPS, filterDestinations, PILLAR_DISPLAY_BY_ID, isStaffMemberRole } from "../config/navManifest";
+import {
+  NAV_GROUPS_STORAGE_KEY,
+  NAV_MUTED,
+  NAV_MUTED_HOVER,
+  isNavGroupOpen,
+  readNavGroups,
+  toggleNavGroup,
+} from "../config/navChrome";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
@@ -65,6 +73,11 @@ const InstallAppPrompt = lazy(() => import("./InstallAppPrompt"));
    same icons, same labelKeys, same per-item gates — so this is a pure
    refactor with ZERO visual change.
 */
+// Tailwind's `md` breakpoint in px. The aside is pinned open at/above it
+// (`md:translate-x-0`) and an off-canvas drawer below it. Kept as a named
+// constant so the JS mirror of that CSS fact can't silently drift from it.
+const MD_BREAKPOINT = 768;
+
 function buildSidebarGroups() {
   const sidebarItems = NAV_MANIFEST.filter((d) => d.surfaces.includes("sidebar"));
   return NAV_GROUPS.map((g) => ({
@@ -216,12 +229,11 @@ const accountantNavGroups = [
   },
 ];
 
-function findGroupForPath(path) {
-  for (const g of navGroups) {
-    if (g.items.some((i) => path.startsWith(i.to))) return g.id;
-  }
-  return null;
-}
+// `findGroupForPath` used to live here to drive an auto-expand effect. It is
+// gone with that effect: revealing the active group is now a DEFAULT in
+// config/navChrome.js (a group with no stored choice is open), not a write —
+// which is what makes a deliberate collapse survive the next visit. The
+// active group is still signalled when collapsed, by the dot on its header.
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -234,6 +246,22 @@ export default function Layout() {
   const location = useLocation();
   const { branchType, businessTypes } = useBranch();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Which side of `md` are we on? React needs to know, because whether the
+  // rail is currently OFF-CANVAS decides whether its ~28 links belong in the
+  // tab order at all — and "off-canvas" means different things above and below
+  // the breakpoint. From innerWidth, not matchMedia: this component already
+  // tracks width that way, and jsdom ships no matchMedia.
+  const [isMdUp, setIsMdUp] = useState(() => {
+    try { return typeof window === "undefined" || window.innerWidth >= MD_BREAKPOINT; }
+    catch { return true; }
+  });
+  // Refs for focus return (WCAG 2.4.3). Opening the drawer moves focus into
+  // it; closing hands focus back to the control that opened it, instead of
+  // dropping the keyboard user on <body> when `inert` blurs the drawer.
+  const asideRef = useRef(null);
+  const menuButtonRef = useRef(null);
+  const drawerCloseRef = useRef(null);
+  const drawerWasOpenRef = useRef(false);
   // Desktop-only: persist whether the user has collapsed the sidebar
   // for more horizontal real estate (Claude-style hide). Mobile uses
   // the existing sidebarOpen overlay model — this flag is ignored
@@ -305,6 +333,10 @@ export default function Layout() {
   // rotation. Cleans up on unmount.
   useEffect(() => {
     const onResize = () => {
+      // Breakpoint tracking FIRST, above the early return below: it must run
+      // even for an owner who has an explicit sidebar preference, or a rotate
+      // into portrait would leave the rail off-canvas but still tabbable.
+      setIsMdUp(window.innerWidth >= MD_BREAKPOINT);
       try {
         const saved = localStorage.getItem("bonbox_sidebar_hidden");
         if (saved === "1" || saved === "0") return;  // user has chosen — leave alone
@@ -441,29 +473,26 @@ export default function Layout() {
       ]
     : baseVisible;
 
-  // Track which groups are expanded
+  // The owner's EXPLICIT collapse choices — `{ [groupId]: boolean }`, the same
+  // shape (and key) owners already have in localStorage. Absence means "no
+  // choice", which resolves to open; see config/navChrome.js for why that
+  // single-writer model is what makes a collapse stick.
   const [openGroups, setOpenGroups] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("bonbox_nav_groups") || "null");
-      return saved || { core: true };
-    } catch { return { core: true }; }
+    try { return readNavGroups(localStorage.getItem(NAV_GROUPS_STORAGE_KEY)); }
+    catch { return {}; }
   });
 
-  // Auto-expand group containing current route
+  // Persist. This is now the ONLY writer. The auto-expand effect that used to
+  // sit above it wrote `true` for the active group on every navigation and
+  // persisted that, so the owner's `false` was erased the next time they opened
+  // a page in that group — the rail could only ever get more open.
   useEffect(() => {
-    const gid = findGroupForPath(location.pathname);
-    if (gid && !openGroups[gid]) {
-      setOpenGroups((prev) => ({ ...prev, [gid]: true }));
-    }
-  }, [location.pathname]);
-
-  // Persist open groups
-  useEffect(() => {
-    localStorage.setItem("bonbox_nav_groups", JSON.stringify(openGroups));
+    try { localStorage.setItem(NAV_GROUPS_STORAGE_KEY, JSON.stringify(openGroups)); }
+    catch { /* private mode / quota — the rail just won't remember */ }
   }, [openGroups]);
 
   const toggleGroup = (gid) => {
-    setOpenGroups((prev) => ({ ...prev, [gid]: !prev[gid] }));
+    setOpenGroups((prev) => toggleNavGroup(prev, gid));
   };
 
   // Personal accounts only — the button is gated on canPersonal, so this is
@@ -519,6 +548,37 @@ export default function Layout() {
     setSidebarOpen(false);
   }, [location.pathname]);
 
+  // Is the rail translated fully out of view right now? Below `md` that's
+  // "drawer closed"; at/above it, "owner collapsed the desktop sidebar". Both
+  // states were hidden by TRANSFORM ALONE, which moves pixels and nothing
+  // else: the ~28 links stayed in the tab order and in the accessibility tree,
+  // so a keyboard user tabbing from the skip-link, or a screen-reader user
+  // swiping forward, walked the entire invisible nav before reaching the page.
+  const navOffCanvas = isMdUp ? desktopSidebarHidden : !sidebarOpen;
+
+  // Focus choreography for the phone drawer (WCAG 2.4.3 Focus Order).
+  //   open  → put focus on the drawer's close button, so the next Tab walks
+  //           the nav the user just asked for rather than the page behind it.
+  //   close → hand focus back to the hamburger that opened it, but ONLY if
+  //           focus is still inside the drawer (or already lost to <body>,
+  //           which is where the browser drops it the instant `inert` lands).
+  //           Anything else means something on the page has legitimately taken
+  //           focus since, and stealing it back would be the rude behaviour.
+  useEffect(() => {
+    if (sidebarOpen) {
+      drawerWasOpenRef.current = true;
+      drawerCloseRef.current?.focus();
+      return;
+    }
+    if (!drawerWasOpenRef.current) return;  // never opened — nothing to return
+    drawerWasOpenRef.current = false;
+    const active = document.activeElement;
+    const inDrawer = asideRef.current && active && asideRef.current.contains(active);
+    if (!active || active === document.body || inDrawer) {
+      menuButtonRef.current?.focus();
+    }
+  }, [sidebarOpen]);
+
   // Accounting-software style: neutral gray bg + bold dark text on the active
   // item (Dinero/Billy/e-conomic do this). Avoids the "tech glow" colored pill
   // that read as developer-tool aesthetic.
@@ -528,7 +588,15 @@ export default function Layout() {
   // using box-shadow keeps that geometry untouched). That rail is the only
   // brand-green moment in the nav. Everything else stays neutral.
   // See "BRAND GREEN" block in index.css for the token contract.
-  const activeClass = "bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white font-semibold shadow-[inset_2px_0_0_0_#10b981]";
+  //
+  // The rail's colour reads from --brand-green-dot (index.css :root) instead
+  // of the raw #10b981 it used to hard-code. Same pixels — the token IS
+  // emerald-500 — but a hex baked into a class name is invisible to the theme
+  // layer, so this one rail stayed green no matter what the theme said.
+  // OPEN DECISION: whether the sidebar accent stays green or moves to the
+  // brand blue is the founder's call and is still open. This change only makes
+  // the current colour reachable; it does not pick a side.
+  const activeClass = "bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white font-semibold shadow-[inset_2px_0_0_0_rgb(var(--brand-green-dot))]";
   const inactiveClass = "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-white";
 
   return (
@@ -553,6 +621,7 @@ export default function Layout() {
       {/* Mobile top bar */}
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 glass border-b border-gray-200/70 dark:border-gray-700/70 px-4 py-3 flex items-center justify-between gap-3" style={{ paddingTop: "env(safe-area-inset-top, 0px)", paddingLeft: "env(safe-area-inset-left, 0px)", paddingRight: "env(safe-area-inset-right, 0px)" }}>
         <button
+          ref={menuButtonRef}
           onClick={() => setSidebarOpen(true)}
           aria-label={t("openMenu") || "Open menu"}
           aria-expanded={sidebarOpen}
@@ -575,7 +644,12 @@ export default function Layout() {
               <path d="M8 8h8M8 12h8M8 16h5" />
             </svg>
           </div>
-          <h1 className="text-base font-bold text-gray-900 dark:text-gray-100">BonBox</h1>
+          {/* Wordmark, NOT a heading. This and the sidebar's wordmark were both
+              <h1>, so every page shipped two document headings on top of the
+              page's own — and the sidebar one is the copy that survives at
+              every breakpoint (this bar is md:hidden), so that is the one that
+              stays an <h1>. Same size and weight; only the tag changed. */}
+          <p className="text-base font-bold text-gray-900 dark:text-gray-100">BonBox</p>
         </div>
         <div className="flex items-center gap-2">
           {/* Shared-device ("Delt enhed") reveal/hide chip — only shows when the
@@ -621,9 +695,13 @@ export default function Layout() {
         </div>
       </div>
 
-      {/* Overlay */}
+      {/* Overlay (scrim).
+          z-[55] — ABOVE MobileBottomNav's z-50, not below it. The scrim used to
+          be z-40, so the tab bar stayed bright and tappable through an "open"
+          drawer: you could dim the app and still hit Home/Sales underneath. A
+          scrim that doesn't cover the whole app isn't a scrim. */}
       {sidebarOpen && (
-        <div className="md:hidden fixed inset-0 z-40 bg-black/40" onClick={closeSidebar} aria-hidden="true" />
+        <div className="md:hidden fixed inset-0 z-[55] bg-black/40" onClick={closeSidebar} aria-hidden="true" />
       )}
 
       {/* Sidebar.
@@ -633,12 +711,43 @@ export default function Layout() {
           sidebar" button below renders at the left edge for one-tap
           re-open. State persists in localStorage. */}
       <aside
+        ref={asideRef}
         id="primary-navigation"
         aria-label={t("primaryNavigation") || "Primary navigation"}
-        className={`fixed top-0 left-0 h-full w-56 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col z-50 transition-transform duration-200 ${
+        /* `inert` takes the off-canvas rail out of BOTH the tab order and the
+           accessibility tree. Transform alone left ~28 invisible links in
+           front of the page for every keyboard and screen-reader user. It is
+           deliberately NOT a plain aria-hidden: aria-hidden on a subtree whose
+           children are still tabbable is its own violation (focus lands on a
+           control the screen reader refuses to announce). */
+        inert={navOffCanvas || undefined}
+        /* z-50 at rest, z-[60] while the phone drawer is open — above
+           MobileBottomNav (z-50), which renders AFTER this element and so won
+           the tie at equal z and covered the bottom of the drawer, Log ud
+           included. Conditional rather than a flat z-[60] on purpose: the
+           DESKTOP rail must stay at z-50, or every page-level modal (z-50,
+           rendered later in <main>) would slide UNDER the pinned sidebar. */
+        className={`fixed top-0 left-0 h-full w-56 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col ${
+          sidebarOpen ? "z-[60]" : "z-50"
+        } ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${desktopSidebarHidden ? "md:-translate-x-full" : "md:translate-x-0"}`}
-        style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+        style={{
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          // FALLBACK for any target without `inert` (pre-Safari 15.5 — our
+          // build target is Safari 16+, so this is belt-and-braces, not load-
+          // bearing): visibility:hidden is the one property that removes a
+          // subtree from the tab order AND the a11y tree in every browser.
+          // The transition is written out here rather than left to Tailwind's
+          // `transition-transform duration-200` because visibility must flip
+          // on a DELAY when hiding (after the slide finishes, so the drawer
+          // still animates out) and instantly when showing.
+          visibility: navOffCanvas ? "hidden" : "visible",
+          transitionProperty: "transform, visibility",
+          transitionDuration: "200ms, 0s",
+          transitionTimingFunction: "cubic-bezier(0.4, 0, 0.2, 1)",
+          transitionDelay: navOffCanvas ? "0s, 200ms" : "0s, 0s",
+        }}>
         {/* Header */}
         <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between gap-2">
           <div className="min-w-0">
@@ -654,7 +763,11 @@ export default function Layout() {
               </div>
               <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100 truncate">BonBox</h1>
             </div>
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 truncate mt-1">{user?.business_name}</p>
+            {/* The venue's own name — the one line that tells the owner WHICH
+                account this window is. Structural, so it sits on the AA-passing
+                muted tier (config/navChrome.js), not the 2.54:1 gray-400 it
+                used to whisper in. */}
+            <p className={`text-[11px] ${NAV_MUTED} truncate mt-1`}>{user?.business_name}</p>
             <BranchSelector compact />
           </div>
           <div className="flex items-center gap-1 shrink-0">
@@ -672,6 +785,7 @@ export default function Layout() {
             </button>
             {/* Mobile close */}
             <button
+              ref={drawerCloseRef}
               onClick={closeSidebar}
               aria-label={t("closeMenu") || "Close menu"}
               className="md:hidden text-gray-400 hover:text-gray-600 text-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-800 rounded-md w-8 h-8 flex items-center justify-center"
@@ -723,15 +837,19 @@ export default function Layout() {
           <button
             onClick={() => setSearchOpen(true)}
             aria-label={t("search") || "Search"}
-            className="flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition
-              text-gray-400 dark:text-gray-500
-              hover:bg-gray-50 dark:hover:bg-gray-700/40 hover:text-gray-600 dark:hover:text-gray-300"
+            className={`flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition
+              ${NAV_MUTED}
+              hover:bg-gray-50 dark:hover:bg-gray-700/40 ${NAV_MUTED_HOVER}`}
           >
             <svg className="w-3 h-3 shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
             </svg>
             <span className="flex-1 text-left truncate">{t("search") || "Search"}</span>
-            <kbd className="hidden md:inline-flex items-center px-1 py-0 text-[8px] font-mono text-gray-400 dark:text-gray-500 shrink-0">
+            {/* text-[11px], not text-[8px]. Eight pixels is below every step on
+                the type ramp (11px is the floor) and it was carrying the
+                keyboard shortcut — the one thing in this row a power user
+                actually has to read. Matches the label beside it now. */}
+            <kbd className={`hidden md:inline-flex items-center px-1 py-0 text-[11px] font-mono ${NAV_MUTED} shrink-0`}>
               ⌘K
             </kbd>
           </button>
@@ -778,7 +896,9 @@ export default function Layout() {
                 <ResumeRow enabledModules={enabledModules} onNavigate={closeSidebar} />
               )}
               {visibleGroups.map((group) => {
-                const isOpen = openGroups[group.id] !== false; // default open for core
+                // Stored choice wins; no stored choice = open (which is what
+                // reveals the group the owner just navigated into).
+                const isOpen = isNavGroupOpen(openGroups, group.id);
                 const hasActiveChild = group.items.some((i) => location.pathname.startsWith(i.to));
 
                 // Core group has no header — always visible
@@ -827,10 +947,13 @@ export default function Layout() {
                   <div key={group.id}>
                     <button
                       onClick={() => toggleGroup(group.id)}
+                      /* Group headers are the organising layer — the thing that
+                         makes ~24 rows scannable at all. On the AA-passing
+                         muted tier, not the 2.54:1 gray-400 they used to be. */
                       className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition ${
                         hasActiveChild
                           ? "text-gray-900 dark:text-gray-100"
-                          : "text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                          : `${NAV_MUTED} ${NAV_MUTED_HOVER}`
                       }`}
                     >
                       <Icon name={group.icon} size={14} className="shrink-0 opacity-70" />
