@@ -1,12 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { dateLocale } from "../utils/dateFormat";
+import { dateLocale, businessTodayIso, formatDateClear, localIso } from "../utils/dateFormat";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "../components/BranchSelector";
 import { useEntitlements } from "../hooks/useEntitlements";
-import { displayCurrency, getTaxConfig, getVatTerms } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, getTaxConfig, getVatTerms } from "../utils/currency";
 import { trackEvent } from "../hooks/useEventLog";
 import DismissibleTip from "../components/DismissibleTip";
 import { safeImageUrl } from "../utils/safeUrl";
@@ -15,6 +15,28 @@ import { resizeImageIfLarge } from "../utils/resizeImage";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 import { haptic } from "../utils/haptics";
 import { archetypeForUser, archetypeIdFor } from "../config/archetypes";
+import {
+  addToOfflineQueue,
+  firstNeedingConfirmation,
+  getOfflineQueue,
+  queueSummary,
+  removeFromOfflineQueue,
+  syncOfflineQueue,
+  updateQueueItem,
+  QUEUE_ALREADY_SAVED,
+  QUEUE_ERR_REJECTED,
+  QUEUE_ERR_SERVER,
+  QUEUE_FAILED,
+  QUEUE_NEEDS_CONFIRMATION,
+} from "../utils/dailyCloseQueue";
+import {
+  headlineTotal,
+  mergeScans,
+  needsTerminalChoice,
+  MERGE_REPLACE,
+  MERGE_SUM,
+} from "../utils/dailyCloseScanMerge";
+import { DEFAULT_CLOSE_CUTOFF_HOUR, findConfirmedCloseFor } from "../utils/dailyCloseDay";
 import {
   buildShareMessage,
   buildShareTitle,
@@ -126,36 +148,15 @@ async function parseExportError(err) {
 
 
 /* ═══════════════════════════════════════════════════════════
-   OFFLINE QUEUE — store pending daily close submissions
+   OFFLINE QUEUE — see utils/dailyCloseQueue.js
    ═══════════════════════════════════════════════════════════ */
-const OQ_KEY = "bonbox_dc_offline_queue";
-
-function getOfflineQueue() {
-  try { return JSON.parse(localStorage.getItem(OQ_KEY) || "[]"); } catch { return []; }
-}
-function addToOfflineQueue(payload) {
-  const q = getOfflineQueue();
-  q.push({ payload, ts: Date.now(), id: crypto.randomUUID() });
-  localStorage.setItem(OQ_KEY, JSON.stringify(q));
-}
-async function syncOfflineQueue() {
-  const q = getOfflineQueue();
-  if (!q.length) return 0;
-  const remaining = [];
-  for (const item of q) {
-    try {
-      await api.post("/daily-close", item.payload);
-    } catch (err) {
-      if (!err.response) { remaining.push(item); break; } // network still down — stop
-      // Server responded (even 4xx) — drop from queue
-    }
-  }
-  // Keep only un-synced items
-  const synced = q.length - remaining.length;
-  const leftover = [...remaining, ...q.slice(q.length - remaining.length + remaining.length)];
-  localStorage.setItem(OQ_KEY, JSON.stringify(remaining));
-  return remaining.length;
-}
+/* The queue used to live here as three inline helpers, which meant it could
+   never be unit-tested (eslint react-refresh forbids exporting non-components
+   from a page file) — and it was losing closes: a failure mid-queue destroyed
+   every item behind it, and a 200 {requires_confirmation} counted as sent.
+   It now lives in its own module with the poster injected, so every one of
+   those paths is pinned by a test. */
+const postClose = (payload) => api.post("/daily-close", payload);
 
 /* ═══════════════════════════════════════════════════════════
    DEFAULT CATEGORIES — adapt based on business type
@@ -355,12 +356,104 @@ export default function DailyClosePage() {
 
   // Offline resilience
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [pendingCount, setPendingCount] = useState(getOfflineQueue().length);
+  // The whole queue, not just its length: "waiting for the network" and
+  // "waiting for YOUR confirmation" are two different promises to the owner
+  // and a single count cannot tell them apart. A close blocked on the anomaly
+  // guard used to be invisible (and, before that, deleted).
+  const [queue, setQueue] = useState(() => getOfflineQueue());
+  const queueCounts = useMemo(() => queueSummary(queue), [queue]);
+  const pendingCount = queueCounts.total;
+  // The queued close the owner is currently reviewing in the anomaly dialog.
+  const [reviewItem, setReviewItem] = useState(null);
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const [reviewError, setReviewError] = useState("");
+
+  // One sync at a time. Two overlapping runs would each POST the same close
+  // (the second gets a 409 and now says "already saved", which is merely
+  // noisy) — but more importantly the "online" listener and a double-tapped
+  // Sync button are one gesture apart, and concurrency around money is not
+  // something to leave to the merge logic alone.
+  const syncInFlight = useRef(false);
+  const [syncing, setSyncing] = useState(false);
 
   const doSync = async () => {
-    const left = await syncOfflineQueue();
-    setPendingCount(left);
-    if (left === 0) { fetchHistory(); fetchInsights(); }
+    if (syncInFlight.current) return;
+    syncInFlight.current = true;
+    setSyncing(true);
+    try {
+      const res = await syncOfflineQueue(postClose);
+      setQueue(res.remaining);
+      // Refresh whenever anything actually landed — a queue that still holds an
+      // item awaiting confirmation may STILL have synced three others.
+      if (res.synced > 0 || res.total === 0) { fetchHistory(); fetchInsights(); }
+    } finally {
+      syncInFlight.current = false;
+      setSyncing(false);
+    }
+  };
+
+  /**
+   * The Danish sentence for a close the server refused. The queue stores a
+   * CODE, never a sentence: an English string baked into the item would show
+   * up untranslated on the one surface that says money was not saved. The raw
+   * server text rides along as secondary detail for the owner's revisor.
+   */
+  const queueErrorText = (it) => (
+    it?.errorCode === QUEUE_ERR_SERVER
+      ? t("dcQueueErrServer", "BonBox could not receive it just now. It is still on this phone — try again in a moment.")
+      : t("dcQueueErrRejected", "The close was refused. Check the numbers and file this date in the close wizard.")
+  );
+
+  /** Drop a queued copy the owner no longer needs (it is already in the books). */
+  const dropQueuedClose = (item) => {
+    if (!item) return;
+    setQueue(removeFromOfflineQueue(item.id));
+  };
+
+  /**
+   * The owner acknowledged the anomaly on a QUEUED close. This is the only
+   * place acknowledge_anomaly is ever added to a queued payload — never the
+   * sync loop, which would walk past a money guard nobody had read.
+   */
+  const confirmQueuedClose = async (item) => {
+    if (!item) return;
+    setReviewSaving(true);
+    setReviewError("");
+    try {
+      await postClose({ ...item.payload, acknowledge_anomaly: true });
+      setQueue(removeFromOfflineQueue(item.id));
+      setReviewItem(null);
+      fetchHistory();
+      fetchInsights();
+      window.dispatchEvent(new Event("bonbox-data-changed"));
+    } catch (err) {
+      // Still not saved — keep the close, keep the reason, keep the dialog.
+      const status = err?.response?.status ?? null;
+      if (!err?.response) {
+        setReviewError(t("dcQueueErrOffline", "No connection right now. The close is still on this phone — try again when you're back online."));
+        setQueue(updateQueueItem(item.id, { state: QUEUE_NEEDS_CONFIRMATION }));
+      } else if (status === 409) {
+        // The owner already filed this date in the wizard (which is exactly
+        // what our own "cancel and re-open the date" note tells them to do).
+        // The money is in the books; this copy is now a duplicate.
+        setReviewError(t("dcQueueErrLocked", "This date is already locked in your kasserapport, so nothing was changed. You can remove this copy."));
+        setQueue(updateQueueItem(item.id, {
+          state: QUEUE_ALREADY_SAVED, errorCode: null,
+          errorDetail: errText(err, ""), httpStatus: status,
+        }));
+      } else {
+        const code = status >= 500 ? QUEUE_ERR_SERVER : QUEUE_ERR_REJECTED;
+        setReviewError(code === QUEUE_ERR_SERVER
+          ? t("dcQueueErrServer", "BonBox could not receive it just now. It is still on this phone — try again in a moment.")
+          : t("dcQueueErrRejected", "The close was refused. Check the numbers and file this date in the close wizard."));
+        setQueue(updateQueueItem(item.id, {
+          state: QUEUE_FAILED, errorCode: code,
+          errorDetail: errText(err, ""), httpStatus: status,
+        }));
+      }
+    } finally {
+      setReviewSaving(false);
+    }
   };
 
   useEffect(() => {
@@ -386,11 +479,16 @@ export default function DailyClosePage() {
   // `history` (already fetched above) so no extra API call is needed.
   // The same JustLockedCard component is used for both the in-session
   // lock and the cross-visit re-entry case — single source of truth.
-  const todayIso = new Date().toISOString().slice(0, 10);
+  //
+  // The day we ask for is the BUSINESS day, not the UTC calendar day. This
+  // line used to read `new Date().toISOString().slice(0, 10)`, which is wrong
+  // twice over: UTC (a Dane closing at 01:14 CEST is already "yesterday" in
+  // UTC) and calendar-based (the close is filed against the 06:00 business
+  // day). A bar locking at 03:00 and reloading watched its own close vanish
+  // from the top of the page and was invited to close the day again.
+  const todayIso = businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR);
   const todaysConfirmedClose = useMemo(
-    () => (history || []).find(
-      (dc) => (dc?.date || "").slice(0, 10) === todayIso && dc?.status === "confirmed",
-    ),
+    () => findConfirmedCloseFor(history, todayIso),
     [history, todayIso],
   );
   // We prefer the *fresh* lockResult from this session (it carries the
@@ -436,21 +534,122 @@ export default function DailyClosePage() {
         subtitle={t(todaySubtitleKey)}
         actions={
           (!isOnline || pendingCount > 0) && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
               {!isOnline && (
                 <span className="text-[10px] px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full font-semibold flex items-center gap-1">
                   <span className="w-1.5 h-1.5 bg-gray-500 rounded-full" /> {t("dcOffline", "Offline")}
                 </span>
               )}
-              {pendingCount > 0 && (
-                <Button variant="secondary" size="sm" onClick={doSync} disabled={!isOnline}>
-                  {isOnline ? t("dcSyncPending", "Sync {count} pending", { count: pendingCount }) : t("dcQueued", "{count} queued", { count: pendingCount })}
+              {/* Waiting on the NETWORK — the owner can only wait, or tap
+                  Sync once the connection is back. */}
+              {queueCounts.waitingNetwork > 0 && (
+                <Button variant="secondary" size="sm" onClick={doSync} disabled={!isOnline || syncing}>
+                  {!isOnline
+                    ? t("dcQueuedNetwork", "{count} waiting for network", { count: queueCounts.waitingNetwork })
+                    : syncing
+                      ? t("dcSyncRunning", "Sending…")
+                      : t("dcSyncPending", "Sync {count} pending", { count: queueCounts.waitingNetwork })}
                 </Button>
+              )}
+              {/* Waiting on the OWNER — a close the anomaly guard stopped.
+                  Nothing will ever send it until they look at it, so it gets
+                  its own amber, tappable chip instead of hiding inside a
+                  "pending" count that implies the app is handling it. */}
+              {queueCounts.needsConfirmation > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="!bg-amber-50 dark:!bg-amber-900/20 !text-amber-700 dark:!text-amber-300 !border-amber-200 dark:!border-amber-800"
+                  onClick={() => { setReviewError(""); setReviewItem(firstNeedingConfirmation(queue)); }}
+                  iconLeft={<Icon name="AlertTriangle" size={14} />}
+                >
+                  {t("dcQueuedNeedsConfirm", "{count} waiting for your confirmation", { count: queueCounts.needsConfirmation })}
+                </Button>
+              )}
+              {queueCounts.failed > 0 && (
+                <Button variant="secondary" size="sm" onClick={doSync} disabled={!isOnline || syncing}
+                  className="!bg-red-50 dark:!bg-red-900/20 !text-red-600 dark:!text-red-400 !border-red-200 dark:!border-red-800"
+                  iconLeft={<Icon name="AlertTriangle" size={14} />}>
+                  {t("dcQueuedFailed", "{count} couldn't be saved — retry", { count: queueCounts.failed })}
+                </Button>
+              )}
+              {/* Already in the books. NOT red and NOT a retry — a close the
+                  server has locked is money that is safe; the only thing left
+                  is to clear the spare copy off the phone. */}
+              {queueCounts.alreadySaved > 0 && (
+                <span className="text-[10px] px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full font-semibold">
+                  {t("dcQueuedAlreadySaved", "{count} already saved", { count: queueCounts.alreadySaved })}
+                </span>
               )}
             </div>
           )
         }
       />
+
+      {/* ─── Queued closes that need the owner, not the network ───
+          A close held back by the anomaly guard, or refused by the server,
+          is money that is NOT in the books. It gets a named row with the
+          date, the reason, and one tap to the same double-check dialog the
+          wizard uses — never a silent counter. */}
+      {(queueCounts.needsConfirmation > 0 || queueCounts.failed > 0 || queueCounts.alreadySaved > 0) && (
+        <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4 space-y-3">
+          <p className="text-sm font-semibold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+            <Icon name="AlertTriangle" size={16} />
+            {t("dcQueueBlockedTitle", "Not saved yet")}
+          </p>
+          {queue.filter((it) => it.state === QUEUE_NEEDS_CONFIRMATION || it.state === QUEUE_FAILED
+            || it.state === QUEUE_ALREADY_SAVED).map((it) => (
+            <div key={it.id} className="flex flex-col sm:flex-row sm:items-center gap-2 justify-between">
+              <div className="min-w-0 text-xs text-amber-900 dark:text-amber-200">
+                <span className="font-semibold">{formatDateClear(it.payload?.date) || it.payload?.date}</span>
+                {" — "}
+                {it.state === QUEUE_NEEDS_CONFIRMATION
+                  ? t("dcQueueBlockedAnomaly", "the numbers look unusual, so nothing was saved. Take a look before it locks.")
+                  : it.state === QUEUE_ALREADY_SAVED
+                    ? t("dcQueueErrLocked", "This date is already locked in your kasserapport, so nothing was changed. You can remove this copy.")
+                    : queueErrorText(it)}
+                {/* The server's own wording, kept as secondary detail for the
+                    owner's revisor — never as the headline, because it is
+                    English and this is the Danish audit trail. */}
+                {it.errorDetail && it.state === QUEUE_FAILED && (
+                  <span className="block mt-0.5 opacity-70">{it.errorDetail}</span>
+                )}
+              </div>
+              {it.state === QUEUE_NEEDS_CONFIRMATION && (
+                <Button variant="secondary" size="sm"
+                  onClick={() => { setReviewError(""); setReviewItem(it); }}>
+                  {t("dcQueueReviewCta", "Review")}
+                </Button>
+              )}
+              {/* Every row that is NOT waiting on the owner's confirmation gets
+                  a way out. Without it a close the server already holds sits
+                  under a permanent alarm with no button at all. */}
+              {it.state !== QUEUE_NEEDS_CONFIRMATION && (
+                <Button variant="secondary" size="sm" onClick={() => dropQueuedClose(it)}
+                  iconLeft={<Icon name="Trash2" size={14} />}>
+                  {t("dcQueueRemoveCopy", "Remove this copy")}
+                </Button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* The wizard's own double-check dialog, re-used for a QUEUED close.
+          Same component, same words, same guard — the only difference is
+          that the payload comes from the device instead of the form. */}
+      {reviewItem && (
+        <CloseAnomalyDialog
+          t={t}
+          anomaly={reviewItem.anomaly || {}}
+          dateLabel={formatDateClear(reviewItem.payload?.date) || reviewItem.payload?.date || ""}
+          saving={reviewSaving}
+          error={reviewError}
+          extraNote={t("dcQueueReviewEdit", "Want to change the numbers? Cancel, then open this date in the close wizard — this copy stays on your phone until it is saved.")}
+          onCancel={() => { setReviewItem(null); setReviewError(""); }}
+          onConfirm={() => confirmQueuedClose(reviewItem)}
+        />
+      )}
 
       {/* ─── Locked-today summary at the TOP of the page (#150) ───
           When today already has a confirmed close, the JustLockedCard
@@ -549,7 +748,7 @@ export default function DailyClosePage() {
             }
             setTab("history");
           }}
-          onQueued={() => { setPendingCount(getOfflineQueue().length); setTab("history"); }} />}
+          onQueued={() => { setQueue(getOfflineQueue()); setTab("history"); }} />}
         {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} insights={insights}
           // #150 — the locked-today card now renders at the top of the
           // page (above LiveKpisToday). Don't render it inside History
@@ -567,17 +766,78 @@ export default function DailyClosePage() {
 
 
 /* ═══════════════════════════════════════════════════════════
+   CLOSE ANOMALY DOUBLE-CHECK DIALOG
+   ═══════════════════════════════════════════════════════════ */
+/**
+ * The close_sanity soft guard, as one dialog.
+ *
+ * Two callers, one set of words: the wizard (the owner is standing in front
+ * of the form) and the page header (the same guard tripped on a close that
+ * synced from the offline queue hours later). Extracted so the queued case
+ * cannot drift into a second, weaker warning — it is the same money guard.
+ *
+ * Deliberately has no "lock it anyway" shortcut of its own: `onConfirm` is
+ * the ONLY path that sends acknowledge_anomaly, and it is always a tap.
+ */
+/**
+ * `dateLabel` is required whenever the close being acknowledged is NOT the one
+ * the owner is looking at. The message templates say "Dagens total" — true in
+ * the wizard, where the date is on screen a few rows up, and false for a
+ * QUEUED close, which by construction sat on the device through an offline
+ * stretch and can be any business date. Acknowledging a money guard without
+ * knowing which day it locks is not an acknowledgement.
+ */
+function CloseAnomalyDialog({ t, anomaly, saving, onCancel, onConfirm, error = "", extraNote = "", dateLabel = "" }) {
+  const a = anomaly || {};
+  const pct = Math.abs(Math.round((a.delta_pct || 0) * 100));
+  // Numbers only, grouped da-DK. NOT formatOwnerMoney/formatKr here: the
+  // closeAnomaly*Msg templates already carry the unit ("{today} kr"), so a
+  // formatter that appends "kr." would print "17.030 kr. kr". The locale is
+  // pinned explicitly for the same reason the money primitives exist — a bare
+  // toLocaleString() uses the BROWSER locale and renders 17030 as "17,030",
+  // which a Dane reads as seventeen kroner.
+  const today = Math.round(a.today_total || 0).toLocaleString("da-DK");
+  const avg = Math.round(a.baseline_avg || 0).toLocaleString("da-DK");
+  const msgKey = a.reason === "high" ? "closeAnomalyHighMsg" : "closeAnomalyLowMsg";
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-5 sm:p-6 animate-fadeIn">
+        <div className="flex items-start gap-3">
+          <div className="shrink-0 w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center"><Icon name="AlertTriangle" size={20} className="text-amber-600 dark:text-amber-400" /></div>
+          <div className="min-w-0">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white">{t("closeAnomalyTitle")}</h3>
+            {dateLabel && (
+              <p className="mt-0.5 text-xs font-semibold text-gray-500 dark:text-gray-400">
+                {t("dcAnomalyForDate", "Close for {date}", { date: dateLabel })}
+              </p>
+            )}
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t(msgKey, { today, pct, avg })}</p>
+            <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{t("closeAnomalyHint")}</p>
+            {extraNote && <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{extraNote}</p>}
+            {error && (
+              <p className="mt-3 text-xs text-red-600 dark:text-red-400 flex items-start gap-1.5">
+                <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" /> <span>{error}</span>
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="mt-5 flex gap-3 justify-end">
+          <Button variant="secondary" onClick={onCancel} disabled={saving}>
+            {t("closeAnomalyCancel")}
+          </Button>
+          <Button variant="accent" onClick={onConfirm} disabled={saving}>
+            {saving ? "…" : t("closeAnomalyConfirm")}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════════════════════════
    MULTI-STEP CLOSE FORM
    ═══════════════════════════════════════════════════════════ */
-/** Compute the "business date" — if current hour < cutoff, it's still yesterday's shift. */
-function getBusinessDate(cutoffHour = 0) {
-  const now = new Date();
-  const d = new Date(now);
-  if (cutoffHour > 0 && now.getHours() < cutoffHour) {
-    d.setDate(d.getDate() - 1);
-  }
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnline, editDraft, onEditConsumed, smartScanPrefill, smartScanVerifyHints, onSmartScanConsumed, manualRequest = 0 }) {
   const navigate = useNavigate();  // was undefined here → navigate("/connections") crashed (lines ~1029/1682)
@@ -652,8 +912,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // convention) until the prefill returns the owner's real day_cutoff_hour.
   // Was 0 (midnight) → a late-night closer at 01:30 saw today pre-selected
   // and reconciled against the wrong day's sales.
-  const [businessDate, setBusinessDate] = useState(() => getBusinessDate(6));
-  const [cutoffHour, setCutoffHour] = useState(6);
+  // The local getBusinessDate() helper that used to live in this file is gone:
+  // businessTodayIso() (utils/dateFormat) is the same rule, already the client
+  // twin of the backend's business_today_local(), and already unit-tested —
+  // one definition of "today" for the page header AND the wizard.
+  const [businessDate, setBusinessDate] = useState(() => businessTodayIso(DEFAULT_CLOSE_CUTOFF_HOUR));
+  const [cutoffHour, setCutoffHour] = useState(DEFAULT_CLOSE_CUTOFF_HOUR);
 
   // Step 1: Revenue
   const [revCats, setRevCats] = useState(defaultRevCats);
@@ -849,40 +1113,65 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const [scanMomsMode, setScanMomsMode] = useState("with-moms");
   const fileInputRef = useRef(null);
 
-  // Merge two OCR scan results — newer non-null values overwrite
-  const mergeScans = (existing, incoming) => {
-    if (!existing) return incoming;
-    const merged = { ...existing };
-    const rev = { ...(existing.revenue || {}) };
-    Object.entries(incoming.revenue || {}).forEach(([k, v]) => { if (v != null) rev[k] = v; });
-    merged.revenue = rev;
-    const pay = { ...(existing.payments || {}) };
-    Object.entries(incoming.payments || {}).forEach(([k, v]) => { if (v != null) pay[k] = v; });
-    merged.payments = pay;
-    if (incoming.tips != null) merged.tips = incoming.tips;
-    if (incoming.moms_total != null) merged.moms_total = incoming.moms_total;
-    if (incoming.revenue_total != null) merged.revenue_total = incoming.revenue_total;
-    // Rich Z-report fields — last scan wins (typical retake = better photo)
-    if (incoming.prefill) merged.prefill = incoming.prefill;
-    if (incoming.cash_denominations) merged.cash_denominations = incoming.cash_denominations;
-    if (incoming.cash_counted_total != null) merged.cash_counted_total = incoming.cash_counted_total;
-    if (incoming.per_clerk) merged.per_clerk = incoming.per_clerk;
-    if (incoming.doc_type) merged.doc_type = incoming.doc_type;
-    // Structured 3-tier payment view (headline / card_breakdown / adjustments)
-    // for the detection-driven breakdown display. Last scan wins.
-    if (incoming.payments_view) merged.payments_view = incoming.payments_view;
-    // POS terminal auto-detect (Commit 2) — last scan wins. A re-scan
-    // with a clearer header may flip the detection from null to a real
-    // provider chip, so we always overwrite (including with null).
-    if ("detected_provider" in incoming) {
-      merged.detected_provider = incoming.detected_provider;
+  // ─── Two scans, one kasserapport ──────────────────────────────────
+  //
+  // mergeScans now lives in utils/dailyCloseScanMerge.js (testable, and the
+  // one place the rules are written down). What stays here is the QUESTION:
+  // when a second scan arrives and BOTH carry a headline total, only the
+  // owner knows whether that is a second terminal or a better photo of the
+  // first one. The old code assumed "better photo" and overwrote — which is
+  // how a two-till café locked one till's revenue into a signed kasserapport.
+  //
+  // pendingScans holds every scan we have NOT been told what to do with, in
+  // arrival order. It is a QUEUE, not a slot: the file input is `multiple` and
+  // the handler awaits one scan per file in a loop, so picking three till
+  // photos in one go used to overwrite the second one with the third before
+  // anybody had answered for it — the middle terminal's numbers never reached
+  // state, were never asked about, and were never merged. One question is
+  // asked per scan, and no scan is discarded to ask it.
+  //
+  // Both refs mirror their state because handleFileSelect is awaited in that
+  // loop — the closure values would be one file stale.
+  const [pendingScans, setPendingScans] = useState([]);
+  const pendingScansRef = useRef([]);
+  const applyPendingScans = (next) => {
+    pendingScansRef.current = next;
+    setPendingScans(next);
+  };
+  const pendingScan = pendingScans[0] || null;
+  // One level of undo for a terminal choice, so a wrong tap is catchable
+  // before anything is locked. It restores the unanswered queue too — an undo
+  // means "I answered that wrong", so the question has to come back.
+  const [mergeUndo, setMergeUndo] = useState(null);
+  const scanResultRef = useRef(null);
+  const applyScanResult = (next) => {
+    scanResultRef.current = next;
+    setScanResult(next);
+  };
+  useEffect(() => { scanResultRef.current = scanResult; }, [scanResult]);
+
+  /** The owner answered "another terminal" (sum) or "same terminal" (replace). */
+  const resolveTerminalChoice = (mode) => {
+    const [head, ...rest] = pendingScansRef.current;
+    if (!head) return;
+    setMergeUndo({ scan: scanResultRef.current, pending: pendingScansRef.current });
+    let merged = mergeScans(scanResultRef.current, head, mode);
+    // Everything still queued that is NOT ambiguous against the new state
+    // folds in straight away. We only ever ask when the question is real, so a
+    // batch of "one till photo + two detail pages" costs exactly one tap.
+    const waiting = [...rest];
+    while (waiting.length && !needsTerminalChoice(merged, waiting[0])) {
+      merged = mergeScans(merged, waiting.shift());
     }
-    merged.raw_text = ((existing.raw_text || "") + "\n---\n" + (incoming.raw_text || "")).slice(0, 2000);
-    merged.ocr_available = true;
-    const allVals = [...Object.values(merged.revenue || {}), ...Object.values(merged.payments || {}), merged.tips, merged.moms_total, merged.revenue_total];
-    const found = allVals.filter(v => v != null).length;
-    merged.confidence = found >= 3 ? "high" : found >= 1 ? "medium" : "low";
-    return merged;
+    applyScanResult(merged);
+    applyPendingScans(waiting);
+  };
+
+  const undoMerge = () => {
+    if (!mergeUndo) return;
+    applyScanResult(mergeUndo.scan);
+    applyPendingScans(mergeUndo.pending);
+    setMergeUndo(null);
   };
 
   const handleFileSelect = async (rawFile) => {
@@ -911,8 +1200,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       // the backend actually saw)
       const thumbUrl = URL.createObjectURL(file);
       setScanPhotos(prev => [...prev, { url: thumbUrl, name: file.name }]);
-      // Merge with existing results
-      setScanResult(prev => mergeScans(prev, res.data));
+      // Merge with existing results — unless the merge is ambiguous, in which
+      // case nothing is merged until the owner says which it is. Reading the
+      // ref (not the closure) matters: several files are awaited in a loop.
+      const current = scanResultRef.current;
+      // Once ANY scan is waiting on the owner, every later scan waits behind
+      // it. Merging a straggler into the numbers while an unanswered question
+      // sits on top of them would mean answering that question about a state
+      // the owner never saw.
+      if (pendingScansRef.current.length || (current && needsTerminalChoice(current, res.data))) {
+        applyPendingScans([...pendingScansRef.current, res.data]);
+      } else {
+        applyScanResult(mergeScans(current, res.data));
+      }
       // Capture the durable storage URL — first scan wins so editing
       // a draft and re-scanning doesn't churn the persisted reference.
       if (res.data?.image_url && !receiptPhotoUrl) {
@@ -1159,8 +1459,20 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     // Fill tips (only for types that have tips). Z-reports often show
     // tips as negative (paid out) — keep the sign for accountant clarity.
     if (config.hasTips && scanResult.tips) setTipsTotal(String(scanResult.tips));
-    // If OCR detected MOMS, switch to manual mode with the scanned value
-    if (scanResult.moms_total) {
+    // If OCR detected MOMS, switch to manual mode with the scanned value —
+    // UNLESS that number covers only one of the tills we just summed.
+    //
+    // This is the one prefill that must fail closed. When terminal 2's MOMS
+    // line was unreadable, sumMerge keeps terminal 1's figure and flags it in
+    // merge_info.incompleteFields; writing it in as "the MOMS from the
+    // receipt" puts a one-till VAT base against a two-till revenue_total, and
+    // the backend takes a supplied moms_total verbatim and derives
+    // revenue_ex_moms from it. That is an under-declared MOMS in a signed
+    // kasserapport. Leaving momsMode on "auto" derives it from the SUMMED
+    // revenue instead, which is right for a standard-rate day and, when it
+    // isn't, is a number the owner can see and override.
+    const mergeIncomplete = scanResult.merge_info?.incompleteFields || [];
+    if (scanResult.moms_total && !mergeIncomplete.includes("moms_total")) {
       setMomsMode("manual");
       setMomsManual(String(scanResult.moms_total));
     }
@@ -1208,13 +1520,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         const serverCutoff = res.data.day_cutoff_hour || 0;
         if (serverCutoff !== cutoffHour) {
           setCutoffHour(serverCutoff);
-          const correctedDate = getBusinessDate(serverCutoff);
+          const correctedDate = businessTodayIso(serverCutoff);
           if (correctedDate !== today) {
             setBusinessDate(correctedDate);
             // Re-fetch with corrected date (don't loop — cutoffHour dep is stable after this)
           }
         }
-        setBusinessDate(getBusinessDate(serverCutoff));
+        setBusinessDate(businessTodayIso(serverCutoff));
 
         if (res.data.has_data) {
           setPrefill(res.data);
@@ -1380,7 +1692,15 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
   const momsTotal = useMemo(() => {
     if (momsMode === "manual") return parseFloat(momsManual) || 0;
-    if (scanResult?.moms_total) return scanResult.moms_total;
+    // Same guard as applyScanValues: a scanned MOMS that covers one of two
+    // summed tills is not "the MOMS from the receipt". Without this, flipping
+    // the toggle back to Auto did NOT recover — this branch returned the
+    // one-till figure while the UI printed "Auto-calculated: Revenue × 25% /
+    // 125%", a computation that had not happened.
+    const scannedMoms = (scanResult?.merge_info?.incompleteFields || []).includes("moms_total")
+      ? null
+      : scanResult?.moms_total;
+    if (scannedMoms) return scannedMoms;
     return taxableBase > 0 && vatRate > 0 ? Math.round((taxableBase * vatRate / vatDivisor) * 100) / 100 : 0;
   }, [momsMode, momsManual, scanResult, taxableBase]);
   const revenueExMoms = useMemo(() => Math.round((revenueTotal - momsTotal) * 100) / 100, [revenueTotal, momsTotal]);
@@ -1504,8 +1824,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     if (opts.acknowledgeAnomaly) payload.acknowledge_anomaly = true;
 
     if (!navigator.onLine) {
-      addToOfflineQueue(payload);
+      // A queue write can be refused (quota, Safari private mode). Saying
+      // "queued" when nothing was stored would be the same lie the old sync
+      // loop told — tell the owner instead, so they can write the numbers down.
+      const queued = addToOfflineQueue(payload);
       setSaving(false);
+      if (!queued) { setError(t("dcQueueStoreFailed", "This phone could not store the close offline. Note the numbers down and try again when you're back online.")); return; }
       onQueued?.();
       return;
     }
@@ -1543,9 +1867,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       }
     } catch (err) {
       if (!err.response) {
-        // Network failed mid-request — queue for later
-        addToOfflineQueue(payload);
+        // Network failed mid-request — queue for later (and say so honestly
+        // if the device refused to store it).
+        const queued = addToOfflineQueue(payload);
         setSaving(false);
+        if (!queued) { setError(t("dcQueueStoreFailed", "This phone could not store the close offline. Note the numbers down and try again when you're back online.")); return; }
         onQueued?.();
         return;
       }
@@ -1574,39 +1900,113 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   }, [scanResult, defaultRevCats, defaultPayMethods]);
   const scanFieldsTotal = defaultRevCats.length + defaultPayMethods.length + (config.hasTips ? 1 : 0);
 
+  /**
+   * Owner-facing names for the lines a sum could NOT add up.
+   *
+   * "Some lines were only on one of the receipts" is true but useless: the
+   * owner cannot check a line we refuse to name, and the one that matters
+   * most (MOMS) is the one that would otherwise be filed one-till-short.
+   * Per-terminal documents (cash denominations, per-clerk splits) are left
+   * out on purpose — they are not money lines the owner types.
+   */
+  const mergeIncompleteLabels = useMemo(() => {
+    const fields = scanResult?.merge_info?.incompleteFields || [];
+    if (!fields.length) return [];
+    const label = (f) => {
+      if (f === "moms_total") return vatName;
+      if (f === "tips") return t("tipsLabel", "Tips");
+      if (f === "revenue_total") return t("totalRevenue", "Total revenue");
+      if (f === "cash_counted_total") return t("cashCounted", "Cash counted");
+      if (f.startsWith("revenue.")) {
+        const k = f.slice("revenue.".length);
+        return revCats.find((c) => c.key === k)?.label || k;
+      }
+      if (f.startsWith("payments.")) {
+        const k = f.slice("payments.".length);
+        return payMethods.find((m) => m.key === k)?.label || k;
+      }
+      return null;
+    };
+    return Array.from(new Set(fields.map(label).filter(Boolean)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scanResult, revCats, payMethods, vatName]);
+
+  /**
+   * The scanned MOMS, but only when it still describes ALL the revenue on
+   * screen. After a sum whose second Z-bon had no readable MOMS line, the
+   * figure covers one till out of two — see the guard in applyScanValues.
+   */
+  const scanMomsTrusted = (scanResult?.merge_info?.incompleteFields || []).includes("moms_total")
+    ? null
+    : scanResult?.moms_total;
+
+  /**
+   * "These numbers are a SUM of two tills" — rendered on the scan card AND on
+   * every step of the wizard, review included.
+   *
+   * It used to live only inside the scan result card, which unmounts the
+   * instant the owner taps "Use these values — jump to review". That is the
+   * same tap that lands them on the lock step: the per-terminal totals, the
+   * Undo and the "check these lines before you lock" note all disappeared on
+   * the way to the screen they were warning about. A disclosure the owner
+   * cannot see while deciding is not a disclosure.
+   *
+   * A plain function, not a nested component: a component declared inside
+   * CloseForm would remount (and lose focus/animation) on every render.
+   */
+  const renderMergeSummary = ({ withUndo = false } = {}) => {
+    if (scanResult?.merge_info?.mode !== MERGE_SUM) return null;
+    const info = scanResult.merge_info;
+    return (
+      <div className="rounded-xl p-3 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/40 text-sm space-y-1">
+        <div className="flex items-center justify-between gap-3">
+          <span className="font-medium text-gray-900 dark:text-gray-100 inline-flex items-center gap-1.5">
+            <Icon name="Calculator" size={15} />
+            {t("scanMergedTerminals", "{count} terminals added together", { count: info.scans })}
+          </span>
+          {/* Undo belongs to the scan card — by the review step the owner has
+              already left the photos behind, and an undo there would silently
+              un-sum numbers they have since typed over. */}
+          {withUndo && mergeUndo && (
+            <button onClick={undoMerge}
+              className="text-xs text-gray-500 dark:text-gray-400 underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-200">
+              {t("scanMergedUndo", "Undo")}
+            </button>
+          )}
+        </div>
+        <div className="text-xs text-gray-600 dark:text-gray-300">
+          {(info.terminalTotals || []).map((v) => formatOwnerMoney(v, currency)).join("  +  ")}
+          {" = "}
+          <strong>{formatOwnerMoney(headlineTotal(scanResult), currency)}</strong>
+        </div>
+        {/* Honest about what could NOT be added, BY NAME. "Terminal 2's MOMS
+            line was unreadable" and "terminal 2 had no MOMS" look the same on
+            a photo, so we say which lines instead of inventing a sum. */}
+        {mergeIncompleteLabels.length > 0 && (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            {t("scanMergedIncompleteNamed", "Only on one of the receipts, so not added up: {fields}. Check them before you lock.", {
+              fields: mergeIncompleteLabels.join(", "),
+            })}
+          </p>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* ─── Close anomaly double-check (close_sanity soft guard) ───
           Shown when today's total is far off the recent same-weekday
           baseline — catches a misread Z-report total before it locks. */}
-      {anomalyCheck && (() => {
-        const pct = Math.abs(Math.round((anomalyCheck.delta_pct || 0) * 100));
-        const today = Math.round(anomalyCheck.today_total || 0).toLocaleString("da-DK");
-        const avg = Math.round(anomalyCheck.baseline_avg || 0).toLocaleString("da-DK");
-        const msgKey = anomalyCheck.reason === "high" ? "closeAnomalyHighMsg" : "closeAnomalyLowMsg";
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-5 sm:p-6 animate-fadeIn">
-              <div className="flex items-start gap-3">
-                <div className="shrink-0 w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center"><Icon name="AlertTriangle" size={20} className="text-amber-600 dark:text-amber-400" /></div>
-                <div className="min-w-0">
-                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">{t("closeAnomalyTitle")}</h3>
-                  <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t(msgKey, { today, pct, avg })}</p>
-                  <p className="mt-2 text-xs text-gray-400 dark:text-gray-500">{t("closeAnomalyHint")}</p>
-                </div>
-              </div>
-              <div className="mt-5 flex gap-3 justify-end">
-                <Button variant="secondary" onClick={() => setAnomalyCheck(null)} disabled={saving}>
-                  {t("closeAnomalyCancel")}
-                </Button>
-                <Button variant="accent" onClick={() => handleSubmit({ acknowledgeAnomaly: true })} disabled={saving}>
-                  {saving ? "…" : t("closeAnomalyConfirm")}
-                </Button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
+      {anomalyCheck && (
+        <CloseAnomalyDialog
+          t={t}
+          anomaly={anomalyCheck}
+          saving={saving}
+          onCancel={() => setAnomalyCheck(null)}
+          onConfirm={() => handleSubmit({ acknowledgeAnomaly: true })}
+        />
+      )}
       {/* Progress bar */}
       <div className="flex">
         {showScanUI ? (
@@ -1635,7 +2035,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <div className="flex justify-center mb-3"><Icon name="Image" size={36} className="text-white" /></div>
               <h2 className="text-xl font-bold text-white mb-1">{t("scanZReportTitle", "Scan your Z-report / kasserapport")}</h2>
               <p className="text-gray-100 text-sm mb-5">
-                {t("scanZReportBody", "Take photos or upload images of your Z-report — add multiple pages and we'll merge the results.")}
+                {/* Fallback kept in step with the key — a stale inline default
+                    is the repo's own documented i18n trap: grep finds the old
+                    promise long after useLanguage was corrected. */}
+                {t("scanZReportBody", "Take a photo of your Z-report. Extra pages are merged into one set of numbers — and when two photos each have their own total, we ask before we add them together.")}
               </p>
               <div className="flex flex-wrap gap-3 justify-center sm:flex-nowrap">
                 <button
@@ -1713,6 +2116,57 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* ─── SCAN RESULT CARD ─── */}
         {scanMode === "result" && scanResult && (
           <div className="space-y-5">
+            {/* ─── "Another terminal, or a better photo?" ───────────────
+                The only question we ask, asked only when it is real: both
+                scans carry a headline total, so the numbers either ADD UP
+                or REPLACE and we cannot tell which. One tap either way,
+                with both totals on the buttons so the owner answers by
+                looking at the numbers, not by parsing a sentence. Nothing
+                is merged until they answer. */}
+            {pendingScan && (() => {
+              const existingTotal = headlineTotal(scanResult);
+              const incomingTotal = headlineTotal(pendingScan);
+              return (
+                <div className="rounded-xl p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 space-y-3">
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-100 flex items-center gap-1.5">
+                    <Icon name="HelpCircle" size={16} />
+                    {t("scanSecondTotalTitle", "Is this another terminal?")}
+                  </p>
+                  <p className="text-xs text-amber-800 dark:text-amber-200">
+                    {t("scanSecondTotalBody", "This scan has its own total of {incoming}. The one on screen is {existing}.", {
+                      incoming: formatOwnerMoney(incomingTotal, currency),
+                      existing: formatOwnerMoney(existingTotal, currency),
+                    })}
+                  </p>
+                  {/* Picking several photos at once is one tap, so say how many
+                      are still in line — otherwise answering once looks like
+                      answering for all of them. */}
+                  {pendingScans.length > 1 && (
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      {t("scanPendingMore", "{count} more photos are waiting — you'll be asked about each one.", { count: pendingScans.length - 1 })}
+                    </p>
+                  )}
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button variant="primary" size="sm" className="flex-1"
+                      onClick={() => resolveTerminalChoice(MERGE_SUM)}
+                      iconLeft={<Icon name="Plus" size={15} />}>
+                      {t("scanSecondTotalSum", "Another terminal — add them up ({sum})", {
+                        sum: formatOwnerMoney((existingTotal || 0) + (incomingTotal || 0), currency),
+                      })}
+                    </Button>
+                    <Button variant="secondary" size="sm" className="flex-1"
+                      onClick={() => resolveTerminalChoice(MERGE_REPLACE)}
+                      iconLeft={<Icon name="RefreshCw" size={15} />}>
+                      {t("scanSecondTotalReplace", "Same terminal — use the new photo ({incoming})", {
+                        incoming: formatOwnerMoney(incomingTotal, currency),
+                      })}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {!pendingScan && renderMergeSummary({ withUndo: true })}
             {/* ─── Conflict warning — Commit 3 ──────────────────────────
                 Fires when the scan's detected provider disagrees with a
                 terminal the owner has LOCKED to a different provider.
@@ -2012,7 +2466,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                         ? t("scanGapNoBreakdown", "We couldn't detect the per-category breakdown")
                         : t("scanGapDetectedSome", "We detected {detected} of {total} revenue categories", { detected: detected.length, total: defaultRevCats.length })}
                     </strong>
-                    {" "}{t("scanGapTotalIs", "from this receipt — total is {amount}.", { amount: `${scanResult.revenue_total.toLocaleString()} ${currency}` })}
+                    {" "}{t("scanGapTotalIs", "from this receipt — total is {amount}.", { amount: formatOwnerMoney(scanResult.revenue_total, currency) })}
                   </div>
                   <div className="text-xs opacity-90">
                     {allEmpty
@@ -2052,10 +2506,17 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   </div>
                 );
               })}
+              {/* Money on this card goes through formatOwnerMoney. It used to
+                  be a bare `toLocaleString() + currency code`, which uses the
+                  BROWSER locale: a Danish owner on an English phone read
+                  17.030 kr as "17,030 DKK", and in Danish the comma is the
+                  DECIMAL separator — seventeen kroner. This is the figure the
+                  "another terminal?" question is asked about, so it has to be
+                  the one the owner would recognise. */}
               {scanResult.revenue_total && (
                 <div className="flex justify-between pt-2 border-t dark:border-gray-600 text-sm font-bold dark:text-white">
                   <span>{t("totalRevenue")}</span>
-                  <span>{scanResult.revenue_total.toLocaleString()} {currency}</span>
+                  <span>{formatOwnerMoney(scanResult.revenue_total, currency)}</span>
                 </div>
               )}
             </div>
@@ -2065,12 +2526,16 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08))" }}>
               <h3 className="font-semibold text-sm flex items-center gap-2" style={{ color: "#6366f1" }}>
                 {vatName} ({vatRatePct}%)
-                {scanResult.moms_total && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded">OCR</span>}
+                {/* The OCR badge is a claim: "this number came off the paper".
+                    After a sum whose second Z-bon had no readable MOMS line it
+                    would be a one-till figure badged as the day's MOMS, sitting
+                    under a two-till total. Same guard as applyScanValues. */}
+                {scanMomsTrusted && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded">OCR</span>}
               </h3>
               <div className="flex justify-between text-sm dark:text-gray-300">
                 <span>{t("totalMoms")}</span>
                 <span className="font-semibold" style={{ color: "#6366f1" }}>
-                  {(scanResult.moms_total || (vatRate > 0 ? Math.round(((scanResult.revenue_total || 0) * vatRate / vatDivisor) * 100) / 100 : 0)).toLocaleString()} {currency}
+                  {formatOwnerMoney(scanMomsTrusted || (vatRate > 0 ? Math.round(((scanResult.revenue_total || 0) * vatRate / vatDivisor) * 100) / 100 : 0), currency)}
                 </span>
               </div>
               {defaultRevCats.map(c => {
@@ -2080,7 +2545,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 return (
                   <div key={c.key} className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
                     <span>{c.label.split(" / ")[0]} {t("udenMomsSuffix", "(uden moms)")}</span>
-                    <span>{udenMoms.toLocaleString()} {currency}</span>
+                    <span>{formatOwnerMoney(udenMoms, currency)}</span>
                   </div>
                 );
               })}
@@ -2132,7 +2597,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       <span>{k === "betalingskort"
                         ? t("brandBetalingskort", "Betalingskort (terminal)")
                         : k.charAt(0).toUpperCase() + k.slice(1)}</span>
-                      <span className="tabular-nums">{(typeof v === "number" ? v : 0).toLocaleString()} {currency}</span>
+                      <span className="tabular-nums">{formatOwnerMoney(typeof v === "number" ? v : 0, currency)}</span>
                     </div>
                   ))}
                 </div>
@@ -2172,7 +2637,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 </div>
                 <div className="flex justify-between text-xs text-gray-600 dark:text-gray-300">
                   <span>{t("adjSurcharge", "Surcharge")}</span>
-                  <span className="tabular-nums">{scanResult.payments_view.adjustments.surcharge.toLocaleString()} {currency}</span>
+                  <span className="tabular-nums">{formatOwnerMoney(scanResult.payments_view.adjustments.surcharge, currency)}</span>
                 </div>
               </div>
             )}
@@ -2207,23 +2672,33 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
             )}
 
-            {/* Action buttons */}
+            {/* Action buttons — both disabled while the "another terminal?"
+                question is open. Letting the owner walk past it would lock
+                the numbers from BEFORE the second scan, which is the exact
+                loss this flow exists to stop. */}
             <div className="flex flex-col sm:flex-row gap-3">
               <Button variant="primary" size="lg" className="flex-1" onClick={() => applyScanValues(true)}
+                disabled={Boolean(pendingScan)}
                 iconLeft={<Icon name="CheckCircle2" size={16} />}>
                 {t("useTheseValuesJumpReview", "Use these values — jump to review")}
               </Button>
               <Button variant="secondary" size="lg" className="flex-1" onClick={() => applyScanValues(false)}
+                disabled={Boolean(pendingScan)}
                 iconLeft={<Icon name="Pencil" size={16} />}>
                 {t("continueStepByStep", "Continue step-by-step")}
               </Button>
             </div>
             <div className="flex justify-center gap-4">
-              <button onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
-                className="text-sm text-emerald-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-300 font-medium">
-                + {t("addAnotherPhoto", "Add another photo")}
-              </button>
-              <button onClick={() => { setScanResult(null); setScanPhotos([]); setScanMode("idle"); }}
+              {/* One decision at a time: while the "another terminal?"
+                  question is open, a third photo would silently replace the
+                  second one before anybody answered for it. */}
+              {!pendingScan && (
+                <button onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
+                  className="text-sm text-emerald-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-300 font-medium">
+                  + {t("addAnotherPhoto", "Add another page or terminal")}
+                </button>
+              )}
+              <button onClick={() => { applyScanResult(null); setScanPhotos([]); applyPendingScans([]); setMergeUndo(null); setScanMode("idle"); }}
                 className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline underline-offset-2">
                 {t("startOver", "Start over")}
               </button>
@@ -2239,16 +2714,16 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             <Icon name="Calendar" size={14} /> {t("dateLabel", "Date")}
           </label>
           <input type="date" value={businessDate}
-            max={getBusinessDate(cutoffHour)}
+            max={businessTodayIso(cutoffHour)}
             onChange={e => { if (e.target.value) setBusinessDate(e.target.value); }}
             className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" />
-          {businessDate !== getBusinessDate(cutoffHour) && (
+          {businessDate !== businessTodayIso(cutoffHour) && (
             <span className="text-[10px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-full font-semibold">
               {t("pastDate")}
             </span>
           )}
-          {businessDate !== getBusinessDate(cutoffHour) && (
-            <button onClick={() => setBusinessDate(getBusinessDate(cutoffHour))}
+          {businessDate !== businessTodayIso(cutoffHour) && (
+            <button onClick={() => setBusinessDate(businessTodayIso(cutoffHour))}
               className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline">
               {t("resetToToday", "Reset to today")}
             </button>
@@ -2325,8 +2800,22 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           );
         })()}
 
-        {/* Night shift indicator */}
-        {cutoffHour > 0 && businessDate !== new Date().toISOString().split("T")[0] && (
+        {/* The headline figure is a SUM of two tills — said on every step,
+            including the one where it locks. See renderMergeSummary. */}
+        {scanResult?.merge_info?.mode === MERGE_SUM && (
+          <div className="mb-3">{renderMergeSummary()}</div>
+        )}
+
+        {/* Night shift indicator — this one genuinely compares against the
+            CALENDAR day ("you're filing for yesterday because of the cutoff"),
+            so it must not use businessTodayIso: at 02:00 the two would be
+            equal and the banner would hide exactly when it is most useful.
+            It does have to be LOCAL though — toISOString() was UTC, so at
+            01:14 CEST the UTC date was already YESTERDAY, which equals the
+            cutoff-derived businessDate: the banner stayed hidden through the
+            whole 00:00-02:00 window, exactly when the owner is filing for
+            yesterday and most needs telling. */}
+        {cutoffHour > 0 && businessDate !== localIso() && (
           <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl px-3 py-2 flex items-center gap-2 mb-3 border border-indigo-100 dark:border-indigo-800">
             <Icon name="Moon" size={14} className="text-indigo-600 dark:text-indigo-300" />
             <p className="text-xs text-indigo-600 dark:text-indigo-300">
@@ -2559,7 +3048,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               <span className="font-medium">
                 {new Date(businessDate + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
               </span>
-              {businessDate !== getBusinessDate(cutoffHour) && (
+              {businessDate !== businessTodayIso(cutoffHour) && (
                 <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded font-semibold">{t("pastDate")}</span>
               )}
             </div>
@@ -3074,6 +3563,14 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   const [unlockId, setUnlockId] = useState(null);
   const [unlockReason, setUnlockReason] = useState("");
   const [unlocking, setUnlocking] = useState(false);
+  // A refused unlock used to be swallowed by `catch { /* ignore */ }`, so the
+  // modal closed and the row stayed locked — identical on screen to success.
+  // On a signed kasserapport that is the worst possible silence.
+  const [unlockError, setUnlockError] = useState("");
+  // Per-row PDF failure. Kept per-row rather than in the shared export banner
+  // at the top of the tab, because that banner is off-screen by the time you
+  // have scrolled to a close from three weeks ago.
+  const [rowError, setRowError] = useState(null); // {id, message, isPlanCap}
 
   // ── Date-range export state ──────────────────────────────────
   // The accountant handoff: pick a window (7d / 14d / 1m / 3m /
@@ -3403,18 +3900,25 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   const handleUnlock = async () => {
     if (!unlockReason.trim() || !unlockId) return;
     setUnlocking(true);
+    setUnlockError("");
     try {
       await api.post(`/daily-close/${unlockId}/unlock`, { reason: unlockReason.trim() });
       setUnlockId(null);
       setUnlockReason("");
       onRefresh();
-    } catch { /* ignore */ } finally {
+    } catch (e) {
+      // Keep the modal open with the server's own reason — a manager without
+      // the right to unlock, a close already unlocked elsewhere, an offline
+      // phone. The owner must know the kasserapport is still LOCKED.
+      setUnlockError(errText(e, t("dcUnlockFailed", "Could not unlock this close.")));
+    } finally {
       setUnlocking(false);
     }
   };
 
   const downloadPdf = async (id, dateStr) => {
     setDownloading(id);
+    setRowError(null);
     try {
       const res = await api.get(`/daily-close/${id}/pdf`, { responseType: "blob" });
       const url = window.URL.createObjectURL(new Blob([res.data]));
@@ -3423,7 +3927,13 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       a.download = `kasserapport_${dateStr}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
-    } catch { /* ignore */ } finally {
+    } catch (e) {
+      // Same blob-aware parser the range export uses, so a plan cap (402)
+      // arrives here as a real sentence plus the upgrade link instead of a
+      // button that flickers and does nothing.
+      const parsed = await parseExportError(e);
+      setRowError({ id, message: parsed.message, isPlanCap: parsed.isPlanCap });
+    } finally {
       setDownloading(null);
     }
   };
@@ -3914,13 +4424,22 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                     opens it full-size in a new tab (signed URL or
                     local path). Bogføringsloven §10 source-document
                     retention made visible. */}
-                {dc.receipt_photo && (
-                  <a href={dc.receipt_photo} target="_blank" rel="noreferrer"
-                    title={t("dcViewOriginalZReport", "View original Z-report photo")}
-                    className="inline-flex items-center gap-1.5 text-xs px-2 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/40 font-medium">
-                    <Icon name="Image" size={13} /> {t("dcReceiptLabel", "Receipt")}
-                  </a>
-                )}
+                {/* The URL comes off the server row, so it goes through
+                    safeImageUrl before the browser is ever asked to follow it
+                    (utils/safeUrl.js — https / same-origin blob only). Same
+                    rule the photo thumbnails in the scan card already use;
+                    an unsafe or unparseable value renders no link at all. */}
+                {(() => {
+                  const safeReceipt = dc.receipt_photo ? safeImageUrl(dc.receipt_photo) : null;
+                  if (!safeReceipt) return null;
+                  return (
+                    <a href={safeReceipt} target="_blank" rel="noreferrer"
+                      title={t("dcViewOriginalZReport", "View original Z-report photo")}
+                      className="inline-flex items-center gap-1.5 text-xs px-2 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/40 font-medium">
+                      <Icon name="Image" size={13} /> {t("dcReceiptLabel", "Receipt")}
+                    </a>
+                  );
+                })()}
                 {/* Locked closes: show Unlock; drafts: show Edit. Both
                     routes reach the same edit experience — Unlock first
                     flips status to draft, then the user picks Edit on
@@ -3947,13 +4466,33 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 </button>
               </div>
             </div>
+            {/* A failed PDF must not look like a finished one. Same amber +
+                upgrade-link treatment as the range export, next to the button
+                the owner actually tapped. */}
+            {rowError?.id === dc.id && (
+              <div className={`mt-2 px-3 py-2 rounded-lg text-xs flex items-start gap-2 ${
+                rowError.isPlanCap
+                  ? "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300"
+                  : "text-red-500 dark:text-red-400"
+              }`}>
+                <Icon name={rowError.isPlanCap ? "Lock" : "AlertTriangle"} size={14} className="shrink-0 mt-0.5" />
+                <span className="flex-1">
+                  {rowError.message}
+                  {rowError.isPlanCap && canPurchaseInApp() && (
+                    <Link to="/subscription" className="ml-2 underline font-semibold hover:no-underline">
+                      {t("dcUpgradeArrow", "Upgrade →")}
+                    </Link>
+                  )}
+                </span>
+              </div>
+            )}
           </div>
         );
       })}
 
       {/* Unlock modal */}
       {unlockId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setUnlockId(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { setUnlockId(null); setUnlockError(""); }}>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-sm" onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-bold dark:text-white mb-1 inline-flex items-center gap-2"><Icon name="LockOpen" size={18} /> {t("dcUnlockModalTitle", "Unlock Daily Close")}</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
@@ -3963,8 +4502,14 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               rows={3}
               className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl resize-none mb-4"
               value={unlockReason} onChange={e => setUnlockReason(e.target.value)} />
+            {unlockError && (
+              <div className="mb-4 px-3 py-2 rounded-lg text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 flex items-start gap-2">
+                <Icon name="AlertTriangle" size={14} className="shrink-0 mt-0.5" />
+                <span className="flex-1">{unlockError}{" "}{t("dcUnlockStillLocked", "The close is still locked.")}</span>
+              </div>
+            )}
             <div className="flex gap-3">
-              <button onClick={() => setUnlockId(null)}
+              <button onClick={() => { setUnlockId(null); setUnlockError(""); }}
                 className="flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-700 rounded-xl font-medium text-sm dark:text-gray-300">
                 {t("cancel", "Cancel")}
               </button>
