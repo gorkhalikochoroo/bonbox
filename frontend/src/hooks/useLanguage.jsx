@@ -535,11 +535,26 @@ const translations = {
     // desk IS called receptionen.
     sectionTreatment: "Treatments",
     sectionFront: "Reception",
+    // The owner grid's own bucket for a role this vertical has no section for
+    // (a cafe "DJ"). Not a section — sectionFor() never returns it.
+    sectionOther: "Other",
+    // Vagtplan grid legend — STATUS half. Roles are the second half and reuse
+    // the role*/section* keys above.
+    schedLegendStatus: "Status:",
+    schedLegendDraft: "Draft – not sent",
+    schedLegendPublished: "Published",
+    schedLegendRoles: "Roles:",
     schedOffNoShift: "OFF / No shift",
     schedNoStaffYet: "No staff members yet. Open \"Manage Staff\" above to add your team.",
     schedEmailOptional: "Email (optional)",
     schedPhoneOptional: "Phone (optional)",
     schedBaseRate: "Base rate",
+    // Contract type — shown in the staff drawer, the roster row AND as a small
+    // chip on each grid row (it is what replaced the per-shift kroner).
+    contractFull: "Full-time",
+    contractPart: "Part-time",
+    contractStudent: "Student",
+    contractFreelance: "Freelance",
     schedAdding: "Adding...",
     schedNoStaffPanel: "No staff members yet. Add your first team member above.",
     schedSendThisTo: "Send this to",
@@ -2495,10 +2510,85 @@ const translations = {
     noDailyClosesYetHint: "Submit your first end-of-day close to see history here.",
     noBranchDataHint: "Submit daily closes for multiple branches to see comparisons.",
     notEnoughDataHint: "Submit a few daily closes to unlock insights about your revenue, tips, and cash handling.",
+    // ─── Daily close page chrome (dc*) — EN ───
+    // These 40-odd keys shipped as t("key", "English fallback") only, so a
+    // Danish owner reopening a signed kasserapport read the whole audit-trail
+    // vocabulary — Unlock, Locked, Closed by, Unlocked: reason — in English.
+    dcReportsEyebrow: "REPORTS",
+    dcTabsAriaLabel: "Daily close view",
+    dcOffline: "Offline",
+    dcSyncPending: "Sync {count} pending",
+    // Offline queue — "waiting for the network" and "waiting for YOU" are
+    // different promises and never share a counter.
+    dcQueuedNetwork: "{count} waiting for network",
+    dcQueuedNeedsConfirm: "{count} waiting for your confirmation",
+    dcQueuedFailed: "{count} couldn't be saved — retry",
+    dcQueueBlockedTitle: "Not saved yet",
+    dcQueueBlockedAnomaly: "the numbers look unusual, so nothing was saved. Take a look before it locks.",
+    dcQueueStoreFailed: "This phone could not store the close offline. Note the numbers down and try again when you're back online.",
+    dcQueueReviewCta: "Review",
+    dcQueueReviewEdit: "Want to change the numbers? Cancel, then open this date in the close wizard — this copy stays on your phone until it is saved.",
+    dcSyncRunning: "Sending…",
+    dcQueuedAlreadySaved: "{count} already saved",
+    dcQueueRemoveCopy: "Remove this copy",
+    // What went wrong, in the owner's language. The queue itself stores a
+    // CODE, never a sentence — an English string baked into the item shows up
+    // untranslated on the one surface that says money was not saved.
+    dcQueueErrOffline: "No connection right now. The close is still on this phone — try again when you're back online.",
+    dcQueueErrServer: "BonBox could not receive it just now. It is still on this phone — try again in a moment.",
+    dcQueueErrRejected: "The close was refused. Check the numbers and file this date in the close wizard.",
+    dcQueueErrLocked: "This date is already locked in your kasserapport, so nothing was changed. You can remove this copy.",
+    dcAnomalyForDate: "Close for {date}",
+    // Status + audit trail on a close row
+    dcStatusLocked: "Locked",
+    dcStatusDraft: "Draft",
+    dcClosedBy: "Closed by {name}",
+    dcUnlockedReason: "Unlocked: {reason}",
+    dcVsPrev: "vs prev",
+    dcCashLabel: "Cash",
+    dcStaffCountInline: "{count} staff",
+    dcViewOriginalZReport: "View original Z-report photo",
+    dcReceiptLabel: "Receipt",
+    dcCheckInsightsForDetails: "check Insights for details",
+    // Unlock dialog — reopening a signed kasserapport
+    dcUnlock: "Unlock",
+    dcUnlocking: "Unlocking…",
+    dcUnlockModalTitle: "Unlock Daily Close",
+    dcUnlockModalBody: "This will allow editing. Enter a reason for the audit trail.",
+    dcUnlockReasonPlaceholder: "e.g. Accountant found an error in cash count…",
+    dcUnlockFailed: "Could not unlock this close.",
+    dcUnlockStillLocked: "The close is still locked.",
+    // Date-range export
+    dcRangeFrom: "From",
+    dcRangeTo: "To",
+    dcRangeExceedsCap: "This range is {span} days — your plan caps at {cap}. The export will be rejected by the server.",
+    dcUpgradeQuestion: "Upgrade?",
+    dcUpgradeArrow: "Upgrade →",
+    // Branch comparison
+    dcLoadingBranchData: "Loading branch data…",
+    dcBranchComparison: "Branch Comparison",
+    dcRangeToday: "Today",
+    dcRange7Days: "7 days",
+    dcRange30Days: "30 days",
+    dcTopBadge: "Top",
+    dcBranchClosesAvgOne: "{count} close · avg {avg}/day",
+    dcBranchClosesAvgMany: "{count} closes · avg {avg}/day",
+    dcPctOfTotal: "{pct}% of total",
+    // Calendar heat-map legend
+    dcLegendNone: "None",
+    dcLegendLow: "Low",
+    dcLegendMid: "Mid",
+    dcLegendHigh: "High",
+    dcLegendNA: "N/A",
+    dcLegendEvenPlus: "Even/+",
+    dcLegendShort: "Short",
     // ─── Daily Close wizard (kasserapport flow) — EN ───
     // Scan step
     scanZReportTitle: "Scan your Z-report / kasserapport",
-    scanZReportBody: "Take photos or upload images of your Z-report — add multiple pages and we'll merge the results.",
+    // Says what the flow actually does. It used to promise "we'll merge the
+    // results" while a second scan SILENTLY REPLACED the first one — so a
+    // two-till café locked one till's revenue into a signed kasserapport.
+    scanZReportBody: "Take a photo of your Z-report. Extra pages are merged into one set of numbers — and when two photos each have their own total, we ask before we add them together.",
     uploadImage: "Upload Image",
     receiptAmountsAre: "Receipt amounts are:",
     withVatGross: "with {vat} (gross)",
@@ -2524,7 +2614,23 @@ const translations = {
     receiptPhotosLabel: "Receipt photos",
     useTheseValuesJumpReview: "Use these values — jump to review",
     continueStepByStep: "Continue step-by-step",
-    addAnotherPhoto: "Add another photo",
+    addAnotherPhoto: "Add another page or terminal",
+    // ─── Second scan: another till, or a better photo? ───
+    // Asked only when BOTH scans carry a headline total — the one case where
+    // "merge" and "replace" give different money and only the owner knows
+    // which is right. Both totals go on the buttons so the answer is a look,
+    // not a reading comprehension test.
+    scanSecondTotalTitle: "Is this another terminal?",
+    scanSecondTotalBody: "This scan has its own total of {incoming}. The one on screen is {existing}.",
+    scanSecondTotalSum: "Another terminal — add them up ({sum})",
+    scanSecondTotalReplace: "Same terminal — use the new photo ({incoming})",
+    scanMergedTerminals: "{count} terminals added together",
+    scanMergedUndo: "Undo",
+    scanPendingMore: "{count} more photos are waiting — you'll be asked about each one.",
+    // Names the lines, because the owner cannot check a line we refuse to
+    // name — and the one that matters most (MOMS) is the one that would
+    // otherwise be filed covering a single till.
+    scanMergedIncompleteNamed: "Only on one of the receipts, so not added up: {fields}. Check them before you lock.",
     // Date / draft / night-shift chrome
     dateLabel: "Date",
     draftSavedResumeLater: "Draft saved — you can leave and resume later",
@@ -4256,11 +4362,14 @@ const translations = {
     egAbbrev: "e.g.",
     // Live labor-cost layer (week-cost endpoint). "feriepenge" stays Danish
     // in all UI languages per the DK terminology lock.
-    schedCostShow: "Show cost",
+    // The toggle governs TOTALS only — the per-shift kroner line is gone from
+    // the grid, so the label must not keep promising it.
+    schedCostShow: "Show wage totals",
+    schedCostShowHelp: "Shows the wage total per day and for the week. Never kroner per shift.",
     schedCostGross: "Wage",
     schedCostLoaded: "Incl. feriepenge",
     schedCostLoadedNote: "incl. holiday pay (est.)",
-    schedCostEstimateNote: "≈ Estimate · hours × rate, incl. evening/weekend premium when set. Excludes overtime, ATP and absence.",
+    schedCostEstimateNote: "≈ Estimate · day and week totals, never per shift. Hours × rate, incl. evening/weekend premium when set. Excludes overtime, ATP and absence.",
     schedLaborPct: "Labor %",
     schedLaborTarget: "target",
     schedLaborForecast: "projected",
@@ -4279,6 +4388,23 @@ const translations = {
     schedCoversBookedAria: "{n} guests booked",
     schedToday: "Today",
     schedDraft: "Draft",
+    // Day-column status line (desktop header + phone day pill). The COUNT is
+    // always visible; the word is xl:-only, and the sentence is the title +
+    // sr-only text so the coloured dot is never the only carrier.
+    schedShiftsWord: "shifts",
+    schedDayNoShifts: "No shifts this day",
+    schedDayShiftCount: "{n} shifts this day",
+    schedDayDrafts: "{d} of {n} are still drafts",
+    schedDayAllSeen: "Everyone has seen their shift",
+    schedDaySeen: "{s} of {p} have seen their shift",
+    // The emerald check on a published shift card.
+    schedSeenByStaff: "Seen by the staffer",
+    // Section header row (Option B) — the amber 0 on a day with a roster but
+    // nobody from THIS section on it.
+    schedSectionNobodyOn: "Nobody from {section} is on shift",
+    // Week pill + the escape hatch beside the arrows.
+    schedGoToThisWeek: "Go to this week",
+    schedThisWeek: "This week",
     schedOff: "OFF",
     schedBloomHint: "Click to add a shift",
     schedHelstCell: "Prefers",
@@ -4450,6 +4576,11 @@ const translations = {
     hovTabOverview: "Overview",
     hovTabLog: "Log",
     hovTabDetails: "Details",
+    // Owner-only Oversigt: the wage overview carries the venue's labour cost
+    // AND its revenue, so a delegated seat is denied it server-side. Said out
+    // loud, because a blank panel under a working period picker reads as a bug.
+    hovRoleCannotSee: "Your role can't see wage figures",
+    hovRoleCannotSeeHint: "Hours and clock-ins are under Details. Ask the business owner for the wage overview.",
     hovTileHours: "Hours",
     hovTileHoursSub: "{measured}% clocked · of {scheduled} t planned",
     hovTileHoursSubNoPlan: "{measured}% clocked",
@@ -8542,11 +8673,20 @@ const translations = {
     roleFloor: "Gulv",
     sectionTreatment: "Behandling",
     sectionFront: "Reception",
+    sectionOther: "Andet",
+    schedLegendStatus: "Status:",
+    schedLegendDraft: "Kladde – ikke sendt",
+    schedLegendPublished: "Udgivet",
+    schedLegendRoles: "Roller:",
     schedOffNoShift: "FRI / Ingen vagt",
     schedNoStaffYet: "Ingen medarbejdere endnu. Åbn \"Administrér medarbejdere\" ovenfor for at tilføje dit team.",
     schedEmailOptional: "E-mail (valgfri)",
     schedPhoneOptional: "Telefon (valgfri)",
     schedBaseRate: "Grundsats",
+    contractFull: "Fuldtid",
+    contractPart: "Deltid",
+    contractStudent: "Studerende",
+    contractFreelance: "Freelance",
     schedAdding: "Tilføjer...",
     schedNoStaffPanel: "Ingen medarbejdere endnu. Tilføj dit første teammedlem ovenfor.",
     schedSendThisTo: "Send dette til",
@@ -10443,10 +10583,87 @@ const translations = {
     noDailyClosesYetHint: "Lav din første kasserapport for at se historik her.",
     noBranchDataHint: "Lav kasserapporter for flere afdelinger for at se sammenligninger.",
     notEnoughDataHint: "Lav et par kasserapporter for at låse op for indsigt om omsætning, drikkepenge og kontanthåndtering.",
+    // ─── Kasserapport-sidens tekster (dc*) — DA ───
+    // De her 40+ nøgler fandtes kun som t("key", "English fallback"), så en
+    // dansk ejer, der åbnede en signeret kasserapport igen, læste hele
+    // revisionssporets ordforråd — Unlock, Locked, Closed by, Unlocked:
+    // reason — på engelsk.
+    dcReportsEyebrow: "RAPPORTER",
+    dcTabsAriaLabel: "Visning af kasserapport",
+    dcOffline: "Offline",
+    dcSyncPending: "Synkronisér {count} i kø",
+    // Offline-køen — "venter på netværk" og "venter på DIG" er to forskellige
+    // løfter og deler aldrig tæller.
+    dcQueuedNetwork: "{count} venter på netværk",
+    dcQueuedNeedsConfirm: "{count} venter på din bekræftelse",
+    dcQueuedFailed: "{count} kunne ikke gemmes — prøv igen",
+    dcQueueBlockedTitle: "Ikke gemt endnu",
+    dcQueueBlockedAnomaly: "tallene ser usædvanlige ud, så der blev ikke gemt noget. Kig på dem, inden den låses.",
+    dcQueueStoreFailed: "Telefonen kunne ikke gemme kasserapporten offline. Skriv tallene ned, og prøv igen, når du er online.",
+    dcQueueReviewCta: "Gennemse",
+    dcQueueReviewEdit: "Skal tallene rettes? Annullér, og åbn datoen i kasserapporten — kopien bliver på din telefon, indtil den er gemt.",
+    dcSyncRunning: "Sender…",
+    dcQueuedAlreadySaved: "{count} er allerede gemt",
+    dcQueueRemoveCopy: "Fjern denne kopi",
+    // Hvad der gik galt, på ejerens sprog. Selve køen gemmer en KODE, aldrig
+    // en sætning — en engelsk streng bagt ind i posten står utranslateret på
+    // netop den flade, der siger, at pengene ikke blev gemt.
+    dcQueueErrOffline: "Ingen forbindelse lige nu. Kasserapporten ligger stadig på telefonen — prøv igen, når du er online.",
+    dcQueueErrServer: "BonBox kunne ikke modtage den lige nu. Den ligger stadig på telefonen — prøv igen om lidt.",
+    dcQueueErrRejected: "Kasserapporten blev afvist. Tjek tallene, og lav dagen i kasserapport-guiden.",
+    dcQueueErrLocked: "Datoen er allerede låst i din kasserapport, så der blev ikke ændret noget. Du kan fjerne denne kopi.",
+    dcAnomalyForDate: "Kasserapport for {date}",
+    // Status + revisionsspor på en kasserapport
+    dcStatusLocked: "Låst",
+    dcStatusDraft: "Kladde",
+    dcClosedBy: "Lukket af {name}",
+    dcUnlockedReason: "Låst op: {reason}",
+    dcVsPrev: "mod sidste",
+    dcCashLabel: "Kontant",
+    dcStaffCountInline: "{count} pers.",
+    dcViewOriginalZReport: "Se det oprindelige Z-bon-billede",
+    dcReceiptLabel: "Bon",
+    dcCheckInsightsForDetails: "se Indsigter for detaljer",
+    // Lås op — at åbne en signeret kasserapport igen
+    dcUnlock: "Lås op",
+    dcUnlocking: "Låser op…",
+    dcUnlockModalTitle: "Lås kasserapporten op",
+    dcUnlockModalBody: "Så kan tallene rettes. Skriv en grund til revisionssporet.",
+    dcUnlockReasonPlaceholder: "fx Revisor fandt en fejl i kasseoptællingen…",
+    dcUnlockFailed: "Kunne ikke låse denne kasserapport op.",
+    dcUnlockStillLocked: "Kasserapporten er stadig låst.",
+    // Eksport af en periode
+    dcRangeFrom: "Fra",
+    dcRangeTo: "Til",
+    dcRangeExceedsCap: "Perioden er {span} dage — din plan går til {cap}. Serveren afviser eksporten.",
+    dcUpgradeQuestion: "Opgradér?",
+    dcUpgradeArrow: "Opgradér →",
+    // Sammenligning af afdelinger
+    dcLoadingBranchData: "Henter data for afdelinger…",
+    dcBranchComparison: "Sammenligning af afdelinger",
+    dcRangeToday: "I dag",
+    dcRange7Days: "7 dage",
+    dcRange30Days: "30 dage",
+    dcTopBadge: "Top",
+    dcBranchClosesAvgOne: "{count} kasserapport · gns. {avg}/dag",
+    dcBranchClosesAvgMany: "{count} kasserapporter · gns. {avg}/dag",
+    dcPctOfTotal: "{pct}% af alt",
+    // Signaturforklaring til kalender-varmekortet
+    dcLegendNone: "Ingen",
+    dcLegendLow: "Lav",
+    dcLegendMid: "Middel",
+    dcLegendHigh: "Høj",
+    dcLegendNA: "Ingen data",
+    dcLegendEvenPlus: "Stemmer/+",
+    dcLegendShort: "Mangler",
     // ─── Daglig kasserapport-wizard — DA ───
     // Scan-trin
     scanZReportTitle: "Scan din Z-bon / kasserapport",
-    scanZReportBody: "Tag billeder eller upload dine Z-bon — tilføj flere sider, så samler vi tallene.",
+    // Beskriver det, der faktisk sker. Teksten lovede før, at "vi samler
+    // tallene", mens scanning nr. to i stilhed ERSTATTEDE den første — så en
+    // café med to kasser låste én terminals omsætning i en signeret
+    // kasserapport.
+    scanZReportBody: "Tag et billede af din Z-bon. Flere sider samler vi til ét sæt tal — og har begge billeder hver sin total, spørger vi, før vi lægger dem sammen.",
     uploadImage: "Upload billede",
     receiptAmountsAre: "Beløbene på bonen er:",
     withVatGross: "med {vat} (brutto)",
@@ -10472,7 +10689,23 @@ const translations = {
     receiptPhotosLabel: "Bonbilleder",
     useTheseValuesJumpReview: "Brug disse tal — hop til gennemgang",
     continueStepByStep: "Fortsæt trin for trin",
-    addAnotherPhoto: "Tilføj endnu et billede",
+    addAnotherPhoto: "Tilføj en side eller en terminal mere",
+    // ─── Scanning nr. to: en anden terminal eller et bedre billede? ───
+    // Spørges kun, når BEGGE scanninger har en total — det ene tilfælde, hvor
+    // "læg sammen" og "erstat" giver forskellige penge, og hvor kun ejeren
+    // ved hvilken der er rigtig. Begge beløb står på knapperne, så svaret er
+    // et blik på tallene og ikke en tekst, der skal tydes.
+    scanSecondTotalTitle: "Er det en terminal mere?",
+    scanSecondTotalBody: "Denne scanning har sin egen total på {incoming}. Den på skærmen er {existing}.",
+    scanSecondTotalSum: "En terminal mere — læg dem sammen ({sum})",
+    scanSecondTotalReplace: "Samme terminal — brug det nye billede ({incoming})",
+    scanMergedTerminals: "{count} terminaler lagt sammen",
+    scanMergedUndo: "Fortryd",
+    scanPendingMore: "{count} billeder mere venter — du bliver spurgt om hvert enkelt.",
+    // Nævner linjerne ved navn, for ejeren kan ikke tjekke en linje, vi ikke
+    // vil sætte navn på — og den vigtigste af dem (MOMS) er netop den, der
+    // ellers ville blive indberettet for én terminal ud af to.
+    scanMergedIncompleteNamed: "Stod kun på den ene bon og er ikke lagt sammen: {fields}. Tjek dem, inden du låser.",
     // Dato / kladde / nattevagt
     dateLabel: "Dato",
     draftSavedResumeLater: "Kladde gemt — du kan gå og fortsætte senere",
@@ -12149,11 +12382,14 @@ const translations = {
     egAbbrev: "fx",
     // Live lønomkostnings-lag (week-cost endpoint). "feriepenge" forbliver
     // dansk i alle UI-sprog jf. DK-terminologilåsen.
-    schedCostShow: "Vis lønkroner",
+    // Kontakten styrer nu KUN totaler — kroner pr. vagt er væk fra vagtplanen,
+    // så etiketten må ikke længere love dem.
+    schedCostShow: "Vis lønsum",
+    schedCostShowHelp: "Viser lønsum pr. dag og for ugen. Aldrig kroner pr. vagt.",
     schedCostGross: "Løn",
     schedCostLoaded: "Inkl. feriepenge",
     schedCostLoadedNote: "inkl. feriepenge (skøn)",
-    schedCostEstimateNote: "≈ Estimat · timer × sats, inkl. aften-/weekendtillæg når sat. Ekskl. overtid, ATP og fravær.",
+    schedCostEstimateNote: "≈ Estimat · totaler pr. dag og for ugen, aldrig pr. vagt. Timer × sats, inkl. aften-/weekendtillæg når sat. Ekskl. overtid, ATP og fravær.",
     schedLaborPct: "Lønprocent",
     schedLaborTarget: "mål",
     schedLaborForecast: "forventet",
@@ -12172,6 +12408,16 @@ const translations = {
     schedCoversBookedAria: "{n} gæster booket",
     schedToday: "I dag",
     schedDraft: "Kladde",
+    schedShiftsWord: "vagter",
+    schedDayNoShifts: "Ingen vagter denne dag",
+    schedDayShiftCount: "{n} vagter denne dag",
+    schedDayDrafts: "{d} af {n} er stadig kladder",
+    schedDayAllSeen: "Alle har set deres vagt",
+    schedDaySeen: "{s} af {p} har set deres vagt",
+    schedSeenByStaff: "Set af medarbejderen",
+    schedSectionNobodyOn: "Ingen fra {section} på vagt",
+    schedGoToThisWeek: "Gå til denne uge",
+    schedThisWeek: "Denne uge",
     schedOff: "FRI",
     schedBloomHint: "Klik for at tilføje en vagt",
     schedHelstCell: "Helst",
@@ -12343,6 +12589,8 @@ const translations = {
     hovTabOverview: "Oversigt",
     hovTabLog: "Log",
     hovTabDetails: "Detaljer",
+    hovRoleCannotSee: "Din rolle kan ikke se løntal",
+    hovRoleCannotSeeHint: "Timer og stempling ligger under Detaljer. Spørg ejeren, hvis du har brug for lønoversigten.",
     hovTileHours: "Timer",
     hovTileHoursSub: "{measured}% stemplet · af {scheduled} t planlagt",
     hovTileHoursSubNoPlan: "{measured}% stemplet",
