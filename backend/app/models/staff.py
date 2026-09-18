@@ -186,9 +186,34 @@ class Schedule(Base):
     # nagging, just a glance. NULL means not-yet-confirmed (or this
     # shift was published before the feature existed).
     confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # WHAT was acknowledged, stamped next to WHEN (Migration 074). A short
+    # fingerprint of (staff_id, date, start_time, end_time) — see
+    # utils/schedule_fingerprint.py for the full WHY. It exists because the
+    # owner grid's drag-to-move ships a 6-second "Fortryd" that replays the
+    # PUT with the ORIGINAL values: clearing confirmed_at on a move meant an
+    # accidental drag destroyed the acknowledgement permanently, and the undo
+    # could not put it back. Comparing a fingerprint is non-destructive, so an
+    # undo simply makes the acknowledgement true again.
+    # NULL = confirmed before this column existed (legacy) — treated as current.
+    confirmed_for: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
     staff_member: Mapped["StaffMember"] = relationship(back_populates="schedules")
+
+    @property
+    def confirmed_current(self) -> bool:
+        """Does the staffer's "Jeg har set det" still apply to the shift AS IT
+        NOW STANDS?
+
+        A property rather than a per-router computation so every consumer that
+        reads a Schedule — ScheduleResponse (from_attributes), the owner grid,
+        the PDF, the portal — gets the same answer from one definition. The
+        owner grid reads this alongside the raw confirmed_at, which other
+        consumers still depend on and which stays exactly as stamped.
+        """
+        from app.utils.schedule_fingerprint import confirmation_is_current
+
+        return confirmation_is_current(self)
 
 
 class StaffAvailability(Base):

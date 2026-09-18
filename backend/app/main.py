@@ -2453,6 +2453,29 @@ _migrations = [
     # live slug. NULL = publish `address` exactly as today, so this changes
     # nothing for a venue that wants to be found.
     "ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS public_address TEXT",
+    # ── Migration 074 (2026-09-18): schedules.confirmed_for ───────────────
+    # The staffer's acknowledgement gets a fingerprint of WHAT was
+    # acknowledged, so "does this still apply?" is a comparison instead of a
+    # destructive edit. The previous behaviour cleared confirmed_at on any
+    # material change, which the grid's drag-to-move + 6-second "Fortryd"
+    # turned into permanent data loss: the undo replays the PUT with the
+    # ORIGINAL values, but the stamp was already gone, so an accidental drag
+    # made the portal re-ask for a byte-identical shift.
+    # NULL is meaningful and must stay the DEFAULT for new rows: an
+    # unacknowledged shift has nothing to fingerprint.
+    #
+    # It is NOT a resting state for acknowledged ones. `confirmation_is_current`
+    # reads NULL as "still current" unconditionally, so a pre-074 row can never
+    # retract — the owner moves a confirmed shift and the badge keeps claiming
+    # the staffer has seen it. This statement's first version said "no backfill:
+    # a computed fingerprint would assert the shift is unchanged since
+    # acknowledgement, which we cannot know". We can: the clearing behaviour
+    # never reached production, so nothing has been moved since it was
+    # acknowledged. The stamping happens in Python (the fingerprint normalises
+    # before hashing, and re-expressing that in SQL twice would be two more
+    # places to drift) — services/schedule_confirm_backfill.py, run once per
+    # boot AFTER the readiness gate opens.
+    "ALTER TABLE schedules ADD COLUMN IF NOT EXISTS confirmed_for VARCHAR(64)",
 ]
 
 
@@ -2974,6 +2997,8 @@ def _run_migrations():
             # a FRESH sqlite db — so a missing mirror cannot fail a test and only
             # shows up on someone's existing dev database. Kept in step by hand.
             ok += _add("business_profiles", "public_address", "TEXT")
+            # Mirror of Migration 074 — the acknowledgement fingerprint.
+            ok += _add("schedules", "confirmed_for", "VARCHAR(64)")
             # Performance indexes (CREATE INDEX IF NOT EXISTS works on SQLite 3.3+)
             _index_stmts = [
                 "CREATE INDEX IF NOT EXISTS ix_sale_user_date ON sales (user_id, date, is_deleted)",
@@ -3401,6 +3426,39 @@ def _init_db():
         print(f"Demo seed warning: {e}")
     _db_ready.set()
     print("DB init complete — ready to serve requests")
+
+    # ── Migration 074's DATA half: stamp confirmed_for on legacy rows ──
+    # Deliberately AFTER _db_ready.set(). This is the one startup step that
+    # scales with a tenant's history rather than with the schema, and a schema
+    # migration that cannot finish holds the gate closed by design — this must
+    # not. Until it drains, untouched rows behave exactly as they do today
+    # (NULL reads as "still current"), so a partial run is never worse than no
+    # run, and it is safe to re-run on the next boot.
+    #
+    # Why it is needed at all: NULL confirmed_for reads as current
+    # UNCONDITIONALLY, so on every row acknowledged before 074 the retraction
+    # can never fire — the owner moves the shift and the badge keeps claiming
+    # the staffer has seen it. See services/schedule_confirm_backfill.py for
+    # why computing from the row's CURRENT values is the honest reading — and
+    # for the one case where it is NOT: a shift an approved swap or an
+    # open-shift claim handed to someone else, where the acknowledgement is
+    # cleared instead so the new holder is asked once.
+    try:
+        from app.services.schedule_confirm_backfill import backfill_confirmed_for
+        from app.database import SessionLocal
+        with SessionLocal() as bf_db:
+            bf = backfill_confirmed_for(bf_db)
+        if bf.get("updated") or bf.get("retracted"):
+            print(
+                f"confirmed_for backfill: {bf['updated']} legacy acknowledgements "
+                f"fingerprinted, {bf.get('retracted', 0)} retracted (shift had "
+                f"been swapped away), in {bf['batches']} batch(es)"
+            )
+    except Exception as e:
+        # Fail-soft by design: the cost of not stamping is an un-fired
+        # retraction on old rows, which is the status quo. The cost of raising
+        # here is a worker that logged "ready" and then died.
+        print(f"confirmed_for backfill warning: {e}")
 
 
 # Startup behaviour migrated to the `lifespan` async context manager
@@ -3859,15 +3917,17 @@ async def accountant_write_guard(request: Request, call_next):
 #   • only GET/HEAD (writes already default-denied)
 #   • only a small set of crown-jewel prefixes triggers a role lookup, so
 #     the common path stays a single startswith() with no DB hit
-#   • ROLE-SCOPED denial (GDPR least-privilege):
-#       - cashier / viewer → the FULL owner-financials set below
-#       - manager          → owner financials MINUS the wage/labor-cost estimate.
-#         A manager runs shifts and legitimately manages labor cost; that surface
-#         (/api/staff/payroll) is an hours×rate ESTIMATE, not payslips — BonBox
-#         does not do payroll, so it carries no CPR/bank/payslip PII. But a shift
-#         manager has no business in the OWNER's SKAT filings, bank feed, or
-#         cashflow, so those stay denied. (Still NOT the full per-router scope
-#         model — that's the documented follow-up, task #375.)
+#   • ROLE-SCOPED denial (GDPR least-privilege): every delegated seat —
+#     cashier, viewer AND manager — is denied the FULL owner-financials set
+#     below. The manager branch still exists because the middleware has to
+#     decide per role, but since 2026-09-18 it decides the same way.
+#     A manager used to keep the wage/labor-cost estimate, on the reasoning
+#     that running shifts means managing labor cost. Manoj closed it: that
+#     endpoint's per-person rows carry gross + AM-bidrag + A-skat + ATP +
+#     feriepenge, so gross ÷ hours is a named colleague's hourly rate — the
+#     exact figure the rest of this block was written to hide. Payroll is
+#     owner-only. (Still NOT the full per-router scope model — that's the
+#     documented follow-up, task #375.)
 #   • the accountant grant keeps its own (read-only) access — separate guard
 #   • fails CLOSED (503) if the role lookup raises, like the write-guard
 _MEMBER_READ_DENY_PREFIXES = (
@@ -3891,11 +3951,51 @@ _MEMBER_READ_DENY_PREFIXES = (
     # role layer at all. Without this prefix a cashier on Starter downloads the
     # whole ledger, one tap from "Send til revisor" in their own More menu.
     "/api/exports",
+    # ── Wage privacy (Manoj, 2026-09-18): "hide the pay rate, just give labour
+    # cost — if someone else goes to the schedule they can see everything."
+    #
+    # None of these returns a rate FIELD, and that was the reasoning that left
+    # them open: week-cost's own docstring says "raw wage rates stay
+    # server-side — only computed costs cross the wire". But the cost and the
+    # hours that produced it are printed on the same card, so kr ÷ hours IS the
+    # colleague's hourly rate, to one decimal, for every name on the roster.
+    # /staff/schedule is not an ownerOnly destination, so a manager or a
+    # cashier reached all three with nothing but their own token.
+    #
+    #   /schedules/week-cost  per-SHIFT and per-STAFF gross wage for the grid
+    #   /hours/overview       venue labour cost, the venue's REVENUE, labor%
+    #   /tips                 per-STAFF tip payout (TipDistribution.amount)
+    #
+    # Deliberately NOT denied — a manager must still be able to run a shift:
+    # /api/staff/schedules (the roster), /schedules/week-load (hours + the
+    # 11-timers/48h warnings, no money), /hours (the register), /hours/summary
+    # (the clock-in exception feed), /absences, /swap-requests, /clocked-in,
+    # /time-registration, /members. Each prefix here is the FULL route path
+    # precisely so it cannot swallow those: adding a bare "/api/staff/hours"
+    # would take the register with it.
+    #
+    # /hours/summary and /hours (the register) are the two endpoints where the
+    # money is MIXED IN with operations a manager needs, so both are redacted
+    # per FIELD in routers/staff.py instead of denied here. Denying them made
+    # the Detaljer tab render "No hours logged" directly above a list of this
+    # month's real entries — an empty state that states a falsehood, which is
+    # worse than the leak it was closing.
+    "/api/staff/schedules/week-cost",
+    "/api/staff/hours/overview",
+    "/api/staff/tips",
+    # The same kr ÷ hours division, in a router the wage round did not look at.
+    # /api/staffing/logs returns labor_cost + total_hours + staff_count per day,
+    # and on any day logged with one person on, that division IS their exact
+    # rate — /api/staff/schedules (open to managers by design) names who it was.
+    # NOT denied as a prefix: the head-count, the hours and the forecast are
+    # operational, and /api/staffing/forecast carries no money at all. The
+    # labor_cost FIELD is nulled in routers/staffing.py instead, same shape as
+    # the /hours register one file over.
 )
 # Owner financials a MANAGER must not read.
 #
-# This is now the member set itself, and deliberately so. The manager's one
-# extra privilege used to be expressed by OMITTING a prefix here, which was
+# This is the member set itself, and deliberately so. The manager's one extra
+# privilege used to be expressed by OMITTING a prefix here, which was
 # fail-open in two ways at once:
 #
 #   1. It granted three routes to justify one. The exemption was written for
@@ -3910,15 +4010,26 @@ _MEMBER_READ_DENY_PREFIXES = (
 #      someone noticed.
 #
 # Aliasing fixes both: a prefix added for cashiers is a prefix managers lose
-# too, and the single place that says what a manager keeps is the allow-list
-# below. A payroll route added next year is owner-only until someone decides
+# too. A payroll route added next year is owner-only until someone decides
 # otherwise, instead of public to managers the day it merges.
+#
+# THE ALLOW-LIST IS GONE (Manoj, 2026-09-18 — "close the payroll-estimate
+# carve-out, owner only"). It held exactly one prefix,
+# "/api/staff/payroll/estimate", and it is DELETED rather than emptied to ().
+# An empty allow-list would have been the worse shape twice over:
+#   • it reads backwards. `_MANAGER_READ_ALLOW_PREFIXES = ()` above a deny
+#     list scans as "nothing is restricted" at a glance, and the one thing
+#     this block cannot afford is a reader who thinks the gate is open when
+#     it is shut (or the reverse).
+#   • it is a one-line invitation. Re-opening a hole would cost a tuple entry
+#     and no new reasoning, and this carve-out has now been wrong twice: it
+#     granted /payroll/csv and /loenseddel when it meant only the estimate,
+#     and then the estimate itself turned out to hand over per-person gross,
+#     which ÷ hours IS the rate. Whoever wants the next exemption should have
+#     to add the mechanism back, and write down why.
+# The invariant the file argues for holds a fortiori: manager set ⊆ member
+# set is now manager set == member set, asserted in test_member_read_boundary.
 _MANAGER_READ_DENY_PREFIXES = _MEMBER_READ_DENY_PREFIXES
-# The ONE payroll read a manager keeps: the wage/labor-cost estimate they build
-# rotas against. Applies to the MANAGER branch only — deliberately NOT consulted
-# by shared_device_pin_gate, because a curtained tablet is in a stranger's hands
-# and colleagues' wage costs are exactly what that gate exists to hide.
-_MANAGER_READ_ALLOW_PREFIXES = ("/api/staff/payroll/estimate",)
 _LOW_PRIV_MEMBER_ROLES = frozenset({"cashier", "viewer"})
 
 
@@ -3932,14 +4043,14 @@ def _is_sensitive_member_read_path(path: str) -> bool:
 def _is_manager_denied_path(path: str) -> bool:
     """True iff a MANAGER seat must not read this path.
 
-    Standalone for the same reason as _is_sensitive_member_read_path: the deny
-    set now carries a carve-out (/payroll/estimate), and a carve-out that lives
-    only inline in middleware is one no unit test can reach. The allow-check
-    runs FIRST — it is the narrower rule.
+    Now exactly _is_sensitive_member_read_path — a manager is denied what a
+    cashier is denied. Kept as its own name rather than collapsed into the
+    caller because the middleware branches per role, and a named manager rule
+    is what a future exemption would have to edit (and what the tests assert
+    against). Deleting it would make "was the manager case considered?"
+    unanswerable from the code.
     """
-    if any(path.startswith(p) for p in _MANAGER_READ_ALLOW_PREFIXES):
-        return False
-    return any(path.startswith(p) for p in _MANAGER_READ_DENY_PREFIXES)
+    return _is_sensitive_member_read_path(path)
 
 
 @app.middleware("http")
@@ -3996,10 +4107,12 @@ async def member_read_guard(request: Request, call_next):
         return await call_next(request)
     role = (row[0] or "").lower() if row[0] else ""
 
-    # Role-scoped denial. cashier/viewer lose the full owner-financials set
-    # (incl. the wage-cost estimate); a manager loses only the OWNER financials
-    # (tax/bank/cashflow) and keeps the wage/labor-cost estimate they run shifts
-    # against. Owner + accountant fall through (deny=False).
+    # Role-scoped denial. A manager is denied the SAME set as a cashier/viewer
+    # — tax, bank, cashflow, reports, exports, ALL of payroll (the estimate
+    # included, since 2026-09-18), the schedule's wage cost, the hours overview
+    # and tips. The branch stays split by role so a future per-router scope
+    # model has somewhere to land; today both arms answer the same question.
+    # Owner + accountant fall through (deny=False).
     if role in _LOW_PRIV_MEMBER_ROLES:
         deny = _is_sensitive_member_read_path(path)
     elif role == "manager":
@@ -4034,15 +4147,53 @@ async def member_read_guard(request: Request, call_next):
 # the actor IS the owner (role=owner), so member_read_guard never fires — this
 # is the ONLY server gate that protects it. Fails CLOSED (503) on lookup error.
 # Reuses the owner-financial prefix set so it can't drift from the member gate.
-_SHARED_DEVICE_DENY_PREFIXES = _MANAGER_READ_DENY_PREFIXES  # tax / bank* / cashflow / reports
+# tax / bank* / cashflow / reports / exports / wage-cost + tips (see the member
+# list for the wage-privacy block). Inheriting the wage prefixes is right, not
+# incidental: a curtained tablet is in a stranger's hands, and colleagues' wage
+# costs are exactly what that gate exists to hide.
+#
+# /hours/summary is NOT here, and that is deliberate — it was, briefly, and it
+# reproduced the exact falsehood the member block above refuses to ship: the
+# Detaljer tab rendered "Ingen timer registreret denne periode" directly over a
+# RecentHoursLog still listing this month's real entries, with no PIN pad on
+# that route to explain it or lift it. It is redacted per FIELD on
+# `_shared_device_locked` in routers/staff.py instead, exactly as it already was
+# for a member seat. Same doctrine, applied to both populations.
+#
+# NOT everything the curtain hides is a prefix. /api/staff/hours (the register),
+# /api/staff/hours/summary (the exception feed) and /api/staff/members (the
+# roster) stay 200 on a curtained tablet — a host still has to see who is on
+# tonight — and their wage FIELDS are nulled in routers/staff.py on
+# `_shared_device_locked`, the flag auth.py sets from this same `sd` claim +
+# reveal proof. One signal, two mechanisms: deny where the whole response is
+# money, redact where the money is mixed into the work.
+_SHARED_DEVICE_DENY_PREFIXES = _MANAGER_READ_DENY_PREFIXES
+
+# READ-SHAPED WRITES. The gate below used to return early for anything that was
+# not GET/HEAD, on the reading that a curtain hides numbers and a write changes
+# them. That is not the threat model: POST /api/staff/payroll/pdf renders the
+# whole venue's payroll (per-shift rate_applied + earned, per-staff gross,
+# AM-bidrag, A-skat, GRAND TOTAL) and POST /api/staff/payroll/send-to-accountant
+# renders the identical bytes and mails them to a CALLER-SUPPLIED address. Both
+# are reads wearing a verb the gate did not look at, and the GET sibling
+# (/payroll/loenseddel) has been blocked all along. A method filter is not a
+# threat model, so name the prefixes where a POST is an export.
+#
+# Deliberately narrow: this is not "curtain all writes". A curtained tablet is
+# the counter device — it still has to log hours, seat a table and take money.
+_SHARED_DEVICE_DENY_WRITE_PREFIXES = (
+    "/api/staff/payroll",
+)
 
 
 @app.middleware("http")
 async def shared_device_pin_gate(request: Request, call_next):
-    if request.method not in ("GET", "HEAD"):
-        return await call_next(request)
+    is_read = request.method in ("GET", "HEAD")
+    prefixes = (
+        _SHARED_DEVICE_DENY_PREFIXES if is_read else _SHARED_DEVICE_DENY_WRITE_PREFIXES
+    )
     path = request.url.path or ""
-    if not any(path.startswith(p) for p in _SHARED_DEVICE_DENY_PREFIXES):
+    if not any(path.startswith(p) for p in prefixes):
         return await call_next(request)  # cheap common path — no decode/DB
     bearer = request.headers.get("authorization", "")
     has_bearer = bearer.lower().startswith("bearer ")

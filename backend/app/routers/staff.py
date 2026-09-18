@@ -148,9 +148,81 @@ def _require_owner_actor(user: User) -> None:
     the OWNER User for tenant reads, so the endpoints' own user.id filter does
     NOT distinguish them; this explicit check (a second, independent layer on
     top of the write-guard) is what draws the line. Real owner login only.
+
+    AND the curtained shared device, for the same reason in a different shape.
+    A "Delt enhed" tablet is signed in AS THE OWNER, so the role check above
+    cannot see it, and the middleware's deny-prefix list does not carry
+    /api/staff/members or /api/staff/schedules (a manager needs the roster) —
+    so a colleague holding the counter tablet could read every staffer's
+    durable portal token, open /s/<token>, and read that colleague's own hours
+    and earnings. A portal credential is strictly worse than the kontonummer
+    the curtain already blocks one screen over: it is impersonation plus the
+    pay, and the link is unprotected by default (link.pin_hash is optional).
+    The PIN routes are writes, which the curtain never inspects at all, so a
+    PIN-protected link could simply be reset from the same tablet.
+
+    The flag lives HERE rather than at each route because that per-endpoint
+    hatch is precisely what produced the gap: /members/{id}/bank and the
+    employment documents each remembered it, and the five credential routes did
+    not. One helper, eleven call sites, and the next credential route inherits
+    it without anyone having to remember.
     """
     if getattr(user, "_is_member_view", False) or getattr(user, "_is_accountant_view", False):
         raise HTTPException(status_code=403, detail="owner_only")
+    # Distinct code from "owner_only": the frontend interceptor raises the
+    # reveal PIN pad on device_pin_required, and this owner CAN lift it.
+    if getattr(user, "_shared_device_locked", False):
+        raise HTTPException(status_code=403, detail="device_pin_required")
+
+
+def _wage_visible(user: User) -> bool:
+    """False for the two populations that must not read per-person pay: a
+    delegated seat (role), and the owner's own session on a shared device whose
+    curtain is up (the signed `sd` claim + reveal proof, per auth.py).
+
+    Two unrelated signals, one question. Named once so a surface cannot answer
+    it with only half the test — which is exactly how the curtained owner kept
+    seeing rates after the role redaction shipped.
+    """
+    return not (
+        getattr(user, "_is_member_view", False)
+        or getattr(user, "_shared_device_locked", False)
+    )
+
+
+def _require_uncurtained_wages(user: User) -> None:
+    """403 device_pin_required when a shared device's curtain is up.
+
+    For whole-response wage surfaces there is nothing to redact — the document
+    IS the pay — so the answer is the same 403 the middleware gives, with the
+    same code so the client raises the reveal PIN pad rather than an error
+    toast. (Delegated seats never reach these routes: /api/staff/payroll is
+    denied to them wholesale in main.py.)
+    """
+    if getattr(user, "_shared_device_locked", False):
+        raise HTTPException(status_code=403, detail="device_pin_required")
+
+
+def _wage_stripped_hours(entry) -> "HoursLogResponse":
+    """A register row with the rate and the money it produced nulled."""
+    r = HoursLogResponse.model_validate(entry)
+    r.rate_applied = r.earned = None
+    return r
+
+
+def _wage_stripped_member(member) -> "StaffMemberResponse":
+    """A roster row with every pay figure nulled — the rate, the three premiums
+    and the trækkort (which is a rate by another name).
+
+    One function rather than the same six assignments repeated at each gate,
+    because the failure mode of repetition here is a field added to the schema
+    and nulled in two places out of three. The CALLER decides who gets this;
+    this only decides what "the pay" is.
+    """
+    r = StaffMemberResponse.model_validate(member)
+    r.base_rate = r.evening_rate = r.weekend_rate = r.holiday_rate = None
+    r.tax_card_type = r.tax_card_rate = None
+    return r
 
 
 def _parse_hhmm(t: str) -> float:
@@ -375,6 +447,7 @@ def list_shifts_today(
             "end_time": "23:00",
             "status": "published",
             "confirmed_at": "2026-05-25T18:34:00Z" | null,
+            "confirmed_current": true | false,   # still applies as it stands
           },
           ...
         ]
@@ -429,7 +502,21 @@ def list_shifts_today(
                 "start_time": shift.start_time,
                 "end_time": shift.end_time,
                 "status": shift.status,
-                "confirmed_at": shift.confirmed_at.isoformat() if shift.confirmed_at else None,
+                # Narrowed exactly like ScheduleResponse: a stamp that no
+                # longer describes this shift is not reported. A client reading
+                # the bare stamp (the committed ios-scheduler bundle does)
+                # would otherwise show "seen" forever on a shift that moved
+                # after it was acknowledged — worse than the behaviour this
+                # replaced, which cleared the stamp outright.
+                "confirmed_at": (
+                    shift.confirmed_at.isoformat()
+                    if (shift.confirmed_at and shift.confirmed_current)
+                    else None
+                ),
+                # Does that acknowledgement still describe THIS shift? The card
+                # asserts "seen by staff", so it has to know the shift hasn't
+                # been moved since — confirmed_at alone cannot tell it.
+                "confirmed_current": shift.confirmed_current,
                 "branch_name": _b_names.get(shift.branch_id),
             }
         )
@@ -465,12 +552,21 @@ def list_staff_members(
     if getattr(user, "_is_member_view", False):
         redacted = []
         for m in members:
-            r = StaffMemberResponse.model_validate(m)
-            r.base_rate = r.evening_rate = r.weekend_rate = r.holiday_rate = None
-            r.tax_card_type = r.tax_card_rate = None
+            r = _wage_stripped_member(m)
             r.phone = r.email = r.address = r.postal_code = r.city = None
             redacted.append(r)
         return redacted
+
+    # The curtained shared device is the OWNER's own session, so the strip above
+    # cannot see it — and this is the roster a host opens on a counter tablet,
+    # which is where base_rate has always been served to whoever is standing
+    # there. Hide the PAY, keep the roster: a host has to know who is on tonight
+    # and how to phone them, and the curtain is a financial curtain, not a
+    # lockout (the truly owner-only rows — kontonummer, portal credentials,
+    # employment documents — already 403 on this same flag further down).
+    # Wage fields plus the tax card, which is a rate by another name.
+    if getattr(user, "_shared_device_locked", False):
+        return [_wage_stripped_member(m) for m in members]
     return members
 
 
@@ -551,6 +647,34 @@ def update_staff_member(
         _validate_tax_card_type, _validate_tax_card_rate, _clean_address_field,
     )
     updates = data.model_dump(exclude_unset=True)
+
+    # FAIL CLOSED ON WHAT THIS SESSION WAS NOT SHOWN.
+    #
+    # GET /members nulls base_rate / the three premiums / the tax card for a
+    # curtained shared device. The roster editor on /staff/schedule is a
+    # read-modify-write over exactly those fields: it seeds its draft from that
+    # payload, so a nulled rate becomes "" in the form, and Gem sends
+    # parseFloat("") → NaN → JSON `null`. An owner on a curtained tablet fixing
+    # a PHONE NUMBER would silently erase the employee's wage rates and trækkort
+    # — the redaction turning into data loss, which is strictly worse than the
+    # leak it closed. (Before the curtain redaction the round-trip was lossless,
+    # so this is new damage, not a pre-existing one.)
+    #
+    # A curtained session provably did not SEE these values, so it cannot be
+    # intending to change them. Drop the keys rather than 403 the whole PUT: the
+    # non-wage half of that form (name, phone, role, contract) is ordinary
+    # roster upkeep a host does at the counter, and 403-ing it would break a
+    # working screen to protect a field nobody typed.
+    #
+    # The middleware cannot do this — it is GET/HEAD-shaped by design, and this
+    # is not an export to deny but a field set to ignore.
+    if getattr(user, "_shared_device_locked", False):
+        for _wage_field in (
+            "base_rate", "evening_rate", "weekend_rate", "holiday_rate",
+            "tax_card_type", "tax_card_rate",
+        ):
+            updates.pop(_wage_field, None)
+
     if "tax_card_type" in updates:
         updates["tax_card_type"] = _validate_tax_card_type(updates["tax_card_type"])
     if "tax_card_rate" in updates:
@@ -596,6 +720,12 @@ def update_staff_member(
 
     db.commit()
     db.refresh(member)
+    # The echo has to obey the same curtain the GET does, or the redaction is a
+    # formality: PUT {phone} → 200 {base_rate: 185.0} reads the colleague's rate
+    # straight back out through a write. Nulled here, not dropped from the
+    # schema, so the client's shape never changes.
+    if getattr(user, "_shared_device_locked", False):
+        return _wage_stripped_member(member)
     return member
 
 
@@ -642,14 +772,12 @@ def get_staff_member_bank(
         is fetched when someone actually needs to pay — never sprayed across
         every roster render.
     """
+    # Covers BOTH the delegated seat and the curtained shared device — the
+    # curtain check used to live here, per-endpoint, and moving it into the
+    # helper is what closed the same hole on the portal-credential routes,
+    # which had never had it. Kept as a call here (not inlined) so this
+    # endpoint's own gate is still one greppable line.
     _require_owner_actor(user)  # a kontonummer is owner-only, like portal credentials
-    # Shared-device curtain. The middleware's deny-prefix list is the MANAGER
-    # deny-list and /api/staff is deliberately not on it (managers need the
-    # roster), so this endpoint has to check the flag itself — the same
-    # per-endpoint hatch dashboard.py:269 uses. Without it, a curtained tablet
-    # hides revenue while every employee's full kontonummer is one tap away.
-    if getattr(user, "_shared_device_locked", False):
-        raise HTTPException(status_code=403, detail="device_pin_required")
 
     member = db.query(StaffMember).filter(
         StaffMember.id == member_id,
@@ -720,14 +848,8 @@ def clear_staff_member_bank(
     Deliberately does NOT filter on `active`: clearing the account of someone
     who has already left is the entire point.
     """
+    # Curtain included — see _require_owner_actor.
     _require_owner_actor(user)  # a kontonummer is owner-only, like portal credentials
-    # Shared-device curtain. The middleware's deny-prefix list is the MANAGER
-    # deny-list and /api/staff is deliberately not on it (managers need the
-    # roster), so this endpoint has to check the flag itself — the same
-    # per-endpoint hatch dashboard.py:269 uses. Without it, a curtained tablet
-    # hides revenue while every employee's full kontonummer is one tap away.
-    if getattr(user, "_shared_device_locked", False):
-        raise HTTPException(status_code=403, detail="device_pin_required")
 
     member = db.query(StaffMember).filter(
         StaffMember.id == member_id,
@@ -2292,34 +2414,25 @@ def update_schedule(
             },
         )
 
-    # HONESTY — a MATERIAL change invalidates the staffer's acknowledgement.
+    # HONESTY — a MATERIAL change invalidates the staffer's acknowledgement,
+    # and the SERVER decides that by comparison, not by erasing the stamp.
     #
-    # confirmed_at is the staff-side "Jeg har set det", and the owner grid shows
-    # a green check on it. This PUT is also what the grid's drag-to-move calls,
-    # so a shift the staffer confirmed could be handed to someone else, moved to
-    # another day, or retimed — and the grid kept asserting "seen" about a shift
-    # nobody had ever read. Clear it, and the staff portal re-surfaces the
-    # "Jeg har set det" action on its own (portal confirm-schedule selects on
-    # confirmed_at IS NULL; the strip's allConfirmed reads every confirmed_at).
+    # This PUT used to clear confirmed_at whenever staff_id / date / start_time
+    # / end_time changed. The intent was right: the owner grid paints a check on
+    # confirmed_at, and a shift handed to someone else or moved to another day
+    # has not been seen by whoever now works it. The MECHANISM was wrong,
+    # because this same PUT is what drag-to-move calls, and the grid ships a
+    # 6-second "Fortryd" that replays it with the ORIGINAL values. The clear had
+    # already happened on the way out and nothing put it back — so an accidental
+    # drag destroyed a real acknowledgement permanently and the portal re-asked
+    # the staffer to confirm a byte-identical shift.
     #
-    # Only the four fields a staffer would have to re-read count. Notes, break
-    # and role are the owner annotating a shift whose WHEN and WHO are unchanged
-    # — clearing on those would train everyone to ignore the badge.
-    #
-    # `model_fields_set` keeps this honest if ScheduleCreate ever loosens: today
-    # all four are required, so an absent field can't be mistaken for a change.
-    sent = data.model_fields_set
-
-    def _changed(field: str, old, new) -> bool:
-        return field in sent and str(old or "").strip() != str(new or "").strip()
-
-    material = (
-        _changed("staff_id", old_staff_id, data.staff_id)
-        or _changed("date", old_date, data.date)
-        or _changed("start_time", old_start, data.start_time)
-        or _changed("end_time", old_end, data.end_time)
-    )
-
+    # Schedule.confirmed_for now carries a fingerprint of the four material
+    # facts (utils/schedule_fingerprint.py), and `confirmed_current` compares it
+    # to the shift as it now stands. A move makes them disagree; an undo makes
+    # them agree again, with nothing to repair. So this handler writes the
+    # fields and leaves BOTH confirmation columns alone — notes/break/role were
+    # never material, and now neither is an undone move.
     shift.staff_id = data.staff_id
     shift.date = data.date
     shift.start_time = data.start_time
@@ -2329,8 +2442,6 @@ def update_schedule(
     shift.status = data.status
     shift.notes = data.notes
     shift.branch_id = _validated_branch_id(db, user, data.branch_id)
-    if material:
-        shift.confirmed_at = None
     db.commit()
     db.refresh(shift)
 
@@ -3307,6 +3418,12 @@ def schedule_confirmation_summary(
     """Return how many distinct staff have confirmed the published
     schedule for the given week. Multi-tenant: all queries filter by
     user_id. Idempotent / read-only.
+
+    "Confirmed" means the acknowledgement still applies to the shift AS IT NOW
+    STANDS — `confirmed_current`, not a bare `confirmed_at IS NOT NULL`. The
+    stamp survives a move now (it is the fingerprint that decides), so counting
+    stamps would report a staffer as confirmed for a Saturday shift they only
+    ever agreed to work on the Friday.
     """
     if week_start is None:
         today = date.today()
@@ -3314,23 +3431,23 @@ def schedule_confirmation_summary(
         week_start = today - timedelta(days=today.weekday())
     week_end = week_start + timedelta(days=6)
 
-    # Count distinct staff who have at least one published shift this week
-    total_q = db.query(Schedule.staff_id).filter(
+    # One pass over the week's published shifts. The fingerprint comparison is
+    # Python-side (the stored value is checked against a hash of the live row),
+    # so this cannot be two COUNT(DISTINCT) queries any more — a week's roster
+    # is tens of rows, and the previous version already scanned them twice.
+    rows = db.query(Schedule).filter(
         Schedule.user_id == user.id,
         Schedule.date >= week_start,
         Schedule.date <= week_end,
         Schedule.status == "published",
-    ).distinct()
-    total_staff = total_q.count()
+    ).all()
 
-    confirmed_q = db.query(Schedule.staff_id).filter(
-        Schedule.user_id == user.id,
-        Schedule.date >= week_start,
-        Schedule.date <= week_end,
-        Schedule.status == "published",
-        Schedule.confirmed_at.isnot(None),
-    ).distinct()
-    confirmed_staff = confirmed_q.count()
+    all_staff = {s.staff_id for s in rows}
+    # Unchanged semantics: a staffer counts as confirmed on at least one
+    # currently-valid acknowledgement this week.
+    confirmed_ids = {s.staff_id for s in rows if s.confirmed_current}
+    total_staff = len(all_staff)
+    confirmed_staff = len(confirmed_ids)
 
     return {
         "week_start": week_start.isoformat(),
@@ -3361,7 +3478,38 @@ def list_hours(
     )
     if staff_id:
         q = q.filter(HoursLogged.staff_id == staff_id)
-    return q.order_by(HoursLogged.date, HoursLogged.staff_id).all()
+    rows = q.order_by(HoursLogged.date, HoursLogged.staff_id).all()
+
+    # ── Wage privacy, field level (Manoj, 2026-09-18) ───────────────────────
+    # This route is deliberately NOT in _MEMBER_READ_DENY_PREFIXES: it IS the
+    # working-time register, and a manager running a shift has to see who
+    # worked when. But `rate_applied` is not a derived figure the way the
+    # schedule's cost card was — it is the colleague's hourly rate, stated
+    # outright, on every row; `earned` restates it (earned ÷ total_hours), and
+    # StaffHoursPage prints the kroner directly under the hours on one card.
+    # A prefix deny would have taken the register with it, so the redaction is
+    # per FIELD, exactly as list_staff_members already does for base_rate.
+    #
+    # ALL delegated seats, manager included — there is no wage carve-out left
+    # for any of them (main.py, 2026-09-18).
+    #
+    # AND the curtained shared device. The member flag is keyed on ROLE, and a
+    # "Delt enhed" tablet is logged in as the OWNER — so the redaction above
+    # never fired there and a colleague who picked the tablet up read every
+    # rate_applied on the register while the revenue hero next to it was
+    # curtained. `_shared_device_locked` is the flag auth.py already derives
+    # from the signed `sd` claim plus the reveal proof, so this is the same
+    # signal the middleware gates on, not a second opinion about it.
+    #
+    # An UNCURTAINED owner (no flag, or PIN revealed) is untouched. POST/PUT
+    # /hours return the same schema, and they go through `_wage_visible` too:
+    # a member seat cannot reach them (writes are default-denied in main.py,
+    # _MEMBER_WRITE_ALLOWED), but the CURTAINED owner can — the Stempelur is
+    # deliberately still usable on the counter tablet — and a 200 body carrying
+    # rate_applied is the same read through a different verb.
+    if not _wage_visible(user):
+        return [_wage_stripped_hours(h) for h in rows]
+    return rows
 
 
 # ─── Tidsregistrering — DK working-time compliance (Arbejdstidsloven) ───
@@ -3554,6 +3702,11 @@ def log_hours(
     db.add(entry)
     db.commit()
     db.refresh(entry)
+    # Same curtain as the GET — see list_hours. The rate is computed
+    # server-side from the roster, so a curtained tablet that logs an hour
+    # would otherwise be handed the colleague's rate in the receipt.
+    if not _wage_visible(user):
+        return _wage_stripped_hours(entry)
     return entry
 
 
@@ -4069,6 +4222,8 @@ def update_hours(
     entry.resolved_at = utc_now()
     db.commit()
     db.refresh(entry)
+    if not _wage_visible(user):  # same curtain as the GET — see list_hours
+        return _wage_stripped_hours(entry)
     return entry
 
 
@@ -4305,12 +4460,27 @@ def hours_summary(
     # Staff names + pay/limit fields — wrapped so a corrupt member row doesn't
     # kill the report. base_rate → hourly_rate, max_hours_month → work_limit.
     staff_ids = list(hours_staff_ids | set(tips_map.keys()) | set(sched_map.keys()))
-    # WAGE VISIBILITY. cashier / viewer are the low-privilege seats (the same
-    # split main.py calls _LOW_PRIV_MEMBER_ROLES); manager is not, because a
-    # manager approves hours and is deliberately allowed the wage-cost estimate.
-    _hide_wages = getattr(user, "_is_member_view", False) and (
-        getattr(user, "_actor_role", "") in {"cashier", "viewer"}
-    )
+    # WAGE VISIBILITY — EVERY delegated seat, manager included (Manoj,
+    # 2026-09-18: "hide the pay rate, just give labour cost").
+    #
+    # This used to exempt managers, on the same reasoning as the
+    # /payroll/estimate carve-out. It does not hold here: that carve-out is
+    # about a venue AGGREGATE, and this row is one named colleague's earned +
+    # tips + hourly_rate, which is the rate itself.
+    #
+    # The endpoint is redacted rather than DENIED because the rest of the row
+    # is the clock-in exception feed a manager needs to run a shift —
+    # worst_state, needs_answer_count and the per-day `exceptions` list. Deny
+    # the prefix and the "Period summary" table renders empty above a
+    # RecentHoursLog that is still listing the very hours it says were never
+    # logged. Hide the money, keep the operations.
+    #
+    # The CURTAINED shared device is the same case wearing the owner's role, and
+    # it briefly got the prefix-deny treatment this comment argues against —
+    # producing that exact "Ingen timer registreret" over a live register, with
+    # no PIN pad on the route to explain it. Same signal, same redaction, and
+    # the endpoint stays out of _SHARED_DEVICE_DENY_PREFIXES.
+    _hide_wages = not _wage_visible(user)
 
     staff_names: dict[str, str] = {}
     rate_map: dict[str, float | None] = {}
@@ -4346,23 +4516,24 @@ def hours_summary(
         summary.append({
             "staff_id": sid,
             "staff_name": staff_names.get(sid, f"Staff #{sid[:8]}"),
-            # legacy keys (back-compat for any other caller)
+            # legacy keys (back-compat for any other caller). total_earned and
+            # tips_received are the SAME money as `earned`/`tips` below under
+            # older names, so they have to follow the same gate — nulling only
+            # the new keys would have left the redaction one JSON key wide.
             "total_hours": actual,
-            "total_earned": earned,
+            "total_earned": None if _hide_wages else earned,
             "overtime_hours": overtime,
-            "tips_received": tips,
+            "tips_received": None if _hide_wages else tips,
             # keys the Hours "Period summary" table reads
             "actual_hours": actual,
             "scheduled_hours": scheduled,
             # WAGES. /members already strips base_rate for a member view so a
             # low-privilege seat "can never harvest coworkers' pay" — and then
             # this sibling endpoint handed the same numbers straight back.
-            # cashier/viewer get nulls; manager keeps them (they approve hours
-            # and are deliberately allowed the wage-cost estimate — see
-            # _MANAGER_READ_DENY_PREFIXES, which omits /api/staff/payroll).
+            # Every delegated seat now gets nulls here (see _hide_wages above).
             "hourly_rate": None if _hide_wages else rate_map.get(sid),
             "earned": None if _hide_wages else earned,
-            "tips": tips,
+            "tips": None if _hide_wages else tips,
             "total": None if _hide_wages else round(earned + tips, 2),
             "work_limit": limit_map.get(sid),
             # Per-shift truth. `worst_state` is what the row should SAY; the
@@ -4930,7 +5101,25 @@ def estimate_payroll(
     own data.
     """
     from app.services.payroll_service import estimate_period_payroll
-    return estimate_period_payroll(db, user.id, period_start, period_end)
+    result = estimate_period_payroll(db, user.id, period_start, period_end)
+
+    # ── Wage privacy (Manoj, 2026-09-18) ────────────────────────────────────
+    # PAYROLL IS OWNER-ONLY. The manager carve-out that used to let this one
+    # route through member_read_guard is gone (main.py — "close the payroll-
+    # estimate carve-out"): every delegated seat now 403s on /api/staff/payroll
+    # before this function runs, and a curtained "Delt enhed" tablet 403s on the
+    # same prefix via shared_device_pin_gate.
+    #
+    # The strip stays as the inner barrier, not as the gate. It is one line, it
+    # is the layer that survives if the prefix list is ever re-scoped, and what
+    # it withholds is the worst of the payload: name + hours + gross + AM-bidrag
+    # + A-skat + net_pay per person, where gross ÷ hours is a colleague's exact
+    # hourly rate. Stripped here rather than in payroll_service, because the
+    # owner's own Løn tab and the lønseddel PDF are built from that same
+    # breakdown and must keep it.
+    if getattr(user, "_is_member_view", False) and isinstance(result, dict):
+        result = {**result, "per_staff": []}
+    return result
 
 
 @router.get("/payroll/csv")
@@ -5480,6 +5669,12 @@ def generate_payroll_pdf(
     rendering logic. Kept separate so the rendering is reusable from
     /payroll/send-to-accountant without duplicating reportlab code.
     """
+    # A POST that only READS. main.py now curtains /api/staff/payroll for
+    # mutating methods too, so this is the inner barrier behind that gate, not
+    # the only one — but it is the one that survives someone narrowing the
+    # middleware's prefix list later. The whole venue's payroll is the single
+    # richest wage document the product produces.
+    _require_uncurtained_wages(user)
     pdf_bytes = _render_payroll_pdf_bytes(body, db, user)
     filename = f"payroll_{body.period_start.isoformat()}_{body.period_end.isoformat()}.pdf"
     return StreamingResponse(
@@ -5523,6 +5718,14 @@ def send_payroll_to_accountant(
     Free users get a 402 + can still download the PDF manually via the
     existing /payroll/pdf endpoint and attach it themselves.
     """
+    # BEFORE the tier gate. The only check this endpoint used to carry was a
+    # BILLING one, and a billing gate is not a privacy gate: it says what the
+    # account paid for, never who is holding the tablet. This route takes a
+    # caller-supplied recipient, so an uncurtained check would let whoever
+    # picked up the counter device mail the venue's payroll to an address of
+    # their choosing. Ordered first so the 403 is not shadowed by a 402.
+    _require_uncurtained_wages(user)
+
     # Tier gate (Polish Pass tier reshuffle)
     from app.services.billing import has_feature, effective_plan
     if not has_feature(user, "direct_accountant_email"):

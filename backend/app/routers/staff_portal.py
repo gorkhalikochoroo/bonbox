@@ -637,7 +637,23 @@ def get_portal_schedule(token: str, request: Request, db: Session = Depends(get_
                 "notes": s.notes,
                 # Bidirectional confirmation signal — UI lights the
                 # "I've got it" button green if already confirmed.
-                "confirmed_at": s.confirmed_at.isoformat() if s.confirmed_at else None,
+                #
+                # This is the acknowledgement AS IT NOW APPLIES, not the raw
+                # stamp: null once the shift has been moved since the staffer
+                # saw it. The owner grid gets both fields (raw stamp +
+                # confirmed_current) because it reports on someone else; the
+                # portal speaks to the person who has to turn up, and telling
+                # them they have already seen a shift they have not is the one
+                # lie this surface must never tell. It is also load-bearing —
+                # the portal builds its confirm list from `!sh.confirmed_at`,
+                # so a stale stamp here would keep the moved shift out of the
+                # very request meant to re-acknowledge it.
+                "confirmed_at": (
+                    s.confirmed_at.isoformat()
+                    if (s.confirmed_at and s.confirmed_current)
+                    else None
+                ),
+                "confirmed_current": s.confirmed_current,
                 "branch_name": branches[s.branch_id].name if s.branch_id in branches else None,
                 "branch_address": branches[s.branch_id].address if s.branch_id in branches else None,
             }
@@ -650,8 +666,10 @@ def get_portal_schedule(token: str, request: Request, db: Session = Depends(get_
 #  Bidirectional schedule-confirm flow (May 2026)
 #
 #  Staff taps "I've got it" in the portal → we stamp every published
-#  shift in the visible window with confirmed_at. The owner's dashboard
-#  reads aggregate "N of M confirmed this week" via a separate
+#  shift in the visible window with confirmed_at AND confirmed_for (a
+#  fingerprint of who/when, so a later move retracts the acknowledgement
+#  without anyone having to erase it). The owner's dashboard reads
+#  aggregate "N of M confirmed this week" via a separate
 #  /staff/schedule-confirmation-summary endpoint (not portal-scoped).
 #
 #  Multi-layer:
@@ -684,26 +702,37 @@ def confirm_schedule(
     confirmed by this staff member. Idempotent — re-tapping changes
     nothing.
 
-    Returns the number of shifts actually flipped from null →
-    confirmed_at, so the UI can show "✓ 4 shifts confirmed" feedback.
+    Returns the number of shifts actually flipped to a CURRENT
+    acknowledgement, so the UI can show "✓ 4 shifts confirmed" feedback.
     """
     from app.utils.time import utc_now
+    from app.utils.schedule_fingerprint import fingerprint_for_shift
     link, member = _get_staff_from_token(token, db)
 
     today = date.today()
     week_start = _get_week_start(today)
     range_end = week_start + timedelta(days=20)
 
-    # Only confirm published shifts that aren't already confirmed —
-    # both filters avoid spurious updated_at noise on no-ops.
-    pending = db.query(Schedule).filter(
+    # Only confirm published shifts that aren't already confirmed — avoids
+    # spurious write noise on no-ops.
+    #
+    # "Already confirmed" is `confirmed_current`, not `confirmed_at IS NOT
+    # NULL`. The owner PUT no longer clears the stamp on a move (the
+    # fingerprint decides — see utils/schedule_fingerprint.py), so a shift the
+    # staffer agreed to on Friday and the owner then dragged to Saturday still
+    # carries a stamp. It must land back in this pending set, or the
+    # acknowledgement loop dead-ends: the badge would keep asserting "seen"
+    # about a shift nobody has read and the staffer would have no way to fix it.
+    # The fingerprint check is Python-side, so the status/window/tenant filters
+    # stay in SQL and only the last predicate moves out.
+    window = db.query(Schedule).filter(
         Schedule.staff_id == member.id,
         Schedule.user_id == link.user_id,
         Schedule.date >= week_start,
         Schedule.date <= range_end,
         Schedule.status == "published",
-        Schedule.confirmed_at.is_(None),
     ).all()
+    pending = [s_ for s_ in window if not s_.confirmed_current]
 
     # Scope the write to what the staffer actually SAW. The portal now has a
     # department switcher, so the on-screen list can be a subset of the window;
@@ -722,6 +751,10 @@ def confirm_schedule(
     now = utc_now()
     for s in pending:
         s.confirmed_at = now
+        # Stamp WHAT was acknowledged next to WHEN. Without this the row looks
+        # like a legacy confirmation (confirmed_for NULL = "confirmed before
+        # the column existed", read as still current) and would never expire.
+        s.confirmed_for = fingerprint_for_shift(s)
     db.commit()
 
     return {

@@ -11,10 +11,23 @@ import { errText } from "../utils/errText";
 import { useConfirm } from "../hooks/useConfirm";
 import { FadeIn, TabContent, AnimatedList, AnimatedListItem, AnimatePresence } from "../components/AnimationKit";
 import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner } from "../components/ui";
+import WagePrivacyNotice from "../components/WagePrivacyNotice";
 
 /* ═══════════════════════════════════════════════════════════
    HELPERS
    ═══════════════════════════════════════════════════════════ */
+// Why a wage read was refused: null (not refused), "curtain" (this owner's own
+// session on a shared device — they CAN lift it with their PIN) or "role" (a
+// delegated seat — they cannot). The server already draws this line in the 403
+// body; the page used to throw it away and tell both populations the role one,
+// which is false for an owner and offers them no way forward.
+function denialReason(err) {
+  if (err?.response?.status !== 403) return null;
+  return err?.response?.data?.detail?.code === "device_pin_required"
+    ? "curtain"
+    : "role";
+}
+
 function fmtDate(iso) {
   if (!iso) return "";
   const d = new Date(iso + "T00:00:00");
@@ -130,6 +143,19 @@ export default function StaffHoursPage() {
   // slow summary/entries load never blocks the answer at the top.
   const [overview, setOverview] = useState(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
+  // "You can't see this", kept apart from "this failed" — see the fetch.
+  // null | "role" | "curtain": WHICH of the two it is decides what the notice
+  // may honestly say, and the server already distinguishes them in the 403
+  // body (read_forbidden vs device_pin_required). Collapsing both to a boolean
+  // is what told an owner on a shared tablet that their ROLE was the obstacle.
+  const [overviewDenied, setOverviewDenied] = useState(null);
+  // Same three outcomes for the period summary. /hours/summary is redacted per
+  // field rather than denied — for a member seat AND, since the curtain round,
+  // for a shared device — so this should never fire today. It exists because
+  // when it DID fire, `.catch(() => setSummary([]))` rendered "Ingen timer
+  // registreret denne periode" directly above a RecentHoursLog listing this
+  // month's real entries. A denial must never be able to look like an absence.
+  const [summaryDenied, setSummaryDenied] = useState(null);
 
   // Period-frame control — how the owner frames the period to extract hours
   // (1st–end / 15th→14th / custom start-day / biweekly), plus an ad-hoc custom
@@ -185,8 +211,8 @@ export default function StaffHoursPage() {
     setEntriesLoading(true);
 
     api.get("/staff/hours/summary", { params: { from: periodFrom, to: periodTo } })
-      .then(r => setSummary(r.data || []))
-      .catch(() => setSummary([]))
+      .then(r => { setSummary(r.data || []); setSummaryDenied(null); })
+      .catch((err) => { setSummary([]); setSummaryDenied(denialReason(err)); })
       .finally(() => setSummaryLoading(false));
 
     api.get("/staff/hours", { params: { from: periodFrom, to: periodTo } })
@@ -211,8 +237,18 @@ export default function StaffHoursPage() {
     let alive = true;
     setOverviewLoading(true);
     api.get("/staff/hours/overview", { params: { from: periodFrom, to: periodTo, compare: "prev" } })
-      .then((r) => { if (alive) setOverview(r.data || null); })
-      .catch(() => { if (alive) setOverview(null); })
+      .then((r) => { if (alive) { setOverview(r.data || null); setOverviewDenied(null); } })
+      // A 403 here is not a failure, it is an ANSWER: /hours/overview carries
+      // the venue's labour cost AND its revenue, so it is owner-only. Catching
+      // it into `null` like any other error left HoursOverview returning null
+      // and a manager staring at a period picker above an empty page with
+      // nothing to explain it — the sub-tab this hub OPENS on. Keep the two
+      // apart so the page can say which one happened.
+      .catch((err) => {
+        if (!alive) return;
+        setOverview(null);
+        setOverviewDenied(denialReason(err));
+      })
       .finally(() => { if (alive) setOverviewLoading(false); });
     return () => { alive = false; };
   }, [periodFrom, periodTo]);
@@ -380,8 +416,10 @@ export default function StaffHoursPage() {
           <HoursOverview
             overview={overview}
             loading={overviewLoading}
+            denied={overviewDenied}
             currency={currency}
             onGoLog={() => setSubTab("log")}
+            onGoDetails={() => setSubTab("details")}
           />
         </FadeIn>
       )}
@@ -406,6 +444,7 @@ export default function StaffHoursPage() {
             <HoursSummaryTable
               summary={summary}
               loading={summaryLoading}
+              denied={summaryDenied}
               currency={currency}
               onResolved={refetchAll}
             />
@@ -674,8 +713,28 @@ function NarrativeBanner({ lines, severity, currencyCode, inProgress = false }) 
   );
 }
 
-function HoursOverview({ overview, loading, currency, onGoLog }) {
+function HoursOverview({ overview, loading, denied, currency, onGoLog, onGoDetails }) {
   const { t, lang } = useLanguage();
+
+  // Owner-only by rule, not by accident: this surface carries the venue's
+  // labour cost AND its revenue. Say so, rather than rendering nothing — a
+  // blank page under a working period picker reads as broken, and the seat
+  // that lands here is a manager who came to check a clock-in, so point them
+  // at the tab that still answers that.
+  //
+  // Lifted into a shared component when the wage tabs were hidden from staff
+  // seats (2026-09-18): the deep-link floor on /staff/hours?tab=payroll has to
+  // say the SAME thing this does, and two copies of one sentence is how the
+  // two surfaces start disagreeing.
+  if (denied) {
+    return (
+      <WagePrivacyNotice
+        reason={denied}
+        actionLabel={t("hovTabDetails", "Details")}
+        onAction={onGoDetails}
+      />
+    );
+  }
 
   if (loading && !overview) {
     return (
@@ -1058,7 +1117,7 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
   );
 }
 
-function HoursSummaryTable({ summary, loading, currency, onResolved }) {
+function HoursSummaryTable({ summary, loading, denied, currency, onResolved }) {
   const { t, lang } = useLanguage();
   const [resolving, setResolving] = useState(null);   // {staffId, staffName, exception}
   // Same server field the rows read, so the chip and the rows can never
@@ -1066,6 +1125,18 @@ function HoursSummaryTable({ summary, loading, currency, onResolved }) {
   const needsAnswer = (summary || []).reduce(
     (n, r) => n + (r.needs_answer_count || 0), 0,
   );
+  // WAGE PRIVACY. A manager/cashier/viewer seat still gets this table — it
+  // carries the clock-in exception feed they run a shift on — but every money
+  // field arrives null (backend redacts on _is_member_view). The rows already
+  // print "—" for a null. The TOTALS row did not: `reduce((s, r) => s + (r.x
+  // || 0))` turns "you can't see this" into "0 kr.", which is a figure stated
+  // as fact and the one thing this page must never do on a pay record.
+  const wagesHidden =
+    (summary || []).length > 0 && (summary || []).every((r) => r.total == null);
+  const moneyTotal = (key) =>
+    wagesHidden
+      ? "—"
+      : `${(summary || []).reduce((s, r) => s + (r[key] || 0), 0).toFixed(0)} ${currency}`;
   if (loading) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
@@ -1077,6 +1148,16 @@ function HoursSummaryTable({ summary, loading, currency, onResolved }) {
         </div>
       </div>
     );
+  }
+
+  // A REFUSAL IS NOT AN ABSENCE. "Ingen timer registreret denne periode" over a
+  // RecentHoursLog that is still listing this month's real entries is a screen
+  // stating a falsehood — and that is exactly what happened the one round
+  // /hours/summary was prefix-denied. The endpoint is redacted per field now,
+  // so this branch should stay unreached; it is the guard that makes bringing
+  // the deny back a visible change rather than a silent lie.
+  if (denied) {
+    return <WagePrivacyNotice reason={denied} />;
   }
 
   if (!summary || summary.length === 0) {
@@ -1280,13 +1361,13 @@ function HoursSummaryTable({ summary, loading, currency, onResolved }) {
               </td>
               <td className="hidden md:table-cell px-3 py-3" />
               <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
-                {summary.reduce((s, r) => s + (r.earned || 0), 0).toFixed(0)} {currency}
+                {moneyTotal("earned")}
               </td>
               <td className="hidden md:table-cell px-3 py-3 text-right tabular-nums text-sm">
-                {summary.reduce((s, r) => s + (r.tips || 0), 0).toFixed(0)} {currency}
+                {moneyTotal("tips")}
               </td>
               <td className="px-3 py-3 text-right tabular-nums text-sm">
-                {summary.reduce((s, r) => s + (r.total || 0), 0).toFixed(0)} {currency}
+                {moneyTotal("total")}
               </td>
             </tr>
           </tfoot>

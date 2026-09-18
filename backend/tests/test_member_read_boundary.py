@@ -21,8 +21,8 @@ The subset invariant is asserted here too, because main.py's fast path
 manager ever gained a prefix members lack, that path would stop catching it
 and the guard would silently weaken.
 """
+import app.main as _main
 from app.main import (
-    _MANAGER_READ_ALLOW_PREFIXES,
     _MANAGER_READ_DENY_PREFIXES,
     _MEMBER_READ_DENY_PREFIXES,
     _SHARED_DEVICE_DENY_PREFIXES,
@@ -67,19 +67,24 @@ class TestTheOwnerFinancialCornerStaysShut:
         assert "/api/staff/payroll" in _MEMBER_READ_DENY_PREFIXES
 
 
-class TestTheManagerPayrollExemptionIsNarrow:
-    """The exemption was written for ONE route and granted the whole prefix.
+class TestPayrollIsOwnerOnly:
+    """The manager payroll exemption is GONE (Manoj, 18 Sep 2026).
 
-    The comment on the manager set said it keeps "the wage-cost estimate" —
-    singular, and there is literally a /payroll/estimate route. But expressing
-    that as "omit /api/staff/payroll from the deny list" also handed over
+    It was wrong twice. First in SCOPE: written for "the wage-cost estimate" —
+    singular, and there is literally a /payroll/estimate route — but expressed
+    as "omit /api/staff/payroll from the deny list", which also handed over
     /payroll/csv and /payroll/loenseddel: every colleague's payslip PDF, with
-    net_pay, am_bidrag, a_skat and the tax-card type and rate. A manager reached
-    it from the Løn tab of /staff/hours, which is not an ownerOnly destination.
+    net_pay, am_bidrag, a_skat and the tax-card type and rate. That was fixed by
+    inverting to deny-by-default plus a one-route allow-list.
 
-    So the prefix is denied by default now and the estimate is carved back out —
-    a payroll route added next year is owner-only until someone decides
-    otherwise, rather than public to managers the day it merges.
+    Then in SUBSTANCE: the one route left was not the aggregate it was defended
+    as. /payroll/estimate returns per-person gross + AM-bidrag + A-skat + ATP +
+    feriepenge, so gross ÷ hours is a named colleague's hourly rate — the very
+    figure the wage-privacy block hides everywhere else. A manager reached it
+    from the Løn tab of /staff/hours, which is not an ownerOnly destination.
+
+    So: the whole prefix, every role. The allow-list mechanism is deleted
+    rather than emptied to (), so re-opening costs a deliberate re-write.
     """
 
     def test_the_payslip_pdf_is_denied(self):
@@ -88,16 +93,21 @@ class TestTheManagerPayrollExemptionIsNarrow:
     def test_the_payroll_csv_is_denied(self):
         assert _is_manager_denied_path("/api/staff/payroll/csv") is True
 
-    def test_the_wage_cost_estimate_is_still_allowed(self):
-        """The guard: this must not become "a manager can't plan a rota"."""
-        assert _is_manager_denied_path("/api/staff/payroll/estimate") is False
+    def test_the_wage_cost_estimate_is_denied_too(self):
+        assert _is_manager_denied_path("/api/staff/payroll/estimate") is True
 
     def test_a_future_payroll_route_is_denied_by_default(self):
         # The point of the inversion — fail closed on the ones nobody has
         # thought about yet.
         assert _is_manager_denied_path("/api/staff/payroll/whatever-ships-next") is True
 
-    def test_the_carve_out_did_not_reopen_the_owner_financials(self):
+    def test_there_is_no_allow_list_to_widen(self):
+        """Asserted by ABSENCE. `= ()` would keep a one-line path back in with
+        no new reasoning attached, and reads as "nothing is restricted" above a
+        deny list. The mechanism has to be re-written to be re-used."""
+        assert not hasattr(_main, "_MANAGER_READ_ALLOW_PREFIXES")
+
+    def test_denying_payroll_did_not_reopen_the_owner_financials(self):
         for denied in (
             "/api/tax/filing",
             "/api/bank-connect/start",
@@ -120,10 +130,9 @@ class TestTheManagerPayrollExemptionIsNarrow:
 
 
 class TestTheCurtainedTabletHidesWageDataToo:
-    """_SHARED_DEVICE_DENY_PREFIXES reuses the manager deny set, and
-    deliberately does NOT consult the manager allow-list: on a handed-over
-    tablet the actor is the OWNER, so the reveal-PIN is the only gate, and
-    colleagues' wage costs are exactly what it exists to hide."""
+    """_SHARED_DEVICE_DENY_PREFIXES reuses the manager deny set. On a
+    handed-over tablet the actor is the OWNER, so the reveal-PIN is the only
+    gate, and colleagues' wage costs are exactly what it exists to hide."""
 
     def test_all_payroll_is_behind_the_pin_including_the_estimate(self):
         assert any(
@@ -131,18 +140,14 @@ class TestTheCurtainedTabletHidesWageDataToo:
             for p in _SHARED_DEVICE_DENY_PREFIXES
         )
 
-    def test_the_allow_list_is_not_wired_into_the_shared_device_gate(self):
-        # Guard against a future "tidy" that reuses _is_manager_denied_path in
-        # shared_device_pin_gate and silently reopens wage data on the curtain.
-        assert _MANAGER_READ_ALLOW_PREFIXES == ("/api/staff/payroll/estimate",)
 
-
-class TestManagerIsASubsetOfMember:
-    def test_every_manager_denied_prefix_is_also_member_denied(self):
-        """main.py screens the UNION on the fast path before any DB lookup.
-        A manager-only prefix would slip past it."""
-        extra = set(_MANAGER_READ_DENY_PREFIXES) - set(_MEMBER_READ_DENY_PREFIXES)
-        assert not extra, f"manager-denied but member-allowed: {sorted(extra)}"
+class TestManagerIsTheMemberSet:
+    def test_the_two_deny_sets_are_the_same_set(self):
+        """main.py screens the UNION on the fast path before any DB lookup, so
+        a manager-only prefix would slip past it — and since the carve-out
+        closed there is no difference left to express in the other direction
+        either."""
+        assert set(_MANAGER_READ_DENY_PREFIXES) == set(_MEMBER_READ_DENY_PREFIXES)
 
     def test_a_non_financial_path_is_not_swept_up(self):
         # The guard must stay narrow — a member's ordinary work must not 403.

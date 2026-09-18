@@ -119,7 +119,12 @@ def render_schedule_pdf(
                 cell = _fmt_shift(shift.start_time, shift.end_time)
                 if shift.role_on_shift:
                     cell += f"\n{shift.role_on_shift}"
-                if shift.confirmed_at:
+                # confirmed_current, not the raw stamp: the ✓ on a printed rota
+                # is read as "this person has seen this shift", and the stamp
+                # now survives a move (the fingerprint decides). Printing it on
+                # a shift that was dragged after acknowledgement would put the
+                # claim on paper, where nobody can refresh it.
+                if shift.confirmed_current:
                     cell += " ✓"
             else:
                 cell = "OFF"

@@ -223,17 +223,18 @@ def test_member_read_guard_denies_only_low_priv_roles():
     # incl. the wage-cost estimate)…
     assert "cashier" in _LOW_PRIV_MEMBER_ROLES
     assert "viewer" in _LOW_PRIV_MEMBER_ROLES
-    # …manager is NOT here — it has its own narrower deny-set (see
-    # test_manager_read_scope_*); accountant + owner keep full access.
+    # …manager is NOT here — it takes its own branch in the guard (see
+    # test_manager_read_scope_*), which since the payroll carve-out closed
+    # reaches the same answer. Kept separate so a future per-router scope model
+    # has somewhere to land. Accountant + owner keep full access.
     assert "manager" not in _LOW_PRIV_MEMBER_ROLES
     assert "accountant" not in _LOW_PRIV_MEMBER_ROLES
     assert "owner" not in _LOW_PRIV_MEMBER_ROLES
 
 
-def test_manager_read_scope_denies_owner_financials_keeps_wage_cost():
-    """GDPR least-privilege: a manager loses the OWNER's tax/bank/cashflow but
-    keeps the wage/labor-cost estimate (hours×rate — no payslip/CPR PII, since
-    BonBox does not do payroll).
+def test_manager_read_scope_denies_owner_financials_including_payroll():
+    """GDPR least-privilege: a manager loses the OWNER's tax/bank/cashflow —
+    and, since 2026-09-18, all of payroll with it.
 
     This used to re-implement the guard's manager branch inline, which is how
     the branch and this test drifted apart: the local copy could not see the
@@ -258,17 +259,17 @@ def test_manager_read_scope_denies_owner_financials_keeps_wage_cost():
         "/api/reports/vat-export",
     ):
         assert _manager_denied(denied) is True, denied
-    # Wage/labor-cost estimate — a manager KEEPS it (their shift-planning tool).
-    assert _manager_denied("/api/staff/payroll/estimate") is False
-    # ...but NOT the payroll artefacts. This line asserted False until
-    # 2026-08-30, which was the bug: /payroll/csv carries per-employee
-    # "AM-bidrag (8%), A-skat (est.), Net pay" columns, so it is payslip data in
-    # CSV form — the exact PII this test's own docstring says a manager does not
-    # get. The assertion had been written to match the implementation (the whole
-    # prefix was exempt) rather than the intent stated one line above it.
+    # The whole payroll prefix, artefacts AND estimate. The csv/loenseddel
+    # lines asserted False until 2026-08-30 and the estimate until 2026-09-18,
+    # both for the same reason: the assertion had been written to match the
+    # implementation (the prefix was exempt) rather than the intent stated one
+    # line above it. /payroll/csv carries per-employee "AM-bidrag (8%), A-skat
+    # (est.), Net pay" columns; /payroll/estimate carries the same figures as
+    # JSON, where gross ÷ hours is the colleague's rate.
+    assert _manager_denied("/api/staff/payroll/estimate") is True
     assert _manager_denied("/api/staff/payroll/csv") is True
     assert _manager_denied("/api/staff/payroll/loenseddel") is True
-    # The manager deny set IS the member set now (the carve-out expresses the
-    # difference), so the fast-path gate — which screens the member union before
-    # any DB lookup — still catches every manager-denied path.
-    assert set(_MANAGER_READ_DENY_PREFIXES) <= set(_MEMBER_READ_DENY_PREFIXES)
+    # The manager deny set IS the member set — no carve-out left to express a
+    # difference — so the fast-path gate, which screens the member union before
+    # any DB lookup, catches every manager-denied path.
+    assert set(_MANAGER_READ_DENY_PREFIXES) == set(_MEMBER_READ_DENY_PREFIXES)

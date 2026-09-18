@@ -18,6 +18,18 @@ from app.services.staffing_intelligence import get_staff_insights
 router = APIRouter()
 
 
+def _wage_visible(user: User) -> bool:
+    """Whether this actor may read per-person pay. See routers/staff.py for the
+    canonical version; duplicated (not imported) only to keep the staffing
+    router free of a dependency on the staff router — the two flags themselves
+    are set in one place, services/auth.py, which is what must not drift.
+    """
+    return not (
+        getattr(user, "_is_member_view", False)
+        or getattr(user, "_shared_device_locked", False)
+    )
+
+
 class DailyStaffingLog(BaseModel):
     date: date
     staff_count: int
@@ -125,13 +137,18 @@ def list_staff_logs(
         .order_by(DailyStaffing.date.desc())
         .all()
     )
+    _hide_cost = not _wage_visible(user)
     return [
         {
             "id": str(log.id),
             "date": str(log.date),
             "staff_count": log.staff_count,
             "total_hours": float(log.total_hours) if log.total_hours else None,
-            "labor_cost": float(log.labor_cost) if log.labor_cost else None,
+            "labor_cost": (
+                None
+                if _hide_cost
+                else (float(log.labor_cost) if log.labor_cost else None)
+            ),
             "notes": log.notes,
         }
         for log in logs
@@ -144,4 +161,21 @@ def staffing_insights(
     user: User = Depends(get_current_user),
 ):
     """Get staff-revenue intelligence analysis."""
-    return get_staff_insights(str(user.id), db)
+    out = get_staff_insights(str(user.id), db)
+    # Same division, one layer up: the weekday rows carry avg_labor_cost beside
+    # the avg_staff that produced it (the service divides exactly that way
+    # itself, staffing_intelligence.py:158), and the "High labor cost on
+    # <day>" alert restates the percentage in prose. Revenue stays — /api/sales
+    # is deliberately open to a delegated seat, so venue takings are not the
+    # owner-only half here; the per-person wage is.
+    if not _wage_visible(user) and isinstance(out, dict):
+        for row in (out.get("weekday_analysis") or []):
+            if isinstance(row, dict):
+                row["avg_labor_cost"] = None
+                row["labor_pct"] = None
+        out["overall_labor_pct"] = None
+        out["alerts"] = [
+            a for a in (out.get("alerts") or [])
+            if not (isinstance(a, dict) and a.get("type") == "labor_cost")
+        ]
+    return out

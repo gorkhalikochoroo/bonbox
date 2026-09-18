@@ -191,10 +191,44 @@ class ScheduleResponse(BaseModel):
     branch_id: uuid.UUID | None = None
     created_at: datetime.datetime | None = None
     # Staff-side "Jeg har set det" acknowledgement — surfaced as the owner-grid
-    # confirmation badge. None = published-but-unconfirmed.
+    # confirmation badge. None = nobody has acknowledged THIS shift as it now
+    # stands (see the validator below).
     confirmed_at: datetime.datetime | None = None
+    # Does that acknowledgement still apply to the shift AS IT NOW STANDS?
+    # Computed server-side from Schedule.confirmed_for (model property), so the
+    # owner grid never has to re-derive "has this moved since they saw it?"
+    # from four fields it would have to keep in step by hand. Defaults True so
+    # the field is never the thing that turns a badge off by accident.
+    confirmed_current: bool = True
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _narrow_stale_confirmation(self):
+        """Report confirmed_at as null once the fingerprint stops matching.
+
+        HEAD cleared confirmed_at on a material change, so every client that
+        read the bare stamp was correct. Keeping the stamp (so an undone drag
+        is recoverable) is the right fix in the DATABASE, but serving it raw
+        makes any client that has not yet shipped the confirmed_current read
+        strictly WORSE than HEAD: a moved shift keeps its green "seen" check
+        forever instead of flipping back to amber.
+
+        That is not hypothetical. frontend/ios-scheduler/.../public/assets/
+        StaffSchedulePage-*.js is COMMITTED, it is what goes into the store
+        Archive, and it computes both its badge and its seen-count from
+        `confirmed_at` alone — no confirmed_current anywhere in the file. The
+        web bundle has the same exposure for the length of any deploy skew,
+        which this repo hits often enough to have a note about it.
+
+        So the honest answer, not the raw one. Consumers that need "when did
+        they acknowledge, even if it has moved since" read Schedule.confirmed_at
+        on the model, where nothing is erased. staff_portal.py narrows the
+        portal payload for the same reason, and the two now agree.
+        """
+        if not self.confirmed_current:
+            self.confirmed_at = None
+        return self
 
 
 # ── Open shifts (Åbne vagter) ──────────────────────────────────────────────

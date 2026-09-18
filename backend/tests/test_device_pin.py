@@ -64,10 +64,40 @@ def test_reveal_proof_roundtrip_and_negatives():
 
 def test_shared_device_deny_set_covers_owner_financials():
     from app.main import _SHARED_DEVICE_DENY_PREFIXES, _MANAGER_READ_DENY_PREFIXES
-    # Reuses the owner-financial prefix set → can't drift from the member gate.
-    assert _SHARED_DEVICE_DENY_PREFIXES == _MANAGER_READ_DENY_PREFIXES
+    # Builds ON the owner-financial prefix set → can't drift from the member
+    # gate. /api/staff/hours/summary is deliberately NOT added on top: denying
+    # it made the curtained Detaljer tab claim "no hours logged" over a live
+    # register. Its wages are nulled per field on `_shared_device_locked`
+    # instead — deny where the whole response is money, redact where the money
+    # is mixed into the work.
+    for pref in _MANAGER_READ_DENY_PREFIXES:
+        assert pref in _SHARED_DEVICE_DENY_PREFIXES
+    assert "/api/staff/hours/summary" not in _SHARED_DEVICE_DENY_PREFIXES
     for p in ("/api/tax", "/api/bank-connect", "/api/cashflow", "/api/reports"):
         assert any(p.startswith(pref) for pref in _SHARED_DEVICE_DENY_PREFIXES)
+
+
+def test_the_curtain_also_covers_read_shaped_posts():
+    """The gate used to return early for every non-GET, which let two POSTs
+    that only READ walk straight through it: /payroll/pdf renders the whole
+    venue's payroll and /payroll/send-to-accountant mails those same bytes to a
+    caller-supplied address. A method filter is not a threat model."""
+    from app.main import _SHARED_DEVICE_DENY_WRITE_PREFIXES
+
+    assert any(
+        "/api/staff/payroll/pdf".startswith(p)
+        for p in _SHARED_DEVICE_DENY_WRITE_PREFIXES
+    )
+    assert any(
+        "/api/staff/payroll/send-to-accountant".startswith(p)
+        for p in _SHARED_DEVICE_DENY_WRITE_PREFIXES
+    )
+    # And it stays NARROW. A curtained tablet is the counter device: it must
+    # still be able to log an hour, seat a table and take money.
+    for still_allowed in ("/api/staff/hours", "/api/sales", "/api/reservations"):
+        assert not any(
+            still_allowed.startswith(p) for p in _SHARED_DEVICE_DENY_WRITE_PREFIXES
+        )
 
 
 # ─── Endpoint flow (real token + get_db override) ────────────────────────

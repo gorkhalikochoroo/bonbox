@@ -571,7 +571,10 @@ def compute_precompute(user: User, db: Session) -> Precompute:
     # so neither the owed figure nor the countdown reaches a member. The
     # read-only accountant grant sets _is_accountant_view (NOT _is_member_view),
     # so the revisor still gets the full MOMS brief.
-    if getattr(user, "_is_member_view", False) or getattr(user, "_shared_device_locked", False):
+    _restricted_seat = getattr(user, "_is_member_view", False) or getattr(
+        user, "_shared_device_locked", False
+    )
+    if _restricted_seat:
         moms_days_left = None
         moms_estimated_owed = None
         moms_deadline_date = None
@@ -719,6 +722,23 @@ def compute_precompute(user: User, db: Session) -> Precompute:
                 sched_published_shifts_week += 1
     except Exception as e:  # noqa: BLE001
         logger.debug("daily_brief: scheduled-labor signal unavailable: %s", e)
+
+    # WAGE PRIVACY — the same kr ÷ hours the schedule's week-cost card was
+    # denied for. The Monday insight prints the planned cost AND the hours that
+    # produced it on one line ("≈ 12.400 kr · 62 hrs"), and /api/staff/schedules
+    # stays open to a manager BY DESIGN, so the seat reading that line already
+    # knows whose shifts make up the 62. In a week one staffer carries, the
+    # division is not an average, it is their rate.
+    #
+    # /api/dashboard/daily-brief is in no deny list and DailyBriefCard fetches
+    # it on Home with no role gate, so this — nulling the signal the way the
+    # MOMS block above nulls moms_days_left — is the gate. The candidate at
+    # ~:1108 already requires shifts > 0 and cost > 0, so zeroing drops the
+    # whole line rather than printing a confident "0 kr".
+    if _restricted_seat:
+        sched_labor_cost_week = 0.0
+        sched_labor_hours_week = 0.0
+        sched_published_shifts_week = 0
 
     return Precompute(
         business_name=user.business_name or "your business",
@@ -1606,6 +1626,49 @@ def get_or_create_brief(
     user is over their cap, the cached brief is returned with no refresh.
     """
     today = date.today()
+
+    # ── THE CACHE ROW IS THE OWNER'S. A RESTRICTED SEAT NEVER TOUCHES IT. ──
+    #
+    # compute_precompute redacts the MOMS figure and the planned-labour signal
+    # for a delegated seat and a curtained shared device — and that redaction
+    # runs ONLY when a brief is generated. The cache is one row per user per
+    # day keyed on user.id, and a member session resolves to the OWNER's User
+    # object with the owner's id (auth.py), as does a curtained owner session.
+    # So owner and every delegated seat shared one row, and whoever loaded Home
+    # first that day decided what everyone saw:
+    #
+    #   • owner first → the cached payload carries the MOMS candidate (weight
+    #     0.92–0.98, so normally the HEADLINE inside the 30-day window) and the
+    #     manager reads the owner's SKAT liability out of row.payload_json,
+    #     with no redaction anywhere on that code path.
+    #   • member first → the owner loses their own MOMS countdown for the rest
+    #     of the day. And because `refresh` is a query parameter on the GET, a
+    #     member seat could force-regenerate, overwrite the owner's brief with
+    #     a redacted one, and burn the owner's per-day refresh cap.
+    #
+    # Filtering the cached payload at serve time was the other candidate and it
+    # cannot be done honestly: the insights are LLM-rephrased prose, so there is
+    # no reliable way to find the sentence a redacted fact turned into. So a
+    # restricted seat gets a brief computed FROM redacted facts, and the row is
+    # neither read nor written. Deterministic (no LLM polish) on purpose —
+    # without a cache row to amortise it, polishing would bill an API call on
+    # every Home mount, and the facts a restricted seat may see are exactly the
+    # ones fallback_brief already states plainly.
+    if getattr(user, "_is_member_view", False) or getattr(
+        user, "_shared_device_locked", False
+    ):
+        p = compute_precompute(user, db)
+        from app.services.billing import has_feature as _has_feature
+        candidates = generate_candidates(
+            p,
+            has_customer_outreach=bool(_has_feature(user, "customer_outreach")),
+            has_expiry_alerts=bool(_has_feature(user, "expiry_alerts")),
+        )
+        payload = fallback_brief(p, candidates, user=user)
+        payload["from_cache"] = False
+        payload["tier"] = effective_plan(user)
+        return payload
+
     row: DailyBrief | None = (
         db.query(DailyBrief)
         .filter(DailyBrief.user_id == user.id, DailyBrief.brief_date == today)
