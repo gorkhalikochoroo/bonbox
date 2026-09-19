@@ -68,6 +68,7 @@ from app.models import (
     User,
 )
 from app.services.expense_status import not_pending
+from app.services.inventory_reorder import reorder_items
 # Faktura intel — Day 9 of the compliance sprint. The Brief surfaces
 # overdue + payments-to-review counts so they're the first thing the
 # owner sees each morning, driving traffic to /faktura/review without
@@ -303,16 +304,17 @@ def compute_precompute(user: User, db: Session) -> Precompute:
             "revenue": float(rows[0].rev or 0),
         }
 
-    # Low-stock items (capped at top 5 by absolute shortfall)
-    low_stock_rows = (
-        db.query(InventoryItem)
-        .filter(
-            InventoryItem.user_id == user.id,
-            InventoryItem.quantity <= InventoryItem.min_threshold,
-        )
-        .limit(5)
-        .all()
-    )
+    # Low-stock items (capped at 5 — the brief names a few, never a list).
+    #
+    # This asks inventory_reorder for THE flagged set rather than re-deriving
+    # "low" from quantity <= min_threshold, which is how the brief came to tell
+    # an owner that "Vodka, Tequila, and Rum are running low" about 23 bar-
+    # template placeholders written in one batch, never counted and never sold.
+    # Home and the Stock page were fixed to share that predicate; the brief is
+    # the third surface that speaks about stock, and a morning message that
+    # contradicts both pages is worse than the cards, because it arrives
+    # unprompted and the owner cannot click it to see the list.
+    low_stock_rows = reorder_items(db, user=user, today=today)[:5]
     low_stock = [
         {
             "name": str(i.name),
