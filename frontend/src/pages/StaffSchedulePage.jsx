@@ -5783,9 +5783,18 @@ export function ScheduleGrid({
                     : e.over_cap
                       ? "bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400"
                       : "bg-gray-100 dark:bg-gray-700/60 text-gray-500 dark:text-gray-400";
+                  // formatTimer, not raw interpolation with a literal "t".
+                  // Seen live on 2026-09-20: this chip rendered "6.25t" —
+                  // an English decimal point wearing the Danish unit, in BOTH
+                  // languages, because the number came straight off the API
+                  // and the "t" was typed here. Next to it the grid's own
+                  // hours read "6,25t" in Danish and "6.25h" in English,
+                  // because those go through the formatter. Two hour figures,
+                  // one row apart, disagreeing about notation.
+                  const hoursUnit = t("schedHoursUnit", "h");
                   const label = e.cap != null
-                    ? `${e.hours}/${e.cap}t`
-                    : `${e.hours}t`;
+                    ? `${formatTimer(e.hours, hoursUnit)}/${formatTimer(e.cap, hoursUnit)}`
+                    : formatTimer(e.hours, hoursUnit);
                   const title = [
                     e.over_cap ? t("shieldOverCapTitle", "Over the contract cap ({cap}t/week)").replace("{cap}", e.cap) : "",
                     e.over_dk48 ? t("shieldOver48Title", "Over the DK 48h weekly ceiling") : "",
