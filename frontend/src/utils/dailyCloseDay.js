@@ -21,6 +21,35 @@ import { businessTodayIso } from "./dateFormat";
 export const DEFAULT_CLOSE_CUTOFF_HOUR = 6;
 
 /**
+ * The cutoff hour to use for a `day_cutoff_hour` value off the wire.
+ *
+ * THE BUG THIS FUNCTION EXISTS TO KILL: the prefill handler read
+ * `res.data.day_cutoff_hour || 0`. `||` treats a MISSING field exactly like a
+ * configured midnight, so a venue whose prefill response simply omits the key
+ * (an older backend, a branch row with the column still null) silently moved
+ * its business-day rollover from the page's own 06:00 default to 00:00 —
+ * mid-load, after the header had already decided what "today" meant. A bar
+ * closing at 01:30 then had the header saying yesterday and the wizard saying
+ * today, and reconciled against the wrong day's sales. That is the exact defect
+ * DEFAULT_CLOSE_CUTOFF_HOUR was introduced to prevent, re-entering through a
+ * coercion.
+ *
+ * `??` is the whole fix: a real 0 from the server still means midnight (an
+ * owner may genuinely close on the calendar day), and only null/undefined
+ * falls back to the DK default. Non-numeric or out-of-range junk also falls
+ * back rather than producing a NaN date.
+ *
+ * @param {unknown} raw — `day_cutoff_hour` as the server sent it
+ * @param {number} fallback — the hour to use when `raw` says nothing
+ */
+export function resolveCutoffHour(raw, fallback = DEFAULT_CLOSE_CUTOFF_HOUR) {
+  const n = raw ?? fallback;
+  if (typeof n !== "number" || !Number.isFinite(n)) return fallback;
+  if (!Number.isInteger(n) || n < 0 || n > 23) return fallback;
+  return n;
+}
+
+/**
  * The confirmed close filed against `businessDateIso`, or null.
  * Compares on the close's own `date` (already a business date server-side),
  * so the only thing that has to be right is the day we ask for.

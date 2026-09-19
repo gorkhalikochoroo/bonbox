@@ -18,6 +18,7 @@
  * Danish even when the BonBox UI is in another language, because their
  * recipients (revisor, investor, owner-WhatsApp-group) are in DK.
  */
+import { formatOwnerMoney } from "./currency";
 
 /**
  * Build the share message body. Pure function — easy to unit test
@@ -33,10 +34,15 @@
 export function buildShareMessage(aggregated, { businessName, dateLabel, currency = "DKK" } = {}) {
   if (!aggregated) return "";
 
-  const fmt = (n) =>
-    n == null || isNaN(n)
-      ? "—"
-      : Math.round(Number(n)).toLocaleString("da-DK") + " " + currency;
+  // Through the money primitive, like every other money render in the app.
+  // This used to be `toLocaleString("da-DK") + " " + currency`, which grouped
+  // correctly but appended the CODE — so the close page showed the owner
+  // "17.030 kr." and the message they forwarded to their revisor about that
+  // same close said "17.030 DKK". One job, two currency conventions. The
+  // grouping was never at risk here (da-DK was pinned); the token was.
+  // formatOwnerMoney already answers "—" for null/NaN, so the old guard
+  // collapses into it.
+  const fmt = (n) => formatOwnerMoney(n, currency, { decimals: 0 });
 
   const lines = [];
   lines.push(`Lukning ${businessName || ""}${dateLabel ? " – " + dateLabel : ""}`.trim());

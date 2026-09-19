@@ -36,7 +36,7 @@ import {
   MERGE_REPLACE,
   MERGE_SUM,
 } from "../utils/dailyCloseScanMerge";
-import { DEFAULT_CLOSE_CUTOFF_HOUR, findConfirmedCloseFor } from "../utils/dailyCloseDay";
+import { DEFAULT_CLOSE_CUTOFF_HOUR, findConfirmedCloseFor, resolveCutoffHour } from "../utils/dailyCloseDay";
 import {
   buildShareMessage,
   buildShareTitle,
@@ -47,8 +47,23 @@ import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
-import { UpgradeNudge, PageHeader, TabPills, Button, Icon, SectionBanner } from "../components/ui";
+// Amount is the money-render primitive and the ONLY way a figure reaches the
+// screen on this page. Every money render here used to be a bare
+// `toLocaleString()`, which formats in the BROWSER locale: on an EN-locale
+// machine (a MacBook bought abroad, a Chrome profile in English — common in
+// DK) 17030 rendered "17,030" and a Dane reads the comma as a DECIMAL
+// separator: seventeen kroner and three øre, on the one surface that produces
+// the revisor's number. Amount/formatOwnerMoney pin da-DK and the "kr." token,
+// and render a missing value as "—" instead of a confident 0.
+// NOT importing Card, deliberately: this page's 17 hand-rolled card surfaces
+// are `dark:bg-gray-800`, and the Card primitive's dark surface is gray-900 —
+// which IS the dark page ground (#111827, `.dark body` in index.css), so a Card
+// there is defined only by its 1px border. Converting SOME of them would split
+// the page into two different dark surfaces, and converting all seventeen is a
+// bigger change than a surface pass should make in one go. See the report.
+import { UpgradeNudge, PageHeader, TabPills, Button, Icon, SectionBanner, Amount, StatCard } from "../components/ui";
 import PageShell from "../components/ui/PageShell";
+import Chip from "../components/ui/Chip";
 import SmartScanModal from "../components/SmartScanModal";
 // LiveKpisToday — extracted from the legacy /daily-report page so
 // the merged daily page (#150) shows the live operational snapshot
@@ -157,6 +172,29 @@ async function parseExportError(err) {
    It now lives in its own module with the poster injected, so every one of
    those paths is pinned by a test. */
 const postClose = (payload) => api.post("/daily-close", payload);
+
+/* ═══════════════════════════════════════════════════════════
+   DECIMAL POLICY — one rule, stated once
+   ═══════════════════════════════════════════════════════════
+   LEDGER (two decimals) is for the REVIEW step and the save preview beside it,
+   plus the revisor note buildPayload persists. That is the surface that becomes
+   the document: the kasserapport PDF the server generates renders two decimals
+   (see formatMoney's contract in utils/currency.js — the "#148 MEDIUM-11 drift"
+   it cites is precisely a screen and a PDF disagreeing about øre for the same
+   row), so the review card has to tie out against it line for line.
+
+   GLANCE (whole kroner) is everything else: the scan card the owner checks
+   against the paper in their hand, the running totals on the entry steps, the
+   POS-sync banners, history rows, the 90-day heat map, insights, the branch
+   comparison. Øre there costs a scan of the column and buys nothing, and whole
+   kroner is what those surfaces already showed.
+
+   Named constants rather than a bare 0/2 at fifty call sites, so the next
+   person changing one surface can see which family it belongs to and cannot
+   half-migrate a card into mixed precision — a row and its own card total are
+   never allowed to disagree. */
+const LEDGER_DECIMALS = 2;
+const GLANCE_DECIMALS = 0;
 
 /* ═══════════════════════════════════════════════════════════
    DEFAULT CATEGORIES — adapt based on business type
@@ -536,7 +574,7 @@ export default function DailyClosePage() {
           (!isOnline || pendingCount > 0) && (
             <div className="flex items-center gap-2 flex-wrap justify-end">
               {!isOnline && (
-                <span className="text-[10px] px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full font-semibold flex items-center gap-1">
+                <span className="text-[11px] px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full font-semibold flex items-center gap-1">
                   <span className="w-1.5 h-1.5 bg-gray-500 rounded-full" /> {t("dcOffline", "Offline")}
                 </span>
               )}
@@ -577,7 +615,7 @@ export default function DailyClosePage() {
                   server has locked is money that is safe; the only thing left
                   is to clear the spare copy off the phone. */}
               {queueCounts.alreadySaved > 0 && (
-                <span className="text-[10px] px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full font-semibold">
+                <span className="text-[11px] px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full font-semibold">
                   {t("dcQueuedAlreadySaved", "{count} already saved", { count: queueCounts.alreadySaved })}
                 </span>
               )}
@@ -801,11 +839,14 @@ function CloseAnomalyDialog({ t, anomaly, saving, onCancel, onConfirm, error = "
   const msgKey = a.reason === "high" ? "closeAnomalyHighMsg" : "closeAnomalyLowMsg";
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-5 sm:p-6 animate-fadeIn">
+      {/* shadow-sm, not one of the heavy tiers: the unlock modal three hundred lines down
+          already uses shadow-sm, the doctrine bans the heavy tiers, and the
+          black/40 overlay is what actually lifts a dialog off the page. */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm max-w-md w-full p-5 sm:p-6 animate-fadeIn">
         <div className="flex items-start gap-3">
           <div className="shrink-0 w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center"><Icon name="AlertTriangle" size={20} className="text-amber-600 dark:text-amber-400" /></div>
           <div className="min-w-0">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white">{t("closeAnomalyTitle")}</h3>
+            <h3 className="text-[16px] font-semibold text-gray-900 dark:text-white">{t("closeAnomalyTitle")}</h3>
             {dateLabel && (
               <p className="mt-0.5 text-xs font-semibold text-gray-500 dark:text-gray-400">
                 {t("dcAnomalyForDate", "Close for {date}", { date: dateLabel })}
@@ -957,6 +998,26 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // the owner's saved/entered breakdown.
   const editLoadedRef = useRef(false);
 
+  // Has the owner (or the Edit-an-existing-close path) deliberately chosen a
+  // business date? Once they have, the date is THEIRS and the prefill must not
+  // move it.
+  //
+  // THE DEFECT THIS EXISTS TO CLOSE: the prefill effect used to END with an
+  // unconditional `setBusinessDate(businessTodayIso(serverCutoff))`, and
+  // `businessDate` is one of that effect's own dependencies. So picking any
+  // past date re-fired the effect and the resolving prefill snapped the date
+  // straight back to today. The visible symptoms were that the date picker did
+  // nothing, "Reset to today" and the `pastDate` badge could never appear
+  // (their `businessDate !== businessTodayIso(cutoffHour)` condition was
+  // unreachable) — and the money symptom was worse: the Edit path sets
+  // businessDate from the saved close, so correcting a close from a past day
+  // re-saved it with `date: businessDate` = TODAY, against the wrong day's
+  // sales.
+  //
+  // A ref, not state, for the same reason as editLoadedRef above: it has to be
+  // true synchronously, before the in-flight fetch resolves.
+  const dateChosenRef = useRef(false);
+
   // Step 4: Tips
   const [tipsTotal, setTipsTotal] = useState("");
   const [staffCount, setStaffCount] = useState("");
@@ -1051,7 +1112,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     // re-fires when we set businessDate below) does NOT clobber the saved
     // payment/revenue breakdown. See registerCash / editLoadedRef notes.
     editLoadedRef.current = true;
-    if (dc.date) setBusinessDate(typeof dc.date === "string" ? dc.date.slice(0, 10) : dc.date);
+    // An edited close is filed against ITS OWN date, never today — mark the
+    // date as chosen before the prefill for that date can resolve.
+    if (dc.date) {
+      dateChosenRef.current = true;
+      setBusinessDate(typeof dc.date === "string" ? dc.date.slice(0, 10) : dc.date);
+    }
     if (dc.revenue_breakdown) {
       const rev = {};
       Object.entries(dc.revenue_breakdown).forEach(([k, v]) => { rev[k] = String(v); });
@@ -1504,6 +1570,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // Prefill from real data
   const [prefill, setPrefill] = useState(null);
   const [prefillLoading, setPrefillLoading] = useState(false);
+  // Three outcomes, not two. A boolean would collapse "the register says
+  // nothing for this date" and "we could not reach the register" into the same
+  // blank screen, and the blank screen reads as the first. The owner then
+  // types a close with no POS cross-check and no idea one was missing — the
+  // variance warning, the register-derived expected cash and the sync banner
+  // are all silently absent. "failed" is rendered, never swallowed.
+  const [prefillStatus, setPrefillStatus] = useState("idle"); // idle | ok | failed
 
   useEffect(() => {
     const fetchPrefill = async () => {
@@ -1516,17 +1589,35 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         // keys for the computed split (restaurant food/drinks/takeaway, etc.).
         if (branchType) params.branch_type = branchType;
         const res = await api.get("/daily-close/prefill", { params });
-        // Apply night shift cutoff from business profile
-        const serverCutoff = res.data.day_cutoff_hour || 0;
+        // Apply night shift cutoff from business profile.
+        // `?? DEFAULT_CLOSE_CUTOFF_HOUR`, never `|| 0`: a MISSING day_cutoff_hour
+        // is not a configured midnight. The old `|| 0` silently moved a venue
+        // whose prefill omits the field from the page's own 06:00 default to
+        // 00:00 mid-load, so the header and the wizard disagreed about which day
+        // was "today" — see resolveCutoffHour in utils/dailyCloseDay.js.
+        const serverCutoff = resolveCutoffHour(res.data.day_cutoff_hour);
         if (serverCutoff !== cutoffHour) {
           setCutoffHour(serverCutoff);
           const correctedDate = businessTodayIso(serverCutoff);
-          if (correctedDate !== today) {
+          // Only re-derive "today" while the owner has not picked a date. This
+          // branch exists to apply the venue's real cutoff to the DEFAULT date
+          // on first load; applied to a chosen date it is a clobber, not a
+          // correction. See dateChosenRef.
+          if (!dateChosenRef.current && correctedDate !== today) {
             setBusinessDate(correctedDate);
             // Re-fetch with corrected date (don't loop — cutoffHour dep is stable after this)
           }
         }
-        setBusinessDate(businessTodayIso(serverCutoff));
+        // NOTE: there is deliberately NO unconditional
+        // `setBusinessDate(businessTodayIso(serverCutoff))` here. It used to
+        // be the last line of this block, and because `businessDate` is a
+        // dependency of this very effect it reverted every date the owner
+        // chose the moment the prefill resolved — killing the picker, the
+        // pastDate badge and "Reset to today", and re-filing edited past
+        // closes against today. The branch above is the only case that
+        // legitimately moves the date, and it is now gated. Covered by
+        // "keeps the owner's chosen business date" in
+        // __tests__/DailyClosePage.moneySurface.test.jsx.
 
         if (res.data.has_data) {
           setPrefill(res.data);
@@ -1607,8 +1698,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             }
           }
         }
+        setPrefillStatus("ok");
       } catch {
-        // Silent — manual entry still works
+        // Manual entry still works — but say so. Failing closed and QUIET
+        // meant the POS cross-check just wasn't there, which looks identical
+        // to "this date had no sales".
+        setPrefillStatus("failed");
       }
       setPrefillLoading(false);
     };
@@ -1617,6 +1712,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
   const revenueTotal = useMemo(() => Object.values(revAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0), [revAmounts]);
   const paymentTotal = useMemo(() => Object.values(payAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0), [payAmounts]);
+  // A total of 0 is only a NUMBER once the owner has typed something. Before
+  // the first keystroke the reduce above returns 0 and the step header printed
+  // it as "0 DKK" — a confident statement that the venue took nothing today,
+  // on an untouched form. That is the same class of lie the money primitives
+  // exist to stop, so an untouched step renders Amount's honest "—" instead.
+  const hasRevenueEntry = useMemo(
+    () => Object.values(revAmounts).some((v) => String(v ?? "").trim() !== ""),
+    [revAmounts],
+  );
+  const hasPaymentEntry = useMemo(
+    () => Object.values(payAmounts).some((v) => String(v ?? "").trim() !== ""),
+    [payAmounts],
+  );
   const balanceDiff = revenueTotal - paymentTotal;
   // Expected cash baseline for the drawer variance. Prefer the SYNCED POS
   // register cash (what the till says was taken) over the owner's typed cash
@@ -1628,6 +1736,15 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const typedCash = parseFloat(payAmounts.cash || 0);
   const cashExpectedFromRegister = registerCash != null && !Number.isNaN(registerCash);
   const cashExpected = cashExpectedFromRegister ? registerCash : typedCash;
+  // Same rule as hasRevenueEntry/hasPaymentEntry above, applied one step later:
+  // with no synced register AND nothing typed on the payments step, typedCash
+  // is a fallback 0, and the card printed a confident "0 kr." under the label
+  // "Expected (from your entry)" — an entry that does not exist. A
+  // register-derived 0 and a typed 0 are both real and still render 0; only
+  // "nothing is known" becomes "—". The variance math and the persisted
+  // cash_difference are untouched: this is what the figure SAYS, not what it is.
+  const hasCashBaseline =
+    cashExpectedFromRegister || String(payAmounts.cash ?? "").trim() !== "";
   const cashCountedVal = parseFloat(cashCounted || 0);
   const cashDiff = cashCounted ? cashCountedVal - cashExpected : null;
   const tipsPP = tipsTotal && staffCount && parseInt(staffCount) > 0
@@ -1649,6 +1766,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // fetch: keeps the existing /daily-close/prefill path untouched so
   // the close wizard still loads even if this call fails.
   const [exemptSalesTotal, setExemptSalesTotal] = useState(0);
+  // Three outcomes again. The catch below used to setExemptSalesTotal(0), and
+  // a 0 here is not a neutral value: it is the claim "there were no MOMS-free
+  // sales today", rendered as a measured fact on the line the revisor reads,
+  // and folded into the taxable base the MOMS figure is computed from. A read
+  // that never completed must not be able to make that claim, so the status is
+  // tracked separately and the MOMS card says which of the two it is.
+  const [exemptStatus, setExemptStatus] = useState("loading"); // loading | ok | failed
 
   useEffect(() => {
     let cancelled = false;
@@ -1666,14 +1790,17 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         // because the prop is displayed in money cells.
         const exempt = Math.max(0, Math.round((totalRev - taxable) * 100) / 100);
         setExemptSalesTotal(exempt);
+        setExemptStatus("ok");
       } catch {
-        // Silent — falls back to "no exempt rows known", which is
-        // strictly worse than perfect but still better than blocking
-        // the close wizard. The headline MOMS calc just won't be
-        // exempt-aware until refresh.
-        if (!cancelled) setExemptSalesTotal(0);
+        // Falls back to "no exempt rows known" for the MATH — the conservative
+        // direction, since it over-states rather than under-states the taxable
+        // base, and it keeps the close wizard usable. But the 0 is now marked
+        // as unknown so the review step tells the owner the exempt lookup
+        // didn't answer, instead of printing a 0 that looks measured.
+        if (!cancelled) { setExemptSalesTotal(0); setExemptStatus("failed"); }
       }
     };
+    setExemptStatus("loading");
     fetchExempt();
     return () => { cancelled = true; };
   }, [businessDate, branchId, cutoffHour]);
@@ -1749,7 +1876,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     const gavekortNum = gavekortSold ? parseFloat(gavekortSold) : 0;
     if (gavekortNum > 0) {
       extraNoteParts.push(
-        `Gavekort solgt: ${gavekortNum.toLocaleString()} ${currency} (uden for dagens moms-grundlag — vurderes af revisor).`,
+        // formatOwnerMoney, not toLocaleString: this note is persisted on the
+        // close row and printed on the revisor's kasserapport, so it has to
+        // read "1.500 kr." the way the rest of the document does — never
+        // "1,500 DKK" because the closer's browser happened to be in English.
+        `Gavekort solgt: ${formatOwnerMoney(gavekortNum, currency, { decimals: LEDGER_DECIMALS })} (uden for dagens moms-grundlag — vurderes af revisor).`,
       );
     }
     if (config.hasBatch && batchRef.trim()) {
@@ -1882,8 +2013,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     }
   };
 
-  const inputClass = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-lg";
-  const labelClass = "text-sm font-medium text-gray-600 dark:text-gray-300";
+  const inputClass = "w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-[16px] tabular-nums";
+  const labelClass = "text-[13px] font-medium text-gray-600 dark:text-gray-300";
+
 
   const showScanUI = scanMode === "idle" || scanMode === "scanning" || scanMode === "result";
 
@@ -1975,9 +2107,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           )}
         </div>
         <div className="text-xs text-gray-600 dark:text-gray-300">
-          {(info.terminalTotals || []).map((v) => formatOwnerMoney(v, currency)).join("  +  ")}
+          {(info.terminalTotals || []).map((v) => formatOwnerMoney(v, currency, { decimals: GLANCE_DECIMALS })).join("  +  ")}
           {" = "}
-          <strong>{formatOwnerMoney(headlineTotal(scanResult), currency)}</strong>
+          <strong>{formatOwnerMoney(headlineTotal(scanResult), currency, { decimals: GLANCE_DECIMALS })}</strong>
         </div>
         {/* Honest about what could NOT be added, BY NAME. "Terminal 2's MOMS
             line was unreadable" and "terminal 2 had no MOMS" look the same on
@@ -2030,27 +2162,50 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* ─── SCAN BANNER (Step 0) ─── */}
         {scanMode === "idle" && (
           <div className="space-y-4">
-            <div className="rounded-xl p-6 text-center"
-              style={{ background: "linear-gradient(135deg, #059669 0%, #10b981 50%, #34d399 100%)" }}>
-              <div className="flex justify-center mb-3"><Icon name="Image" size={36} className="text-white" /></div>
-              <h2 className="text-xl font-bold text-white mb-1">{t("scanZReportTitle", "Scan your Z-report / kasserapport")}</h2>
-              <p className="text-gray-100 text-sm mb-5">
-                {/* Fallback kept in step with the key — a stale inline default
-                    is the repo's own documented i18n trap: grep finds the old
-                    promise long after useLanguage was corrected. */}
-                {t("scanZReportBody", "Take a photo of your Z-report. Extra pages are merged into one set of numbers — and when two photos each have their own total, we ask before we add them together.")}
-              </p>
-              <div className="flex flex-wrap gap-3 justify-center sm:flex-nowrap">
-                <button
+            {/* The scan step's opening instruction.
+                It used to be a three-stop emerald gradient banner with a white
+                title and gray-100 body — a marketing hero at the top of an
+                instrument. Two things were wrong with it. It was illegible:
+                white on the #34d399 stop measures 1.92:1 and the body text
+                1.75:1, against the 4.5:1 floor. And it was off-doctrine: this
+                product's design rule is premium via SUBTRACTION — no gloss, no
+                gradient. The instruction is identical; the hierarchy now comes
+                from size and weight on a calm surface, which is where it should
+                have come from in the first place. */}
+            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-5 sm:p-6">
+              <div className="flex items-start gap-3">
+                <span className="shrink-0 mt-0.5 text-gray-500 dark:text-gray-400" aria-hidden="true">
+                  <Icon name="Image" size={20} />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-[16px] font-semibold text-gray-900 dark:text-gray-100 leading-snug">
+                    {t("scanZReportTitle", "Scan your Z-report / kasserapport")}
+                  </h2>
+                  <p className="mt-1 text-[13px] text-gray-600 dark:text-gray-300 leading-relaxed">
+                    {/* Fallback kept in step with the key — a stale inline default
+                        is the repo's own documented i18n trap: grep finds the old
+                        promise long after useLanguage was corrected. */}
+                    {t("scanZReportBody", "Take a photo of your Z-report. Extra pages are merged into one set of numbers — and when two photos each have their own total, we ask before we add them together.")}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                <Button
+                  variant="primary"
+                  size="lg"
+                  className="w-full sm:w-auto"
                   onClick={() => { if (fileInputRef.current) { fileInputRef.current.setAttribute("capture", "environment"); fileInputRef.current.click(); } }}
-                  className="px-5 py-2.5 bg-white text-gray-700 rounded-xl font-semibold shadow-sm hover:shadow-sm transition text-sm inline-flex items-center gap-1.5">
-                  <Icon name="Image" size={16} /> {t("takePhoto", "Take Photo")}
-                </button>
-                <button
+                  iconLeft={<Icon name="Image" size={16} />}>
+                  {t("takePhoto", "Take Photo")}
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  className="w-full sm:w-auto"
                   onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
-                  className="px-5 py-2.5 bg-white/20 text-white border border-white/40 rounded-xl font-semibold hover:bg-white/30 transition text-sm inline-flex items-center gap-1.5">
-                  <Icon name="FolderOpen" size={16} /> {t("uploadImage", "Upload Image")}
-                </button>
+                  iconLeft={<Icon name="FolderOpen" size={16} />}>
+                  {t("uploadImage", "Upload Image")}
+                </Button>
               </div>
               {/* MOMS / VAT toggle — owner picks before scan so OCR'd
                   numbers are interpreted right. Most DK Z-reports are
@@ -2058,27 +2213,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   Uses currency-aware `vatName` so a Nepali user sees
                   "with VAT (gross)" and a Danish user sees "with Moms
                   (gross)" — fixes the #148 MEDIUM-10 mix where this
-                  block hardcoded "MOMS" while siblings used `vatName`. */}
-              <div className="mt-4 flex flex-wrap items-center gap-2 justify-center sm:flex-nowrap">
-                <span className="text-xs text-gray-100">{t("receiptAmountsAre", "Receipt amounts are:")}</span>
-                <button
-                  onClick={() => setScanMomsMode("with-moms")}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
-                    scanMomsMode === "with-moms"
-                      ? "bg-white text-gray-700 shadow"
-                      : "bg-white/10 text-white hover:bg-white/20"
-                  }`}>
+                  block hardcoded "MOMS" while siblings used `vatName`.
+                  Now the Chip primitive: it already owns this product's ONE
+                  selected-state treatment (gray-900 fill), is a real button
+                  with aria-pressed, and replaces a hand-rolled pair whose
+                  unselected state was white-on-emerald at ~1.3:1. */}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <span className="text-[12px] text-gray-500 dark:text-gray-400">{t("receiptAmountsAre", "Receipt amounts are:")}</span>
+                <Chip size="sm" selected={scanMomsMode === "with-moms"} onClick={() => setScanMomsMode("with-moms")}>
                   {t("withVatGross", "with {vat} (gross)", { vat: vatName })}
-                </button>
-                <button
-                  onClick={() => setScanMomsMode("without-moms")}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition ${
-                    scanMomsMode === "without-moms"
-                      ? "bg-white text-gray-700 shadow"
-                      : "bg-white/10 text-white hover:bg-white/20"
-                  }`}>
+                </Chip>
+                <Chip size="sm" selected={scanMomsMode === "without-moms"} onClick={() => setScanMomsMode("without-moms")}>
                   {t("withoutVatNet", "without {vat} (net)", { vat: vatName })}
-                </button>
+                </Chip>
               </div>
             </div>
             {/* Upload zone */}
@@ -2107,9 +2254,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* ─── SCANNING SPINNER ─── */}
         {scanMode === "scanning" && (
           <div className="py-12 text-center space-y-4">
-            <div className="inline-block w-10 h-10 border-4 border-gray-100 border-t-green-600 rounded-full animate-spin" />
-            <p className="text-gray-600 dark:text-gray-300 font-medium">{t("readingZReport", "Reading your Z-report…")}</p>
-            <p className="text-sm text-gray-400">{t("ocrExtractingData", "OCR is extracting revenue, payments, and {vat} data", { vat: vatName })}</p>
+            {/* border-t-green-600 was a literal `green-*` utility, which
+                index.css remaps to the brand token — a second green source on a
+                page that is collapsing to one accent. emerald-600 is the
+                accent, spelled the way the rest of the app spells it. */}
+            <div className="inline-block w-10 h-10 border-4 border-gray-100 dark:border-gray-700 border-t-emerald-600 rounded-full animate-spin" />
+            <p className="text-[14px] text-gray-600 dark:text-gray-300 font-medium">{t("readingZReport", "Reading your Z-report…")}</p>
+            <p className="text-[13px] text-gray-500 dark:text-gray-400">{t("ocrExtractingData", "OCR is extracting revenue, payments, and {vat} data", { vat: vatName })}</p>
           </div>
         )}
 
@@ -2134,8 +2285,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   </p>
                   <p className="text-xs text-amber-800 dark:text-amber-200">
                     {t("scanSecondTotalBody", "This scan has its own total of {incoming}. The one on screen is {existing}.", {
-                      incoming: formatOwnerMoney(incomingTotal, currency),
-                      existing: formatOwnerMoney(existingTotal, currency),
+                      incoming: formatOwnerMoney(incomingTotal, currency, { decimals: GLANCE_DECIMALS }),
+                      existing: formatOwnerMoney(existingTotal, currency, { decimals: GLANCE_DECIMALS }),
                     })}
                   </p>
                   {/* Picking several photos at once is one tap, so say how many
@@ -2151,14 +2302,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       onClick={() => resolveTerminalChoice(MERGE_SUM)}
                       iconLeft={<Icon name="Plus" size={15} />}>
                       {t("scanSecondTotalSum", "Another terminal — add them up ({sum})", {
-                        sum: formatOwnerMoney((existingTotal || 0) + (incomingTotal || 0), currency),
+                        sum: formatOwnerMoney((existingTotal || 0) + (incomingTotal || 0), currency, { decimals: GLANCE_DECIMALS }),
                       })}
                     </Button>
                     <Button variant="secondary" size="sm" className="flex-1"
                       onClick={() => resolveTerminalChoice(MERGE_REPLACE)}
                       iconLeft={<Icon name="RefreshCw" size={15} />}>
                       {t("scanSecondTotalReplace", "Same terminal — use the new photo ({incoming})", {
-                        incoming: formatOwnerMoney(incomingTotal, currency),
+                        incoming: formatOwnerMoney(incomingTotal, currency, { decimals: GLANCE_DECIMALS }),
                       })}
                     </Button>
                   </div>
@@ -2197,14 +2348,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     <button
                       type="button"
                       onClick={handleDismissConflict}
-                      className="text-[12px] px-2.5 py-1 rounded-md bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-100 hover:bg-amber-50 dark:hover:bg-amber-900/40 transition"
+                      className="text-[12px] px-2.5 py-1 rounded-lg bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-100 hover:bg-amber-50 dark:hover:bg-amber-900/40 transition"
                     >
                       {t("terminalConflictDismiss", "Looks fine")}
                     </button>
                     <button
                       type="button"
                       onClick={() => navigate("/connections")}
-                      className="text-[12px] px-2.5 py-1 rounded-md bg-amber-900 dark:bg-amber-100 text-white dark:text-amber-900 hover:bg-amber-800 dark:hover:bg-amber-200 transition"
+                      className="text-[12px] px-2.5 py-1 rounded-lg bg-amber-900 dark:bg-amber-100 text-white dark:text-amber-900 hover:bg-amber-800 dark:hover:bg-amber-200 transition"
                     >
                       {t("terminalConflictReview", "Review in Settings")}
                     </button>
@@ -2293,7 +2444,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                           <select
                             value={chipLinkTarget}
                             onChange={(e) => setChipLinkTarget(e.target.value)}
-                            className="text-[12px] w-full px-2 py-1 rounded-md bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-100"
+                            className="text-[12px] w-full px-2 py-1 rounded-lg bg-white dark:bg-gray-900 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-100"
                           >
                             <option value="">
                               {t(
@@ -2360,7 +2511,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                         </button>
                       )}
                       {unlinkOpenForTerminalId && (
-                        <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2 mt-1 text-[12px]">
+                        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2 mt-1 text-[12px]">
                           <div className="mb-1.5 text-gray-700 dark:text-gray-300">
                             {t(
                               "detectedTerminalUnlinkConfirm",
@@ -2426,12 +2577,16 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
             )}
             {/* Confidence indicator */}
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold dark:text-white">{t("scanResults")}</h2>
-              <span className={`text-sm font-medium px-3 py-1 rounded-full ${
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <h2 className="text-[16px] font-semibold text-gray-900 dark:text-white">{t("scanResults")}</h2>
+              {/* Yellow → amber: "medium confidence" and "the drawer is short"
+                  were two different hues for the same instruction ("check
+                  this"), and yellow-700 on yellow-100 is the weakest pair of
+                  the three. One warn colour, one critical colour. */}
+              <span className={`text-[12px] font-medium px-3 py-1 rounded-full ${
                 scanFieldsDetected >= 5 ? "bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-                  : scanFieldsDetected >= 3 ? "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300"
-                    : "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                  : scanFieldsDetected >= 3 ? "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300"
+                    : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
               }`}>
                 <Icon name="Target" size={14} className="inline align-text-bottom mr-1" /> {t("scanConfidenceLevel", "{level} confidence — {detected}/{total} fields detected", {
                   level: scanFieldsDetected >= 5 ? t("confidenceHigh", "High") : scanFieldsDetected >= 3 ? t("confidenceMedium", "Medium") : t("confidenceLow", "Low"),
@@ -2466,7 +2621,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                         ? t("scanGapNoBreakdown", "We couldn't detect the per-category breakdown")
                         : t("scanGapDetectedSome", "We detected {detected} of {total} revenue categories", { detected: detected.length, total: defaultRevCats.length })}
                     </strong>
-                    {" "}{t("scanGapTotalIs", "from this receipt — total is {amount}.", { amount: formatOwnerMoney(scanResult.revenue_total, currency) })}
+                    {" "}{t("scanGapTotalIs", "from this receipt — total is {amount}.", { amount: formatOwnerMoney(scanResult.revenue_total, currency, { decimals: GLANCE_DECIMALS }) })}
                   </div>
                   <div className="text-xs opacity-90">
                     {allEmpty
@@ -2490,8 +2645,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
                       {val ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       <Icon name={c.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, c)}
-                      {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
-                      {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">{t("scanBadgeMissing", "missing")}</span>}
+                      {val && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
+                      {isEmpty && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
                     <input type="number" inputMode="decimal"
                       className={`${inputClass} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
@@ -2514,28 +2669,39 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   "another terminal?" question is asked about, so it has to be
                   the one the owner would recognise. */}
               {scanResult.revenue_total && (
-                <div className="flex justify-between pt-2 border-t dark:border-gray-600 text-sm font-bold dark:text-white">
+                <div className="flex justify-between pt-2 border-t dark:border-gray-600 text-[14px] font-semibold text-gray-900 dark:text-white">
                   <span>{t("totalRevenue")}</span>
-                  <span>{formatOwnerMoney(scanResult.revenue_total, currency)}</span>
+                  <span>{formatOwnerMoney(scanResult.revenue_total, currency, { decimals: GLANCE_DECIMALS })}</span>
                 </div>
               )}
             </div>
 
-            {/* MOMS section */}
-            <div className="rounded-xl p-4 space-y-2"
-              style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08))" }}>
-              <h3 className="font-semibold text-sm flex items-center gap-2" style={{ color: "#6366f1" }}>
+            {/* MOMS section.
+                Was an indigo→violet gradient with a hardcoded #6366f1 heading —
+                two colour families that appear nowhere else in the product,
+                carrying no data (MOMS is a fact, not a status). Same neutral
+                card surface as its Revenue and Payments siblings; the MOMS
+                figure earns its emphasis from weight, which is what the type
+                ramp is for. */}
+            <div className="rounded-xl p-4 space-y-2 bg-gray-50 dark:bg-gray-700/50">
+              <h3 className="font-semibold text-[13px] text-gray-500 dark:text-gray-400 flex items-center gap-2">
                 {vatName} ({vatRatePct}%)
                 {/* The OCR badge is a claim: "this number came off the paper".
                     After a sum whose second Z-bon had no readable MOMS line it
                     would be a one-till figure badged as the day's MOMS, sitting
                     under a two-till total. Same guard as applyScanValues. */}
-                {scanMomsTrusted && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 rounded">OCR</span>}
+                {scanMomsTrusted && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
               </h3>
-              <div className="flex justify-between text-sm dark:text-gray-300">
+              <div className="flex justify-between text-[13px] text-gray-700 dark:text-gray-300 tabular-nums">
                 <span>{t("totalMoms")}</span>
-                <span className="font-semibold" style={{ color: "#6366f1" }}>
-                  {formatOwnerMoney(scanMomsTrusted || (vatRate > 0 ? Math.round(((scanResult.revenue_total || 0) * vatRate / vatDivisor) * 100) / 100 : 0), currency)}
+                {/* formatOwnerMoney (the string primitive), not <Amount>: every
+                    other figure on this scan card is a formatOwnerMoney string,
+                    and Amount's whispered token is a separate element with a
+                    margin instead of a literal space — mixing the two here would
+                    give one row on the card a different glyph spacing from the
+                    row above it. Same formatter either way. */}
+                <span className="font-semibold text-gray-900 dark:text-gray-100">
+                  {formatOwnerMoney(scanMomsTrusted || (vatRate > 0 ? Math.round(((scanResult.revenue_total || 0) * vatRate / vatDivisor) * 100) / 100 : 0), currency, { decimals: GLANCE_DECIMALS })}
                 </span>
               </div>
               {defaultRevCats.map(c => {
@@ -2543,9 +2709,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 if (!val) return null;
                 const udenMoms = Math.round((val / vatDivisor) * 100) / 100;
                 return (
-                  <div key={c.key} className="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                  <div key={c.key} className="flex justify-between text-[12px] text-gray-500 dark:text-gray-400 tabular-nums">
                     <span>{c.label.split(" / ")[0]} {t("udenMomsSuffix", "(uden moms)")}</span>
-                    <span>{formatOwnerMoney(udenMoms, currency)}</span>
+                    <span>{formatOwnerMoney(udenMoms, currency, { decimals: GLANCE_DECIMALS })}</span>
                   </div>
                 );
               })}
@@ -2562,8 +2728,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
                       {val ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                       <Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}
-                      {val && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
-                      {isEmpty && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">{t("scanBadgeMissing", "missing")}</span>}
+                      {val && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
+                      {isEmpty && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
                     <input type="number" inputMode="decimal"
                       className={`${inputClass} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
@@ -2597,7 +2763,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       <span>{k === "betalingskort"
                         ? t("brandBetalingskort", "Betalingskort (terminal)")
                         : k.charAt(0).toUpperCase() + k.slice(1)}</span>
-                      <span className="tabular-nums">{formatOwnerMoney(typeof v === "number" ? v : 0, currency)}</span>
+                      <span className="tabular-nums">{formatOwnerMoney(typeof v === "number" ? v : 0, currency, { decimals: GLANCE_DECIMALS })}</span>
                     </div>
                   ))}
                 </div>
@@ -2611,8 +2777,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 <span className="text-sm w-44 flex items-center gap-2 dark:text-gray-300">
                   {scanResult.tips ? <Icon name="Check" size={14} className="text-emerald-600" /> : <span className="text-gray-300 dark:text-gray-600">—</span>}
                   <Icon name="Coins" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("tipsLabel", "Tips")}
-                  {scanResult.tips && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded">OCR</span>}
-                  {!scanResult.tips && <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded">{t("scanBadgeMissing", "missing")}</span>}
+                  {scanResult.tips && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
+                  {!scanResult.tips && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                 </span>
                 <input type="number" inputMode="decimal"
                   className={`${inputClass} ${!scanResult.tips ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
@@ -2637,7 +2803,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 </div>
                 <div className="flex justify-between text-xs text-gray-600 dark:text-gray-300">
                   <span>{t("adjSurcharge", "Surcharge")}</span>
-                  <span className="tabular-nums">{formatOwnerMoney(scanResult.payments_view.adjustments.surcharge, currency)}</span>
+                  <span className="tabular-nums">{formatOwnerMoney(scanResult.payments_view.adjustments.surcharge, currency, { decimals: GLANCE_DECIMALS })}</span>
                 </div>
               </div>
             )}
@@ -2694,7 +2860,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   second one before anybody answered for it. */}
               {!pendingScan && (
                 <button onClick={() => { if (fileInputRef.current) { fileInputRef.current.removeAttribute("capture"); fileInputRef.current.click(); } }}
-                  className="text-sm text-emerald-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-300 font-medium">
+                  className="text-[13px] text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white font-medium underline underline-offset-2">
                   + {t("addAnotherPhoto", "Add another page or terminal")}
                 </button>
               )}
@@ -2715,16 +2881,16 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           </label>
           <input type="date" value={businessDate}
             max={businessTodayIso(cutoffHour)}
-            onChange={e => { if (e.target.value) setBusinessDate(e.target.value); }}
+            onChange={e => { if (e.target.value) { dateChosenRef.current = true; setBusinessDate(e.target.value); } }}
             className="px-3 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400" />
           {businessDate !== businessTodayIso(cutoffHour) && (
-            <span className="text-[10px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-full font-semibold">
+            <span className="text-[11px] px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-full font-semibold">
               {t("pastDate")}
             </span>
           )}
           {businessDate !== businessTodayIso(cutoffHour) && (
-            <button onClick={() => setBusinessDate(businessTodayIso(cutoffHour))}
-              className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline">
+            <button onClick={() => { dateChosenRef.current = true; setBusinessDate(businessTodayIso(cutoffHour)); }}
+              className="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 underline">
               {t("resetToToday", "Reset to today")}
             </button>
           )}
@@ -2737,31 +2903,54 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           </div>
         )}
 
-        {/* Sync indicator */}
+        {/* Sync indicator.
+            Was the page's only blue surface — a decorative family carrying no
+            data (this is an informational "here's what the register says", the
+            exact job SectionBanner's `info` severity already does in the
+            product's neutral gray). Composing the primitive also gets the
+            banner the right border, radius and dark-mode pair for free. */}
         {prefillLoading && (
-          <div className="mb-4 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-center text-sm text-gray-400">
+          <div className="mb-4 px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-center text-[13px] text-gray-500 dark:text-gray-400">
             {t("loadingRecords", "Loading records…")}
           </div>
         )}
+        {/* The prefill request FAILED. Rendering nothing here (the old silent
+            catch) is indistinguishable from "this date has no sales" — and the
+            owner then closes the day with no POS cross-check, no
+            register-derived expected cash and no variance warning, none of
+            which announce their own absence. Say it. */}
+        {prefillStatus === "failed" && !prefillLoading && (
+          <SectionBanner
+            severity="warn"
+            icon="AlertTriangle"
+            className="mb-4"
+            title={t("somethingWentWrong")}
+          >
+            {/* Composed from keys that already exist in en + da + tr. This run
+                does not own useLanguage.jsx, so the purpose-built sentence this
+                deserves ("We couldn't reach your sales register — tonight's
+                numbers are yours alone, with no POS cross-check") is NOT
+                available; see the report. */}
+            {t("closeManualCta")}
+          </SectionBanner>
+        )}
         {prefill && !prefillLoading && (
-          <div className="mb-4 px-4 py-3 bg-blue-50 dark:bg-blue-900/20 rounded-xl text-sm text-blue-700 dark:text-blue-300">
-            <div className="flex items-center gap-2 font-medium">
-              <Icon name="RefreshCw" size={16} />
-              <span>
-                {prefill.sales.count === 1
-                  ? t("syncedFromSaleOne", "Synced from {n} sale", { n: prefill.sales.count })
-                  : t("syncedFromSaleMany", "Synced from {n} sales", { n: prefill.sales.count })}
-                {prefill.expenses.count > 0 && (prefill.expenses.count === 1
-                  ? t("syncedExpensesOne", " & {n} expense", { n: prefill.expenses.count })
-                  : t("syncedExpensesMany", " & {n} expenses", { n: prefill.expenses.count }))}
-              </span>
+          <SectionBanner severity="info" icon="RefreshCw" className="mb-4"
+            title={
+              (prefill.sales.count === 1
+                ? t("syncedFromSaleOne", "Synced from {n} sale", { n: prefill.sales.count })
+                : t("syncedFromSaleMany", "Synced from {n} sales", { n: prefill.sales.count }))
+              + (prefill.expenses.count > 0 ? (prefill.expenses.count === 1
+                ? t("syncedExpensesOne", " & {n} expense", { n: prefill.expenses.count })
+                : t("syncedExpensesMany", " & {n} expenses", { n: prefill.expenses.count })) : "")
+            }
+          >
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] tabular-nums">
+              <span>{t("revenueLabel", "Revenue")}: <Amount value={prefill.sales.total} currency={currency} decimals={GLANCE_DECIMALS} /></span>
+              {prefill.expenses.total > 0 && <span>{t("expensesLabel", "Expenses")}: <Amount value={prefill.expenses.total} currency={currency} decimals={GLANCE_DECIMALS} /></span>}
+              <span>{t("netLabel", "Net")}: <Amount value={prefill.sales.total - prefill.expenses.total} currency={currency} decimals={GLANCE_DECIMALS} /></span>
             </div>
-            <div className="flex flex-wrap gap-3 mt-2 text-xs">
-              <span>{t("revenueLabel", "Revenue")}: {prefill.sales.total.toLocaleString()} {currency}</span>
-              {prefill.expenses.total > 0 && <span>{t("expensesLabel", "Expenses")}: {prefill.expenses.total.toLocaleString()} {currency}</span>}
-              <span>{t("netLabel", "Net")}: {(prefill.sales.total - prefill.expenses.total).toLocaleString()} {currency}</span>
-            </div>
-          </div>
+          </SectionBanner>
         )}
 
         {/* Gavekort redeemed today — attestation prompt. A gavekort is a TENDER,
@@ -2775,17 +2964,24 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           const short = redeemed - tender;
           const maybeMissing = short > 50 && short / redeemed > 0.1;
           return (
-            <div className="mb-4 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl text-sm text-amber-800 dark:text-amber-300">
+            <div className="mb-4 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl text-[13px] text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800/40">
               <div className="flex items-center gap-2 font-medium">
                 <Icon name="Gift" size={16} />
                 <span>
+                  {/* The template carries its own "{cur}" token and
+                      formatOwnerMoney already appends one ("1.500 kr."), so
+                      feeding both would print "1.500 kr. DKK" — kr./DKK mixing
+                      on a single surface, the exact thing the whole-page
+                      migration exists to prevent. The formatted amount goes in
+                      and the template's token is emptied, then the space it
+                      leaves behind is collapsed. */}
                   {t("dcGkRedeemedToday", "Gavekort indløst i dag: {amount} {cur}", {
-                    amount: redeemed.toLocaleString(),
-                    cur: currency,
-                  })}
+                    amount: formatOwnerMoney(redeemed, currency, { decimals: GLANCE_DECIMALS }),
+                    cur: "",
+                  }).replace(/\s{2,}/g, " ").trim()}
                 </span>
               </div>
-              <p className="mt-1 text-xs leading-relaxed">
+              <p className="mt-1 text-[12px] leading-relaxed">
                 {maybeMissing
                   ? t(
                       "dcGkMaybeMissing",
@@ -2815,25 +3011,28 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             cutoff-derived businessDate: the banner stayed hidden through the
             whole 00:00-02:00 window, exactly when the owner is filing for
             yesterday and most needs telling. */}
+        {/* Indigo was this banner's only reason to exist as its own colour, and
+            "you are filing for yesterday" is a NEUTRAL fact, not a warning and
+            not a success. Neutral surface; the Moon icon carries the meaning. */}
         {cutoffHour > 0 && businessDate !== localIso() && (
-          <div className="bg-indigo-50 dark:bg-indigo-900/20 rounded-xl px-3 py-2 flex items-center gap-2 mb-3 border border-indigo-100 dark:border-indigo-800">
-            <Icon name="Moon" size={14} className="text-indigo-600 dark:text-indigo-300" />
-            <p className="text-xs text-indigo-600 dark:text-indigo-300">
+          <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl px-3 py-2 flex items-center gap-2 mb-3 border border-gray-200 dark:border-gray-700">
+            <Icon name="Moon" size={14} className="text-gray-500 dark:text-gray-400" />
+            <p className="text-[12px] text-gray-600 dark:text-gray-300">
               <strong>{t("nightShiftLabel", "Night shift:")}</strong> {t("nightShiftClosingFor", "closing for {date} (cutoff {hour}:00 AM)", { date: new Date(businessDate + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" }), hour: cutoffHour })}
             </p>
           </div>
         )}
 
         {/* Step header */}
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-lg font-bold dark:text-white">
+        <div className="flex items-center justify-between gap-3 mb-5">
+          <h2 className="text-[16px] font-semibold text-gray-900 dark:text-white">
             {currentStepId === "revenue" && t("stepNRevenue", "Step {n} — {label}", { n: step, label: t(config.stepOneLabelKey, config.stepOneLabel) })}
             {currentStepId === "payments" && t("stepNPayments", "Step {n} — Payment Methods", { n: step })}
             {currentStepId === "cash" && t("stepNCash", "Step {n} — Cash Drawer Count", { n: step })}
             {currentStepId === "tips" && t("stepNTips", "Step {n} — Tips", { n: step })}
             {currentStepId === "review" && t("stepNReview", "Step {n} — Review & Submit", { n: step })}
           </h2>
-          <span className="text-sm text-gray-400">{step}/{totalSteps}</span>
+          <span className="text-[13px] text-gray-400 dark:text-gray-500 tabular-nums shrink-0">{step}/{totalSteps}</span>
         </div>
 
         {/* ─── STEP: Revenue ─── */}
@@ -2847,12 +3046,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 If the owner enters numbers manually and they diverge >10% from
                 sales, we flash a warning below the inputs. */}
             {prefill && prefill.sales.total > 0 && (
-              <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800/50 rounded-xl p-3 text-sm">
+              <div className="bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-800/50 rounded-xl p-3 text-[13px]">
                 <div className="flex items-start gap-3 justify-between">
                   <div className="text-gray-700 dark:text-gray-300">
                     <div>{t("posSalesRegisterForDate", "POS sales register for this date:")}
-                      <strong className="ml-1">{prefill.sales.total.toLocaleString()} {currency}</strong>
-                      <span className="text-emerald-600/70 dark:text-emerald-400/70 ml-1">
+                      <strong className="ml-1 text-gray-900 dark:text-gray-100"><Amount value={prefill.sales.total} currency={currency} decimals={GLANCE_DECIMALS} /></strong>
+                      <span className="text-gray-500 dark:text-gray-400 ml-1">
                         ({prefill.sales.count === 1
                           ? t("nSaleOne", "{n} sale", { n: prefill.sales.count })
                           : t("nSaleMany", "{n} sales", { n: prefill.sales.count })})
@@ -2861,8 +3060,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                     {Object.keys(prefill.sales.by_item).length > 0 && (
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
                         {Object.entries(prefill.sales.by_item).slice(0, 6).map(([name, val]) => (
-                          <span key={name} className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs">
-                            {name}: {val.toLocaleString()}
+                          <span key={name} className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded-lg text-[11px] tabular-nums">
+                            {name}: <Amount value={val} currency={currency} decimals={GLANCE_DECIMALS} />
                           </span>
                         ))}
                       </div>
@@ -2894,10 +3093,16 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               const pctOff = Math.abs(variance) / prefill.sales.total;
               if (pctOff <= 0.10) return null;  // <=10% is normal (rounding, etc.)
               return (
-                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl p-3 text-sm text-amber-700 dark:text-amber-300">
-                  <strong><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1 text-amber-600 dark:text-amber-400" />{t("varianceFromRegister", "Variance from sales register: {amount}", { amount: `${variance > 0 ? "+" : ""}${variance.toLocaleString()} ${currency}` })}</strong>
-                  <p className="text-xs mt-1 text-amber-600/80 dark:text-amber-400/80">
-                    {t("closeDiffersBy", "Your close ({close}) differs by {pct}% from your POS total ({pos}). Double-check before locking — this number will be on your revisor's report.", { close: revenueTotal.toLocaleString(), pct: Math.round(pctOff * 100), pos: prefill.sales.total.toLocaleString() })}
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl p-3 text-[13px] text-amber-700 dark:text-amber-300">
+                  {/* These three figures are the whole point of the warning —
+                      the owner compares them by eye. They go through
+                      formatOwnerMoney so the close and the POS total are
+                      grouped identically; with toLocaleString an EN-locale
+                      browser rendered the pair as "17,030" vs "15,400" and the
+                      thousands separator read as a decimal point on both. */}
+                  <strong><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1 text-amber-600 dark:text-amber-400" />{t("varianceFromRegister", "Variance from sales register: {amount}", { amount: formatOwnerMoney(variance, currency, { decimals: GLANCE_DECIMALS, sign: true }) })}</strong>
+                  <p className="text-[12px] mt-1 text-amber-700/90 dark:text-amber-300/90 tabular-nums">
+                    {t("closeDiffersBy", "Your close ({close}) differs by {pct}% from your POS total ({pos}). Double-check before locking — this number will be on your revisor's report.", { close: formatOwnerMoney(revenueTotal, currency, { decimals: GLANCE_DECIMALS }), pct: Math.round(pctOff * 100), pos: formatOwnerMoney(prefill.sales.total, currency, { decimals: GLANCE_DECIMALS }) })}
                   </p>
                 </div>
               );
@@ -2908,13 +3113,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 first-time line shows when there's no history yet; single-category
                 verticals show neither (splitMeta === null). */}
             {splitMeta?.source === "history" && (
-              <div className="flex items-start gap-2 text-xs text-gray-500 dark:text-gray-400 -mb-1">
+              <div className="flex items-start gap-2 text-[12px] text-gray-500 dark:text-gray-400 -mb-1">
                 <Icon name="Sparkles" size={13} className="mt-0.5 shrink-0 text-gray-400 dark:text-gray-500" />
                 <span>{t("dcSplitComputed", "Computed from your last {n} closes — check and adjust if needed.", { n: splitMeta.sampleSize })}</span>
               </div>
             )}
             {splitMeta?.source === "none" && (
-              <div className="text-xs text-gray-400 dark:text-gray-500 -mb-1">
+              <div className="text-[12px] text-gray-400 dark:text-gray-500 -mb-1">
                 {t("dcSplitFirstTime", "We'll suggest a split once you've closed a few days.")}
               </div>
             )}
@@ -2927,14 +3132,26 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
             ))}
             <div className="flex gap-2">
-              <input type="text" placeholder={t("addCategory") || "Add category..."} className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-sm"
+              <input type="text" placeholder={t("addCategory") || "Add category..."} className="flex-1 px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl text-[13px]"
                 value={customRevName} onChange={e => setCustomRevName(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && addCustomRevCat()} />
               <Button variant="secondary" size="lg" onClick={addCustomRevCat}>+ {t("addBtn", "Add")}</Button>
             </div>
-            <div className="pt-3 border-t dark:border-gray-700 text-right">
-              <span className="text-sm text-gray-500">{t("total") || "Total"}: </span>
-              <span className="text-xl font-bold dark:text-white">{revenueTotal.toLocaleString()} {currency}</span>
+            {/* THE figure the founder sees first. It rendered "0 DKK" on an
+                untouched form — a confident claim that the venue took nothing
+                today, in the browser's own locale, on the screen that produces
+                the revisor's number. Now the step's one hero KPI: `hero` size,
+                da-DK grouping, a whispered "kr." token, and Amount's honest "—"
+                until the owner has actually typed something. */}
+            <div className="pt-3 border-t border-gray-200 dark:border-gray-700 flex items-baseline justify-between gap-3">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("total") || "Total"}</span>
+              <Amount
+                value={hasRevenueEntry ? revenueTotal : null}
+                currency={currency}
+                decimals={GLANCE_DECIMALS}
+                size="kpi"
+                className="text-gray-900 dark:text-white"
+              />
             </div>
           </div>
         )}
@@ -2950,23 +3167,31 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   onChange={e => setPayAmounts({ ...payAmounts, [m.key]: e.target.value })} />
               </div>
             ))}
-            <div className="pt-3 border-t dark:border-gray-700">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">{t("paymentTotal")}:</span>
-                <span className="text-xl font-bold dark:text-white">{paymentTotal.toLocaleString()} {currency}</span>
+            <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("paymentTotal")}</span>
+                <Amount
+                  value={hasPaymentEntry ? paymentTotal : null}
+                  currency={currency}
+                  decimals={GLANCE_DECIMALS}
+                  size="kpi"
+                  className="text-gray-900 dark:text-white"
+                />
               </div>
-              <div className="flex justify-between items-center mt-1">
-                <span className="text-sm text-gray-500">{t("revenueTotal")}:</span>
-                <span className="text-sm dark:text-gray-300">{revenueTotal.toLocaleString()} {currency}</span>
+              <div className="flex justify-between items-baseline gap-3 mt-1.5">
+                <span className="text-[12px] text-gray-500 dark:text-gray-400">{t("revenueTotal")}</span>
+                <span className="text-[13px] text-gray-600 dark:text-gray-300">
+                  <Amount value={hasRevenueEntry ? revenueTotal : null} currency={currency} decimals={GLANCE_DECIMALS} />
+                </span>
               </div>
               {revenueTotal > 0 && (
-                <div className={`mt-2 px-3 py-2 rounded-lg text-sm font-medium ${
+                <div className={`mt-2 px-3 py-2 rounded-lg text-[13px] font-medium ${
                   Math.abs(balanceDiff) < 1 ? "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-                    : "bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                    : "bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400"
                 }`}>
                   {Math.abs(balanceDiff) < 1
                     ? <><Icon name="CheckCircle2" size={14} className="inline align-text-bottom mr-1" />{t("balanced", "Balanced!")}</>
-                    : <><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />{`${t("difference", "Difference")}: ${balanceDiff > 0 ? "+" : ""}${balanceDiff.toLocaleString()} ${currency}`}</>}
+                    : <><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" />{`${t("difference", "Difference")}: ${formatOwnerMoney(balanceDiff, currency, { decimals: GLANCE_DECIMALS, sign: true })}`}</>}
                 </div>
               )}
             </div>
@@ -2976,20 +3201,22 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {/* ─── STEP: Cash Drawer ─── */}
         {currentStepId === "cash" && (
           <div className="space-y-4">
-            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-sm text-blue-700 dark:text-blue-300">
+            {/* Was the page's second blue surface. A step instruction is neutral
+                information, not a status — SectionBanner's `info` severity. */}
+            <SectionBanner severity="info" icon="Info">
               {t("countPhysicalCash", "Count the physical cash in your drawer and enter the amount below. We'll compare it against what the system expects.")}
-            </div>
+            </SectionBanner>
             <div>
               <label className={labelClass}>
                 {cashExpectedFromRegister
                   ? t("expectedFromRegister", "Expected (from register)")
                   : t("expectedFromEntry", "Expected (from your entry)")}
               </label>
-              <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-right text-lg font-semibold dark:text-gray-300">
-                {cashExpected.toLocaleString()} {currency}
+              <div className="px-4 py-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl text-right text-[16px] font-semibold text-gray-900 dark:text-gray-100">
+                <Amount value={hasCashBaseline ? cashExpected : null} currency={currency} decimals={GLANCE_DECIMALS} />
               </div>
               {cashExpectedFromRegister && (
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-1">
                   {t("expectedFromRegisterHint", "From your synced POS register — counting against this flags a real cash shortage, not just a typo.")}
                 </p>
               )}
@@ -3000,16 +3227,21 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 value={cashCounted} onChange={e => setCashCounted(e.target.value)} />
             </div>
             {cashDiff !== null && (
-              <div className={`px-4 py-3 rounded-xl text-center font-bold text-lg ${
+              <div className={`px-4 py-3 rounded-xl text-center font-semibold text-[16px] ${
                 Math.abs(cashDiff) <= 100 ? "bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-                  : "bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400"
+                  : "bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400"
               }`}>
-                {t("difference")}: {cashDiff > 0 ? "+" : ""}{cashDiff.toLocaleString()} {currency}
-                {Math.abs(cashDiff) > 100 && <p className="text-sm font-normal mt-1"><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" /> {t("offByMoreThan100", "Off by more than 100 — double-check your count")}</p>}
+                {t("difference")}: <Amount value={cashDiff} currency={currency} decimals={GLANCE_DECIMALS} sign />
+                {Math.abs(cashDiff) > 100 && <p className="text-[13px] font-normal mt-1"><Icon name="AlertTriangle" size={14} className="inline align-text-bottom mr-1" /> {t("offByMoreThan100", "Off by more than 100 — double-check your count")}</p>}
               </div>
             )}
-            {!cashExpected && (
-              <p className="text-sm text-gray-400 text-center">{t("noCashStep2")}</p>
+            {/* `!cashExpected` was true for a REGISTER-DERIVED 0 as well as for
+                "no baseline at all" — so a till that genuinely took no cash was
+                told there was no cash figure to compare against, which is the
+                opposite of true and hides a real 0-vs-counted variance. Only the
+                no-baseline case gets the hint now. */}
+            {!cashExpectedFromRegister && !typedCash && (
+              <p className="text-[13px] text-gray-500 dark:text-gray-400 text-center">{t("noCashStep2")}</p>
             )}
           </div>
         )}
@@ -3029,11 +3261,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             </div>
             {tipsPP !== null && (
               <div className="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 text-center">
-                <p className="text-sm text-emerald-600 dark:text-gray-300">{t("perPerson")}</p>
-                <p className="text-2xl font-bold text-gray-700 dark:text-gray-300">{tipsPP.toLocaleString()} {currency}</p>
+                {/* Was text-emerald-600 dark:text-gray-300 — the accent drained
+                    to grey in dark. It is a LABEL, so it is neutral in both. */}
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("perPerson")}</p>
+                <Amount value={tipsPP} currency={currency} decimals={GLANCE_DECIMALS} size="kpi" className="mt-1 text-gray-900 dark:text-white" />
               </div>
             )}
-            <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-xs text-amber-700 dark:text-amber-300">
+            <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 text-[12px] text-amber-700 dark:text-amber-300">
               <strong>{t("tipsTaxNoteLabel", "Danish tax note:")}</strong> {t("tipsTaxNoteBody", "Tips must be reported via eIndkomst. Share this data with your revisor.")}
             </div>
           </div>
@@ -3043,85 +3277,107 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         {currentStepId === "review" && (
           <div className="space-y-4">
             {/* Date confirmation */}
-            <div className="flex items-center gap-2 text-sm dark:text-gray-300">
+            <div className="flex items-center gap-2 text-[13px] text-gray-700 dark:text-gray-300">
               <Icon name="Calendar" size={14} className="text-gray-500 dark:text-gray-400" />
               <span className="font-medium">
                 {new Date(businessDate + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
               </span>
               {businessDate !== businessTodayIso(cutoffHour) && (
-                <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded font-semibold">{t("pastDate")}</span>
+                <span className="text-[11px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-lg font-semibold">{t("pastDate")}</span>
               )}
             </div>
 
-            {/* Revenue summary */}
+            {/* Revenue summary. This card and its siblings below are the
+                kasserapport as the owner will see it on the PDF: every row and
+                every total at LEDGER_DECIMALS (two) so the rows visibly add up to the
+                card, and tabular-nums so the ø-column lines up down the stack. */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-              <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">{t("revenue")}</h3>
+              <h3 className="font-semibold text-[13px] text-gray-500 dark:text-gray-400 mb-2">{t("revenue")}</h3>
               {revCats.filter(c => revAmounts[c.key]).map(c => (
-                <div key={c.key} className="flex justify-between text-sm py-0.5 dark:text-gray-300">
+                <div key={c.key} className="flex justify-between gap-3 text-[13px] py-0.5 text-gray-700 dark:text-gray-300 tabular-nums">
                   <span><Icon name={c.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, c)}</span>
-                  <span>{parseFloat(revAmounts[c.key]).toLocaleString()} {currency}</span>
+                  <span><Amount value={parseFloat(revAmounts[c.key])} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
               ))}
-              <div className="flex justify-between font-bold pt-2 border-t dark:border-gray-600 mt-2 dark:text-white">
-                <span>{t("total")}</span><span>{revenueTotal.toLocaleString()} {currency}</span>
+              <div className="flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-2 text-gray-900 dark:text-white tabular-nums">
+                <span>{t("total")}</span><span><Amount value={hasRevenueEntry ? revenueTotal : null} currency={currency} decimals={LEDGER_DECIMALS} /></span>
               </div>
             </div>
 
-            {/* MOMS (VAT) summary — with auto/manual toggle */}
+            {/* MOMS (VAT) summary — with auto/manual toggle.
+                The second indigo→violet gradient, gone for the same reason as
+                the first: two colour families and a hardcoded #6366f1 that
+                appear nowhere else in the product and carry no data. This is
+                the block the revisor's MOMS number comes out of, so it now
+                reads like a ledger — neutral ground, ø-aligned tabular figures,
+                and the one bold line reserved for the total. */}
             {revenueTotal > 0 && (
-              <div className="rounded-xl p-4 space-y-3"
-                style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.08))" }}>
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-sm" style={{ color: "#6366f1" }}>{vatName} ({vatRatePct}%)</h3>
-                  {/* Toggle: Auto vs Manual */}
-                  <div className="flex bg-gray-200 dark:bg-gray-700 rounded-lg p-0.5 text-xs">
-                    <button onClick={() => setMomsMode("auto")}
-                      className={`px-3 py-1 rounded-md font-medium transition ${momsMode === "auto" ? "bg-indigo-500 text-white shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700"}`}>
+              <div className="rounded-xl p-4 space-y-3 bg-gray-50 dark:bg-gray-700/50">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="font-semibold text-[13px] text-gray-500 dark:text-gray-400">{vatName} ({vatRatePct}%)</h3>
+                  {/* Toggle: Auto vs Manual — the Chip primitive, so it shares
+                      the product's single selected-state treatment with every
+                      other pick-one row and is a real aria-pressed button. */}
+                  <div className="flex gap-1.5">
+                    <Chip size="sm" selected={momsMode === "auto"} onClick={() => setMomsMode("auto")}>
                       {t("autoLabel")}
-                    </button>
-                    <button onClick={() => setMomsMode("manual")}
-                      className={`px-3 py-1 rounded-md font-medium transition ${momsMode === "manual" ? "bg-indigo-500 text-white shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700"}`}>
+                    </Chip>
+                    <Chip size="sm" selected={momsMode === "manual"} onClick={() => setMomsMode("manual")}>
                       {t("fromReceipt")}
-                    </button>
+                    </Chip>
                   </div>
                 </div>
                 {momsMode === "manual" && (
                   <div>
-                    <label className="text-xs text-indigo-400 mb-1 block">{t("enterMomsFromReceipt", "Enter {vat} from your Z-report / receipt", { vat: vatName })}</label>
+                    <label className="text-[12px] text-gray-500 dark:text-gray-400 mb-1 block">{t("enterMomsFromReceipt", "Enter {vat} from your Z-report / receipt", { vat: vatName })}</label>
                     <input type="number" inputMode="decimal" placeholder={t("momsAmountPlaceholder")}
-                      className="w-full px-4 py-2.5 border border-indigo-300 dark:border-indigo-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 text-right text-lg"
+                      className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-[16px] tabular-nums"
                       value={momsManual} onChange={e => setMomsManual(e.target.value)} />
                   </div>
                 )}
                 {momsMode === "auto" && (
-                  <p className="text-xs text-indigo-400">{t("momsAutoCalc", "Auto-calculated: Revenue × {pct}% / {div}%", { pct: vatRatePct, div: 100 + vatRatePct })}</p>
+                  <p className="text-[12px] text-gray-500 dark:text-gray-400">{t("momsAutoCalc", "Auto-calculated: Revenue × {pct}% / {div}%", { pct: vatRatePct, div: 100 + vatRatePct })}</p>
                 )}
-                <div className="flex justify-between text-sm dark:text-gray-300 py-0.5">
+                <div className="flex justify-between text-[13px] text-gray-700 dark:text-gray-300 py-0.5 tabular-nums">
                   <span>{t("revenueMedMoms", "Revenue (med moms)")}</span>
-                  <span>{revenueTotal.toLocaleString()} {currency}</span>
+                  <span><Amount value={revenueTotal} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
                 {/* Salg uden moms i dag — exempt rows the owner already
                     flagged via Quick Sale MOMS-fri or the Sales page.
                     Pulled from /property-report (taxable_sales vs
                     total_revenue) so the close MOMS calc matches the
                     SKAT MOMS-angivelse PDF. DK term locked. */}
-                {exemptSalesTotal > 0 && (
-                  <div className="flex justify-between text-xs text-amber-700 dark:text-amber-300 py-0.5">
+                {exemptStatus === "ok" && exemptSalesTotal > 0 && (
+                  <div className="flex justify-between text-[12px] text-amber-700 dark:text-amber-300 py-0.5 tabular-nums">
                     <span>{t("salgUdenMomsToday") || "Salg uden moms i dag"}</span>
-                    <span>-{exemptSalesTotal.toLocaleString()} {currency}</span>
+                    <span><Amount value={-exemptSalesTotal} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                   </div>
                 )}
-                <div className="flex justify-between text-sm font-semibold py-0.5" style={{ color: "#6366f1" }}>
+                {/* The exempt lookup failed. Saying nothing here would let the
+                    MOMS figure below stand as if the exempt total had been
+                    checked and found to be zero — a computed number posing as a
+                    measured one, on the line that goes to SKAT. So the row
+                    renders with an honest "—" and the reason. */}
+                {exemptStatus === "failed" && (
+                  <div className="flex justify-between text-[12px] text-amber-700 dark:text-amber-300 py-0.5 gap-3">
+                    <span>{t("salgUdenMomsToday") || "Salg uden moms i dag"}</span>
+                    <span className="text-right">
+                      <span className="tabular-nums">—</span>
+                      <span className="block text-gray-500 dark:text-gray-400">{t("somethingWentWrong")}</span>
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between text-[13px] font-semibold py-0.5 text-gray-900 dark:text-gray-100 tabular-nums">
                   <span>{vatName} {vatRatePct}%{momsMode === "manual" ? ` ${t("fromReceiptSuffix", "(from receipt)")}` : ""}</span>
-                  <span>{momsTotal.toLocaleString()} {currency}</span>
+                  <span><Amount value={momsTotal} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
-                <div className="flex justify-between text-sm font-bold pt-2 border-t mt-1 dark:text-white" style={{ borderColor: "rgba(99,102,241,0.2)" }}>
+                <div className="flex justify-between text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-1 text-gray-900 dark:text-white tabular-nums">
                   <span>{t("revenueUdenMoms", "Revenue (uden moms)")}</span>
-                  <span>{revenueExMoms.toLocaleString()} {currency}</span>
+                  <span><Amount value={revenueExMoms} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
-                <div className="pt-2 border-t" style={{ borderColor: "rgba(99,102,241,0.15)" }}>
-                  <p className="text-xs text-indigo-400">
-                    <Icon name="BarChart3" size={14} className="inline align-text-bottom mr-1" /> {t("dailyCloseReconcileNotePre", "Daily Close is your cash-drawer reconciliation. Your moms filing in ")}<Link to="/tax" className="font-bold underline hover:text-indigo-300">{t("dailyCloseReconcileNoteLink", "Skat Autopilot")}</Link>{t("dailyCloseReconcileNotePost", " reads from the POS sales register — this close adds a cross-check that flags variance.")}
+                <div className="pt-2 border-t border-gray-200 dark:border-gray-600">
+                  <p className="text-[12px] text-gray-500 dark:text-gray-400">
+                    <Icon name="BarChart3" size={14} className="inline align-text-bottom mr-1" /> {t("dailyCloseReconcileNotePre", "Daily Close is your cash-drawer reconciliation. Your moms filing in ")}<Link to="/tax" className="font-semibold underline hover:no-underline text-gray-700 dark:text-gray-200">{t("dailyCloseReconcileNoteLink", "Skat Autopilot")}</Link>{t("dailyCloseReconcileNotePost", " reads from the POS sales register — this close adds a cross-check that flags variance.")}
                   </p>
                 </div>
               </div>
@@ -3129,45 +3385,47 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
 
             {/* Payment summary */}
             <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-              <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">{t("paymentsLabel")}</h3>
+              <h3 className="font-semibold text-[13px] text-gray-500 dark:text-gray-400 mb-2">{t("paymentsLabel")}</h3>
               {payMethods.filter(m => payAmounts[m.key]).map(m => (
-                <div key={m.key} className="flex justify-between text-sm py-0.5 dark:text-gray-300">
+                <div key={m.key} className="flex justify-between gap-3 text-[13px] py-0.5 text-gray-700 dark:text-gray-300 tabular-nums">
                   <span><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}</span>
-                  <span>{parseFloat(payAmounts[m.key]).toLocaleString()} {currency}</span>
+                  <span><Amount value={parseFloat(payAmounts[m.key])} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
               ))}
-              <div className="flex justify-between font-bold pt-2 border-t dark:border-gray-600 mt-2 dark:text-white">
-                <span>{t("total")}</span><span>{paymentTotal.toLocaleString()} {currency}</span>
+              <div className="flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-2 text-gray-900 dark:text-white tabular-nums">
+                <span>{t("total")}</span><span><Amount value={hasPaymentEntry ? paymentTotal : null} currency={currency} decimals={LEDGER_DECIMALS} /></span>
               </div>
             </div>
 
             {/* Cash drawer */}
             {cashCounted && (
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-                <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">{t("cashDrawer")}</h3>
-                <div className="flex justify-between text-sm dark:text-gray-300"><span>{cashExpectedFromRegister ? t("expectedFromRegister", "Expected (from register)") : t("expectedFromEntry", "Expected (from your entry)")}</span><span>{cashExpected.toLocaleString()} {currency}</span></div>
-                <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("counted")}</span><span>{cashCountedVal.toLocaleString()} {currency}</span></div>
-                <div className={`flex justify-between font-bold pt-2 border-t dark:border-gray-600 mt-2 ${cashDiff < -100 ? "text-red-600" : "dark:text-white"}`}>
-                  <span>{t("difference")}</span><span>{cashDiff > 0 ? "+" : ""}{cashDiff?.toLocaleString()} {currency}</span>
+                <h3 className="font-semibold text-[13px] text-gray-500 dark:text-gray-400 mb-2">{t("cashDrawer")}</h3>
+                <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300 tabular-nums"><span>{cashExpectedFromRegister ? t("expectedFromRegister", "Expected (from register)") : t("expectedFromEntry", "Expected (from your entry)")}</span><span><Amount value={hasCashBaseline ? cashExpected : null} currency={currency} decimals={LEDGER_DECIMALS} /></span></div>
+                <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300 tabular-nums"><span>{t("counted")}</span><span><Amount value={cashCountedVal} currency={currency} decimals={LEDGER_DECIMALS} /></span></div>
+                <div className={`flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-2 tabular-nums ${cashDiff < -100 ? "text-red-700 dark:text-red-400" : "text-gray-900 dark:text-white"}`}>
+                  <span>{t("difference")}</span><span><Amount value={cashDiff} currency={currency} decimals={LEDGER_DECIMALS} sign /></span>
                 </div>
               </div>
             )}
 
-            {/* Expenses (from synced data) */}
+            {/* Expenses (from synced data). Red stays — it is the one place on
+                this card where the colour carries data (money leaving), and the
+                minus sign alone is easy to miss in a stack of figures. */}
             {prefill && prefill.expenses.total > 0 && (
-              <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4">
-                <h3 className="font-semibold text-sm text-red-500 dark:text-red-400 mb-2">{t("todaysExpenses")}</h3>
+              <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 border border-red-200 dark:border-red-900/40">
+                <h3 className="font-semibold text-[13px] text-red-700 dark:text-red-400 mb-2">{t("todaysExpenses")}</h3>
                 {Object.entries(prefill.expenses.by_category).map(([cat, val]) => (
-                  <div key={cat} className="flex justify-between text-sm py-0.5 text-red-700 dark:text-red-300">
+                  <div key={cat} className="flex justify-between gap-3 text-[13px] py-0.5 text-red-700 dark:text-red-300 tabular-nums">
                     <span>{cat}</span>
-                    <span>-{val.toLocaleString()} {currency}</span>
+                    <span><Amount value={-val} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                   </div>
                 ))}
-                <div className="flex justify-between font-bold pt-2 border-t border-red-200 dark:border-red-800 mt-2 text-red-700 dark:text-red-300">
-                  <span>{t("totalExpenses")}</span><span>-{prefill.expenses.total.toLocaleString()} {currency}</span>
+                <div className="flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-red-200 dark:border-red-800 mt-2 text-red-700 dark:text-red-300 tabular-nums">
+                  <span>{t("totalExpenses")}</span><span><Amount value={-prefill.expenses.total} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
-                <div className="flex justify-between font-bold pt-2 mt-1 text-gray-700 dark:text-gray-300">
-                  <span>{t("netProfit")}</span><span>{(revenueTotal - prefill.expenses.total).toLocaleString()} {currency}</span>
+                <div className="flex justify-between gap-3 text-[14px] font-semibold pt-2 mt-1 text-gray-900 dark:text-gray-100 tabular-nums">
+                  <span>{t("netProfit")}</span><span><Amount value={hasRevenueEntry ? revenueTotal - prefill.expenses.total : null} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
               </div>
             )}
@@ -3175,10 +3433,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {/* Tips */}
             {tipsTotal && (
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
-                <h3 className="font-semibold text-sm text-gray-500 dark:text-gray-400 mb-2">{t("tipsLabel", "Tips")}</h3>
-                <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("total")}</span><span>{parseFloat(tipsTotal).toLocaleString()} {currency}</span></div>
-                <div className="flex justify-between text-sm dark:text-gray-300"><span>{t("staffCountLabel", "Staff Count")}</span><span>{staffCount}</span></div>
-                {tipsPP && <div className="flex justify-between font-bold pt-2 border-t dark:border-gray-600 mt-2 dark:text-white"><span>{t("perPerson")}</span><span>{tipsPP.toLocaleString()} {currency}</span></div>}
+                <h3 className="font-semibold text-[13px] text-gray-500 dark:text-gray-400 mb-2">{t("tipsLabel", "Tips")}</h3>
+                <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300 tabular-nums"><span>{t("total")}</span><span><Amount value={parseFloat(tipsTotal)} currency={currency} decimals={LEDGER_DECIMALS} /></span></div>
+                <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300 tabular-nums"><span>{t("staffCountLabel", "Staff Count")}</span><span>{staffCount}</span></div>
+                {tipsPP && <div className="flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-2 text-gray-900 dark:text-white tabular-nums"><span>{t("perPerson")}</span><span><Amount value={tipsPP} currency={currency} decimals={LEDGER_DECIMALS} /></span></div>}
               </div>
             )}
 
@@ -3239,8 +3497,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                  prevents trial users from seeing the "Upgrade to Starter"
                  nudge briefly before the real toggle appears. */
               <div className="rounded-xl p-4 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800">
-                <div className="h-4 w-2/3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" aria-hidden="true" />
-                <div className="h-3 w-full mt-2 bg-gray-100 dark:bg-gray-800 rounded animate-pulse" aria-hidden="true" />
+                <div className="h-4 w-2/3 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse" aria-hidden="true" />
+                <div className="h-3 w-full mt-2 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse" aria-hidden="true" />
               </div>
             ) : (!closeAutoEmailEntitled && isNativeApp()) ? (
               /* App Store compliance (Apple 3.1.1): the locked-toggle state is
@@ -3260,7 +3518,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       type="checkbox"
                       checked={autoEmailPref}
                       onChange={toggleAutoEmail}
-                      className="mt-1 h-4 w-4 rounded text-emerald-600 focus:ring-gray-400"
+                      className="mt-1 h-4 w-4 rounded-lg text-emerald-600 focus:ring-gray-400"
                     />
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-800 dark:text-gray-100 inline-flex items-center gap-1.5">
@@ -3284,7 +3542,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       {canPurchaseInApp() && (
                         <Link
                           to="/subscription"
-                          className="inline-block mt-2 text-xs font-semibold text-emerald-600 dark:text-gray-300 hover:underline"
+                          className="inline-block mt-2 text-[12px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline"
                         >
                           {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
                         </Link>
@@ -3336,11 +3594,18 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       <span className="inline-flex items-center gap-2"><Icon name="Lock" size={16} /> {t("confirmAndLock", "Confirm & Lock")}</span>
                     )}
                   </Button>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {t("willSaveTotal", "Will save total:")} <strong className="text-gray-700 dark:text-gray-200">{willSave.toLocaleString()} {currency}</strong>
+                  <p className="text-[12px] text-gray-500 dark:text-gray-400 text-right">
+                    {/* The number about to be written to the ledger. It has to
+                        be formatted exactly like the review card above it and
+                        the PDF below it, or the owner cannot check that the
+                        three agree — which is the whole job of this preview. */}
+                    {t("willSaveTotal", "Will save total:")}{" "}
+                    <strong className="text-gray-900 dark:text-gray-100">
+                      <Amount value={willSave} currency={currency} decimals={LEDGER_DECIMALS} />
+                    </strong>
                     {usingOverride && (
-                      <span className="ml-1 text-amber-600 dark:text-amber-400">
-                        {t("fromReceiptBreakdownSums", "(from receipt — your breakdown sums to {sum})", { sum: revenueTotal.toLocaleString() })}
+                      <span className="ml-1 text-amber-700 dark:text-amber-400">
+                        {t("fromReceiptBreakdownSums", "(from receipt — your breakdown sums to {sum})", { sum: formatOwnerMoney(revenueTotal, currency, { decimals: LEDGER_DECIMALS }) })}
                       </span>
                     )}
                   </p>
@@ -3447,7 +3712,7 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
       <div className="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2 flex-wrap">
         <span className="inline-flex items-center gap-1.5"><Icon name="Mail" size={14} /> {t("closeLockedEmailQueued") || "Email queued for retry — we'll keep trying"}</span>
         <button onClick={handleRetryEmail} disabled={retrying}
-          className="text-xs px-2.5 py-1 bg-amber-500 text-white rounded-md font-medium hover:bg-amber-600 disabled:opacity-50">
+          className="text-xs px-2.5 py-1 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50">
           {retrying ? "..." : (t("closeLockedEmailRetry") || "Retry now")}
         </button>
       </div>
@@ -3484,7 +3749,7 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
           <Icon name="Lightbulb" size={14} className="inline align-text-bottom mr-1" /> {t("closeLockedFreeUpgradeNudge") || "Want the kasserapport auto-sent to your accountant the moment you lock? Upgrade to Starter."}
         </p>
         {canPurchaseInApp() && (
-          <Link to="/subscription" className="inline-block mt-2 text-xs font-bold text-amber-700 dark:text-amber-300 hover:underline">
+          <Link to="/subscription" className="inline-block mt-2 text-[12px] font-semibold text-amber-800 dark:text-amber-300 hover:underline">
             {t("pricingUpgradeStarter") || "Upgrade to Starter"} →
           </Link>
         )}
@@ -3526,14 +3791,19 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
                   <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                     {t("bankDropReminderTitle") || "Bank-drop reminder"}
                   </p>
-                  <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
+                  <p className="text-[12px] text-gray-600 dark:text-gray-300 mt-0.5 tabular-nums">
+                    {/* The template carries "{currency}" of its own and
+                        formatOwnerMoney already appends a token, so both would
+                        print "4.200 kr. DKK". The formatted amounts go in and
+                        the template's token (with the space before it) comes
+                        out — one token per figure, "kr." everywhere. */}
                     {(t("bankDropReminderBody") || "Put {amount} {currency} in safe / drop bag. Keep {float} {currency} float in the drawer.")
-                      .replace("{amount}", (bankDrop.to_drop_dkk || 0).toLocaleString())
-                      .replace("{currency}", currency)
-                      .replace("{float}", (bankDrop.leave_in_drawer_dkk || 1000).toLocaleString())}
+                      .replace("{amount}", formatOwnerMoney(bankDrop.to_drop_dkk ?? 0, currency, { decimals: GLANCE_DECIMALS }))
+                      .replace("{float}", formatOwnerMoney(bankDrop.leave_in_drawer_dkk ?? 1000, currency, { decimals: GLANCE_DECIMALS }))
+                      .replace(/\s*\{currency\}/g, "")}
                   </p>
                   <button onClick={handleBankDropDone}
-                    className="mt-2 text-xs px-3 py-1 bg-amber-500 text-white rounded-md font-medium hover:bg-amber-600">
+                    className="mt-2 text-xs px-3 py-1 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600">
                     {t("bankDropMarkDone") || "Marked as done"}
                   </button>
                 </div>
@@ -4041,17 +4311,17 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         />
       )}
 
-      {/* Active cash streak warning banner */}
+      {/* Active cash streak warning banner. Same two-level collapse as
+          StreakAlertCard: anything that is not critical is amber, and the
+          yellow third level is gone. */}
       {activeStreak && (
         <div className={`rounded-xl p-3 flex items-center gap-2 border ${
           activeStreak.severity === "critical"
             ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800"
-            : activeStreak.severity === "warning"
-            ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800"
-            : "bg-yellow-50 dark:bg-yellow-950/30 border-yellow-200 dark:border-yellow-800"
+            : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800"
         }`}>
-          <span className="text-lg">{activeStreak.icon}</span>
-          <p className={`text-sm font-medium ${
+          <span className="text-[16px] leading-none shrink-0" aria-hidden="true">{activeStreak.icon}</span>
+          <p className={`text-[13px] font-medium ${
             activeStreak.severity === "critical" ? "text-red-700 dark:text-red-300"
               : "text-amber-700 dark:text-amber-300"
           }`}>
@@ -4068,7 +4338,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
         <div className="flex items-center gap-2 mb-3">
           <Icon name="Package" size={18} className="text-gray-500 dark:text-gray-400" />
-          <h3 className="font-bold dark:text-white text-sm">
+          <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white">
             {t("exportToAccountantTitle") || "Export to accountant"}
           </h3>
         </div>
@@ -4212,37 +4482,48 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
               : (t("closePlural") || "closes")}
           </p>
           <div className="flex flex-wrap gap-2 items-center">
-            {/* Download buttons — one per format */}
-            <button
+            {/* Download buttons — one per format.
+                Three buttons, three hand-rolled treatments: gray-900, gray-700
+                and BLUE. The blue said nothing about CSV; it was the only thing
+                separating a tertiary export from a secondary one. The Button
+                primitive says it properly — Excel is the recommended handoff
+                (primary), PDF and CSV are alternatives (secondary) — and brings
+                the correct disabled and focus states with it. */}
+            <Button
+              size="sm"
+              variant="primary"
               onClick={() => downloadRange("xlsx")}
+              busy={exportingFmt === "xlsx"}
               disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
-              className="px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
+              iconLeft={exportingFmt === "xlsx" ? null : <Icon name="BarChart3" size={14} />}
               title={t("excelTooltip", "Best for your accountant — sortable, filterable, pivotable")}
             >
-              {exportingFmt === "xlsx"
-                ? <><Icon name="Loader" size={14} className="animate-spin" /> {t("generatingPdfBtn") || "Generating…"}</>
-                : <><Icon name="BarChart3" size={14} /> Excel</>}
-            </button>
-            <button
+              {exportingFmt === "xlsx" ? (t("generatingPdfBtn") || "Generating…") : "Excel"}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
               onClick={() => downloadRange("pdf")}
+              busy={exportingFmt === "pdf"}
               disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
-              className="px-3 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-800 dark:bg-gray-600 dark:hover:bg-gray-500 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
+              iconLeft={exportingFmt === "pdf" ? null : <Icon name="FileText" size={14} />}
+              className="border border-gray-200 dark:border-gray-700"
               title={t("pdfTooltip", "One-pager — easy to read, not editable")}
             >
-              {exportingFmt === "pdf"
-                ? <><Icon name="Loader" size={14} className="animate-spin" /> {t("generatingPdfBtn") || "Generating…"}</>
-                : <><Icon name="FileText" size={14} /> PDF</>}
-            </button>
-            <button
+              {exportingFmt === "pdf" ? (t("generatingPdfBtn") || "Generating…") : "PDF"}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
               onClick={() => downloadRange("csv")}
+              busy={exportingFmt === "csv"}
               disabled={!!exportingFmt || sendingToAccountant || rangeCount === 0}
-              className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white text-xs font-semibold flex items-center gap-1 transition"
+              iconLeft={exportingFmt === "csv" ? null : <Icon name="FileSpreadsheet" size={14} />}
+              className="border border-gray-200 dark:border-gray-700"
               title={t("csvTooltip", "Raw data — for e-conomic / Dinero / Billy imports")}
             >
-              {exportingFmt === "csv"
-                ? <><Icon name="Loader" size={14} className="animate-spin" /> {t("generatingPdfBtn") || "Generating…"}</>
-                : <><Icon name="FileSpreadsheet" size={14} /> CSV</>}
-            </button>
+              {exportingFmt === "csv" ? (t("generatingPdfBtn") || "Generating…") : "CSV"}
+            </Button>
 
             {/* Vertical divider + send-to-accountant group */}
             <div className="hidden sm:block w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
@@ -4319,7 +4600,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         )}
 
         {sendStatus && (
-          <p className="mt-2 text-xs text-emerald-600 dark:text-gray-300 inline-flex items-center gap-1"><Icon name="CheckCircle2" size={14} /> {sendStatus}</p>
+          <p className="mt-2 text-[12px] text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1"><Icon name="CheckCircle2" size={14} /> {sendStatus}</p>
         )}
 
         {exportError && (
@@ -4354,63 +4635,74 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           ? Math.round(((dc.tips_total - prev.tips_total) / prev.tips_total) * 100) : null;
         return (
           <div key={dc.id} className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="font-bold dark:text-white">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white">
                     {new Date(dc.date).toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short", year: "numeric" })}
                   </h3>
+                  {/* `dark:text-gray-300` under a light emerald was the drain:
+                      the "Locked" badge lost its accent entirely at night. It
+                      keeps the accent in dark now, at emerald-400 (9.2:1 on the
+                      dark card) and emerald-700 in light (5.5:1 on white) — the
+                      old emerald-600 measured 3.8:1, under the 4.5:1 floor for
+                      an 11px badge. */}
                   {(dc.status || "confirmed") === "confirmed" ? (
-                    <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded font-semibold inline-flex items-center gap-1"><Icon name="Lock" size={11} /> {t("dcStatusLocked", "Locked")}</span>
+                    <span className="text-[11px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg font-semibold inline-flex items-center gap-1"><Icon name="Lock" size={11} /> {t("dcStatusLocked", "Locked")}</span>
                   ) : (
-                    <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded font-semibold inline-flex items-center gap-1"><Icon name="Pencil" size={11} /> {t("dcStatusDraft", "Draft")}</span>
+                    <span className="text-[11px] px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-lg font-semibold inline-flex items-center gap-1"><Icon name="Pencil" size={11} /> {t("dcStatusDraft", "Draft")}</span>
                   )}
                 </div>
-                {dc.closed_by && <p className="text-xs text-gray-400">{t("dcClosedBy", "Closed by {name}", { name: dc.closed_by })}</p>}
+                {dc.closed_by && <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5">{t("dcClosedBy", "Closed by {name}", { name: dc.closed_by })}</p>}
                 {dc.unlock_reason && (
-                  <p className="text-xs text-amber-500 mt-0.5">{t("dcUnlockedReason", "Unlocked: {reason}", { reason: dc.unlock_reason })}</p>
+                  <p className="text-[12px] text-amber-700 dark:text-amber-400 mt-0.5">{t("dcUnlockedReason", "Unlocked: {reason}", { reason: dc.unlock_reason })}</p>
                 )}
               </div>
-              <div className="text-right">
-                <p className="text-lg font-bold text-emerald-600 dark:text-gray-300">{dc.revenue_total?.toLocaleString()} {currency}</p>
+              <div className="text-right shrink-0">
+                {/* The row's money figure leads in neutral gray-900. Emerald is
+                    reserved for the money MOMENT (a lock, a send); a revenue
+                    figure is a fact, and colouring facts is what made this page
+                    read as nine palettes. */}
+                <Amount value={dc.revenue_total} currency={currency} decimals={GLANCE_DECIMALS} size="kpi" className="text-gray-900 dark:text-white" />
                 {revChange !== null && Math.abs(revChange) >= 1 && (
-                  <p className={`text-[11px] font-semibold ${revChange > 0 ? "text-emerald-600" : "text-red-500"}`}>
+                  <p className={`text-[11px] font-semibold tabular-nums mt-0.5 ${revChange > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
                     {revChange > 0 ? "↑" : "↓"} {Math.abs(revChange)}% {t("dcVsPrev", "vs prev")}
                   </p>
                 )}
               </div>
             </div>
 
-            {/* Revenue chips */}
+            {/* Revenue + payment chips. The payment row used to be blue for no
+                reason other than "it is a different kind of chip" — a whole
+                colour family spent on a distinction the label already makes. */}
             <div className="flex flex-wrap gap-2 mt-3">
               {Object.entries(rev).map(([k, v]) => (
-                <span key={k} className="px-2 py-1 bg-gray-50 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 rounded-lg text-xs font-medium">
-                  {k}: {v.toLocaleString()}
+                <span key={k} className="px-2 py-1 bg-gray-50 dark:bg-gray-800/50 text-gray-700 dark:text-gray-300 rounded-lg text-[11px] font-medium tabular-nums">
+                  {k}: <Amount value={v} currency={currency} decimals={GLANCE_DECIMALS} />
                 </span>
               ))}
             </div>
 
-            {/* Payment chips */}
             <div className="flex flex-wrap gap-2 mt-2">
               {Object.entries(pay).map(([k, v]) => (
-                <span key={k} className="px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 rounded-lg text-xs font-medium">
-                  {k}: {v.toLocaleString()}
+                <span key={k} className="px-2 py-1 bg-gray-50 dark:bg-gray-800/50 text-gray-600 dark:text-gray-400 rounded-lg text-[11px] font-medium tabular-nums border border-gray-200 dark:border-gray-700">
+                  {k}: <Amount value={v} currency={currency} decimals={GLANCE_DECIMALS} />
                 </span>
               ))}
             </div>
 
             {/* Bottom row */}
-            <div className="flex items-center justify-between mt-3 pt-3 border-t dark:border-gray-700">
-              <div className="flex gap-4 text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex items-center justify-between gap-3 flex-wrap mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex gap-4 flex-wrap text-[12px] text-gray-500 dark:text-gray-400 tabular-nums">
                 {dc.cash_difference !== null && (
-                  <span className={dc.cash_difference < -100 ? "text-red-500" : ""}>
-                    {t("dcCashLabel", "Cash")}: {dc.cash_difference > 0 ? "+" : ""}{dc.cash_difference?.toLocaleString()}
+                  <span className={dc.cash_difference < -100 ? "text-red-600 dark:text-red-400 font-semibold" : ""}>
+                    {t("dcCashLabel", "Cash")}: <Amount value={dc.cash_difference} currency={currency} decimals={GLANCE_DECIMALS} sign />
                   </span>
                 )}
                 {dc.tips_total > 0 && (
-                  <span>{t("tipsLabel", "Tips")}: {dc.tips_total?.toLocaleString()} ({t("dcStaffCountInline", "{count} staff", { count: dc.tips_staff_count })})
+                  <span>{t("tipsLabel", "Tips")}: <Amount value={dc.tips_total} currency={currency} decimals={GLANCE_DECIMALS} /> ({t("dcStaffCountInline", "{count} staff", { count: dc.tips_staff_count })})
                     {tipsChange !== null && Math.abs(tipsChange) >= 1 && (
-                      <span className={`ml-1 font-semibold ${tipsChange > 0 ? "text-emerald-600" : "text-red-500"}`}>
+                      <span className={`ml-1 font-semibold ${tipsChange > 0 ? "text-emerald-700 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
                         {tipsChange > 0 ? "↑" : "↓"}{Math.abs(tipsChange)}%
                       </span>
                     )}
@@ -4433,9 +4725,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                   const safeReceipt = dc.receipt_photo ? safeImageUrl(dc.receipt_photo) : null;
                   if (!safeReceipt) return null;
                   return (
+                    /* Indigo was this row's fourth colour, on a link that is
+                       simply "open the photo". Neutral, like its neighbours. */
                     <a href={safeReceipt} target="_blank" rel="noreferrer"
                       title={t("dcViewOriginalZReport", "View original Z-report photo")}
-                      className="inline-flex items-center gap-1.5 text-xs px-2 py-1 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300 rounded-lg hover:bg-indigo-100 dark:hover:bg-indigo-900/40 font-medium">
+                      className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 font-medium border border-gray-200 dark:border-gray-700">
                       <Icon name="Image" size={13} /> {t("dcReceiptLabel", "Receipt")}
                     </a>
                   );
@@ -4444,26 +4738,29 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                     routes reach the same edit experience — Unlock first
                     flips status to draft, then the user picks Edit on
                     the now-draft row. */}
+                {/* Unlock KEEPS amber: it is the one destructive-ish action in
+                    the row (it re-opens a locked kasserapport), so the colour
+                    is carrying data. Edit was blue for no reason and is now a
+                    neutral secondary alongside Send and PDF. */}
                 {(dc.status || "confirmed") === "confirmed" && (
                   <button onClick={() => { setUnlockId(dc.id); setUnlockReason(""); }}
-                    className="text-xs px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 font-medium inline-flex items-center gap-1.5">
+                    className="text-[11px] px-3 py-1.5 bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-400 rounded-lg hover:bg-amber-100 dark:hover:bg-amber-900/40 font-medium inline-flex items-center gap-1.5 border border-amber-200 dark:border-amber-800">
                     <Icon name="LockOpen" size={13} /> {t("dcUnlock", "Unlock")}
                   </button>
                 )}
                 {(dc.status || "confirmed") === "draft" && onEdit && (
-                  <button onClick={() => onEdit(dc)}
-                    className="text-xs px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/40 font-medium inline-flex items-center gap-1.5">
-                    <Icon name="Pencil" size={13} /> {t("edit", "Edit")}
-                  </button>
+                  <Button size="sm" variant="secondary" onClick={() => onEdit(dc)} iconLeft={<Icon name="Pencil" size={13} />} className="border border-gray-200 dark:border-gray-700">
+                    {t("edit", "Edit")}
+                  </Button>
                 )}
-                <button onClick={() => shareDc(dc)} disabled={sharing === dc.id}
-                  className="text-xs px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800/50 font-medium disabled:opacity-50 inline-flex items-center gap-1.5">
-                  {sharing === dc.id ? "..." : <><Icon name="Send" size={13} /> {t("send") || "Send"}</>}
-                </button>
-                <button onClick={() => downloadPdf(dc.id, dc.date)} disabled={downloading === dc.id}
-                  className="text-xs px-3 py-1.5 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 font-medium dark:text-gray-300 inline-flex items-center gap-1.5">
-                  {downloading === dc.id ? "..." : <><Icon name="FileText" size={13} /> PDF</>}
-                </button>
+                <Button size="sm" variant="secondary" onClick={() => shareDc(dc)} busy={sharing === dc.id}
+                  iconLeft={sharing === dc.id ? null : <Icon name="Send" size={13} />} className="border border-gray-200 dark:border-gray-700">
+                  {t("send") || "Send"}
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => downloadPdf(dc.id, dc.date)} busy={downloading === dc.id}
+                  iconLeft={downloading === dc.id ? null : <Icon name="FileText" size={13} />} className="border border-gray-200 dark:border-gray-700">
+                  PDF
+                </Button>
               </div>
             </div>
             {/* A failed PDF must not look like a finished one. Same amber +
@@ -4494,7 +4791,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       {unlockId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { setUnlockId(null); setUnlockError(""); }}>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-sm" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold dark:text-white mb-1 inline-flex items-center gap-2"><Icon name="LockOpen" size={18} /> {t("dcUnlockModalTitle", "Unlock Daily Close")}</h3>
+            <h3 className="text-[16px] font-semibold text-gray-900 dark:text-white mb-1 inline-flex items-center gap-2"><Icon name="LockOpen" size={18} /> {t("dcUnlockModalTitle", "Unlock Daily Close")}</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               {t("dcUnlockModalBody", "This will allow editing. Enter a reason for the audit trail.")}
             </p>
@@ -4548,9 +4845,16 @@ function BranchSummaryView({ currency }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState("7"); // "1" = today, "7" = week, "30" = month
+  // Third outcome again. A silent catch left `data` null, which fell through to
+  // the empty state — and that empty state does not say "we couldn't ask", it
+  // says "submit daily closes for multiple branches to see comparisons". So a
+  // failed request told an owner with twelve branches of closes that they had
+  // none. A failure gets its own state and its own words.
+  const [failed, setFailed] = useState(false);
 
   const fetchSummary = async () => {
     setLoading(true);
+    setFailed(false);
     try {
       const to = new Date();
       const from = new Date();
@@ -4558,7 +4862,10 @@ function BranchSummaryView({ currency }) {
       const fmtD = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       const res = await api.get("/daily-close/branch-summary", { params: { from: fmtD(from), to: fmtD(to) } });
       setData(res.data);
-    } catch { /* silent */ }
+    } catch {
+      setData(null);
+      setFailed(true);
+    }
     setLoading(false);
   };
 
@@ -4566,19 +4873,30 @@ function BranchSummaryView({ currency }) {
 
   if (loading) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
-        <div className="flex justify-center mb-3 animate-pulse"><Icon name="Building2" size={36} className="text-gray-400 dark:text-gray-500" /></div>
-        <p className="text-sm text-gray-500 dark:text-gray-400">{t("dcLoadingBranchData", "Loading branch data…")}</p>
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-200 dark:border-gray-700">
+        <div className="flex justify-center mb-3 animate-pulse"><Icon name="Building2" size={32} className="text-gray-400 dark:text-gray-500" /></div>
+        <p className="text-[13px] text-gray-500 dark:text-gray-400">{t("dcLoadingBranchData", "Loading branch data…")}</p>
       </div>
+    );
+  }
+
+  if (failed) {
+    return (
+      <SectionBanner severity="warn" icon="AlertTriangle" title={t("somethingWentWrong")}>
+        <button type="button" onClick={fetchSummary}
+          className="font-semibold underline underline-offset-2 hover:no-underline">
+          {t("tryAgain")}
+        </button>
+      </SectionBanner>
     );
   }
 
   if (!data || !data.branches?.length) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
-        <div className="flex justify-center mb-3"><Icon name="Building2" size={36} className="text-gray-400 dark:text-gray-500" /></div>
-        <p className="font-semibold dark:text-white">{t("noBranchData")}</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("noBranchDataHint") || "Submit daily closes for multiple branches to see comparisons."}</p>
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-200 dark:border-gray-700">
+        <div className="flex justify-center mb-3"><Icon name="Building2" size={32} className="text-gray-400 dark:text-gray-500" /></div>
+        <p className="text-[14px] font-semibold text-gray-900 dark:text-white">{t("noBranchData")}</p>
+        <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1">{t("noBranchDataHint") || "Submit daily closes for multiple branches to see comparisons."}</p>
       </div>
     );
   }
@@ -4589,63 +4907,59 @@ function BranchSummaryView({ currency }) {
   return (
     <div className="space-y-4">
       {/* Range toggle */}
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-sm dark:text-white flex items-center gap-1.5">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="font-semibold text-[13px] text-gray-900 dark:text-white flex items-center gap-1.5">
           <Icon name="Building2" size={15} /> {t("dcBranchComparison", "Branch Comparison")}
         </h3>
-        <div className="flex gap-0.5 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
+        <div className="flex gap-1.5">
           {[{ v: "1", l: t("dcRangeToday", "Today") }, { v: "7", l: t("dcRange7Days", "7 days") }, { v: "30", l: t("dcRange30Days", "30 days") }].map(r => (
-            <button key={r.v} onClick={() => setRange(r.v)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
-                range === r.v ? "bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
-              }`}>
-              {r.l}
-            </button>
+            <Chip key={r.v} size="sm" selected={range === r.v} onClick={() => setRange(r.v)}>{r.l}</Chip>
           ))}
         </div>
       </div>
 
-      {/* Grand totals */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase">{t("totalRevenue")}</p>
-          <p className="text-lg font-bold text-emerald-600 dark:text-gray-300 mt-0.5">{grand_total.revenue_total?.toLocaleString()}</p>
-          <p className="text-[10px] text-gray-400">{currency}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase">{t("cashVariance")}</p>
-          <p className={`text-lg font-bold mt-0.5 ${grand_total.cash_diff_total < -200 ? "text-red-500" : "text-gray-700 dark:text-white"}`}>
-            {grand_total.cash_diff_total > 0 ? "+" : ""}{grand_total.cash_diff_total?.toLocaleString()}
-          </p>
-          <p className="text-[10px] text-gray-400">{currency}</p>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-3 border border-gray-100 dark:border-gray-700 text-center">
-          <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase">{t("totalTips")}</p>
-          <p className="text-lg font-bold text-blue-600 dark:text-blue-400 mt-0.5">{grand_total.tips_total?.toLocaleString()}</p>
-          <p className="text-[10px] text-gray-400">{currency}</p>
-        </div>
+      {/* Grand totals — StatCard, a drop-in for exactly this shape (11px
+          uppercase label, tabular-nums value, neutral surface, no gloss). The
+          hand-rolled trio underneath it carried an emerald revenue figure and a
+          BLUE tips figure, i.e. two accent families spent on three tiles that
+          say the same kind of thing. The currency token moves inside the value
+          (Amount whispers it) instead of sitting on its own third line. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <StatCard
+          label={t("totalRevenue")}
+          value={<Amount value={grand_total.revenue_total} currency={currency} decimals={GLANCE_DECIMALS} />}
+        />
+        <StatCard
+          label={t("cashVariance")}
+          accent={grand_total.cash_diff_total < -200 ? "critical" : "neutral"}
+          value={<Amount value={grand_total.cash_diff_total} currency={currency} decimals={GLANCE_DECIMALS} sign />}
+        />
+        <StatCard
+          label={t("totalTips")}
+          value={<Amount value={grand_total.tips_total} currency={currency} decimals={GLANCE_DECIMALS} />}
+        />
       </div>
 
       {/* Branch cards */}
       {branches.map((b, i) => {
         const revShare = grand_total.revenue_total > 0 ? Math.round((b.revenue_total / grand_total.revenue_total) * 100) : 0;
         return (
-          <div key={b.branch_id || i} className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="font-bold dark:text-white">{b.branch_name}</h3>
+          <div key={b.branch_id || i} className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-200 dark:border-gray-700 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white truncate">{b.branch_name}</h3>
                   {i === 0 && branches.length > 1 && (
-                    <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-600 dark:text-gray-300 rounded font-semibold">{t("dcTopBadge", "Top")}</span>
+                    <span className="text-[11px] px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg font-semibold">{t("dcTopBadge", "Top")}</span>
                   )}
                 </div>
-                <p className="text-xs text-gray-400 mt-0.5">{b.days_count === 1
-                  ? t("dcBranchClosesAvgOne", "{count} close · avg {avg}/day", { count: b.days_count, avg: b.avg_daily_revenue?.toLocaleString() })
-                  : t("dcBranchClosesAvgMany", "{count} closes · avg {avg}/day", { count: b.days_count, avg: b.avg_daily_revenue?.toLocaleString() })}</p>
+                <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5 tabular-nums">{b.days_count === 1
+                  ? t("dcBranchClosesAvgOne", "{count} close · avg {avg}/day", { count: b.days_count, avg: formatOwnerMoney(b.avg_daily_revenue, currency, { decimals: GLANCE_DECIMALS }) })
+                  : t("dcBranchClosesAvgMany", "{count} closes · avg {avg}/day", { count: b.days_count, avg: formatOwnerMoney(b.avg_daily_revenue, currency, { decimals: GLANCE_DECIMALS }) })}</p>
               </div>
-              <div className="text-right">
-                <p className="text-lg font-bold text-emerald-600 dark:text-gray-300">{b.revenue_total?.toLocaleString()} <span className="text-xs font-normal text-gray-400">{currency}</span></p>
-                <p className="text-[10px] text-gray-400">{t("dcPctOfTotal", "{pct}% of total", { pct: revShare })}</p>
+              <div className="text-right shrink-0">
+                <Amount value={b.revenue_total} currency={currency} decimals={GLANCE_DECIMALS} size="kpi" className="text-gray-900 dark:text-white" />
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 tabular-nums mt-0.5">{t("dcPctOfTotal", "{pct}% of total", { pct: revShare })}</p>
               </div>
             </div>
 
@@ -4655,9 +4969,9 @@ function BranchSummaryView({ currency }) {
             </div>
 
             {/* Metrics row */}
-            <div className="flex gap-4 mt-3 text-xs text-gray-500 dark:text-gray-400">
-              <span>{t("dcCashLabel", "Cash")}: <span className={b.cash_diff_total < -100 ? "text-red-500 font-semibold" : ""}>{b.cash_diff_total > 0 ? "+" : ""}{b.cash_diff_total?.toLocaleString()}</span></span>
-              {b.tips_total > 0 && <span>{t("tipsLabel", "Tips")}: {b.tips_total?.toLocaleString()}</span>}
+            <div className="flex gap-4 flex-wrap mt-3 text-[12px] text-gray-500 dark:text-gray-400 tabular-nums">
+              <span>{t("dcCashLabel", "Cash")}: <span className={b.cash_diff_total < -100 ? "text-red-600 dark:text-red-400 font-semibold" : ""}><Amount value={b.cash_diff_total} currency={currency} decimals={GLANCE_DECIMALS} sign /></span></span>
+              {b.tips_total > 0 && <span>{t("tipsLabel", "Tips")}: <Amount value={b.tips_total} currency={currency} decimals={GLANCE_DECIMALS} /></span>}
             </div>
           </div>
         );
@@ -4670,6 +4984,70 @@ function BranchSummaryView({ currency }) {
 /* ═══════════════════════════════════════════════════════════
    CALENDAR HEAT MAP — 90-day visual overview
    ═══════════════════════════════════════════════════════════ */
+
+/* ONE RAMP, both themes.
+   The old revenue scale had no ramp at all — it ran
+   gray-200 → emerald-300 → emerald-500 → gray-800 in light, and
+   gray-800 → gray-800 → gray-900 → emerald-500 in dark. Two of the four dark
+   buckets were literally the same colour, and the p75 bucket — a GOOD day —
+   painted dark:bg-gray-900, which IS the page ground (#111827, see `.dark body`
+   in index.css). So in dark mode the owner's best days rendered as holes in the
+   grid, and the legend swatch that was supposed to explain them was a hole too,
+   which meant nothing on screen contradicted the misreading.
+   Now: a monotone emerald ramp, four distinct steps in both themes, running
+   light→dark in light mode and dark→light in dark mode, and no step equal to
+   any surface behind the grid.
+   Module scope, not component scope: these are frozen strings, and declaring
+   them inside the component made them dependencies of the colour useMemo that
+   React Compiler could not preserve. */
+const HEAT_NO_CLOSE = "bg-gray-100 dark:bg-gray-700/60";
+const HEAT_ZERO_DAY = "bg-gray-200 dark:bg-gray-600";
+const HEAT_REVENUE_RAMP = [
+  "bg-emerald-100 dark:bg-emerald-900",
+  "bg-emerald-300 dark:bg-emerald-700",
+  "bg-emerald-500 dark:bg-emerald-500",
+  "bg-emerald-700 dark:bg-emerald-300",
+];
+/* Cash variance KEEPS colour, because here the colour is the data: emerald
+   means the drawer balances and the shortage deepens through amber into red.
+   Orange sat between amber and red as a fourth near-identical step — dropping
+   it costs no information and removes a whole colour family from the page. */
+const HEAT_CASH_RAMP = [
+  "bg-emerald-500 dark:bg-emerald-500",
+  "bg-amber-400 dark:bg-amber-500",
+  "bg-red-400 dark:bg-red-500",
+  "bg-red-600 dark:bg-red-600",
+];
+
+/**
+ * The colour for one cell. Pure, and the single place the bucket boundaries
+ * live — the legend reads the same `cuts` object, so a swatch can never stand
+ * for a threshold the grid isn't using.
+ *
+ * @param {object|null} dc — the close filed for that day, or undefined
+ * @param {"revenue"|"cash"} mode
+ * @param {{p25:number,p50:number,p75:number}|null} cuts — this venue's own
+ *        90-day revenue percentiles; null when there is no revenue history.
+ */
+function heatCellClass(dc, mode, cuts) {
+  if (!dc) return HEAT_NO_CLOSE;
+  if (mode === "revenue") {
+    if (!cuts) return HEAT_NO_CLOSE;
+    const v = dc.revenue_total;
+    if (!v || v <= 0) return HEAT_ZERO_DAY;
+    if (v <= cuts.p25) return HEAT_REVENUE_RAMP[0];
+    if (v <= cuts.p50) return HEAT_REVENUE_RAMP[1];
+    if (v <= cuts.p75) return HEAT_REVENUE_RAMP[2];
+    return HEAT_REVENUE_RAMP[3];
+  }
+  const diff = dc.cash_difference;
+  if (diff === null || diff === undefined) return HEAT_ZERO_DAY;
+  if (diff >= 0) return HEAT_CASH_RAMP[0];
+  if (diff >= -100) return HEAT_CASH_RAMP[1];
+  if (diff >= -300) return HEAT_CASH_RAMP[2];
+  return HEAT_CASH_RAMP[3];
+}
+
 function CalendarHeatMap({ data, currency }) {
   const { t } = useLanguage();
   const [mode, setMode] = useState("revenue"); // "revenue" | "cash"
@@ -4703,75 +5081,76 @@ function CalendarHeatMap({ data, currency }) {
 
   const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-  // Color logic based on mode + data percentiles
-  const getColor = useMemo(() => {
-    if (mode === "revenue") {
-      const vals = (data || []).map(dc => dc.revenue_total).filter(v => v > 0).sort((a, b) => a - b);
-      if (!vals.length) return () => "bg-gray-100 dark:bg-gray-800";
-      const p25 = vals[Math.floor(vals.length * 0.25)];
-      const p50 = vals[Math.floor(vals.length * 0.5)];
-      const p75 = vals[Math.floor(vals.length * 0.75)];
-      return (dc) => {
-        if (!dc) return "bg-gray-100 dark:bg-gray-800";
-        const v = dc.revenue_total;
-        if (!v || v <= 0) return "bg-gray-200 dark:bg-gray-700";
-        if (v <= p25) return "bg-gray-200 dark:bg-gray-800";
-        if (v <= p50) return "bg-emerald-300 dark:bg-gray-800";
-        if (v <= p75) return "bg-emerald-500 dark:bg-gray-900";
-        return "bg-gray-800 dark:bg-emerald-500";
-      };
-    }
-    // Cash variance mode
-    return (dc) => {
-      if (!dc) return "bg-gray-100 dark:bg-gray-800";
-      const diff = dc.cash_difference;
-      if (diff === null || diff === undefined) return "bg-gray-200 dark:bg-gray-700";
-      if (diff >= 0) return "bg-emerald-300 dark:bg-gray-800";
-      if (diff >= -100) return "bg-amber-300 dark:bg-amber-700";
-      if (diff >= -300) return "bg-orange-400 dark:bg-orange-600";
-      return "bg-red-500 dark:bg-red-500";
+  // Percentile cuts, computed once so the grid AND the legend read from the
+  // same numbers — a legend that names a threshold the colouring doesn't use
+  // is worse than no legend.
+  const cuts = useMemo(() => {
+    const vals = (data || []).map(dc => dc.revenue_total).filter(v => v > 0).sort((a, b) => a - b);
+    if (!vals.length) return null;
+    return {
+      p25: vals[Math.floor(vals.length * 0.25)],
+      p50: vals[Math.floor(vals.length * 0.5)],
+      p75: vals[Math.floor(vals.length * 0.75)],
     };
-  }, [data, mode]);
+  }, [data]);
 
+  // Color logic based on mode + data percentiles. A plain call, not a useMemo
+  // that RETURNS a closure: memoizing a closure factory saved nothing (the
+  // closure is invoked 90 times either way) and React Compiler cannot preserve
+  // that shape, so it bailed out of optimizing the whole component.
+  const getColor = (dc) => heatCellClass(dc, mode, cuts);
+
+  /* The legend names REAL VALUES, not adjectives.
+     "Low / Mid / High" describes the swatch, which the owner can already see;
+     what they cannot see is where the cuts fall, and those cuts are THEIR OWN
+     90-day percentiles, different for every venue. The money goes through
+     formatOwnerMoney like every other figure on the page. When there is no
+     revenue history at all there are no thresholds to name, so the legend
+     renders nothing rather than inventing buckets. */
+  const money = (v) => formatOwnerMoney(v, currency, { decimals: GLANCE_DECIMALS });
   const legendItems = mode === "revenue"
-    ? [
-        { color: "bg-gray-200 dark:bg-gray-700", label: t("dcLegendNone", "None") },
-        { color: "bg-gray-200 dark:bg-gray-800", label: t("dcLegendLow", "Low") },
-        { color: "bg-emerald-500 dark:bg-gray-900", label: t("dcLegendMid", "Mid") },
-        { color: "bg-gray-800 dark:bg-emerald-500", label: t("dcLegendHigh", "High") },
-      ]
+    ? (cuts
+        ? [
+            { color: HEAT_NO_CLOSE, label: t("dcHeatmapNoClose", "No close") },
+            { color: HEAT_REVENUE_RAMP[0], label: `≤ ${money(cuts.p25)}` },
+            { color: HEAT_REVENUE_RAMP[1], label: `≤ ${money(cuts.p50)}` },
+            { color: HEAT_REVENUE_RAMP[2], label: `≤ ${money(cuts.p75)}` },
+            { color: HEAT_REVENUE_RAMP[3], label: `> ${money(cuts.p75)}` },
+          ]
+        : [])
     : [
-        { color: "bg-gray-200 dark:bg-gray-700", label: t("dcLegendNA", "N/A") },
-        { color: "bg-emerald-300 dark:bg-gray-800", label: t("dcLegendEvenPlus", "Even/+") },
-        { color: "bg-amber-300 dark:bg-amber-700", label: "-100" },
-        { color: "bg-red-500 dark:bg-red-500", label: t("dcLegendShort", "Short") },
+        { color: HEAT_ZERO_DAY, label: t("dcLegendNA", "N/A") },
+        { color: HEAT_CASH_RAMP[0], label: `≥ ${money(0)}` },
+        { color: HEAT_CASH_RAMP[1], label: `< ${money(0)}` },
+        { color: HEAT_CASH_RAMP[2], label: `< ${money(-100)}` },
+        { color: HEAT_CASH_RAMP[3], label: `< ${money(-300)}` },
       ];
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-5 border border-gray-200 dark:border-gray-700 shadow-sm">
       {/* Header + mode toggle */}
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-semibold text-sm dark:text-white flex items-center gap-1.5">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <h3 className="font-semibold text-[13px] text-gray-900 dark:text-white flex items-center gap-1.5">
           <Icon name="Calendar" size={15} /> {t("dcHeatmap90DayOverview", "90-Day Overview")}
         </h3>
-        <div className="flex gap-0.5 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
+        <div className="flex gap-1.5">
           {[{ id: "revenue", label: t("dcHeatmapRevenueMode", "Revenue") }, { id: "cash", label: t("dcHeatmapCashMode", "Cash +/-") }].map(m => (
-            <button key={m.id} onClick={() => setMode(m.id)}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
-                mode === m.id ? "bg-white dark:bg-gray-600 shadow-sm text-gray-900 dark:text-white" : "text-gray-500 dark:text-gray-400"
-              }`}>
-              {m.label}
-            </button>
+            <Chip key={m.id} size="sm" selected={mode === m.id} onClick={() => setMode(m.id)}>{m.label}</Chip>
           ))}
         </div>
       </div>
 
-      {/* Grid */}
+      {/* Grid. Every cell is a real <button>: they were plain <div>s with
+          onMouseEnter only, so the whole 90-day map was unreachable by keyboard
+          and invisible to a screen reader — 90 pieces of the owner's own money
+          history behind a mouse. onFocus mirrors onMouseEnter, so tabbing
+          drives the same info line hovering does, and each cell carries an
+          aria-label saying the date and the figure out loud. */}
       <div className="flex gap-[3px] overflow-x-auto pb-1">
         {/* Day-of-week labels */}
-        <div className="flex flex-col gap-[3px] mr-0.5 shrink-0">
+        <div className="flex flex-col gap-[3px] mr-0.5 shrink-0" aria-hidden="true">
           {["M", "", "W", "", "F", "", "S"].map((d, i) => (
-            <div key={i} className="w-3 h-3 flex items-center justify-center text-[8px] text-gray-400 dark:text-gray-500 select-none">{d}</div>
+            <div key={i} className="w-3 h-3 flex items-center justify-center text-[11px] leading-none text-gray-400 dark:text-gray-500 select-none">{d}</div>
           ))}
         </div>
         {/* Week columns */}
@@ -4781,11 +5160,23 @@ function CalendarHeatMap({ data, currency }) {
               if (!day) return <div key={di} className="w-3 h-3" />;
               const ds = fmtDate(day);
               const dc = closeMap[ds];
+              const dateLabel = new Date(ds + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" });
+              const valueLabel = !dc
+                ? t("dcHeatmapNoClose", "No close")
+                : mode === "revenue"
+                  ? money(dc.revenue_total)
+                  : (dc.cash_difference == null
+                      ? t("dcHeatmapNA", "N/A")
+                      : `${t("dcHeatmapCashLabel", "Cash")}: ${formatOwnerMoney(dc.cash_difference, currency, { decimals: GLANCE_DECIMALS, sign: true })}`);
               return (
-                <div key={di}
-                  className={`w-3 h-3 rounded-[2px] ${getColor(dc)} cursor-pointer transition-all hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-300 hover:scale-125`}
+                <button key={di} type="button"
+                  aria-label={`${dateLabel} — ${valueLabel}`}
+                  className={`w-3 h-3 rounded-[2px] ${getColor(dc)} cursor-pointer transition-all hover:ring-2 hover:ring-gray-400 dark:hover:ring-gray-300 hover:scale-125 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:scale-125`}
                   onMouseEnter={() => setHovered({ ds, dc })}
                   onMouseLeave={() => setHovered(null)}
+                  onFocus={() => setHovered({ ds, dc })}
+                  onBlur={() => setHovered(null)}
+                  onClick={() => setHovered({ ds, dc })}
                 />
               );
             })}
@@ -4793,34 +5184,37 @@ function CalendarHeatMap({ data, currency }) {
         ))}
       </div>
 
-      {/* Hover info line */}
-      <div className="h-5 mt-1.5">
+      {/* Hover / focus info line */}
+      <div className="min-h-[1.25rem] mt-1.5">
         {hovered ? (
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            <span className="font-medium dark:text-gray-300">
+          <p className="text-[12px] text-gray-500 dark:text-gray-400 tabular-nums">
+            <span className="font-medium text-gray-700 dark:text-gray-300">
               {new Date(hovered.ds + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" })}
             </span>
             {hovered.dc ? (
               mode === "revenue"
-                ? <> &mdash; {hovered.dc.revenue_total?.toLocaleString()} {currency}</>
-                : <> &mdash; {t("dcHeatmapCashLabel", "Cash")}: {hovered.dc.cash_difference !== null && hovered.dc.cash_difference !== undefined
-                    ? `${hovered.dc.cash_difference > 0 ? "+" : ""}${hovered.dc.cash_difference?.toLocaleString()} ${currency}`
+                ? <> &mdash; <Amount value={hovered.dc.revenue_total} currency={currency} decimals={GLANCE_DECIMALS} /></>
+                : <> &mdash; {t("dcHeatmapCashLabel", "Cash")}: {hovered.dc.cash_difference != null
+                    ? <Amount value={hovered.dc.cash_difference} currency={currency} decimals={GLANCE_DECIMALS} sign />
                     : t("dcHeatmapNA", "N/A")}</>
             ) : <> &mdash; {t("dcHeatmapNoClose", "No close")}</>}
           </p>
         ) : (
-          <p className="text-[10px] text-gray-400 dark:text-gray-500">{t("hoverDayForDetails")}</p>
+          <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("hoverDayForDetails")}</p>
         )}
       </div>
 
-      {/* Legend */}
-      <div className="flex items-center gap-2 mt-1">
-        <span className="text-[9px] text-gray-400">{t("dcHeatmapLess", "Less")}</span>
-        {legendItems.map((l, i) => (
-          <div key={i} className={`w-2.5 h-2.5 rounded-[2px] ${l.color}`} title={l.label} />
-        ))}
-        <span className="text-[9px] text-gray-400">{t("dcHeatmapMore", "More")}</span>
-      </div>
+      {/* Legend — swatch + the threshold it actually stands for */}
+      {legendItems.length > 0 && (
+        <div className="flex items-center gap-x-3 gap-y-1.5 flex-wrap mt-2">
+          {legendItems.map((l, i) => (
+            <span key={i} className="inline-flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 tabular-nums">
+              <span className={`w-2.5 h-2.5 rounded-[2px] shrink-0 ${l.color}`} aria-hidden="true" />
+              {l.label}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -4832,10 +5226,10 @@ function CalendarHeatMap({ data, currency }) {
 function InsightsView({ data, currency, t }) {
   if (!data || !data.has_data) {
     return (
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
-        <div className="flex justify-center mb-3"><Icon name="Lightbulb" size={36} className="text-gray-400 dark:text-gray-500" /></div>
-        <p className="font-semibold dark:text-white">{t("notEnoughDataYet")}</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{t("notEnoughDataHint") || "Submit a few daily closes to unlock insights about your revenue, tips, and cash handling."}</p>
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-200 dark:border-gray-700">
+        <div className="flex justify-center mb-3"><Icon name="Lightbulb" size={32} className="text-gray-400 dark:text-gray-500" /></div>
+        <p className="text-[14px] font-semibold text-gray-900 dark:text-white">{t("notEnoughDataYet")}</p>
+        <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1">{t("notEnoughDataHint") || "Submit a few daily closes to unlock insights about your revenue, tips, and cash handling."}</p>
       </div>
     );
   }
@@ -4851,24 +5245,38 @@ function InsightsView({ data, currency, t }) {
         <StreakAlertCard key={i} alert={alert} currency={currency} />
       ))}
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <SummaryCard label={t("dcInsightsAvgDailyRevenue", "Avg Daily Revenue")} value={`${summary.avg_daily_revenue?.toLocaleString()} ${currency}`} />
-        <SummaryCard label={t("dcInsightsTotalTips90d", "Total Tips (90d)")} value={`${summary.total_tips?.toLocaleString()} ${currency}`} />
-        <SummaryCard label={t("dcInsightsCashDrift90d", "Cash Drift (90d)")} value={`${summary.total_cash_difference > 0 ? "+" : ""}${summary.total_cash_difference?.toLocaleString()} ${currency}`}
-          color={summary.total_cash_difference < -200 ? "red" : "green"} />
+      {/* Summary cards — the local SummaryCard is gone; StatCard is a drop-in
+          with the same shape (11px uppercase label + tabular value) and it
+          brings the product's accent vocabulary with it, so "cash drift is
+          fine" stops being a green that drains to grey in dark mode. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <StatCard
+          label={t("dcInsightsAvgDailyRevenue", "Avg Daily Revenue")}
+          value={<Amount value={summary.avg_daily_revenue} currency={currency} decimals={GLANCE_DECIMALS} />}
+        />
+        <StatCard
+          label={t("dcInsightsTotalTips90d", "Total Tips (90d)")}
+          value={<Amount value={summary.total_tips} currency={currency} decimals={GLANCE_DECIMALS} />}
+        />
+        <StatCard
+          label={t("dcInsightsCashDrift90d", "Cash Drift (90d)")}
+          accent={summary.total_cash_difference < -200 ? "critical" : "success"}
+          value={<Amount value={summary.total_cash_difference} currency={currency} decimals={GLANCE_DECIMALS} sign />}
+        />
       </div>
 
       {/* Regular insight cards */}
       {regularInsights.map((ins, i) => (
-        <div key={i} className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 shadow-sm">
+        <div key={i} className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="flex items-start gap-3">
-            <span className="text-2xl">{ins.icon}</span>
-            <div>
-              <h3 className="font-bold dark:text-white">{ins.title}</h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{ins.detail}</p>
+            {/* ins.icon is server-authored text (often an emoji). Kept as data,
+                demoted to 16px so it stops out-weighing the title next to it. */}
+            <span className="text-[16px] leading-none mt-0.5 shrink-0" aria-hidden="true">{ins.icon}</span>
+            <div className="min-w-0">
+              <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white">{ins.title}</h3>
+              <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1">{ins.detail}</p>
               {ins.benchmark && (
-                <p className="text-xs text-gray-400 mt-2">{t("dcInsightsIndustryBenchmark", "Industry benchmark")}: {ins.benchmark}</p>
+                <p className="text-[12px] text-gray-400 dark:text-gray-500 mt-2">{t("dcInsightsIndustryBenchmark", "Industry benchmark")}: {ins.benchmark}</p>
               )}
             </div>
           </div>
@@ -4876,7 +5284,7 @@ function InsightsView({ data, currency, t }) {
       ))}
 
       {insights.length === 0 && (
-        <div className="text-center text-gray-400 text-sm py-8">
+        <div className="text-center text-gray-400 dark:text-gray-500 text-[13px] py-8">
           {t("dcInsightsKeepLogging", "Keep logging daily closes to unlock more insights.")}
         </div>
       )}
@@ -4886,77 +5294,69 @@ function InsightsView({ data, currency, t }) {
 
 function StreakAlertCard({ alert, currency }) {
   const { t } = useLanguage();
+  /* TWO alarm levels, not three.
+     `info` used to be its own YELLOW family sitting between amber and red —
+     three warning colours for one axis, and yellow-500 on white measures 1.9:1
+     so its badge text was unreadable at the moment it mattered. Amber already
+     means "look at this"; a mild streak and a moderate streak differ in the
+     WORDS, not in a fourth hue. `info` now maps to the same amber, which drops
+     the yellow family from the page entirely. Red stays: it is the only level
+     that means "money is going missing". */
   const styles = {
     critical: {
-      border: "border-red-300 dark:border-red-700",
+      border: "border-red-200 dark:border-red-800",
       bg: "bg-red-50 dark:bg-red-950/40",
-      badge: "bg-red-500 text-white",
+      badge: "bg-red-600 text-white",
       title: "text-red-800 dark:text-red-200",
-      detail: "text-red-600 dark:text-red-400",
-      dot: "bg-red-500 dark:bg-red-400",
+      detail: "text-red-700 dark:text-red-400",
+      dot: "bg-red-600 dark:bg-red-400",
     },
     warning: {
-      border: "border-amber-300 dark:border-amber-700",
+      border: "border-amber-200 dark:border-amber-800",
       bg: "bg-amber-50 dark:bg-amber-950/40",
-      badge: "bg-amber-500 text-white",
+      badge: "bg-amber-600 text-white",
       title: "text-amber-800 dark:text-amber-200",
-      detail: "text-amber-600 dark:text-amber-400",
-      dot: "bg-amber-500 dark:bg-amber-400",
-    },
-    info: {
-      border: "border-yellow-300 dark:border-yellow-700",
-      bg: "bg-yellow-50 dark:bg-yellow-950/40",
-      badge: "bg-yellow-500 text-white",
-      title: "text-yellow-800 dark:text-yellow-200",
-      detail: "text-yellow-700 dark:text-yellow-400",
-      dot: "bg-yellow-500 dark:bg-yellow-400",
+      detail: "text-amber-700 dark:text-amber-400",
+      dot: "bg-amber-600 dark:bg-amber-400",
     },
   };
+  styles.info = styles.warning;
 
-  const s = styles[alert.severity] || styles.info;
+  const s = styles[alert.severity] || styles.warning;
 
   return (
-    <div className={`rounded-xl p-5 border-2 ${s.border} ${s.bg} shadow-sm`}>
+    <div className={`rounded-xl p-5 border ${s.border} ${s.bg} shadow-sm`}>
       <div className="flex items-start gap-3">
-        <span className="text-2xl">{alert.icon}</span>
+        <span className="text-[16px] leading-none mt-0.5 shrink-0" aria-hidden="true">{alert.icon}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className={`font-bold ${s.title}`}>{alert.title}</h3>
+            <h3 className={`text-[14px] font-semibold ${s.title}`}>{alert.title}</h3>
             {alert.is_active && (
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${s.badge}`}>
+              <span className={`text-[11px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider ${s.badge}`}>
                 {t("dcStreakActiveBadge", "Active")}
               </span>
             )}
           </div>
-          <p className={`text-sm mt-1 ${s.detail}`}>{alert.detail}</p>
+          <p className={`text-[13px] mt-1 ${s.detail}`}>{alert.detail}</p>
 
           {/* Streak dots visualization */}
-          <div className="flex items-center gap-1.5 mt-3">
+          <div className="flex items-center gap-1.5 mt-3 flex-wrap">
             {Array.from({ length: alert.streak_length }).map((_, i) => (
-              <div key={i} className={`w-2.5 h-2.5 rounded-full ${s.dot}`} />
+              <div key={i} className={`w-2.5 h-2.5 rounded-full ${s.dot}`} aria-hidden="true" />
             ))}
-            <span className="text-xs ml-1.5 text-gray-500 dark:text-gray-400">
-              {t("dcStreakConsecutiveDays", "{count} consecutive days", { count: alert.streak_length })} &middot; {alert.streak_total?.toLocaleString()} {currency}
+            <span className="text-[12px] ml-1.5 text-gray-600 dark:text-gray-400 tabular-nums">
+              {t("dcStreakConsecutiveDays", "{count} consecutive days", { count: alert.streak_length })} &middot;{" "}
+              <Amount value={alert.streak_total} currency={currency} decimals={GLANCE_DECIMALS} />
             </span>
           </div>
 
           {alert.total_streaks > 1 && (
-            <p className="text-xs mt-2 text-gray-400 dark:text-gray-500">
+            <p className="text-[12px] mt-2 text-gray-500 dark:text-gray-400">
               {t("dcStreakSeparateShortages", "{count} separate shortage streaks detected in last 90 days", { count: alert.total_streaks })}
             </p>
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function SummaryCard({ label, value, color }) {
-  const c = color === "red" ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-gray-300";
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
-      <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>
-      <p className={`text-lg font-bold mt-1 ${color ? c : "dark:text-white"}`}>{value}</p>
     </div>
   );
 }
