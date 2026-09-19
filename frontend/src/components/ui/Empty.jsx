@@ -62,7 +62,14 @@ export default function Empty({
   return (
     <div className={(SIZES[size] || SIZES.block) + " " + className}>
       <div
-        className={`mx-auto mb-3 flex items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 ${chip}`}
+        // The chip is a WELL — a step DOWN from whatever surface it sits on.
+        // In dark it said `bg-gray-800`, which is now the colour of a Card
+        // (see the SURFACE LADDER block in index.css), so the chip vanished on
+        // every empty state drawn inside one — which is most of them. The
+        // half-rung is the only value that works in both positions: 1.10:1
+        // below a card AND 1.10:1 above the bare page ground, for an Empty
+        // rendered top-level. Light is untouched (gray-100 on white).
+        className={`mx-auto mb-3 flex items-center justify-center rounded-xl bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] text-gray-400 dark:text-gray-500 ${chip}`}
       >
         {glyphNode}
       </div>

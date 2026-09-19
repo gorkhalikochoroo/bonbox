@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import { useState, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { canUsePersonalMode, resolveMode, setStoredMode, clearStoredMode } from "../lib/appMode";
@@ -11,7 +11,7 @@ import { useActivation } from "../hooks/useActivation";
 import { getVatTerms } from "../utils/currency";
 import { isNativeApp } from "../utils/platform";
 import { syncStatusBar } from "../utils/statusBar";
-import { NAV_MANIFEST, NAV_GROUPS, filterDestinations, PILLAR_DISPLAY_BY_ID, isStaffMemberRole } from "../config/navManifest";
+import { filterDestinations, sidebarGroupsFor, PILLAR_DISPLAY_BY_ID, isStaffMemberRole } from "../config/navManifest";
 import {
   NAV_GROUPS_STORAGE_KEY,
   NAV_MUTED,
@@ -65,31 +65,28 @@ const InstallAppPrompt = lazy(() => import("./InstallAppPrompt"));
    config/navManifest.js. This module just PROJECTS the manifest into the
    grouped shape the sidebar renderer expects.
 
-   `buildSidebarGroups()` walks NAV_GROUPS (the ordered list of group
-   headers — id + labelKey + icon + group-level visibleFor/module gate) and,
-   for each, collects the manifest entries whose `group` matches AND whose
-   `surfaces` includes 'sidebar'. The resulting array is byte-for-byte the
-   same grouped shape the old hand-written `navGroups` produced — same order,
-   same icons, same labelKeys, same per-item gates — so this is a pure
-   refactor with ZERO visual change.
+   `sidebarGroupsFor(archetypeId)` (config/navManifest.js) walks NAV_GROUPS
+   (the ordered list of group headers — id + labelKey + icon + group-level
+   visibleFor/module gate) and, for each, collects the manifest entries whose
+   `group` matches AND that appear on this owner's sidebar. The resulting array
+   is the same grouped shape the old hand-written `navGroups` produced — same
+   order, same icons, same labelKeys, same per-item gates.
+
+   It takes an ARCHETYPE, because the sidebar surface is archetype-aware
+   (C12b: the four rare rows a restaurant or bar never opens are off the
+   sidebar for those two archetypes and on More + ⌘K instead). The resolver is
+   isOnSurface() in the manifest, so a per-archetype override lives next to the
+   destination it narrows, and no other surface has to know about it.
+
+   The projection itself lives in the manifest (it is pure data, and a guard
+   test has to resolve a rail without mounting this shell). What stays HERE is
+   everything surface-specific: filterNavGroups below.
 */
 // Tailwind's `md` breakpoint in px. The aside is pinned open at/above it
 // (`md:translate-x-0`) and an off-canvas drawer below it. Kept as a named
 // constant so the JS mirror of that CSS fact can't silently drift from it.
 const MD_BREAKPOINT = 768;
 
-function buildSidebarGroups() {
-  const sidebarItems = NAV_MANIFEST.filter((d) => d.surfaces.includes("sidebar"));
-  return NAV_GROUPS.map((g) => ({
-    id: g.id,
-    labelKey: g.labelKey,
-    icon: g.icon,
-    visibleFor: g.visibleFor,
-    requiresAnyModule: g.requiresAnyModule,
-    items: sidebarItems.filter((d) => d.group === g.id),
-  }));
-}
-const navGroups = buildSidebarGroups();
 
 /** Filter nav groups based on active branch business_type, the owner's
  *  enabled vertical modules, tier entitlements, and (later) pillar
@@ -449,10 +446,19 @@ export default function Layout() {
     prevActivatedRef.current = new Set(cur);
   }, [activation, isAccountant, t, showGraduationToast]);
 
+  // The resolved archetype — hoisted out of the filterNavGroups call because
+  // the SIDEBAR SURFACE itself is archetype-aware now (C12b), not just the
+  // per-item visibility axes. Branch type wins over the account's own type, so
+  // an owner standing in a restaurant branch gets the restaurant's rail.
+  const archetypeId = archetypeIdFor(branchType || user?.business_type);
+  // Rebuilt only when the archetype changes — everything else about the
+  // sidebar surface is static manifest data.
+  const navGroups = useMemo(() => sidebarGroupsFor(archetypeId), [archetypeId]);
+
   // Filter sidebar groups by both business_type (branch) and enabled modules
   const baseVisible = isAccountant
     ? accountantNavGroups
-    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, archetypeIdFor(branchType || user?.business_type), activation, _ownerFinancialsHidden);
+    : filterNavGroups(navGroups, branchType, businessTypes, enabledModules, hasFeature, entReady, hiddenPillars, archetypeId, activation, _ownerFinancialsHidden);
   // For super_admin owners, show an extra "Platform" group with the admin
   // dashboard. Frontend gating is cosmetic — real enforcement is server-side
   // (services/admin_security.py). A non-admin clicking this link sees an empty
@@ -582,25 +588,31 @@ export default function Layout() {
   // Accounting-software style: neutral gray bg + bold dark text on the active
   // item (Dinero/Billy/e-conomic do this). Avoids the "tech glow" colored pill
   // that read as developer-tool aesthetic.
-  // Active item: subtle gray bg (the doctrine) PLUS a 2px emerald-500 inset
+  // Active item: subtle gray bg (the doctrine) PLUS a 2px brand-accent inset
   // left rail drawn via box-shadow so it doesn't shift the icon/text layout
   // (every NavLink — top-level AND sub-item — has different left padding;
   // using box-shadow keeps that geometry untouched). That rail is the only
   // brand-green moment in the nav. Everything else stays neutral.
   // See "BRAND GREEN" block in index.css for the token contract.
   //
-  // The rail's colour reads from --brand-green-dot (index.css :root) instead
-  // of the raw #10b981 it used to hard-code. Same pixels — the token IS
-  // emerald-500 — but a hex baked into a class name is invisible to the theme
-  // layer, so this one rail stayed green no matter what the theme said.
-  // OPEN DECISION: whether the sidebar accent stays green or moves to the
-  // brand blue is the founder's call and is still open. This change only makes
-  // the current colour reachable; it does not pick a side.
-  const activeClass = "bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white font-semibold shadow-[inset_2px_0_0_0_rgb(var(--brand-green-dot))]";
+  // THE FOUNDER PICKED GREEN (Sep 2026). The open question this comment used to
+  // carry — green rail vs the venue theme's blue — is closed: BonBox green is
+  // the identity, the four venue themes tint CONTENT, not identity.
+  //
+  // The token is --brand-green-accent, which FLIPS by theme. The rail was a
+  // fixed emerald-500 and measured 2.30:1 against this row's own light
+  // background (#f3f4f6) — below the 3:1 WCAG non-text floor, i.e. the one
+  // indicator telling you where you are was the least visible thing in the
+  // rail. It is emerald-600 in light (3.42:1) and emerald-400 in dark (6.25:1).
+  const activeClass = "bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white font-semibold shadow-[inset_2px_0_0_0_rgb(var(--brand-green-accent))]";
   const inactiveClass = "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-white";
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-gray-900">
+    /* Rung 0 of the SURFACE LADDER — the page ground every card sits on. Was a
+       hard-coded `bg-slate-50 dark:bg-gray-900` pair, which is the same value
+       ui/Card.jsx was painting its DARK cards, so a card and the page under it
+       were the same colour. One token now, one answer. */
+    <div className="min-h-screen bg-[rgb(var(--surface-ground))]">
       {/* Skip-to-content link — invisible until focused, lets keyboard
           users jump past the sidebar nav straight to the main content.
           WCAG 2.4.1 (Bypass Blocks). Uses sr-only + focus styles to
@@ -632,14 +644,16 @@ export default function Layout() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        {/* Mobile top-bar wordmark + emerald-600 brand mark. Logo tile is
-            the saturated brand-green moment per the brand-green token block
-            in index.css. Tile holds an inverted version of the favicon
-            shape (notepad lines) in white so it reads as the BonBox logo
-            even at 24px. */}
+        {/* Mobile top-bar wordmark + the brand mark. The tile is the saturated
+            brand-green moment per the BRAND GREEN token block in index.css —
+            on the token now, not a raw `bg-emerald-600` class, so the mark and
+            the sidebar's mark cannot drift apart. Deliberately the SAME green
+            in light and dark: a logo that changes hue is a different logo.
+            Tile holds an inverted version of the favicon shape (notepad lines)
+            so it reads as the BonBox logo even at 24px. */}
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 bg-emerald-600 rounded-md flex items-center justify-center shrink-0" aria-hidden="true">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <div className="w-6 h-6 bg-[rgb(var(--brand-green))] text-[rgb(var(--brand-green-on))] rounded-md flex items-center justify-center shrink-0" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="4" y="3" width="16" height="18" rx="2" />
               <path d="M8 8h8M8 12h8M8 16h5" />
             </svg>
@@ -681,13 +695,16 @@ export default function Layout() {
               (C4); on phones the AI lives here in the header beside search +
               bell. Clicking dispatches to BonBoxAgent's hidden
               [data-bonbox-agent-toggle] trigger, opening the same chat panel.
-              emerald-600 keeps the brand-AI moment recognizable as the orb. */}
+              The brand accent keeps the AI moment recognizable as the orb —
+              on --brand-green-accent, which already resolves to emerald-600 in
+              light and emerald-400 in dark, so this is the same two colours it
+              shipped, minus the hand-written theme pair that could drift. */}
           <button
             onClick={() => {
               document.querySelector("[data-bonbox-agent-toggle]")?.click();
             }}
             aria-label={t("openBonBoxAi")}
-            className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition"
+            className="text-[rgb(var(--brand-green-accent))] hover:text-[rgb(var(--brand-green-hover))] transition"
           >
             <Icon name="Sparkles" size={20} strokeWidth={2} />
           </button>
@@ -727,7 +744,13 @@ export default function Layout() {
            included. Conditional rather than a flat z-[60] on purpose: the
            DESKTOP rail must stay at z-50, or every page-level modal (z-50,
            rendered later in <main>) would slide UNDER the pinned sidebar. */
-        className={`fixed top-0 left-0 h-full w-56 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col ${
+        /* The shell sits on rung 1 of the SURFACE LADDER — the SAME rung as a
+           resting card, in both themes. In light the sidebar has always been
+           white, i.e. exactly a card; dark now matches instead of leaving the
+           rail above the cards in one theme and level with them in the other.
+           Same pixels as the `bg-white dark:bg-gray-800` this replaces; the
+           point is that it is now the same TOKEN the cards read. */
+        className={`fixed top-0 left-0 h-full w-56 bg-[rgb(var(--surface-card))] border-r border-[rgb(var(--surface-line))] flex flex-col ${
           sidebarOpen ? "z-[60]" : "z-50"
         } ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
@@ -751,12 +774,13 @@ export default function Layout() {
         {/* Header */}
         <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between gap-2">
           <div className="min-w-0">
-            {/* Wordmark — emerald-600 tile + gray-900 wordmark. The tile is
-                the saturated brand-green moment for the sidebar (paired
-                with the active-nav left-rail in emerald-500). */}
+            {/* Wordmark — brand-green tile + gray-900 wordmark. The tile is
+                the saturated brand-green moment for the sidebar (paired with
+                the active-nav left-rail on --brand-green-accent). Same token
+                as the mobile top bar above, so there is one mark, not two. */}
             <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 bg-emerald-600 rounded-md flex items-center justify-center shrink-0" aria-hidden="true">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <div className="w-7 h-7 bg-[rgb(var(--brand-green))] text-[rgb(var(--brand-green-on))] rounded-md flex items-center justify-center shrink-0" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="4" y="3" width="16" height="18" rx="2" />
                   <path d="M8 8h8M8 12h8M8 16h5" />
                 </svg>
@@ -883,7 +907,22 @@ export default function Layout() {
               ))}
             </div>
           ) : (
-            /* Business mode — grouped navigation (filtered by branch type) */
+            /* Business mode — grouped navigation (filtered by branch type).
+
+               ROW RHYTHM LADDER (C2, Sep 2026). Twenty rows only read as five
+               groups if the gaps say so, and they did not: the gap between one
+               group and the next was `space-y-0.5` (2px) — the SAME 2px used
+               between two rows INSIDE a group — and a group header sat 2px
+               above its own first row. Every gap on the rail was one value, so
+               the eye got a list, not groups. Three steps now, and only three:
+
+                 2px  (space-y-0.5) between rows inside a group
+                 6px  (mt-1.5)      between a group header and its first row
+                12px  (mt-3)        between one group and the next
+
+               No new surface, no icon rail, and NO type-scale change — the
+               rhythm is entirely whitespace, which is the one lever that makes
+               a dense rail readable without making it taller per row. */
             <div className="space-y-0.5 py-1">
               {/* RESUME (Fortsæt) — quiet "pick up where you left off" cluster
                   pinned at the TOP of the nav, above the groups. Shows up to 2
@@ -937,20 +976,31 @@ export default function Layout() {
                           </NavLink>
                         )
                       ))}
-                      <div className="h-px bg-gray-100 dark:bg-gray-700 my-1.5" />
+                      {/* The core spine's closing rule. `mb-0` because the next
+                          group brings its own 12px step (see the ladder above);
+                          `my-1.5` here stacked with it and opened a gap wider
+                          than any other on the rail. */}
+                      <div className="h-px bg-gray-100 dark:bg-gray-700 mt-2 mb-0" />
                     </div>
                   );
                 }
 
-                // Collapsible groups
+                // Collapsible groups — `mt-3` is the ladder's between-groups
+                // step. It sits on the wrapper rather than on the header so a
+                // COLLAPSED group keeps the same step as an open one.
                 return (
-                  <div key={group.id}>
+                  <div key={group.id} className="mt-3">
                     <button
                       onClick={() => toggleGroup(group.id)}
                       /* Group headers are the organising layer — the thing that
-                         makes ~24 rows scannable at all. On the AA-passing
-                         muted tier, not the 2.54:1 gray-400 they used to be. */
-                      className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition ${
+                         makes a dense rail scannable at all. On the AA-passing
+                         muted tier, not the 2.54:1 gray-400 they used to be.
+                         `py-1` + the 6px step below it (mt-1.5 on the item
+                         list) replaces the old `py-1.5` + 2px: the header now
+                         hugs its own label and the AIR lands between the header
+                         and its rows, which is what makes it read as a label
+                         for what follows rather than as the first row of it. */
+                      className={`w-full flex items-center gap-2 px-3 py-1 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition ${
                         hasActiveChild
                           ? "text-gray-900 dark:text-gray-100"
                           : `${NAV_MUTED} ${NAV_MUTED_HOVER}`
@@ -958,8 +1008,14 @@ export default function Layout() {
                     >
                       <Icon name={group.icon} size={14} className="shrink-0 opacity-70" />
                       <span>{t(group.labelKey)}</span>
+                      {/* "Your page is inside this collapsed group" dot — the
+                          only thing standing in for the active row when the
+                          group is shut, so it is an INFORMATIVE graphic and
+                          owes the 3:1 non-text floor. As a fixed emerald-500 it
+                          measured 2.54:1 on the white rail; on the accent token
+                          it is 3.77:1 in light and 7.64:1 in dark. */}
                       {hasActiveChild && !isOpen && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 ml-0.5" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-[rgb(var(--brand-green-accent))] ml-0.5" />
                       )}
                       <svg
                         className={`w-3 h-3 ml-auto transition-transform ${isOpen ? "rotate-180" : ""}`}
@@ -969,7 +1025,11 @@ export default function Layout() {
                       </svg>
                     </button>
                     {isOpen && (
-                      <div className="space-y-0.5 mt-0.5 mb-1">
+                      /* 6px under the header (ladder step 2); no mb — the next
+                         group's own mt-3 is the between-groups step, and the
+                         old mb-1 made that gap depend on whether the PREVIOUS
+                         group happened to be open. */
+                      <div className="space-y-0.5 mt-1.5">
                         {group.items.map((item) => (
                           item.locked ? (
                             // L1 — visible-but-locked Pro feature entry.
@@ -1098,7 +1158,11 @@ export default function Layout() {
           onClick={toggleDesktopSidebar}
           title={t("showSidebar") || "Show sidebar"}
           aria-label={t("showSidebar") || "Show sidebar"}
-          className="hidden md:flex fixed top-4 left-4 z-40 items-center justify-center w-11 h-11 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white hover:border-gray-300 dark:hover:border-gray-600 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
+          /* Rung 2 (raised) of the SURFACE LADDER — this button floats OVER
+             the page with nothing under it, which is the one piece of chrome
+             that genuinely sits above a card. Its focus-ring offset is the
+             GROUND, because that is what is actually behind it. */
+          className="hidden md:flex fixed top-4 left-4 z-40 items-center justify-center w-11 h-11 rounded-lg bg-[rgb(var(--surface-raised))] border border-[rgb(var(--surface-line))] text-gray-600 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white hover:border-[rgb(var(--surface-line-strong))] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--surface-ground))]"
         >
           <Icon name="PanelLeft" size={20} strokeWidth={1.75} />
         </button>

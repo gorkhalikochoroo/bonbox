@@ -185,8 +185,11 @@ export default function UpgradeNudge({
     return (
       <div
         className={
-          "rounded-xl border border-gray-200 dark:border-gray-800 " +
-          "bg-white dark:bg-gray-900 " +
+          // SURFACE LADDER (index.css) — card rung. This is a Card in all but
+          // name and sits beside real ones; painting the dark page ground made
+          // it the one "card" on the screen with no edge.
+          "rounded-xl border border-[rgb(var(--surface-line))] " +
+          "bg-[rgb(var(--surface-card))] " +
           "p-5 sm:p-6 " + className
         }
       >
@@ -279,7 +282,10 @@ function UpgradeNudgeDialog({ glyph, benefit, ctaLabel, cta, handleClick, tier, 
         aria-modal="true"
         aria-labelledby="upgrade-nudge-title"
         tabIndex={-1}
-        className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl shadow-xl max-w-sm w-full p-6 text-center focus:outline-none"
+        // A modal floats above every card on the page, so it takes rung 2
+        // (`raised` + the stronger hairline), the same pair Card's `emphasis`
+        // variant uses. In light that resolves to white, exactly as before.
+        className="bg-[rgb(var(--surface-raised))] border border-[rgb(var(--surface-line-strong))] rounded-2xl shadow-xl max-w-sm w-full p-6 text-center focus:outline-none"
       >
         {glyph && (
           <div className="mb-3 flex justify-center text-4xl" aria-hidden="true">
@@ -298,7 +304,7 @@ function UpgradeNudgeDialog({ glyph, benefit, ctaLabel, cta, handleClick, tier, 
         <Link
           to={cta}
           onClick={handleClick}
-          className="block w-full px-4 h-11 rounded-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-white dark:text-gray-900 text-white text-sm font-medium transition-colors leading-[2.75rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900"
+          className="block w-full px-4 h-11 rounded-lg bg-gray-900 hover:bg-gray-800 dark:bg-gray-100 dark:hover:bg-white dark:text-gray-900 text-white text-sm font-medium transition-colors leading-[2.75rem] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--surface-raised))]"
         >
           {ctaLabel}
         </Link>

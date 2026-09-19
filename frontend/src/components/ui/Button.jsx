@@ -26,9 +26,15 @@ import React from "react";
 
 const BASE =
   "inline-flex items-center justify-center gap-2 rounded-lg font-medium " +
+  // The ring OFFSET is the surface behind the button. It used to be a fixed
+  // white/gray-900 pair; gray-900 is the dark page ground, so once cards were
+  // lifted a rung (see the SURFACE LADDER block in index.css) every focused
+  // button inside a card drew a dark halo on a lighter surface — the exact
+  // defect ui/StatCard documents fixing for itself. Light resolves to white,
+  // byte-identical to before.
   "transition-colors focus-visible:outline-none focus-visible:ring-2 " +
-  "focus-visible:ring-offset-2 focus-visible:ring-offset-white " +
-  "dark:focus-visible:ring-offset-gray-900 disabled:opacity-50 " +
+  "focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--surface-card))] " +
+  "disabled:opacity-50 " +
   "disabled:cursor-not-allowed disabled:pointer-events-none whitespace-nowrap";
 
 const VARIANTS = {

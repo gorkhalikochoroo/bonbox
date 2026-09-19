@@ -12,7 +12,11 @@
  * StatCard applies the same restraint to KPI tiles.
  *
  * Defaults:
- *   • bg-white with a 1px gray-200 border (gray-800 in dark mode)
+ *   • the resting card rung of the SURFACE LADDER (index.css) + a 1px
+ *     hairline — the same tokens ui/Card.jsx uses, so a tile and a card next
+ *     to each other are the same surface. This used to be a hard-coded
+ *     `bg-white … dark:bg-gray-900`, i.e. the dark page ground, so a row of
+ *     tiles was invisible against the page it sat on.
  *   • px-4 py-3.5, rounded-xl — same radius as Card
  *   • No hover ring, no gradient, no shadow — these read as
  *     "interactive" and KPI tiles are read-only by default. If you
@@ -29,7 +33,7 @@
  *   tab-focusable, real keyboard activation) with hover + focus chrome.
  *   `expandable={true}` swaps the indicator to ChevronDown so the
  *   click-to-expand affordance is visible. `selected={true}` adds a
- *   quiet gray-900 ring + gray-50 surface — NO emerald, NO blue,
+ *   quiet gray-900 ring + the quieter rung — NO emerald, NO blue,
  *   matches the sidebar's "no tech-glow" active-state rule.
  *
  * Hierarchy is built by SIZE + WEIGHT, not color. Label is small uppercase
@@ -64,7 +68,7 @@ export default function StatCard({
   className = "",
   // Clickable variant — when set, the tile becomes a real <button>.
   onClick = null,
-  // Active state — quiet gray-900 ring + gray-50 surface. No tech-glow.
+  // Active state — quiet gray-900 ring + the quieter rung. No tech-glow.
   selected = false,
   // When true, the chevron indicator hints "click to expand" via
   // ChevronDown (rotates 180° when selected). When false but onClick
@@ -103,21 +107,26 @@ export default function StatCard({
     : "text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500";
 
   // Surface chrome — base for both static + clickable variants. The
-  // selected state pulls in a 1px gray-900 ring + gray-50 surface,
+  // selected state pulls in a 1px gray-900 ring + the quieter rung,
   // matching the sidebar's "active item" treatment exactly (Layout.jsx).
   const baseChrome =
     "rounded-xl border text-left transition " + padClass + " " +
     (selected
-      ? "ring-1 ring-gray-900 dark:ring-gray-100 bg-gray-50 dark:bg-gray-900/60 border-gray-300 dark:border-gray-700 "
-      : "bg-white border-gray-200 dark:bg-gray-900 dark:border-gray-800 ");
+      ? "ring-1 ring-gray-900 dark:ring-gray-100 bg-[rgb(var(--surface-subtle))] border-[rgb(var(--surface-line-strong))] "
+      : "bg-[rgb(var(--surface-card))] border-[rgb(var(--surface-line))] ");
   // Clickable-only chrome — hover surface + focus-visible ring. The
-  // hover is gray-50 (not a colored tint) so it stays in the calm
-  // palette; focus-visible uses gray-900 ring to match the selected
+  // hover presses the tile half a rung down (the same surface the selected
+  // state uses) rather than tinting it, so it stays in the calm palette —
+  // and half a rung, not a full one, is why a hovered tile does not sink into
+  // the page ground it sits on; focus-visible uses gray-900 ring to match the selected
   // state — same color, dotted by the browser's outline behavior.
+  // The ring offset is the tile's own surface. It used to be
+  // `dark:ring-offset-gray-950` — a FOURTH near-black, from below the ground,
+  // which drew a dark halo around a tile that is lighter than the page.
   const clickableChrome = isClickable
-    ? "cursor-pointer hover:bg-gray-50 hover:border-gray-300 dark:hover:bg-gray-800/60 dark:hover:border-gray-700 " +
+    ? "cursor-pointer hover:bg-[rgb(var(--surface-subtle))] hover:border-[rgb(var(--surface-line-strong))] " +
       "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
-      "focus-visible:ring-offset-1 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-950 active:scale-[0.99] "
+      "focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--surface-card))] active:scale-[0.99] "
     : "";
 
   // Chevron — ChevronDown when the tile expands an inline panel

@@ -1704,7 +1704,11 @@ function OrdersSection({ t, onPendingCount }) {
               {t("gkOrdersLinkLabel", "Din bestillingsside")}
             </p>
             <div className="mt-1.5 flex items-center gap-2">
-              <code className="flex-1 truncate rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+              {/* The URL sits in a well inside this <Card>. Its dark value was
+                  gray-800 — now the Card's own colour — so the field the owner
+                  is meant to copy had no boundary at all. Half-rung, see the
+                  SURFACE LADDER block in index.css. */}
+              <code className="flex-1 truncate rounded-lg bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
                 {settings.public_url}
               </code>
               <Button variant="secondary" size="sm" onClick={copyLink}>
@@ -1735,7 +1739,7 @@ function OrdersSection({ t, onPendingCount }) {
         </h3>
         {orders.length === 0 ? (
           <Card className="p-8 text-center">
-            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-400">
+            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] text-gray-400">
               <Inbox className="h-6 w-6" aria-hidden />
             </div>
             <p className="text-sm font-medium text-gray-700 dark:text-gray-200">

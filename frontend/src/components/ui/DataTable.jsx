@@ -207,16 +207,27 @@ export default function DataTable({
   };
 
   // ───────────────────────── Desktop ─────────────────────────
+  // SURFACE LADDER (index.css). This container is a CARD — it is the whole
+  // content of a section, and on /sales and /expenses it sits beside StatCards
+  // that read the ladder. It used to paint `dark:bg-gray-900`, the exact
+  // colour of the dark page ground, outlined by a gray-800 hairline LIGHTER
+  // than the surface it was outlining: verbatim the defect ui/Card was fixed
+  // for, one primitive over. Card rung now, hairline on the line token so the
+  // edge is drawn in the right direction.
+  //
+  // The thead deliberately stays a translucent step DOWN (gray-900/80 over the
+  // card) — that mirrors light, where it is gray-50 under a white card — and
+  // it keeps the backdrop-blur an opaque token would kill.
   const desktop = (
     <div
       className={
         tableHide +
-        " w-full overflow-auto rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900"
+        " w-full overflow-auto rounded-xl border border-[rgb(var(--surface-line))] bg-[rgb(var(--surface-card))]"
       }
     >
       <table className="min-w-full text-sm">
         <thead className="sticky top-0 z-10 bg-gray-50 dark:bg-gray-900/80 backdrop-blur">
-          <tr className="border-b border-gray-200 dark:border-gray-800">
+          <tr className="border-b border-[rgb(var(--surface-line))]">
             {selectable && (
               <th className="w-10 px-3 py-2.5 text-left">
                 <input
@@ -249,15 +260,25 @@ export default function DataTable({
             )}
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+        {/* Row dividers: `dark:divide-gray-800` on a now-gray-800 card is a
+            1.00:1 line, i.e. no line at all. The dark half moves to the line
+            token (gray-700); light keeps its softer gray-100, which was always
+            correct against white. */}
+        <tbody className="divide-y divide-gray-100 dark:divide-[rgb(var(--surface-line))]">
           {loading &&
             // Skeleton rows — 3 placeholders with animate-pulse. The bar
             // widths vary slightly per column to feel less mechanical.
+            // The bars are OBJECTS ON the surface, not wells in it, so they
+            // take rung 2: darker than white in light, lighter than the card
+            // in dark (the ladder's "light lifts with shadow, dark lifts with
+            // lightness"). They used to be gray-800 in dark — the card's own
+            // colour — so the loading state showed three blank rows and no
+            // pulse at all. Same bars are reused by the mobile card list.
             Array.from({ length: 3 }).map((_, i) => (
               <tr key={"sk-" + i}>
                 {selectable && (
                   <td className="px-3 py-3">
-                    <div className="h-4 w-4 rounded bg-gray-200 dark:bg-gray-800 animate-pulse" />
+                    <div className="h-4 w-4 rounded bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
                   </td>
                 )}
                 {columns.map((c, ci) => (
@@ -266,14 +287,14 @@ export default function DataTable({
                     className={"px-3 py-3 " + (ALIGN[c.align] || ALIGN.left)}
                   >
                     <div
-                      className="h-3 rounded bg-gray-200 dark:bg-gray-800 animate-pulse"
+                      className="h-3 rounded bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse"
                       style={{ width: ci % 2 === 0 ? "60%" : "80%" }}
                     />
                   </td>
                 ))}
                 {typeof rowActions === "function" && (
                   <td className="px-3 py-3">
-                    <div className="h-3 w-12 ml-auto rounded bg-gray-200 dark:bg-gray-800 animate-pulse" />
+                    <div className="h-3 w-12 ml-auto rounded bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
                   </td>
                 )}
               </tr>
@@ -301,9 +322,13 @@ export default function DataTable({
                   className={
                     "transition-colors " +
                     (onRowClick ? "cursor-pointer " : "") +
+                    // Two distinct steps DOWN from the card, matching light's
+                    // gray-100 (selected) / gray-50 (hover) pair. Both used to
+                    // be gray-800 — the card's own colour — so in dark a
+                    // selected row and a hovered row were both invisible.
                     (isSelected
-                      ? "bg-gray-100 dark:bg-gray-800"
-                      : "hover:bg-gray-50 dark:hover:bg-gray-800/50")
+                      ? "bg-gray-100 dark:bg-[rgb(var(--surface-ground))]"
+                      : "hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-subtle))]")
                   }
                 >
                   {selectable && (
@@ -366,9 +391,9 @@ export default function DataTable({
         Array.from({ length: 3 }).map((_, i) => (
           <Card key={"mk-" + i}>
             <div className="space-y-2">
-              <div className="h-3 w-1/3 rounded bg-gray-200 dark:bg-gray-800 animate-pulse" />
-              <div className="h-3 w-2/3 rounded bg-gray-200 dark:bg-gray-800 animate-pulse" />
-              <div className="h-3 w-1/2 rounded bg-gray-200 dark:bg-gray-800 animate-pulse" />
+              <div className="h-3 w-1/3 rounded bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
+              <div className="h-3 w-2/3 rounded bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
+              <div className="h-3 w-1/2 rounded bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
             </div>
           </Card>
         ))}
@@ -452,7 +477,10 @@ export default function DataTable({
                 ))}
               </dl>
               {typeof rowActions === "function" && (
-                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 flex flex-wrap gap-1 justify-end">
+                // Inside a <Card>, so `dark:border-gray-800` was the card's own
+                // colour — the rule separating the row from its actions simply
+                // stopped existing in dark.
+                <div className="mt-3 pt-3 border-t border-gray-100 dark:border-[rgb(var(--surface-line))] flex flex-wrap gap-1 justify-end">
                   {renderRowActions(row)}
                 </div>
               )}

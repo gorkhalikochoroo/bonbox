@@ -92,6 +92,10 @@
  *   surfaces      subset of ['sidebar','more','search','bottomnav'] — which
  *                 chrome this destination appears on. A surface filters the
  *                 manifest to its own subset before rendering.
+ *   surfacesByArchetype  optional { [archetypeId]: surfaces[] } override —
+ *                 REPLACES `surfaces` for owners of that archetype only.
+ *                 Resolve it with surfacesFor() / isOnSurface(), never by
+ *                 reading `.surfaces` directly. See the C12b note below.
  *   aliases       (search only) extra substrings ⌘K matches against.
  *   dynamic       (sidebar only) label comes from vatTerms, not labelKey.
  *
@@ -99,7 +103,52 @@
  * accountant read-only nav, and the super_admin Platform group are
  * deliberately NOT manifest-driven — they live in their own surfaces and
  * stay decoupled (accountant nav is a security-adjacent allowlist).
+ *
+ * C12b — THE ARCHETYPE-AWARE SIDEBAR (Sep 2026, founder call)
+ * ----------------------------------------------------------
+ * C12 proved the `surfaces` lever: dropping 'sidebar' from a rare destination
+ * is a pure subtraction, because 'more' + 'search' keep it one tap away and
+ * the route/page/data are untouched. C12b extends the same lever ONE axis:
+ * some rows are rare for a restaurant and routine for a bookkeeper-ish
+ * services owner, so "rare" is per-ARCHETYPE, not global.
+ *
+ * `surfacesByArchetype` is that axis. It is deliberately NOT a fifth
+ * visibility axis in filterDestinations(): the four axes answer "may this
+ * owner have this destination at all", and the answer here is always YES —
+ * only the CHROME placement changes. Keeping it in the surface-narrowing step
+ * is what makes it impossible for this field to hide a page from ⌘K.
  */
+
+/**
+ * C12b — the food_service / bar sidebar diet (founder call, Sep 2026).
+ *
+ * A DK restaurant or bar owner does not invoice (they take the money at the
+ * table), does not keep a CRM, runs one location, and picks their modules once
+ * during onboarding. Those four rows were ~17% of the densest sidebar we ship
+ * and none of them is a daily job. They move to More (PHONE) and to search /
+ * ⌘K (EVERY width) — the exact C12 trade: one extra tap for a rare
+ * destination, four fewer rows to read past for the ones that ARE daily.
+ *
+ * Be precise about that, because the two halves are not equally reachable.
+ * The only link to /more in the app is MobileBottomNav's tile, and that bar is
+ * `md:hidden` — so on DESKTOP, where a daily close is actually done, these four
+ * are reachable through the sidebar's search button (Layout.jsx, not
+ * breakpoint-gated) or ⌘K, and not through a visible nav row. That is a
+ * deliberate narrowing of discoverability, not a dead end; if it turns out to
+ * be too narrow, the fix is one more NAV_MANIFEST entry pointing at /more,
+ * which is already a real route.
+ *
+ * NOTHING IS DELETED: the route, the page, the data, the aliases and the More
+ * tile are all untouched, and every other archetype (retail, salon, services,
+ * generic, personal) keeps these rows in the sidebar exactly as today.
+ *
+ * REVERT: delete this constant and the four `surfacesByArchetype:` lines that
+ * reference it. The sidebar is back to what shipped before, byte for byte.
+ */
+const OFF_SIDEBAR_FOR_HOSPITALITY = {
+  food_service: ["more", "search"],
+  bar: ["more", "search"],
+};
 
 export const NAV_MANIFEST = [
   // ─── CORE (spine — flat, headerless top of the sidebar) ───────────────
@@ -288,6 +337,9 @@ export const NAV_MANIFEST = [
     pillar: null,
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
+    // C12b: a restaurant/bar takes the money at the table — it never sends a
+    // faktura. Off their sidebar, still on More + ⌘K.
+    surfacesByArchetype: OFF_SIDEBAR_FOR_HOSPITALITY,
     aliases: ["faktura", "invoice", "invoicing"],
   },
   {
@@ -298,6 +350,9 @@ export const NAV_MANIFEST = [
     pillar: null,
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
+    // C12b: a named-customer ledger is B2B work. Hospitality guests arrive as
+    // reservations, not as CRM rows. Off their sidebar, still on More + ⌘K.
+    surfacesByArchetype: OFF_SIDEBAR_FOR_HOSPITALITY,
   },
   {
     to: "/mileage",
@@ -561,6 +616,10 @@ export const NAV_MANIFEST = [
     pillar: null,
     frequency: "rare",
     surfaces: ["sidebar", "more", "search"],
+    // C12b: the ICP is a 5-12 staff owner-operated single site. A Locations hub
+    // that shows one location is chrome. Off their sidebar, still on More + ⌘K
+    // — and an owner who opens a second site finds it there the same day.
+    surfacesByArchetype: OFF_SIDEBAR_FOR_HOSPITALITY,
     aliases: [
       "branches", "filialer", "locations", "lokationer",
       // compare tab (was /outlets)
@@ -605,6 +664,11 @@ export const NAV_MANIFEST = [
     pillar: null,
     frequency: "rare",
     surfaces: ["sidebar", "more", "search"],
+    // C12b: modules are chosen once at onboarding and revisited almost never.
+    // Off their sidebar, still on More + ⌘K. NOTE this row is also the way back
+    // to a hidden pillar — PillarDiscovery pins that affordance to the bottom
+    // of the nav independently, so the re-find path is not this row.
+    surfacesByArchetype: OFF_SIDEBAR_FOR_HOSPITALITY,
     aliases: ["modules", "features"],
   },
   {
@@ -746,6 +810,31 @@ export const USAGE_GATED_PILLARS = ["events"];
  * Events from minute one, before any row exists.
  */
 export const USAGE_GATE_EXEMPT_TYPES = ["event_organizer"];
+
+/**
+ * surfacesFor(item, archetypeId)
+ * ------------------------------
+ * The surfaces this destination appears on FOR THIS OWNER. `surfaces` is the
+ * default; a `surfacesByArchetype` entry REPLACES it for that archetype only
+ * (C12b — see the module header). Pure; never throws; fails OPEN — an unknown
+ * or null archetype, or a malformed override, falls back to `surfaces`, so a
+ * bad archetype string can never blank a surface.
+ *
+ * @param {object} item — a NAV_MANIFEST entry
+ * @param {string|null} archetypeId — resolved archetype (config/archetypes.js)
+ * @returns {string[]} the surface list to test against
+ */
+export function surfacesFor(item, archetypeId = null) {
+  const base = Array.isArray(item?.surfaces) ? item.surfaces : [];
+  if (!archetypeId) return base;
+  const override = item?.surfacesByArchetype?.[archetypeId];
+  return Array.isArray(override) ? override : base;
+}
+
+/** Does this destination appear on `surface` for this owner? See surfacesFor. */
+export function isOnSurface(item, surface, archetypeId = null) {
+  return surfacesFor(item, archetypeId).includes(surface);
+}
 
 const _ACTIVATION_GATEABLE = ["inventory", "reservations", "events", "staff"];
 
@@ -1027,3 +1116,32 @@ export const NAV_GROUPS = [
   // modules, channels, plan & billing, etc. (absorbed ACCOUNT in C5).
   { id: "manage",   labelKey: "navSettings",    icon: "Settings",  visibleFor: null },
 ];
+
+/**
+ * sidebarGroupsFor(archetypeId)
+ * -----------------------------
+ * The SIDEBAR surface, projected into the grouped shape Layout renders: each
+ * NAV_GROUPS entry with the manifest destinations that belong to it AND appear
+ * on this owner's sidebar (see surfacesFor — C12b makes that archetype-aware).
+ *
+ * Lives here rather than in Layout.jsx because it is pure manifest projection
+ * with no React in it, and because a guard test has to be able to ask "what
+ * does a restaurant owner's rail resolve to" without mounting the whole shell.
+ * Layout still owns everything surface-specific on top of this: the group-level
+ * visibleFor/module gate, filterDestinations, the App-Store locked-item drop,
+ * and dropping a group once its items are all filtered out.
+ *
+ * @param {string|null} archetypeId — resolved archetype (config/archetypes.js)
+ * @returns {Array<{id,labelKey,icon,visibleFor,requiresAnyModule,items}>}
+ */
+export function sidebarGroupsFor(archetypeId = null) {
+  const sidebarItems = NAV_MANIFEST.filter((d) => isOnSurface(d, "sidebar", archetypeId));
+  return NAV_GROUPS.map((g) => ({
+    id: g.id,
+    labelKey: g.labelKey,
+    icon: g.icon,
+    visibleFor: g.visibleFor,
+    requiresAnyModule: g.requiresAnyModule,
+    items: sidebarItems.filter((d) => d.group === g.id),
+  }));
+}

@@ -51,8 +51,11 @@ const BASE =
   "border transition-colors whitespace-nowrap select-none " +
   "focus-visible:outline-none focus-visible:ring-2 " +
   "focus-visible:ring-gray-400 dark:focus-visible:ring-gray-500 " +
-  "focus-visible:ring-offset-1 focus-visible:ring-offset-white " +
-  "dark:focus-visible:ring-offset-gray-900 " +
+  // The offset gap is painted in the colour of the surface BEHIND the chip.
+  // It used to be a hard-coded white/gray-900 pair; gray-900 is the dark page
+  // ground, so a focused chip on a card (which is now a rung lighter) drew a
+  // dark halo around itself. Same fix ui/Card and ui/StatCard already carry.
+  "focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--surface-card))] " +
   "disabled:opacity-50 disabled:cursor-not-allowed";
 
 const UNSELECTED =

@@ -187,7 +187,10 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
             <div className="space-y-2.5">
               {(provider.setup_steps || []).map((step, i) => (
                 <div key={i} className="flex gap-3">
-                  <div className="shrink-0 w-6 h-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 flex items-center justify-center text-xs font-bold">
+                  {/* Step bullet is a well INSIDE a <Card>; gray-800 is now the
+                      Card's own dark colour, so it read as nothing. Half-rung
+                      — see the SURFACE LADDER block in index.css. */}
+                  <div className="shrink-0 w-6 h-6 rounded-full bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] text-gray-700 dark:text-gray-300 flex items-center justify-center text-xs font-bold">
                     {i + 1}
                   </div>
                   <p className="text-sm text-gray-600 dark:text-gray-300 pt-0.5">{step}</p>
@@ -238,7 +241,7 @@ function SetupWizard({ provider, onDone, onCancel, t }) {
     return (
       <Card>
         <div className="py-8 text-center">
-          <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+          <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] flex items-center justify-center">
             <Loader2 className="animate-spin text-gray-700 dark:text-gray-300" size={22} />
           </div>
           <p className="text-sm font-medium text-gray-700 dark:text-gray-300">

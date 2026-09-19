@@ -56,6 +56,9 @@
  *     auto-expand effect was for — without a single write to storage, so it
  *     can never clobber another group's value.
  *
+ * (Section 3, the colour mirrors for the index.css token blocks, is documented
+ * where those exports live further down.)
+ *
  * BACKWARD COMPATIBLE: the stored shape is unchanged — `{ [groupId]: bool }`
  * under the same `bonbox_nav_groups` key. Owners already carrying values
  * (including the `true`s the old auto-expand effect wrote for them) read back
@@ -81,6 +84,50 @@ export const NAV_MUTED_HOVER = "hover:text-gray-700 dark:hover:text-gray-200";
 export const NAV_MUTED_HEX = { light: "#6b7280", dark: "#9ca3af" };      // gray-500 / gray-400
 export const NAV_MUTED_HOVER_HEX = { light: "#374151", dark: "#e5e7eb" }; // gray-700 / gray-200
 export const NAV_SURFACE_HEX = { light: "#ffffff", dark: "#1f2937" };     // white / gray-800
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────
+ * 3. THE COLOUR MIRRORS (guard-test inputs)
+ * ─────────────────────────────────────────────────────────────────────────
+ * The literals behind the CSS custom properties in index.css, mirrored here
+ * for the SAME reason NAV_MUTED_HEX exists: a contrast ratio is invisible to a
+ * build, an eslint pass and an i18n check, so it has to be asserted as a
+ * NUMBER. jsdom does not resolve `var()` against a stylesheet it never loaded,
+ * so a test cannot read these back off the DOM — mirroring them is the only
+ * way to pin the ratio rather than a class name.
+ *
+ * KEEP IN SYNC with the BRAND GREEN and SURFACE LADDER blocks in index.css.
+ * The guard test asserts the ratios these produce, so a drifted mirror shows
+ * up as a failing ratio, not as a silently-passing lie.
+ */
+
+/** --brand-green-accent: the rail, the collapsed-group dot, focus rings, the
+ *  AI glyph. Flips by theme because one fixed green cannot clear the 3:1
+ *  non-text floor on both grounds (emerald-500 measured 2.30:1 in light). */
+export const BRAND_ACCENT_HEX = { light: "#059669", dark: "#34d399" };   // emerald-600 / emerald-400
+
+/** --brand-green: the logo tile. Deliberately the SAME in both themes. */
+export const BRAND_MARK_HEX = "#059669";                                  // emerald-600
+/** --brand-green-on: the glyph drawn on the mark. */
+export const BRAND_MARK_INK_HEX = "#ffffff";
+
+/** The active nav row's own background — the ground the 2px rail is drawn
+ *  against, so it is what the rail's contrast must be measured on. Dark is the
+ *  RESOLVED blend of `dark:bg-gray-700/60` over the gray-800 rail surface;
+ *  a ratio taken against the un-blended gray-700 would flatter the result. */
+export const NAV_ACTIVE_ROW_HEX = { light: "#f3f4f6", dark: "#2d3747" };  // gray-100 / gray-700@60% on gray-800
+
+/** The SURFACE LADDER rungs (index.css). `ground` is the page, `subtle` is the
+ *  half-rung used by pressed/selected chrome and Card's `subtle` variant,
+ *  `card` is a resting card AND the shell, `raised` floats above a card,
+ *  `line` is the hairline on a card. */
+export const SURFACE_LADDER_HEX = {
+  ground: { light: "#f8fafc", dark: "#111827" },
+  subtle: { light: "#f9fafb", dark: "#18212f" },
+  card:   { light: "#ffffff", dark: "#1f2937" },
+  raised: { light: "#ffffff", dark: "#2b3544" },
+  line:   { light: "#e5e7eb", dark: "#374151" },
+};
 
 /**
  * Parse + sanitize the stored group map. Anything that isn't a plain object

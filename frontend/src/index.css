@@ -98,11 +98,13 @@ html {
      env(safe-area-inset-top), and body pads too — which is also the hazard,
      since the two can stack. That is a native-behaviour change across every
      screen and wants its own pass, not a drive-by. */
-  background-color: #f8fafc;
-}
-
-html.dark {
-  background-color: #111827;
+  /* Rung 0 of the SURFACE LADDER (see the ladder block lower in this file) —
+     html and body now read the SAME token, which is the one-writer version of
+     the "html must carry the same background as body" rule above. The literal
+     fallback is the light ground, so a browser that drops the custom property
+     paints the right colour rather than nothing.
+     `html.dark` is gone: the ladder swaps the token under `:root.dark`. */
+  background-color: rgb(var(--surface-ground, 248 250 252));
 }
 
 body {
@@ -112,7 +114,9 @@ body {
      swap-in fallback while the web font lands. Task #109. */
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
     sans-serif;
-  background-color: #f8fafc;
+  /* Rung 0 — same token as html above, so the safe-area inset can never show a
+     different colour than the page it insets. */
+  background-color: rgb(var(--surface-ground, 248 250 252));
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
   padding-left: env(safe-area-inset-left);
@@ -146,9 +150,9 @@ body.portal-shell {
   letter-spacing: -0.03em;
 }
 
-.dark body {
-  background-color: #111827;
-}
+/* `.dark body { background-color: #111827 }` used to live here. It is gone on
+   purpose: the dark ground is now one token swap in the SURFACE LADDER block,
+   so there is exactly ONE place that decides what near-black the app is. */
 
 /* === BonBox Animations === */
 
@@ -483,7 +487,14 @@ body.modal-open {
      every scroll frame. */
   transform: translateZ(0);
 }
-.dark .glass { background: rgb(17 24 39 / 0.85); }
+/* The SHELL rung, not the ground. This used to be `rgb(17 24 39 / .85)` —
+   literally --surface-ground — painted over the ground, so the phone's top bar
+   and bottom nav measured 1.00:1 against the page and were held together by a
+   border alone, while the desktop sidebar had just been lifted to the CARD
+   rung. Light and dark agreed about the rail and disagreed about the phone.
+   Card rung in both themes now, same as the aside. See the SURFACE LADDER
+   block below. */
+.dark .glass { background: rgb(var(--surface-card) / 0.85); }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass { background: rgb(255 255 255 / 0.95); }
   /* The .dark rule above is (0,2,0) and this fallback was (0,1,0), so
@@ -491,7 +502,7 @@ body.modal-open {
      translucent, page content reading straight through the bar.
      @supports adds no specificity, so the fix is to restate .dark
      here rather than reorder anything. Light mode is untouched. */
-  .dark .glass { background: rgb(17 24 39 / 0.95); }
+  .dark .glass { background: rgb(var(--surface-card) / 0.95); }
 }
 /* Same frosted look as .glass but WITHOUT translateZ. A transform on a
    position:sticky element establishes a new containing block and desyncs the
@@ -503,7 +514,8 @@ body.modal-open {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
-.dark .glass-static { background: rgb(17 24 39 / 0.85); }
+/* Same rung as .glass above — a sticky bar is shell, not ground. */
+.dark .glass-static { background: rgb(var(--surface-card) / 0.85); }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass-static { background: rgb(255 255 255 / 0.95); }
   /* The .dark rule above is (0,2,0) and this fallback was (0,1,0), so
@@ -511,7 +523,7 @@ body.modal-open {
      translucent, page content reading straight through the bar.
      @supports adds no specificity, so the fix is to restate .dark
      here rather than reorder anything. Light mode is untouched. */
-  .dark .glass-static { background: rgb(17 24 39 / 0.95); }
+  .dark .glass-static { background: rgb(var(--surface-card) / 0.95); }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -817,11 +829,18 @@ body.modal-open {
 :root:not([data-theme="tech"]) .dark\:text-green-300 { color: rgb(var(--brand-100)) !important; }
 :root:not([data-theme="tech"]) .dark\:text-green-400 { color: rgb(var(--brand-400)) !important; }
 
-/* Calm theme also softens the body background slightly to feel less "app-ish" */
-:root[data-theme="calm"] body       { background-color: #f9fbfd; }
-:root[data-theme="calm"].dark body  { background-color: #0f172a; }
-:root[data-theme="modern"] body     { background-color: #faf9fd; }
-:root[data-theme="focus"] body      { background-color: #f8fafc; }
+/* Venue themes tint the LIGHT ground by a hair so the app feels less "app-ish".
+   These now set the GROUND RUNG of the elevation ladder (see the ladder block
+   below) instead of painting `body` directly — one writer for the ground, so a
+   theme can never disagree with html about what colour the page is.
+
+   The dark side is deliberately NOT here any more. `[data-theme="calm"].dark`
+   used to paint body #0f172a — slate-900, a THIRD near-black from a different
+   family sitting under gray-tinted cards. The dark ground is ladder-owned now:
+   one near-black (#111827) for all four themes. See the ladder block. */
+:root[data-theme="calm"]   { --surface-ground: 249 251 253; }
+:root[data-theme="modern"] { --surface-ground: 250 249 253; }
+:root[data-theme="focus"]  { --surface-ground: 248 250 252; }
 
 /* The landing page paints its own full-bleed bands on white, but body carries
    horizontal safe-area padding (the body rule near the top of this file). On a
@@ -846,37 +865,187 @@ body.modal-open {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   BRAND GREEN — BonBox identity token
+   BRAND GREEN — BonBox identity accent  (founder decision, Sep 2026)
 
    The doctrine (#164/#167) is gray-900-primary for typography and surface
    chrome. But an app with ZERO brand color reads as a Notion clone, not
-   BonBox. Brand-green appears in five locked places and nowhere else:
+   BonBox. This block used to describe that contract and have ZERO consumers —
+   every reference to it in src/ was a comment. It is wired now.
 
-     1. Logo mark + wordmark dot (Layout sidebar, landing top bar, login)
-     2. Primary CTA on MARKETING surfaces (landing, login, register)
-        — interior app primary CTAs stay gray-900 per doctrine
-     3. Status indicators ("Active", "Connected", "Verified") — emerald-500 dot
-     4. Success moments ("Saved", "Filed", "Sent to revisor") — emerald-600 icon
-     5. Active sidebar nav item — 2px emerald-500 left rail (the bg stays gray)
+   THE DECISION: BonBox green is the IDENTITY. The four venue themes stay, but
+   they no longer repaint the app's identity. Concretely, after this change:
 
-   The token is hard-locked to emerald-600 (#059669) for the saturated mark,
-   emerald-500 (#10b981) for indicator dots, emerald-50 (#ecfdf5) for tinted
-   surface recipes. Same scale as the existing `tech` theme so anything that
-   already wires emerald-* keeps working.
+     OWNED BY THIS BLOCK (identity — the same green in every venue theme):
+       1. The logo tile + its glyph (sidebar wordmark, mobile top bar)
+       2. The active sidebar nav row's 2px left rail
+       3. The collapsed-group "active child" dot
+       4. Focus rings on brand-interactive chrome (Card's interactive variant)
+       5. The BonBox AI glyph — the one always-on brand affordance in the bar
 
-   The favicon historically shipped #22c55e (green-500) — that's slightly
-   lighter and warmer. We standardize on emerald-600 because every existing
-   primitive (Button.accent, StatCard.success, Check icon, UpgradeNudge,
-   text-emerald-600 across pages) is already on the emerald scale. Migrating
-   the favicon to emerald-600 is a separate cosmetic pass.
+     STILL OWNED BY [data-theme] (--brand-*): the per-venue CONTENT accent —
+     everything the .bg-green-* / .text-green-* remap above reaches (page
+     recipes, gradients, "most popular" pills, tinted content surfaces). A
+     venue theme tints the CONTENT; it does not restate who the product is.
+
+     OWNED BY NEITHER — STATUS: emerald-* utilities in DATA keep meaning
+     money-moment / seen / success (StatCard accent="success", the schedule
+     grid's status vocabulary, ✓ confirmations). Status colour is semantic, is
+     never themed, and must not be folded into the identity tokens: an owner
+     reading "seen" off a green dot is reading data, not branding.
+
+   HOW THE READER TELLS IDENTITY FROM STATUS — say it plainly, because the two
+   roles resolve to the SAME hex. --brand-green-accent is emerald-600/400, and
+   so is the schedule grid's "seen" (StaffSchedulePage) and Button's accent
+   CTA. That is deliberate: BonBox has ONE green, and splitting the identity a
+   stop off the status ramp would put two nearly-identical greens on one screen
+   — worse, not better. They are separated by FORM and by PLACE, not by hue:
+
+     IDENTITY is chrome-shaped and lives in the shell — a 2px left rail, a 6px
+     dot, a filled logo tile, a focus ring. It never labels a row of data and
+     never appears inside a card's content.
+     STATUS is content-shaped and lives in the data — an icon, a chip, a text
+     colour on a value, a legend swatch. It always sits next to the thing it
+     describes and is always explained by a legend or a label.
+
+   So: do NOT add a green rail/dot/tile to a data surface, and do NOT use the
+   identity tokens to colour a value. If a new green needs a legend, it is
+   status and belongs on an emerald-* utility.
+
+   FOOTGUN: .bg-green-* / .text-green-* are REMAPPED to rgb(var(--brand-*))
+   above for every non-`tech` theme, so a `green-500` class in chrome silently
+   becomes the venue accent. Identity chrome uses the tokens below; status uses
+   emerald-*; nothing in the app uses green-*.
+
+   THE STOPS THE CHROME NEEDS — four, each with a live consumer. Two of them
+   FLIP in dark, because one fixed green cannot pass AA on both grounds:
+
+     --brand-green         emerald-600.  The mark. Same in both themes on
+                           purpose: a logo that changes hue is a different
+                           logo. White glyph on it measures 3.77:1 (AA
+                           non-text floor is 3:1).
+     --brand-green-on      white. The ink on the mark.
+     --brand-green-accent  rail · dot · focus ring · AI glyph. emerald-600 in
+                           light, emerald-400 in dark. The old fixed
+                           emerald-500 FAILED the 3:1 non-text floor in light:
+                           2.30:1 on the active row (#f3f4f6), 2.54:1 for the
+                           dot on the white rail. Measured after the flip:
+                           light rail 3.42:1, light dot 3.77:1, dark rail
+                           6.25:1, dark dot 7.64:1.
+     --brand-green-hover   hover on an accent glyph. emerald-700 in light
+                           (darker = more present on a light ground),
+                           emerald-500 in dark (lighter = more present on a
+                           dark ground). A fixed hover inverts in one theme.
+
+   The favicon historically shipped #22c55e (green-500) — slightly lighter and
+   warmer. We standardize on emerald-600 because every existing primitive
+   (Button.accent, StatCard.success, Check icon, UpgradeNudge) is already on
+   the emerald scale. Migrating the favicon is a separate cosmetic pass.
 
    Reference: docs/design-system-doctrine.md (#164)
    ═══════════════════════════════════════════════════════════════════════ */
 :root {
-  --brand-green: 5 150 105;        /* emerald-600 — saturated brand mark */
-  --brand-green-hover: 4 120 87;   /* emerald-700 — hover on emerald-600 surfaces */
-  --brand-green-soft: 236 253 245; /* emerald-50  — severity-tinted surfaces */
-  --brand-green-dot: 16 185 129;   /* emerald-500 — status dots, active rail */
+  --brand-green: 5 150 105;          /* emerald-600 — the mark, both themes */
+  --brand-green-on: 255 255 255;     /* white — ink on the mark */
+  --brand-green-accent: 5 150 105;   /* emerald-600 — rail · dot · ring · AI */
+  --brand-green-hover: 4 120 87;     /* emerald-700 — hover on an accent glyph */
+}
+:root.dark {
+  --brand-green-accent: 52 211 153;  /* emerald-400 — AA on the dark shell */
+  --brand-green-hover: 16 185 129;   /* emerald-500 — hover goes LIGHTER in dark */
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SURFACE LADDER — one dark elevation ladder  (founder decision, Sep 2026)
+
+   THE DEFECT: the app shipped two contradictory answers to "what is a card".
+   ui/Card.jsx painted dark:bg-gray-900 — the EXACT colour of the page ground —
+   so a resting card was a 1.00:1 rectangle whose only edge was a gray-800
+   hairline drawn LIGHTER than the card it outlined and DARKER than nothing.
+   Meanwhile ~400 hand-rolled call sites used dark:bg-gray-800 and separated
+   correctly. Same screen, two behaviours. A third near-black (#0f172a,
+   slate-900) arrived under gray-tinted cards via the calm dark body override,
+   and a fourth (gray-950) via a StatCard ring offset.
+
+   THE FIX (founder's pick): KEEP the #111827 ground and LIFT the cards. Three
+   rungs, one family (Tailwind gray), the same relationship in both themes:
+
+     rung 0  ground   the page under everything
+     rung ½  subtle   a quieter card — pressed/selected chrome, and Card's
+                      `subtle` variant. In dark it sits HALFWAY between the
+                      ground and a card (1.10:1 from each) on purpose: that
+                      variant is used both nested INSIDE a card and standing on
+                      the bare page, and a well that matched the ground would
+                      vanish on the 19 call sites that do the latter.
+     rung 1  card     a resting card — AND the shell (sidebar, drawer)
+     rung 2  raised   something floating above a card (emphasis, the floating
+                      show-sidebar button)
+
+   The shell sits on rung 1 in BOTH themes on purpose. In light the sidebar is
+   white, exactly a card; dark now matches (gray-800) instead of leaving the
+   sidebar above the cards in dark and level with them in light. Light and dark
+   agree about what is above what.
+
+   Measured separation (WCAG relative-luminance ratio, so "how visible is the
+   step", not a text-legibility claim):
+     dark   card #1f2937 on ground #111827   1.21:1   (was 1.00:1 — invisible)
+     light  card #ffffff on ground #f8fafc   1.05:1
+     dark   hairline #374151 on card         1.42:1
+     light  hairline #e5e7eb on card         1.24:1
+   Body text keeps its own AA margin on the new card: gray-400 muted on
+   #1f2937 is 5.78:1, gray-300 is 9.96:1, gray-100 is 13.34:1.
+
+   In LIGHT there is nothing above white, so rung 2 is white + shadow. That is
+   the honest statement: light lifts with shadow, dark lifts with lightness.
+
+   NOT DONE, ON PURPOSE: the ~400 hand-rolled `dark:bg-gray-800` call sites are
+   NOT swept. They already land on rung 1 and already separate correctly — a
+   repo-wide find-and-replace would touch every page in a shipping product to
+   change nothing on screen. New surfaces should use these tokens; existing
+   gray-800 surfaces are already right.
+
+   THE EXCEPTION TO THAT — READ THIS BEFORE REPEATING THE JUSTIFICATION ABOVE.
+   "already separate correctly" is true of a gray-800 surface sitting on the
+   GROUND. It is FALSE of a gray-800 well drawn INSIDE a card, because the card
+   is now gray-800 too: `bg-gray-100 dark:bg-gray-800` — the app's standard
+   icon-chip / well / skeleton-bar idiom — was a 1.10:1 step under a white card
+   in light and is a 1.00:1 non-step under a dark one. Light kept separating,
+   dark stopped: exactly the asymmetry this ladder exists to remove.
+
+   Fixed in the PRIMITIVES, where one edit covers every call site: ui/Empty's
+   icon chip, ui/DataTable's skeleton bars, selected row and dividers. A nested
+   well should read `dark:bg-[rgb(var(--surface-subtle))]` — the half-rung is
+   1.10:1 from the card AND 1.10:1 from the ground, so it works whether it is
+   nested or standing on the bare page, which a flat `dark:bg-gray-900` does
+   not.
+
+   STILL OPEN: ~180 hand-rolled `bg-gray-100 dark:bg-gray-800` wells across ~77
+   page files. Each needs its enclosing surface read before it is swapped (on
+   the ground gray-800 is still a correct, slightly stronger step), so it is a
+   deliberate pass, not a find-and-replace. Not an oversight — a scoped TODO.
+   ═══════════════════════════════════════════════════════════════════════ */
+:root {
+  --surface-ground: 248 250 252;       /* slate-50  #f8fafc — may be theme-tinted */
+  --surface-subtle: 249 250 251;       /* gray-50   #f9fafb — unchanged from what shipped */
+  --surface-card: 255 255 255;         /* white     #ffffff */
+  --surface-raised: 255 255 255;       /* white     — light lifts with shadow */
+  --surface-line: 229 231 235;         /* gray-200  #e5e7eb */
+  --surface-line-strong: 209 213 219;  /* gray-300  #d1d5db */
+}
+/* MUST stay below the [data-theme] blocks above: those set --surface-ground at
+   the same specificity (0,2,0), so only source order keeps the dark ground from
+   being repainted by a venue theme. One near-black, all four themes. */
+:root.dark {
+  --surface-ground: 17 24 39;          /* gray-900  #111827 — KEPT (founder) */
+  --surface-subtle: 24 33 47;          /* #18212f — between gray-900 and gray-800.
+                                          Within ~2/channel of what the old
+                                          `dark:bg-gray-800/60 over gray-900`
+                                          actually resolved to, so pressed
+                                          chrome looks the same and is now a
+                                          rung instead of an alpha accident. */
+  --surface-card: 31 41 55;            /* gray-800  #1f2937 — the lift */
+  --surface-raised: 43 53 68;          /* #2b3544 — between gray-800 and gray-700 */
+  --surface-line: 55 65 81;            /* gray-700  #374151 */
+  --surface-line-strong: 75 85 99;     /* gray-600  #4b5563 */
 }
 
 /* ── Gavekort printable card ────────────────────────────────────────────

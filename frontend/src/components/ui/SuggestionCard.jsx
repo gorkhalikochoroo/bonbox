@@ -124,7 +124,10 @@ export default function SuggestionCard({
 
   return (
     <>
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3.5">
+      {/* SURFACE LADDER (index.css): this is a card, so it takes the card rung
+          rather than painting the dark page ground and outlining it with a
+          hairline lighter than itself. */}
+      <div className="rounded-xl border border-[rgb(var(--surface-line))] bg-[rgb(var(--surface-card))] p-3.5">
         <div className="flex items-start gap-2.5">
           <span className="mt-0.5 shrink-0 text-gray-400 dark:text-gray-500" aria-hidden>
             <Glyph className="w-4 h-4" strokeWidth={1.75} />

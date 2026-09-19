@@ -116,11 +116,14 @@ export default function SectionBanner({
         // Dismiss is a quiet 24px hit target with a hover state. Same
         // pattern as DismissibleTip's × — we don't want a heavy "close
         // me" button drawing the eye away from the banner body.
+        // Focus ring on the brand token, not a fixed emerald-500: that
+        // literal measures 2.54:1 on a light banner, under the 3:1 non-text
+        // floor. The token flips to emerald-400 in dark.
         <button
           type="button"
           onClick={onDismiss}
           aria-label={t("dismiss", "Dismiss")}
-          className="absolute top-3 right-3 w-6 h-6 rounded-md inline-flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-black/5 dark:text-gray-500 dark:hover:text-gray-200 dark:hover:bg-white/10 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+          className="absolute top-3 right-3 w-6 h-6 rounded-md inline-flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-black/5 dark:text-gray-500 dark:hover:text-gray-200 dark:hover:bg-white/10 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-green-accent))]"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
             <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />

@@ -94,7 +94,15 @@ export default function TabPills({
             aria-selected={selected}
             onClick={() => onChange?.(tab.id)}
             className={
-              "inline-flex items-center justify-center rounded-full font-medium transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-gray-900 " +
+              // Focus ring on the BRAND GREEN token, not a fixed emerald-500:
+              // that literal measures 2.54:1 on a white card, below the 3:1
+              // WCAG non-text floor, which made the keyboard affordance the
+              // least visible thing on the surface in light. The token is
+              // emerald-600 in light (3.77:1) and emerald-400 in dark
+              // (7.64:1). The OFFSET is the card the pills sit on — it used to
+              // be hard-coded gray-900, the page ground, which drew a dark
+              // halo around a control standing on a lighter card.
+              "inline-flex items-center justify-center rounded-full font-medium transition-colors whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--brand-green-accent))] focus-visible:ring-offset-2 focus-visible:ring-offset-[rgb(var(--surface-card))] " +
               pillSizeClass + " " +
               pillClass
             }

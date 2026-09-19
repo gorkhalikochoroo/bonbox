@@ -219,7 +219,10 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
   // A quiet header + muted dashed-border rows so it reads as "add back",
   // visually distinct from the active nav items above it.
   return (
-    <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+    /* `mt-3` is the sidebar's between-groups step (the ROW RHYTHM LADDER in
+       Layout.jsx) — the discovery floor is the last block on the rail, so it
+       owes the same 12px as any group boundary above it. */
+    <div className="mt-3 pt-2 border-t border-gray-100 dark:border-gray-700">
       {/* Sidebar-variant chrome only. The AA-passing muted tier from
           config/navChrome.js — the "more" variant above deliberately keeps its
           own gray-400 so it still matches the other MorePage section headers

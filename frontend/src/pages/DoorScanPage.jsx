@@ -949,7 +949,12 @@ export default function DoorScanPage() {
           {!eventsUsageHidden && (
             <Card onClick={() => setTicketPickerOpen(true)}>
               <div className="flex items-center gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                {/* Icon chips on this page are WELLS inside a <Card>. Their
+                    dark value used to be gray-800, which is now the Card's own
+                    colour (see the SURFACE LADDER block in index.css), so they
+                    disappeared. The half-rung reads against a card AND against
+                    the bare page. Light is unchanged. */}
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] text-gray-700 dark:text-gray-300">
                   <Ticket size={20} strokeWidth={1.75} aria-hidden="true" />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -968,7 +973,7 @@ export default function DoorScanPage() {
               NO event required. This is the fix: always reachable. */}
           <Card onClick={startGavekortScan}>
             <div className="flex items-center gap-3">
-              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] text-gray-700 dark:text-gray-300">
                 <QrCode size={20} strokeWidth={1.75} aria-hidden="true" />
               </span>
               <div className="min-w-0 flex-1">
@@ -1005,7 +1010,7 @@ export default function DoorScanPage() {
 
           <Card>
             <div className="flex flex-col items-center text-center py-4 sm:py-6">
-              <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
+              <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] flex items-center justify-center mb-4">
                 <CameraIcon size={28} strokeWidth={1.75} className="text-gray-700 dark:text-gray-300" />
               </div>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">{progressLabel}</p>
@@ -1040,7 +1045,7 @@ export default function DoorScanPage() {
 
           <Card>
             <div className="flex flex-col items-center text-center py-4 sm:py-6">
-              <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-4">
+              <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] flex items-center justify-center mb-4">
                 <QrCode size={28} strokeWidth={1.75} className="text-gray-700 dark:text-gray-300" />
               </div>
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
