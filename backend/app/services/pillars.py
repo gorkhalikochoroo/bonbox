@@ -317,7 +317,7 @@ def activated_pillars(db: Session, user: User) -> dict[str, bool]:
       • inventory     — an InventoryItem row exists for the user.
       • reservations  — BusinessProfile.reservations_enabled true OR
                         reservation_slug set OR any Reservation row.
-      • events        — any Event row.
+      • events        — any LIVE (not soft-deleted) Event row.
       • staff         — any active (active=True, not deleted) StaffMember row.
 
     Tenant-scoped: every query filters on ``user.id``. Read-only — no writes,
@@ -358,21 +358,37 @@ def activated_pillars(db: Session, user: User) -> dict[str, bool]:
         if prof_signal:
             result["reservations"] = True
         else:
+            # Same contract as the events signal below: only rows the owner
+            # can still SEE count as usage. Nothing soft-deletes a Reservation
+            # today (the DELETE next to it retires a BookableResource), so this
+            # changes no live answer — but every read path already hides
+            # is_deleted rows, and a gate that counted them would assert a
+            # booking history an empty Reservations list flatly contradicts.
             has_reservation = (
                 db.query(Reservation.id)
-                .filter(Reservation.user_id == user.id)
+                .filter(
+                    Reservation.user_id == user.id,
+                    Reservation.is_deleted.is_(False),
+                )
                 .first()
             ) is not None
             result["reservations"] = bool(has_reservation)
     except Exception:  # noqa: BLE001 — fail-open
         result["reservations"] = True
 
-    # events — any Event row (count>0).
+    # events — any LIVE Event row (count>0). DELETE /api/events only soft-
+    # deletes (past Sales reference event_id), and GET /api/events hides those
+    # rows, so counting them would keep Arrangementer pinned in the nav of an
+    # owner whose Events page is empty — the gate asserting a usage they can no
+    # longer see. `.isnot(True)` mirrors the list endpoint's own filter.
     try:
         from app.models.event import Event
         has_event = (
             db.query(Event.id)
-            .filter(Event.user_id == user.id)
+            .filter(
+                Event.user_id == user.id,
+                Event.is_deleted.isnot(True),
+            )
             .first()
         ) is not None
         result["events"] = bool(has_event)

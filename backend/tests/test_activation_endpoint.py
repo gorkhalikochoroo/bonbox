@@ -135,6 +135,24 @@ def test_flag_on_real_event_row_flips_events_true(client, db, monkeypatch):
     assert r.json()["events"] is True
 
 
+def test_flag_on_soft_deleted_event_keeps_events_false(client, db, monkeypatch):
+    """The payload the usage gate reads must agree with what GET /api/events
+    shows. Both hide soft-deleted rows, so an owner who deleted their only
+    event gets `events` False here and Arrangementer leaves the nav — rather
+    than a nav entry leading to an empty page forever."""
+    monkeypatch.setenv("ACTIVATION_DISCLOSURE_ENABLED", "true")
+    user = _owner(db, "deletedevent@activation.test")
+    db.add(Event(
+        user_id=user.id, name="Aflyst", event_date=date(2026, 10, 2), is_deleted=True,
+    ))
+    db.commit()
+    _override_user(user)
+
+    r = client.get("/api/activation")
+    assert r.status_code == 200, r.text
+    assert r.json()["events"] is False
+
+
 def test_flag_off_forces_every_pillar_true(client, db, monkeypatch):
     """Kill-switch OFF → every pillar forced True even though this owner has
     no rows at all. The usage gate then reads "events used" → Events VISIBLE

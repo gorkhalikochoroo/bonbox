@@ -11,7 +11,7 @@ import { useActivation } from "../hooks/useActivation";
 import { getVatTerms } from "../utils/currency";
 import { isNativeApp } from "../utils/platform";
 import { syncStatusBar } from "../utils/statusBar";
-import { filterDestinations, sidebarGroupsFor, PILLAR_DISPLAY_BY_ID, isStaffMemberRole } from "../config/navManifest";
+import { filterDestinations, sidebarGroupsFor, PILLAR_DISPLAY_BY_ID, isStaffMemberRole, pillarIsScopedOffTheRail } from "../config/navManifest";
 import {
   NAV_GROUPS_STORAGE_KEY,
   NAV_MUTED,
@@ -391,6 +391,16 @@ export default function Layout() {
   // UX hygiene (no half-functional links to /modules / /branches).
   const isAccountant = (user?.role || "").toLowerCase() === "accountant";
 
+  // The resolved archetype — hoisted out of the filterNavGroups call because
+  // the SIDEBAR SURFACE itself is archetype-aware now (C12b), not just the
+  // per-item visibility axes. Branch type wins over the account's own type, so
+  // an owner standing in a restaurant branch gets the restaurant's rail.
+  // DECLARED HERE, above the graduation effect below, so that effect's
+  // dependency array can reference it without a temporal-dead-zone crash
+  // (deps arrays are evaluated during render — the same trap that once took
+  // Layout, and with it the whole app, down over `t`).
+  const archetypeId = archetypeIdFor(branchType || user?.business_type);
+
   // P5 — pull the entitlement helper so the sidebar filter can hide
   // Pro-only entries (multi-terminal close) for Free/Starter users.
   // Cosmetic only; backend enforcement is what actually keeps the
@@ -429,6 +439,14 @@ export default function Layout() {
       for (const pid of cur) {
         // A pillar that was NOT activated last time but IS now → it graduated.
         if (!prev.has(pid)) {
+          // …but only SAY "er nu i din menu" if the menu can honour it. A
+          // pillar whose every destination is off the rail for scope (today:
+          // Events) never appears in the nav, activated or not — toasting it
+          // would be a claim the sidebar contradicts one glance later. The
+          // pillar still graduates; we just stay quiet about it. Re-adding
+          // "sidebar" to the manifest entry restores the toast with no edit
+          // here (see pillarIsScopedOffTheRail).
+          if (pillarIsScopedOffTheRail(pid, archetypeId)) continue;
           const label = PILLAR_DISPLAY_BY_ID[pid]
             ? (t(PILLAR_DISPLAY_BY_ID[pid].labelKey) || pid)
             : pid;
@@ -444,13 +462,9 @@ export default function Layout() {
       }
     }
     prevActivatedRef.current = new Set(cur);
-  }, [activation, isAccountant, t, showGraduationToast]);
+  }, [activation, isAccountant, archetypeId, t, showGraduationToast]);
 
-  // The resolved archetype — hoisted out of the filterNavGroups call because
-  // the SIDEBAR SURFACE itself is archetype-aware now (C12b), not just the
-  // per-item visibility axes. Branch type wins over the account's own type, so
-  // an owner standing in a restaurant branch gets the restaurant's rail.
-  const archetypeId = archetypeIdFor(branchType || user?.business_type);
+  // (`archetypeId` is declared above, next to `isAccountant`.)
   // Rebuilt only when the archetype changes — everything else about the
   // sidebar surface is static manifest data.
   const navGroups = useMemo(() => sidebarGroupsFor(archetypeId), [archetypeId]);

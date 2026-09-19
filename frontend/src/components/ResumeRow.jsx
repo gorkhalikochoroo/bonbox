@@ -37,7 +37,12 @@ import { usePillars } from "../hooks/usePillars";
 import { useActivation } from "../hooks/useActivation";
 import { useBranch } from "./BranchSelector";
 import { useRouteHistory } from "../hooks/useRouteHistory";
-import { NAV_MANIFEST, filterDestinations, isStaffMemberRole } from "../config/navManifest";
+import {
+  NAV_MANIFEST,
+  filterDestinations,
+  isScopedOffTheRail,
+  isStaffMemberRole,
+} from "../config/navManifest";
 import { useDeviceShare } from "../hooks/useDeviceShare";
 import { archetypeIdFor } from "../config/archetypes";
 import { useAuth } from "../hooks/useAuth";
@@ -75,6 +80,7 @@ export default function ResumeRow({ enabledModules, onNavigate }) {
   // can reach right now. Locked (tier) entries are dropped (see below).
   const reachableByPath = useMemo(() => {
     const activeTypes = branchType ? [branchType] : (businessTypes || []);
+    const archetypeId = archetypeIdFor(branchType || user?.business_type);
     // Resume can resume to ANY owner destination, not just sidebar ones, so we
     // resolve against the full manifest (a page reached via ⌘K / More is still
     // a legitimate "pick up where you left off" target). Visibility still
@@ -85,7 +91,7 @@ export default function ResumeRow({ enabledModules, onNavigate }) {
       hasFeature,
       featReady: entReady !== false,
       hiddenPillars: hiddenPillars instanceof Set ? hiddenPillars : new Set(),
-      archetypeId: archetypeIdFor(branchType || user?.business_type),
+      archetypeId,
       // ACTIVATION axis — a dormant pillar's destination is filtered out here so
       // Resume never deep-links into a page the owner can't reach from the nav.
       activatedPillars: activation.activatedPillars instanceof Set ? activation.activatedPillars : undefined,
@@ -103,6 +109,22 @@ export default function ResumeRow({ enabledModules, onNavigate }) {
       // resuming into a locked page would dump the owner on an upgrade wall —
       // not "where they left off". Exclude them from Resume.
       if (d.locked) continue;
+      // SCOPE axis. filterDestinations answers "may this owner have this
+      // destination at all" — it never consults `surfaces`, and Fortsæt renders
+      // at the very TOP of the rail. So a page the product has deliberately
+      // taken OFF the rail could reappear ABOVE the rows that replaced it, one
+      // recent visit later. That is how "events is still not hidden" survives a
+      // `surfaces` fix, and it is how /khata (surfaces: []) leaks back today.
+      //
+      // The line is between the two reasons a row leaves the sidebar, and only
+      // one of them should stop a resume:
+      //   DECLUTTER — rare, but still ours (/budgets, /mileage, and Faktura /
+      //     Kunder for hospitality). Still a legitimate "pick up where you left
+      //     off" target: the comment above is deliberate and stands.
+      //   SCOPE — not part of the product for this owner: no nav surface at all
+      //     (khata), or a pillar we are not selling (USAGE_GATED_PILLARS →
+      //     Events). Resume must not be the one surface that still offers it.
+      if (isScopedOffTheRail(d, archetypeId)) continue;
       map.set(d.to, d);
     }
     return map;

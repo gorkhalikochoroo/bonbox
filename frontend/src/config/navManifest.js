@@ -210,12 +210,44 @@ export const NAV_MANIFEST = [
     group: "core",
     pillar: "events",
     frequency: "weekly",
-    surfaces: ["sidebar", "more", "search"],
-    // USAGE-GATED (see USAGE_GATED_PILLARS): hidden from the nav chrome until
-    // the owner has a real Event row. ⌘K deliberately does NOT pass the usage
-    // gate, so these aliases are the ONLY way back in for an owner who wants
-    // Events before they've used it — the DA singular/plural forms and "billet"
-    // matter because a Dane types "billetter", not "tickets".
+    // OFF THE SIDEBAR FOR EVERYONE (founder call, Sep 2026) — "events is still
+    // not hidden", said twice. It was still on HIS rail because the usage gate
+    // was working exactly as designed: his is the one production account with
+    // Event rows (two May drafts), so `used.events === true`, dormantFromUsed()
+    // drops events from usageDormantPillars, and filterDestinations correctly
+    // KEEPS the row for him and for nobody else.
+    //
+    // So the gate is not the instrument. The gate answers "has this owner used
+    // it"; the question here is "is this one of the six jobs the product sells"
+    // (daily close · reservations · vagtplan · timer & løn · lager · penge) and
+    // the answer is no, for every owner. `surfaces` is the lever that answers
+    // scope — the same pure C12 subtraction used for Faktura / Kunder.
+    //
+    // NOTHING IS DELETED: the /events route, EventsPage, the existing rows, the
+    // Funktioner (pillar) toggle, the usage gate and every alias below are all
+    // untouched, and ⌘K keeps it one tap away.
+    //
+    // HOW AN OWNER GETS IT BACK: ⌘K / the sidebar search button → type
+    // "arrangement", "billetter" or "events" (the aliases below) — that is the
+    // route back for EVERY owner, and the only one for most of them. The More
+    // tile is NOT a second route for a never-used account: MorePage threads the
+    // same `usageDormant` Set as the sidebar, so an owner with no Event row has
+    // no More tile either. More returns only once a real Event row exists (i.e.
+    // for the founder today). HOW WE GIVE IT BACK: re-add "sidebar" to this
+    // array — one word, and the rail is what it was.
+    //
+    // KNOWN, ACCEPTED: `surfaces` resolves BEFORE the usage gate, so a genuine
+    // event_organizer (USAGE_GATE_EXEMPT_TYPES) loses the rail row too — they
+    // resolve to the 'services' archetype, so surfacesByArchetype cannot
+    // isolate them. Zero such accounts today; if one signs up the fix is a
+    // business_type-keyed override, not a rollback of this line.
+    surfaces: ["more", "search"],
+    // USAGE-GATED (see USAGE_GATED_PILLARS): hidden from the REMAINING nav
+    // chrome (More, the /modules list) until the owner has a real Event row.
+    // ⌘K deliberately does NOT pass the usage gate, so these aliases are the
+    // ONLY way back in for an owner who wants Events before they've used it —
+    // the DA singular/plural forms and "billet" matter because a Dane types
+    // "billetter", not "tickets".
     aliases: [
       "events", "tickets", "arrangement", "arrangementer",
       "billet", "billetter", "event",
@@ -240,22 +272,100 @@ export const NAV_MANIFEST = [
     aliases: ["reservations", "booking", "table", "bordbestilling"],
   },
   {
+    // JOB 3 — Vagtplan. PROMOTED from the 'staff' group into the core spine
+    // (founder call, Sep 2026: "making those 6 jobs priority"). Same row, same
+    // label, same icon, same route — it just stops living behind a PERSONALE
+    // header and joins the block an owner already stares at. `pillar: "staff"`
+    // is untouched, which is what makes it drop honestly for an owner (or an
+    // archetype) with no staff pillar rather than leaving an empty header.
+    to: "/staff/schedule",
+    icon: "Calendar",
+    labelKey: "staffSchedule",
+    group: "core",
+    pillar: "staff",
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search", "bottomnav"],
+    // C7: weather + staffing forecasts now live in the collapsed forecast
+    // panel ON this page, so Cmd-K "weather" / "staffing" / "vejr" /
+    // "bemanding" lands here (their old /weather, /staffing routes redirect
+    // here too).
+    aliases: [
+      "schedule", "vagtplan", "rota",
+      "weather", "vejr", "forecast",
+      "staffing", "smart staffing", "bemanding", "bemandings-prognose",
+    ],
+  },
+  {
+    // JOB 4 — Timer & løn. PROMOTED from the 'staff' group (see above).
+    //
+    // C12 Bucket B (Staff back-office MERGE): /staff/hours is the single Staff
+    // back-office row — a tabbed hub (Timer · Tidsregistrering · Drikkepenge ·
+    // Løn). The former /staff/time-registration, /staff/tips and /staff/payroll
+    // rows are GONE from the manifest; their routes redirect into the matching
+    // tab (App.jsx) and their aliases are folded here so ⌘K still finds every
+    // tab. Label is "Timer & løn" (staffBackOffice) — the clearest one-line
+    // name for "settle the staff numbers". Reversible: split the rows back out
+    // + re-add their routes.
+    to: "/staff/hours",
+    icon: "Timer",
+    labelKey: "staffBackOffice",
+    group: "core",
+    pillar: "staff",
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search"],
+    aliases: [
+      "hours", "timer",
+      // time-registration tab (was /staff/time-registration)
+      "time registration", "tidsregistrering", "stempling", "clock in", "clock out",
+      // tips tab (was /staff/tips)
+      "tips", "drikkepenge",
+      // payroll tab (was /staff/payroll)
+      "payroll", "løn", "lønseddel", "lønkørsel",
+    ],
+  },
+  {
+    // JOB 5 — Lager. PROMOTED from the 'stock' group; /bar, /wine-list,
+    // /expiry and /waste stay behind the LAGER header, which still renders.
+    // This is the row an owner means by "stock": the count + the spend loop.
+    to: "/inventory",
+    icon: "Package",
+    labelKey: "inventory",
+    group: "core",
+    pillar: "inventory",
+    // Corrected from "daily" in the same hunk that re-homes this row. It was
+    // wrong on both counts it could be checked against: NAV_GROUPS' own comment
+    // calls Stock "a monthly-ritual tracker", and the locked inventory
+    // north-star is snap-the-kvittering daily but optælling MONTHLY. The field
+    // is documentation today (nothing in frontend/src reads it) — repaired here
+    // so it can be trusted the first time something does.
+    frequency: "weekly",
+    surfaces: ["sidebar", "more", "search", "bottomnav"],
+  },
+
+  // ─── MONEY ────────────────────────────────────────────────────────────
+  {
     // Gavekort (gift cards) — an ALL-TIER, usage-capped feature. billing.py
     // sets the `gavekort` flag ON for every plan; the tier lever is the numeric
     // gavekort_active_max cap, NOT a sidebar lock. So NO requiresFeature — the
     // cap does the limiting. Owner pillar (relevance-hideable). On More + ⌘K so
     // it stays findable even when the pillar is toggled off.
+    //
+    // DEMOTED from the core spine into MONEY (Sep 2026) — the one row that
+    // moves DOWN in this change. A gavekort IS a money instrument (job 6), and
+    // keeping it on the spine would have made the promoted block spine + six +
+    // one, which is exactly the "miscellaneous list" the promotion is meant to
+    // end. Placed FIRST in MONEY: it is the only customer-facing row here, the
+    // other three are back-office reconciliation. A group with no stored choice
+    // defaults OPEN (config/navChrome.js), and More + ⌘K are unchanged.
     to: "/gavekort",
     icon: "Gift",
     labelKey: "gavekort",
-    group: "core",
+    group: "money",
     pillar: "gavekort",
     frequency: "weekly",
     surfaces: ["sidebar", "more", "search"],
     aliases: ["gavekort", "gift card", "giftcard", "voucher", "gift"],
   },
-
-  // ─── MONEY ────────────────────────────────────────────────────────────
   {
     to: "/cashbook",
     icon: "BookOpen",
@@ -369,15 +479,8 @@ export const NAV_MANIFEST = [
   },
 
   // ─── STOCK ──────────────────────────────────────────────────────────
-  {
-    to: "/inventory",
-    icon: "Package",
-    labelKey: "inventory",
-    group: "stock",
-    pillar: "inventory",
-    frequency: "daily",
-    surfaces: ["sidebar", "more", "search", "bottomnav"],
-  },
+  // (/inventory — job 5 — was promoted to the core spine in Sep 2026. The rows
+  // below are the stock DETAIL and keep the LAGER header.)
   {
     // Bar Pour — gated on the bar_pour vertical module.
     to: "/bar",
@@ -488,51 +591,12 @@ export const NAV_MANIFEST = [
   },
 
   // ─── STAFF ──────────────────────────────────────────────────────────
-  {
-    to: "/staff/schedule",
-    icon: "Calendar",
-    labelKey: "staffSchedule",
-    group: "staff",
-    pillar: "staff",
-    frequency: "weekly",
-    surfaces: ["sidebar", "more", "search", "bottomnav"],
-    // C7: weather + staffing forecasts now live in the collapsed forecast
-    // panel ON this page, so Cmd-K "weather" / "staffing" / "vejr" /
-    // "bemanding" lands here (their old /weather, /staffing routes redirect
-    // here too).
-    aliases: [
-      "schedule", "vagtplan", "rota",
-      "weather", "vejr", "forecast",
-      "staffing", "smart staffing", "bemanding", "bemandings-prognose",
-    ],
-  },
-  {
-    // C12 Bucket B (Staff back-office MERGE): /staff/hours is now the single
-    // Staff back-office row — a tabbed hub (Timer · Tidsregistrering ·
-    // Drikkepenge · Løn). The former /staff/time-registration, /staff/tips and
-    // /staff/payroll rows are GONE from the manifest; their routes redirect
-    // into the matching tab (App.jsx) and their aliases are folded here so ⌘K
-    // still finds every tab. Label is "Timer & løn" (staffBackOffice) — the
-    // clearest one-line name for "settle the staff numbers". /staff/schedule
-    // stays its OWN separate row above (weekly + salon bottom-nav 4th tab).
-    // Reversible: split the rows back out + re-add their routes.
-    to: "/staff/hours",
-    icon: "Timer",
-    labelKey: "staffBackOffice",
-    group: "staff",
-    pillar: "staff",
-    frequency: "weekly",
-    surfaces: ["sidebar", "more", "search"],
-    aliases: [
-      "hours", "timer",
-      // time-registration tab (was /staff/time-registration)
-      "time registration", "tidsregistrering", "stempling", "clock in", "clock out",
-      // tips tab (was /staff/tips)
-      "tips", "drikkepenge",
-      // payroll tab (was /staff/payroll)
-      "payroll", "løn", "lønseddel", "lønkørsel",
-    ],
-  },
+  // EMPTY BY DESIGN (Sep 2026). Both staff rows — Vagtplan (job 3) and
+  // Timer & løn (job 4) — were promoted into the core spine, so no destination
+  // declares group:"staff" today and the PERSONALE header stops rendering
+  // (Layout.jsx drops a group once its items filter out). The NAV_GROUPS entry
+  // is deliberately KEPT as the landing spot if a third staff row (fravær /
+  // availability) ever returns; see the note there.
 
   // ─── INTELLIGENCE ──────────────────────────────────────────────────
   // C7 Intelligence collapse: the six-entry Intelligence cluster is gone.
@@ -1094,11 +1158,32 @@ export const PILLAR_DISPLAY_BY_ID = PILLAR_DISPLAY.reduce((acc, p) => {
  *     The standalone `account` group is gone.
  */
 export const NAV_GROUPS = [
+  // THE SPINE — headerless, and the only group that may be. The core branch in
+  // Layout emits its OWN closing hairline; a second headerless block would
+  // stack two rules and read as the known rail-of-borders defect. It is also
+  // the only group that is not collapsible: giving `core` a labelKey would
+  // render a toggle, and an owner could collapse the entire product away.
+  //
+  // SIX-JOBS PROMOTION (founder call, Sep 2026 — "making those 6 jobs
+  // priority"). The spine now carries, in the order the landing page sells
+  // them: Hjem · Salg · Udgifter (job 6 starts here — money in, money out,
+  // kvittering-scan) · I dag (1) · Reservationer (2) · Vagtplan (3) ·
+  // Timer & løn (4) · Lager (5). Everything under the hairline is, visibly,
+  // the detail. The six are legible by POSITION, not by a new header — no
+  // group was added, renamed or reordered, no group id changed (so no owner's
+  // stored collapse choice resets), and the rail got one header and one row
+  // SHORTER. Revert = put `group` back on the four re-homed rows.
   { id: "core",     labelKey: null,             icon: null,        visibleFor: null },
   { id: "money",    labelKey: "navMoney",       icon: "Wallet",    visibleFor: null },
   // Staff ABOVE Stock: Vagtplan is a headline pillar (the Planday
   // replacement — weekly ritual + fravær interrupts), Stock is a
   // monthly-ritual tracker. Matches archetypes.js leadFeatures ranking.
+  //
+  // CURRENTLY EMPTY (Sep 2026): both members were promoted to the spine, so
+  // this header does not render for anyone. Kept on purpose — it is where a
+  // third staff row (fravær / availability) lands when it returns, and keeping
+  // the id means no stored collapse state is orphaned. A group with no items
+  // is dropped by Layout before render, so an empty header is impossible.
   { id: "staff",    labelKey: "navStaff",       icon: "UsersRound", visibleFor: null },
   { id: "stock",    labelKey: "navStock",       icon: "Boxes",     visibleFor: null },
   { id: "reports",  labelKey: "navReportsMoms", icon: "BarChart3", visibleFor: null },
@@ -1134,6 +1219,84 @@ export const NAV_GROUPS = [
  * @param {string|null} archetypeId — resolved archetype (config/archetypes.js)
  * @returns {Array<{id,labelKey,icon,visibleFor,requiresAnyModule,items}>}
  */
+/**
+ * isScopedOffTheRail(item, archetypeId)
+ * -------------------------------------
+ * Is this destination off the sidebar because it is OUT OF SCOPE for the
+ * product, as opposed to merely DECLUTTERED? Two different reasons, and only
+ * one of them should stop a "pick up where you left off".
+ *
+ * WHY THIS EXISTS. filterDestinations answers "may this owner have this
+ * destination at all" and deliberately never consults `surfaces` — that is the
+ * surface-narrowing step's job, and keeping the two apart is what makes it
+ * impossible for a placement field to hide a page from ⌘K. But ResumeRow
+ * (Fortsæt) renders at the very TOP of the rail and resolves the FULL manifest
+ * through filterDestinations alone. So without this check a page the product
+ * just took off the rail can reappear ABOVE the rows that replaced it, one
+ * recent visit later:
+ *   • /events — the founder's own account passes the usage gate (he HAS Event
+ *     rows), so dropping "sidebar" hides it from the groups and Fortsæt would
+ *     put it straight back at the top of his rail;
+ *   • /khata — `surfaces: []` has meant "gone from every surface" since June,
+ *     and Resume has been quietly ignoring that.
+ *
+ * WHY NOT JUST NARROW RESUME TO THE SIDEBAR SLICE. Because several rows are
+ * off the rail for being RARE, not out of scope — /budgets, /mileage,
+ * /connections, /terminals, and Faktura + Kunder for hospitality — and
+ * resuming into one of those is exactly what ResumeRow promises. Narrowing
+ * would silently break all of them.
+ *
+ * Pure manifest projection (no React, no path list), so a guard test can ask
+ * the question without mounting the component.
+ *
+ * @returns {boolean} true ⇒ never offer this as a resume target.
+ */
+export function isScopedOffTheRail(item, archetypeId = null) {
+  if (!item) return false;
+  // No nav surface anywhere — the page is switched off for this product.
+  if (surfacesFor(item, archetypeId).length === 0) return true;
+  // Off the rail AND a pillar we are not selling. It keeps More + ⌘K (the way
+  // back in), but it must not be re-offered at the top of the rail it just
+  // left. Re-adding "sidebar" lifts this on its own — no second edit needed.
+  if (!isOnSurface(item, "sidebar", archetypeId) && USAGE_GATED_PILLARS.includes(item.pillar)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * pillarIsScopedOffTheRail(pillarId, archetypeId)
+ * ----------------------------------------------
+ * The PILLAR-level form of isScopedOffTheRail: is EVERY destination this
+ * pillar owns off the rail for scope reasons? If so, switching the pillar ON
+ * cannot put a single row back on this owner's sidebar.
+ *
+ * WHY THIS EXISTS. Two surfaces promise the rail in the owner's own words and
+ * both resolve pillars, not destinations:
+ *   • PillarDiscovery — "Slå til · Arrangementer" re-enables the pillar and
+ *     its comment/undo copy promise the nav entry comes back;
+ *   • the activation graduation toast — "{feature} er nu i din menu".
+ * After /events lost "sidebar" neither promise can be kept, and the usage gate
+ * is NOT the instrument that catches it: the one owner with Event rows is
+ * precisely the owner the usage gate lets through.
+ *
+ * SAME ONE-WORD REVERT as isScopedOffTheRail: re-add "sidebar" to the /events
+ * entry and this returns false again, with no second edit anywhere.
+ *
+ * A pillar with NO manifest destination is NOT scoped off (vacuous-truth
+ * guard) — we only answer for pillars that actually own pages.
+ *
+ * Pure manifest projection, so a guard test can ask without mounting React.
+ *
+ * @returns {boolean} true ⇒ turning this pillar on adds nothing to the rail.
+ */
+export function pillarIsScopedOffTheRail(pillarId, archetypeId = null) {
+  if (!pillarId) return false;
+  const owned = NAV_MANIFEST.filter((d) => d.pillar === pillarId);
+  if (owned.length === 0) return false;
+  return owned.every((d) => isScopedOffTheRail(d, archetypeId));
+}
+
 export function sidebarGroupsFor(archetypeId = null) {
   const sidebarItems = NAV_MANIFEST.filter((d) => isOnSurface(d, "sidebar", archetypeId));
   return NAV_GROUPS.map((g) => ({

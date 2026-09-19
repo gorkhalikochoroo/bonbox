@@ -41,6 +41,7 @@ import { Icon } from "./ui";
 import {
   PILLAR_DISPLAY,
   relevantPillarsForArchetype,
+  pillarIsScopedOffTheRail,
 } from "../config/navManifest";
 import { archetypeIdFor } from "../config/archetypes";
 import { NAV_MUTED } from "../config/navChrome";
@@ -75,18 +76,38 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
   const [enablingId, setEnablingId] = useState(null);
   const [error, setError] = useState("");
 
+  // The resolved archetype — the sidebar surface is archetype-aware (C12b), so
+  // both the scope exclusion below and the relevance filter further down must
+  // ask the manifest in THIS owner's archetype. Branch type wins over the
+  // account's own type, exactly as Layout resolves it.
+  const archetypeId = archetypeIdFor(branchType || user?.business_type);
+
   // The OFF pillars, in the canonical PILLAR_DISPLAY order. This is exactly
   // "available minus visible": we walk the catalog and keep the ones the
   // owner has hidden. Resilient to `available` not having loaded yet.
-  // USAGE GATE — a never-used gated pillar (today: Events) is excluded: the
-  // discovery floor is a re-find affordance for something the owner hid, and
-  // offering "Slå til Arrangementer" would put the surface straight back into
-  // the nav we just removed it from.
+  // TWO EXCLUSIONS, TWO DIFFERENT REASONS — both about keeping the tile's
+  // promise ("one tap and its nav re-appears"):
+  //   • USAGE GATE — a never-used gated pillar is excluded: the discovery
+  //     floor is a re-find affordance for something the owner HID, not a
+  //     back door into a surface they have never touched.
+  //   • SCOPE — a pillar whose every destination is off the rail for scope
+  //     (today: Events, `surfaces: ["more","search"]`) is excluded too, and
+  //     this is the one the usage gate CANNOT catch: the single account with
+  //     Event rows is precisely the account the usage gate lets through, so
+  //     without this clause the founder — the one owner who asked for Events
+  //     to be hidden — is the only owner who can toggle it off in Funktioner
+  //     and get "Slå til · Arrangementer" handed back in his sidebar, where
+  //     tapping it re-enables a pillar that has no rail row to re-appear on.
+  // Manifest-driven, so re-adding "sidebar" to /events lifts BOTH the rail
+  // subtraction and this exclusion with no second edit.
   const offPillars = useMemo(
     () => PILLAR_DISPLAY.filter(
-      (p) => hiddenPillars.has(p.id) && !usageDormantPillars.has(p.id),
+      (p) =>
+        hiddenPillars.has(p.id) &&
+        !usageDormantPillars.has(p.id) &&
+        !pillarIsScopedOffTheRail(p.id, archetypeId),
     ),
-    [hiddenPillars, usageDormantPillars],
+    [hiddenPillars, usageDormantPillars, archetypeId],
   );
 
   // DORMANT-RELEVANT pillars — the ACTIVATION discovery floor. A pillar is a
@@ -98,9 +119,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
   // to the feature's setup/landing; it does NOT touch hidden_pillars.
   const setupPillars = useMemo(() => {
     if (!activationEnabled || !isInScope) return [];
-    const relevant = relevantPillarsForArchetype(
-      archetypeIdFor(branchType || user?.business_type),
-    );
+    const relevant = relevantPillarsForArchetype(archetypeId);
     return PILLAR_DISPLAY.filter(
       (p) =>
         ACTIVATION_SETUP_ROUTE[p.id] &&   // a gateable pillar with a setup route
@@ -109,7 +128,7 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
         !usageDormantPillars.has(p.id) && // usage-gated: not offered at all
         !isActivated(p.id),               // dormant (no real usage row)
     );
-  }, [activationEnabled, isInScope, branchType, user?.business_type, hiddenPillars, usageDormantPillars, isActivated]);
+  }, [activationEnabled, isInScope, archetypeId, hiddenPillars, usageDormantPillars, isActivated]);
 
   // Nothing to surface (neither hidden re-enable tiles nor dormant setup tiles,
   // or state not settled) → no affordance at all. PillarDiscovery renders only

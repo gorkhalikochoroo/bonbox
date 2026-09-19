@@ -24,10 +24,17 @@ import {
 
 const EVENTS_DORMANT = new Set(["events"]);
 
-/** The manifest slice a surface would pass in (sidebar-shaped), plus the
- *  minimum ctx every other axis needs to be a no-op. */
-const sidebarItems = () =>
-  NAV_MANIFEST.filter((d) => d.surfaces.includes("sidebar"));
+/** The manifest slice a surface would pass in, plus the minimum ctx every
+ *  other axis needs to be a no-op.
+ *
+ *  This is the MORE slice, not the sidebar one. /events left the sidebar
+ *  entirely in Sep 2026 (a product-scope call made in `surfaces`, not in the
+ *  gate), so slicing on "sidebar" would no longer contain the destination
+ *  these tests are about and every assertion below would pass vacuously. The
+ *  gate still governs More and the /modules list, which is a real surface and
+ *  the one where its semantics still matter. */
+const gatedSurfaceItems = () =>
+  NAV_MANIFEST.filter((d) => d.surfaces.includes("more"));
 
 const baseCtx = (extra = {}) => ({
   businessTypes: ["restaurant"],
@@ -42,36 +49,38 @@ const paths = (items) => items.map((d) => d.to);
 
 describe("filterDestinations — usage gate", () => {
   it("drops /events when usageDormant contains 'events'", () => {
-    const kept = filterDestinations(sidebarItems(), baseCtx({ usageDormant: EVENTS_DORMANT }));
+    const kept = filterDestinations(gatedSurfaceItems(), baseCtx({ usageDormant: EVENTS_DORMANT }));
     expect(paths(kept)).not.toContain("/events");
   });
 
   it("keeps /events when usageDormant is absent (the ⌘K contract)", () => {
-    const kept = filterDestinations(sidebarItems(), baseCtx());
+    const kept = filterDestinations(gatedSurfaceItems(), baseCtx());
     expect(paths(kept)).toContain("/events");
   });
 
   it("keeps /events when usageDormant is an empty Set", () => {
-    const kept = filterDestinations(sidebarItems(), baseCtx({ usageDormant: new Set() }));
+    const kept = filterDestinations(gatedSurfaceItems(), baseCtx({ usageDormant: new Set() }));
     expect(paths(kept)).toContain("/events");
   });
 
   it("ignores a non-Set usageDormant instead of throwing", () => {
     // Defensive: a consumer threading `undefined`/an array must degrade to
     // "hide nothing", never crash the sidebar.
-    const kept = filterDestinations(sidebarItems(), baseCtx({ usageDormant: ["events"] }));
+    const kept = filterDestinations(gatedSurfaceItems(), baseCtx({ usageDormant: ["events"] }));
     expect(paths(kept)).toContain("/events");
   });
 
   it("touches ONLY the gated pillar — every other destination survives", () => {
-    const before = paths(filterDestinations(sidebarItems(), baseCtx()));
-    const after = paths(filterDestinations(sidebarItems(), baseCtx({ usageDormant: EVENTS_DORMANT })));
+    const before = paths(filterDestinations(gatedSurfaceItems(), baseCtx()));
+    const after = paths(filterDestinations(gatedSurfaceItems(), baseCtx({ usageDormant: EVENTS_DORMANT })));
     expect(after).toEqual(before.filter((p) => p !== "/events"));
     // Named explicitly so a regression reads as itself in the failure output.
     expect(after).toContain("/reservations");
     expect(after).toContain("/inventory");
     expect(after).toContain("/staff/schedule");
-    expect(after).toContain("/dashboard");
+    // A spine row as the control. /expenses, not /dashboard — the latter
+    // declares no "more" surface, so it isn't in this slice at all.
+    expect(after).toContain("/expenses");
   });
 
   it("drops a TIER-LOCKED item too (no upgrade funnel for a gated pillar)", () => {

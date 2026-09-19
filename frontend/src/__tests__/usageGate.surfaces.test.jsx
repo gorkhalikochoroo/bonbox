@@ -5,6 +5,9 @@
  *   • PillarDiscovery — the discovery floor. Both of its lists must exclude a
  *     usage-gated pillar: "Slå til" (it would re-add the nav row we hid) and
  *     "Sæt op" (it would advertise setting up a feature we're not selling).
+ *     "Slå til" also excludes a SCOPE-removed pillar, and that second filter
+ *     is the one that covers the owner the usage gate lets through — pinned
+ *     at pillar level in pillarScopeOffRail.test.js.
  *   • ModulesPage /modules — a switch reading "on" for a pillar that is
  *     nowhere in the nav is simply a lie. It uses usageKnownDormant, so the
  *     row must NOT disappear while the answer is still loading.
@@ -121,10 +124,29 @@ describe("PillarDiscovery — usage-gated pillars are not offered", () => {
   });
 
   it("still offers a hidden pillar that is NOT usage-gated", () => {
-    pillarState.hidden = new Set(["events"]);
+    // NEGATIVE CONTROL — the gate is the only thing hiding a tile, so a pillar
+    // it does not cover is still offered. Uses reservations, not events: since
+    // /events left the sidebar, events is excluded by SCOPE as well, which
+    // would make this control pass for the wrong reason (see the test below).
+    pillarState.hidden = new Set(["reservations"]);
     activationState.usageDormantPillars = new Set();
     renderDiscovery();
-    expect(screen.getByLabelText(/pillarLabelEvents/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/pillarLabelReservations/)).toBeInTheDocument();
+  });
+
+  it('excludes events even for the owner the usage gate lets through', () => {
+    // THE FOUNDER'S ACCOUNT — the one account with Event rows, so the usage
+    // gate does NOT list events as dormant. Before the scope exclusion this
+    // was the single state in which "Slå til · Arrangementer" came back into
+    // the sidebar footer, and tapping it re-enabled a pillar with no rail row
+    // to re-appear on: /events is on ["more","search"], and on desktop /more
+    // has no link outside the md:hidden bottom bar. Inventory is the positive
+    // control — the section renders, so the missing Events tile is the filter.
+    pillarState.hidden = new Set(["events", "inventory"]);
+    activationState.usageDormantPillars = new Set(); // events HAS been used
+    renderDiscovery();
+    expect(screen.getByLabelText(/pillarLabelInventory/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/pillarLabelEvents/)).not.toBeInTheDocument();
   });
 });
 

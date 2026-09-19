@@ -104,6 +104,73 @@ def test_inactive_staff_does_not_activate(db):
     assert res["staff"] is False
 
 
+def test_soft_deleted_event_does_not_activate(db):
+    """A soft-deleted Event doesn't count. DELETE /api/events sets is_deleted
+    and the list endpoint hides the row, so counting it would pin Events in
+    the nav of an owner whose Events page is empty — and would make deleting
+    the last event a no-op for the usage gate."""
+    from datetime import date
+    u = _user(db)
+    db.add(Event(
+        user_id=u.id, name="Aflyst", event_date=date(2026, 7, 1), is_deleted=True,
+    ))
+    db.commit()
+    res = activated_pillars(db, u)
+    assert res["events"] is False
+
+
+def test_live_event_activates_alongside_a_deleted_one(db):
+    """The other direction: one live row still activates, so deleting an OLD
+    event never hides a pillar the owner is genuinely using."""
+    from datetime import date
+    u = _user(db)
+    db.add(Event(
+        user_id=u.id, name="Gammel", event_date=date(2026, 6, 1), is_deleted=True,
+    ))
+    db.add(Event(user_id=u.id, name="Fredagsbar", event_date=date(2026, 7, 1)))
+    db.commit()
+    assert activated_pillars(db, u)["events"] is True
+
+
+def test_soft_deleted_reservation_does_not_activate(db):
+    """Same contract as events, one signal up: only rows the owner can still
+    SEE count as usage. Every reservation read path filters is_deleted, so a
+    gate that counted those rows would assert a booking history the owner's
+    empty Reservations list flatly contradicts."""
+    from datetime import datetime
+    from app.models.reservation import Reservation
+    u = _user(db)
+    db.add(Reservation(
+        user_id=u.id,
+        starts_at=datetime(2026, 7, 1, 18, 0),
+        ends_at=datetime(2026, 7, 1, 19, 30),
+        is_deleted=True,
+    ))
+    db.commit()
+    assert activated_pillars(db, u)["reservations"] is False
+
+
+def test_live_reservation_activates_alongside_a_deleted_one(db):
+    """The other direction: one live booking still activates, so retiring an
+    old row never hides a pillar the owner is genuinely using."""
+    from datetime import datetime
+    from app.models.reservation import Reservation
+    u = _user(db)
+    db.add(Reservation(
+        user_id=u.id,
+        starts_at=datetime(2026, 6, 1, 18, 0),
+        ends_at=datetime(2026, 6, 1, 19, 30),
+        is_deleted=True,
+    ))
+    db.add(Reservation(
+        user_id=u.id,
+        starts_at=datetime(2026, 7, 1, 18, 0),
+        ends_at=datetime(2026, 7, 1, 19, 30),
+    ))
+    db.commit()
+    assert activated_pillars(db, u)["reservations"] is True
+
+
 def test_tenant_isolation(db):
     """One owner's usage never activates another owner's pillar."""
     a = _user(db, "a@test.com")
