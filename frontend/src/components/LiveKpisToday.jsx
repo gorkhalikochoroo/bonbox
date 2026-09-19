@@ -3,7 +3,7 @@ import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
 import { localIso } from "../utils/dateFormat";
-import { formatMoney } from "../utils/currency";
+import { formatOwnerMoney } from "../utils/currency";
 import { StatCard, SectionBanner } from "./ui";
 
 // Auto-refresh interval for the live KPI tiles. 5s is the sweet spot
@@ -245,16 +245,16 @@ export default function LiveKpisToday({ eventId = null } = {}) {
     return [...tenders].sort((a, b) => (b.amount || 0) - (a.amount || 0))[0];
   }, [tenders]);
 
-  // Money values go through `formatMoney` so a DK owner sees "15.000 DKK"
-  // regardless of their browser's default locale (#148 MEDIUM-12). This
-  // component renders at the TOP of DailyClosePage, whose entire wizard /
-  // scan / history still says "DKK" — so these tiles stay "DKK" too (one
-  // surface never mixes "kr." with "DKK"). When Daily Close migrates to
-  // the kr. presentation (design roadmap items 5-6), swap this to
-  // <Amount currency={currency}> in the same pass. Counts (orders, guests)
+  // Money goes through `formatOwnerMoney`, which renders DKK as "15.000 kr."
+  // and any other currency with its code. This used to be `formatMoney`
+  // (always the code, so "0 DKK"), deliberately, because the wizard and
+  // history BELOW these tiles still said DKK and one surface must never mix
+  // "kr." with "DKK". That migration has now happened, so these tiles
+  // complete it — the DKK holdout at the top of a kr. page is exactly the
+  // mixing the old comment was written to prevent. Counts (orders, guests)
   // keep `toLocaleString` but pin to da-DK when the currency is DKK so the
   // grouping separator matches the money values.
-  const moneyFmt = (n) => formatMoney(n || 0, currency, { decimals: 0 });
+  const moneyFmt = (n) => formatOwnerMoney(n || 0, currency, { decimals: 0 });
   const countLocale = currency === "DKK" ? "da-DK" : undefined;
   const countFmt = (n) => Number(n || 0).toLocaleString(countLocale);
 
@@ -303,8 +303,9 @@ export default function LiveKpisToday({ eventId = null } = {}) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard
           label={t("liveRevenueToday") || "Revenue so far"}
-          // `moneyFmt` returns the value with the currency code appended
-          // (e.g. "15.000 DKK"), so we don't append `currency` separately.
+          // `moneyFmt` returns the formatted value with its own unit
+          // ("15.000 kr.", or the code for a non-DKK account), so we never
+          // append `currency` separately.
           value={moneyFmt(revenue)}
           helper={isEmpty ? (t("liveNoDataYet") || "No sales yet today") : null}
         />
