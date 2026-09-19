@@ -840,7 +840,7 @@ function ClockGeofenceSettings() {
           onChange={(e) => { setQuery(e.target.value); setFound(null); }}
           onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); resolveQuery(); } }}
           placeholder={t("schedGeoAddrPlaceholder", "…or type the address, or paste a map link")}
-          className="flex-1 min-w-[220px] min-h-[36px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
+          className="flex-1 min-w-[220px] min-h-[36px] px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100"
         />
         <button
           type="button"
@@ -858,7 +858,7 @@ function ClockGeofenceSettings() {
           measured, and a 150 m radius is only forgiving if you know which
           one you got. */}
       {found && (
-        <div className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 px-3 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <div className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-3 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <Icon name="MapPin" size={14} className="text-gray-400 shrink-0" />
           <span className="text-[13px] text-gray-800 dark:text-gray-200 font-medium">
             {found.label || t("schedGeoFoundPin", "Pin from map link")}
@@ -2188,7 +2188,7 @@ export default function StaffSchedulePage() {
               <button
                 onClick={goToCurrentWeek}
                 title={t("schedGoToThisWeek", "Go to this week")}
-                className="px-4 py-2 rounded-lg text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 flex-1 sm:flex-none min-w-0 sm:min-w-[220px] text-center hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+                className="px-4 py-2 rounded-lg text-sm bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] border border-gray-200 dark:border-gray-700 flex-1 sm:flex-none min-w-0 sm:min-w-[220px] text-center hover:bg-gray-100 dark:hover:bg-[rgb(var(--surface-raised))] transition"
               >
                 <span className="font-semibold text-gray-900 dark:text-gray-100">
                   {formatWeekLabel(weekStart, lang)}
@@ -3328,7 +3328,7 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
                 {day.shifts.map((s, i) => (
                   <li
                     key={i}
-                    className="flex items-center justify-between text-xs gap-2 bg-gray-50 dark:bg-gray-900/40 px-2 py-1 sm:py-1.5 rounded-md"
+                    className="flex items-center justify-between text-xs gap-2 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-2 py-1 sm:py-1.5 rounded-md"
                   >
                     <span className="truncate">
                       <span className="font-medium text-gray-900 dark:text-gray-100">
@@ -4446,7 +4446,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
           <div className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-800/20">
             <p className="text-gray-800 dark:text-gray-200 font-medium text-xs uppercase tracking-wide mb-1">How it works</p>
             <p>When you publish or change a schedule, staff with a phone number get a WhatsApp message like:</p>
-            <div className="mt-2 p-3 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 font-mono text-xs leading-relaxed">
+            <div className="mt-2 p-3 bg-white dark:bg-[rgb(var(--surface-card))] rounded-lg border border-gray-200 dark:border-gray-700 font-mono text-xs leading-relaxed">
               <p className="text-emerald-600 dark:text-gray-300">BonBox - Schedule Update</p>
               <p className="mt-1">Hi Jonas! Your shifts changed:</p>
               <p className="mt-1">Mon 14 Apr: 10:00 - 18:00</p>
@@ -4464,7 +4464,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
               <span className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center text-xs font-bold">1</span>
               <div className="flex-1">
                 <p className="font-medium text-gray-800 dark:text-gray-200">Sign up at twilio.com <span className="text-xs font-normal text-gray-500">(free, 2 min)</span></p>
-                <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs space-y-1">
+                <div className="mt-2 p-3 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] rounded-lg text-xs space-y-1">
                   <p>Go to <span className="text-emerald-600 dark:text-gray-300 font-medium">twilio.com/try-twilio</span></p>
                   <p>Enter your email and create a password</p>
                   <p>Verify your phone number — done!</p>
@@ -4477,7 +4477,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
               <span className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center text-xs font-bold">2</span>
               <div className="flex-1">
                 <p className="font-medium text-gray-800 dark:text-gray-200">Turn on WhatsApp <span className="text-xs font-normal text-gray-500">(1 min)</span></p>
-                <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs space-y-2">
+                <div className="mt-2 p-3 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] rounded-lg text-xs space-y-2">
                   <p>In Twilio, click <span className="font-medium text-gray-800 dark:text-gray-200">Messaging</span> in the left menu</p>
                   <p>Click <span className="font-medium text-gray-800 dark:text-gray-200">Try it out</span> &rarr; <span className="font-medium text-gray-800 dark:text-gray-200">Send a WhatsApp message</span></p>
                   <p>You'll see a sandbox number like <span className="font-mono text-emerald-600 dark:text-gray-300">+1 415 523 8886</span></p>
@@ -4499,7 +4499,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
               <span className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 flex items-center justify-center text-xs font-bold">3</span>
               <div className="flex-1">
                 <p className="font-medium text-gray-800 dark:text-gray-200">Paste them in Render <span className="text-xs font-normal text-gray-500">(1 min)</span></p>
-                <div className="mt-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg text-xs space-y-2">
+                <div className="mt-2 p-3 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] rounded-lg text-xs space-y-2">
                   <p>Go to your BonBox backend on <span className="font-medium text-gray-800 dark:text-gray-200">render.com</span></p>
                   <p>Click <span className="font-medium text-gray-800 dark:text-gray-200">Environment</span> in the sidebar</p>
                   <p>Add these 3 values:</p>
@@ -4549,7 +4549,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
               </div>
             ) : (
               <>
-                <div className="bg-gray-50 dark:bg-gray-900 rounded-xl p-3 text-xs font-mono text-gray-600 dark:text-gray-400 break-all select-all">
+                <div className="bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] rounded-xl p-3 text-xs font-mono text-gray-600 dark:text-gray-400 break-all select-all">
                   {linkModal.portalUrl}
                 </div>
                 <div className="flex gap-2">
@@ -4684,7 +4684,7 @@ function CostControls({ showCost, onToggleShowCost, costBasis, onCostBasis, t })
               aria-pressed={active}
               className={`h-full px-3 text-xs font-medium rounded-md transition-colors ${
                 active
-                  ? "bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm"
+                  ? "bg-white dark:bg-[rgb(var(--surface-card))] text-gray-900 dark:text-white shadow-sm"
                   : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
               }`}
             >
@@ -5040,7 +5040,7 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                         // content is ~40px with one line of hours, so without
                         // this a split day would hand the owner two targets
                         // that are each a hair too small to hit reliably.
-                        className={`min-h-[44px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-gray-900 ${cardChrome(isDraft)} border-l-[3px] ${roleBar(shiftCat, showRowDot)} tabular-nums text-right leading-tight transition-colors hover:bg-gray-50 dark:hover:bg-gray-800`}
+                        className={`min-h-[44px] px-2.5 py-1.5 rounded-lg bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(isDraft)} border-l-[3px] ${roleBar(shiftCat, showRowDot)} tabular-nums text-right leading-tight transition-colors hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))]`}
                         aria-label={t("schedEditShiftAtAria", "Edit {name}'s {time} shift")
                           .replace("{name}", member.name)
                           .replace("{time}", timeLabel)}
@@ -5320,7 +5320,7 @@ function OpenShiftChip({ row, t, onCancel }) {
   // the role shows as a dot + label so we never hit the border-color footgun.
   const dot = (ROLE_COLORS[cat] || ROLE_COLORS.floor).dot;
   return (
-    <div className="group relative rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/30 px-2 py-1.5 text-[11px] leading-tight">
+    <div className="group relative rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-2 py-1.5 text-[11px] leading-tight">
       <div className="flex items-center gap-1 font-medium text-gray-700 dark:text-gray-200 tabular-nums">
         <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${dot}`} />
         {formatShiftTime(row.start_time, row.end_time)}
@@ -5905,7 +5905,7 @@ export function ScheduleGrid({
             >
               <DraggableShiftBlock shift={shift} member={member} dateIso={toISO(date)}>
                 <div
-                  className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-gray-900 ${cardChrome(isDraft)} border-l-[3px] ${roleBar(shiftCat, showRowDot)}`}
+                  className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(isDraft)} border-l-[3px] ${roleBar(shiftCat, showRowDot)}`}
                 >
                   <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
                     {formatShiftTime(shift.start_time, shift.end_time)}
@@ -5955,7 +5955,7 @@ export function ScheduleGrid({
                   >
                     <DraggableShiftBlock shift={ex} member={member} dateIso={toISO(date)}>
                       <div
-                        className={`text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-gray-900 ${cardChrome(exDraft)} border-l-[3px] ${roleBar(exCat, showRowDot)}`}
+                        className={`text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(exDraft)} border-l-[3px] ${roleBar(exCat, showRowDot)}`}
                       >
                         <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
                           {formatShiftTime(ex.start_time, ex.end_time)}
@@ -6265,7 +6265,7 @@ export function ScheduleGrid({
     <DragOverlay dropAnimation={PREFERS_REDUCED_MOTION ? null : undefined}>
       {activeShift ? (
         <div
-          className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-gray-900 ${cardChrome(activeShift.status === "draft")} border-l-[3px] ${roleBar(ghostCat, showRowDot)} shadow-lg cursor-grabbing`}
+          className={`min-h-[3.5rem] text-left rounded-lg pl-2.5 pr-2 py-1.5 leading-tight bg-white dark:bg-[rgb(var(--surface-card))] ${cardChrome(activeShift.status === "draft")} border-l-[3px] ${roleBar(ghostCat, showRowDot)} shadow-lg cursor-grabbing`}
           style={PREFERS_REDUCED_MOTION ? undefined : { transform: "rotate(2deg)" }}
         >
           <div className="text-xs font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
@@ -6294,7 +6294,7 @@ export function ScheduleGrid({
    ═══════════════════════════════════════════════════════════ */
 function StatTile({ icon, value, label }) {
   return (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 px-3 py-2.5">
+    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-3 py-2.5">
       <div className="text-xl font-semibold text-gray-900 dark:text-white tabular-nums leading-tight">
         {value}
       </div>
@@ -6435,7 +6435,7 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
 
             {/* Honest notify note — no count promised here; the success
                 banner reports the server's real number after publish. */}
-            <div className="flex items-start gap-2 rounded-lg bg-gray-50 dark:bg-gray-900/40 px-3 py-2.5">
+            <div className="flex items-start gap-2 rounded-lg bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-3 py-2.5">
               <Icon name="Mail" size={15} className="text-gray-400 dark:text-gray-500 mt-0.5 shrink-0" />
               <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
                 {t(
@@ -6852,7 +6852,7 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
         </div>
 
         {/* Preview */}
-        <div className="bg-gray-50 dark:bg-gray-900/40 rounded-lg px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+        <div className="bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] rounded-lg px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
           {t("shiftPreview", "Shift: {start} \u2013 {end} ({hours}h net)")
             .replace("{start}", startTime)
             .replace("{end}", endTime)

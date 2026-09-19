@@ -190,7 +190,7 @@ export default function ExpiryPage() {
             {upcoming.items.slice(0, 6).map((it) => (
               <div
                 key={it.id}
-                className="flex flex-wrap items-center justify-between gap-2 bg-white dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
+                className="flex flex-wrap items-center justify-between gap-2 bg-white dark:bg-[rgb(var(--surface-card))] border border-gray-200 dark:border-gray-700 rounded-xl px-3 py-2"
               >
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
@@ -297,7 +297,7 @@ export default function ExpiryPage() {
 
       {/* ─── RECOMMENDATIONS ─── */}
       {recommendations?.length > 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
+        <div className="bg-white dark:bg-[rgb(var(--surface-card))] rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-[rgb(var(--surface-line))]">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
             <Icon name="Sparkles" size={16} className="text-emerald-600 dark:text-emerald-400" />
             {t("expRecommendations", "Recommendations")}
@@ -327,7 +327,7 @@ export default function ExpiryPage() {
 
       {/* ─── EXPIRY TIMELINE ─── */}
       {allExpiring.length > 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
+        <div className="bg-white dark:bg-[rgb(var(--surface-card))] rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-[rgb(var(--surface-line))]">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4 flex items-center gap-2">
             <Icon name="Calendar" size={16} />
             {t("expTimeline", "Expiry Timeline")}
@@ -414,7 +414,7 @@ export default function ExpiryPage() {
 
       {/* ─── WASTE HISTORY ─── */}
       {waste_summary?.top_items?.length > 0 && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-gray-800">
+        <div className="bg-white dark:bg-[rgb(var(--surface-card))] rounded-xl p-5 sm:p-6 border border-gray-200 dark:border-[rgb(var(--surface-line))]">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1 flex items-center gap-2">
             <Icon name="Trash2" size={16} />
             {t("expWasteHistory", "Waste History (90 days)")}
@@ -470,7 +470,7 @@ export default function ExpiryPage() {
           <p className="mb-3">{t("expMissingBody", "These perishable items need expiry dates for better forecasting.")}</p>
           <div className="flex flex-wrap gap-2 mb-3">
             {missing_expiry.map((item, i) => (
-              <span key={i} className="bg-white dark:bg-gray-900/60 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-xs px-3 py-1.5 rounded-full">
+              <span key={i} className="bg-white dark:bg-[rgb(var(--surface-card))] border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-xs px-3 py-1.5 rounded-full">
                 {item.name} ({item.quantity} {item.unit})
               </span>
             ))}
@@ -483,7 +483,7 @@ export default function ExpiryPage() {
 
       {/* ─── EMPTY STATE ─── */}
       {allExpiring.length === 0 && !waste_summary?.top_items?.length && (
-        <div className="bg-white dark:bg-gray-900 rounded-xl p-2 border border-gray-200 dark:border-gray-800">
+        <div className="bg-white dark:bg-[rgb(var(--surface-card))] rounded-xl p-2 border border-gray-200 dark:border-[rgb(var(--surface-line))]">
           <Empty
             size="hero"
             icon={Package}

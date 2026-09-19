@@ -701,7 +701,7 @@ export default function SalesPage() {
               type="number"
               value={editData.amount}
               onChange={(e) => setEditData({ ...editData, amount: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
-              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-400"
+              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
           </label>
           <label className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
@@ -710,7 +710,7 @@ export default function SalesPage() {
               type="date"
               value={editData.date}
               onChange={(e) => setEditData({ ...editData, date: e.target.value })}
-              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] px-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
           </label>
           <label className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
@@ -718,7 +718,7 @@ export default function SalesPage() {
             <select
               value={editData.payment_method}
               onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
-              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] px-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
             >
               {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
                 <option key={m} value={m}>{t(m)}</option>
@@ -732,7 +732,7 @@ export default function SalesPage() {
               value={editData.notes || ""}
               onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
               placeholder={t("notes")}
-              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] px-3 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
           </label>
         </div>
@@ -786,7 +786,7 @@ export default function SalesPage() {
                     "text-[12px] font-medium px-2.5 py-1 rounded-full border transition " +
                     (selectedR
                       ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
-                      : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 dark:bg-gray-900 dark:text-gray-300 dark:border-gray-700")
+                      : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 dark:bg-[rgb(var(--surface-card))] dark:text-gray-300 dark:border-gray-700")
                   }
                 >
                   {r}
@@ -809,7 +809,7 @@ export default function SalesPage() {
                     "p-3 rounded-xl border text-left transition " +
                     (sel
                       ? "bg-gray-50 border-gray-900 dark:bg-gray-800 dark:border-gray-100 ring-1 ring-gray-900 dark:ring-gray-100"
-                      : "bg-white border-gray-200 hover:border-gray-300 dark:bg-gray-900 dark:border-gray-700")
+                      : "bg-white border-gray-200 hover:border-gray-300 dark:bg-[rgb(var(--surface-card))] dark:border-gray-700")
                   }
                 >
                   <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{a.label}</p>
@@ -1118,7 +1118,7 @@ export default function SalesPage() {
 
         {/* Period summary — total + averages for the filtered set (e.g. last month) */}
         {filtered.length > 0 && (
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/40 px-4 py-2.5 text-sm">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] px-4 py-2.5 text-sm">
             <span className="font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
               {t("total")}: <Amount value={periodTotal} currency={user?.currency} />
             </span>
@@ -1239,7 +1239,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white dark:bg-[rgb(var(--surface-card))] rounded-xl shadow-sm border border-gray-200 dark:border-[rgb(var(--surface-line))] max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">{t("itemSale")}</h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t("pickItemDesc")}</p>
 
@@ -1250,7 +1250,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t("searchInventory")}
-              className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-gray-100 mb-3 focus:outline-none focus:ring-2 focus:ring-gray-400"
+              className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-gray-100 mb-3 focus:outline-none focus:ring-2 focus:ring-gray-400"
               autoFocus
             />
             <div className="max-h-64 overflow-y-auto space-y-1">
@@ -1323,7 +1323,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                   onChange={(e) => setQty(e.target.value)}
                   placeholder="0"
                   max={available}
-                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400"
                   autoFocus
                 />
                 {qtyNum > available && (
@@ -1337,7 +1337,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
                   placeholder="0"
-                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400"
                 />
               </div>
             </div>
@@ -1350,7 +1350,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                   className={`px-3 py-2 rounded-full text-xs font-medium border transition ${
                     method === m
                       ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
-                      : "bg-white border-gray-200 dark:bg-gray-900 dark:border-gray-700 text-gray-700 dark:text-gray-300"
+                      : "bg-white border-gray-200 dark:bg-[rgb(var(--surface-card))] dark:border-gray-700 text-gray-700 dark:text-gray-300"
                   }`}
                 >
                   {t(m)}
@@ -1494,12 +1494,12 @@ function CsvUpload({ onDone }) {
 
       {/* Preview step — user must explicitly confirm before any DB write */}
       {preview && !result && (
-        <div className="mt-4 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 rounded-xl p-3">
+        <div className="mt-4 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] rounded-xl p-3">
           <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">
             {t("preview", "Preview")} — {preview.would_import || 0} {t("salesWillBeImported", "sales will be imported")}
           </p>
           {preview.preview && preview.preview.length > 0 && (
-            <div className="overflow-x-auto max-h-56 overflow-y-auto rounded border border-gray-200 dark:border-gray-700 mb-2 bg-white dark:bg-gray-900">
+            <div className="overflow-x-auto max-h-56 overflow-y-auto rounded border border-gray-200 dark:border-gray-700 mb-2 bg-white dark:bg-[rgb(var(--surface-card))]">
               <table className="w-full text-xs">
                 <thead className="bg-gray-50 dark:bg-gray-900/80 sticky top-0">
                   <tr>
@@ -1557,7 +1557,7 @@ function CsvUpload({ onDone }) {
       {result && (
         <div className="mt-3 text-sm">
           {result.imported > 0 && !rolledBack && (
-            <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] border border-gray-200 dark:border-gray-700">
               <div>
                 <p className="text-gray-900 dark:text-gray-100 font-medium">
                   {result.imported} {t("salesImported")}
@@ -1572,7 +1572,7 @@ function CsvUpload({ onDone }) {
             </div>
           )}
           {rolledBack && (
-            <p className="text-amber-600 dark:text-amber-400 font-medium px-3 py-2 rounded-xl bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-700">
+            <p className="text-amber-600 dark:text-amber-400 font-medium px-3 py-2 rounded-xl bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] border border-gray-200 dark:border-gray-700">
               {t("importUndone", "Import undone — sales removed.")}
             </p>
           )}

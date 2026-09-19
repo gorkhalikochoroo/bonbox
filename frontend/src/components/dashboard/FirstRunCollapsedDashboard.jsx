@@ -32,13 +32,13 @@ function StepRow({ index, title, body, action, lastItem = false }) {
     <li
       className={
         "flex items-start gap-4 " +
-        (lastItem ? "" : "pb-5 border-b border-gray-100 dark:border-gray-800")
+        (lastItem ? "" : "pb-5 border-b border-gray-100 dark:border-[rgb(var(--surface-line))]")
       }
     >
       <span
         className={
           "shrink-0 inline-flex items-center justify-center " +
-          "w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 " +
+          "w-7 h-7 rounded-full bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] " +
           "text-gray-700 dark:text-gray-300 text-sm font-semibold tabular-nums"
         }
         aria-hidden="true"
@@ -208,8 +208,8 @@ export default function FirstRunCollapsedDashboard({ user = null, className = ""
   return (
     <div
       className={
-        "rounded-xl border border-gray-200 dark:border-gray-800 " +
-        "bg-white dark:bg-gray-900 p-6 sm:p-8 " +
+        "rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] " +
+        "bg-white dark:bg-[rgb(var(--surface-card))] p-6 sm:p-8 " +
         (className || "")
       }
       data-component="FirstRunCollapsedDashboard"
@@ -235,11 +235,11 @@ export default function FirstRunCollapsedDashboard({ user = null, className = ""
       <DemoDataCard forceShow />
 
       <div className="flex items-center gap-3 my-6" aria-hidden="true">
-        <span className="h-px flex-1 bg-gray-100 dark:bg-gray-800" />
+        <span className="h-px flex-1 bg-gray-100 dark:bg-[rgb(var(--surface-line))]" />
         <span className="text-[11px] font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
           {t("dashFirstRunOrStartReal", "or start with your real numbers")}
         </span>
-        <span className="h-px flex-1 bg-gray-100 dark:bg-gray-800" />
+        <span className="h-px flex-1 bg-gray-100 dark:bg-[rgb(var(--surface-line))]" />
       </div>
 
       <ol className="space-y-5">

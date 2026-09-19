@@ -35,7 +35,7 @@ export default function PaymentBreakdownCard({ ctx = {}, compact = true }) {
   return (
     <div
       onClick={() => navigate("/sales")}
-      className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
+      className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] transition"
       data-zone="2"
       data-component="PaymentBreakdownCard"
     >

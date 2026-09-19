@@ -90,7 +90,18 @@ export default function InventoryPage() {
   // showAutopilot removed — the autopilot panel is now the always-on hero
   // at the top of the page (rendered with the `hero` prop), not a toggle.
   const [countOpen, setCountOpen] = useState(false);
-  const [items, setItems] = useState([]);
+  // Every row /api/inventory returned, unfiltered. `items` below is the
+  // filtered view; the raw list is kept so a late answer about which surfaces
+  // this owner has can re-filter without a refetch.
+  const [allItems, setAllItems] = useState([]);
+  // Is /bar in this owner's sidebar? It is gated on the `bar_pour` vertical
+  // module, and pour-tracked bottles may only be hidden from THIS page while
+  // that page exists to hold them. With the module off, hiding them here hides
+  // them everywhere — the bottle is then in no table, no count and no list,
+  // which is how a genuinely empty gin bottle went unreported on every screen.
+  // Default false, so the failure direction is "show a bottle twice", never
+  // "show it nowhere".
+  const [barReachable, setBarReachable] = useState(false);
   const [alerts, setAlerts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [activeCategory, setActiveCategory] = useState("All");
@@ -134,14 +145,9 @@ export default function InventoryPage() {
   const [expandedStat, setExpandedStat] = useState(null); // "total" | "low" | "fresh" | "categories" | "priced"
 
   const fetchData = () => {
-    // Pour-tracked items (bottles with pour_size set) live on /bar now —
-    // filter them out of /inventory so the view stays focused on general
-    // kitchen / shop / pantry stock. Owners with the bar_pour vertical
-    // module enabled see them on the dedicated 🍸 Bar page in their sidebar.
     api.get("/inventory")
       .then((res) => {
-        const all = Array.isArray(res.data) ? res.data : [];
-        setItems(all.filter((i) => !i.pour_size || i.pour_size <= 0));
+        setAllItems(Array.isArray(res.data) ? res.data : []);
       })
       .catch(() => {});
     api.get("/inventory/alerts").then((res) => setAlerts(res.data)).catch(() => {});
@@ -153,6 +159,29 @@ export default function InventoryPage() {
   };
 
   useEffect(() => { fetchData(); }, []);
+
+  // Same source the sidebar and MorePage gate /bar on, so this page and the
+  // navigation cannot disagree about whether that page exists.
+  useEffect(() => {
+    let cancelled = false;
+    api.get("/modules")
+      .then((res) => {
+        if (cancelled) return;
+        const enabled = (res.data?.modules || []).filter((m) => m.enabled).map((m) => m.id);
+        setBarReachable(enabled.includes("bar_pour"));
+      })
+      .catch(() => { /* silent — default keeps every row on screen */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Pour-tracked bottles belong to /bar — but only when the owner has it.
+  // Mirrors inventory_reorder.stock_page_visible_clause() on the server, which
+  // decides the same thing for Home's card and for "Low stock (N)"; if these
+  // two drift, the count and the list start disagreeing again.
+  const items = useMemo(
+    () => (barReachable ? allItems.filter((i) => !i.pour_size || i.pour_size <= 0) : allItems),
+    [allItems, barReachable],
+  );
 
   // ─── Smart Scan prefill consumer (invoice → Inventory) ───────────
   //
@@ -551,7 +580,7 @@ export default function InventoryPage() {
         <button
           type="button"
           onClick={() => setCountOpen(true)}
-          className="w-full text-left flex items-center gap-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
+          className="w-full text-left flex items-center gap-3 rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-3.5 hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] transition"
         >
           <span className="shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
             <ClipboardCheckIcon size={20} strokeWidth={1.75} aria-hidden="true" />
@@ -842,7 +871,13 @@ export default function InventoryPage() {
                     </div>
                     <div className="text-right">
                       <span className="font-extrabold text-red-600 dark:text-red-400">{a.quantity} {a.unit}</span>
-                      <span className="text-red-400/50 ml-2">{t("minStock")}: {a.min_stock}</span>
+                      {/* `min_stock` is not a field InventoryItemResponse has
+                          ever served, so every row printed "Min stock:" and
+                          then nothing — on the one list that is supposed to
+                          tell the owner how far below the line they are. */}
+                      <span className="text-red-400/50 ml-2">
+                        {t("minStock")}: {Number.isFinite(Number(a.min_threshold)) ? Number(a.min_threshold) : "—"} {a.unit}
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -980,7 +1015,7 @@ export default function InventoryPage() {
         >
           <div className="space-y-2 mt-2">
             {deadStock.map((ds) => (
-              <div key={ds.id} className="flex items-center justify-between bg-white/70 dark:bg-gray-900/40 px-3 py-2 rounded-lg">
+              <div key={ds.id} className="flex items-center justify-between bg-white/70 dark:bg-[rgb(var(--surface-card))] px-3 py-2 rounded-lg">
                 <div>
                   <p className="text-sm font-medium text-gray-900 dark:text-white">{ds.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -995,7 +1030,7 @@ export default function InventoryPage() {
                       try {
                         await api.delete(`/inventory/${ds.id}`);
                         setDeadStock((prev) => prev.filter((d) => d.id !== ds.id));
-                        setItems((prev) => prev.filter((it) => it.id !== ds.id));
+                        setAllItems((prev) => prev.filter((it) => it.id !== ds.id));
                       } catch {}
                     }}
                     className="text-red-400 hover:text-red-600 dark:hover:text-red-300 transition p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 rounded"
@@ -1022,14 +1057,14 @@ export default function InventoryPage() {
           card chrome itself is now a neutral gray-50 surface so this no
           longer competes visually with the dead-stock alert above. */}
       {profitRanking.length > 0 && (
-        <div className="bg-gray-50 dark:bg-gray-900/40 border border-gray-200 dark:border-gray-800 p-5 rounded-xl">
+        <div className="bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] border border-gray-200 dark:border-gray-800 p-5 rounded-xl">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2">
             <Icon name="TrendingUp" size={16} className="text-emerald-600 dark:text-emerald-400" />
             {t("bestMarginItems")}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {profitRanking.slice(0, 5).map((pr, idx) => (
-              <div key={pr.name} className="flex items-center gap-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 px-3 py-2 rounded-lg">
+              <div key={pr.name} className="flex items-center gap-3 bg-white dark:bg-[rgb(var(--surface-card))] border border-gray-200 dark:border-[rgb(var(--surface-line))] px-3 py-2 rounded-lg">
                 <span className="text-lg font-bold text-gray-400 dark:text-gray-500 w-6 text-center tabular-nums">{idx + 1}</span>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{pr.name}</p>
@@ -1045,7 +1080,7 @@ export default function InventoryPage() {
       )}
 
       {/* Add item form */}
-      <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800">
+      <div className="bg-white dark:bg-[rgb(var(--surface-card))] p-6 rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))]">
         <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">{t("addItem")}</h2>
         <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
           <input type="text" placeholder={t("itemName")} value={form.name}
@@ -1118,7 +1153,7 @@ export default function InventoryPage() {
       </div>
 
       {/* Inventory table */}
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+      <div className="bg-white dark:bg-[rgb(var(--surface-card))] rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             {t("stockItems")} {activeCategory !== "All" && <span className="text-sm font-normal text-gray-500">({activeCategory})</span>}

@@ -89,9 +89,9 @@ export default function RevenueTrendChart({ ctx = {}, days = 30 }) {
   const monthRev = Number(ctx?.summary?.month_revenue || 0);
 
   const cardCls =
-    "rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition";
+    "rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] transition";
   const staticCardCls =
-    "rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6";
+    "rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6";
 
   // Honest tier-gate: `days` is the tier-capped window (Free = 7, paid = 90),
   // but ctx.dailyRevData is the FULL rolling series. So we can tell apart

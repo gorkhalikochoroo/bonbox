@@ -770,7 +770,7 @@ export default function ExpensesPage() {
                 className={`px-3 py-1.5 rounded-full text-xs font-medium border transition ${
                   catId === c.id
                     ? "bg-gray-900 dark:bg-gray-50 border-gray-900 dark:border-gray-50 text-white dark:text-gray-900"
-                    : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800/60"
+                    : "bg-white dark:bg-[rgb(var(--surface-card))] border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))]"
                 }`}
               >
                 {c.name}
@@ -789,7 +789,7 @@ export default function ExpensesPage() {
             value={customCat}
             onChange={(e) => { setCustomCat(e.target.value); if (e.target.value) setCatId(""); }}
             placeholder={t("customCategoryPlaceholder")}
-            className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white dark:bg-gray-900 dark:text-white"
+            className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white"
           />
           {customCat.length >= 1 && (() => {
             const matches = categories.filter(c =>
@@ -830,7 +830,7 @@ export default function ExpensesPage() {
           value={desc}
           onChange={(e) => { setDesc(e.target.value); fetchSuggestion(e.target.value); markTouched("vendor"); }}
           placeholder={t("whatWasIt")}
-          className={`w-full px-2.5 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white dark:bg-gray-900 dark:text-white ${
+          className={`w-full px-2.5 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white ${
             showVerifyChip("vendor")
               ? "border-amber-300 dark:border-amber-600 bg-amber-50/50 dark:bg-amber-900/10"
               : "border-gray-200 dark:border-gray-700"
@@ -881,12 +881,12 @@ export default function ExpensesPage() {
                 value={fxOriginalAmount}
                 onChange={(e) => setFxOriginalAmount(e.target.value)}
                 placeholder={t("fx.originalAmountPlaceholder", "Original amount")}
-                className="flex-1 px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
+                className="flex-1 px-2.5 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
               />
               <select
                 value={fxCurrency}
                 onChange={(e) => setFxCurrency(e.target.value.toUpperCase())}
-                className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
+                className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
               >
                 {FX_CURRENCIES.map((c) => (
                   <option key={c} value={c}>{c}</option>
@@ -904,7 +904,7 @@ export default function ExpensesPage() {
                 value={fxRate}
                 onChange={(e) => setFxRate(e.target.value)}
                 placeholder={fxLoading ? "…" : (fxLiveRate || "—")}
-                className="w-28 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 dark:text-white text-xs"
+                className="w-28 px-2 py-1 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white text-xs"
               />
               <span className="text-gray-500 dark:text-gray-400">{accountCcy}</span>
               {fxLoading && (
@@ -1227,7 +1227,7 @@ export default function ExpensesPage() {
               <button
                 type="button"
                 onClick={() => setReceiptOpen(true)}
-                className="flex-1 flex items-center gap-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3.5 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition text-left"
+                className="flex-1 flex items-center gap-3 rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-3.5 hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] transition text-left"
               >
                 <span className="shrink-0 inline-flex items-center justify-center w-10 h-10 rounded-full bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900">
                   <Camera size={20} strokeWidth={1.75} aria-hidden="true" />
@@ -1479,7 +1479,7 @@ export default function ExpensesPage() {
               concerned only with display and works on mobile too
               (the table renders as stacked cards there). */}
           {editId && (
-            <div ref={editPanelRef} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 sm:p-5 space-y-3 scroll-mt-24">
+            <div ref={editPanelRef} className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] p-4 sm:p-5 space-y-3 scroll-mt-24">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                 {t("edit", "Edit")} · {editData.description || ""}
               </h3>
@@ -1489,12 +1489,12 @@ export default function ExpensesPage() {
                   value={editData.description || ""}
                   onChange={(e) => setEditData({ ...editData, description: e.target.value })}
                   placeholder={t("description")}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
                 />
                 <select
                   value={editData.category_id || ""}
                   onChange={(e) => setEditData({ ...editData, category_id: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
                 >
                   {categories.map((c) => (
                     <option key={c.id} value={c.id}>{c.name}</option>
@@ -1505,12 +1505,12 @@ export default function ExpensesPage() {
                   value={editData.amount ?? ""}
                   onChange={(e) => setEditData({ ...editData, amount: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
                   placeholder={t("amount")}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
                 />
                 <select
                   value={editData.payment_method || ""}
                   onChange={(e) => setEditData({ ...editData, payment_method: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
                 >
                   <option value="">{t("choosePaymentMethod", "Choose payment method")}</option>
                   {["cash", "card", "mobilepay", "online", "mixed", "dankort"].map((m) => (
@@ -1521,14 +1521,14 @@ export default function ExpensesPage() {
                   type="date"
                   value={editData.date || ""}
                   onChange={(e) => setEditData({ ...editData, date: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
                 />
                 <input
                   type="text"
                   value={editData.notes || ""}
                   onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
                   placeholder={t("notes")}
-                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
+                  className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
                 />
               </div>
               <div className="flex gap-2">

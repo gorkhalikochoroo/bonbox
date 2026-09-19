@@ -55,7 +55,9 @@
  *     compliance: { nextDeadline: { type, date, daysAway, label },
  *                   daysToNext, nextDeadlineLabel },
  *     inventory: { itemCount, criticalCount },
- *     inventoryCriticalCount: number,
+ *     inventoryItems: [...],      // 50-row DISPLAY sample — never a count
+ *     inventoryReorder: [...],    // the COMPLETE flagged set; count THIS
+ *     inventoryCriticalCount: number,   // = inventoryReorder.length
  *     expiringSoonCount: number,
  *     staff: { configured, headcount },
  *     events: { recurringCount, totalCount },

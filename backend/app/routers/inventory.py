@@ -22,6 +22,7 @@ from app.schemas.inventory import (
 )
 from app.services import audit_service
 from app.services.auth import get_current_user
+from app.services.inventory_reorder import reorder_items
 from app.services.billing import effective_plan, has_feature
 from app.services.inventory_export import (
     build_stock_list_pdf, items_to_csv_bytes,
@@ -258,15 +259,30 @@ def get_alerts(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return (
-        db.query(InventoryItem)
-        .filter(
-            InventoryItem.user_id == user.id,
-            InventoryItem.quantity > 0,
-            InventoryItem.quantity <= InventoryItem.min_threshold,
-        )
-        .all()
-    )
+    """The "Low stock" list on /inventory — the same rule Home's card uses.
+
+    Two things were wrong here, in opposite directions, and both are the same
+    defect as the Home card's:
+
+      • `quantity > 0` SILENCED genuine stock-outs. An item the venue sells
+        that has hit zero is the most actionable row on the page, and it was
+        the one row this endpoint refused to return.
+      • no pour filter meant a half-empty bottle could be counted in "Low
+        stock (N)" above a list that does not contain it — /inventory drops
+        pour-tracked rows, they belong to /bar.
+
+    Both surfaces now call the SAME function — inventory_reorder.reorder_items
+    — rather than each building the query from the same parts. Two endpoints
+    assembling identical clauses is a convention; one function is an invariant,
+    and the first version of this fix lost exactly that distinction (Home
+    flagged only within a 50-row window while this list stayed unbounded, so
+    the two disagreed again, in the other direction).
+
+    The pour filter inside that function is conditional on the owner actually
+    having a /bar to send bottles to. With `bar_pour` off, a bottle running
+    down belongs in this list — there is no other page it could appear on.
+    """
+    return reorder_items(db, user=user)
 
 
 @router.post("/logs", response_model=InventoryLogResponse, status_code=201)

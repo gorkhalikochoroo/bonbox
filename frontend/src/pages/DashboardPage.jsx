@@ -45,6 +45,7 @@ import ReceiptCapture from "../components/ReceiptCapture";
 import SmartSaleInput from "../components/SmartSaleInput";
 import { displayCurrency, getTaxConfig } from "../utils/currency";
 import { localIso, dateLocale } from "../utils/dateFormat";
+import { reorderNeededItems } from "../utils/inventoryReorder";
 
 // ── Phase A artifacts + extracted zone cards ──
 import DashboardZones from "../components/dashboard/DashboardZones";
@@ -207,6 +208,11 @@ export default function DashboardPage() {
   const [monthlyData, setMonthlyData] = useState(null);
   const [lastSale, setLastSale] = useState(null);
   const [inventoryItems, setInventoryItems] = useState([]);
+  // The COMPLETE flagged set from /dashboard/batch, kept apart from the 50-row
+  // display sample above. Starts empty and only ever holds what the backend
+  // sent: an older backend omits the key, and the card must then say nothing
+  // rather than re-derive an answer from the sample.
+  const [inventoryReorder, setInventoryReorder] = useState([]);
   const [topSellers, setTopSellers] = useState([]);
   const [actionItems, setActionItems] = useState([]);
   const [weekComparison, setWeekComparison] = useState(null);
@@ -266,6 +272,7 @@ export default function DashboardPage() {
       if (data.monthly) setMonthlyData(data.monthly);
       if (data.latest_sales) setLastSale(data.latest_sales);
       if (data.inventory) setInventoryItems(data.inventory);
+      setInventoryReorder(Array.isArray(data.inventory_reorder) ? data.inventory_reorder : []);
       if (data.top_sellers) setTopSellers(data.top_sellers);
       if (data.action_items) setActionItems(data.action_items);
       if (data.week_comparison) setWeekComparison(data.week_comparison);
@@ -545,11 +552,13 @@ export default function DashboardPage() {
       topSellers: topSellers || [],
       paymentBreakdown: paymentBreakdown || [],
       inventoryItems: inventoryItems || [],
-      inventoryCriticalCount: (inventoryItems || []).filter(
-        (i) =>
-          parseFloat(i.min_threshold) > 0 &&
-          parseFloat(i.quantity) <= parseFloat(i.min_threshold),
-      ).length,
+      inventoryReorder: inventoryReorder || [],
+      // The gate and the card have to count the same rows — this used to
+      // re-derive "critical" here AND again inside InventoryPanel, so the two
+      // could disagree with each other as well as with /inventory. One helper,
+      // reading the backend's own flag, over the backend's own flagged set
+      // (not the 50-row display sample, which is a different question).
+      inventoryCriticalCount: reorderNeededItems(inventoryReorder).length,
       // ExpiryAlertsCard self-fetches; this gates the registry render.
       // TODO(Phase G): expose expiring count on /dashboard/batch so the
       // gate predicate is data-driven instead of always rendering.
@@ -599,6 +608,7 @@ export default function DashboardPage() {
     topSellers,
     paymentBreakdown,
     inventoryItems,
+    inventoryReorder,
     outstandingInvoices,
     growthSignals,
     actionItems,
@@ -677,7 +687,7 @@ export default function DashboardPage() {
             role="menu"
             className={
               "absolute right-0 mt-2 w-56 rounded-xl border border-gray-200 " +
-              "dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm " +
+              "dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] shadow-sm " +
               "py-1 z-30"
             }
           >

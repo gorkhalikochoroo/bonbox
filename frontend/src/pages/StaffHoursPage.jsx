@@ -1673,7 +1673,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
 
         {/* Calculated preview */}
         <div className="flex items-end">
-          <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg px-4 py-2.5 w-full">
+          <div className="bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] rounded-lg px-4 py-2.5 w-full">
             <span className="text-xs text-gray-500 dark:text-gray-400 block">{t("calculated")}</span>
             <span className="text-lg font-bold text-gray-800 dark:text-white">
               {calcHours > 0 ? `${calcHours}h` : "\u2014"}

@@ -212,8 +212,8 @@ export default function BusinessHealthCard({ ctx = {}, className = "" }) {
   return (
     <div
       className={
-        "rounded-xl border border-gray-200 dark:border-gray-800 " +
-        "bg-white dark:bg-gray-900 p-5 sm:p-6 " +
+        "rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] " +
+        "bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 " +
         (className || "")
       }
       data-zone="2"

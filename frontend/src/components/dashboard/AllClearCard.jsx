@@ -60,8 +60,11 @@ export default function AllClearCard({ ctx = {}, className = "" }) {
   return (
     <div
       className={
-        "rounded-xl border border-gray-200 dark:border-gray-800 " +
-        "bg-gray-50 dark:bg-gray-900/60 p-5 sm:p-6 " +
+        "rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] " +
+        // gray-900/60 is the ground washed over the ground — getComputedStyle
+        // answered rgb(17,24,39) for this card, the same value as the page
+        // behind it. Light already says what this surface is: a gray-50 well.
+        "bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] p-5 sm:p-6 " +
         (className || "")
       }
       data-zone="3"
@@ -73,8 +76,8 @@ export default function AllClearCard({ ctx = {}, className = "" }) {
         <div
           className={
             "shrink-0 inline-flex items-center justify-center " +
-            "w-9 h-9 rounded-full bg-white dark:bg-gray-900 " +
-            "border border-gray-200 dark:border-gray-800"
+            "w-9 h-9 rounded-full bg-white dark:bg-[rgb(var(--surface-card))] " +
+            "border border-gray-200 dark:border-[rgb(var(--surface-line))]"
           }
           aria-hidden="true"
         >

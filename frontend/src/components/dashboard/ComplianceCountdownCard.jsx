@@ -324,8 +324,8 @@ export default function ComplianceCountdownCard({
           type="button"
           onClick={() => setBalanceOpen(true)}
           className={
-            "w-full text-left block rounded-xl border border-gray-200 dark:border-gray-800 " +
-            "bg-white dark:bg-gray-900 p-5 sm:p-6 " +
+            "w-full text-left block rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] " +
+            "bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 " +
             "hover:shadow-sm transition-shadow group " +
             "focus-visible:outline-none focus-visible:ring-2 " +
             "focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
@@ -340,8 +340,8 @@ export default function ComplianceCountdownCard({
             <div
               className={
                 "shrink-0 inline-flex items-center justify-center " +
-                "w-9 h-9 rounded-full bg-gray-50 dark:bg-gray-800 " +
-                "border border-gray-200 dark:border-gray-800"
+                "w-9 h-9 rounded-full bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] " +
+                "border border-gray-200 dark:border-[rgb(var(--surface-line))]"
               }
               aria-hidden="true"
             >
@@ -399,13 +399,13 @@ export default function ComplianceCountdownCard({
     return (
       <div
         className={
-          "rounded-xl border border-gray-200 dark:border-gray-800 " +
-          "bg-white dark:bg-gray-900 p-5 animate-pulse " +
+          "rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] " +
+          "bg-white dark:bg-[rgb(var(--surface-card))] p-5 animate-pulse " +
           (className || "")
         }
         aria-hidden="true"
       >
-        <div className="h-4 bg-gray-100 dark:bg-gray-800 rounded w-2/3" />
+        <div className="h-4 bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] rounded w-2/3" />
       </div>
     );
   }
@@ -423,8 +423,8 @@ export default function ComplianceCountdownCard({
     <Link
       to="/tax"
       className={
-        "block rounded-xl border border-gray-200 dark:border-gray-800 " +
-        "bg-white dark:bg-gray-900 p-5 sm:p-6 " +
+        "block rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] " +
+        "bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 " +
         "hover:shadow-sm transition-shadow " +
         "focus-visible:outline-none focus-visible:ring-2 " +
         "focus-visible:ring-gray-900 dark:focus-visible:ring-gray-100 " +
@@ -441,8 +441,8 @@ export default function ComplianceCountdownCard({
         <div
           className={
             "shrink-0 inline-flex items-center justify-center " +
-            "w-9 h-9 rounded-full bg-gray-50 dark:bg-gray-800 " +
-            "border border-gray-200 dark:border-gray-800"
+            "w-9 h-9 rounded-full bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] " +
+            "border border-gray-200 dark:border-[rgb(var(--surface-line))]"
           }
           aria-hidden="true"
         >
@@ -493,7 +493,7 @@ function BalanceModal({ t, current, onClose, onSaved }) {
       aria-modal="true"
     >
       <div
-        className="w-full max-w-sm rounded-2xl bg-white dark:bg-gray-900 p-6 shadow-xl border border-gray-200 dark:border-gray-800"
+        className="w-full max-w-sm rounded-2xl bg-white dark:bg-[rgb(var(--surface-raised))] p-6 shadow-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))]"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -510,7 +510,7 @@ function BalanceModal({ t, current, onClose, onSaved }) {
             onChange={(e) => setValue(e.target.value)}
             autoFocus
             placeholder="0"
-            className="flex-1 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2.5 text-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100"
+            className="flex-1 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] px-3 py-2.5 text-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100"
           />
           <span className="text-gray-500 dark:text-gray-400 text-sm shrink-0">kr</span>
         </div>

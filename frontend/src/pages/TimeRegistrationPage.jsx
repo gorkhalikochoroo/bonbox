@@ -92,7 +92,7 @@ export default function TimeRegistrationPage() {
   if (locked) {
     return (
       <div className="p-4 sm:p-6 max-w-5xl mx-auto page-enter">
-        <PageHeader eyebrow={t("navStaff", "Staff")} title={t("tregTitle", "Tidsregistrering")} />
+        <PageHeader eyebrow={t("navStaff", "Staff")} title={t("tregTitle", "Time tracking")} />
         {/* APP STORE 3.1.1. This used to be a hand-rolled upgrade card that
             named the tier ("Starter+", "on Starter and Pro") and linked to
             /subscription — and it shipped in the iOS bundle, reachable by a
@@ -133,7 +133,7 @@ export default function TimeRegistrationPage() {
     <div className="p-4 sm:p-6 max-w-6xl 2xl:max-w-[1400px] mx-auto page-enter space-y-4">
       <PageHeader
         eyebrow={t("navStaff", "Staff")}
-        title={t("tregTitle", "Tidsregistrering")}
+        title={t("tregTitle", "Time tracking")}
         subtitle={t("tregSubtitle", "Lovpligtig arbejdstidsregistrering — klar til Arbejdstilsynet")}
         actions={
           <Button variant="secondary" onClick={downloadCsv} disabled={downloading || !staff.length}>

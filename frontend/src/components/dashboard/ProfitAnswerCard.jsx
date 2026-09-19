@@ -36,7 +36,7 @@ export default function ProfitAnswerCard({ ctx = {} }) {
   const topAmt = Number(s.top_expense_amount || 0);
 
   const cardCls =
-    "rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition";
+    "rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] transition";
 
   const monthName = (() => {
     try {
@@ -130,7 +130,7 @@ export default function ProfitAnswerCard({ ctx = {} }) {
           {t("profitOfRevenue", "Of your revenue")}{" "}
           <Amount value={revenue} size="body" className="text-gray-900 dark:text-gray-100" />
         </div>
-        <div className="flex h-7 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800">
+        <div className="flex h-7 rounded-lg overflow-hidden bg-gray-100 dark:bg-[rgb(var(--surface-subtle))]">
           <div
             className="bg-red-500 dark:bg-red-600"
             style={{ width: `${expensePct}%`, minWidth: expenses > 0 ? 4 : 0 }}
@@ -165,7 +165,7 @@ export default function ProfitAnswerCard({ ctx = {} }) {
       </div>
 
       {(moms > 0 || (topCat && topAmt > 0)) && (
-        <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-800 flex flex-col gap-2">
+        <div className="mt-4 pt-3 border-t border-gray-100 dark:border-[rgb(var(--surface-line))] flex flex-col gap-2">
           {moms > 0 && (
             <div className="flex items-start gap-2 text-[13px] text-gray-500 dark:text-gray-400">
               <Info className="w-4 h-4 text-gray-400 shrink-0 mt-px" aria-hidden="true" />

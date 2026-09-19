@@ -31,7 +31,7 @@ export default function ProfitLossCard({ ctx = {} }) {
   return (
     <div
       onClick={() => navigate("/reports")}
-      className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
+      className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] transition"
       data-zone="2"
       data-component="ProfitLossCard"
     >
@@ -42,7 +42,7 @@ export default function ProfitLossCard({ ctx = {} }) {
         {t("thisMonth", "This month")}
       </p>
 
-      <div className="space-y-2 border-b border-gray-200 dark:border-gray-800 pb-3 mb-3">
+      <div className="space-y-2 border-b border-gray-200 dark:border-[rgb(var(--surface-line))] pb-3 mb-3">
         <div className="flex justify-between">
           <span className="text-sm text-gray-600 dark:text-gray-400">
             {t("revenue", "Revenue")}

@@ -743,7 +743,7 @@ function FlagsCell({ r, t }) {
 // Phase-3 lens lands here. Honest placeholder until then.
 function ComingSoonView({ icon, title, body }) {
   return (
-    <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 py-12 text-center">
+    <div className="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] py-12 text-center">
       <div className="text-gray-300 dark:text-gray-600 mb-2 flex justify-center">{icon}</div>
       <p className="text-sm font-medium text-gray-700 dark:text-gray-200">{title}</p>
       <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-sm mx-auto">{body}</p>
@@ -945,7 +945,7 @@ function ReservationDrawer({
       onClose={onClose}
       desktop="right"
       panelClassName={
-        "bg-white dark:bg-gray-900 shadow-2xl border-t sm:border-t-0 sm:border-l border-gray-200 dark:border-gray-800 transition-shadow duration-700 " +
+        "bg-white dark:bg-[rgb(var(--surface-raised))] shadow-2xl border-t sm:border-t-0 sm:border-l border-gray-200 dark:border-[rgb(var(--surface-line-strong))] transition-shadow duration-700 " +
         (highlight ? "ring-2 ring-inset ring-gray-900 dark:ring-gray-100" : "")
       }
     >
@@ -1262,7 +1262,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
       <div
-        className="relative w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-gray-800 shadow-2xl p-5 space-y-4 animate-fadeIn"
+        className="relative w-full sm:max-w-sm bg-white dark:bg-[rgb(var(--surface-raised))] rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] shadow-2xl p-5 space-y-4 animate-fadeIn"
         style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))", paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
       >
         <div className="flex items-start justify-between gap-3">
@@ -1453,7 +1453,7 @@ function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose }) {
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center sm:justify-center" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
       <div
-        className="relative w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-gray-800 shadow-2xl p-5 space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto"
+        className="relative w-full sm:max-w-sm bg-white dark:bg-[rgb(var(--surface-raised))] rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] shadow-2xl p-5 space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto"
         style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))", paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
       >
         <div className="flex items-start justify-between gap-3">
@@ -1638,7 +1638,7 @@ function NewBookingSheet({
     >
       <div className="absolute inset-0 bg-black/40 animate-backdropFade" onClick={onClose} />
       <div
-        className="relative w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-gray-800 shadow-2xl p-5 space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto"
+        className="relative w-full sm:max-w-sm bg-white dark:bg-[rgb(var(--surface-raised))] rounded-t-xl sm:rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] shadow-2xl p-5 space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto"
         style={{ paddingBottom: "calc(1.25rem + env(safe-area-inset-bottom))", paddingLeft: "max(1.25rem, env(safe-area-inset-left))", paddingRight: "max(1.25rem, env(safe-area-inset-right))" }}
       >
         <div className="flex items-start justify-between gap-3">
@@ -2081,11 +2081,11 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
     status === "seated"
       ? "bg-gray-900 text-white border-gray-900 dark:bg-gray-100 dark:text-gray-900 dark:border-gray-100"
       : status === "requested"
-      ? "bg-white dark:bg-gray-900 border-dashed border-gray-400 dark:border-gray-500 text-gray-700 dark:text-gray-200"
-      : "bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100";
+      ? "bg-white dark:bg-[rgb(var(--surface-card))] border-dashed border-gray-400 dark:border-gray-500 text-gray-700 dark:text-gray-200"
+      : "bg-white dark:bg-[rgb(var(--surface-card))] border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100";
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-x-auto">
+    <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] overflow-x-auto">
       {/* THE ONE ceremonial beat for seating — a single ~500ms scale settle,
           then stillness. The global prefers-reduced-motion rule (index.css)
           already collapses this animation to ~0.01ms, so no local guard. */}
@@ -2123,7 +2123,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
           >
             <div
               style={{ width: RAIL_W }}
-              className="shrink-0 sticky left-0 z-10 bg-amber-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 px-2 flex flex-col justify-center"
+              className="shrink-0 sticky left-0 z-10 bg-amber-50 dark:bg-[rgb(var(--surface-card))] border-r border-gray-200 dark:border-[rgb(var(--surface-line))] px-2 flex flex-col justify-center"
             >
               <span className="text-sm font-semibold text-amber-700 dark:text-amber-400 truncate leading-tight">
                 {t("rsvpUnassignedLane", "Unassigned")}
@@ -2193,7 +2193,7 @@ function TimelineView({ reservations, resources, day, t, onSelect, onStatus }) {
             >
               <div
                 style={{ width: RAIL_W }}
-                className="shrink-0 sticky left-0 z-10 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 px-2 flex flex-col justify-center"
+                className="shrink-0 sticky left-0 z-10 bg-white dark:bg-[rgb(var(--surface-card))] border-r border-gray-200 dark:border-[rgb(var(--surface-line))] px-2 flex flex-col justify-center"
               >
                 <span className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate leading-tight">
                   {tbl.label}
@@ -2343,8 +2343,8 @@ function FloorSkeleton() {
 
 function TimelineSkeleton() {
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
-      <div className="h-8 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/80" />
+    <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] overflow-hidden">
+      <div className="h-8 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))]" />
       <div className="p-3 space-y-3 animate-pulse">
         {[0, 1, 2, 3, 4].map((i) => (
           <div key={i} className="flex items-center gap-3">
@@ -2377,7 +2377,7 @@ function SalonFirstRunCard({
   onOpen,
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 space-y-5 max-w-2xl">
+    <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 space-y-5 max-w-2xl">
       <div className="flex items-start gap-3">
         <span className="shrink-0 inline-flex items-center justify-center h-10 w-10 rounded-xl bg-gray-900 text-white dark:bg-white dark:text-gray-900">
           <CalendarCheck className="w-5 h-5" aria-hidden />
@@ -2511,7 +2511,7 @@ function DayRail({ day, onPick, t, waitlistCount = 0, onOpenWaitlist }) {
 
   return (
     <aside
-      className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-3 tabular-nums"
+      className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-3 tabular-nums"
       aria-label={t("rsvpRailAria", "Day overview")}
     >
       <div className="flex items-center justify-between mb-2.5">
@@ -2848,7 +2848,7 @@ function StandMenu({ t, onLogout }) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-full z-40 mt-2 w-60 overflow-hidden rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-xl"
+          className="absolute right-0 top-full z-40 mt-2 w-60 overflow-hidden rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] bg-white dark:bg-[rgb(var(--surface-raised))] shadow-xl"
         >
           {/* target=_blank so the stand itself never leaves the stand. */}
           <a
@@ -4192,7 +4192,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               native picker. The relative label ("I dag" / "I morgen") gives
               instant orientation; the numeric date sits quietly beneath. */}
           <div className="relative" ref={dayPickerRef}>
-          <div className="inline-flex items-stretch rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
+          <div className="inline-flex items-stretch rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] overflow-hidden">
             <button
               type="button"
               onClick={() => setDay(shiftDay(day, -1))}
@@ -4247,7 +4247,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
             <div
               role="dialog"
               aria-label={t("rsvpBookDay", "Reservation date")}
-              className="absolute left-0 top-full z-30 mt-2 w-[300px] max-w-[calc(100vw-2rem)] rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-xl"
+              className="absolute left-0 top-full z-30 mt-2 w-[300px] max-w-[calc(100vw-2rem)] rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line-strong))] bg-white dark:bg-[rgb(var(--surface-raised))] shadow-xl"
             >
               <DayRail
                 day={day}
@@ -5161,7 +5161,7 @@ function FloorSection({ t, businessType }) {
             e.preventDefault();
             if (!saving) addProviderStation();
           }}
-          className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3"
+          className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
         >
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
             {t("rsvpAddStation", "Add a station")}
@@ -5213,7 +5213,7 @@ function FloorSection({ t, businessType }) {
           e.preventDefault();
           if (!bulkSaving) submitBulk();
         }}
-        className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3"
+        className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
       >
         <div>
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
@@ -5349,7 +5349,7 @@ function FloorSection({ t, businessType }) {
           e.preventDefault();
           if (!saving) addResource();
         }}
-        className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3"
+        className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
       >
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
           {t("rsvpAddTable", "Add a table")}
@@ -5414,7 +5414,7 @@ function FloorSection({ t, businessType }) {
 
       {/* Cap-exceeded message + upgrade nudge */}
       {capMsg && (
-        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/60 p-4 space-y-3">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] p-4 space-y-3">
           <p className="text-sm text-gray-700 dark:text-gray-300">
             {t(
               "rsvpTableCapHit",
@@ -5440,7 +5440,7 @@ function FloorSection({ t, businessType }) {
       {loading ? (
         <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>
       ) : resources.length === 0 ? (
-        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 py-10 text-center">
+        <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] py-10 text-center">
           <VenueIcon className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" aria-hidden />
           <p className="text-sm text-gray-500 dark:text-gray-400">
             {isProvider
@@ -5457,7 +5457,7 @@ function FloorSection({ t, businessType }) {
               return (
                 <li
                   key={r.id}
-                  className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center justify-between gap-3"
+                  className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] px-4 py-3 flex items-center justify-between gap-3"
                 >
                   <div className="min-w-0 flex items-center gap-2">
                     <VenueIcon className="w-4 h-4 text-gray-400 shrink-0" aria-hidden />
@@ -5506,7 +5506,7 @@ function FloorSection({ t, businessType }) {
               // viewport collapsed the flex-1 rename input to 0px. Phone now
               // wraps to two lines (name full-width, controls beneath);
               // desktop (sm:nowrap) is pixel-identical.
-              className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3"
+              className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] px-4 py-3 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3"
             >
               {/* Reorder — fixes an out-of-order table list (e.g. 6,7,8,1,2).
                   Up/down each a full 44px tap target; disabled at the ends. */}
@@ -5741,7 +5741,7 @@ function BehandlingerSection({ t }) {
           e.preventDefault();
           if (!saving) addItem();
         }}
-        className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3"
+        className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
       >
         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
           {t("rsvpBehandlingAddTitle", "Add a behandling")}
@@ -5794,7 +5794,7 @@ function BehandlingerSection({ t }) {
 
       {/* Cap-exceeded message + upgrade nudge — same shape as FloorSection. */}
       {capMsg && (
-        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/60 p-4 space-y-3">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] p-4 space-y-3">
           <p className="text-sm text-gray-700 dark:text-gray-300">
             {t(
               "rsvpBehandlingCapHit",
@@ -5820,7 +5820,7 @@ function BehandlingerSection({ t }) {
       {loading ? (
         <div className="text-sm text-gray-500">{t("loading", "Loading…")}</div>
       ) : items.length === 0 ? (
-        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 py-10 text-center">
+        <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] py-10 text-center">
           <Clock className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" aria-hidden />
           <p className="text-sm text-gray-500 dark:text-gray-400">
             {t("rsvpBehandlingEmpty", "No behandlinger yet — add your first above.")}
@@ -5832,7 +5832,7 @@ function BehandlingerSection({ t }) {
             <li
               key={b.id}
               className={
-                "rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center justify-between gap-3 " +
+                "rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] px-4 py-3 flex items-center justify-between gap-3 " +
                 (b.active ? "" : "opacity-60")
               }
             >
@@ -6006,7 +6006,7 @@ function EmbedOnWebsite({ publicUrl, venueName, t }) {
   );
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-4">
+    <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-4">
       <div>
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
           <Globe className="w-4 h-4 text-gray-400" aria-hidden />
@@ -6377,7 +6377,7 @@ function SettingsSection({ t }) {
       )}
 
       {/* On/off toggle */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 flex items-center justify-between gap-4">
+      <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 flex items-center justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
             {t("rsvpAcceptToggle", "Accept online reservations")}
@@ -6417,7 +6417,7 @@ function SettingsSection({ t }) {
 
       {/* Share — link + QR (only meaningful once enabled & a slug exists) */}
       {enabled && publicUrl && (
-        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-4">
+        <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-4">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
             {t("rsvpShareTitle", "Your booking page")}
           </h2>
@@ -6522,7 +6522,7 @@ function SettingsSection({ t }) {
           These feed the slot generator (reservation_service reads
           booking_hours first, before any fallback), so the times guests see
           come from when the owner actually opens, not a hard-coded default. */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
+      <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
             <Clock className="w-4 h-4 text-gray-400" aria-hidden />
@@ -6568,7 +6568,7 @@ function SettingsSection({ t }) {
           e.preventDefault();
           if (!savingForm) saveForm();
         }}
-        className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3"
+        className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3"
       >
         <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
           {t("rsvpAvailTitle", "Availability rules")}
@@ -6700,7 +6700,7 @@ function SettingsSection({ t }) {
           path the rest of the app's Pro gates use). A Pro / Trial owner
           sees it fully enabled. Saves through the SAME PUT
           /reservations/settings as the availability numbers. */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
+      <div className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-4 space-y-3">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
@@ -6896,7 +6896,7 @@ function StandDevices({ t }) {
   const active = devices.filter((d) => d.active);
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/60 p-4 space-y-3">
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] p-4 space-y-3">
       <div className="flex items-start gap-3">
         <div className="w-9 h-9 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center shrink-0 text-gray-600 dark:text-gray-300">
           <MonitorSmartphone className="w-4 h-4" aria-hidden />
@@ -7062,7 +7062,7 @@ function InstallHostStandHint({ t }) {
   };
 
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/60 p-4 flex items-start gap-3">
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] p-4 flex items-start gap-3">
       <div className="w-9 h-9 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-center shrink-0 text-gray-600 dark:text-gray-300">
         <MonitorSmartphone className="w-4 h-4" aria-hidden />
       </div>

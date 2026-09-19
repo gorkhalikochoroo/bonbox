@@ -189,7 +189,7 @@ export default function WastePage() {
             label={t("itemsWasted")}
             value={summary.total_items}
           />
-          <div className="rounded-xl border border-gray-200 bg-white px-4 py-3.5 dark:bg-gray-900 dark:border-gray-800">
+          <div className="rounded-xl border border-gray-200 bg-white px-4 py-3.5 dark:bg-[rgb(var(--surface-card))] dark:border-[rgb(var(--surface-line))]">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
               By reason
             </p>
@@ -210,7 +210,7 @@ export default function WastePage() {
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-900 p-6 rounded-xl border border-gray-200 dark:border-gray-800">
+      <div className="bg-white dark:bg-[rgb(var(--surface-card))] p-6 rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))]">
         <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">{t("logWaste")}</h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{t("trackWaste")}</p>
 
@@ -289,7 +289,7 @@ export default function WastePage() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+      <div className="bg-white dark:bg-[rgb(var(--surface-card))] rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{t("recentWaste")}</h2>
           <div className="flex items-center gap-2 flex-wrap">

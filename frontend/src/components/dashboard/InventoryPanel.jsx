@@ -12,19 +12,28 @@
  *     the renderIf already gates this card on "there ARE critical
  *     items," so the existence of the card IS the signal.
  *   • Clickable card → /inventory.
+ *
+ * The card navigates to /inventory, so the count it prints has to be a count
+ * of rows that page will show. It used to do its own `qty <= min` arithmetic
+ * over everything /dashboard/batch returned, which is how it announced 23
+ * items over an empty Stock page. The predicate now lives in one place —
+ * utils/inventoryReorder.js, fed by the backend's `needs_reorder` — and that
+ * file explains why an absent field renders nothing instead of guessing.
+ *
+ * It reads `ctx.inventoryReorder`, the payload's COMPLETE flagged set, not the
+ * 50-row display sample in `ctx.inventoryItems`. Counting the sample is how
+ * the same defect came back inverted: an account whose low rows were older
+ * than its newest 50 got silence here and "Low stock (6)" on the Stock page.
  */
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../../hooks/useLanguage";
+import { reorderNeededItems } from "../../utils/inventoryReorder";
 
 export default function InventoryPanel({ ctx = {} }) {
   const { t } = useLanguage();
   const navigate = useNavigate();
-  const critical = (ctx?.inventoryItems || []).filter((i) => {
-    const qty = parseFloat(i.quantity) || 0;
-    const min = parseFloat(i.min_threshold) || 0;
-    return min > 0 && qty <= min;
-  });
+  const critical = reorderNeededItems(ctx?.inventoryReorder);
 
   if (critical.length === 0) return null;
 
@@ -33,7 +42,7 @@ export default function InventoryPanel({ ctx = {} }) {
   return (
     <div
       onClick={() => navigate("/inventory")}
-      className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
+      className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 cursor-pointer hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] transition"
       data-zone="3"
       data-component="InventoryPanel"
     >

@@ -54,8 +54,8 @@ export default function GrowthLeverCard({
   return (
     <div
       className={
-        "relative rounded-xl border border-gray-200 dark:border-gray-800 " +
-        "bg-white dark:bg-gray-900 p-5 sm:p-6 " +
+        "relative rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] " +
+        "bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 " +
         (className || "")
       }
       data-zone="2"
@@ -89,8 +89,8 @@ export default function GrowthLeverCard({
         <div
           className={
             "shrink-0 inline-flex items-center justify-center " +
-            "w-9 h-9 rounded-full bg-gray-50 dark:bg-gray-800 " +
-            "border border-gray-200 dark:border-gray-800"
+            "w-9 h-9 rounded-full bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] " +
+            "border border-gray-200 dark:border-[rgb(var(--surface-line))]"
           }
           aria-hidden="true"
         >

@@ -49,7 +49,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import Base, get_db
 from app.main import app, _db_ready
 from app.models.audit_log import AuditLog
-from app.models.inventory import InventoryItem
+from app.models.inventory import InventoryItem, InventoryLog
 from app.models.sale import Sale
 from app.models.user import User
 from app.models.weather import DailyWeather
@@ -723,7 +723,19 @@ def test_perishable_item_surfaces_with_supplier_metadata(client, db):
         is_perishable=True, cost=5.0,
         supplier_email="bakery@example.com",
     )
-
+    # A stock movement: the kitchen demonstrably handles bagels, the till just
+    # never names them. Without SOME signal that the venue uses this line, the
+    # safety floor no longer invents a quantity for an empty shelf — see
+    # test_an_untouched_placeholder_gets_no_invented_order_quantity. The
+    # subject of THIS test is the perishable waste-risk warning, which needs a
+    # suggested quantity to be about, so the fixture supplies the signal.
+    db.add(InventoryLog(
+        item_id=item.id,
+        change_qty=Decimal("-1"),
+        reason="adjustment",
+        date=date.today() - timedelta(days=3),
+    ))
+    db.commit()
     _override_user(owner)
     res = client.post(
         "/api/inventory/autopilot/suggest",
@@ -733,8 +745,13 @@ def test_perishable_item_surfaces_with_supplier_metadata(client, db):
     body = res.json()
     bagels = next(i for i in body["items"] if i["name"] == "Bagels")
     assert bagels["is_perishable"] is True
-    # Stock is below threshold so the item must be flagged as today/this_week
-    assert bagels["urgency"] in ("today", "this_week")
+    # It SURFACES — that is what this test is about — but at the quietest
+    # tier. This fixture is an empty shelf with no sales behind it at all, and
+    # that used to read "today" on a short-circuit (`current_stock <= 0`), the
+    # same rule that made 23 untouched bar-template bottles the most urgent
+    # thing on the founder's dashboard. A sold-out item the venue really runs
+    # on is covered by its own test below.
+    assert bagels["urgency"] == "monitor"
     # Safety floor kicks the qty up to min_threshold even with no history;
     # since projected_14d is ~0, suggested_qty > 1.2 * projected_14d triggers
     # the perishable_waste_risk warning.
@@ -746,6 +763,92 @@ def test_perishable_item_surfaces_with_supplier_metadata(client, db):
         f"Expected perishable warning for Bagels. notes={bagels['notes']} "
         f"warnings={body['compliance_warnings']}"
     )
+
+
+def test_a_sold_out_item_the_venue_actually_sells_is_urgent_today(client, db):
+    """The half of the rule that must never be quietened.
+
+    Same shape as the fixture above — zero stock, below threshold, perishable —
+    with one difference that decides everything: two weeks of sales behind it.
+    Dropping the `current_stock <= 0 → today` short-circuit removed a phantom;
+    if it also removed THIS, the trade would have been a bad one. A missed gin
+    order is the 5,000 DKK Friday night this whole service exists to prevent.
+    """
+    owner = _owner(db, plan="pro", email_suffix="_soldout")
+    item = _item(
+        db, owner, name="Croissanter",
+        qty=0, min_threshold=30.0, unit="pieces",
+        is_perishable=True, cost=6.0,
+        supplier_email="bakery@example.com",
+    )
+    today = date.today()
+    for offset in range(1, 15):
+        _sale_for(db, owner, item, today - timedelta(days=offset), qty=20)
+
+    _override_user(owner)
+    res = client.post("/api/inventory/autopilot/suggest", json={"days_ahead": 7})
+    assert res.status_code == 200, res.text
+    row = next(i for i in res.json()["items"] if i["name"] == "Croissanter")
+    assert row["urgency"] == "today"
+    # And it proposes a real quantity off the projection, not the safety floor.
+    assert row["suggested_qty"] > 30.0
+
+
+def test_an_untouched_placeholder_gets_no_invented_order_quantity(client, db):
+    """The founder's 23 bottles, one surface further on — where it costs money.
+
+    An item at zero stock that the venue has NEVER handled — no sale, no stock
+    log — has a min_threshold nobody chose: whatever template seeded the row
+    picked it. The safety floor used to read that number back as "order this
+    much", and /autopilot/apply turns plan lines into supplier emails. So the
+    same untouched placeholder that shouted on Home could also put a real
+    order in a real supplier's inbox.
+
+    The row still appears — the owner asked for a plan and an empty shelf is
+    worth seeing — at the quietest tier, with a quantity of zero and a note
+    saying why, so "we declined to guess" cannot be mistaken for "checked,
+    nothing needed".
+    """
+    owner = _owner(db, plan="pro", email_suffix="_placeholder")
+    _item(
+        db, owner, name="Jägermeister",
+        qty=0, min_threshold=200.0, unit="ml", cost=0.4,
+        supplier_email="spirits@example.com",
+    )
+    _override_user(owner)
+    res = client.post("/api/inventory/autopilot/suggest", json={"days_ahead": 7})
+    assert res.status_code == 200, res.text
+    row = next(i for i in res.json()["items"] if i["name"] == "Jägermeister")
+    assert row["urgency"] == "monitor"
+    assert row["suggested_qty"] == 0
+    assert row["line_cost"] == 0
+    assert "no_demand_signal" in row["notes"]
+
+
+def test_a_row_the_owner_cannot_see_is_never_put_in_a_supplier_email(client, db):
+    """Visibility decides before urgency, on the surface that can spend money.
+
+    A pour-tracked bottle on an account with /bar in the sidebar lives on that
+    page; the general-stock plan must not propose ordering it, because the
+    owner cannot open it from anywhere this plan links to. The same rule Home
+    and /inventory/alerts use — one clause, three surfaces.
+    """
+    owner = _owner(db, plan="pro", email_suffix="_bar")
+    owner.enabled_modules = "bar_pour"
+    db.commit()
+    bottle = _item(
+        db, owner, name="Gin", qty=100.0, min_threshold=700.0, unit="ml", cost=0.3,
+    )
+    bottle.pour_size = Decimal("30")
+    db.commit()
+    _item(db, owner, name="Citroner", qty=1.0, min_threshold=10.0)
+
+    _override_user(owner)
+    res = client.post("/api/inventory/autopilot/suggest", json={"days_ahead": 7})
+    assert res.status_code == 200, res.text
+    names = [i["name"] for i in res.json()["items"]]
+    assert "Gin" not in names
+    assert "Citroner" in names
 
 
 # ─── 17. Audit log entry for suggest ───────────────────────────────────

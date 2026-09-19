@@ -97,8 +97,15 @@ def scan_ticket(
         .first()
     )
     if event is None:
-        # Cross-tenant attempt OR event soft-deleted while ticket
-        # remained — both surface as 404 to prevent enumeration.
+        # Cross-tenant attempt → 404, not 403, to prevent enumeration.
+        #
+        # DELIBERATELY no is_deleted filter here, unlike every other Event
+        # reader (events.py:108/193, pillars.py, growth_signals.py). A
+        # soft-deleted event is invisible to the OWNER; it must not become
+        # invisible to the DOOR. Tickets outlive the row (DELETE /api/events
+        # does not refuse when tickets are outstanding), and a host scanning a
+        # queue of real guests is the worst possible place to start answering
+        # "Ticket not found". Tenant scope above is the gate that matters.
         raise HTTPException(status_code=404, detail="Ticket not found")
     # L9 — voided ticket.
     if ticket.is_void:

@@ -930,15 +930,15 @@ export default function StaffPayrollPage() {
             </div>
           ) : sickStats ? (
             <div className="grid grid-cols-3 gap-3 mb-4">
-              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-center">
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] p-3 text-center">
                 <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">{sickStats.this_month ?? 0}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("thisMonth", "This Month")}</p>
               </div>
-              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-center">
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] p-3 text-center">
                 <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">{sickStats.last_month ?? 0}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("lastMonth", "Last Month")}</p>
               </div>
-              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-center">
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] p-3 text-center">
                 <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 tabular-nums">{sickStats.weather_related ?? 0}</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{t("weatherDays", "Weather Days")}</p>
               </div>

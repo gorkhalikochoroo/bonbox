@@ -67,12 +67,12 @@ export default function TodayOnShiftCard() {
   if (loading) {
     return (
       <Card>
-        <div className="h-5 w-40 bg-gray-100 dark:bg-gray-800 rounded animate-pulse mb-3" />
+        <div className="h-5 w-40 bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] rounded animate-pulse mb-3" />
         <div className="space-y-2">
           {[0, 1].map((i) => (
             <div
               key={i}
-              className="h-4 w-full bg-gray-100 dark:bg-gray-800 rounded animate-pulse"
+              className="h-4 w-full bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] rounded animate-pulse"
             />
           ))}
         </div>

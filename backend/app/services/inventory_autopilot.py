@@ -75,6 +75,10 @@ from app.models.inventory import InventoryItem
 from app.models.sale import Sale
 from app.models.user import User
 from app.models.weather import DailyWeather
+from app.services.inventory_reorder import (
+    moving_item_ids,
+    stock_page_visible_clause,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -485,12 +489,21 @@ def _urgency_for(
                        days_until_stockout <= lead_time).
       • this_week    — stockout within 7 days from now.
       • monitor      — anything further out.
+
+    `days_until_stockout is None` means the projection never ran out of stock,
+    which for an empty shelf can only mean one thing: nothing is being sold.
     """
-    if current_stock <= 0:
-        return "today"
+    # Order matters, and it used to be the other way round. `current_stock <= 0
+    # → today` was checked FIRST, so an item at zero was maximally urgent with
+    # zero demand behind it — which is how 23 bar-template bottles nobody had
+    # ever poured became the most urgent thing on the owner's screen. An item
+    # the venue does not sell is not an emergency, however empty it is.
     if days_until_stockout is None:
-        # No demand observed → not urgent
         return "monitor"
+    if current_stock <= 0:
+        # Empty AND consumed — the stock-out is already here. This is the case
+        # that must survive every attempt to quieten the tier above.
+        return "today"
     if days_until_stockout <= max(0, lead_time):
         return "today"
     if days_until_stockout <= 7:
@@ -520,10 +533,25 @@ def suggest_reorder_plan(
     history_start = today_d - timedelta(weeks=LOOKBACK_WEEKS)
 
     # ─── Pull tenant-scoped items + history + forecast ─────────────
-    items_q = db.query(InventoryItem).filter(InventoryItem.user_id == user.id)
+    # The same visibility rule Home and /inventory/alerts use, for the same
+    # reason and with more at stake: this plan's lines become supplier ORDER
+    # EMAILS. A row the owner cannot open on any page they can reach must not
+    # turn up in one — that would be the "Reorder needed (23)" lie with a
+    # purchase order attached.
+    items_q = (
+        db.query(InventoryItem)
+        .filter(InventoryItem.user_id == user.id)
+        .filter(stock_page_visible_clause(user))
+    )
     if branch_id is not None:
         items_q = items_q.filter(InventoryItem.branch_id == branch_id)
     items = items_q.all()
+
+    # "Has this venue ever actually handled the item?" — a sale naming it or a
+    # stock movement. The projection alone cannot answer it: an item with no
+    # sales projects zero demand whether it is a dead template placeholder or
+    # a line the till simply never names (flour weighed into dough).
+    moving_ids = moving_item_ids(db, user=user, items=items, today=today_d)
 
     history = _gather_item_history(
         db, user, branch_id, history_start, history_end,
@@ -570,11 +598,18 @@ def suggest_reorder_plan(
         projected_14d = sum(per_day)
         daily_demand = projected_14d / max(SUGGEST_HORIZON_DAYS, 1)
 
-        # Walk forward day-by-day to find stockout
+        # Walk forward day-by-day to find stockout. A day with no projected
+        # demand cannot BE the stockout — without the `q <= 0` guard an item
+        # already at zero reported "stockout today" on day 0 before the walk
+        # consumed anything, which handed _urgency_for a stockout day for an
+        # item nothing is drawing down. None here is the honest answer: the
+        # shelf never runs out because nothing takes from it.
         running = current_stock
         stockout_day: Optional[int] = None
         stockout_date: Optional[str] = None
         for offset, q in enumerate(per_day):
+            if q <= 0:
+                continue
             running -= q
             if running <= 0:
                 stockout_day = offset
@@ -611,7 +646,19 @@ def suggest_reorder_plan(
         net_needed = max(0.0, projected_14d - max(0.0, current_stock))
         # If demand is essentially zero but stock is below min_threshold,
         # at least top us back up to min_threshold (safety floor).
-        if net_needed <= 0 and current_stock < min_threshold:
+        #
+        # Except for the one shape that floor was inventing orders for: an
+        # EMPTY shelf the venue has never once handled. The threshold on such
+        # a row was picked by whatever template seeded it, and "order 200ml of
+        # a vodka you have never poured" is a number BonBox made up. An item
+        # with stock left, or with any movement behind it, still gets the floor
+        # — a real line the owner keeps and has run down is exactly what it is
+        # for. The row itself stays in the plan either way, at `monitor`, so
+        # the owner can still see the empty shelf and decide.
+        floor_is_honest = current_stock > 0 or item.id in moving_ids
+        wants_floor = net_needed <= 0 and current_stock < min_threshold
+        no_demand_signal = wants_floor and not floor_is_honest
+        if wants_floor and floor_is_honest:
             net_needed = min_threshold - current_stock
         if pack_size > 0 and net_needed > 0:
             packs = math.ceil(net_needed / pack_size)
@@ -653,6 +700,12 @@ def suggest_reorder_plan(
                 )
                 notes.append("perishable_waste_risk")
                 compliance_warnings.append(msg)
+        if no_demand_signal:
+            # Says WHY the quantity is zero. Without it a suppressed safety
+            # floor is indistinguishable from "nothing needed here", and the
+            # owner would have no way to tell an item we declined to guess at
+            # from one we checked and cleared.
+            notes.append("no_demand_signal")
         if not supplier_email:
             notes.append("no_supplier_email")
         if item_conf == "low":

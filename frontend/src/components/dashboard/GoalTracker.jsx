@@ -37,7 +37,7 @@ function Bar({ label, current, goal }) {
           {pct}%
         </p>
       </div>
-      <div className="h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+      <div className="h-2 bg-gray-100 dark:bg-[rgb(var(--surface-subtle))] rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all duration-500 ${
             hit ? "bg-emerald-500" : "bg-gray-700 dark:bg-gray-300"
@@ -67,7 +67,7 @@ export default function GoalTracker({ ctx = {} }) {
 
   return (
     <div
-      className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 sm:p-6 space-y-4"
+      className="rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-5 sm:p-6 space-y-4"
       data-zone="2"
       data-component="GoalTracker"
     >

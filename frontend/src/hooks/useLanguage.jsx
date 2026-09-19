@@ -1096,11 +1096,19 @@ const translations = {
     expStatusUpcoming: "14-30 days",
     expConfirmGeneric: "Confirm?",
     fakturaStatusFilterAria: "Status filter",
-    // Tidsregistrering (DK working-time compliance — Arbejdstidsloven)
-    staffTimeReg: "Tidsregistrering",
+    // Working-time register (DK compliance — Arbejdstidsloven).
+    //
+    // These two carried the Danish word in the EN table, which is how an
+    // English session read "Hours · Tidsregistrering · Tips · Payroll" in one
+    // tab strip. The locked set is the NAMES OF ARTEFACTS a business files or
+    // hands over — kasserapport, MOMS, faktura, lønseddel. A tab label and a
+    // page title are ordinary chrome, so they translate; the statute
+    // (Arbejdstidsloven) and the inspectorate (Arbejdstilsynet) stay Danish
+    // in both tables below, because those ARE names.
+    staffTimeReg: "Time tracking",
     yes: "Yes",
     no: "No",
-    tregTitle: "Tidsregistrering",
+    tregTitle: "Time tracking",
     tregSubtitle: "Legal working-time register — ready for Arbejdstilsynet",
     tregDownload: "Download register",
     tregStaff: "Employees",

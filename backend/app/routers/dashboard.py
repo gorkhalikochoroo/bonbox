@@ -5,7 +5,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, Path, Query, Request
-from sqlalchemy import func, extract
+from sqlalchemy import and_, func, extract
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -24,6 +24,10 @@ from app.services.daily_brief import get_or_create_brief
 from app.services.daily_brief_email import send_brief_to_user
 from app.services.anomaly_detector import run_daily_scan, serialize_alert, dismiss_alert
 from app.services.tz_utils import business_today_local
+from app.services.inventory_reorder import (
+    reorder_items,
+    stock_page_visible_clause,
+)
 from app.services.revenue_resolver import (
     effective_revenue_by_date,
     effective_revenue_for_date,
@@ -718,20 +722,28 @@ def get_dashboard_batch(
         "period": month_start.strftime("%B %Y"),
     }
 
-    # ── 8. INVENTORY (from /inventory, limit 50) ─────────────────
-    inventory_items = (
-        db.query(InventoryItem)
-        .filter(InventoryItem.user_id == user.id)
-        .order_by(
-            # Low stock first, then most recently added
-            (InventoryItem.quantity <= InventoryItem.min_threshold).desc(),
-            InventoryItem.created_at.desc(),
-        )
-        .limit(50)
-        .all()
-    )
-    inventory = [
-        {
+    # ── 8. INVENTORY ─────────────────────────────────────────────
+    # Two different questions, and conflating them is what put "Reorder needed
+    # (23)" on Home over an empty Stock page — then, after the first fix, put
+    # NOTHING on Home over a Stock page reading "Low stock (6)".
+    #
+    #   `inventory`         — a DISPLAY sample, capped at 50, for the cards that
+    #                         want a glance at the shelf.
+    #   `inventory_reorder` — the AUTHORITATIVE flagged set, uncapped, the same
+    #                         rows /inventory/alerts returns.
+    #
+    # The card's number must never be a count of the display window. On a
+    # 316-row shop account, all six genuinely low rows were older than the 50
+    # newest and fell outside it — and the ordering that was supposed to rescue
+    # them was vacuous, because `quantity <= min_threshold` is TRUE for every
+    # untouched row at 0/0, so 310 of 316 tied on the first key and recency
+    # decided. The ordering below asks the real predicate instead, so rows that
+    # can never be flagged stop competing for the window.
+    reorder_rows = reorder_items(db, user=user, today=today)
+    flagged_ids = {item.id for item in reorder_rows}
+
+    def _inventory_row(item: InventoryItem) -> dict:
+        return {
             "id": str(item.id),
             "name": item.name,
             "quantity": float(item.quantity),
@@ -741,9 +753,33 @@ def get_dashboard_batch(
             "sell_price": float(item.sell_price) if hasattr(item, "sell_price") and item.sell_price else None,
             "category": item.category,
             "expiry_date": str(item.expiry_date) if item.expiry_date else None,
+            # The card reads THIS, never its own quantity/threshold arithmetic:
+            # the demand half of the rule needs sales and logs the browser does
+            # not have. A client that finds the field absent (an older deploy)
+            # must render no card rather than fall back to the old predicate —
+            # "we could not check" is not the same answer as "nothing is low".
+            "needs_reorder": item.id in flagged_ids,
         }
-        for item in inventory_items
-    ]
+
+    inventory_items = (
+        db.query(InventoryItem)
+        .filter(InventoryItem.user_id == user.id)
+        .filter(stock_page_visible_clause(user))
+        .order_by(
+            # Low stock first — asking the predicate that can actually flag a
+            # row, not the one every 0/0 placeholder satisfies — then most
+            # recently added.
+            and_(
+                InventoryItem.min_threshold > 0,
+                InventoryItem.quantity <= InventoryItem.min_threshold,
+            ).desc(),
+            InventoryItem.created_at.desc(),
+        )
+        .limit(50)
+        .all()
+    )
+    inventory = [_inventory_row(item) for item in inventory_items]
+    inventory_reorder = [_inventory_row(item) for item in reorder_rows]
 
     # ── 9. TOP SELLERS (from /dashboard/top-sellers) ─────────────
     since_30d = today - timedelta(days=30)
@@ -1025,6 +1061,9 @@ def get_dashboard_batch(
         "expense_categories": expense_categories,
         "benchmarks": benchmarks,
         "inventory": inventory,
+        # The complete flagged set, not the flagged part of the 50-row sample.
+        # Home's card counts THIS — see section 8.
+        "inventory_reorder": inventory_reorder,
         "top_sellers": top_sellers,
         "action_items": action_items_list,
         "week_comparison": week_comparison,

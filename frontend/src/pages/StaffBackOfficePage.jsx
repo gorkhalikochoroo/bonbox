@@ -15,8 +15,7 @@
  * The legacy /staff/time-registration, /staff/tips, /staff/payroll routes stay
  * registered (App.jsx) but now <Navigate replace> here with the matching ?tab,
  * so old bookmarks, deep links, push-notification targets, and ⌘K all land
- * correctly. (DK terminology lock: the "Løn" tab keeps its Danish label even
- * in the EN UI.)
+ * correctly. (All four tab labels translate — see the note at the strip.)
  *
  * Layout note: this mirrors ImportsPage exactly — every child page already
  * brings its own page gutters / max-width / PageHeader, so this wrapper does
@@ -100,12 +99,31 @@ export default function StaffBackOfficePage() {
     setSearchParams({ tab: id }, { replace: true });
   };
 
+  // All four are ordinary UI chrome — the DK terminology lock covers the tax
+  // and revisor vocabulary (kasserapport/revisor/MOMS/faktura/lønseddel), not
+  // a tab name — so every one of them translates.
   const tabs = [
     { id: "hours", label: t("staffHours") },        // Timer / Hours
-    { id: "time", label: t("staffTimeReg") },       // Tidsregistrering
+    { id: "time", label: t("staffTimeReg") },       // Tidsregistrering / Time tracking
     { id: "tips", label: t("staffTips") },          // Drikkepenge / Tips
-    { id: "payroll", label: t("staffPayroll") },    // Løn (DK lock, EN too)
+    { id: "payroll", label: t("staffPayroll") },    // Løn / Payroll
   ].filter((tab) => !(wagesHidden && WAGE_TABS.includes(tab.id)));
+  // An English session was read as "Hours · Tidsregistrering · Tips · Løn" —
+  // four labels, two languages. ONE half is accounted for: `staffTimeReg` was
+  // literally "Tidsregistrering" in the `en` table, so an English session got
+  // a Danish word with every key present and no t() fallback involved. The
+  // tregTitle PAGE header moved with it — a tab and the header under it are
+  // one noun.
+  //
+  // The "Løn" half is NOT explained. `staffPayroll` reads "Payroll" in the EN
+  // table at d495a4cf and in the deployed bundle, t() falls back to EN and
+  // only to EN (`loaded[lang]?.[key] || loaded.en[key]`), and this is the one
+  // place in the app that resolves the tab — so no code path reachable from
+  // here produces "Løn" in an English session. Either the session's language
+  // had not settled when it was read, or the label was mis-transcribed. Said
+  // plainly rather than tidied away: an unexplained observation is a thing to
+  // look at again, and a comment that claims it was fixed stops anyone doing
+  // so. See staffHoursTabStripI18n.test.jsx, which pins both halves.
 
   // A skeleton, not the page: mounting the child and unmounting it a beat later
   // is the bug, not the fix for it. One short frame of grey is the honest
