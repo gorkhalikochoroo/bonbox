@@ -595,8 +595,8 @@ export default function BonBoxAgent() {
             hidden md:flex
             fixed md:bottom-6 right-6 z-[9999]
             w-14 h-14 rounded-full
-            bg-gradient-to-br from-emerald-500 to-emerald-600
-            shadow-lg shadow-emerald-500/30
+            bg-[rgb(var(--brand-green))] hover:bg-[rgb(var(--brand-green-hover))]
+            shadow-lg shadow-[0_10px_20px_-6px_rgb(var(--brand-green)/0.45)]
             items-center justify-center
             cursor-pointer select-none
             transition-transform duration-300 ease-out
@@ -688,11 +688,14 @@ export default function BonBoxAgent() {
           {/* ========= HEADER ========= */}
           <div className="flex items-center justify-between px-5 py-3.5 max-sm:pt-[max(0.875rem,env(safe-area-inset-top))] border-b border-white/[0.06] shrink-0">
             <div className="flex items-center gap-3">
-              {/* animated brain icon — emerald accent inside the dark
-                  panel keeps the BonBox brand color visible at the top
-                  of every conversation. */}
+              {/* The brand mark inside the dark panel. On the token, not on a
+                  gradient: index.css remaps the gradient `to-emerald-*`
+                  utilities to the venue theme, so "from-emerald-500
+                  to-emerald-600" rendered emerald→BLUE on the default theme —
+                  the one place in the app still shipping two accents at once,
+                  and on every page, since this floats above all of them. */}
               <div
-                className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-sm shadow-emerald-500/30"
+                className="w-8 h-8 rounded-lg bg-[rgb(var(--brand-green))] flex items-center justify-center shadow-sm"
                 style={{ animation: "neuralPulse 3s ease-in-out infinite" }}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-white">
