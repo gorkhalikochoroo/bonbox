@@ -14878,11 +14878,32 @@ const translations = {
     // fordi udløseren er Smart Scan-integrationen.
     "smartScan.invoiceLoadingDraft": "Åbner faktura…",
     "smartScan.invoiceLoadFailed": "Kunne ikke åbne tidligere registreret faktura — vælg billede igen.",
-    // Cultural events (migration 013, kulturarrangør sprint). "Event"
-    // stays English in the DK UI per Manoj's Sudip interviews — owners
-    // say "event" out loud, "begivenhed" reads as bureaucratic.
-    events: "Events",
-    eventsTitle: "Events",
+    // Cultural events (migration 013, kulturarrangør sprint).
+    //
+    // NAMING vs PROSE — these two lines are the NAME of the pillar, the rest
+    // of this block is prose, and they follow different rules.
+    //
+    // The name is "Arrangementer", per the DK terminology lock declared on the
+    // DoorScan block above ('"arrangement" / "billet" / "scanner" stay close to
+    // the Danish phrasing') and honoured by ~25 keys: the whole public booking
+    // flow (bookingAboutEvent, bookingBackToEvent…), the door-scan copy
+    // (scanTitle "Vælg arrangement"), and the pillar surfaces
+    // (pillarLabelEvents, pillarGateEventsTitle/Body). These two were the
+    // holdouts, and the disagreement was VISIBLE: navManifest points its nav
+    // row and ⌘K result at `events` while the pillar card points at
+    // `pillarLabelEvents`, so one Danish account showed "Events" in ⌘K and
+    // "Arrangementer" on the card — two names for one destination. eventsTitle
+    // moves with it because it is the H1 the nav row lands on.
+    //
+    // This does NOT overturn the Sudip interview finding recorded here before:
+    // that finding rejected "begivenhed" as bureaucratic, and "arrangement" is
+    // the ordinary spoken Danish noun the lock already chose instead — the
+    // same word the owner's own guests read on the booking page. The
+    // conversational prose below deliberately keeps "event" ("Nyt event",
+    // "Ingen events endnu"): that register is the interview finding's actual
+    // subject, and changing it is a voice call for Manoj, not a defect fix.
+    events: "Arrangementer",
+    eventsTitle: "Arrangementer",
     eventsSubtitle: "Tag salg med det kulturelle event eller pop-up de hører til. Ét klik viser omsætning, gæster og MOMS per event.",
     eventsNew: "Nyt event",
     eventsEmpty: "Ingen events endnu. Opret et for at begynde at tagge salg.",

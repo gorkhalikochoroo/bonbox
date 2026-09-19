@@ -4643,14 +4643,26 @@ function LoadingSkeleton() {
 
 // ─── Error / Not Found ────────────────────────────────────────────────────
 
-function PortalError({ message }) {
+// `expected` marks the classified dead/expired-link case (see the token-
+// validation catch). It is the difference between showing the staffer copy
+// written for them in their own language and showing FastAPI's English.
+function PortalError({ message, expected = false }) {
   const { t } = useLanguage();
   return (
     <div className="min-h-screen bg-[#f5f7fb] flex items-center justify-center p-6">
       <div className="text-center max-w-xs">
         <Inbox className="w-8 h-8 text-gray-300 mb-3 mx-auto" strokeWidth={2} aria-hidden />
         <h1 className="text-xl font-bold text-gray-900 mb-2">{t("portalErrorTitle", "Link not working")}</h1>
-        <p className="text-sm text-gray-500">{message || t("portalErrorBody", "This link may have expired or been deactivated. Ask your manager for a new one.")}</p>
+        {/* Catalogue copy wins for the expected dead/expired link — it exists
+            in real en+da and it tells the staffer what to DO ("ask your manager
+            for a new one"), which a server status string never does. `message`
+            is raw server English, so it only earns the slot when we could not
+            classify the failure and it is the only clue available. */}
+        <p className="text-sm text-gray-500">
+          {expected || !message
+            ? t("portalErrorBody", "This link may have expired or been deactivated. Ask your manager for a new one.")
+            : message}
+        </p>
         {/* Deliberately a raw <a>, NOT a react-router <Link>: this is the
             "link not working" screen for a dead/expired portal token, and the
             full document load is what discards that token and the portal's
@@ -6530,7 +6542,23 @@ export default function StaffPortalPage() {
         try { localStorage.setItem("bonbox_portal_token", token); } catch { /* private mode */ }
       })
       .catch((err) => {
-        setError(errText(err, "Link not found"));
+        // A burned, deactivated or expired staff link is the EXPECTED way to
+        // reach this branch, not a fault worth reporting verbatim. The backend
+        // answers it with 404 — "Link not found or inactive", and "Staff member
+        // not found" once the owner has erased the employee. Those are raw
+        // English FastAPI detail strings, and PortalError used to render them
+        // in place of its own copy, which put an English sentence directly
+        // under the Danish heading "Link virker ikke" on the ONE screen a
+        // staffer sees when their link stops working.
+        //
+        // So classify here rather than in the view: flag the expected case and
+        // let the screen use the da/en catalogue copy, and keep the server's
+        // own text for statuses we did not anticipate, where it is the only
+        // clue anyone gets. Backend untouched — this is a rendering decision.
+        setError({
+          expected: err?.response?.status === 404,
+          text: errText(err, "Link not found"),
+        });
         setLoading(false);
         // A dead link must not keep booting an installed app (PWA or the
         // Scheduler shell — both launch to "/") into this error screen:
@@ -6967,7 +6995,10 @@ export default function StaffPortalPage() {
   }
 
   // Error state
-  if (error) return <PortalError message={error} />;
+  // `error` is {expected, text} — see the token-validation catch. Still a
+  // plain truthiness gate: an object is always truthy, so the screen shows
+  // exactly when it did before.
+  if (error) return <PortalError message={error.text} expected={error.expected} />;
 
   // PIN gate
   if (info?.has_pin && !pinVerified) {
