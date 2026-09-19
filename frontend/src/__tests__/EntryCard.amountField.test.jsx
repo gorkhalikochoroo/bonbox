@@ -51,16 +51,17 @@ const field = () => screen.getByPlaceholderText(/custom amount|beløb/i);
 const addButton = () => screen.getByRole("button", { name: /save|gem|tilføj|add/i });
 
 describe("øre are enterable", () => {
-  it('carries step="any" so decimals are not a stepMismatch', () => {
+  it("carries no step, because a text field has no stepMismatch to dodge", () => {
+    // `step="any"` existed to stop a number input rejecting 347.50 outright.
+    // The field is text now (see the block at the bottom of this file), so
+    // the whole class of problem is gone rather than worked around.
     renderCard();
-    expect(field()).toHaveAttribute("step", "any");
+    expect(field().hasAttribute("step")).toBe(false);
   });
 
-  it("does not pin step to a numeric value that only guards one submit path", () => {
-    // handleSubmit calls preventDefault before the form submits, so a numeric
-    // step would validate the Enter path and silently skip the tap path.
-    renderCard();
-    expect(field().getAttribute("step")).not.toMatch(/^[\d.]+$/);
+  it("accepts øre in the owner's own notation", () => {
+    renderCard({ amount: "347,50" });
+    expect(addButton()).toBeEnabled();
   });
 
   it("keeps the numeric keypad on phones", () => {
@@ -103,32 +104,50 @@ describe("the submit gate", () => {
 
 // ── where the fail-closed guarantee actually lives ───────────────────────
 //
-// Worth being precise, because it is easy to credit the wrong mechanism and
-// then remove the right one. `parsed` reads the prop with parseFloat, and
-// parseFloat SALVAGES: "347-50" → 347, "18-08 347,50" → 18, "347,50,25" → 347.
-// Feed any of those in as a prop and the submit button lights up.
+// It used to live in the input TYPE. type="number" sanitised anything that was
+// not a canonical number to "", and the note here said so, and warned that
+// switching to text would remove the only thing standing between a typo and
+// the ledger "unless something stricter replaces it" — naming parseLocaleAmount
+// as explicitly NOT that parser, since it salvages.
 //
-// Production never can, because type="number" sanitises anything that is not a
-// canonical number to "" before it reaches state — verified live: typing
-// "347,50" in an en-locale browser leaves value === "". The input TYPE is the
-// validator; `parsed` is only a positivity check downstream of it.
+// That exit condition fired on 2026-09-20. The type was never the guard it was
+// credited as: typing "1.500,50" into the live Expenses field on an
+// English-locale browser produced value === "1.50050", validity.badInput
+// FALSE, parseFloat 1.5005 — positive, so the gate went green and a Dane's
+// 1.500,50 kr would have been booked as 1,50 kr. Fail-closed it was not; it
+// was fail-silent, in the direction of a thousandfold error.
 //
-// So changing this field to type="text" does not merely change a keyboard —
-// it removes the only thing standing between a typo and the ledger, and would
-// require a strict validating parser to replace it. parseLocaleAmount is NOT
-// that parser (it is a salvager, by its own docblock and by measurement).
-describe("the input type is the validator", () => {
-  it("is type=number, which sanitises non-numeric input to empty", () => {
+// So the guarantee moved to where it can actually be enforced: the field is
+// text, and parseMoneyInput — the STRICT parser, not the salvager — reads it
+// in the account's notation. The tests below are the ones that matter now.
+describe("the parser is the validator", () => {
+  it("is a text field, so the browser cannot rewrite the keystrokes", () => {
     renderCard();
-    expect(field()).toHaveAttribute("type", "number");
+    expect(field()).toHaveAttribute("type", "text");
   });
 
-  it("shows that parsed alone would NOT reject salvageable junk", () => {
-    // Not aspirational — this documents why the type attribute must stay
-    // unless something stricter replaces it. If this ever starts failing,
-    // `parsed` became strict and the type may safely be reconsidered.
+  it("refuses the exact string the old number field produced", () => {
+    // "1.50050" — what the browser handed over when a Dane typed 1.500,50.
+    renderCard({ amount: "1.50050" });
+    expect(addButton()).toBeDisabled();
+  });
+
+  it("still refuses the salvageable junk the old note was written about", () => {
+    // Each of these lit the button green under parseFloat, and would light it
+    // green under parseLocaleAmount too. The strict parser returns NaN.
+    for (const junk of ["347-50", "1.234.56", "12,34,56", "1,234"]) {
+      const { unmount } = renderCard({ amount: junk });
+      expect(addButton(), `${junk} must not unlock submit`).toBeDisabled();
+      unmount();
+    }
+  });
+
+  it("says why, instead of sitting inert", () => {
+    // The old field's refusal was invisible: the browser emptied the box and
+    // nothing explained it. A refusal the owner cannot see is indistinguishable
+    // from a field that is ignoring them.
     renderCard({ amount: "347-50" });
-    expect(addButton()).toBeEnabled();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 });
 

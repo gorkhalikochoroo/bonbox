@@ -500,9 +500,12 @@ export default function ExpensesPage() {
       && fxOriginalAmountNum > 0
       && typeof fxEffectiveRate === "number"
       && fxEffectiveRate > 0;
+    // parseMoneyInput, not parseFloat: the amount field is text now, so what
+    // the owner typed arrives intact — "1.500,50" and all. parseFloat would
+    // read that as 1.5, which is the same money loss by the other route.
     const value = isForeign
       ? Number(fxConvertedAccount.toFixed(2))
-      : parseFloat(amount);
+      : parseMoneyInput(amount, moneyLocale(currency));
     if (!value || value <= 0) return;
 
     let finalCatId = catId;
@@ -1271,6 +1274,7 @@ export default function ExpensesPage() {
             autoFocusAmount
             amount={amount}
             onAmountChange={(v) => { setAmount(v); markTouched("amount"); markTouched("total"); }}
+            amountLocale={moneyLocale(currency)}
             amountPlaceholder={
               detailedOpen
                 ? `${t("customAmount")} ${getTaxConfig(user?.currency).rate > 0 ? `(${getTaxConfig(user?.currency).label})` : ""}`

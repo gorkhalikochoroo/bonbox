@@ -69,6 +69,7 @@ import Button from "./Button";
 import Chip from "./Chip";
 import Input from "./Input";
 import { useLanguage } from "../../hooks/useLanguage";
+import { parseMoneyInput } from "../../utils/currency";
 
 function formatPreset(v) {
   // Presets come in as numbers (500, 1000, 2500). We format with
@@ -92,6 +93,11 @@ export default function EntryCard({
   onAmountChange,
   amountPlaceholder = "Custom amount...",
   amountSuffix = null,
+  // The owner's own money notation. "da-DK" reads 1.500,50; "en-US" reads
+  // 1,500.50. Defaulted to Danish because this is a Denmark-first product and
+  // a silent wrong default here is the exact bug this prop exists to close;
+  // callers pass moneyLocale(currency) so a USD account is read its way.
+  amountLocale = "da-DK",
   paymentMethods = [],
   paymentMethod = null,
   onPaymentChange,
@@ -121,19 +127,31 @@ export default function EntryCard({
   // touch target. We only trim chrome, never the tap surfaces.
   const compact = density === "compact";
   // Amount validity — submit unlocks only when a positive number parses.
-  // We accept "1.234,56" (DK), "1234.56" (US), and bare ints. The parent
-  // is responsible for sending the value to the API in its canonical
-  // form; here we only care "does this round-trip to a positive number".
+  //
+  // This used to read the field with parseFloat, on the stated grounds that
+  // the Input was type="number" and therefore already canonical dot-decimal.
+  // The premise was false, and it cost money. Reproduced on production
+  // 2026-09-20 by typing into the live Expenses field: a browser on an
+  // English locale accepts "1.500,50" keystroke by keystroke, drops the
+  // comma, keeps the dot, and hands over "1.50050" with validity.badInput
+  // FALSE. parseFloat then returns 1.5005 — a positive number, so submit
+  // unlocked and a Dane's 1.500,50 kr expense was booked as 1,50 kr. A
+  // thousandfold error, silent, with the guard reporting success.
+  //
+  // So the field is now text and parseMoneyInput — the strict parser — reads
+  // it. It is NOT parseLocaleAmount: that one salvages (it would read a bare
+  // "1.234" as 1234), and a keyed money field must refuse what it cannot read
+  // rather than guess at it. `amountLocale` decides whether "1.234,56" or
+  // "1,234.56" is the owner's notation; callers pass moneyLocale(currency).
   const parsed = (() => {
     if (amount === "" || amount === null || amount === undefined) return NaN;
     if (typeof amount === "number") return amount;
-    // The Input above is type="number", so .value is already canonical
-    // dot-decimal — parseFloat is the correct reader. Do NOT route it
-    // through parseLocaleAmount: that parser exists for human text and
-    // would read "1.234" as 1234 under Danish grouping rules.
-    const n = parseFloat(String(amount).trim().replace(/\s/g, ""));
-    return Number.isFinite(n) ? n : NaN;
+    return parseMoneyInput(amount, amountLocale);
   })();
+  // Typed something that does not parse: say so rather than sit inert. An
+  // empty field is not an error — it is the resting state.
+  const amountRejected =
+    amount !== "" && amount !== null && amount !== undefined && !(parsed > 0);
   const canSubmit = !disabled && !busy && parsed > 0;
 
   const handleSubmit = (e) => {
@@ -204,21 +222,20 @@ export default function EntryCard({
           <div className="flex-1 min-w-0">
             <Input
               ref={amountRef}
-              type="number"
-              // Without this, `step` defaults to 1 and every decimal amount is
-              // invalid BY SPEC, in every browser: 347.50 raised "Please enter
-              // a valid value. The two nearest valid values are 347 and 348."
-              // and blocked the Enter/implicit-submit path outright. An owner
-              // could not enter øre by keyboard at all. Verified on production.
+              // TEXT, not number. A number input silently rewrites what the
+              // owner typed: on an English-locale browser "1.500,50" arrives
+              // as "1.50050" with no validation error, which is how a
+              // 1.500,50 kr expense became 1,50 kr on production. Text keeps
+              // the keystrokes intact and parseMoneyInput above decides, in
+              // the owner's own notation, whether they mean anything.
               //
-              // "any" rather than "0.01" on purpose. `step` only fires on the
-              // native submit path — the tap path calls preventDefault() in
-              // handleSubmit before the form ever submits — so a numeric step
-              // would be a validator that silently covers one of the two ways
-              // in. Better inert and honest than half-enforcing a money rule.
-              // A real bound belongs server-side, where both paths meet.
-              step="any"
+              // inputMode="decimal" keeps the numeric keypad on a phone, so
+              // the daily-typed field loses nothing at the till. (The old
+              // `step="any"` is gone with the number type: it existed only to
+              // stop the browser rejecting øre, a problem text does not have.)
+              type="text"
               inputMode="decimal"
+              autoComplete="off"
               size="lg"
               value={amount ?? ""}
               onChange={(e) =>
@@ -227,8 +244,19 @@ export default function EntryCard({
               placeholder={amountPlaceholder}
               suffix={amountSuffix}
               aria-label={t("amount", "Amount")}
+              aria-invalid={amountRejected || undefined}
+              aria-describedby={amountRejected ? "entrycard-amount-error" : undefined}
               required
             />
+            {amountRejected && (
+              <p
+                id="entrycard-amount-error"
+                role="alert"
+                className="mt-1 text-[11px] text-red-600 dark:text-red-400"
+              >
+                {t("invalidAmount")}
+              </p>
+            )}
           </div>
           <Button
             type="submit"

@@ -31,7 +31,7 @@ import ReceiptViewer from "../components/ReceiptViewer";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { errText } from "../utils/errText";
-import { displayCurrency, getTaxConfig, formatOwnerMoney } from "../utils/currency";
+import { displayCurrency, getTaxConfig, formatOwnerMoney, parseMoneyInput, moneyLocale } from "../utils/currency";
 import { formatDate, formatDateClear, localIso, businessTodayIso } from "../utils/dateFormat";
 import { cutoffHourFor } from "../config/archetypes";
 import TaxBreakdown from "../components/TaxBreakdown";
@@ -338,7 +338,10 @@ export default function SalesPage() {
   }, [editId, returnMode]);
 
   const submit = async (amt) => {
-    const value = amt || parseFloat(amount);
+    // parseMoneyInput, not parseFloat: the EntryCard amount field is text, so
+    // the owner's own notation arrives intact. parseFloat("1.500,50") is 1.5 —
+    // the same thousandfold loss the field was changed to stop.
+    const value = amt || parseMoneyInput(amount, moneyLocale(user?.currency));
     if (!value) return;
     const duplicate = sales.find(s => s.date === saleDate && parseFloat(s.amount) === value);
     if (duplicate && !(await confirm({ message: `${t("aSaleOf")} ${formatOwnerMoney(value, user?.currency)} ${t("on")} ${formatDate(saleDate)} ${t("duplicateSaleConfirm")}`, destructive: false }))) {
@@ -939,6 +942,7 @@ export default function SalesPage() {
       <div className={rightRailMode === "session4tile" ? "grid grid-cols-1 lg:grid-cols-4 gap-4" : ""}>
         <div className={rightRailMode === "session4tile" ? "lg:col-span-3" : ""}>
           <EntryCard
+            amountLocale={moneyLocale(user?.currency)}
             title={t("logSale")}
             hint={t("tapAmount")}
             amountPresets={QUICK_AMOUNTS}
