@@ -2742,6 +2742,8 @@ const translations = {
     // server refuses them anyway.
     dcDeleteDraftTitle: "Delete this kladde?",
     dcDeleteDraftBody: "This draft is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
+    dcDeleteDraftTitleDated: "Delete the kladde for {date}?",
+    dcDeleteDraftBodyAmount: "This kladde shows {amount}. It is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
     dcDeleting: "Deleting…",
     dcDeleteFailed: "Could not delete this draft.",
     // Date-range export
@@ -11018,6 +11020,8 @@ const translations = {
     // og serveren afviser den under alle omstændigheder.
     dcDeleteDraftTitle: "Slet denne kladde?",
     dcDeleteDraftBody: "Kladden fjernes fra din historik og fra alt, du sender til din revisor. Låste lukninger kan ikke slettes.",
+    dcDeleteDraftTitleDated: "Slet kladden for {date}?",
+    dcDeleteDraftBodyAmount: "Denne kladde viser {amount}. Den fjernes fra din historik og fra alt, du sender til din revisor. Låste lukninger kan ikke slettes.",
     dcDeleting: "Sletter…",
     dcDeleteFailed: "Kunne ikke slette kladden.",
     // Eksport af en periode

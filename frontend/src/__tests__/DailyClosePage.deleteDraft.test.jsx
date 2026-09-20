@@ -80,10 +80,36 @@ describe("a draft kasserapport can be deleted", () => {
 
   it("the dialog is marked destructive and carries translated copy", () => {
     const start = CODE.indexOf("const deleteDraft = async");
-    const body = CODE.slice(start, start + 1400);
+    const body = CODE.slice(start, start + 1800);
     expect(body).toMatch(/destructive:\s*true/);
-    expect(body).toMatch(/t\(\s*"dcDeleteDraftTitle"/);
-    expect(body).toMatch(/t\(\s*"dcDeleteDraftBody"/);
+    expect(body).toMatch(/t\(\s*"dcDeleteDraftTitleDated"/);
+    expect(body).toMatch(/t\(\s*"dcDeleteDraftBodyAmount"/);
+  });
+
+  it("the dialog names the day and the total it is about to remove", () => {
+    // Walked live on the founder's own account: two drafts sat next to each
+    // other in History and both Delete buttons opened a dialog reading
+    // "Delete this kladde?". Identical copy, different day — the only thing
+    // between the owner and the wrong one was their memory of which button
+    // they tapped. The dialog must repeat the row back to them.
+    const start = CODE.indexOf("const deleteDraft = async");
+    const body = CODE.slice(start, start + 1800);
+    // The day label is built from THIS row's date…
+    expect(body).toMatch(/const dayLabel = new Date\(dc\.date\)\.toLocaleDateString\(dateLocale\(\)/);
+    // …in the same words the row header uses, so the dialog echoes what the
+    // owner is looking at rather than a second, differently-formatted date.
+    expect(body).toMatch(/weekday:\s*"short",\s*day:\s*"numeric",\s*month:\s*"short",\s*year:\s*"numeric"/);
+    expect(body).toMatch(/\{\s*date:\s*dayLabel\s*\}/);
+    // And the amount is this row's own total, through the owner-money
+    // formatter — never a bare toLocaleString.
+    expect(body).toMatch(/amount:\s*formatOwnerMoney\(dc\.revenue_total \?\? 0, currency/);
+  });
+
+  it("the row header and the dialog cannot drift apart", () => {
+    // Both must keep formatting the date the same way; if one is changed the
+    // other has to be changed with it.
+    const opts = /weekday: "short", day: "numeric", month: "short", year: "numeric"/g;
+    expect((CODE.match(opts) || []).length).toBeGreaterThanOrEqual(2);
   });
 
   it("a refused delete says so in the row instead of failing silently", () => {
@@ -138,7 +164,14 @@ const resolve = (tkey, lang) => {
 describe("the delete copy is real in en and da", () => {
   beforeEach(() => localStorage.clear());
 
-  it.each(["dcDeleteDraftTitle", "dcDeleteDraftBody", "dcDeleting", "dcDeleteFailed"])(
+  it.each([
+    "dcDeleteDraftTitle",
+    "dcDeleteDraftBody",
+    "dcDeleteDraftTitleDated",
+    "dcDeleteDraftBodyAmount",
+    "dcDeleting",
+    "dcDeleteFailed",
+  ])(
     "%s resolves in both languages",
     (key) => {
       for (const lang of ["en", "da"]) {
@@ -149,6 +182,17 @@ describe("the delete copy is real in en and da", () => {
       expect(resolve(key, "da")).not.toBe(resolve(key, "en"));
     },
   );
+
+  it("the dated copy really has somewhere to put the day and the amount", () => {
+    // A placeholder dropped in translation is how a dialog goes back to being
+    // anonymous in one language while the guard above still passes.
+    for (const lang of ["en", "da"]) {
+      expect(resolve("dcDeleteDraftTitleDated", lang)).toContain("{date}");
+      expect(resolve("dcDeleteDraftBodyAmount", lang)).toContain("{amount}");
+      // The body keeps the rule that protects the record.
+      expect(resolve("dcDeleteDraftBodyAmount", lang).toLowerCase()).toContain("revisor");
+    }
+  });
 
   it("the Danish copy uses the words the owner knows", () => {
     expect(resolve("dcDeleteDraftTitle", "da").toLowerCase()).toContain("kladde");

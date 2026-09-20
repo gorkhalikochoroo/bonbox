@@ -4334,11 +4334,20 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
    * writes an audit row, both server-side.
    */
   const deleteDraft = async (dc) => {
+    // "Delete this kladde?" was true of every row on the page. With two drafts
+    // next to each other the dialog looked identical for both, so the only
+    // thing standing between the owner and the wrong day was their memory of
+    // which button they tapped. The dialog now repeats the day back in the
+    // same words the row uses, and states the total it is about to remove.
+    const dayLabel = new Date(dc.date).toLocaleDateString(dateLocale(), {
+      weekday: "short", day: "numeric", month: "short", year: "numeric",
+    });
     const ok = await confirm({
-      title: t("dcDeleteDraftTitle", "Delete this kladde?"),
+      title: t("dcDeleteDraftTitleDated", "Delete the kladde for {date}?", { date: dayLabel }),
       message: t(
-        "dcDeleteDraftBody",
-        "This draft is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
+        "dcDeleteDraftBodyAmount",
+        "This kladde shows {amount}. It is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
+        { amount: formatOwnerMoney(dc.revenue_total ?? 0, currency, { decimals: GLANCE_DECIMALS }) },
       ),
       confirmLabel: t("delete", "Delete"),
       cancelLabel: t("cancel", "Cancel"),
