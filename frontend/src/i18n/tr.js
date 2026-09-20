@@ -6871,4 +6871,18 @@ export const tr = {
   dcDeleteFailed: "Kladde silinemedi.",
   dcDeleteDraftTitleDated: "{date} tarihli kladde silinsin mi?",
   dcDeleteDraftBodyAmount: "Bu kladde {amount} gösteriyor — geçmişinden ve revisor'una gönderdiğin her şeyden kaldırılır. Kilitli kapanışlar silinemez.",
+
+  // Keys the EN table was missing; see useLanguage.jsx for the note.
+  scanMenuExtracting: "AI menüyü okuyor…",
+  scanMenuExtractingHint: "Genelde 5–15 saniye",
+  scanMenuNothingFound: "Menüde ürün bulunamadı. Daha net bir fotoğraf dene.",
+  scanMenuTryAnother: "Başka bir fotoğraf dene",
+  scanMenuFoundItems: "{count} ürün bulundu",
+  scanMenuSelectAll: "Tümünü seç",
+  scanMenuClear: "Temizle",
+  scanMenuBack: "Geri",
+  scanMenuSaving: "Kaydediliyor…",
+  scanMenuImportCount: "{count} ürünü içe aktar",
+  onbExploreWithSampleData: "Kendi rakamlarını girmeye hazır değil misin? Önce örnek verilerle bak →",
+  rsvpWaitlistTitle: "Bekleme listesi",
 };

@@ -2744,6 +2744,22 @@ const translations = {
     dcDeleteDraftBody: "This draft is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
     dcDeleteDraftTitleDated: "Delete the kladde for {date}?",
     dcDeleteDraftBodyAmount: "This kladde shows {amount} — it is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
+    // ── Keys the raw-key-leak guard reported as EN-missing ──
+    // They rendered their inline fallback, so nobody saw a raw key — but a
+    // Danish owner read English on the onboarding CTA, and an English one
+    // read "Venteliste". Real copy in every offered language now.
+    scanMenuExtracting: "AI is reading the menu…",
+    scanMenuExtractingHint: "Usually 5–15 seconds",
+    scanMenuNothingFound: "No menu items found. Try a clearer photo.",
+    scanMenuTryAnother: "Try another photo",
+    scanMenuFoundItems: "Found {count} items",
+    scanMenuSelectAll: "Select all",
+    scanMenuClear: "Clear",
+    scanMenuBack: "Back",
+    scanMenuSaving: "Saving…",
+    scanMenuImportCount: "Import {count} items",
+    onbExploreWithSampleData: "Not ready to add your own numbers? Explore with sample data first →",
+    rsvpWaitlistTitle: "Waitlist",
     // ── Destructive dialogs name the row they are about to act on ──
     // An audit of all 54 confirm() call sites found 21 that did not: the
     // same sentence opened from every row of a list. See the kasserapport
@@ -11093,6 +11109,22 @@ const translations = {
     dcDeleteDraftBody: "Kladden fjernes fra din historik og fra alt, du sender til din revisor. Låste lukninger kan ikke slettes.",
     dcDeleteDraftTitleDated: "Slet kladden for {date}?",
     dcDeleteDraftBodyAmount: "Denne kladde viser {amount} — den fjernes fra din historik og fra alt, du sender til din revisor. Låste lukninger kan ikke slettes.",
+    // ── Keys the raw-key-leak guard reported as EN-missing ──
+    // They rendered their inline fallback, so nobody saw a raw key — but a
+    // Danish owner read English on the onboarding CTA, and an English one
+    // read "Venteliste". Real copy in every offered language now.
+    scanMenuExtracting: "AI læser menukortet…",
+    scanMenuExtractingHint: "Typisk 5–15 sekunder",
+    scanMenuNothingFound: "Fandt ingen retter. Prøv et skarpere billede.",
+    scanMenuTryAnother: "Prøv et andet billede",
+    scanMenuFoundItems: "Fandt {count} varer",
+    scanMenuSelectAll: "Vælg alle",
+    scanMenuClear: "Ryd",
+    scanMenuBack: "Tilbage",
+    scanMenuSaving: "Gemmer…",
+    scanMenuImportCount: "Importér {count} varer",
+    onbExploreWithSampleData: "Ikke klar til at taste dine egne tal? Se det hele med demotal først →",
+    rsvpWaitlistTitle: "Venteliste",
     // ── Destructive dialogs name the row they are about to act on ──
     // An audit of all 54 confirm() call sites found 21 that did not: the
     // same sentence opened from every row of a list. See the kasserapport

@@ -1016,7 +1016,15 @@ export default function CompetitorPage({ embedded = false }) {
                     <>
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-gray-500">
-                          {t("scanMenuFoundCount", "Found")} <strong>{extractedItems.length}</strong> {t("scanMenuItems", "items")}
+                          {(() => {
+                            // One string, split on its own placeholder: the
+                            // count stays bold and the sentence keeps whatever
+                            // word order the language actually uses.
+                            const [before, after = ""] = t(
+                              "scanMenuFoundItems", "Found {count} items",
+                            ).split("{count}");
+                            return (<>{before}<strong>{extractedItems.length}</strong>{after}</>);
+                          })()}
                           {scanConfidence && (
                             <span className={
                               "ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold " +
@@ -1079,7 +1087,9 @@ export default function CompetitorPage({ embedded = false }) {
                 >
                   {bulkSaving
                     ? t("scanMenuSaving", "Saving…")
-                    : t("scanMenuImport", "Import") + " " + extractedItems.filter((i) => i.include).length + " " + t("scanMenuItems", "items")}
+                    : t("scanMenuImportCount", "Import {count} items", {
+                        count: extractedItems.filter((i) => i.include).length,
+                      })}
                 </button>
               </div>
             )}
