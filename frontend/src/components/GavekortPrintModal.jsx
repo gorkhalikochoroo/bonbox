@@ -17,6 +17,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { X, Download, Printer } from "lucide-react";
 import api from "../services/api";
+import { saveFile } from "../utils/download";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
 import { formatKr } from "../utils/currency";
@@ -168,20 +169,13 @@ export default function GavekortPrintModal({ open, card, onClose }) {
         params: { template },
         responseType: "blob",
       });
-      const blob = new Blob([res.data], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
       // Prefer the server's Content-Disposition filename; fall back to code.
       const cd = res.headers?.["content-disposition"] || "";
       const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
-      a.download = match
+      const out = await saveFile(res.data, match
         ? decodeURIComponent(match[1])
-        : `gavekort-${shortCode || card.code_last4 || "kort"}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+        : `gavekort-${shortCode || card.code_last4 || "kort"}.pdf`, { type: "application/pdf" });
+      if (!out.ok) setError(t("gkPdfFailed", "Kunne ikke generere PDF. Prøv igen."));
     } catch (e) {
       setError(errText(e, t("gkPdfFailed", "Kunne ikke generere PDF. Prøv igen.")));
     } finally {

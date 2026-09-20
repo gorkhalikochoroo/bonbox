@@ -382,7 +382,7 @@ export default function TeamPage() {
                       {" · "}
                       {p.expired
                         ? <span className="text-red-500">{t("teamPendingExpired")}</span>
-                        : <span>{t("teamPendingDaysLeft", { n: p.days_remaining, s: p.days_remaining === 1 ? "" : "s" })}</span>}
+                        : <span>{t(p.days_remaining === 1 ? "teamPendingDaysLeftOne" : "teamPendingDaysLeft", { n: p.days_remaining })}</span>}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
+import { saveFile } from "../utils/download";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
 import { getVatTerms } from "../utils/currency";
@@ -52,14 +53,13 @@ export default function VatReportPage() {
         params,
         responseType: "blob",
       });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = mode === "quarterly"
+      const out = await saveFile(res.data, mode === "quarterly"
         ? `${vat.vatName}_Q${quarter}_${year}.pdf`
-        : `${vat.vatName}_${months[month - 1]}_${year}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+        : `${vat.vatName}_${months[month - 1]}_${year}.pdf`, { type: "application/pdf" });
+      if (!out.ok) {
+        setError(t("vatDownloadFailed"));
+        setTimeout(() => setError(null), 3000);
+      }
     } catch {
       setError(t("vatDownloadFailed"));
       setTimeout(() => setError(null), 3000);

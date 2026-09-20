@@ -4,6 +4,7 @@
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import api from "../services/api";
+import { saveFile } from "../utils/download";
 import { trackEvent } from "../hooks/useEventLog";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { sendBundleToAccountant } from "../utils/shareDailyCloseRange";
@@ -96,16 +97,17 @@ export default function BookkeepingExportPage() {
           return;
         }
       }
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const a = document.createElement("a");
-      a.href = url;
       // Use the format's own extension (CSV for most, ZIP for the bundle).
       const ext = currentFormat?.ext || "csv";
-      a.download = `bonbox-${selected}-${start}-to-${end}.${ext}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      const out = await saveFile(res.data, `bonbox-${selected}-${start}-to-${end}.${ext}`, {
+        type: ext === "zip" ? "application/zip" : "text/csv;charset=utf-8;",
+      });
+      // "Exported!" was printed unconditionally, including on the runs where
+      // the revoke had already killed the blob and no file arrived.
+      if (!out.ok) {
+        setErr(t("bkeErrUnexpected", "Unexpected response from the server."));
+        return;
+      }
       trackEvent("bookkeeping_export", "exports", `${selected} ${start}..${end}`);
       setMsg(t("bkeExportedMsg", "Exported! Now open {platform} and import the file.").replace("{platform}", currentFormat?.label || selected));
       setTimeout(() => setMsg(""), 6000);

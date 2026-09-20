@@ -29,6 +29,14 @@
  * a cap, non-zero) stays with the caller, because that rule differs per field
  * — a cash count of 0 is a real answer, a sale of 0 is not.
  *
+ * Which is why the message is amountUnreadable and not the old invalidAmount.
+ * That one said "Beløbet skal være > 0" for a refusal that has nothing to do
+ * with zero: the owner types 1.234,50, the strict parser cannot read that
+ * shape on this account's notation, and the field answers that their positive
+ * number must be positive — in a notation no restaurateur writes. The refusal
+ * now names the real failure and shows the notation that would work, built
+ * from the SAME locale the parser reads with so the two cannot disagree.
+ *
  * `locale` must come from the account CURRENCY via moneyLocale(), never from
  * the UI chrome language: a DKK café can switch the interface to English
  * mid-service and "1.234" must not change meaning when they do.
@@ -45,7 +53,7 @@ import { useLanguage } from "../../hooks/useLanguage";
 // here: a submit gate has to import the same definition of "unreadable" that
 // this field paints red, and importing it from a component file would pull a
 // page's gate through the component layer (and trip react-refresh besides).
-import { isMoneyRejected } from "../../utils/currency";
+import { isMoneyRejected, moneyExample } from "../../utils/currency";
 
 export default function MoneyField({
   value,
@@ -87,7 +95,7 @@ export default function MoneyField({
           role="alert"
           className="mt-1 text-[11px] text-red-600 dark:text-red-400"
         >
-          {t("invalidAmount")}
+          {t("amountUnreadable", { example: moneyExample(locale) })}
         </p>
       )}
     </div>

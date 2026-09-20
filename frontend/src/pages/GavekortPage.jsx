@@ -71,7 +71,7 @@ import FilterBar from "../components/ui/FilterBar";
 import Card from "../components/ui/Card";
 import UpgradeNudge from "../components/ui/UpgradeNudge";
 import GavekortPrintModal from "../components/GavekortPrintModal";
-import { formatKr, isMoneyRejected, parseMoneyInput } from "../utils/currency";
+import { formatKr, isMoneyRejected, moneyExample, parseMoneyInput } from "../utils/currency";
 import { errText } from "../utils/errText";
 
 // ─── money helpers (integer øre is the wire format) ───────────────────
@@ -511,7 +511,9 @@ function IssueSection({ t, onIssued }) {
               placeholder={t("gkAmountPh", "Eget beløb")}
               suffix="kr."
               invalid={isMoneyRejected(amount, GAVEKORT_LOCALE)}
-              error={isMoneyRejected(amount, GAVEKORT_LOCALE) ? t("invalidAmount") : null}
+              error={isMoneyRejected(amount, GAVEKORT_LOCALE)
+                ? t("amountUnreadable", { example: moneyExample(GAVEKORT_LOCALE) })
+                : null}
               aria-label={t("gkAmountLabel", "Beløb")}
             />
           </div>
@@ -1400,7 +1402,9 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
                   placeholder={t("gkRedeemPh", "Beløb")}
                   suffix="kr."
                   invalid={isMoneyRejected(redeemAmount, GAVEKORT_LOCALE)}
-                  error={isMoneyRejected(redeemAmount, GAVEKORT_LOCALE) ? t("invalidAmount") : null}
+                  error={isMoneyRejected(redeemAmount, GAVEKORT_LOCALE)
+                    ? t("amountUnreadable", { example: moneyExample(GAVEKORT_LOCALE) })
+                    : null}
                   aria-label={t("gkRedeemLabel", "Indløs beløb")}
                 />
                 {actionError && <ErrorText>{actionError}</ErrorText>}
@@ -1589,7 +1593,7 @@ function TransactionTrail({ transactions, t }) {
                   {tx.daily_close_ref && (
                     <span className="inline-flex items-center gap-1">
                       <Moon className="h-3 w-3 shrink-0" aria-hidden />
-                      {t("gkCloseRef", "Dagsafslutning {ref}", { ref: tx.daily_close_ref })}
+                      {t("gkCloseRef", "Kasserapport {ref}", { ref: tx.daily_close_ref })}
                     </span>
                   )}
                 </div>

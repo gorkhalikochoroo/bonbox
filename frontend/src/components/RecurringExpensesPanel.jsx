@@ -30,7 +30,7 @@ import { Button, Card, Empty, UpgradeNudge, Icon, Amount } from "./ui";
 import { Repeat } from "lucide-react";
 import { formatDateClearFull } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
-import { moneyLocale, parseMoneyInput } from "../utils/currency";
+import { moneyLocale, moneyExample, parseMoneyInput } from "../utils/currency";
 import MoneyField from "./ui/MoneyField";
 
 const DAY_OPTIONS = Array.from({ length: 28 }, (_, i) => i + 1);
@@ -83,12 +83,23 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
   const submit = async (e) => {
     e?.preventDefault?.();
     if (!name.trim() || name.trim().length < 2) {
-      setError(t("recurringNameLabel", "Name") + " ≥ 2");
+      // Was `t("recurringNameLabel") + " ≥ 2"` — "Navn ≥ 2", which is the
+      // same programmer notation the money refusal beside it just lost, and
+      // a label glued to an operator cannot be translated as a sentence in
+      // any locale. So it is a key, not a reworded suffix.
+      setError(t("nameTooShort"));
       return;
     }
     const amt = parseMoneyInput(amount, mLocale);
     if (!(amt > 0)) {
-      setError(t("invalidAmount", "Amount must be > 0"));
+      // Two refusals, told apart: a shape the parser could not read gets the
+      // worked example, a readable zero gets "above zero". One sentence for
+      // both used to tell an owner who typed 1.234,50 that it had to be > 0.
+      setError(
+        Number.isFinite(amt)
+          ? t("amountNotPositive")
+          : t("amountUnreadable", { example: moneyExample(mLocale) }),
+      );
       return;
     }
     setBusy(true);

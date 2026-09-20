@@ -1281,7 +1281,7 @@ export default function FloorPlan({
         <LegendItem dotCls="bg-gray-900 dark:bg-gray-100" label={t("rsvpTileSeated", "Seated")} />
         <LegendItem dotCls="bg-red-500" label={t("rsvpPlanOverdue", "Overdue")} />
         {nextBookingId != null && (
-          <LegendItem dotCls="bg-transparent ring-2 ring-gray-900 dark:ring-gray-100" label={t("rsvpPlanNext", "Your next booking")} />
+          <LegendItem dotCls="bg-transparent ring-2 ring-gray-900 dark:ring-gray-100" label={t("rsvpPlanNext", "Your next reservation")} />
         )}
       </div>
 

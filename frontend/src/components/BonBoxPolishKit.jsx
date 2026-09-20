@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLanguage } from "../hooks/useLanguage";
 import { Icon } from "./ui";
-import { parseMoneyInput, moneyLocale, isMoneyRejected, formatOwnerMoney } from "../utils/currency";
+import { parseMoneyInput, moneyLocale, isMoneyRejected, moneyExample, formatOwnerMoney } from "../utils/currency";
 
 // === ANIMATED COUNTER — Numbers count up on load ===
 export function AnimatedCounter({
@@ -447,7 +447,7 @@ export function QuickSaleModal({
                 role="alert"
                 className="text-center mt-2 text-xs text-red-600 dark:text-red-400"
               >
-                {t("invalidAmount")}
+                {t("amountUnreadable", { example: moneyExample(mLocale) })}
               </p>
             )}
             {/* Echo what the app UNDERSTOOD, not what was typed. This is the

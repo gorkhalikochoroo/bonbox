@@ -185,7 +185,7 @@ export default function HeroV2() {
               <span className="flex-1 text-[14px] leading-[1.4] text-slate-900">
                 {t(
                   "landingV2HeroCardAlert",
-                  "The 20/07 lukning doesn't tie out — payments 0,00 kr. ≠ omsætning 24.022,00 kr.",
+                  "The 20/07 kasserapport doesn't tie out — you took 0,00 kr. in payments but booked 24.022,00 kr. in sales",
                 )}
               </span>
               <span className="flex flex-none items-center whitespace-nowrap text-[13px] font-semibold text-slate-900">

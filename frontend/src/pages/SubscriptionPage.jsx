@@ -545,9 +545,7 @@ export default function SubscriptionPage() {
           </div>
           {trialDaysLeft != null && trialDaysLeft > 0 && (
             <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              {(t("pricingTrialEndsIn") || "Your free Pro trial ends in {n} day{s}.")
-                .replace("{n}", trialDaysLeft)
-                .replace("{s}", trialDaysLeft === 1 ? "" : "s")}
+              {t(trialDaysLeft === 1 ? "pricingTrialEndsInOne" : "pricingTrialEndsIn", { n: trialDaysLeft })}
             </div>
           )}
         </Card>
@@ -636,9 +634,7 @@ export default function SubscriptionPage() {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                {(t("pricingTrialEndsIn") || "Your free Pro trial ends in {n} day{s}.")
-                  .replace("{n}", trialDaysLeft)
-                  .replace("{s}", trialDaysLeft === 1 ? "" : "s")}
+                {t(trialDaysLeft === 1 ? "pricingTrialEndsInOne" : "pricingTrialEndsIn", { n: trialDaysLeft })}
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 {t("pricingTrialUsing") || "You're using all Pro features right now — AI insights, unlimited Copilot, full history, vertical modules. After the trial you can stay on Free (limited) or upgrade."}
@@ -676,9 +672,7 @@ export default function SubscriptionPage() {
             </div>
             <div className="sm:border-l sm:border-gray-200 sm:dark:border-gray-800 sm:pl-5">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
-                {(t("pricingTrialStep2Tag") || "Anytime in the next {n} day{s}")
-                  .replace("{n}", trialDaysLeft)
-                  .replace("{s}", trialDaysLeft === 1 ? "" : "s")}
+                {t(trialDaysLeft === 1 ? "pricingTrialStep2TagOne" : "pricingTrialStep2Tag", { n: trialDaysLeft })}
               </div>
               <div className="text-sm font-semibold text-gray-900 dark:text-gray-100 mt-1">
                 {t("pricingTrialStep2Title") || "Pick your path"}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useToast } from "../hooks/useToast";
 import api from "../services/api";
+import { saveFile } from "../utils/download";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
@@ -117,12 +118,8 @@ export default function WineListPage() {
         body.wine_type = filter;
       }
       const res = await api.post("/wines/pdf", body, { responseType: "blob" });
-      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `wine_menu_${localIso()}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const out = await saveFile(res.data, `wine_menu_${localIso()}.pdf`, { type: "application/pdf" });
+      if (!out.ok) toast({ message: t("winePdfFailed"), severity: "critical" });
     } catch {
       toast({ message: t("winePdfFailed"), severity: "critical" });
     }
@@ -542,12 +539,12 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
       };
       if (menuTitle.trim()) body.title = menuTitle.trim();
       const res = await api.post("/wines/pdf", body, { responseType: "blob" });
-      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `wine_menu_${localIso()}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const out = await saveFile(res.data, `wine_menu_${localIso()}.pdf`, { type: "application/pdf" });
+      if (!out.ok) {
+        toast({ message: t("winePdfFailed"), severity: "critical" });
+        setPdfLoading(false);
+        return;
+      }
       setPdfSuccess(true);
       setTimeout(() => setPdfSuccess(false), 3000);
     } catch {

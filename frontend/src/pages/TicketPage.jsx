@@ -29,6 +29,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Calendar, MapPin, AlertCircle } from "lucide-react";
 import api from "../services/api";
+import { saveFile } from "../utils/download";
 import { useLanguage } from "../hooks/useLanguage";
 
 // ── Calendar (.ics) export ────────────────────────────────────────
@@ -77,21 +78,14 @@ function buildIcs({ ticketId, eventName, venue, startsAt, endsAt, notes }) {
   return lines.join("\r\n");
 }
 
-function downloadIcs(content, filename) {
-  if (!content || typeof document === "undefined") return;
-  try {
-    const blob = new Blob([content], { type: "text/calendar;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  } catch {
-    /* swallow — calendar export is optional */
-  }
+async function downloadIcs(content, filename) {
+  if (!content) return { ok: false, reason: "no_data" };
+  // saveFile also routes through the native share sheet, which is where a
+  // guest holding this ticket on a phone actually puts it in their calendar.
+  // The outcome is RETURNED: saveFile never throws, so dropping it here is the
+  // difference between "your ticket is in your calendar" and a button that did
+  // nothing on the one device most guests use.
+  return saveFile(content, filename, { type: "text/calendar;charset=utf-8" });
 }
 
 // Status pill — gray-100 bg + colored dot prefix per the doctrine.
@@ -154,6 +148,7 @@ export default function TicketPage() {
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(urlValid);
   const [error, setError] = useState(urlValid ? "" : "invalid");
+  const [calError, setCalError] = useState("");
 
   useEffect(() => {
     if (!urlValid) return; // already in error state from initial render
@@ -203,7 +198,7 @@ export default function TicketPage() {
     return `${api.defaults.baseURL || ""}/public/tickets/${ticket_id}/qr.png?sig=${encodeURIComponent(sig)}`;
   }, [ticket_id, sig]);
 
-  const onAddToCalendar = () => {
+  const onAddToCalendar = async () => {
     if (!event?.starts_at) return;
     const ics = buildIcs({
       ticketId: ticket_id,
@@ -220,7 +215,10 @@ export default function TicketPage() {
         .replace(/[^a-z0-9-_]+/gi, "-")
         .toLowerCase()
         .slice(0, 60);
-      downloadIcs(ics, `${safeName || "event"}.ics`);
+      const out = await downloadIcs(ics, `${safeName || "event"}.ics`);
+      // A guest on an iPhone is exactly who taps this, and that is exactly
+      // where the silent no-op used to live. Say so rather than nothing.
+      setCalError(out.ok ? "" : t("calendarAddFailed"));
     }
   };
 
@@ -379,6 +377,11 @@ export default function TicketPage() {
               >
                 {t("ticketAddToCalendar", "Tilføj til kalender")}
               </button>
+              {calError && (
+                <p role="alert" className="mt-1.5 text-[12px] text-rose-600 dark:text-rose-400">
+                  {calError}
+                </p>
+              )}
             </div>
           )}
           {otherTickets.length > 0 && (

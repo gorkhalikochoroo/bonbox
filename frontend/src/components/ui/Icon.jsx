@@ -45,7 +45,7 @@ import {
   // Manage
   Settings, Building2, Monitor, Bike, LayoutGrid, Mail, Network,
   Building, UserCog, Trash, MessageCircle, MessageSquare, Link2,
-  KeyRound, Menu,
+  KeyRound, Menu, Share2,
   // Account
   Sparkles,
   // Personal mode
@@ -144,6 +144,9 @@ const ICONS = {
   // imported at all (revisor login, bookkeeping export, profile). Menu was
   // special-cased in MobileBottomNav to work around this very gap.
   Link2, KeyRound, Menu,
+  // The Vagtplan hand-off control — one button standing for "get this week to
+  // the team", with the three delivery choices behind it.
+  Share2,
   // Account group
   Sparkles,
   // Personal mode

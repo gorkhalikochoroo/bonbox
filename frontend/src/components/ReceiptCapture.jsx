@@ -9,7 +9,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { localIso } from "../utils/dateFormat";
-import { displayCurrency, formatOwnerMoney, parseMoneyInput, moneyLocale } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, parseMoneyInput, moneyLocale, moneyExample } from "../utils/currency";
 import { useAuth } from "../hooks/useAuth";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 
@@ -661,7 +661,7 @@ export default function ReceiptCapture({ onSaleCreated, mode = "sale", onClose, 
                     : "text-red-600 dark:text-red-400")} aria-live="polite">
                     {Number.isFinite(amountNum)
                       ? "= " + formatOwnerMoney(amountNum, accountCcy || "DKK", { decimals: 2 })
-                      : t("amountUnreadable")}
+                      : t("amountUnreadable", { example: moneyExample(moneyLocale(accountCcy)) })}
                   </p>
                 )}
                 {String(amount).trim() === "" && <div className="mb-3" />}

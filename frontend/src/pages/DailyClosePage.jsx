@@ -45,6 +45,7 @@ import {
   shareCloseSummary,
 } from "../utils/shareClose";
 import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
+import { saveFile } from "../utils/download";
 // Task #120 polish (Agent D): migrated H1 → PageHeader, KPI cards →
 // StatCard, info banners → SectionBanner, tabs → TabPills.  Behavior
 // + i18n + a11y unchanged.
@@ -441,7 +442,7 @@ export default function DailyClosePage() {
   const queueErrorText = (it) => (
     it?.errorCode === QUEUE_ERR_SERVER
       ? t("dcQueueErrServer", "BonBox could not receive it just now. It is still on this phone — try again in a moment.")
-      : t("dcQueueErrRejected", "The close was refused. Check the numbers and file this date in the close wizard.")
+      : t("dcQueueErrRejected", "The kasserapport was refused. Check the numbers and file this date again.")
   );
 
   /** Drop a queued copy the owner no longer needs (it is already in the books). */
@@ -470,7 +471,7 @@ export default function DailyClosePage() {
       // Still not saved — keep the close, keep the reason, keep the dialog.
       const status = err?.response?.status ?? null;
       if (!err?.response) {
-        setReviewError(t("dcQueueErrOffline", "No connection right now. The close is still on this phone — try again when you're back online."));
+        setReviewError(t("dcQueueErrOffline", "No connection right now. The kasserapport is still on this phone — try again when you're back online."));
         setQueue(updateQueueItem(item.id, { state: QUEUE_NEEDS_CONFIRMATION }));
       } else if (status === 409) {
         // The owner already filed this date in the wizard (which is exactly
@@ -485,7 +486,7 @@ export default function DailyClosePage() {
         const code = status >= 500 ? QUEUE_ERR_SERVER : QUEUE_ERR_REJECTED;
         setReviewError(code === QUEUE_ERR_SERVER
           ? t("dcQueueErrServer", "BonBox could not receive it just now. It is still on this phone — try again in a moment.")
-          : t("dcQueueErrRejected", "The close was refused. Check the numbers and file this date in the close wizard."));
+          : t("dcQueueErrRejected", "The kasserapport was refused. Check the numbers and file this date again."));
         setQueue(updateQueueItem(item.id, {
           state: QUEUE_FAILED, errorCode: code,
           errorDetail: errText(err, ""), httpStatus: status,
@@ -569,8 +570,13 @@ export default function DailyClosePage() {
   return (
     <PageShell width="default">
       <PageHeader
-        eyebrow={t("dcReportsEyebrow", "REPORTS")}
-        title={t("navToday") || "Today"}
+        // No eyebrow. It said "RAPPORTER" — the group this page has not been
+        // in since the C5 nav diet moved it onto the core spine (navManifest
+        // declares it pillar: null), so it was a stale label sitting above the
+        // title and reading as a SECOND name for the same thing. The eyebrow's
+        // job on sibling pages is to name the pillar; there is no pillar to
+        // name here, so the page keeps one name and nothing above it.
+        title={t("navToday") || "Kasserapport"}
         subtitle={t(todaySubtitleKey)}
         actions={
           (!isOnline || pendingCount > 0) && (
@@ -685,7 +691,7 @@ export default function DailyClosePage() {
           dateLabel={formatDateClear(reviewItem.payload?.date) || reviewItem.payload?.date || ""}
           saving={reviewSaving}
           error={reviewError}
-          extraNote={t("dcQueueReviewEdit", "Want to change the numbers? Cancel, then open this date in the close wizard — this copy stays on your phone until it is saved.")}
+          extraNote={t("dcQueueReviewEdit", "Want to change the numbers? Cancel, then open this date in the kasserapport — this copy stays on your phone until it is saved.")}
           onCancel={() => { setReviewItem(null); setReviewError(""); }}
           onConfirm={() => confirmQueuedClose(reviewItem)}
         />
@@ -759,7 +765,7 @@ export default function DailyClosePage() {
       {/* Tab bar */}
       <TabPills
         tabs={[
-          { id: "close", label: t("newClose") || "New Close" },
+          { id: "close", label: t("newClose", "New kasserapport") },
           { id: "history", label: t("historyTab") || "History" },
           { id: "insights", label: t("insightsTab") || "Insights" },
           ...(hasMultiBranch ? [{ id: "branches", label: t("branches") || "Branches" }] : []),
@@ -851,7 +857,7 @@ function CloseAnomalyDialog({ t, anomaly, saving, onCancel, onConfirm, error = "
             <h3 className="text-[16px] font-semibold text-gray-900 dark:text-white">{t("closeAnomalyTitle")}</h3>
             {dateLabel && (
               <p className="mt-0.5 text-xs font-semibold text-gray-500 dark:text-gray-400">
-                {t("dcAnomalyForDate", "Close for {date}", { date: dateLabel })}
+                {t("dcAnomalyForDate", "Kasserapport for {date}", { date: dateLabel })}
               </p>
             )}
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t(msgKey, { today, pct, avg })}</p>
@@ -961,6 +967,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const currentStepId = stepSequence[step - 1];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // The server's own sentence, when it sent one. Kept apart from `error` so a
+  // failed lock can lead in Danish and still hand the revisor the raw wording
+  // underneath, instead of choosing between the two.
+  const [errorDetail, setErrorDetail] = useState("");
   // close_sanity soft guard — holds the anomaly payload when today's
   // total is far off the recent same-weekday baseline; drives the
   // "double-check before you lock" dialog. null = no warning pending.
@@ -1307,7 +1317,12 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       }
       setScanMode("result");
     } catch (err) {
-      setScanError(errText(err, "OCR scanning failed. Please enter values manually."));
+      // Danish default that names the action and the way out. errText still
+      // surfaces a real server sentence when there is one (a size cap, a bad
+      // file type — genuinely the only clue), but the untranslated
+      // "OCR scanning failed" is no longer what a Dane reads when the photo
+      // simply did not come through.
+      setScanError(errText(err, t("dcScanFailed", "We couldn't read that photo. Take another one, or type the numbers in yourself.")));
       setScanMode(scanResult ? "result" : "idle"); // keep results if we already have some
     }
   };
@@ -2001,6 +2016,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const handleSubmit = async (opts = {}) => {
     setSaving(true);
     setError("");
+    setErrorDetail("");
     const payload = buildPayload("confirmed");
     if (opts.acknowledgeAnomaly) payload.acknowledge_anomaly = true;
 
@@ -2010,7 +2026,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       // loop told — tell the owner instead, so they can write the numbers down.
       const queued = addToOfflineQueue(payload);
       setSaving(false);
-      if (!queued) { setError(t("dcQueueStoreFailed", "This phone could not store the close offline. Note the numbers down and try again when you're back online.")); return; }
+      if (!queued) { setError(t("dcQueueStoreFailed", "This phone could not store the kasserapport offline. Note the numbers down and try again when you're back online.")); return; }
       onQueued?.();
       return;
     }
@@ -2052,12 +2068,28 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         // if the device refused to store it).
         const queued = addToOfflineQueue(payload);
         setSaving(false);
-        if (!queued) { setError(t("dcQueueStoreFailed", "This phone could not store the close offline. Note the numbers down and try again when you're back online.")); return; }
+        if (!queued) { setError(t("dcQueueStoreFailed", "This phone could not store the kasserapport offline. Note the numbers down and try again when you're back online.")); return; }
         onQueued?.();
         return;
       }
-      const d = err.response?.data?.detail;
-      setError(typeof d === "string" ? d : Array.isArray(d) ? d.map(e => e.msg || e).join(", ") : "Failed to save");
+      // The server refused the lock. This used to render the server's own
+      // English sentence as the headline — or, when there wasn't one, the
+      // literal string "Failed to save", which is not a sentence in any
+      // language the owner reads and does not say what was not saved.
+      //
+      // Now it leads with the Danish sentence that names the action and
+      // demotes whatever the server said to a muted second line — the same
+      // shape the offline queue already uses, and for the same reason: the
+      // raw wording is a clue for the revisor, never the thing the person
+      // standing at the till has to decode at 23:30.
+      //
+      // Only the server's OWN words earn that line. errText falls back to
+      // axios's "Request failed with status code 500" when the payload said
+      // nothing, which is noise dressed as an explanation.
+      const d = err.response?.data;
+      const serverSaid = d?.detail ?? d?.message ?? d?.reason;
+      setError(t("dcLockFailed", "The kasserapport was not saved. Check your connection and try again — your numbers are still on this screen."));
+      setErrorDetail(serverSaid == null ? "" : errText(err, ""));
     } finally {
       setSaving(false);
     }
@@ -2638,8 +2670,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   : scanFieldsDetected >= 3 ? "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300"
                     : "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400"
               }`}>
+                {/* confidenceLevel*, not confidence*. The template already ends
+                    in the noun ("… sikkerhed — 5/7 felter"), and the standalone
+                    pill keys carry it too, so interpolating one into the other
+                    printed "Høj sikkerhed sikkerhed — 5/7 felter" to every
+                    Danish owner who scanned a kasserapport. The bare level word
+                    has its own three keys now. */}
                 <Icon name="Target" size={14} className="inline align-text-bottom mr-1" /> {t("scanConfidenceLevel", "{level} confidence — {detected}/{total} fields detected", {
-                  level: scanFieldsDetected >= 5 ? t("confidenceHigh", "High") : scanFieldsDetected >= 3 ? t("confidenceMedium", "Medium") : t("confidenceLow", "Low"),
+                  level: scanFieldsDetected >= 5 ? t("confidenceLevelHigh", "High") : scanFieldsDetected >= 3 ? t("confidenceLevelMedium", "Medium") : t("confidenceLevelLow", "Low"),
                   detected: scanFieldsDetected,
                   total: scanFieldsTotal,
                 })}
@@ -3454,7 +3492,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 </div>
                 <div className="pt-2 border-t border-gray-200 dark:border-gray-600">
                   <p className="text-[12px] text-gray-500 dark:text-gray-400">
-                    <Icon name="BarChart3" size={14} className="inline align-text-bottom mr-1" /> {t("dailyCloseReconcileNotePre", "Daily Close is your cash-drawer reconciliation. Your moms filing in ")}<Link to="/tax" className="font-semibold underline hover:no-underline text-gray-700 dark:text-gray-200">{t("dailyCloseReconcileNoteLink", "Skat Autopilot")}</Link>{t("dailyCloseReconcileNotePost", " reads from the POS sales register — this close adds a cross-check that flags variance.")}
+                    <Icon name="BarChart3" size={14} className="inline align-text-bottom mr-1" /> {t("dailyCloseReconcileNotePre", "Your kasserapport is your cash-drawer reconciliation. Your moms filing in ")}<Link to="/tax" className="font-semibold underline hover:no-underline text-gray-700 dark:text-gray-200">{t("dailyCloseReconcileNoteLink", "Skat Autopilot")}</Link>{t("dailyCloseReconcileNotePost", " reads from the POS sales register — the kasserapport adds a cross-check that flags variance.")}
                   </p>
                 </div>
               </div>
@@ -3630,7 +3668,18 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               </div>
             )}
 
-            {error && <SectionBanner severity="critical" icon="AlertCircle">{error}</SectionBanner>}
+            {error && (
+              <SectionBanner severity="critical" icon="AlertCircle">
+                {error}
+                {/* The server's wording, demoted. Same treatment as the offline
+                    queue's failed rows: secondary, muted, there for the revisor
+                    — never the headline, because it is English and this is the
+                    Danish audit trail. */}
+                {errorDetail && (
+                  <span className="block mt-1 text-[12px] opacity-70">{errorDetail}</span>
+                )}
+              </SectionBanner>
+            )}
           </div>
         )}
 
@@ -4088,12 +4137,14 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       const url = `/daily-close/export.${fmt}?from=${activeRange.from}&to=${activeRange.to}`;
       const res = await api.get(url, { responseType: "blob" });
       const blob = new Blob([res.data], { type: _MIME[fmt] || "application/octet-stream" });
-      const objectUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = objectUrl;
-      a.download = `daily-close_${activeRange.from}_to_${activeRange.to}.${fmt}`;
-      a.click();
-      window.URL.revokeObjectURL(objectUrl);
+      // Through the one delivery helper: this block revoked the blob URL in the
+      // same tick as the click and never appended the anchor, which is a 0-byte
+      // file on Safari and an ignored click on Firefox. A not-ok outcome is the
+      // only signal the owner gets, so it reaches the same banner as a 402.
+      const out = await saveFile(blob, `daily-close_${activeRange.from}_to_${activeRange.to}.${fmt}`, {
+        type: _MIME[fmt] || "application/octet-stream",
+      });
+      if (!out.ok) setExportError(t("dcExportFailed"));
     } catch (e) {
       // Surface plan-cap (402) with the upgrade CTA distinctly from
       // other failures. The backend returns a structured detail with
@@ -4272,12 +4323,14 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     setRowError(null);
     try {
       const res = await api.get(`/daily-close/${id}/pdf`, { responseType: "blob" });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `kasserapport_${dateStr}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      // The single most revisor-facing artifact in the product, and it was the
+      // worst-shaped download in the repo: synchronous revoke, anchor never
+      // appended. Through saveFile, and a failure says so instead of leaving
+      // the owner looking at a Downloads folder that never got a file.
+      const out = await saveFile(res.data, `kasserapport_${dateStr}.pdf`, {
+        type: "application/pdf",
+      });
+      if (!out.ok) setRowError({ id, message: t("dcExportFailed"), isPlanCap: false });
     } catch (e) {
       // Same blob-aware parser the range export uses, so a plan cap (402)
       // arrives here as a real sentence plus the upgrade link instead of a
@@ -4872,7 +4925,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       {unlockId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { setUnlockId(null); setUnlockError(""); }}>
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 w-full max-w-md shadow-sm" onClick={e => e.stopPropagation()}>
-            <h3 className="text-[16px] font-semibold text-gray-900 dark:text-white mb-1 inline-flex items-center gap-2"><Icon name="LockOpen" size={18} /> {t("dcUnlockModalTitle", "Unlock Daily Close")}</h3>
+            <h3 className="text-[16px] font-semibold text-gray-900 dark:text-white mb-1 inline-flex items-center gap-2"><Icon name="LockOpen" size={18} /> {t("dcUnlockModalTitle", "Unlock the kasserapport")}</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               {t("dcUnlockModalBody", "This will allow editing. Enter a reason for the audit trail.")}
             </p>
@@ -4977,7 +5030,7 @@ function BranchSummaryView({ currency }) {
       <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-200 dark:border-gray-700">
         <div className="flex justify-center mb-3"><Icon name="Building2" size={32} className="text-gray-400 dark:text-gray-500" /></div>
         <p className="text-[14px] font-semibold text-gray-900 dark:text-white">{t("noBranchData")}</p>
-        <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1">{t("noBranchDataHint") || "Submit daily closes for multiple branches to see comparisons."}</p>
+        <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1">{t("noBranchDataHint", "Lock a kasserapport for more than one branch to see comparisons.")}</p>
       </div>
     );
   }
@@ -5192,7 +5245,7 @@ function CalendarHeatMap({ data, currency }) {
   const legendItems = mode === "revenue"
     ? (cuts
         ? [
-            { color: HEAT_NO_CLOSE, label: t("dcHeatmapNoClose", "No close") },
+            { color: HEAT_NO_CLOSE, label: t("dcHeatmapNoClose", "No kasserapport") },
             { color: HEAT_REVENUE_RAMP[0], label: `≤ ${money(cuts.p25)}` },
             { color: HEAT_REVENUE_RAMP[1], label: `≤ ${money(cuts.p50)}` },
             { color: HEAT_REVENUE_RAMP[2], label: `≤ ${money(cuts.p75)}` },
@@ -5243,7 +5296,7 @@ function CalendarHeatMap({ data, currency }) {
               const dc = closeMap[ds];
               const dateLabel = new Date(ds + "T12:00:00").toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" });
               const valueLabel = !dc
-                ? t("dcHeatmapNoClose", "No close")
+                ? t("dcHeatmapNoClose", "No kasserapport")
                 : mode === "revenue"
                   ? money(dc.revenue_total)
                   : (dc.cash_difference == null
@@ -5278,7 +5331,7 @@ function CalendarHeatMap({ data, currency }) {
                 : <> &mdash; {t("dcHeatmapCashLabel", "Cash")}: {hovered.dc.cash_difference != null
                     ? <Amount value={hovered.dc.cash_difference} currency={currency} decimals={GLANCE_DECIMALS} sign />
                     : t("dcHeatmapNA", "N/A")}</>
-            ) : <> &mdash; {t("dcHeatmapNoClose", "No close")}</>}
+            ) : <> &mdash; {t("dcHeatmapNoClose", "No kasserapport")}</>}
           </p>
         ) : (
           <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("hoverDayForDetails")}</p>
@@ -5310,7 +5363,7 @@ function InsightsView({ data, currency, t }) {
       <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-200 dark:border-gray-700">
         <div className="flex justify-center mb-3"><Icon name="Lightbulb" size={32} className="text-gray-400 dark:text-gray-500" /></div>
         <p className="text-[14px] font-semibold text-gray-900 dark:text-white">{t("notEnoughDataYet")}</p>
-        <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1">{t("notEnoughDataHint") || "Submit a few daily closes to unlock insights about your revenue, tips, and cash handling."}</p>
+        <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1">{t("notEnoughDataHint", "Lock a few kasserapporter to unlock insights about your revenue, tips, and cash handling.")}</p>
       </div>
     );
   }
@@ -5366,7 +5419,7 @@ function InsightsView({ data, currency, t }) {
 
       {insights.length === 0 && (
         <div className="text-center text-gray-400 dark:text-gray-500 text-[13px] py-8">
-          {t("dcInsightsKeepLogging", "Keep logging daily closes to unlock more insights.")}
+          {t("dcInsightsKeepLogging", "Keep locking a kasserapport each day to unlock more insights.")}
         </div>
       )}
     </div>

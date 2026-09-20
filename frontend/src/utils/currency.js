@@ -786,3 +786,30 @@ export function isMoneyRejected(value, locale) {
   if (value === "" || value === null || value === undefined) return false;
   return !Number.isFinite(parseMoneyInput(value, locale));
 }
+
+/* ───────────────────────── moneyExample ───────────────────────────────
+ * One worked example of the notation THIS field accepts, for the refusal
+ * message to point at.
+ *
+ * "We can't read that amount" on its own tells the owner they are wrong
+ * without telling them what right looks like, and the answer is not the same
+ * for every account: a DKK café must type 1.234,50 and a USD one 1,234.50.
+ * The message therefore cannot carry a hard-coded example — it takes this one,
+ * built from the same MONEY locale parseMoneyInput will read the value with,
+ * so the hint and the parser can never disagree.
+ *
+ * Intl is asked for the plain grouped number, not a currency: the unit is
+ * already on the field (suffix, or the surrounding copy), and repeating it
+ * here would make the example longer than the thing it explains.
+ * ─────────────────────────────────────────────────────────────────────── */
+export function moneyExample(locale = "da-DK") {
+  try {
+    return (1234.5).toLocaleString(locale || "da-DK", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  } catch {
+    // An unknown locale tag throws in Intl. Denmark-first fails safe.
+    return "1.234,50";
+  }
+}

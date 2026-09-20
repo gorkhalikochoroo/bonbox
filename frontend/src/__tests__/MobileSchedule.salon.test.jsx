@@ -66,7 +66,7 @@ const getShiftsForCell = (staffId, date) =>
 const onCellClick = vi.fn();
 
 function Harness(props) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   return (
     <MobileSchedule
       staff={STAFF}
@@ -77,6 +77,7 @@ function Harness(props) {
       costBasis="gross"
       targetPct={0.3}
       t={t}
+      lang={lang}
       onCellClick={onCellClick}
       {...props}
     />
@@ -136,9 +137,11 @@ describe("MobileSchedule — split shifts", () => {
 
   it("counts both shifts in the day's hours and still says one person", () => {
     mount();
-    // 4h + 5h, DK comma decimal + 't' — not 4t, which is what the singular
-    // accessor produced.
-    expect(screen.getByText("9t")).toBeInTheDocument();
+    // 4h + 5h, DK comma decimal + 't' — not 4 t, which is what the singular
+    // accessor produced. The space is the shared formatter's (utils/hours.js):
+    // Vagtplan used to print "9t" here while Timer & løn printed "9,0 t" for
+    // the same day.
+    expect(screen.getByText("9 t")).toBeInTheDocument();
     expect(screen.getByText("1")).toBeInTheDocument(); // staffOn is a head count
   });
 

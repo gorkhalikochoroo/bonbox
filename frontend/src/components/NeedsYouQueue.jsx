@@ -24,6 +24,7 @@ import { AlertTriangle, CalendarCheck, Landmark, FileClock, Scale, CalendarX, Ch
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { formatKr } from "../utils/currency";
+import { formatDateClear } from "../utils/dateFormat";
 
 const STORAGE_KEY = "bonbox_nyq_dismissed"; // { [key]: dismissedAtMs }
 const SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -67,6 +68,20 @@ const skipParamFor = (dismissed) =>
     .map((k) => k.replace("|", ":"))
     .join(",");
 
+/**
+ * The day a dated finding is about, written the way an owner reads a date.
+ *
+ * The server sends `worst_date.isoformat()` — "2026-09-19" — and these rows
+ * used to interpolate it raw, so a Danish restaurateur read a date format no
+ * Dane writes. DailyClosePage already passes a formatted `dateLabel` into the
+ * near-identical dcAnomalyForDate; this is the same convention.
+ *
+ * Returns null when the server had no date, because `String(null)` inside t()
+ * renders the literal word "null" on the owner's dashboard. Callers branch to
+ * a dateless sibling key, the way stale_bank_feed already branches on days.
+ */
+const dayLabel = (iso) => (iso ? formatDateClear(iso) : null);
+
 // code → { icon, title(t, meta), action(t) }. Adding a detector server-side +
 // a row here is all it takes to extend the queue.
 const RENDERERS = {
@@ -85,7 +100,12 @@ const RENDERERS = {
   },
   close_missing: {
     icon: CalendarCheck,
-    title: (t, m) => t("nyqCloseMissing", "You didn't close {date}", { date: m.date }),
+    title: (t, m) => {
+      const d = dayLabel(m.date);
+      return d
+        ? t("nyqCloseMissing", "You didn't close {date}", { date: d })
+        : t("nyqCloseMissingNoDate", "A day is still missing its kasserapport");
+    },
     action: (t) => t("nyqCloseMissingAction", "Close the day"),
   },
   // A draft kasserapport left unlocked past its day. When it doesn't tie out
@@ -94,21 +114,30 @@ const RENDERERS = {
   stale_draft_close: {
     icon: FileClock,
     title: (t, m) =>
-      t("nyqStaleDraft", "Unlocked kladde from {date}{notTie} — review and lock", {
-        date: m.date,
-        notTie: m.ties_out === false ? t("nyqNotTie", ", that doesn't tie out") : "",
-      }),
+      dayLabel(m.date)
+        ? t("nyqStaleDraft", "Unlocked kladde from {date}{notTie} — review and lock", {
+            date: dayLabel(m.date),
+            notTie: m.ties_out === false ? t("nyqNotTie", ", that doesn't tie out") : "",
+          })
+        : t("nyqStaleDraftNoDate", "An unlocked kladde{notTie} — review and lock", {
+            notTie: m.ties_out === false ? t("nyqNotTie", ", that doesn't tie out") : "",
+          }),
     action: (t) => t("nyqStaleDraftAction", "Review"),
   },
   // A confirmed (locked) close whose payments clearly don't match revenue.
   close_unreconciled: {
     icon: Scale,
     title: (t, m) =>
-      t("nyqUnreconciled", "The {date} lukning doesn't tie out: payments {payment} ≠ omsætning {revenue}", {
-        date: m.date,
-        payment: formatKr(m.payment_total),
-        revenue: formatKr(m.revenue_total),
-      }),
+      dayLabel(m.date)
+        ? t("nyqUnreconciled", "The {date} kasserapport doesn't tie out: you took {payment} in payments but booked {revenue} in sales", {
+            date: dayLabel(m.date),
+            payment: formatKr(m.payment_total),
+            revenue: formatKr(m.revenue_total),
+          })
+        : t("nyqUnreconciledNoDate", "A kasserapport doesn't tie out: you took {payment} in payments but booked {revenue} in sales", {
+            payment: formatKr(m.payment_total),
+            revenue: formatKr(m.revenue_total),
+          }),
     action: (t) => t("nyqUnreconciledAction", "Review"),
   },
   // Your public booking page has no free slots for the next 14 days — a

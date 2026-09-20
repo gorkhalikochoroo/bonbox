@@ -82,7 +82,7 @@ const getShiftsForCell = (staffId, date) =>
   SHIFTS.filter((s) => s.staff_id === staffId && s.date === iso(date));
 
 function Harness(props) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   return (
     <ScheduleGrid
       staff={STAFF}
@@ -100,6 +100,7 @@ function Harness(props) {
       targetPct={0.3}
       weekLoad={null}
       t={t}
+      lang={lang}
       {...props}
     />
   );

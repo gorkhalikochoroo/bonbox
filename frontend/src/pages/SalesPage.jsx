@@ -518,7 +518,7 @@ export default function SalesPage() {
       {/* Currency token now lives IN the value via <Amount> (whispered at
           0.62em), so the helper no longer repeats "· DKK" after the count. */}
       <StatCard
-        label={t("thisSession", "THIS SESSION")}
+        label={t("thisSession", "NEW SINCE YOU OPENED")}
         value={salesLoading ? "—" : <Amount value={sessionAgg.sessionTotal} currency={user?.currency} />}
         helper={salesLoading ? " " : `${sessionAgg.sessionCount} ${sessionAgg.sessionCount === 1 ? t("saleCount") : t("salesCount")}`}
       />
@@ -545,7 +545,7 @@ export default function SalesPage() {
       >
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-            {t("reconcile", "RECONCILE")}
+            {t("reconcile", "CASH DRAWER")}
           </p>
           <p className="text-[12px] text-gray-600 dark:text-gray-300 mt-1 leading-snug">
             {t("matchesCashDrawer", "Matches cash drawer?")}
@@ -560,7 +560,7 @@ export default function SalesPage() {
             "h-7 px-2.5 text-xs font-medium"
           }
         >
-          {t("openDailyClose", "Open Daily Close")} →
+          {t("openDailyClose", "Open Kasserapport")} →
         </Link>
       </Card>
     </div>
@@ -569,12 +569,12 @@ export default function SalesPage() {
   const sessionInlineLine = (
     <p className="text-sm text-gray-500 dark:text-gray-400">
       {sessionAgg.sessionCount} {sessionAgg.sessionCount === 1 ? t("saleCount") : t("salesCount")}
-      {" "}{t("thisSessionInline", "this session")} · <Amount value={sessionAgg.sessionTotal} currency={user?.currency} />
+      {" "}{t("thisSessionInline", "new since you opened")} · <Amount value={sessionAgg.sessionTotal} currency={user?.currency} />
       <Link
         to="/daily-close"
         className="ml-2 text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white underline"
       >
-        {t("openDailyClose", "Open Daily Close")} →
+        {t("openDailyClose", "Open Kasserapport")} →
       </Link>
     </p>
   );

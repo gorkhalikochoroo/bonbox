@@ -110,7 +110,10 @@ const moneyBoxes = (container) =>
   Array.from(container.querySelectorAll('input[inputmode="decimal"]'));
 
 const setValue = (el, value) => fireEvent.change(el, { target: { value } });
-const refusals = () => screen.queryAllByRole("alert").filter((n) => n.textContent === "invalidAmount");
+/** The money refusal, either voice: unreadable shape or non-positive amount.
+ *  The mocked t() renders "key" or "key:vars", so match on the key prefix. */
+const isRefusal = (n) => /^(amountUnreadable|amountNotPositive)\b/.test(n.textContent || "");
+const refusals = () => screen.queryAllByRole("alert").filter(isRefusal);
 
 beforeEach(() => {
   // jsdom ships neither of these, and two of the pages under test call them
@@ -788,7 +791,9 @@ describe("recurring expense amount", () => {
     // Two voices say the same thing here: the field's own inline refusal and
     // the form's error line. Both are correct; the point is that nothing was
     // posted.
-    await waitFor(() => expect(screen.getAllByText("invalidAmount").length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(screen.getAllByText((_c, n) => isRefusal(n)).length).toBeGreaterThan(0),
+    );
     expect(post).not.toHaveBeenCalled();
   });
 

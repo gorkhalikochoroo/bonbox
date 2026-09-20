@@ -38,6 +38,7 @@
 import { Link } from "react-router-dom";
 import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
+import { saveFile } from "../utils/download";
 import { errText } from "../utils/errText";
 import { useTheme, THEMES } from "../hooks/useTheme";
 import { useLanguage } from "../hooks/useLanguage";
@@ -356,6 +357,9 @@ export default function ProfilePage() {
 
   // GDPR: Export & Delete
   const [exporting, setExporting] = useState(false);
+  // The GDPR export is the one download an owner has a legal RIGHT to, so a
+  // failure gets said out loud rather than living in a swallowed catch.
+  const [exportError, setExportError] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
   const [deleting, setDeleting] = useState(false);
@@ -1690,15 +1694,23 @@ export default function ProfilePage() {
                     busy={exporting}
                     onClick={async () => {
                       setExporting(true);
+                      setExportError("");
                       try {
                         const res = await api.get("/auth/export-data", { responseType: "blob" });
-                        const url = window.URL.createObjectURL(new Blob([res.data]));
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.download = `bonbox_export_${localIso()}.csv`;
-                        a.click();
-                        window.URL.revokeObjectURL(url);
-                      } catch { /* ignore */ }
+                        // GDPR data export. It revoked the blob URL in the
+                        // same tick as the click and never appended the
+                        // anchor, so the one download an owner has a legal
+                        // right to could fail without saying anything — and
+                        // then the outcome was thrown away, which put the
+                        // silence straight back. saveFile never throws, so an
+                        // ignored return value IS the swallowed failure.
+                        const out = await saveFile(res.data, `bonbox_export_${localIso()}.csv`, {
+                          type: "text/csv;charset=utf-8;",
+                        });
+                        if (!out.ok) setExportError(t("gdprExportFailed"));
+                      } catch {
+                        setExportError(t("gdprExportFailed"));
+                      }
                       setExporting(false);
                     }}
                   >
@@ -1706,6 +1718,11 @@ export default function ProfilePage() {
                   </Button>
                 }
               />
+              {exportError && (
+                <p role="alert" className="text-[12px] text-rose-600 dark:text-rose-400 mt-2">
+                  {exportError}
+                </p>
+              )}
             </Card>
 
             <Card

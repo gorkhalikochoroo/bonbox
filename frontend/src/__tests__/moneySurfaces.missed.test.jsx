@@ -78,8 +78,10 @@ const JUNK = ["347-50", "1.234.56"];
 
 const mount = (ui) => render(<MemoryRouter>{ui}</MemoryRouter>);
 const setValue = (el, value) => fireEvent.change(el, { target: { value } });
-const refusals = () =>
-  screen.queryAllByRole("alert").filter((n) => n.textContent === "invalidAmount");
+/** The money refusal, either voice: unreadable shape or non-positive amount.
+ *  The mocked t() renders "key" or "key:vars", so match on the key prefix. */
+const isRefusal = (n) => /^(amountUnreadable|amountNotPositive)\b/.test(n.textContent || "");
+const refusals = () => screen.queryAllByRole("alert").filter(isRefusal);
 
 beforeEach(() => {
   vi.clearAllMocks();

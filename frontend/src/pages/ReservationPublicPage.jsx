@@ -33,6 +33,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { useConfirm } from "../hooks/useConfirm";
 import { buildIcs, venueAddress } from "../utils/reservationIcs";
+import { saveFile } from "../utils/download";
 import {
   Calendar,
   CalendarPlus,
@@ -363,6 +364,9 @@ export default function ReservationPublicPage() {
   // (a closed or fully-booked day) — this one means no date will work, so the
   // date strip must not invite the guest to keep hunting.
   const [closedReason, setClosedReason] = useState("");
+  // The .ics hand-off can silently deliver nothing inside a mobile
+  // browser, and the guest has no other copy of the booking time.
+  const [calError, setCalError] = useState("");
 
   // 14-day open/closed map for the date strip + next-open-day auto-advance.
   // dayMap === null → the summary hasn't resolved yet (show loading, never a
@@ -1397,7 +1401,7 @@ export default function ReservationPublicPage() {
               variant="secondary"
               size="lg"
               className="w-full"
-              onClick={() => {
+              onClick={async () => {
                 const ics = buildIcs({
                   uid: `${result.id}@bonbox.dk`,
                   day,
@@ -1416,23 +1420,25 @@ export default function ReservationPublicPage() {
                     .filter(Boolean)
                     .join(" · "),
                 });
-                const url = URL.createObjectURL(
-                  new Blob([ics], { type: "text/calendar;charset=utf-8" }),
-                );
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = "reservation.ics";
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                // Revoke on the next frame — Safari cancels the download
-                // if the object URL dies in the same tick as the click.
-                requestAnimationFrame(() => URL.revokeObjectURL(url));
+                // The guest is on a phone, so the share sheet is the path
+                // that actually lands this in their calendar app — and that is
+                // the path that can silently deliver nothing, so the outcome
+                // is read rather than dropped.
+                const out = await saveFile(ics, "reservation.ics", {
+                  type: "text/calendar;charset=utf-8",
+                  title: t("rsvpAddToCalendar", "Føj til kalender"),
+                });
+                setCalError(out.ok ? "" : t("calendarAddFailed"));
               }}
             >
               <CalendarPlus size={16} strokeWidth={1.75} className="mr-1.5" aria-hidden="true" />
               {t("rsvpAddToCalendar", "Føj til kalender")}
             </Button>
+          )}
+          {calError && (
+            <p role="alert" className="text-[12px] text-rose-600 dark:text-rose-400">
+              {calError}
+            </p>
           )}
 
           {/* Self-cancel — frees the table and notifies the restaurant.

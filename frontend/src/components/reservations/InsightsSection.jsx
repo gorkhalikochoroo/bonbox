@@ -410,7 +410,7 @@ function sourceLabel(src, t) {
     case "manual":
       return t("rsvpInsSourceManual", "Phone / in-person");
     case "walk_in":
-      return t("rsvpInsSourceWalkIn", "Walk-in");
+      return t("rsvpInsSourceWalkIn", "Drop-in");
     default:
       return src;
   }
@@ -585,8 +585,8 @@ function RecoveredCard({ data, t }) {
       : t("rsvpInsRecoveredGuests", "guests recovered");
   const fromLabel =
     bookings === 1
-      ? t("rsvpInsRecoveredFromOne", "from {n} seated booking", { n: fmtInt(bookings) })
-      : t("rsvpInsRecoveredFrom", "from {n} seated bookings", { n: fmtInt(bookings) });
+      ? t("rsvpInsRecoveredFromOne", "from {n} seated reservation", { n: fmtInt(bookings) })
+      : t("rsvpInsRecoveredFrom", "from {n} seated reservations", { n: fmtInt(bookings) });
 
   return (
     <Card>

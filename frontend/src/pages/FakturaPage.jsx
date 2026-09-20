@@ -11,6 +11,7 @@ import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
 import api from "../services/api";
+import { saveFile } from "../utils/download";
 import HowItWorksCard from "../components/HowItWorksCard";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, TabPills } from "../components/ui";
 import { localIso } from "../utils/dateFormat";
@@ -490,16 +491,10 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
   const handleDownloadPdf = async () => {
     try {
       const res = await api.get(`/invoices/${invoice.id}/pdf`, { responseType: "blob" });
-      const url = URL.createObjectURL(res.data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = invoice.is_credit_note
+      const out = await saveFile(res.data, invoice.is_credit_note
         ? `kreditnota-${invoice.fakturanummer_formatted}.pdf`
-        : `faktura-${invoice.fakturanummer_formatted}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+        : `faktura-${invoice.fakturanummer_formatted}.pdf`, { type: "application/pdf" });
+      if (!out.ok) toast({ message: t("pdfFailed"), severity: "critical" });
     } catch (e) {
       toast({ message: t("pdfFailed"), severity: "critical" });
     }
@@ -558,14 +553,15 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
       //    manually. Same UX as before — runs only if Resend is down or
       //    not configured.
       const res = await api.get(`/invoices/${invoice.id}/pdf`, { responseType: "blob" });
-      const url = URL.createObjectURL(res.data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `faktura-${invoice.fakturanummer_formatted}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const saved = await saveFile(res.data, `faktura-${invoice.fakturanummer_formatted}.pdf`, { type: "application/pdf" });
+      // The whole point of this branch is "you attach the file yourself". If
+      // the file never reached the device, opening the mail client tells the
+      // owner to attach something that does not exist — so stop here and say
+      // the faktura was not saved.
+      if (!saved.ok) {
+        toast({ message: t("invoicePdfSaveFailed"), severity: "critical" });
+        return;
+      }
       const subject = encodeURIComponent(
         `Faktura ${invoice.fakturanummer_formatted}`
       );

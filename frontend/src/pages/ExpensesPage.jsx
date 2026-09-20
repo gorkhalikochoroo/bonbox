@@ -63,6 +63,7 @@ import MoneyField from "../components/ui/MoneyField";
 import PageShell from "../components/ui/PageShell";
 import DataTable from "../components/ui/DataTable";
 import FilterBar from "../components/ui/FilterBar";
+import { SkeletonPulse } from "../components/BonBoxPolishKit";
 import { Camera, Pencil, Trash2, ChevronDown, ChevronUp, Receipt, ChevronRight, Layers } from "lucide-react";
 
 const QUICK_AMOUNTS = [100, 500, 1000];
@@ -118,6 +119,11 @@ export default function ExpensesPage() {
   const { t } = useLanguage();
   const { show: showUndo, ToastUI: undoToastUI } = useUndoToast();
   const [expenses, setExpenses] = useState([]);
+  // TRUE until /expenses has answered once. The month line below reduces over
+  // `expenses`, so on an empty array it stated "Denne måned: 0 kr. på 0
+  // udgifter" for the length of the request — a settled figure for a month we
+  // had not yet been told anything about.
+  const [expensesLoading, setExpensesLoading] = useState(true);
   const [categories, setCategories] = useState([]);
   const [catId, setCatId] = useState("");
   const [amount, setAmount] = useState("");
@@ -365,7 +371,8 @@ export default function ExpensesPage() {
     if (to) params.to = to;
     api.get("/expenses", { params })
       .then((res) => setExpenses(res.data))
-      .catch((err) => setError(errText(err, t("failedToLoadExpenses"))));
+      .catch((err) => setError(errText(err, t("failedToLoadExpenses"))))
+      .finally(() => setExpensesLoading(false));
     api.get("/expenses/categories")
       .then((res) => {
         setCategories(res.data);
@@ -1354,6 +1361,12 @@ export default function ExpensesPage() {
               4-tile period KPI right-rail. Full breakdown lives in
               /reports (per Tier-4 doctrine §1: ExpenseBreakdownCard
               demoted to /reports). */}
+          {expensesLoading ? (
+            // The line's own shape, not "0 kr. på 0 udgifter": the reduce has
+            // nothing to reduce yet, and a settled month total for a month we
+            // have not been told about is the fabrication this replaces.
+            <SkeletonPulse className="h-3 w-64 max-w-full mx-1" />
+          ) : (
           <p className="text-xs text-gray-500 dark:text-gray-400 px-1">
             {t("thisMonthSummary", "This month: {total} across {count} expenses · ", {
               total: formatOwnerMoney(monthSummary.total, currency),
@@ -1366,6 +1379,7 @@ export default function ExpensesPage() {
               {t("viewBreakdown", "View breakdown in /reports →")}
             </Link>
           </p>
+          )}
 
           {/* Mangler bilag — fradrag at risk. Surfacing the gap IS the
               compliance value: a live count of business expenses with no
@@ -1481,6 +1495,10 @@ export default function ExpensesPage() {
                   body={t("noExpensesBody", "Add one above or forward a receipt to your inbox.")}
                 />
               }
+              // Without this the ledger asserted "Ingen udgifter endnu" for the
+              // length of the first request — an empty state is a CLAIM about
+              // the data, and we had not been told anything yet.
+              loading={expensesLoading}
               rowActions={rowActions}
             />
           </section>

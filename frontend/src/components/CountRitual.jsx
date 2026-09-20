@@ -20,11 +20,18 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
-  Check, X, Plus, Minus, ClipboardCheck, Sparkles, FileText, ArrowRight,
+  Check, X, Plus, Minus, ClipboardCheck, Sparkles, FileText, ArrowRight, RotateCcw,
 } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
+import { useAuth } from "../hooks/useAuth";
+import { useConfirm } from "../hooks/useConfirm";
 import { formatKr } from "../utils/currency";
+import { saveFile } from "../utils/download";
+import { errText } from "../utils/errText";
+import {
+  saveCountDraft, loadCountDraft, clearCountDraft, reconcileDraftCounts,
+} from "../utils/countDraft";
 
 function hasRecipe(it) {
   return !!(it?.consumption_pattern && it?.serving_size && it?.usage_keywords);
@@ -32,6 +39,8 @@ function hasRecipe(it) {
 
 export default function CountRitual({ open, items = [], onClose, onDone }) {
   const { t } = useLanguage();
+  const { user } = useAuth();
+  const confirm = useConfirm();
 
   // Queue = every item, walked in a stable order (category → name). Built once
   // per open so edits to the live list don't reshuffle mid-count.
@@ -53,17 +62,48 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
   const [phase, setPhase] = useState("counting"); // counting | saving | done
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  // How many lines came back from a saved draft. Shown once, then cleared on
+  // the first tap — a resume the owner is not told about is indistinguishable
+  // from the app inventing numbers on their shelf.
+  const [resumed, setResumed] = useState(0);
+  // "Hent lagerrapport til revisor" used to be a bare onClick with an empty
+  // catch: no spinner, no error, so the one button that hands the count to the
+  // accountant looked identical whether it worked or died. Both states now
+  // exist.
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState("");
   const inputRef = useRef(null);
+  const userId = user?.id;
 
   useEffect(() => {
     if (open) {
-      setIdx(0);
-      setCounts({});
+      // Resume before reset, not after: a draft is only worth restoring for
+      // items that still exist, so it is filtered against the live list rather
+      // than POSTed later as counted lines for rows that were deleted.
+      const draft = loadCountDraft(userId);
+      const restored = draft ? reconcileDraftCounts(draft.counts, items) : null;
+      const n = restored ? Object.keys(restored).length : 0;
+      setIdx(n > 0 ? Math.min(draft.idx, Math.max(items.length - 1, 0)) : 0);
+      setCounts(n > 0 ? restored : {});
+      setResumed(n);
       setPhase("counting");
       setResult(null);
       setError("");
+      setReportError("");
     }
-  }, [open]);
+    // items is deliberately not a dep: the queue below is also built once per
+    // open, and re-running this on every parent refetch would reset a count
+    // in progress.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, userId]);
+
+  // Mirror every keystroke to the device. This is the whole fix for "90 items
+  // in, the phone rings, the tab reloads, everything is gone": the counts used
+  // to exist only in React state until the single POST at the very end.
+  useEffect(() => {
+    if (!open || phase !== "counting") return;
+    saveCountDraft(userId, { counts, idx });
+  }, [open, phase, counts, idx, userId]);
 
   const cur = queue[idx];
   // Field value: the owner's edit if present, else the AI's computed on-hand.
@@ -84,8 +124,41 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
   const total = queue.length;
   const remaining = total - idx - 1;
 
-  const setCount = (id, v) =>
+  const setCount = (id, v) => {
+    setResumed(0);
     setCounts((c) => ({ ...c, [id]: Math.max(0, Math.round(v * 100) / 100) }));
+  };
+
+  /**
+   * The X, guarded.
+   *
+   * The draft is already on the device by the time this runs, so "save" is
+   * simply "close without clearing it". The dialog exists because the other
+   * branch is unrecoverable, and because an owner who brushes a 36px X while
+   * scrolling a list deserves to be asked.
+   *
+   * Discard is the DESTRUCTIVE (red) answer and save is the cancel, which
+   * means Esc, the backdrop and the plain dismiss all land on the safe side.
+   * A guard whose accidental path is the lossy one is not a guard.
+   */
+  const requestClose = async () => {
+    const counted = Object.keys(counts).length;
+    if (counted === 0) {
+      clearCountDraft(userId);
+      onClose?.();
+      return;
+    }
+    const discard = await confirm({
+      title: t("countLeaveTitle", "You're in the middle of a count"),
+      message: t("countLeaveBody", "{n} items counted so far. Save it and pick up where you left off, or throw the count away?")
+        .replace("{n}", String(counted)),
+      confirmLabel: t("countLeaveDiscard", "Discard the count"),
+      cancelLabel: t("countLeaveKeep", "Save for later"),
+      destructive: true,
+    });
+    if (discard) clearCountDraft(userId);
+    onClose?.();
+  };
 
   const adjust = (delta) => {
     if (!cur) return;
@@ -93,6 +166,7 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
   };
 
   const advance = (record) => {
+    setResumed(0);
     if (cur && record) {
       // Lock in the confirmed count (default = the AI's predicted value).
       setCounts((c) => ({
@@ -111,6 +185,7 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
       counted_qty: Number(counted_qty) || 0,
     }));
     if (!lines.length) {
+      clearCountDraft(userId);
       onClose?.();
       return;
     }
@@ -118,6 +193,10 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
     setError("");
     try {
       const res = await api.post("/inventory/count/reconcile", { lines });
+      // Cleared only once the server has the numbers. A failed reconcile below
+      // keeps the draft, so a retry after the network comes back still has
+      // every line the owner walked the cold room for.
+      clearCountDraft(userId);
       setResult(res.data);
       setPhase("done");
       onDone?.(res.data);
@@ -160,7 +239,7 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
         </div>
         <button
           type="button"
-          onClick={() => onClose?.()}
+          onClick={() => (phase === "counting" ? requestClose() : onClose?.())}
           aria-label={t("close", "Luk")}
           className="w-9 h-9 rounded-full inline-flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
         >
@@ -196,26 +275,55 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
                 {t("countStockValue", "Lagerværdi")}
               </span>
               <span className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                {formatKr(result?.stock_value || 0)}
+                {/* `|| 0` turned a payload that never carried stock_value into
+                    a confident "0,00 kr." lagerværdi on the screen that exists
+                    to state it. Unknown renders "—". */}
+                {formatKr(result?.stock_value ?? null)}
               </span>
             </div>
             <button
               type="button"
+              disabled={reportBusy}
+              aria-busy={reportBusy ? "true" : undefined}
               onClick={async () => {
+                setReportBusy(true);
+                setReportError("");
                 try {
                   const res = await api.get("/inventory/export.pdf", { responseType: "blob" });
-                  const url = URL.createObjectURL(res.data);
-                  const a = document.createElement("a");
-                  a.href = url; a.download = "lagerrapport.pdf";
-                  document.body.appendChild(a); a.click(); a.remove();
-                  setTimeout(() => URL.revokeObjectURL(url), 60000);
-                } catch { /* best-effort */ }
+                  // saveFile, not a hand-rolled anchor: this file is for the
+                  // revisor, and on iOS the old anchor produced nothing at all.
+                  const out = await saveFile(res.data, "lagerrapport.pdf", {
+                    type: "application/pdf",
+                    title: t("countSendRevisor", "Hent lagerrapport til revisor"),
+                  });
+                  if (!out.ok) {
+                    setReportError(t("countReportFailed", "Kunne ikke hente rapporten — prøv igen."));
+                  }
+                } catch (e) {
+                  setReportError(errText(e, t("countReportFailed", "Kunne ikke hente rapporten — prøv igen.")));
+                } finally {
+                  setReportBusy(false);
+                }
               }}
-              className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 dark:border-gray-800 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition"
+              className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 dark:border-gray-800 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition disabled:opacity-60"
             >
-              <FileText size={16} strokeWidth={1.75} aria-hidden="true" />
-              {t("countSendRevisor", "Hent lagerrapport til revisor")}
+              {reportBusy ? (
+                <span
+                  className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <FileText size={16} strokeWidth={1.75} aria-hidden="true" />
+              )}
+              {reportBusy
+                ? t("countReportBusy", "Henter rapporten…")
+                : t("countSendRevisor", "Hent lagerrapport til revisor")}
             </button>
+            {reportError && (
+              <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-400">
+                {reportError}
+              </p>
+            )}
             <button
               type="button"
               onClick={() => onClose?.()}
@@ -230,6 +338,16 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
           </div>
         ) : (
           <div className="w-full max-w-sm text-center">
+            {/* Say that a resume happened. Numbers the owner did not type on
+                this run are on screen; pretending they were always there is
+                how a restored draft gets mistaken for the app's own guess. */}
+            {resumed > 0 && (
+              <div className="mb-5 inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-800 px-3 py-2 text-[13px] text-gray-600 dark:text-gray-300">
+                <RotateCcw size={14} strokeWidth={1.75} aria-hidden="true" className="text-gray-400 dark:text-gray-500" />
+                {t("countResumed", "Fortsætter din optælling — {n} varer var talt")
+                  .replace("{n}", String(resumed))}
+              </div>
+            )}
             {cur.category ? (
               <div className="text-[11px] uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1">
                 {cur.category}

@@ -29,6 +29,7 @@ import { isStaffMemberRole } from "../config/navManifest";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
 import api from "../services/api";
+import { saveFile } from "../utils/download";
 import { PageHeader, Button, UpgradeNudge } from "../components/ui";
 import PageShell from "../components/ui/PageShell";
 import { trackEvent } from "../hooks/useEventLog";
@@ -380,14 +381,13 @@ export default function DashboardPage() {
         params: { month: now.getMonth() + 1, year: now.getFullYear() },
         responseType: "blob",
       });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const a = document.createElement("a");
-      a.href = url;
       // Filename mirrors the backend Ledelsesrapport doc (da-DK, internal
       // management overview — not a momsangivelse).
-      a.download = `BonBox_Ledelsesrapport_${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, "0")}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      const out = await saveFile(res.data, `BonBox_Ledelsesrapport_${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, "0")}.pdf`, {
+        type: "application/pdf",
+        title: t("downloadPdf"),
+      });
+      if (!out.ok) showToast(t("downloadPdf") + " failed", "error");
     } catch {
       showToast(t("downloadPdf") + " failed", "error");
     }

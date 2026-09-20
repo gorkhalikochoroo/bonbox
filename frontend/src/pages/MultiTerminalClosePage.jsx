@@ -16,6 +16,7 @@ import {
   shareCloseSummary,
 } from "../utils/shareClose";
 import { localIso } from "../utils/dateFormat";
+import { saveFile } from "../utils/download";
 
 /**
  * Multi-terminal daily close — Mirabelle-format flow.
@@ -236,7 +237,7 @@ export default function MultiTerminalClosePage() {
     return (
       <div className="px-4 sm:px-6 py-10 max-w-2xl mx-auto">
         <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
-          {t("multiClose", "Multi-terminal close")}
+          {t("multiClose", "Kasserapport · several terminals")}
         </h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
           {t(
@@ -463,7 +464,7 @@ export default function MultiTerminalClosePage() {
             </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
               {t("manualEntrySubtitle") ||
-                "BonBox got the card numbers from the kasserapports. Fill in what's not on them."}
+                "BonBox got the card numbers from the kasserapporter. Fill in what's not on them."}
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -793,6 +794,15 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
     [aggData, businessName, dateLabel, currency],
   );
 
+  /** One filename for both the share sheet and the download. It used to differ
+      between the two paths — the shared copy carried no date — so an owner who
+      AirDropped three nights to their revisor sent three files with the same
+      name. */
+  const closeFilename = (ext) =>
+    `lukning-${(businessName || "bonbox").toLowerCase().replace(/\W+/g, "_")}-${
+      dateLabel.split(" ")[0]?.replace(/\./g, "-") || "today"
+    }.${ext}`;
+
   /**
    * Generate the close as a PDF and either:
    *   1. Share via Web Share API with `files: [pdf]` (iOS 15+, Chrome
@@ -812,52 +822,30 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
       );
       const blob = new Blob([res.data], { type: "application/pdf" });
 
-      // Try Web Share Files API first if requested
-      if (mode === "share" && navigator.share && typeof File !== "undefined") {
-        try {
-          const file = new File(
-            [blob],
-            `lukning-${(businessName || "bonbox").toLowerCase().replace(/\W+/g, "_")}.pdf`,
-            { type: "application/pdf" },
-          );
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({
-              title: shareTitle,
-              text: shareText,
-              files: [file],
-            });
-            setPdfState({
-              status: "success",
-              message: t("pdfShared") || "PDF shared",
-            });
-            return;
-          }
-        } catch (e) {
-          if (e?.name !== "AbortError") {
-            // Fall through to download path
-          } else {
-            setPdfState({ status: "success", message: t("pdfShared") || "PDF shared" });
-            return;
-          }
-        }
+      // One delivery helper for the whole app. This page used to hand-roll the
+      // share sheet and the anchor, and the anchor half revoked the blob URL a
+      // second after the click — fine on Chrome, a race on Safari. The
+      // kasserapport is a revisor artifact; it does not get its own copy of
+      // those eight lines. `preferShare` reproduces the old `mode="share"`.
+      const out = await saveFile(blob, closeFilename("pdf"), {
+        type: "application/pdf",
+        title: shareTitle,
+        text: shareText,
+        preferShare: mode === "share",
+      });
+      if (!out.ok) {
+        setPdfState({
+          status: "error",
+          message: t("pdfFailed") || "Could not generate PDF",
+        });
+        return;
       }
-
-      // Download fallback (also covers desktop browsers)
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download =
-        `lukning-${(businessName || "bonbox").toLowerCase().replace(/\W+/g, "_")}-${
-          dateLabel.split(" ")[0]?.replace(/\./g, "-") || "today"
-        }.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      // Revoke after the click registers (small timeout for Safari quirk)
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
       setPdfState({
         status: "success",
-        message: t("pdfDownloaded") || "PDF downloaded",
+        message:
+          out.channel === "share"
+            ? t("pdfShared") || "PDF shared"
+            : t("pdfDownloaded") || "PDF downloaded",
       });
     } catch (e) {
       setPdfState({
@@ -886,51 +874,25 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
       const blob = new Blob([res.data], { type: xlsxMime });
 
-      if (mode === "share" && navigator.share && typeof File !== "undefined") {
-        try {
-          const file = new File(
-            [blob],
-            `lukning-${(businessName || "bonbox").toLowerCase().replace(/\W+/g, "_")}.xlsx`,
-            { type: xlsxMime },
-          );
-          if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({
-              title: shareTitle,
-              text: shareText,
-              files: [file],
-            });
-            setXlsxState({
-              status: "success",
-              message: t("excelShared") || "Excel shared",
-            });
-            return;
-          }
-        } catch (e) {
-          if (e?.name === "AbortError") {
-            setXlsxState({
-              status: "success",
-              message: t("excelShared") || "Excel shared",
-            });
-            return;
-          }
-          // else: fall through to download path
-        }
+      const out = await saveFile(blob, closeFilename("xlsx"), {
+        type: xlsxMime,
+        title: shareTitle,
+        text: shareText,
+        preferShare: mode === "share",
+      });
+      if (!out.ok) {
+        setXlsxState({
+          status: "error",
+          message: t("excelFailed") || "Could not generate Excel",
+        });
+        return;
       }
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download =
-        `lukning-${(businessName || "bonbox").toLowerCase().replace(/\W+/g, "_")}-${
-          dateLabel.split(" ")[0]?.replace(/\./g, "-") || "today"
-        }.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
       setXlsxState({
         status: "success",
-        message: t("excelDownloaded") || "Excel downloaded",
+        message:
+          out.channel === "share"
+            ? t("excelShared") || "Excel shared"
+            : t("excelDownloaded") || "Excel downloaded",
       });
     } catch (e) {
       setXlsxState({

@@ -1,3 +1,5 @@
+import { saveFile } from "./download";
+
 /**
  * Share-to-accountant helper for the multi-day daily close range PDF.
  *
@@ -188,18 +190,16 @@ async function shareViaSheet(blob, filename, { title, text } = {}) {
  * and as the prelude to opening mailto: (so the user has a file to
  * attach by the time the email window opens).
  */
-function downloadBlob(blob, filename) {
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  // Defer revoke so Safari has time to start the download.
-  setTimeout(() => {
-    a.remove();
-    window.URL.revokeObjectURL(url);
-  }, 1000);
+async function downloadBlob(blob, filename) {
+  // Delegates to the one delivery helper. This module already had the deferred
+  // revoke right — it is the copy the other call sites should have been reading
+  // all along — so nothing changes here except that there is now a single
+  // implementation to keep right.
+  //
+  // AWAITED, and the outcome returned: saveFile never throws, so an unawaited
+  // call had no way to report a failure at all, and both callers below then
+  // told the owner the range had gone to their revisor.
+  return saveFile(blob, filename);
 }
 
 
@@ -388,7 +388,10 @@ export async function sendBundleToAccountant({
 
   // Path 2 — download + mailto (desktop)
   try {
-    downloadBlob(blob, filename);
+    // If the file never landed there is nothing to attach, so do NOT open the
+    // mail client and do NOT claim the range went to the revisor.
+    const saved = await downloadBlob(blob, filename);
+    if (!saved.ok) return { ok: false, channel: "download", reason: saved.reason };
     await new Promise(r => setTimeout(r, 200));
     openMailto({ to: accountantEmail, subject, body });
     return { ok: true, channel: "mailto" };
@@ -428,7 +431,8 @@ export async function sendDailyCloseRangeToAccountant({
   // by the time the email client opens. Otherwise the user hits
   // "Attach" and fumbles for a file that hasn't landed yet.
   try {
-    downloadBlob(blob, filename);
+    const saved = await downloadBlob(blob, filename);
+    if (!saved.ok) return { ok: false, channel: "download", reason: saved.reason };
     // Small delay so the download is queued before the mailto launch
     // takes window focus away from the page.
     await new Promise(r => setTimeout(r, 200));

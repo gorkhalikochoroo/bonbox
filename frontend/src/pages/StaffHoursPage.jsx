@@ -7,6 +7,7 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
+import { formatHours } from "../utils/hours";
 import { errText } from "../utils/errText";
 import { useConfirm } from "../hooks/useConfirm";
 import { FadeIn, TabContent, AnimatedList, AnimatedListItem, AnimatePresence } from "../components/AnimationKit";
@@ -800,9 +801,12 @@ function HoursOverview({ overview, loading, denied, currency, onGoLog, onGoDetai
   // Tile 1 — Timer (volume, never colored).
   const hoursHelperBase =
     hours.scheduled_total > 0
-      ? t("hovTileHoursSub", "{measured}% clocked · of {scheduled} t planned")
+      // The unit comes off the formatter, not out of the sentence: the
+      // catalogue used to carry a literal " t" here, so an English session read
+      // "of 93,8 t planned" with a Danish unit and an unformatted number.
+      ? t("hovTileHoursSub", "{measured}% clocked · of {scheduled} planned")
           .split("{measured}").join(measuredPct)
-          .split("{scheduled}").join(hours.scheduled_total)
+          .split("{scheduled}").join(formatHours(hours.scheduled_total, { lang }))
       : t("hovTileHoursSubNoPlan", "{measured}% clocked").split("{measured}").join(measuredPct);
   const hoursHelper = `${hoursHelperBase}${soFar}`;
 
@@ -842,15 +846,15 @@ function HoursOverview({ overview, loading, denied, currency, onGoLog, onGoDetai
   if (over.length > 0) {
     limAccent = "critical";
     limVal = String(over.length);
-    limHelper = over.length === 1 ? `${over[0].name} · ${over[0].actual}/${over[0].limit} t` : t("hovLimitsOver", "{n} over limit").split("{n}").join(over.length);
+    limHelper = over.length === 1 ? `${over[0].name} · ${over[0].actual}/${formatHours(over[0].limit, { lang })}` : t("hovLimitsOver", "{n} over limit").split("{n}").join(over.length);
   } else if (near.length > 0) {
     limAccent = "warn";
     limVal = String(near.length);
-    limHelper = near.length === 1 ? `${near[0].name} · ${near[0].actual}/${near[0].limit} t` : t("hovLimitsNear", "{n} near limit").split("{n}").join(near.length);
+    limHelper = near.length === 1 ? `${near[0].name} · ${near[0].actual}/${formatHours(near[0].limit, { lang })}` : t("hovLimitsNear", "{n} near limit").split("{n}").join(near.length);
   } else if (ot > 0) {
     limAccent = "warn";
-    limVal = `${ot} t`;
-    limHelper = t("hovOvertimeHrs", "{n} t overtime").split("{n}").join(ot);
+    limVal = formatHours(ot, { lang });
+    limHelper = t("hovOvertimeHrs", "{n} overtime").split("{n}").join(formatHours(ot, { lang }));
   }
 
   return (
@@ -861,7 +865,7 @@ function HoursOverview({ overview, loading, denied, currency, onGoLog, onGoDetai
         <StatCard
           dense
           label={t("hovTileHours", "Hours")}
-          value={`${hours.actual_total ?? 0} t`}
+          value={formatHours(hours.actual_total, { lang })}
           helper={hoursHelper}
         />
         <StatCard
@@ -995,14 +999,16 @@ function shiftStateMeta(state, t) {
   }
 }
 
-/** Danish writes 7,0 t — not 7.0h. The old code was `toFixed(1) + "h"`, which
-    was wrong in every row of the primary market. */
+/** Danish writes 7 t — not 7.0h.
+ *
+ *  This used to be the whole implementation, and the page then bypassed it
+ *  seven times with `toFixed(1) + "h"` — so one cell of the summary table read
+ *  "38,0 t" and the cell beside it read "38.0h", while Vagtplan printed "38h"
+ *  for the same week. The rules now live in utils/hours.js, which both pages
+ *  read. This wrapper stays only so the existing call sites keep their shape.
+ */
 function fmtHours(n, lang) {
-  if (n == null) return "\u2014";
-  const num = new Intl.NumberFormat(lang === "da" ? "da-DK" : "en-GB", {
-    minimumFractionDigits: 1, maximumFractionDigits: 1,
-  }).format(n);
-  return `${num} ${lang === "da" ? "t" : "h"}`;
+  return formatHours(n, { lang });
 }
 
 
@@ -1285,17 +1291,17 @@ function HoursSummaryTable({ summary, loading, denied, currency, onResolved }) {
                         )}
                         {isNearLimit && (
                           <div className={`text-xs mt-0.5 font-semibold ${isOverLimit ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
-                            {row.staff_name?.split(" ")[0]}: {Math.round(row.actual_hours)}/{row.work_limit} hrs!
+                            {row.staff_name?.split(" ")[0]}: {Math.round(row.actual_hours)}/{formatHours(row.work_limit, { lang, decimals: 0 })}
                           </div>
                         )}
                       </div>
                     </div>
                   </td>
                   <td className="hidden sm:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
-                    {row.scheduled_hours != null ? `${row.scheduled_hours.toFixed(1)}h` : "\u2014"}
+                    {fmtHours(row.scheduled_hours, lang)}
                   </td>
                   <td className="px-3 py-3 text-right font-medium text-gray-800 dark:text-white tabular-nums">
-                    {row.actual_hours != null ? `${row.actual_hours.toFixed(1)}h` : "\u2014"}
+                    {fmtHours(row.actual_hours, lang)}
                   </td>
                   <td className={`hidden sm:table-cell px-3 py-3 text-right font-medium ${
                     stateMeta ? stateMeta.cls : "text-gray-400 dark:text-gray-500"
@@ -1348,15 +1354,15 @@ function HoursSummaryTable({ summary, loading, denied, currency, onResolved }) {
             <tr className="bg-gray-50 dark:bg-gray-750 font-semibold text-gray-800 dark:text-white">
               <td className="px-3 sm:px-5 py-3 text-sm">{t("shpTotalCount", "Total ({count})").replace("{count}", summary.length)}</td>
               <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
-                {summary.reduce((s, r) => s + (r.scheduled_hours || 0), 0).toFixed(1)}h
+                {fmtHours(summary.reduce((s, r) => s + (r.scheduled_hours || 0), 0), lang)}
               </td>
               <td className="px-3 py-3 text-right tabular-nums text-sm">
-                {summary.reduce((s, r) => s + (r.actual_hours || 0), 0).toFixed(1)}h
+                {fmtHours(summary.reduce((s, r) => s + (r.actual_hours || 0), 0), lang)}
               </td>
               <td className="hidden sm:table-cell px-3 py-3 text-right tabular-nums text-sm">
                 {(() => {
                   const d = summary.reduce((s, r) => s + (r.actual_hours || 0), 0) - summary.reduce((s, r) => s + (r.scheduled_hours || 0), 0);
-                  return d === 0 ? "\u2014" : `${d > 0 ? "+" : ""}${d.toFixed(1)}h`;
+                  return d === 0 ? "\u2014" : formatHours(d, { lang, sign: true });
                 })()}
               </td>
               <td className="hidden md:table-cell px-3 py-3" />
@@ -1539,7 +1545,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
    Tab 2: Clock In/Out
    ───────────────────────────────────────────────────────── */
 function ClockInOutForm({ staffList, currency, onLogged }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [staffId, setStaffId] = useState("");
   const [date, setDate] = useState(today());
   const [startTime, setStartTime] = useState("");
@@ -1676,7 +1682,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
           <div className="bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] rounded-lg px-4 py-2.5 w-full">
             <span className="text-xs text-gray-500 dark:text-gray-400 block">{t("calculated")}</span>
             <span className="text-lg font-bold text-gray-800 dark:text-white">
-              {calcHours > 0 ? `${calcHours}h` : "\u2014"}
+              {calcHours > 0 ? formatHours(calcHours, { lang, decimals: 2 }) : "\u2014"}
             </span>
             {estimated && (
               <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
@@ -2009,7 +2015,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                   ) : (
                     <>
                       <span className="font-bold text-gray-800 dark:text-white text-sm">
-                        {entry.total_hours != null ? `${entry.total_hours}h` : "\u2014"}
+                        {formatHours(entry.total_hours, { lang, decimals: 2 })}
                       </span>
                       {entry.earned != null && entry.earned > 0 && (
                         <div className="text-xs text-gray-500 dark:text-gray-400">

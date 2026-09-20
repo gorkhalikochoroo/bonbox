@@ -9,6 +9,7 @@ import { useConfirm } from "../hooks/useConfirm";
 import GeofenceDial from "../components/GeofenceDial";
 import { nextShiftCountdown } from "../utils/nextShiftCountdown";
 import { overlapsOwnShift } from "../utils/overlapsOwnShift";
+import { saveFile } from "../utils/download";
 import { createPortal } from "react-dom";
 import { useParams } from "react-router-dom";
 import { RefreshCw, CloudOff, Download, FileText, Smartphone, Share, Check, X, Calendar, ArrowLeftRight, Clock, Bell, Lock, AlertTriangle, Mail, BellOff, MessageCircle, MessageSquare, Search, Send, Inbox, Thermometer, StickyNote, MapPin, MapPinOff, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, Repeat, CalendarOff, Plus, Users, Apple } from "lucide-react";
@@ -407,16 +408,8 @@ function DocumentsSection({ token }) {
     setBusyId(doc.id); setErr("");
     try {
       const r = await portalApi.get(`/portal/${token}/documents/${doc.id}`, { responseType: "blob" });
-      const url = URL.createObjectURL(r.data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = doc.label || "dokument";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      // Revoke on the next tick — revoking synchronously can cancel the
-      // download on some mobile browsers before it has started.
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      const out = await saveFile(r.data, doc.label || "dokument");
+      if (!out.ok) setErr(t("portalDocsOpenFailed", "Couldn't open that document. Try again."));
     } catch {
       setErr(t("portalDocsOpenFailed", "Couldn't open that document. Try again."));
     } finally {

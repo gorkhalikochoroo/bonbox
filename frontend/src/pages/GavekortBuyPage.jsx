@@ -12,7 +12,7 @@ import { useParams } from "react-router-dom";
 import { Gift, Check, ChevronRight, Mail, ShieldCheck } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
-import { formatKr, parseMoneyInput, isMoneyRejected } from "../utils/currency";
+import { formatKr, parseMoneyInput, isMoneyRejected, moneyExample } from "../utils/currency";
 
 function krFromMinor(minor) {
   if (minor == null || Number.isNaN(minor)) return "—";
@@ -276,7 +276,7 @@ function BuyFlow({ t, slug, data }) {
               role="alert"
               className="mt-1.5 text-[11px] text-red-600 dark:text-red-400"
             >
-              {t("invalidAmount")}
+              {t("amountUnreadable", { example: moneyExample("da-DK") })}
             </p>
           )}
         </div>

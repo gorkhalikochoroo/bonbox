@@ -17,6 +17,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import api from "../services/api";
+import { saveFile } from "../utils/download";
 import { useAuth } from "../hooks/useAuth";
 import { getVatTerms } from "../utils/currency";
 import { useLanguage } from "../hooks/useLanguage";
@@ -343,12 +344,13 @@ export default function ReportsPage() {
         { year: pdfYear, month: pdfMonth, sections: [...selected] },
         { responseType: "blob" }
       );
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `BonBox_Ledelsesrapport_${months[pdfMonth-1]}_${pdfYear}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(url);
+      const out = await saveFile(res.data, `BonBox_Ledelsesrapport_${months[pdfMonth-1]}_${pdfYear}.pdf`, {
+        type: "application/pdf",
+      });
+      if (!out.ok) {
+        setError(t("failedToGeneratePdf"));
+        setTimeout(() => setError(null), 4000);
+      }
     } catch {
       setError(t("failedToGeneratePdf"));
       setTimeout(() => setError(null), 4000);

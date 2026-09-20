@@ -14,6 +14,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import api from "../services/api";
+import { saveFile } from "../utils/download";
 import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
 import { Button, SectionBanner, Icon } from "./ui";
@@ -91,14 +92,8 @@ export default function ProcedureCard() {
     setErr("");
     try {
       const res = await api.get("/reports/procedure/pdf", { responseType: "blob" });
-      const url = URL.createObjectURL(res.data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "procedurebeskrivelse-bonbox.pdf";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const out = await saveFile(res.data, "procedurebeskrivelse-bonbox.pdf", { type: "application/pdf" });
+      if (!out.ok) setErr(t("prcPdfFailed", "Couldn't generate the PDF"));
     } catch (e) {
       setErr(errText(e, t("prcPdfFailed", "Couldn't generate the PDF")));
     }

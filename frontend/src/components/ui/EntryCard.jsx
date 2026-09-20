@@ -69,7 +69,7 @@ import Button from "./Button";
 import Chip from "./Chip";
 import Input from "./Input";
 import { useLanguage } from "../../hooks/useLanguage";
-import { parseMoneyInput } from "../../utils/currency";
+import { parseMoneyInput, moneyExample } from "../../utils/currency";
 
 function formatPreset(v) {
   // Presets come in as numbers (500, 1000, 2500). We format with
@@ -148,10 +148,22 @@ export default function EntryCard({
     if (typeof amount === "number") return amount;
     return parseMoneyInput(amount, amountLocale);
   })();
-  // Typed something that does not parse: say so rather than sit inert. An
-  // empty field is not an error — it is the resting state.
-  const amountRejected =
-    amount !== "" && amount !== null && amount !== undefined && !(parsed > 0);
+  // Typed something the submit gate will not take: say so rather than sit
+  // inert. An empty field is not an error — it is the resting state.
+  //
+  // TWO failures, and they used to share one sentence. `invalidAmount` —
+  // "Beløbet skal være > 0" — fired both when the parser could not READ the
+  // value and when it read a real zero, so the owner who typed 1.234,50 (a
+  // positive number, refused only for its shape on this account's notation)
+  // was told their positive number had to be positive, in a notation nobody
+  // writes on a receipt. They are now told apart at the only place that knows
+  // which one happened: unreadable → say what to type, in their own money
+  // notation; readable but ≤ 0 → say the amount has to be above zero.
+  const amountTouched =
+    amount !== "" && amount !== null && amount !== undefined;
+  const amountUnreadable = amountTouched && !Number.isFinite(parsed);
+  const amountNotPositive = amountTouched && Number.isFinite(parsed) && parsed <= 0;
+  const amountRejected = amountUnreadable || amountNotPositive;
   const canSubmit = !disabled && !busy && parsed > 0;
 
   const handleSubmit = (e) => {
@@ -254,7 +266,9 @@ export default function EntryCard({
                 role="alert"
                 className="mt-1 text-[11px] text-red-600 dark:text-red-400"
               >
-                {t("invalidAmount")}
+                {amountUnreadable
+                  ? t("amountUnreadable", { example: moneyExample(amountLocale) })
+                  : t("amountNotPositive")}
               </p>
             )}
           </div>

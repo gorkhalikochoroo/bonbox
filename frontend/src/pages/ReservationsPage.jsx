@@ -734,7 +734,7 @@ function FlagsCell({ r, t }) {
         <Globe className="w-4 h-4" aria-label={t("rsvpSourceOnline", "online")} title={t("rsvpSourceOnline", "online")} />
       )}
       {r.source === "walk_in" && (
-        <Footprints className="w-4 h-4" aria-label={t("rsvpSourceWalkIn", "walk-in")} title={t("rsvpSourceWalkIn", "walk-in")} />
+        <Footprints className="w-4 h-4" aria-label={t("rsvpSourceWalkIn", "drop-in")} title={t("rsvpSourceWalkIn", "drop-in")} />
       )}
     </div>
   );
@@ -1277,7 +1277,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
                   chosenTable.capacity_seats +
                   " " +
                   t("rsvpCoversHelper", "guests")
-                : t("rsvpSeatWalkIn", "Seat walk-in")}
+                : t("rsvpSeatWalkIn", "Seat a drop-in")}
             </p>
           </div>
           <button
@@ -1360,7 +1360,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={160}
-            placeholder={t("rsvpWalkIn", "Walk-in")}
+            placeholder={t("rsvpWalkIn", "Drop-in")}
             className="mt-1.5 w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-base sm:text-sm"
           />
         </div>
@@ -1375,7 +1375,7 @@ function SeatNowSheet({ table, tables = [], t, busy, onSeat, onClose }) {
             onSeat({
               resource_id: chosenTable.id,
               party_size: Math.max(1, Math.min(100, parseInt(party, 10) || 2)),
-              guest_name: name.trim() || t("rsvpWalkIn", "Walk-in"),
+              guest_name: name.trim() || t("rsvpWalkIn", "Drop-in"),
             });
           }}
         >
@@ -1458,7 +1458,7 @@ function EditBookingSheet({ reservation, t, busy, error, onSubmit, onClose }) {
       >
         <div className="flex items-start justify-between gap-3">
           <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            {t("rsvpEditTitle", "Edit booking")}
+            {t("rsvpEditTitle", "Edit reservation")}
           </h3>
           <button type="button" onClick={onClose} aria-label={t("close", "Close")}
             className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800">
@@ -4316,7 +4316,7 @@ function BookSection({ t, businessType, tableFloor = false, day: dayProp, onDayC
               iconLeft={<Armchair className="w-4 h-4" />}
               onClick={openSeatWalkIn}
             >
-              {t("rsvpSeatWalkIn", "Seat walk-in")}
+              {t("rsvpSeatWalkIn", "Seat a drop-in")}
             </Button>
           )}
           <Button

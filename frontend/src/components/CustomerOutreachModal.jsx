@@ -414,7 +414,7 @@ export default function CustomerOutreachModal({
             {toast && <span className="text-amber-700 dark:text-amber-400">{toast}</span>}
             {!toast && phones.length > 0 && (
               <span>
-                {(t("outreachReadyText") || "Ready to text {n} customer{s}").replace("{n}", String(phones.length)).replace("{s}", phones.length === 1 ? "" : "s")}
+                {t(phones.length === 1 ? "outreachReadyTextOne" : "outreachReadyText", { n: phones.length })}
               </span>
             )}
           </div>

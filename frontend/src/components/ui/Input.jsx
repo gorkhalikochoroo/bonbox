@@ -52,7 +52,8 @@
  *   <Input placeholder="Notes..." value={notes} onChange={...} />
  *   <Input type="number" suffix="kg" value={qty} onChange={...} />
  *   <Input type="text" inputMode="decimal" suffix="DKK" value={amount}
- *          invalid={amountRejected} error={t("invalidAmount")} ... />
+ *          invalid={amountRejected}
+ *          error={t("amountUnreadable", { example: moneyExample(locale) })} ... />
  *   <Input invalid error="Invalid CVR number" value={cvr} ... />
  *   <Input prefix={<Icon name="Search" size={14} />} placeholder="Search" />
  */

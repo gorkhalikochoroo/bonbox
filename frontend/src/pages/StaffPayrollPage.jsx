@@ -3,6 +3,7 @@
 // + i18n + a11y unchanged.
 import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
+import { saveFile } from "../utils/download";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { displayCurrency } from "../utils/currency";
@@ -299,14 +300,10 @@ export default function StaffPayrollPage() {
         },
         { responseType: "blob" }
       );
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `payroll_${period.period_start}_${period.period_end}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      const out = await saveFile(res.data, `payroll_${period.period_start}_${period.period_end}.pdf`, {
+        type: "application/pdf",
+      });
+      if (!out.ok) setError(t("payrollPdfFailed", "Could not generate PDF. Please try again."));
     } catch (err) {
       // Surface the actual server detail when available — `responseType: "blob"`
       // means axios delivers the error body as a Blob, so we read it as text first.
@@ -788,12 +785,8 @@ export default function StaffPayrollPage() {
                           params: { period_start: period.period_start, period_end: period.period_end },
                           responseType: "blob",
                         });
-                        const url = window.URL.createObjectURL(new Blob([res.data], { type: "text/csv" }));
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.download = `bonbox_payroll_${period.period_start}_${period.period_end}.csv`;
-                        document.body.appendChild(a); a.click(); a.remove();
-                        window.URL.revokeObjectURL(url);
+                        const out = await saveFile(res.data, `bonbox_payroll_${period.period_start}_${period.period_end}.csv`, { type: "text/csv;charset=utf-8;" });
+                        if (!out.ok) setError(t("payrollCsvFailed", "Could not generate CSV."));
                       } catch {
                         setError(t("payrollCsvFailed", "Could not generate CSV."));
                       }
@@ -809,12 +802,8 @@ export default function StaffPayrollPage() {
                           params: { period_start: period.period_start, period_end: period.period_end },
                           responseType: "blob",
                         });
-                        const url = window.URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
-                        const a = document.createElement("a");
-                        a.href = url;
-                        a.download = `bonbox_loenseddel_${period.period_start}_${period.period_end}.pdf`;
-                        document.body.appendChild(a); a.click(); a.remove();
-                        window.URL.revokeObjectURL(url);
+                        const out = await saveFile(res.data, `bonbox_loenseddel_${period.period_start}_${period.period_end}.pdf`, { type: "application/pdf" });
+                        if (!out.ok) setError(t("payrollLoenseddelFailed", "Could not generate Lønseddel."));
                       } catch (e) {
                         setError(e?.response?.status === 404 ? t("payrollNoHoursLogged", "No staff hours logged in this period.") : t("payrollLoenseddelFailed", "Could not generate Lønseddel."));
                       }

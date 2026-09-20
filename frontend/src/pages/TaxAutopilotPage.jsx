@@ -4,6 +4,7 @@
 import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
 import api from "../services/api";
+import { saveFile } from "../utils/download";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useEntitlements } from "../hooks/useEntitlements";
@@ -429,13 +430,18 @@ function FilingPdfCard({ deadline, taxName, currency, businessProfile, unlocked 
     try {
       const url = `/tax/filing-pdf?period_start=${periodStart}&period_end=${periodEnd}`;
       const res = await api.get(url, { responseType: "blob" });
-      const blob = new Blob([res.data], { type: "application/pdf" });
-      const objectUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = objectUrl;
-      a.download = `MA-${periodStart?.replace(/-/g, "")}-${periodEnd?.replace(/-/g, "")}.pdf`;
-      a.click();
-      window.URL.revokeObjectURL(objectUrl);
+      // Through the one delivery helper: this revoked the blob URL on the
+      // line after the click (Safari never finished reading it) and the anchor
+      // was never appended, so Firefox ignored the click outright — on the
+      // momsangivelse the owner hands their revisor.
+      const out = await saveFile(res.data, `MA-${periodStart?.replace(/-/g, "")}-${periodEnd?.replace(/-/g, "")}.pdf`, {
+        type: "application/pdf",
+        title: t("filingPdfDownloaded"),
+      });
+      if (!out.ok) {
+        setError(t("filingPdfDownloadFailed"));
+        return;
+      }
       setStatus(t("filingPdfDownloaded"));
       setTimeout(() => setStatus(""), 5000);
     } catch (e) {
@@ -744,7 +750,7 @@ function ReconCard({ recon, taxName, currency }) {
               <p className="text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">{t("fromDailyCloses")}</p>
               <p className="text-xl font-bold text-gray-800 dark:text-white"><Amount value={cm.moms_from_closes} currency={currency} /></p>
               <p className="text-xs text-gray-400 mt-0.5">
-                {t("taxReconClosesCount", { n: cm.closes_count, s: cm.closes_count !== 1 ? "s" : "" })}
+                {t(cm.closes_count === 1 ? "taxReconClosesCountOne" : "taxReconClosesCount", { n: cm.closes_count })}
                 {cm.manual_count > 0 && <> &middot; {t("taxReconFromReceipt", { n: cm.manual_count })}</>}
               </p>
             </div>

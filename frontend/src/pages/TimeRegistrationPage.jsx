@@ -5,6 +5,8 @@
 // render an upgrade card on a 402).
 import { useState, useEffect, useCallback } from "react";
 import api from "../services/api";
+import { saveFile } from "../utils/download";
+import { errText } from "../utils/errText";
 import { useLanguage } from "../hooks/useLanguage";
 import { PageHeader, Button, StatCard, Card, Empty, Icon } from "../components/ui";
 import UpgradeNudge from "../components/ui/UpgradeNudge";
@@ -42,6 +44,9 @@ export default function TimeRegistrationPage() {
   const [expanded, setExpanded] = useState(null);   // staff_id whose register is open
   const [detail, setDetail] = useState({});          // staff_id -> register rows
   const [downloading, setDownloading] = useState(false);
+  // Payroll-adjacent export: a failure has to be visible, not an
+  // unhandled rejection that looks exactly like success.
+  const [downloadError, setDownloadError] = useState("");
 
   const { from, to } = monthBounds(cursor);
 
@@ -74,14 +79,16 @@ export default function TimeRegistrationPage() {
 
   const downloadCsv = async () => {
     setDownloading(true);
+    setDownloadError("");
     try {
       const res = await api.get("/staff/time-registration/export.csv", { params: { from, to }, responseType: "blob" });
-      const url = URL.createObjectURL(new Blob([res.data], { type: "text/csv" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `tidsregistrering_${from}_${to}.csv`;
-      document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
+      const out = await saveFile(res.data, `tidsregistrering_${from}_${to}.csv`, { type: "text/csv;charset=utf-8;" });
+      if (!out.ok) setDownloadError(t("timeRegExportFailed"));
+    } catch (e) {
+      // try/finally with no catch made a 402 or a dead connection an unhandled
+      // rejection: the spinner stopped and the screen was identical to success.
+      // This is payroll-adjacent — the owner has to know it did not happen.
+      setDownloadError(errText(e, t("timeRegExportFailed")));
     } finally {
       setDownloading(false);
     }
@@ -142,6 +149,12 @@ export default function TimeRegistrationPage() {
           </Button>
         }
       />
+
+      {downloadError && (
+        <p role="alert" className="text-[12px] text-rose-600 dark:text-rose-400 -mt-2">
+          {downloadError}
+        </p>
+      )}
 
       {/* Month nav */}
       <div className="flex items-center justify-center gap-3">

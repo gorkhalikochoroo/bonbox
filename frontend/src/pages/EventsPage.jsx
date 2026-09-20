@@ -327,7 +327,7 @@ export default function EventsPage() {
         throw new Error(
           t(
             "eventAddonPriceInvalid",
-            "Add-on price must be a whole number ≥ 0 kr.",
+            "Write the add-on price in whole kroner — 0 or more",
           ),
         );
       }
@@ -424,7 +424,7 @@ export default function EventsPage() {
       const price = parseInt(tier.price_dkk, 10);
       if (!Number.isFinite(price) || price < 0) {
         throw new Error(
-          t("eventTicketTierPriceInvalid", "Tier price must be a whole number ≥ 0 kr."),
+          t("eventTicketTierPriceInvalid", "Write the ticket price in whole kroner — 0 or more"),
         );
       }
     }
@@ -1447,7 +1447,7 @@ export default function EventsPage() {
                       label: t("bookingsTab", "Bookings"),
                       count: bookings.length || undefined,
                     },
-                    { id: "walkins", label: t("walkInsTab", "Walk-ins") },
+                    { id: "walkins", label: t("walkInsTab", "Drop-ins") },
                   ]}
                   activeId={detailTab}
                   onChange={setDetailTab}

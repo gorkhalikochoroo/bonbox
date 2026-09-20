@@ -201,7 +201,11 @@ export const NAV_MANIFEST = [
     pillar: null,
     frequency: "daily",
     surfaces: ["sidebar", "more", "search", "bottomnav"],
-    aliases: ["today", "daily close", "close", "end of day", "today's floor", "daily report", "floor", "ops"],
+    // The row is named "Kasserapport" now (one owner-facing noun for a page
+    // that answered to eight). The old words stay as SEARCH aliases — an owner
+    // who still types "i dag" or "luk dagen" must land here, not on nothing.
+    aliases: ["kasserapport", "kasserapporter", "i dag", "luk dagen", "lukning", "dagsafslutning",
+      "today", "daily close", "close", "end of day", "today's floor", "daily report", "floor", "ops"],
   },
   {
     to: "/events",

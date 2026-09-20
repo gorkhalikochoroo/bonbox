@@ -57,6 +57,7 @@ export function ConfirmProvider({ children }) {
   // { opts, resolve } while open, else null.
   const [state, setState] = useState(null);
   const confirmBtnRef = useRef(null);
+  const cancelBtnRef = useRef(null);
 
   const confirm = useCallback((opts) => {
     const o = typeof opts === "string" ? { message: opts } : { ...(opts || {}) };
@@ -73,15 +74,25 @@ export function ConfirmProvider({ children }) {
     [],
   );
 
-  // Keyboard: Esc cancels, Enter confirms. Focus the confirm button on open.
+  // Keyboard: Esc always cancels. Enter confirms ONLY when the action is
+  // reversible, and the initial focus follows the same rule.
+  //
+  // Why: on a DESTRUCTIVE dialog both of those defaults pointed at the losing
+  // answer. Esc and the backdrop landed on safety, but the focused control and
+  // the Enter key did not — so an owner 90 items into an optælling who brushed
+  // the X and then tapped Enter (Bluetooth keyboard on the pass, or Space on
+  // the focused button) discarded every counted line with one keystroke. A
+  // guard whose accidental path is the lossy one is not a guard. Destructive
+  // still has to be chosen deliberately: pointer, or Tab then Enter.
   useEffect(() => {
     if (!state) return undefined;
-    confirmBtnRef.current?.focus();
+    const isDestructive = !!state.opts?.destructive;
+    (isDestructive ? cancelBtnRef : confirmBtnRef).current?.focus();
     const onKey = (e) => {
       if (e.key === "Escape") {
         e.preventDefault();
         settle(false);
-      } else if (e.key === "Enter") {
+      } else if (e.key === "Enter" && !isDestructive) {
         e.preventDefault();
         settle(true);
       }
@@ -149,6 +160,7 @@ export function ConfirmProvider({ children }) {
 
               <div className="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
                 <Button
+                  ref={cancelBtnRef}
                   variant="secondary"
                   size="md"
                   className="w-full sm:w-auto"

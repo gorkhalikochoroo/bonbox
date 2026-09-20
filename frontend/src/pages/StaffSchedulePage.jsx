@@ -41,6 +41,8 @@ import { useBranch } from "../components/BranchSelector";
 import { displayCurrency, formatKr, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
 import { errText } from "../utils/errText";
+import { formatHours, hoursUnit } from "../utils/hours";
+import { saveFile } from "../utils/download";
 import { expectedWeekLabor } from "../utils/weekLaborPct";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
@@ -335,20 +337,24 @@ function weeklyHoursFor(memberId, weekDates, getShiftsForCell) {
 /** Format hours for the Timer column: 1 decimal, trailing-zero trimmed, with
     the localized unit. DK uses a comma decimal + 't' (timer); EN uses '.' + 'h'
     so "32,5t" reads native in Danish and "32.5h" in English. */
-function formatTimer(h, unit) {
-  const r = Math.round(h * 10) / 10;
-  let s = Number.isInteger(r) ? String(r) : r.toFixed(1);
-  if (unit === "t") s = s.replace(".", ",");
-  return `${s}${unit}`;
+/** Week-level hours. Delegates to the shared formatter so Vagtplan and
+    Timer & løn cannot drift apart again: this printed "38h" while the hours
+    page printed "38,0 t" for the identical week, one tab away. The visible
+    change is the space — "38 t", not "38t"; a unit glued to a digit reads as
+    part of the number. */
+function formatTimer(h, lang) {
+  return formatHours(h, { lang, decimals: 1 });
 }
 
 /** Per-shift / per-day hours: keeps 2-decimal precision (an 07:00–15:20 shift is
-    8,33t, never crushed to 8,3 — matches the backend pay calc) and uses the
+    8,33 t, never crushed to 8,3 — matches the backend pay calc) and uses the
     localized unit + DK comma decimal. */
-function formatShiftHours(hrs, unit) {
-  let s = String(Math.round((hrs || 0) * 100) / 100);
-  if (unit === "t") s = s.replace(".", ",");
-  return `${s}${unit}`;
+function formatShiftHours(hrs, lang) {
+  // No `?? 0`. It used to coerce an unknown into a confident "0,00 t", which
+  // is the same fabricated zero F1 removed from five job pages — inside the
+  // helper that was supposed to enforce the opposite rule. A real zero-hour
+  // shift is passed as 0 at the call site; anything unknown says "—".
+  return formatHours(hrs, { lang, decimals: 2 });
 }
 
 /* ─── Saved shift presets (Vagt-skabeloner) ───
@@ -592,7 +598,7 @@ function GridSkeleton() {
 // auto-updating ~30s. Staff self-clock from their portal → they appear here in
 // near-real-time. Dark gray-900 chips = "in use", same language as the floor.
 function ClockedInStrip() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [rows, setRows] = useState([]);
   useEffect(() => {
     let alive = true;
@@ -616,7 +622,10 @@ function ClockedInStrip() {
     if (min == null) return "";
     const h = Math.floor(min / 60);
     const m = min % 60;
-    return h > 0 ? `${h}t ${m}m` : `${m}m`;
+    // The hour unit was typed as a literal "t", so an English seat watching
+    // the same strip read "2t 30m".
+    const hu = hoursUnit(lang);
+    return h > 0 ? `${h}${hu} ${m}m` : `${m}m`;
   };
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
@@ -1586,6 +1595,9 @@ export default function StaffSchedulePage() {
   // into WhatsApp/SMS) or Email those who have an address. Links are minted
   // via POST /staff/members/{id}/link and cached so re-copying is instant.
   const [shareSheet, setShareSheet] = useState(false);
+  // The hand-off chooser (F5). Three delivery paths that used to sit naked in
+  // the toolbar, each now carrying the sentence that tells them apart.
+  const [handoffSheet, setHandoffSheet] = useState(false);
   const [shareSel, setShareSel] = useState(() => new Set());
   const [shareLinks, setShareLinks] = useState({}); // staffId -> portal URL
   const [shareCodes, setShareCodes] = useState({}); // staffId -> short join code
@@ -1840,15 +1852,14 @@ export default function StaffSchedulePage() {
         params: { week_start: toISO(weekStart), lang: lang || "en" },
         responseType: "blob",
       });
-      const blob = new Blob([res.data], { type: "application/pdf" });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `bonbox-schedule-${toISO(weekStart)}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+      // This revoked the blob URL on the very next line, which races Safari's
+      // fetch of it, and had no native path at all — so "PDF til opslagstavlen"
+      // produced an empty file on a Mac and nothing whatsoever in the iOS app.
+      const out = await saveFile(res.data, `bonbox-schedule-${toISO(weekStart)}.pdf`, {
+        type: "application/pdf",
+        title: t("schedHandoffPdfLabel", "PDF for the staff board"),
+      });
+      if (!out.ok) setError(t("schedulePdfFailed") || "Couldn't export PDF.");
     } catch (err) {
       setError(errText(err, t("schedulePdfFailed") || "Couldn't export PDF."));
     } finally {
@@ -2246,8 +2257,11 @@ export default function StaffSchedulePage() {
                 of a 3-row wrapped cluster. Desktop (sm+) keeps the wrapped
                 full-label toolbar unchanged. */}
             <div className="flex items-center gap-2 flex-nowrap overflow-x-auto sm:flex-wrap sm:overflow-visible [&>*]:shrink-0 justify-start sm:justify-end w-full sm:w-auto -mx-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {/* Secondary, not primary. The week has exactly ONE headline
+                  action — Udgiv — and a toolbar with three gray-900 buttons
+                  tells the owner nothing about which of them finishes the job. */}
               <Button
-                variant="primary"
+                variant="secondary"
                 size="sm"
                 onClick={() => setShiftModal({ staffId: null, date: null, shift: null })}
                 iconLeft={<Icon name="Plus" size={14} />}
@@ -2277,7 +2291,7 @@ export default function StaffSchedulePage() {
                   staff hourly cost. Tier-gated: Starter/Free see an
                   UpgradeNudge dialog on click; Pro/Trial run it. */}
               <Button
-                variant="primary"
+                variant="secondary"
                 size="sm"
                 onClick={handleRunAutopilot}
                 disabled={autopilotLoading}
@@ -2304,16 +2318,27 @@ export default function StaffSchedulePage() {
                       <span className="sm:hidden">{t("autopilotShort")}</span>
                     </>)}
               </Button>
+              {/* THE one primary action on this row. `loading` is checked
+                  before draftCount: until the week's shifts have arrived
+                  draftCount is 0, and the button then rendered a green tick and
+                  the words "Udgivet" — a claim that every shift was already out
+                  to staff, made about a week nobody had looked at yet. */}
               <Button
                 variant={draftCount > 0 ? "accent" : "secondary"}
                 size="sm"
                 onClick={requestPublish}
-                disabled={publishing}
+                disabled={publishing || loading}
                 busy={publishing}
-                title={draftCount > 0 ? t("schedPublishWeekTitle", "Publish week") : t("schedAllPublishedTitle", "All shifts published")}
+                title={loading
+                  ? t("schedPublishWeekTitle", "Publish week")
+                  : draftCount > 0
+                    ? t("schedPublishWeekTitle", "Publish week")
+                    : t("schedAllPublishedTitle", "All shifts published")}
               >
                 {publishing ? (
                   "…"
+                ) : loading ? (
+                  <span className="tabular-nums text-gray-400 dark:text-gray-500">—</span>
                 ) : draftCount > 0 ? (
                   <>
                     <span className="hidden sm:inline">{t("publishConfirmCta", "Publish Week")}</span>
@@ -2326,18 +2351,6 @@ export default function StaffSchedulePage() {
                     {t("publishedState", "Published")}
                   </span>
                 )}
-              </Button>
-              {/* PDF export — owners print this and pin it on the
-                  back-of-house staff board. */}
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleExportPdf}
-                disabled={exporting}
-                iconLeft={<Icon name="FileText" size={14} />}
-                title={t("schedulePdfTitle") || "Export schedule as PDF (for the staff board)"}
-              >
-                {exporting ? "…" : "PDF"}
               </Button>
               {/* Beskeder — owner ↔ staff 1:1 chat launcher. Unread badge polls
                   the cheap aggregate endpoint; opening the drawer marks read. */}
@@ -2354,46 +2367,27 @@ export default function StaffSchedulePage() {
                   </span>
                 )}
               </button>
-              {/* Share with staff (Staff v2, Starter+) — mints/refreshes
-                  StaffLink magic-links and emails each staff their personal
-                  portal URL. The portal becomes the live coordination loop
-                  (push notifications, shift confirmations, swap requests).
-                  Icon-only on mobile keeps the toolbar from overflowing. */}
+              {/* ONE hand-off control.
+                  This row used to offer four near-identical ways to get the
+                  week to staff — Udgiv, Del med medarbejdere, Send til
+                  medarbejdere and a PDF — with nothing on screen explaining
+                  which of them notifies anybody. Udgiv stays out here because
+                  it is the one that finishes the week; the other three are
+                  DELIVERY choices, so they collapse behind one button and each
+                  states, in a sentence, who receives what and whether they are
+                  told. No publish or notify semantics changed — the same three
+                  handlers run, one tap further in. */}
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={openShareSheet}
+                onClick={() => setHandoffSheet(true)}
                 disabled={sharing || emailing || exporting}
-                busy={sharing}
-                iconLeft={!sharing && <Icon name="Link2" size={14} />}
-                title={t(
-                  "scheduleShareTitle",
-                  "Send every staff a personal portal link — they bookmark it once and get push when the schedule changes"
-                )}
+                busy={sharing || emailing || exporting}
+                iconLeft={!(sharing || emailing || exporting) && <Icon name="Share2" size={14} />}
+                title={t("schedHandoffTitle", "Choose how this week reaches your staff")}
               >
-                {sharing
-                  ? "…"
-                  : (<>
-                      <span className="hidden sm:inline">{t("scheduleShareButton", "Share with staff")}</span>
-                      <span className="sm:hidden">{t("scheduleShareButtonShort", "Share")}</span>
-                    </>)}
-              </Button>
-              {/* Email schedule to all active staff. */}
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={handleEmailToStaff}
-                disabled={emailing || exporting || sharing}
-                busy={emailing}
-                iconLeft={!emailing && <Icon name="Send" size={14} />}
-                title={t("scheduleEmailTitle", "Email the week's schedule to every staff member with an email on file")}
-              >
-                {emailing
-                  ? "…"
-                  : (<>
-                      <span className="hidden sm:inline">{t("scheduleEmailButton", "Email staff")}</span>
-                      <span className="sm:hidden">{t("scheduleEmailButtonShort", "Email")}</span>
-                    </>)}
+                <span className="hidden sm:inline">{t("schedHandoffButton", "Share week")}</span>
+                <span className="sm:hidden">{t("scheduleShareButtonShort", "Share")}</span>
               </Button>
               {/* Pop the week out to its own window — no sidebar, full width for
                   a 7-column grid. Icon-only and last: it changes nothing, so it
@@ -2505,6 +2499,7 @@ export default function StaffSchedulePage() {
             onApply={handleApplyAutopilot}
             onDiscard={() => setAutopilotSuggestion(null)}
             t={t}
+            lang={lang}
           />
         </FadeIn>
       )}
@@ -2667,6 +2662,7 @@ export default function StaffSchedulePage() {
                 targetPct={targetPct}
                 weekLoad={weekLoad}
                 t={t}
+                lang={lang}
                 onMoveShift={moveShift}
                 onCellClick={(staffId, date, existingShift) =>
                   existingShift
@@ -2694,6 +2690,7 @@ export default function StaffSchedulePage() {
                 costBasis={costBasis}
                 targetPct={targetPct}
                 t={t}
+                lang={lang}
                 onCellClick={(staffId, date, existingShift) =>
                   existingShift
                     ? setShiftModal({ staffId, date: toISO(date), shift: existingShift })
@@ -2733,7 +2730,7 @@ export default function StaffSchedulePage() {
                     {t("schedTotalHours")}
                   </div>
                   <div className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                    {weekSummary.hours}h
+                    {formatTimer(weekSummary.hours, lang)}
                   </div>
                 </div>
               </div>
@@ -2967,6 +2964,67 @@ export default function StaffSchedulePage() {
 
       {/* Unified Share sheet — Select all / per-staff, then Copy links
           (universal — works without email) or Email those with an address. */}
+      {/* Hand-off chooser — wayfinding only. Every row calls the handler it
+          always called; what is new is that the owner can read, before tapping,
+          who receives what and whether anyone is notified. */}
+      {handoffSheet && (
+        <Sheet onClose={() => setHandoffSheet(false)} ariaLabel={t("schedHandoffTitle", "Choose how this week reaches your staff")}>
+          <div className="p-5 pb-3">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+              {t("schedHandoffTitle", "Choose how this week reaches your staff")}
+            </h3>
+            <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1">
+              {t("schedHandoffSub", "Publishing is what makes the week real. These three just decide how it gets to people.")}
+            </p>
+          </div>
+          <div className="px-3 pb-4 space-y-1.5">
+            {[
+              {
+                key: "links",
+                icon: "Link2",
+                label: t("schedHandoffLinksLabel", "Personal link for each staffer"),
+                body: t("schedHandoffLinksBody", "Everyone gets their own link. They save it once and are notified whenever the schedule changes."),
+                busy: sharing,
+                run: () => { setHandoffSheet(false); openShareSheet(); },
+              },
+              {
+                key: "email",
+                icon: "Send",
+                label: t("schedHandoffEmailLabel", "Email this week's schedule"),
+                body: t("schedHandoffEmailBody", "One email with this week only, to everyone who has an email on file. No app, no notification."),
+                busy: emailing,
+                run: () => { setHandoffSheet(false); handleEmailToStaff(); },
+              },
+              {
+                key: "pdf",
+                icon: "FileText",
+                label: t("schedHandoffPdfLabel", "PDF for the staff board"),
+                body: t("schedHandoffPdfBody", "Downloads a sheet you can print and pin up. Nothing is sent to anyone."),
+                busy: exporting,
+                run: () => { setHandoffSheet(false); handleExportPdf(); },
+              },
+            ].map((row) => (
+              <button
+                key={row.key}
+                type="button"
+                disabled={sharing || emailing || exporting}
+                onClick={row.run}
+                className="w-full flex items-start gap-3 rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] bg-white dark:bg-[rgb(var(--surface-card))] p-3.5 text-left hover:bg-gray-50 dark:hover:bg-[rgb(var(--surface-raised))] transition disabled:opacity-60"
+              >
+                <span className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                  <Icon name={row.busy ? "Loader" : row.icon} size={17} className={row.busy ? "animate-spin" : undefined} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[15px] font-medium text-gray-900 dark:text-gray-100">{row.label}</span>
+                  <span className="block text-[13px] text-gray-500 dark:text-gray-400 leading-snug mt-0.5">{row.body}</span>
+                </span>
+                <Icon name="ChevronRight" size={16} className="shrink-0 text-gray-300 dark:text-gray-600 mt-1" />
+              </button>
+            ))}
+          </div>
+        </Sheet>
+      )}
+
       {shareSheet && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShareSheet(false)}>
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg max-w-md w-full max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
@@ -3161,7 +3219,7 @@ function formatDayShort(iso) {
   return `${days[d.getDay()]} ${d.getDate()}/${d.getMonth() + 1}`;
 }
 
-function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t }) {
+function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t, lang }) {
   // On phones the 7 day-cards stack into one ~1,200px column. Collapse them
   // behind a disclosure so the week summary + Apply/Discard stay above the
   // fold; always expanded from `sm:` up (desktop layout unchanged).
@@ -3202,7 +3260,7 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
                 ≈ {Math.round(suggestion.week_total_cost).toLocaleString()} {currency}
               </strong>{" "}
               <span className="text-gray-500">
-                · {suggestion.week_total_hours.toFixed(1)}h
+                · {formatTimer(suggestion.week_total_hours, lang)}
               </span>
             </span>
             {totalRevenue > 0 && (
@@ -3324,7 +3382,7 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
               <div>
                 {t("autopilotDemand", "Demand")}:{" "}
                 <span className="text-gray-800 dark:text-gray-200 font-medium">
-                  {day.predicted_demand_hours.toFixed(1)}h
+                  {formatTimer(day.predicted_demand_hours, lang)}
                 </span>
               </div>
             </div>
@@ -3368,7 +3426,7 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t 
               ≈ {Math.round(day.total_cost).toLocaleString()} {currency}
               <span className="text-gray-400 font-normal">
                 {" "}
-                · {day.total_hours.toFixed(1)}h
+                · {formatTimer(day.total_hours, lang)}
               </span>
             </div>
           </div>
@@ -4728,7 +4786,7 @@ function CostControls({ showCost, onToggleShowCost, costBasis, onCostBasis, t })
  *  Exported (named) so MobileSchedule.salon.test.jsx can mount the real thing
  *  — the salon crash below was found by reading, never by running, and a page
  *  this size needs the regression pinned by a render, not by a grep. */
-export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, weekCost, costBasis, targetPct, t, onCellClick, unavailFor, preferredFor, absenceFor, isStaffSeat = false }) {
+export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, weekCost, costBasis, targetPct, t, lang, onCellClick, unavailFor, preferredFor, absenceFor, isStaffSeat = false }) {
   const catFor = useCatFor();
   const { user } = useAuth();
   // Same rule as the desktop grid: the row dot only says something on a
@@ -4917,7 +4975,7 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
             <strong className="text-gray-900 dark:text-gray-100 tabular-nums">{dayStats.staffOn}</strong> {t("schedOnShift")}
           </span>
           <span className="text-gray-300 dark:text-gray-600 flex-shrink-0" aria-hidden="true">·</span>
-          <span className="text-gray-900 dark:text-gray-100 font-medium tabular-nums flex-shrink-0">{formatShiftHours(dayStats.hours, t("schedHoursUnit", "h"))}</span>
+          <span className="text-gray-900 dark:text-gray-100 font-medium tabular-nums flex-shrink-0">{formatShiftHours(dayStats.hours, lang)}</span>
           {showCost && (
             <>
               <span className="text-gray-300 dark:text-gray-600 flex-shrink-0" aria-hidden="true">·</span>
@@ -5073,7 +5131,7 @@ export function MobileSchedule({ staff, weekDates, getShiftsForCell, showCost, w
                             then the status marks. No kroner line — see the note
                             where costForShift() used to be. */}
                         <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                          {formatShiftHours(hrs, t("schedHoursUnit", "h"))}
+                          {formatShiftHours(hrs, lang)}
                           <ShiftMarkers shift={shift} published={!isDraft} t={t} />
                         </div>
                         {isDraft && (
@@ -5616,6 +5674,7 @@ export function ScheduleGrid({
   targetPct,
   weekLoad,
   t,
+  lang,
 }) {
   const catFor = useCatFor();
   const { user } = useAuth();
@@ -5735,7 +5794,7 @@ export function ScheduleGrid({
           );
         })}
         <td className={`px-3 py-1.5 text-right text-xs font-semibold tabular-nums ${hdr.text}`}>
-          {sectionHours > 0 ? formatTimer(sectionHours, t("schedHoursUnit", "h")) : "—"}
+          {sectionHours > 0 ? formatTimer(sectionHours, lang) : "—"}
         </td>
       </tr>
     );
@@ -5812,16 +5871,21 @@ export function ScheduleGrid({
                   // hours read "6,25t" in Danish and "6.25h" in English,
                   // because those go through the formatter. Two hour figures,
                   // one row apart, disagreeing about notation.
-                  const hoursUnit = t("schedHoursUnit", "h");
+                  // One resolved unit for the chip AND its tooltip. The
+                  // tooltip strings used to carry a literal "t" in the
+                  // catalogue, so the English chip read "34 h" above a tooltip
+                  // that said "34t of 37t" — the Danish unit, unformatted, on
+                  // an English screen.
+                  const hoursLang = lang;
                   const label = e.cap != null
-                    ? `${formatTimer(e.hours, hoursUnit)}/${formatTimer(e.cap, hoursUnit)}`
-                    : formatTimer(e.hours, hoursUnit);
+                    ? `${formatTimer(e.hours, hoursLang)}/${formatTimer(e.cap, hoursLang)}`
+                    : formatTimer(e.hours, hoursLang);
                   const title = [
-                    e.over_cap ? t("shieldOverCapTitle", "Over the contract cap ({cap}t/week)").replace("{cap}", e.cap) : "",
+                    e.over_cap ? t("shieldOverCapTitle", "Over the contract cap ({cap}/week)").replace("{cap}", formatTimer(e.cap, hoursLang)) : "",
                     e.over_dk48 ? t("shieldOver48Title", "Over the DK 48h weekly ceiling") : "",
-                    e.over_month ? t("shieldOverMonthTitle", "{period}: {h}t of {cap}t — over the monthly limit").replace("{period}", e.period_label || t("shieldMonthWord", "Month")).replace("{h}", e.month_hours).replace("{cap}", e.month_cap) : "",
+                    e.over_month ? t("shieldOverMonthTitle", "{period}: {h} of {cap} — over the monthly limit").replace("{period}", e.period_label || t("shieldMonthWord", "Month")).replace("{h}", formatTimer(e.month_hours, hoursLang)).replace("{cap}", formatTimer(e.month_cap, hoursLang)) : "",
                     hasRest ? t("shieldRestTitle", "Under 11 hours' rest between shifts") : "",
-                    !e.over_month && e.month_cap != null ? t("shieldMonthInfoTitle", "{period}: {h}t of {cap}t").replace("{period}", e.period_label || t("shieldMonthWord", "Month")).replace("{h}", e.month_hours).replace("{cap}", e.month_cap) : "",
+                    !e.over_month && e.month_cap != null ? t("shieldMonthInfoTitle", "{period}: {h} of {cap}").replace("{period}", e.period_label || t("shieldMonthWord", "Month")).replace("{h}", formatTimer(e.month_hours, hoursLang)).replace("{cap}", formatTimer(e.month_cap, hoursLang)) : "",
                     e.warn_enabled === false ? t("shieldWarnOffTitle", "Hour-limit warnings are off for this staffer") : "",
                   ].filter(Boolean).join(" · ");
                   return (
@@ -5947,7 +6011,7 @@ export function ScheduleGrid({
                       can do in their head. A rota is a screen other people
                       stand in front of; a wage is not. */}
                   <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                    {formatShiftHours(hrs, t("schedHoursUnit", "h"))}
+                    {formatShiftHours(hrs, lang)}
                     {shift.role_on_shift && shift.role_on_shift !== member.role && (
                       <span className="ml-1.5 inline-block rounded px-1 py-px bg-gray-100 dark:bg-gray-700 text-[11px] font-medium text-gray-500 dark:text-gray-400 align-middle leading-none">
                         {roleLabel(catFor(shift.role_on_shift), t)}
@@ -5991,7 +6055,7 @@ export function ScheduleGrid({
                           {formatShiftTime(ex.start_time, ex.end_time)}
                         </div>
                         <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-                          {formatShiftHours(exHrs, t("schedHoursUnit", "h"))}
+                          {formatShiftHours(exHrs, lang)}
                           <ShiftMarkers shift={ex} published={!exDraft} t={t} />
                         </div>
                         {exDraft && (
@@ -6017,7 +6081,7 @@ export function ScheduleGrid({
             }
             const cap = member.max_hours_week;
             const over = cap && wh > cap;
-            const unit = t("schedHoursUnit", "h");
+            const hoursLang = lang;
             return (
               <div className="leading-tight">
                 <div
@@ -6028,11 +6092,11 @@ export function ScheduleGrid({
                   }`}
                   title={over ? t("schedOvertimeTip", "Over weekly hours") : undefined}
                 >
-                  {formatTimer(wh, unit)}
+                  {formatTimer(wh, hoursLang)}
                 </div>
                 {over && (
                   <div className="text-[10px] text-amber-500 dark:text-amber-400 tabular-nums">
-                    +{formatTimer(wh - cap, unit)}
+                    +{formatTimer(wh - cap, hoursLang)}
                   </div>
                 )}
               </div>
@@ -6194,7 +6258,7 @@ export function ScheduleGrid({
                     <td key={i} className="px-1 py-3 text-center align-top leading-tight">
                       {/* Per-day total hours — quiet context above the labor%. */}
                       <div className="text-[11px] text-gray-700 dark:text-gray-300 tabular-nums">
-                        {formatShiftHours(hrs, t("schedHoursUnit", "h"))}
+                        {formatShiftHours(hrs, lang)}
                       </div>
                       {showCost && cost != null && (
                         <div className="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums mt-px">
@@ -6238,7 +6302,6 @@ export function ScheduleGrid({
                         if (!showDemand && !covers) return null;
                         const shortBy = demand - hrs;
                         const isShort = showDemand && shortBy > Math.max(1, demand * 0.15);
-                        const unit = t("schedHoursUnit", "h");
                         // Basis names the real signal — "bookings" for a salon
                         // (appointment density), "sales" for revenue verticals.
                         const tip =
@@ -6252,11 +6315,11 @@ export function ScheduleGrid({
                             {showDemand && (
                               <div title={tip}>
                                 <span className="text-gray-400 dark:text-gray-500">
-                                  {t("schedForecastDemand", "demand")} ~{Math.round(demand)}{unit}
+                                  {t("schedForecastDemand", "demand")} ~{formatHours(demand, { lang, decimals: 0 })}
                                 </span>
                                 {isShort && (
                                   <span className="text-amber-600 dark:text-amber-400 font-semibold ml-1">
-                                    −{Math.round(shortBy)}{unit}
+                                    −{formatHours(shortBy, { lang, decimals: 0 })}
                                   </span>
                                 )}
                               </div>
@@ -6281,7 +6344,7 @@ export function ScheduleGrid({
                     );
                     return (
                       <div className="text-[13px] font-bold text-gray-900 dark:text-gray-100 tabular-nums">
-                        {formatTimer(total, t("schedHoursUnit", "h"))}
+                        {formatTimer(total, lang)}
                       </div>
                     );
                   })()}
@@ -6302,7 +6365,7 @@ export function ScheduleGrid({
             {formatShiftTime(activeShift.start_time, activeShift.end_time)}
           </div>
           <div className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-            {formatShiftHours(calcHours(activeShift.start_time, activeShift.end_time, activeShift.break_minutes || 0), t("schedHoursUnit", "h"))}
+            {formatShiftHours(calcHours(activeShift.start_time, activeShift.end_time, activeShift.break_minutes || 0), lang)}
             <ShiftMarkers shift={activeShift} published={activeShift.status !== "draft"} t={t} />
           </div>
         </div>
@@ -6337,6 +6400,11 @@ function StatTile({ icon, value, label }) {
 }
 
 function PublishConfirmModal({ summary, result, currency, weekStart, publishing, onConfirm, onClose, t, lang }) {
+  // The Shield warnings below arrive as raw numbers and used to be pasted into
+  // catalogue strings that typed the hour unit themselves, so a Danish owner
+  // read an English unit here and the Danish one on the chip the sentence is
+  // about — one row apart.
+  const fmtWarnHours = (n) => formatHours(n, { lang });
   const done = !!result; // success state shown after a publish completes
   const nothing = !summary || summary.draftCount === 0;
   const headerIcon = done ? "CheckCircle2" : "Send";
@@ -6417,7 +6485,7 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
               />
               <StatTile
                 icon="Clock"
-                value={`${summary.hours}h`}
+                value={formatTimer(summary.hours, lang)}
                 label={t("publishStatHours", "total hours")}
               />
               {summary.anyRate && (
@@ -6441,18 +6509,18 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
                 {summary.shield.slice(0, 6).map((w, i) => (
                   <p key={i} className="text-[12px] text-amber-800 dark:text-amber-300 leading-snug">
                     {w.kind === "cap" &&
-                      t("shieldWarnCap", "{name}: {hours}h — over the contract cap of {cap}h/week")
-                        .replace("{name}", w.name).replace("{hours}", w.hours).replace("{cap}", w.cap)}
+                      t("shieldWarnCap", "{name}: {hours} — over the contract cap of {cap}/week")
+                        .replace("{name}", w.name).replace("{hours}", fmtWarnHours(w.hours)).replace("{cap}", fmtWarnHours(w.cap))}
                     {w.kind === "dk48" &&
-                      t("shieldWarnDk48", "{name}: {hours}h — over the 48h weekly ceiling")
-                        .replace("{name}", w.name).replace("{hours}", w.hours)}
+                      t("shieldWarnDk48", "{name}: {hours} — over the 48h weekly ceiling")
+                        .replace("{name}", w.name).replace("{hours}", fmtWarnHours(w.hours))}
                     {w.kind === "month" &&
-                      t("shieldWarnMonth", "{name}: {hours}h in {period} — over the monthly limit of {cap}h")
-                        .replace("{name}", w.name).replace("{hours}", w.hours)
-                        .replace("{period}", w.period || t("shieldMonthWord", "Month")).replace("{cap}", w.cap)}
+                      t("shieldWarnMonth", "{name}: {hours} in {period} — over the monthly limit of {cap}")
+                        .replace("{name}", w.name).replace("{hours}", fmtWarnHours(w.hours))
+                        .replace("{period}", w.period || t("shieldMonthWord", "Month")).replace("{cap}", fmtWarnHours(w.cap))}
                     {w.kind === "rest" &&
-                      t("shieldWarnRest", "{name}: only {gap}h rest between two shifts (11h rule)")
-                        .replace("{name}", w.name).replace("{gap}", w.gap)}
+                      t("shieldWarnRest", "{name}: only {gap} rest between two shifts (11h rule)")
+                        .replace("{name}", w.name).replace("{gap}", fmtWarnHours(w.gap))}
                   </p>
                 ))}
                 {summary.shield.length > 6 && (
@@ -6526,7 +6594,7 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
  * reproduces through an empty cell is describing a path that does not exist.
  */
 export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemplateSave, onClose, onSaved, branchId }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const { user } = useAuth();
   const roles = rolesFor(user?.business_type);
   const existingShift = modal.shift;
@@ -6911,10 +6979,10 @@ export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate,
 
         {/* Preview */}
         <div className="bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] rounded-lg px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
-          {t("shiftPreview", "Shift: {start} \u2013 {end} ({hours}h net)")
+          {t("shiftPreview", "Shift: {start} \u2013 {end} ({hours} net)")
             .replace("{start}", startTime)
             .replace("{end}", endTime)
-            .replace("{hours}", Math.round(previewHours * 100) / 100)}
+            .replace("{hours}", formatShiftHours(previewHours, lang))}
           {breakMinutes > 0 && " " + t("shiftPreviewBreak", "with {n}min break").replace("{n}", breakMinutes)}
         </div>
 

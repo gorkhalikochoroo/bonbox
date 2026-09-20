@@ -11,7 +11,7 @@ import { localIso, formatDateShort } from "../utils/dateFormat";
 import { trackEvent } from "../hooks/useEventLog";
 import Chip from "./ui/Chip";
 import { useStickyMethod } from "../hooks/useStickyMethod";
-import { parseMoneyInput, moneyLocale, formatOwnerMoney } from "../utils/currency";
+import { parseMoneyInput, moneyLocale, moneyExample, formatOwnerMoney } from "../utils/currency";
 // Lazy-load Smart Scan modal — only fetched when the owner taps the
 // "Smart skan" entry below. Keeps QuickAdd's bundle lean for owners
 // who use the keypad path 99% of the time.
@@ -487,7 +487,7 @@ export default function QuickAdd() {
               raw={saleAmount}
               value={saleAmountNum}
               currency={user?.currency}
-              invalidLabel={t("amountUnreadable")}
+              invalidLabel={t("amountUnreadable", { example: moneyExample(moneyLoc) })}
             />
 
             <div className="flex flex-wrap gap-1.5">
@@ -581,7 +581,7 @@ export default function QuickAdd() {
               raw={expAmount}
               value={expAmountNum}
               currency={user?.currency}
-              invalidLabel={t("amountUnreadable")}
+              invalidLabel={t("amountUnreadable", { example: moneyExample(moneyLoc) })}
             />
 
             <input
@@ -681,7 +681,7 @@ export default function QuickAdd() {
               raw={pAmount}
               value={pAmountNum}
               currency={user?.currency}
-              invalidLabel={t("amountUnreadable")}
+              invalidLabel={t("amountUnreadable", { example: moneyExample(moneyLoc) })}
             />
 
             <input
@@ -767,7 +767,7 @@ export default function QuickAdd() {
               raw={pAmount}
               value={pAmountNum}
               currency={user?.currency}
-              invalidLabel={t("amountUnreadable")}
+              invalidLabel={t("amountUnreadable", { example: moneyExample(moneyLoc) })}
             />
 
             <input

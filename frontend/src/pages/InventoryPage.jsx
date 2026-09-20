@@ -34,6 +34,8 @@ import { INVENTORY_TEMPLATES, categoryLabel } from "../config/inventoryTemplates
 import {
   Button, PageHeader, StatCard, SectionBanner, TabPills, Icon, Amount,
 } from "../components/ui";
+import { SkeletonCard } from "../components/BonBoxPolishKit";
+import { saveFile } from "../utils/download";
 
 /**
  * The close control on the three expandable stat panels.
@@ -130,13 +132,25 @@ export default function InventoryPage() {
   const [expiring, setExpiring] = useState([]);   // Items in next 7 days
   const [expired, setExpired] = useState([]);     // Items already past expiry
   const [expandedStat, setExpandedStat] = useState(null); // "total" | "low" | "fresh" | "categories" | "priced"
+  // TRUE until /inventory has answered once. Without it the five stat tiles
+  // rendered off an empty array for the ~1s the request takes, so opening
+  // Lager told the owner "0 varer · 0 lavt lager · 0/0 prissat" — a confident
+  // report of an empty stockroom, on the page whose whole job is telling them
+  // what is on the shelf. Doctrine: a value that is not yet known is a
+  // skeleton or an em-dash, never a zero.
+  const [loading, setLoading] = useState(true);
+  // Both header exports. Separate flags so the PDF spinner never appears on
+  // the CSV button.
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
 
   const fetchData = () => {
     api.get("/inventory")
       .then((res) => {
         setAllItems(Array.isArray(res.data) ? res.data : []);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
     api.get("/inventory/alerts").then((res) => setAlerts(res.data)).catch(() => {});
     api.get("/inventory/categories").then((res) => setCategories(res.data)).catch(() => {});
     api.get("/inventory/dead-stock").then((res) => setDeadStock(res.data)).catch(() => {});
@@ -532,20 +546,24 @@ export default function InventoryPage() {
                   instead of the old rainbow. */}
               <Button
                 variant="ghost"
+                busy={exportingPdf}
                 onClick={async () => {
+                  setExportingPdf(true);
                   try {
                     const res = await api.get("/inventory/export.pdf", { responseType: "blob" });
-                    const url = URL.createObjectURL(res.data);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `stock-list-${localIso()}.pdf`;
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                    // saveFile, not a local anchor: this used to revoke the
+                    // blob URL 60s later but had no native path at all, so in
+                    // the iOS app the tap did nothing and said nothing.
+                    const out = await saveFile(res.data, `stock-list-${localIso()}.pdf`, {
+                      type: "application/pdf",
+                      title: t("invExportPdfTitle", "Download a PDF stock-list report"),
+                    });
+                    if (!out.ok) setError(t("invPdfGenFailed", "Couldn't generate PDF — please retry."));
                   } catch (e) {
                     console.error("Export PDF failed", e);
                     setError(errText(e, t("invPdfGenFailed", "Couldn't generate PDF — please retry.")));
+                  } finally {
+                    setExportingPdf(false);
                   }
                 }}
                 iconLeft={<Icon name="FileText" size={16} />}
@@ -556,20 +574,21 @@ export default function InventoryPage() {
               </Button>
               <Button
                 variant="ghost"
+                busy={exportingCsv}
                 onClick={async () => {
+                  setExportingCsv(true);
                   try {
                     const res = await api.get("/inventory/export.csv", { responseType: "blob" });
-                    const url = URL.createObjectURL(res.data);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `stock-list-${localIso()}.csv`;
-                    document.body.appendChild(a);
-                    a.click();
-                    a.remove();
-                    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                    const out = await saveFile(res.data, `stock-list-${localIso()}.csv`, {
+                      type: "text/csv;charset=utf-8;",
+                      title: t("invExportCsvTitle", "Download stock list as CSV (Excel-friendly, semicolon delimited)"),
+                    });
+                    if (!out.ok) setError(t("invCsvGenFailed", "Couldn't generate CSV — please retry."));
                   } catch (e) {
                     console.error("Export CSV failed", e);
                     setError(errText(e, t("invCsvGenFailed", "Couldn't generate CSV — please retry.")));
+                  } finally {
+                    setExportingCsv(false);
                   }
                 }}
                 iconLeft={<Icon name="FileSpreadsheet" size={16} />}
@@ -776,6 +795,13 @@ export default function InventoryPage() {
           neutral — there's no alert to signal), amber on "priced" only
           when a meaningful share of items are still un-priced. */}
       <div className="space-y-3">
+        {loading ? (
+          // The zone's own shape — five tiles in the same grid — so the page
+          // does not reflow when the real numbers land.
+          <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            {[0, 1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)}
+          </div>
+        ) : (
         <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <StatCard
             label={t("totalItems")}
@@ -825,6 +851,7 @@ export default function InventoryPage() {
             ariaControls="inventory-stat-panel"
           />
         </div>
+        )}
 
         {/* Expanded detail panels — each variant shares the same DOM id
             so the StatCard's aria-controls reference resolves regardless

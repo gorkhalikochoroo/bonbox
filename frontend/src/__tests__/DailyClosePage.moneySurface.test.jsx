@@ -486,8 +486,13 @@ describe("daily close — the cash step does not invent a baseline", () => {
 describe("daily close — the money boxes refuse what they cannot read", () => {
   const PRODUCTION_STRING = "1.50050";
   const moneyBoxes = (c) => Array.from(c.querySelectorAll('input[inputmode="decimal"]'));
+  // The one refusal string became two — unreadable shape (now carrying a
+  // worked example, so the mocked t() renders "amountUnreadable:1.234,50")
+  // and genuinely non-positive. Match either, by key.
   const refusalsShown = () =>
-    screen.queryAllByRole("alert").filter((n) => n.textContent === "invalidAmount").length;
+    screen.queryAllByRole("alert")
+      .filter((n) => /^(amountUnreadable|amountNotPositive)\b/.test(n.textContent || ""))
+      .length;
 
   it("every money box is TEXT — a number input cannot come back here", async () => {
     const { container } = renderPage();
