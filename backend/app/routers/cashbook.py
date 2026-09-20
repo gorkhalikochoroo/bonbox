@@ -106,6 +106,15 @@ def permanent_delete_transaction(
         CashTransaction.id == txn_id,
         CashTransaction.user_id == user.id,
         CashTransaction.is_deleted == True,
+        # The LIST and RESTORE above both exclude auto-synced rows — a line
+        # synced from a sale or an expense is not the cash book's to hand back
+        # or to destroy; its parent owns its lifecycle. This filter was
+        # missing here, so a synced row that ever reached is_deleted=True
+        # could be deleted out from under a STILL-LIVING parent: the mirror
+        # image of the orphan bug, and just as untraceable. Unreachable today
+        # (delete_transaction hard-deletes ref'd rows rather than soft-deleting
+        # them) — which is exactly why it costs nothing to close now.
+        CashTransaction.reference_id.is_(None),
     ).first()
     if not txn:
         raise HTTPException(status_code=404, detail="Deleted transaction not found")

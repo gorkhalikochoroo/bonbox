@@ -34,7 +34,7 @@ from app.schemas.expense import (
 )
 from app.services.auth import get_current_user
 from app.services.cash_sync import sync_cash_out_for_expense, delete_cash_entry_by_ref, update_cash_entry_for_ref
-from app.services.expense_status import not_pending
+from app.services.expense_status import not_pending, is_pending as _is_pending
 from app.services.receipt_ocr import parse_expense_receipt
 from app.services.billing import PLAN_CAPS, get_cap, effective_plan
 from app.utils.time import utc_now
@@ -352,6 +352,20 @@ def permanent_delete_expense(
     expense = db.query(Expense).filter(Expense.id == expense_id, Expense.user_id == user.id, Expense.is_deleted == True).first()
     if not expense:
         raise HTTPException(status_code=404, detail="Deleted expense not found")
+    # The point of no return — so the synced cash line dies here too, or it
+    # becomes an orphan: money shown leaving the drawer with nothing to point
+    # at. cash_transactions.reference_id is a plain String(100) with no FK and
+    # no cascade, so nothing below us does this.
+    #
+    # Unconditional ON PURPOSE. Every OTHER unsync asks
+    # `payment_method == "cash" and not is_personal`, but the producers do
+    # not: the four importers (bank_import, payment_import, bank_connect,
+    # payment_autosync) sync with no method check at all, so a bank_transfer
+    # expense carries a cash_out that guard will never match. Asking the
+    # question twice is what lets the two answers drift. The KEY is the proof:
+    # `expense_<this id>` scoped to this owner can only match a row synced
+    # from this expense, so no guard is needed to make the delete provable.
+    delete_cash_entry_by_ref(db, f"expense_{expense.id}", user.id)
     db.delete(expense)
     db.commit()
 
@@ -757,6 +771,13 @@ def update_expense(
     if not expense:
         raise HTTPException(status_code=404, detail="Expense not found")
     old_method = expense.payment_method
+    old_is_personal = bool(expense.is_personal)
+    # Captured BEFORE the update loop, like the two above it. ExpenseUpdate
+    # carries no `status` field today, so this is the same value either side
+    # — capture it here anyway, because the day `status` becomes writable a
+    # read taken after the loop would judge the OLD state by a NEW value,
+    # which is the exact mistake the branches below exist to correct.
+    old_is_pending = _is_pending(expense)
     old_category_id = expense.category_id
     updates = data.model_dump(exclude_unset=True)
     for field, value in updates.items():
@@ -770,13 +791,45 @@ def update_expense(
         expense.date_source = None
 
     ref_id = f"expense_{expense.id}"
-    if not expense.is_personal:
-        if old_method == "cash" and expense.payment_method != "cash":
-            delete_cash_entry_by_ref(db, ref_id, user.id)
-        elif old_method != "cash" and expense.payment_method == "cash":
-            sync_cash_out_for_expense(db, expense)
-        elif expense.payment_method == "cash":
-            update_cash_entry_for_ref(db, ref_id, user.id, amount=float(expense.amount), date=expense.date)
+    # This block used to be wrapped in `if not expense.is_personal:` reading
+    # the NEW value, so flipping a synced cash expense to "privat" jumped the
+    # whole thing — including the delete branch — and left a cash_out sitting
+    # in the BUSINESS kassebog for a private purchase. Comparing the old and
+    # new state instead means every transition is handled, is_personal
+    # included, and the two conditions can no longer disagree.
+    was_synced = old_method == "cash" and not old_is_personal and not old_is_pending
+    # A pending draft is a machine-read guess. expense_status.py makes it
+    # invisible to every number the owner files or trusts, and the
+    # kassebog balance is one of them — so an edit must not post a draft
+    # into the drawer ahead of Godkend. _promote_to_approved does that.
+    is_synced = (
+        expense.payment_method == "cash"
+        and not expense.is_personal
+        and not _is_pending(expense)
+    )
+    became_personal = bool(expense.is_personal) and not old_is_personal
+    if became_personal:
+        # "Privat" posts NOTHING to the business kassebog, whatever it was
+        # paid with. `was_synced` alone missed this: the four importers sync
+        # a cash_out for bank_transfer / mobilepay / card expenses too, and
+        # flipping one of THOSE to privat left its cash_out sitting in the
+        # business book — the same drift the old `if not expense.is_personal`
+        # wrapper caused, just one method over. Keyed, so it can only ever
+        # remove this expense's own line.
+        delete_cash_entry_by_ref(db, ref_id, user.id)
+    elif is_synced and not was_synced:
+        sync_cash_out_for_expense(db, expense)
+    elif was_synced and not is_synced:
+        delete_cash_entry_by_ref(db, ref_id, user.id)
+    else:
+        # No transition — keep whatever line this expense already has in
+        # step with it. update_cash_entry_for_ref is keyed and
+        # UPDATE-IF-EXISTS: it can never invent a line for an expense that
+        # has none, which is exactly what lets it run for EVERY method
+        # instead of only "cash". An importer-made cash_out on a
+        # bank_transfer expense has to follow the amount the owner corrects,
+        # or the drawer keeps quoting a figure the bilag no longer says.
+        update_cash_entry_for_ref(db, ref_id, user.id, amount=float(expense.amount), date=expense.date)
     db.commit()
     db.refresh(expense)
 

@@ -96,6 +96,13 @@ def permanent_delete_sale(
     sale = db.query(Sale).filter(Sale.id == sale_id, Sale.user_id == user.id, Sale.is_deleted == True).first()
     if not sale:
         raise HTTPException(status_code=404, detail="Deleted sale not found")
+    # Same invariant as permanent_delete_expense: a synced cash line must not
+    # outlive the row it was synced from. Unconditional because the key is the
+    # proof — `sale_<this id>` for this owner can only match a row this sale
+    # produced. The unsyncs elsewhere are cash-only while the importers sync
+    # on ("cash", "mixed"), so every "mixed" sale's cash_in would otherwise be
+    # destroyed-as-orphan here, counted in the drawer with no sale to explain it.
+    delete_cash_entry_by_ref(db, f"sale_{sale.id}", user.id)
     db.delete(sale)
     db.commit()
 
@@ -299,7 +306,14 @@ def update_sale(
         delete_cash_entry_by_ref(db, ref_id, user.id)
     elif old_method != "cash" and sale.payment_method == "cash":
         sync_cash_in_for_sale(db, sale)
-    elif sale.payment_method == "cash":
+    else:
+        # No transition — keep whatever line this sale already has in step
+        # with it. update_cash_entry_for_ref is keyed and UPDATE-IF-EXISTS,
+        # so it can never invent a cash_in for a sale that has none. That is
+        # what lets it run for EVERY method instead of only "cash": the sale
+        # importers sync on ("cash", "mixed"), so an imported "mixed" sale
+        # carries a cash_in, and correcting 2.400 kr to 100 kr has to move
+        # the drawer with it rather than leaving the old figure standing.
         update_cash_entry_for_ref(db, ref_id, user.id, amount=float(sale.amount), date=sale.date)
     db.commit()
     db.refresh(sale)
@@ -943,6 +957,13 @@ async def rollback_csv_import(
     deleted = 0
     for s in sales:
         if not s.is_deleted:
+            # Undo has to take back the cash it booked. This loop set
+            # is_deleted and stopped, so the cash_in of every cash sale in the
+            # batch kept counting toward kassebeholdning for a sale the owner
+            # had just taken back. Same unsync the single-sale DELETE does,
+            # same cash-only condition, so restore stays symmetric.
+            if s.payment_method == "cash":
+                delete_cash_entry_by_ref(db, f"sale_{s.id}", user.id)
             s.is_deleted = True
             s.deleted_at = _dt.utcnow()
             deleted += 1

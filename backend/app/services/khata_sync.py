@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.models.sale import Sale
 from app.models.cashbook import CashTransaction
 from app.services import audit_service
+from app.services.cash_sync import delete_cash_entry_by_ref
 import uuid
 
 
@@ -66,10 +67,19 @@ def sync_cashbook_for_khata_payment(db: Session, txn, customer_name: str):
 
 def delete_khata_synced_entries(db: Session, txn_id, user_id):
     """Delete Sale and CashBook entries linked to a khata transaction."""
-    db.query(Sale).filter(
+    # The khata mirror-sale is minted as "credit", so it normally has no cash
+    # line of its own — but it is an ordinary Sale row the owner can open and
+    # re-pay as "kontant" in the sales editor, and that mints one keyed
+    # `sale_<id>`. Hard-deleting the parent without this leaves that cash_in
+    # in the kassebog with nothing to point at. Keyed per row, so it can only
+    # remove what these sales produced.
+    _sales = db.query(Sale).filter(
         Sale.reference_id == f"khata_purchase_{txn_id}",
         Sale.user_id == user_id,
-    ).delete()
+    ).all()
+    for _s in _sales:
+        delete_cash_entry_by_ref(db, f"sale_{_s.id}", user_id)
+        db.delete(_s)
     db.query(CashTransaction).filter(
         CashTransaction.reference_id == f"khata_payment_{txn_id}",
         CashTransaction.user_id == user_id,
@@ -85,6 +95,8 @@ def update_khata_synced_entries(db: Session, txn, customer_name: str):
         sale.date = txn.date
         sale.notes = f"Khata: {customer_name}"
     elif sale and float(txn.purchase_amount) <= 0:
+        # Same rule as above: unsync before the parent goes.
+        delete_cash_entry_by_ref(db, f"sale_{sale.id}", sale.user_id)
         db.delete(sale)
     elif not sale and float(txn.purchase_amount) > 0:
         sync_sale_for_khata_purchase(db, txn, customer_name)

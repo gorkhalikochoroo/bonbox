@@ -354,6 +354,11 @@ _migrations = [
     "CREATE INDEX IF NOT EXISTS ix_expense_user_date ON expenses (user_id, date, is_deleted)",
     "CREATE INDEX IF NOT EXISTS ix_expense_user_category ON expenses (user_id, category_id, date)",
     "CREATE INDEX IF NOT EXISTS ix_inventory_user_stock ON inventory_items (user_id, quantity, min_threshold)",
+    # The cash-sync key lookup. Every sync / unsync / keyed update of a
+    # kassebog line resolves (user_id, reference_id), and a sale or expense
+    # CREATE does too now that sync_cash_* is idempotent. Mirrored in the
+    # SQLite index list further down and on the CashTransaction model.
+    "CREATE INDEX IF NOT EXISTS ix_cash_txn_user_ref ON cash_transactions (user_id, reference_id)",
     # Indexes on event_logs for fast admin queries (DAU/WAU/MAU and per-user timelines)
     "CREATE INDEX IF NOT EXISTS ix_event_user_created ON event_logs (user_id, created_at)",
     "CREATE INDEX IF NOT EXISTS ix_event_created ON event_logs (created_at)",
@@ -3006,6 +3011,8 @@ def _run_migrations():
                 "CREATE INDEX IF NOT EXISTS ix_expense_user_date ON expenses (user_id, date, is_deleted)",
                 "CREATE INDEX IF NOT EXISTS ix_expense_user_category ON expenses (user_id, category_id, date)",
                 "CREATE INDEX IF NOT EXISTS ix_inventory_user_stock ON inventory_items (user_id, quantity, min_threshold)",
+                # Mirror of the cash-sync key index in the PG list above.
+                "CREATE INDEX IF NOT EXISTS ix_cash_txn_user_ref ON cash_transactions (user_id, reference_id)",
             ]
             ix_ok = 0
             for stmt in _index_stmts:
