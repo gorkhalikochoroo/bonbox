@@ -64,6 +64,39 @@ export default function MileagePage() {
   const fmtKr = (v) =>
     new Intl.NumberFormat("da-DK", { style: "currency", currency: "DKK" }).format(v);
 
+  // "Delete this trip?" was true of every row in the log — and a supplier run
+  // and an event setup on the same day look alike from two rows away, so the
+  // only thing between the owner and losing the wrong fradrag was remembering
+  // which button they tapped. The dialog now reads the row back in the same
+  // words it is rendered with, and names the kroner leaving the year total.
+  // One handler, so the table and the phone card can never drift apart.
+  const deleteEntry = async (entry) => {
+    const ok = await confirm({
+      title: t("mileageDeleteTripTitleDated", "Delete the trip on {date}?", {
+        date: entry.trip_date,
+      }),
+      message: t(
+        "mileageDeleteTripBodyDetail",
+        // No full stop straight after the amount: the Danish money token ends
+        // in one already ("1.070,00 kr."), and the dialog would read "kr..".
+        "{route} · {km} km — the trip is deleted for good, and {amount} comes off your kørselsgodtgørelse total.",
+        {
+          route: `${entry.from_address} → ${entry.to_address}`,
+          km: Number(entry.km).toLocaleString("da-DK"),
+          amount: fmtKr(entry.deduction_amount),
+        },
+      ),
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/mileage/${entry.id}`);
+      fetchAll();
+    } catch (err) {
+      setError(errText(err, t("deleteFailed")));
+    }
+  };
+
   if (!hasAccess) {
     return (
       <div className="p-4 md:p-8 max-w-2xl mx-auto">
@@ -257,15 +290,7 @@ export default function MileagePage() {
                           {t("edit") || "Edit"}
                         </button>
                         <button
-                          onClick={async () => {
-                            if (!(await confirm({ message: t("deleteTripConfirm") || "Delete this trip?", destructive: true }))) return;
-                            try {
-                              await api.delete(`/mileage/${e.id}`);
-                              fetchAll();
-                            } catch (err) {
-                              setError(errText(err, t("deleteFailed")));
-                            }
-                          }}
+                          onClick={() => deleteEntry(e)}
                           className="text-xs text-red-600 hover:underline"
                         >
                           {t("delete") || "Delete"}
@@ -315,15 +340,7 @@ export default function MileagePage() {
                     {t("edit") || "Edit"}
                   </button>
                   <button
-                    onClick={async () => {
-                      if (!(await confirm({ message: t("deleteTripConfirm") || "Delete this trip?", destructive: true }))) return;
-                      try {
-                        await api.delete(`/mileage/${e.id}`);
-                        fetchAll();
-                      } catch (err) {
-                        setError(errText(err, t("deleteFailed")));
-                      }
-                    }}
+                    onClick={() => deleteEntry(e)}
                     className="flex-1 min-h-[44px] rounded-lg border border-red-200 dark:border-red-800/60 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
                   >
                     {t("delete") || "Delete"}

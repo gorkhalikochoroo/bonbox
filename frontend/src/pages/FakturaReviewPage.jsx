@@ -61,8 +61,16 @@ export default function FakturaReviewPage() {
   }, [filter]);
 
   const accept = async (s) => {
-    if (!(await confirm({ message: t("confirmAcceptSuggestion") ||
-      `Confirm this match: ${s.fakturanummer_formatted} ← ${fmtMoney(s.sale_amount, s.invoice_currency)}?`, destructive: false }))) return;
+    // LOW confidence means "several fakturaer at this amount, pick one" — the
+    // author wrote the number into a `||` fallback that the populated key has
+    // always shadowed, so the owner confirmed an anonymous match.
+    if (!(await confirm({ message: t(
+      "confirmAcceptSuggestion",
+      // The faktura number ends the sentence: "1.070 kr.?" reads badly,
+      // because the Danish money token already carries a full stop.
+      "Confirm this match: {amount} → {faktura}?",
+      { faktura: s.fakturanummer_formatted, amount: fmtMoney(s.sale_amount, s.invoice_currency) },
+    ), destructive: false }))) return;
     setBusy(b => ({ ...b, [s.id]: true }));
     try {
       await api.post(`/payment-suggestions/${s.id}/accept`);
@@ -75,8 +83,12 @@ export default function FakturaReviewPage() {
   };
 
   const reject = async (s) => {
-    if (!(await confirm({ message: t("confirmRejectSuggestion") ||
-      `Reject match: ${s.fakturanummer_formatted}? The faktura stays open.`, destructive: false }))) return;
+    // Same shadowed fallback on the other branch of the same triage.
+    if (!(await confirm({ message: t(
+      "confirmRejectSuggestion",
+      "Reject the match for {faktura}? The faktura stays open.",
+      { faktura: s.fakturanummer_formatted },
+    ), destructive: false }))) return;
     setBusy(b => ({ ...b, [s.id]: true }));
     try {
       await api.post(`/payment-suggestions/${s.id}/reject`);

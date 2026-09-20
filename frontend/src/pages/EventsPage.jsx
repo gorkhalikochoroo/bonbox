@@ -567,8 +567,31 @@ export default function EventsPage() {
     }
   };
 
-  const deleteEvent = async (id) => {
-    if (!(await confirm({ message: t("eventsConfirmDelete", "Soft-delete this event? Past sales stay tagged."), destructive: true }))) return;
+  // The × sits on every row of a list of near-identical events, and the
+  // dialog it opened said only "this event" — with two pop-ups a week apart
+  // the owner's own memory of which × they tapped was the only safeguard.
+  // The dialog now reads the name back, and the date · venue line under it
+  // exactly as the row prints it. Takes the row, not the id, for that reason.
+  const deleteEvent = async (ev) => {
+    const when = `${ev.event_date}${ev.venue ? ` · ${ev.venue}` : ""}`;
+    if (
+      !(await confirm({
+        title: t("eventsDeleteTitleNamed", "Delete {name}?", {
+          name: ev.name || t("eventsDeleteUntitled", "this event"),
+        }),
+        message: t(
+          "eventsDeleteBodyWhen",
+          "{when} — it disappears from your event list and you can't bring it back yourself. Past sales stay tagged to it.",
+          { when },
+        ),
+        confirmLabel: t("delete", "Delete"),
+        cancelLabel: t("cancel", "Cancel"),
+        destructive: true,
+      }))
+    ) {
+      return;
+    }
+    const id = ev.id;
     try {
       await api.delete(`/events/${id}`);
       setEvents((prev) => prev.filter((e) => e.id !== id));
@@ -722,12 +745,26 @@ export default function EventsPage() {
   };
 
   const refundBooking = async (booking) => {
+    // "Mark booking as refunded?" was the same sentence on every row of the
+    // guest list, and this is the row action that costs the most to get
+    // wrong — the kreditnota is written and the guest's billetter stop
+    // scanning. The dialog now says whose booking it is and for how much,
+    // in the same words the Customer and Total columns use.
+    const who = booking.customer_name || booking.customer_email || "";
     if (
       !(await confirm({
+        title: who
+          ? t("bookingRefundTitleNamed", "Mark the booking from {who} as refunded?", { who })
+          : t("bookingRefundTitleUnnamed", "Mark this booking as refunded?"),
         message: t(
-          "bookingRefundConfirm",
-          "Mark booking as refunded? BonBox writes the kreditnota — you handle the actual refund via MobilePay/Dankort.",
+          "bookingRefundBodyAmount",
+          // No full stop straight after the amount — the Danish money token
+          // ends in one already ("1.070 kr."), and it would render "kr..".
+          "The booking is {amount} — BonBox writes the kreditnota against it and the tickets stop scanning at the door. You handle the actual refund via MobilePay/Dankort, and you can't undo this here.",
+          { amount: moneyFmt(booking.total_amount_dkk || 0) },
         ),
+        confirmLabel: t("bookingMarkRefunded", "Mark refunded"),
+        cancelLabel: t("cancel", "Cancel"),
         destructive: true,
       }))
     ) {
@@ -1359,7 +1396,7 @@ export default function EventsPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteEvent(ev.id);
+                          deleteEvent(ev);
                         }}
                         className="text-xs text-gray-400 hover:text-red-600 w-8 h-8 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center"
                         aria-label={t("delete", "Delete")}

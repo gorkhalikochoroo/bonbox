@@ -148,6 +148,17 @@ function ConnectionCard({
   );
 }
 
+/**
+ * The bank row reads "Danske Bank", never "danske_bank". Lives up here so
+ * the disconnect dialog can spell the bank the exact same way the row the
+ * owner just tapped spells it — one transform, one spelling.
+ */
+function bankConnLabel(conn) {
+  return (conn?.bank_slug || "bank")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export default function ConnectionsPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -382,8 +393,28 @@ export default function ConnectionsPage() {
     setBusyConn(null);
   };
 
-  const disconnectBankConnection = async (connId) => {
-    if (!(await confirm({ message: "Disconnect this bank? Daily sync will stop.", destructive: true }))) return;
+  // "Disconnect this bank? Daily sync will stop." was true of every row in
+  // the panel — an owner with two banks connected had nothing but their own
+  // memory of which line they tapped. The dialog now names the bank and the
+  // account in the same words the row above it uses, and says what winning
+  // it back costs: the whole consent flow at the bank again, because a
+  // revoked connection cannot be reconnected in place.
+  const disconnectBankConnection = async (conn) => {
+    const bankLabel = bankConnLabel(conn);
+    const accountLabel = conn?.account_label || "Bank account";
+    const ok = await confirm({
+      title: t("connBankDisconnectTitleNamed", "Disconnect {bank}?", { bank: bankLabel }),
+      message: t(
+        "connBankDisconnectBodyNamed",
+        "The nightly sync of {account} stops and BonBox loses its access at {bank}. What has already been imported stays in your books, but getting the feed back means approving a brand new connection at the bank.",
+        { bank: bankLabel, account: accountLabel },
+      ),
+      confirmLabel: t("disconnect", "Disconnect"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
+    const connId = conn?.id;
     setBusyConn(connId);
     try {
       await api.delete(`/bank-connections/${connId}`);
@@ -779,9 +810,7 @@ export default function ConnectionsPage() {
               const lastSyncedHuman = conn.last_synced_at
                 ? new Date(conn.last_synced_at).toLocaleString()
                 : "Never synced";
-              const bankLabel = (conn.bank_slug || "bank")
-                .replace(/_/g, " ")
-                .replace(/\b\w/g, (c) => c.toUpperCase());
+              const bankLabel = bankConnLabel(conn);
               return (
                 <div
                   key={conn.id}
@@ -808,7 +837,7 @@ export default function ConnectionsPage() {
                     {busyConn === conn.id ? "Syncing…" : "Sync now"}
                   </button>
                   <button
-                    onClick={() => disconnectBankConnection(conn.id)}
+                    onClick={() => disconnectBankConnection(conn)}
                     disabled={busyConn === conn.id}
                     className="text-xs text-gray-600 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 disabled:opacity-50"
                   >

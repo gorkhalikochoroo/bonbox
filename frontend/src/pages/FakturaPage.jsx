@@ -582,7 +582,30 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
   };
 
   const handleMarkPaid = async () => {
-    if (!(await confirm({ message: `Mark ${invoice.fakturanummer_formatted} as paid?`, destructive: false }))) return;
+    // This named its faktura from the start — but in a hardcoded English
+    // template literal with no t() at all, so a Danish owner got an English
+    // dialog on a money action. Same identifying triple as the dialogs around
+    // it, through the file's own da-DK money renderer.
+    const amount = new Intl.NumberFormat("da-DK", {
+      style: "currency",
+      currency: invoice.currency,
+    }).format(invoice.total_gross);
+    const ok = await confirm({
+      title: t("fakturaMarkPaidTitleNumbered", "Mark faktura {number} as paid?", {
+        number: invoice.fakturanummer_formatted,
+      }),
+      // No full stop straight after the amount: the Danish money token ends in
+      // one already, so a clause ending there renders "kr..".
+      message: t(
+        "fakturaMarkPaidBodyAmount",
+        "{amount} is registered as paid today. A manual payment can be undone again afterwards.",
+        { amount },
+      ),
+      confirmLabel: t("fakturaMarkPaidConfirm", "Mark paid"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: false,
+    });
+    if (!ok) return;
     try {
       await api.post(`/invoices/${invoice.id}/mark-paid`, {
         amount: invoice.total_gross,
@@ -598,7 +621,42 @@ function useInvoiceActions(invoice, customer, onChanged, t) {
   // auto-matches only within 7 days, manual marks always reversible.
   // Backend returns 409 if outside window — we surface the message.
   const handleUnmarkPaid = async () => {
-    if (!(await confirm({ message: t("confirmUnmarkPaid"), destructive: false }))) return;
+    // "Unmark this invoice as paid?" was the same sentence on every paid row,
+    // so nothing but the owner's memory of which ↩ they tapped stood between
+    // them and wiping the payment off the wrong faktura. The dialog now says
+    // the number, the customer and the beløb back in the words the row uses.
+    const amount = new Intl.NumberFormat("da-DK", {
+      style: "currency",
+      currency: invoice.currency,
+    }).format(invoice.total_gross);
+    const ok = await confirm({
+      title: t("fakturaUnmarkPaidTitleNumbered", "Undo the payment on faktura {number}?", {
+        number: invoice.fakturanummer_formatted,
+      }),
+      // No full stop straight after the amount — the Danish money token ends
+      // in one already ("1.070,00 kr."), so a sentence ending there reads "kr..".
+      message: customer?.name
+        ? t(
+            "fakturaUnmarkPaidBodyNamed",
+            "{customer} is registered as having paid {amount} — that payment is removed and the faktura goes back to unpaid. The payment date and reference are not kept.",
+            { customer: customer.name, amount },
+          )
+        : t(
+            "fakturaUnmarkPaidBodyAmount",
+            "This faktura is registered as paid with {amount} — that payment is removed and it goes back to unpaid. The payment date and reference are not kept.",
+            { amount },
+          ),
+      // destructive is not cosmetic here: useConfirm focuses the CONFIRM
+      // button and makes Enter confirm whenever it is false. This one wipes
+      // the payment date, amount and reference off a faktura, so it gets the
+      // red button and a focused Cancel like every other money-losing action.
+      // The label has to come with it: useConfirm's destructive default is
+      // "Delete" / "Slet", and nothing here is being deleted.
+      confirmLabel: t("fakturaUnmarkPaidConfirm", "Undo payment"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await api.post(`/invoices/${invoice.id}/unmark-paid`);
       onChanged();

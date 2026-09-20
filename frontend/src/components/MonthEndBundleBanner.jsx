@@ -88,10 +88,14 @@ export default function MonthEndBundleBanner() {
       : (t("bundleBannerTitleSoon") || "Month-end coming up — bundle ready soon");
   const body =
     phase === "do_it_now"
-      ? (t("bundleBannerBodyNow") ||
-         `${monthName} is closed. One click downloads everything (sales, expenses, faktura, mileage + README) as a ZIP — attach it to an email to your revisor and you're done.`)
-      : (t("bundleBannerBodySoon") ||
-         `In a few days, ${monthName}'s bookkeeping bundle will be ready. One ZIP, four files, one email to your revisor.`);
+      // The month was written into a `||` fallback the populated key shadows,
+      // so the banner named no month at all.
+      ? t("bundleBannerBodyNow",
+          "{month} is closed. One click downloads everything (sales, expenses, faktura, mileage + README) as a ZIP — attach it to an email to your revisor and you're done.",
+          { month: monthName })
+      : t("bundleBannerBodySoon",
+          "In a few days the bookkeeping bundle for {month} will be ready. One ZIP, four files, one email to your revisor.",
+          { month: monthName });
   const cta =
     phase === "do_it_now"
       ? (t("bundleBannerCtaNow") || "Send to revisor")

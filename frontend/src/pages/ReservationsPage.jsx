@@ -5036,7 +5036,42 @@ function FloorSection({ t, businessType }) {
   };
 
   const removeResource = async (r) => {
-    if (!(await confirm({ message: t("rsvpTableDeleteConfirm", "Remove this table?"), destructive: true }))) return;
+    // "Remove this table?" read the same on every row on the floor. With Bord
+    // 4 and Bord 5 stacked, the only thing between the owner and losing the
+    // wrong one was remembering which trash icon their thumb had hit. The
+    // dialog now says the name back in the row's own words — seats and zone
+    // included — and what the row costs to remove.
+    const label = (r.label || "").trim();
+    const seats = r.capacity_seats ?? 0;
+    const staffName = r.staff_name || staffNameById[String(r.staff_id)] || "";
+    const title = label
+      ? t("rsvpRemoveNamedTitle", "Remove {label}?", { label })
+      : isProvider
+        ? t("rsvpProviderDeleteConfirm", "Remove this station?")
+        : t("rsvpTableDeleteConfirm", "Remove this table?");
+    const message = isProvider
+      ? staffName && staffName !== label
+        ? t(
+            "rsvpProviderDeleteBodyStaff",
+            "{staff} works this station. It leaves the floor and the timeline and takes no more appointments — putting it back means setting it up again.",
+            { staff: staffName },
+          )
+        : t(
+            "rsvpProviderDeleteBody",
+            "The station leaves the floor and the timeline and takes no more appointments — putting it back means setting it up again.",
+          )
+      : r.zone
+        ? t(
+            "rsvpTableDeleteBodyZone",
+            "Room for {seats}, in {zone}. The table leaves the floor plan and the timeline and takes no new bookings — putting it back means setting it up again.",
+            { seats, zone: r.zone },
+          )
+        : t(
+            "rsvpTableDeleteBody",
+            "Room for {seats}. The table leaves the floor plan and the timeline and takes no new bookings — putting it back means setting it up again.",
+            { seats },
+          );
+    if (!(await confirm({ title, message, destructive: true }))) return;
     setResources((prev) => prev.filter((x) => x.id !== r.id));
     try {
       await api.delete(`/reservations/resources/${r.id}`);
@@ -5712,7 +5747,32 @@ function BehandlingerSection({ t }) {
   };
 
   const removeItem = async (b) => {
-    if (!(await confirm({ message: t("rsvpBehandlingDeleteConfirm", "Remove this behandling?"), destructive: true }))) return;
+    // "Remove this behandling?" was true of every line in the katalog, so the
+    // wrong trash icon looked exactly like the right one. The dialog now
+    // repeats the behandling back with the same varighed and pris the row
+    // shows, and says out loud that this one does not come back.
+    const name = (b.name || "").trim();
+    const ok = await confirm({
+      title: name
+        ? t("rsvpRemoveNamedTitle", "Remove {label}?", { label: name })
+        : t("rsvpBehandlingDeleteConfirm", "Remove this behandling?"),
+      message:
+        b.price_kr != null
+          ? t(
+              "rsvpBehandlingDeleteBodyPrice",
+              // No full stop straight after the amount: formatKr already ends
+              // in one ("450 kr."), and the sentence would render "kr..".
+              "{duration} min, {price} — gone for good. Guests cannot book it any more; appointments already in the book keep the name.",
+              { duration: b.duration_min, price: formatKr(b.price_kr, { decimals: 0 }) },
+            )
+          : t(
+              "rsvpBehandlingDeleteBody",
+              "{duration} min — gone for good. Guests cannot book it any more; appointments already in the book keep the name.",
+              { duration: b.duration_min },
+            ),
+      destructive: true,
+    });
+    if (!ok) return;
     setItems((prev) => prev.filter((x) => x.id !== b.id));
     try {
       await api.delete(`/reservations/behandlinger/${b.id}`);
@@ -6873,15 +6933,44 @@ function StandDevices({ t }) {
     }
   };
 
+  // One line for where a device stands, used by the list AND by the revoke
+  // dialog, so the two can never describe the same tablet differently.
+  const deviceState = (d) =>
+    d.paired
+      ? d.last_seen_at
+        ? t("rsvpStandDeviceSeen", "Sidst set {when}", {
+            when: new Date(d.last_seen_at).toLocaleString(),
+          })
+        : t("rsvpStandDevicePaired", "Forbundet")
+      : t("rsvpStandDeviceWaiting", "Venter på koden");
+
   const revoke = async (d) => {
+    // Two tablets in the list, one dialog: "Fjern denne enhed?" named neither,
+    // and the consequence never reached the screen at all — body/confirmText/
+    // danger are not useConfirm's props, so it dropped the warning, drew the
+    // calm button and let Enter confirm. The dialog now names the device and
+    // the state the row shows it in, and carries the warning it always meant.
+    const label = (d.label || "").trim();
     const ok = await confirm({
-      title: t("rsvpStandRevokeTitle", "Fjern denne enhed?"),
-      body: t(
-        "rsvpStandRevokeBody",
-        "Enheden mister adgang til bogen med det samme. Du kan altid lave en ny kode.",
-      ),
-      confirmText: t("rsvpStandRevokeYes", "Fjern"),
-      danger: true,
+      title: label
+        ? t("rsvpRemoveNamedTitle", "Remove {label}?", { label })
+        : t("rsvpStandRevokeTitle", "Fjern denne enhed?"),
+      // A link that was never paired has no book to lose — telling its owner
+      // the tablet goes dark contradicts the "waiting for the code" state the
+      // same dialog prints one line above.
+      message: d.paired
+        ? t(
+            "rsvpStandRevokeBodyState",
+            "{state}. It loses the book the moment you remove it, and needs a new code before it can show reservations again.",
+            { state: deviceState(d) },
+          )
+        : t(
+            "rsvpStandRevokeBodyWaiting",
+            "{state}. The code stops working the moment you remove it — mint a new one if you still want to pair a tablet.",
+            { state: deviceState(d) },
+          ),
+      confirmLabel: t("rsvpStandRevokeYes", "Fjern"),
+      destructive: true,
     });
     if (!ok) return;
     try {
@@ -6960,13 +7049,7 @@ function StandDevices({ t }) {
               <span className="min-w-0 flex-1 text-[13px] text-gray-700 dark:text-gray-200 truncate">
                 {d.label || t("rsvpStandDeviceUnnamed", "Enhed")}
                 <span className="block text-[11px] text-gray-400">
-                  {d.paired
-                    ? d.last_seen_at
-                      ? t("rsvpStandDeviceSeen", "Sidst set {when}", {
-                          when: new Date(d.last_seen_at).toLocaleString(),
-                        })
-                      : t("rsvpStandDevicePaired", "Forbundet")
-                    : t("rsvpStandDeviceWaiting", "Venter på koden")}
+                  {deviceState(d)}
                 </span>
               </span>
               <button

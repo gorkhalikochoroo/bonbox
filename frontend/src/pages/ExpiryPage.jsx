@@ -77,17 +77,66 @@ export default function ExpiryPage() {
 
   // L9 — every action confirmed before firing, even the non-destructive
   // ones. Owner can undo via /inventory if they tap wrong.
-  const handleAction = async (itemId, action) => {
-    const promptMap = {
-      used: t("expiryConfirmUsed", "Mark this item as used in service?"),
-      wasted: t("expiryConfirmWasted", "Mark this item as wasted? This logs a waste row."),
-      extended: t("expiryConfirmExtended", "Extend expiry by 3 days?"),
-      sold_discount: t("expiryConfirmDiscount", "Mark as sold at discount?"),
+  //
+  // Four chips sit side by side on every row of the alerts banner, and all
+  // four opened the same unnamed dialog ("Mark this item as used in
+  // service?"). Three of them write the item's whole stock down to 0, so on
+  // a six-item banner the only thing between the owner and the wrong item
+  // was their memory of which chip they had just tapped. The dialog now
+  // repeats the item, the stock it clears, and what that stock is worth —
+  // in the same words the row above it uses.
+  const handleAction = async (item, action) => {
+    // Echo the row: "{quantity} {unit}", and the amount through the
+    // owner-money helper — never a bare toLocaleString, which would turn
+    // 1.070 kr. into 1,070 kr. on a non-Danish browser.
+    const qty = `${item.quantity ?? 0}${item.unit ? ` ${item.unit}` : ""}`;
+    const atRisk =
+      item.cost_at_risk_dkk != null && item.cost_at_risk_dkk > 0
+        ? formatOwnerMoney(item.cost_at_risk_dkk, currency)
+        : null;
+    const vars = { item: item.name, qty, amount: atRisk };
+
+    const titleMap = {
+      used: t("expiryConfirmUsedTitleNamed", "Mark {item} as used in service?", vars),
+      wasted: t("expiryConfirmWastedTitleNamed", "Mark {item} as wasted?", vars),
+      extended: t("expiryConfirmExtendedTitleNamed", "Give {item} 3 more days?", vars),
+      sold_discount: t("expiryConfirmDiscountTitleNamed", "Mark {item} as sold at discount?", vars),
     };
-    if (!(await confirm({ message: promptMap[action] || t("expConfirmGeneric", "Confirm?"), destructive: true }))) return;
-    setActingId(`${itemId}:${action}`);
+
+    // No full stop straight after the amount: the Danish money token ends in
+    // one already ("1.070 kr."), so a sentence ending on it reads "kr..".
+    const clearsStock = atRisk
+      ? t(
+          "expiryConfirmClearsStockAmount",
+          "This writes all {qty} of {item} down to 0 in your stock — {amount} at risk. If you tapped the wrong button, type the quantity back in under Inventory.",
+          vars,
+        )
+      : t(
+          "expiryConfirmClearsStock",
+          "This writes all {qty} of {item} down to 0 in your stock. If you tapped the wrong button, type the quantity back in under Inventory.",
+          vars,
+        );
+
+    const bodyMap = {
+      used: clearsStock,
+      wasted: `${clearsStock} ${t("expiryConfirmWasteRowLine", "It is also logged as a waste row in your waste history.")}`,
+      extended: t(
+        "expiryConfirmExtendedBodyNamed",
+        "{item} keeps its {qty} in stock — only the expiry date moves 3 days later.",
+        vars,
+      ),
+      sold_discount: clearsStock,
+    };
+
+    const ok = await confirm({
+      title: titleMap[action] || null,
+      message: bodyMap[action] || t("expConfirmGeneric", "Confirm?"),
+      destructive: true,
+    });
+    if (!ok) return;
+    setActingId(`${item.id}:${action}`);
     try {
-      await api.post(`/expiry/item/${itemId}/mark`, { action });
+      await api.post(`/expiry/item/${item.id}/mark`, { action });
       await fetchData();
     } catch (e) {
       console.warn("expiry action failed", e);
@@ -217,7 +266,7 @@ export default function ExpiryPage() {
                       key={a}
                       type="button"
                       disabled={actingId === `${it.id}:${a}`}
-                      onClick={() => handleAction(it.id, a)}
+                      onClick={() => handleAction(it, a)}
                       className="text-xs px-2.5 py-1 rounded-md bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 border border-gray-100 dark:border-gray-800/60 disabled:opacity-50"
                     >
                       {actingId === `${it.id}:${a}` ? "…" : label}

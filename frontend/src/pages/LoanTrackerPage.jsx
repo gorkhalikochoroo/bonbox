@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
-import { displayCurrency, moneyLocale, parseMoneyInput } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, moneyLocale, parseMoneyInput } from "../utils/currency";
 import MoneyField from "../components/ui/MoneyField";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
@@ -67,10 +67,38 @@ export default function LoanTrackerPage() {
     }
   };
 
-  const handleDeletePerson = async (id) => {
-    if (!(await confirm({ message: t("deletePersonConfirm"), destructive: true }))) return;
-    await api.delete(`/loans/persons/${id}`);
-    if (selected?.id === id) { setSelected(null); setTransactions([]); }
+  // The badge word the row prints for a line. Shared with the delete dialog so
+  // the confirm can only ever quote the row back in the owner's own words.
+  const txnTypeLabel = (txn) =>
+    txn.is_repayment ? t("repaid") : txn.type === "lent" ? t("lent") : t("borrowed");
+
+  const handleDeletePerson = async (p) => {
+    // "Delete this person?" was true of every name in the list, and the two
+    // Delete buttons sit four pixels apart. One mis-tap took a counterparty
+    // and their whole lending history out of the overview, with no undo
+    // anywhere in the app. The dialog now says who — with the phone the row
+    // shows, because two Mettes are not unusual — and what they stand at.
+    const who = p.phone ? `${p.name} (${p.phone})` : p.name;
+    const ok = await confirm({
+      title: t("loanDeletePersonTitleNamed", "Delete {name} from your loan list?", { name: who }),
+      message: t(
+        "loanDeletePersonBodyBalance",
+        // Nothing ends a clause straight after the balance: the Danish money
+        // token already ends in a period ("1.500,00 kr."), so a full stop
+        // there renders "kr..".
+        "The net balance with {name} is {balance} — the person and every loan line you have registered leave your overview, and BonBox cannot bring them back.",
+        {
+          name: p.name,
+          balance: formatOwnerMoney(p.net_balance ?? 0, currency, { decimals: 2, sign: true }),
+        },
+      ),
+      confirmLabel: t("delete", "Delete"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
+    await api.delete(`/loans/persons/${p.id}`);
+    if (selected?.id === p.id) { setSelected(null); setTransactions([]); }
     fetchPersons();
   };
 
@@ -106,15 +134,53 @@ export default function LoanTrackerPage() {
     }
   };
 
-  const handleDeleteTxn = async (id) => {
-    if (!(await confirm({ message: t("deleteConfirm"), destructive: true }))) return;
-    await api.delete(`/loans/transactions/${id}`);
+  const handleDeleteTxn = async (txn) => {
+    // "Delete?" — that was the whole dialog, on a ledger where every row has
+    // the same button and rows repeat (two 500-kroner repayments on the same
+    // day is an ordinary week). The line is gone for good on the server and
+    // every running balance under it moves. The confirm now reads the row
+    // back: its day, its badge word, its amount and the note that is often
+    // the only thing telling two identical lines apart.
+    const noteFrag = txn.notes
+      ? t("loanDeleteTxnNoteFrag", ", noted “{note}”", { note: txn.notes })
+      : "";
+    const ok = await confirm({
+      title: t("loanDeleteTxnTitleDated", "Delete the {date} line with {name}?", {
+        date: formatDate(txn.date),
+        name: selected.name,
+      }),
+      message: t(
+        "loanDeleteTxnBodyAmount",
+        // The amount never ends the clause — "1.500,00 kr." already carries a
+        // period, and a full stop after it renders "kr..".
+        "The row reads {type} {amount}{note} — the line is deleted for good, and the running balance on every other line is recalculated.",
+        {
+          type: txnTypeLabel(txn),
+          amount: formatOwnerMoney(txn.amount ?? 0, currency, { decimals: 2 }),
+          note: noteFrag,
+        },
+      ),
+      confirmLabel: t("delete", "Delete"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
+    await api.delete(`/loans/transactions/${txn.id}`);
     fetchTxns(selected.id);
     fetchPersons();
   };
 
   const filtered = persons.filter((p) => !search || p.name.toLowerCase().includes(search.toLowerCase()) || p.phone?.includes(search));
-  const fmt = (n) => Number(n).toLocaleString("en", { minimumFractionDigits: 0 });
+  // Was `Number(n).toLocaleString("en", …)` + a bare currency code, so a
+  // Danish owner's ledger read "1,500.5 DKK" — and in Danish the comma is the
+  // DECIMAL separator, so that is one-and-a-half kroner. Every amount on this
+  // page now goes through the owner-money formatter, which is also what the
+  // delete dialogs quote; the two could otherwise describe the same line
+  // differently. Two decimals because a loan ledger is exact money.
+  const fmt = (n) => formatOwnerMoney(n, currency, { decimals: 2 });
+  // The signed variant for balances, so "+" comes from the formatter rather
+  // than from a hand-written ternary at each call site.
+  const fmtSigned = (n) => formatOwnerMoney(n, currency, { decimals: 2, sign: true });
 
   // Running balance for selected person
   const sortedAsc = [...transactions].sort((a, b) => a.date.localeCompare(b.date) || (a.created_at || "").localeCompare(b.created_at || ""));
@@ -141,16 +207,16 @@ export default function LoanTrackerPage() {
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 border border-gray-100 dark:border-gray-700">
           <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t("iOweBorrowed")}</p>
-          <p className="text-2xl font-bold text-orange-600">{fmt(summary.total_borrowed)} {currency}</p>
+          <p className="text-2xl font-bold text-orange-600">{fmt(summary.total_borrowed)}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 border border-gray-100 dark:border-gray-700">
           <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t("owedToMeLent")}</p>
-          <p className="text-2xl font-bold text-blue-600">{fmt(summary.total_lent)} {currency}</p>
+          <p className="text-2xl font-bold text-blue-600">{fmt(summary.total_lent)}</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 border border-gray-100 dark:border-gray-700">
           <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">{t("netBalance")}</p>
           <p className={`text-2xl font-bold ${summary.net_balance >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-            {summary.net_balance >= 0 ? "+" : ""}{fmt(summary.net_balance)} {currency}
+            {fmtSigned(summary.net_balance)}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 border border-gray-100 dark:border-gray-700">
@@ -206,14 +272,14 @@ export default function LoanTrackerPage() {
                       <p className="text-xs text-blue-600">{t("owesMe")}: {fmt(p.lent_balance)}</p>
                     )}
                     <p className={`font-bold text-sm ${p.net_balance > 0 ? "text-emerald-600" : p.net_balance < 0 ? "text-red-600" : "text-gray-400"}`}>
-                      {p.net_balance > 0 ? `+${fmt(p.net_balance)}` : p.net_balance < 0 ? fmt(p.net_balance) : t("settled")}
+                      {p.net_balance === 0 ? t("settled") : fmtSigned(p.net_balance)}
                     </p>
                   </div>
                 </div>
                 <div className="flex gap-2 mt-2">
                   <button onClick={(e) => { e.stopPropagation(); setEditPerson(p); setPersonForm({ name: p.name, phone: p.phone || "", notes: p.notes || "" }); setShowAdd(true); }}
                     className="text-xs text-purple-600 hover:underline">{t("edit")}</button>
-                  <button onClick={(e) => { e.stopPropagation(); handleDeletePerson(p.id); }}
+                  <button onClick={(e) => { e.stopPropagation(); handleDeletePerson(p); }}
                     className="text-xs text-red-500 hover:underline">{t("delete")}</button>
                 </div>
               </div>
@@ -234,13 +300,13 @@ export default function LoanTrackerPage() {
                   </div>
                   <div className="text-right space-y-0.5">
                     {selected.borrowed_balance > 0 && (
-                      <p className="text-xs text-orange-600">{t("iOwe")}: {fmt(selected.borrowed_balance)} {currency}</p>
+                      <p className="text-xs text-orange-600">{t("iOwe")}: {fmt(selected.borrowed_balance)}</p>
                     )}
                     {selected.lent_balance > 0 && (
-                      <p className="text-xs text-blue-600">{t("owesMe")}: {fmt(selected.lent_balance)} {currency}</p>
+                      <p className="text-xs text-blue-600">{t("owesMe")}: {fmt(selected.lent_balance)}</p>
                     )}
                     <p className={`text-xl font-bold ${selected.net_balance >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                      {t("netBalance")}: {selected.net_balance >= 0 ? "+" : ""}{fmt(selected.net_balance)} {currency}
+                      {t("netBalance")}: {fmtSigned(selected.net_balance)}
                     </p>
                   </div>
                 </div>
@@ -312,22 +378,22 @@ export default function LoanTrackerPage() {
                                 ? "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400"
                                 : "bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400"
                           }`}>
-                            {txn.is_repayment ? t("repaid") : txn.type === "lent" ? t("lent") : t("borrowed")}
+                            {txnTypeLabel(txn)}
                           </span>
                         </td>
                         <td className={`px-4 py-3 text-right font-medium ${
                           txn.is_repayment ? "text-emerald-600" : txn.type === "lent" ? "text-blue-600" : "text-orange-600"
                         }`}>
-                          {txn.is_repayment ? "-" : "+"}{fmt(txn.amount)} {currency}
+                          {txn.is_repayment ? "-" : "+"}{fmt(txn.amount)}
                         </td>
                         <td className={`px-4 py-3 text-right font-bold ${txn.runNet >= 0 ? "text-emerald-600" : "text-red-600"}`}>
-                          {txn.runNet >= 0 ? "+" : ""}{fmt(txn.runNet)} {currency}
+                          {fmtSigned(txn.runNet)}
                         </td>
                         <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{txn.notes || "-"}</td>
                         <td className="px-4 py-3 text-right space-x-2">
                           <button onClick={() => { setEditTxn(txn); setTxnForm({ date: txn.date, type: txn.type, amount: txn.amount, is_repayment: txn.is_repayment, notes: txn.notes || "" }); }}
                             className="text-purple-600 hover:underline text-xs">{t("edit")}</button>
-                          <button onClick={() => handleDeleteTxn(txn.id)}
+                          <button onClick={() => handleDeleteTxn(txn)}
                             className="text-red-500 hover:underline text-xs">{t("delete")}</button>
                         </td>
                       </tr>

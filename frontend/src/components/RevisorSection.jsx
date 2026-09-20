@@ -148,10 +148,38 @@ export default function RevisorSection() {
     }
   };
 
-  const revokeRevisor = async (grantId) => {
-    if (!(await confirm({ message: t("revisorRevokeConfirm", "Revoke this revisor's access?"), destructive: true }))) return;
+  const revokeRevisor = async (g) => {
+    // "Revoke this revisor's access?" read the same for every row in the list.
+    // With a bookkeeper and their stand-in both invited, the owner had only
+    // their memory of which Revoke they tapped — and revoke also burns the
+    // invite, so the wrong tap costs that revisor a fresh invitation. The
+    // dialog now repeats the person back in the same words the row shows.
+    const who = g.accountant_name
+      ? `${g.accountant_name} · ${g.accountant_email}`
+      : g.accountant_email;
+    const ok = await confirm({
+      title: t("revisorRevokeTitleNamed", "Revoke revisor access for {who}?", { who }),
+      // Two different truths behind one button: an accepted grant has a login
+      // to lose, a pending invite does not. The same sentence for both told
+      // the owner that revoking an invitation nobody ever opened cuts off an
+      // access that never existed.
+      message: g.status === "pending"
+        ? t(
+            "revisorRevokeBodyPending",
+            "{who} has not accepted yet, so there is no login to cut off — but the invite link stops working the moment you confirm. Letting them in later means sending a new invitation.",
+            { who: g.accountant_name || g.accountant_email },
+          )
+        : t(
+            "revisorRevokeBodyConsequence",
+            "The revisor loses their read-only login the moment you confirm, and their invite link stops working — letting them back in means sending a new invite.",
+          ),
+      confirmLabel: t("revoke", "Revoke"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
     try {
-      await api.delete(`/accountants/grants/${grantId}`);
+      await api.delete(`/accountants/grants/${g.id}`);
       refreshGrants();
     } catch (err) {
       setRevisorError(
@@ -306,7 +334,7 @@ export default function RevisorSection() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => revokeRevisor(g.id)}
+                      onClick={() => revokeRevisor(g)}
                     >
                       {t("revoke", "Revoke")}
                     </Button>

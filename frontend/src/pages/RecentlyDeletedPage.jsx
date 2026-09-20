@@ -117,10 +117,54 @@ export default function RecentlyDeletedPage() {
     }
   };
 
-  const permanentDelete = async (id) => {
-    if (!(await confirm({ message: t("permanentDeleteConfirm"), destructive: true }))) return;
+  /** The row's one-line identity — the date plus whatever that domain calls
+   *  the thing. Lifted out of renderItem so the confirm dialog can repeat the
+   *  row back in exactly the words the list shows. */
+  const describeItem = (item) => {
+    switch (tab) {
+      case "sales":
+        return `${formatDate(item.date)} — ${item.payment_method || "mixed"}`;
+      case "expenses":
+        return `${formatDate(item.date)} — ${item.description}`;
+      case "waste":
+        return `${formatDate(item.date)} — ${item.item_name} (${item.quantity} ${item.unit})`;
+      case "cashbook":
+        return `${formatDate(item.date)} — ${item.description} (${item.type})`;
+      default:
+        return formatDate(item.date);
+    }
+  };
+
+  /** Waste carries its value as estimated_cost, not amount. */
+  const valueOf = (item) => (tab === "waste" ? item.estimated_cost : item.amount);
+
+  const permanentDelete = async (item) => {
+    // "Permanently delete? This cannot be undone." was true of every row on
+    // every tab — a list of near-identical lines all raised the same sentence,
+    // so the only thing between the owner and destroying the wrong day's sale
+    // was their memory of which button they tapped. This is the one delete in
+    // the product with nothing behind it, so the dialog now names the row and
+    // the figure, in the same words the list already uses.
+    const value = valueOf(item);
+    const hasAmount = value != null && !Number.isNaN(Number(value));
+    const ok = await confirm({
+      title: t("rdDeleteForeverTitleRow", "Delete {item} forever?", { item: describeItem(item) }),
+      message: hasAmount
+        ? t(
+            "rdDeleteForeverBodyAmount",
+            // No full stop straight after the amount: the Danish money token
+            // ends in one already ("1.070 kr."), so it would render "kr..".
+            "This entry shows {amount} — deleting it here removes it for good. Nothing can bring it back.",
+            { amount: formatOwnerMoney(value, user?.currency) },
+          )
+        : t("rdDeleteForeverBody", "Deleting it here removes it for good. Nothing can bring it back."),
+      confirmLabel: t("deleteForever"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
     try {
-      await api.delete(`${endpointFor(tab)}/${id}/permanent`);
+      await api.delete(`${endpointFor(tab)}/${item.id}/permanent`);
       reload();
     } catch {
       toast({ message: t("failedToDelete"), severity: "critical" });
@@ -128,24 +172,8 @@ export default function RecentlyDeletedPage() {
   };
 
   const renderItem = (item) => {
-    let info = "";
-    switch (tab) {
-      case "sales":
-        info = `${formatDate(item.date)} — ${item.payment_method || "mixed"}`;
-        break;
-      case "expenses":
-        info = `${formatDate(item.date)} — ${item.description}`;
-        break;
-      case "waste":
-        info = `${formatDate(item.date)} — ${item.item_name} (${item.quantity} ${item.unit})`;
-        break;
-      case "cashbook":
-        info = `${formatDate(item.date)} — ${item.description} (${item.type})`;
-        break;
-    }
-    // Waste carries its value as estimated_cost, not amount.
-    const value = tab === "waste" ? item.estimated_cost : item.amount;
-    const amount = formatOwnerMoney(value, user?.currency);
+    const info = describeItem(item);
+    const amount = formatOwnerMoney(valueOf(item), user?.currency);
     const deletedAt = item.deleted_at ? formatDate(item.deleted_at.split("T")[0]) : "";
 
     return (
@@ -170,7 +198,7 @@ export default function RecentlyDeletedPage() {
             {t("restore")}
           </button>
           <button
-            onClick={() => permanentDelete(item.id)}
+            onClick={() => permanentDelete(item)}
             className="flex-1 sm:flex-none px-4 py-2 min-h-[44px] sm:min-h-0 text-xs font-medium text-red-600 dark:text-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition"
           >
             {t("deleteForever")}

@@ -174,10 +174,40 @@ export default function CompetitorPage({ embedded = false }) {
     } catch { /* silent */ }
   };
 
-  const handleDelete = async (id) => {
-    if (!(await confirm({ message: "Stop tracking this competitor?", destructive: true }))) return;
+  // "Stop tracking this competitor?" read the same on every card on the tab, so
+  // the only thing telling the owner which place they were about to drop was
+  // their memory of which × they tapped — and two branches of the same chain
+  // look identical up there. The dialog now repeats the place back in the words
+  // the card uses (address included, because that is what tells the branches
+  // apart), and says out loud that the logged price checks go with it: the
+  // delete cascades to every price check, and nothing is kept.
+  const handleDelete = async (comp) => {
+    // `price_checks` is the real total from the server; `recent_prices` is only
+    // the last five, so it must never stand in for the count.
+    const checks = Number.isFinite(comp?.price_checks) ? comp.price_checks : null;
+    const ok = await confirm({
+      title: comp?.address
+        ? t("cpStopTrackingTitleAt", "Stop tracking {name} at {address}?", {
+            name: comp.name, address: comp.address,
+          })
+        : t("cpStopTrackingTitleNamed", "Stop tracking {name}?", { name: comp?.name }),
+      message: checks > 0
+        ? t(
+            "cpStopTrackingBodyChecks",
+            "Every price check you logged for them is deleted with them — {n} in total. This cannot be undone.",
+            { n: String(checks) },
+          )
+        : t(
+            "cpStopTrackingBodyAny",
+            "Every price check you logged for them is deleted with them. This cannot be undone.",
+          ),
+      confirmLabel: t("remove", "Remove"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
     try {
-      await api.delete(`/competitors/${id}`);
+      await api.delete(`/competitors/${comp.id}`);
       fetchData();
     } catch { /* silent */ }
   };
@@ -838,7 +868,7 @@ export default function CompetitorPage({ embedded = false }) {
                     📷 {t("scanMenu", "Scan menu")}
                   </button>
                   <button
-                    onClick={() => handleDelete(comp.id)}
+                    onClick={() => handleDelete(comp)}
                     className="text-xs text-red-500 hover:underline"
                   >
                     {t("remove")}

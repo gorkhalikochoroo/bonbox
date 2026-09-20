@@ -570,8 +570,12 @@ export default function LoginPage() {
                   <div className="flex-1">
                     <p className="text-[15px] font-semibold text-gray-900">{t("magicLinkSent") || "Check your email"}</p>
                     <p className="text-[13px] text-gray-800 mt-1 leading-relaxed">
-                      {t("magicLinkSentDetail") ||
-                        `If ${email} is registered, we've sent a sign-in link. It expires in 15 minutes.`}
+                      {/* The address was written into a `||` fallback the
+                          populated key shadows — so someone who mistyped their
+                          email was told "your email", and waited. */}
+                      {t("magicLinkSentDetail",
+                        "If {email} is registered, we've sent a sign-in link. It expires in 15 minutes.",
+                        { email })}
                     </p>
                     <button
                       type="button"

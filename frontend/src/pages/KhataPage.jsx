@@ -84,10 +84,40 @@ export default function KhataPage() {
     }
   };
 
-  const handleDeleteCustomer = async (id) => {
-    if (!(await confirm({ message: t("deleteCustomerConfirm"), destructive: true }))) return;
-    await api.delete(`/khata/customers/${id}`);
-    if (selectedCustomer?.id === id) { setSelectedCustomer(null); setTransactions([]); }
+  // "Delete this customer and all their transactions?" was true of every row
+  // in the list, so the dialog looked identical whether the owner had tapped
+  // Ida or the name under her — with a khata balance riding on the answer.
+  // It now says the name, the phone that tells two Idas apart, and the same
+  // balance the row is showing.
+  const handleDeleteCustomer = async (c) => {
+    // Built exactly as the row builds it, so the dialog echoes what the owner
+    // just looked at — including "Settled" and the overpaid case.
+    const balanceLabel = c.balance > 0
+      ? `${formatOwnerMoney(c.balance, user?.currency)} ${t("owed")}`
+      : c.balance < 0
+        ? `${formatOwnerMoney(Math.abs(c.balance), user?.currency)} ${t("overpaid")}`
+        : t("settled");
+    const who = c.phone ? `${c.name} · ${c.phone}` : c.name;
+    const ok = await confirm({
+      title: t("khataDeleteCustomerTitleNamed", "Delete {name}?", { name: c.name }),
+      message: t(
+        "khataDeleteCustomerBodyBalance",
+        // No full stop straight after the balance: the Danish money token ends
+        // in one already ("450 kr."), and it would render "kr..".
+        // And the claim is scoped to what the backend actually does: the
+        // customer is soft-deleted and their khata leaves the list, but the
+        // Sale and cash-book rows it synced are NOT touched — saying the
+        // sales go too would be a different kind of lie.
+        "Balance right now: {balance} — {who} and their whole khata disappear from your list. Sales already booked stay in your books. You cannot undo this from here.",
+        { balance: balanceLabel, who },
+      ),
+      confirmLabel: t("delete", "Delete"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
+    await api.delete(`/khata/customers/${c.id}`);
+    if (selectedCustomer?.id === c.id) { setSelectedCustomer(null); setTransactions([]); }
     fetchCustomers();
     window.dispatchEvent(new Event("bonbox-data-changed"));
   };
@@ -133,9 +163,45 @@ export default function KhataPage() {
     }
   };
 
-  const handleDeleteTxn = async (id) => {
-    if (!(await confirm({ message: t("deleteTransactionConfirm"), destructive: true }))) return;
-    await api.delete(`/khata/transactions/${id}`);
+  // "Delete this transaction?" read the same on every line of the table, and
+  // a khata has one line per visit — six near-identical rows for the same
+  // customer, one dialog, nothing saying which day was about to go. It now
+  // reads the line back in the row's own terms, and says out loud that the
+  // sale and the cash entry booked from it go too (khata_sync.py).
+  const handleDeleteTxn = async (txn) => {
+    const purchased = parseFloat(txn.purchase_amount) || 0;
+    const paid = parseFloat(txn.paid_amount) || 0;
+    const bits = [];
+    if (purchased > 0) bits.push(`${formatOwnerMoney(purchased, user?.currency)} ${t("purchased")}`);
+    if (paid > 0) bits.push(`${formatOwnerMoney(paid, user?.currency)} ${t("paid")}`);
+    if (txn.notes) bits.push(txn.notes);
+    const lineLabel = bits.length ? bits.join(" · ") : formatOwnerMoney(0, user?.currency);
+    const ok = await confirm({
+      title: t("khataDeleteTxnTitleDated", "Delete the line from {date}?", { date: formatDate(txn.date) }),
+      // One line mints at most one of the two: khata_sync returns early when
+      // purchase_amount is 0 (no Sale) and again when paid_amount is 0 (no
+      // cash-book entry). "Record payment" posts purchase_amount: 0 on every
+      // tap, so promising both would be false on most rows in a busy khata.
+      message: t(
+        purchased > 0 && paid > 0
+          ? "khataDeleteTxnBodyBoth"
+          : purchased > 0
+            ? "khataDeleteTxnBodySale"
+            : "khataDeleteTxnBodyCashbook",
+        // Same trap as above — never a full stop right after the amount.
+        purchased > 0 && paid > 0
+          ? "This line records {amount} — it is removed from the khata for {name}, and so are the sale and the cash book entry it created. This cannot be undone."
+          : purchased > 0
+            ? "This line records {amount} — it is removed from the khata for {name}, and so is the sale it created. This cannot be undone."
+            : "This line records {amount} — it is removed from the khata for {name}, and so is the cash book entry it created. This cannot be undone.",
+        { amount: lineLabel, name: selectedCustomer?.name || "" },
+      ),
+      confirmLabel: t("delete", "Delete"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
+    await api.delete(`/khata/transactions/${txn.id}`);
     fetchTransactions(selectedCustomer.id);
     fetchCustomers();
     window.dispatchEvent(new Event("bonbox-data-changed"));
@@ -318,7 +384,7 @@ export default function KhataPage() {
                 <div className="flex gap-2 mt-2 min-h-[44px] sm:min-h-0">
                   <button onClick={(e) => { e.stopPropagation(); setEditCust(c); setCustForm({ name: c.name, phone: c.phone || "", address: c.address || "" }); setShowAddCustomer(true); }}
                     className="text-xs text-blue-600 hover:underline">{t("edit")}</button>
-                  <button onClick={(e) => { e.stopPropagation(); handleDeleteCustomer(c.id); }}
+                  <button onClick={(e) => { e.stopPropagation(); handleDeleteCustomer(c); }}
                     className="text-xs text-red-500 hover:underline">{t("delete")}</button>
                 </div>
               </div>
@@ -513,7 +579,7 @@ export default function KhataPage() {
                         <td className="px-4 py-3 text-right space-x-2">
                           <button onClick={() => { setEditTxn(txn); setTxnForm({ date: txn.date, purchase_amount: txn.purchase_amount, paid_amount: txn.paid_amount, notes: txn.notes || "" }); }}
                             className="text-blue-600 hover:underline text-xs">{t("edit")}</button>
-                          <button onClick={() => handleDeleteTxn(txn.id)}
+                          <button onClick={() => handleDeleteTxn(txn)}
                             className="text-red-500 hover:underline text-xs">{t("delete")}</button>
                         </td>
                       </tr>

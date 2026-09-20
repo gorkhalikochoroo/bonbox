@@ -1848,12 +1848,32 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (entry) => {
     // These hours pay wages and sit in an Arbejdstidsloven register kept five
     // years. There was no confirm, no undo, and a silent catch — and the button
     // itself is invisible on a phone (see the reveal class below), so a tap on
     // apparent blank space destroyed a record and said nothing.
-    const ok = await confirm({ message: t("deleteHoursConfirm"), destructive: true });
+    //
+    // The confirm that closed that hole still said only "Delete this hours
+    // entry?" — the same sentence over every row in the log, where one staffer
+    // easily has five near-identical days. On a phone, where the row's own
+    // buttons only appear on hover, the dialog was the owner's first sight of
+    // what they had hit, and it named nothing. It now repeats the row back:
+    // who, which day, how many hours, in the same words the row prints.
+    const id = entry.id;
+    const who = entry.staff_name || nameMap[entry.staff_id] || t("shpUnknownStaff", "Unknown");
+    const ok = await confirm({
+      title: t("shpDeleteHoursTitleNamed", "Delete the hours for {name} on {date}?", {
+        name: who,
+        date: fmtDateFull(entry.date),
+      }),
+      message: t(
+        "shpDeleteHoursBodyHours",
+        "This entry logs {hours} — those hours come out of pay and out of your working-hours register. It cannot be undone.",
+        { hours: formatHours(entry.total_hours, { lang, decimals: 2 }) },
+      ),
+      destructive: true,
+    });
     if (!ok) return;
     setDelErr("");
     setDeletingId(id);
@@ -2040,7 +2060,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
                       </svg>
                     </button>
                     <button
-                      onClick={() => handleDelete(entry.id)}
+                      onClick={() => handleDelete(entry)}
                       disabled={isDeleting}
                       className="p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition disabled:opacity-40"
                       title={t("deleteEntry", "Delete entry")}

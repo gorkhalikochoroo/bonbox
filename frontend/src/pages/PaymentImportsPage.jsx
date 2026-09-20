@@ -641,7 +641,10 @@ function ConnectedCard({ conn, provider, onDisconnect, onSync, onToggleAutoSync,
           </div>
         </div>
         <button
-          onClick={() => onDisconnect(conn.id)}
+          // The whole row, not just its id: the confirm has to say WHICH
+          // connection it is about to delete, and the name and last sync
+          // live here.
+          onClick={() => onDisconnect(conn)}
           className="text-xs text-gray-500 hover:text-red-600 transition font-medium shrink-0"
         >
           {t("disconnect") || "Disconnect"}
@@ -857,11 +860,58 @@ export default function PaymentImportsPage() {
     setConnectingProvider(null);
   };
 
-  const handleDisconnect = async (connId) => {
-    if (!(await confirm({ message: t("confirmDisconnect") || "Remove this connection?", destructive: true }))) return;
+  const handleDisconnect = async (conn) => {
+    // "Remove this connection?" was true of every card on this page. An owner
+    // with MobilePay above and the card terminal below had nothing but the
+    // memory of which "Afbryd" they tapped standing between them and throwing
+    // away the wrong set of API keys — the server hard-deletes the row, keys
+    // and all. The dialog now names the connection and repeats the last sync
+    // exactly as the card above it prints it.
+    const providerName = providers.find((p) => p.id === conn.provider)?.name || conn.provider;
+    const label = conn.label || providerName;
+    // Same call as the card's "· Synced <date>" line, so the dialog echoes the
+    // words the owner is looking at rather than a second opinion on the date.
+    const synced = conn.last_synced_at
+      ? new Date(conn.last_synced_at).toLocaleDateString()
+      : null;
+    const ok = await confirm({
+      title: t("piDisconnectTitleNamed", "Disconnect {label}?", { label }),
+      // Two facts the first draft got wrong. last_synced_at is stamped by the
+      // owner's own manual fetch too, so it is the last sync, not "when the
+      // automatic import last ran". And auto-import can already be paused on
+      // this connection — the card one line up says so — in which case
+      // disconnecting stops nothing automatic.
+      message: conn.auto_sync
+        ? (synced
+            ? t(
+                "piDisconnectBodySynced",
+                "This deletes your {provider} keys here and stops the automatic import. Last synced {synced} — everything already imported stays in your books. To connect again you type the keys in one more time.",
+                { provider: providerName, synced },
+              )
+            : t(
+                "piDisconnectBody",
+                "This deletes your {provider} keys here and stops the automatic import. Everything already imported stays in your books. To connect again you type the keys in one more time.",
+                { provider: providerName },
+              ))
+        : (synced
+            ? t(
+                "piDisconnectBodyPausedSynced",
+                "This deletes your {provider} keys here. Auto-import is already paused. Last synced {synced} — everything already imported stays in your books. To connect again you type the keys in one more time.",
+                { provider: providerName, synced },
+              )
+            : t(
+                "piDisconnectBodyPaused",
+                "This deletes your {provider} keys here. Everything already imported stays in your books. To connect again you type the keys in one more time.",
+                { provider: providerName },
+              )),
+      confirmLabel: t("disconnect", "Disconnect"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
     try {
-      await api.delete(`/payment-import/connections/${connId}`);
-      setConnections((prev) => prev.filter((c) => c.id !== connId));
+      await api.delete(`/payment-import/connections/${conn.id}`);
+      setConnections((prev) => prev.filter((c) => c.id !== conn.id));
     } catch { /* ignore */ }
   };
 

@@ -3463,7 +3463,9 @@ function AutopilotPanel({ suggestion, currency, applying, onApply, onDiscard, t,
      onSave     — () => handleUpdate(member.id) ; resolves true on success.
      onClose    — close without saving.
      onShare    — () => generateLink(member).
-     onDeactivate — () => handleDeactivate(member.id).
+     onDeactivate — () => handleDeactivate(member). Takes the whole row, not
+                  the id: the confirm dialog names the person it is about to
+                  cut off.
      t          — translator from useLanguage.
 */
 
@@ -4166,11 +4168,27 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
     return false;
   };
 
-  const handleDeactivate = async (id) => {
-    if (!(await confirm({ message: "Deactivate this staff member? They won't appear in future schedules.", destructive: true }))) return;
+  const handleDeactivate = async (member) => {
+    // "Deactivate this staff member?" named nobody. The roster is a list of
+    // near-identical rows ending in the same three small icons, so on a team of
+    // eight the dialog looked the same whoever you had tapped — and the thing
+    // it ends is somebody's access to their own shifts. It says the name now,
+    // and what actually stops working.
+    const ok = await confirm({
+      title: t("staffDeactivateTitleNamed", "Deactivate {name}?", { name: member.name }),
+      message: t(
+        "staffDeactivateBodyNamed",
+        "{name} won't appear in future schedules, and the staff link on their phone stops working straight away.",
+        { name: member.name },
+      ),
+      confirmLabel: t("deactivate", "Deactivate"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
     setPanelError("");
     try {
-      await api.delete(`/staff/members/${id}`);
+      await api.delete(`/staff/members/${member.id}`);
       onRefresh();
     } catch (err) {
       setPanelError(errText(err, "Failed to deactivate staff member."));
@@ -4473,7 +4491,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDeactivate(member.id)}
+                            onClick={() => handleDeactivate(member)}
                             title={t("deactivate", "Deactivate")}
                             aria-label={`${t("deactivate", "Deactivate")} — ${member.name}`}
                             className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
@@ -4678,7 +4696,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
         onSave={() => handleUpdate(detailMember.id)}
         onClose={closeDetail}
         onShare={() => generateLink(detailMember)}
-        onDeactivate={() => handleDeactivate(detailMember.id)}
+        onDeactivate={() => handleDeactivate(detailMember)}
         roles={roles}
         t={t}
       />
@@ -5406,7 +5424,7 @@ function OpenShiftChip({ row, t, onCancel }) {
       </div>
       <div className="text-gray-400 dark:text-gray-500 mt-0.5">{roleLabel(catFor(row.role_on_shift), t)}</div>
       <button
-        onClick={() => onCancel(row.id)}
+        onClick={() => onCancel(row)}
         title={t("openCancel", "Remove")}
         aria-label={t("openCancel", "Remove")}
         className="absolute top-1 right-1 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-red-500"
@@ -5522,6 +5540,9 @@ function OpenShiftCreateModal({ weekDates, t, onClose, onCreated }) {
 
 function OpenShiftsPanel({ weekStart, t }) {
   const confirm = useConfirm();
+  // Same resolver the chips render their role label with — the remove dialog
+  // has to echo the chip word for word, not invent a second vocabulary.
+  const catFor = useCatFor();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -5543,19 +5564,40 @@ function OpenShiftsPanel({ weekStart, t }) {
 
   useEffect(() => { fetchOpen(); }, [fetchOpen]);
 
-  const cancelOpen = useCallback(async (id) => {
+  const cancelOpen = useCallback(async (row) => {
     // The X that triggers this is invisible on a phone (hover-only reveal, now
     // gated) and removed the shift on a single tap. Ask first — this is the
     // published plan other people are reading.
-    const ok = await confirm({ message: t("removeOpenShiftConfirm"), destructive: true });
+    //
+    // And ask about ONE slot: "Fjern denne åbne vagt?" was word-for-word the
+    // same dialog for every chip in the week, so a Friday with three open
+    // slots gave the owner no way to check which X they had actually hit.
+    // It now reads the chip back — same day header, same times, same role.
+    const dayIdx = weekDates.findIndex((d) => toISO(d) === row.date);
+    const d = dayIdx >= 0 ? weekDates[dayIdx] : new Date(`${row.date}T00:00:00`);
+    const dayLabel = `${dayShort(dayIdx >= 0 ? dayIdx : (d.getDay() + 6) % 7, t)} ${d.getDate()}/${d.getMonth() + 1}`;
+    const ok = await confirm({
+      title: t("removeOpenShiftTitleDated", "Remove the open shift on {day}?", { day: dayLabel }),
+      message: t(
+        "removeOpenShiftBodyDetail",
+        "{time} · {role} — it comes off the week, and anyone waiting to pick up a shift stops seeing it.",
+        {
+          time: formatShiftTime(row.start_time, row.end_time),
+          role: roleLabel(catFor(row.role_on_shift), t),
+        },
+      ),
+      confirmLabel: t("openCancel", "Remove"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
     if (!ok) return;
     try {
-      await api.delete(`/staff/open-shifts/${id}`);
+      await api.delete(`/staff/open-shifts/${row.id}`);
       await fetchOpen();
     } catch (err) {
       setError(errText(err, t("openCancelFailed", "Couldn't remove the open shift.")));
     }
-  }, [fetchOpen, t, confirm]);
+  }, [fetchOpen, t, confirm, catFor, weekDates]);
 
   const openCount = rows.filter((r) => r.status === "open").length;
   const byDate = useMemo(() => {
