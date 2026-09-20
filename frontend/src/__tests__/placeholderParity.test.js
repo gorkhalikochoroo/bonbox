@@ -23,6 +23,23 @@ import { dirname, join } from "node:path";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(HERE, "..", "hooks", "useLanguage.jsx"), "utf8");
+const I18N = join(HERE, "..", "i18n");
+
+/**
+ * The separate locale packs are held to the same rule, but only the ones the
+ * picker actually offers — the same line the locked-terms guard draws. A pack
+ * nobody can select is allowed to lag; the moment it is flipped to
+ * `offered: true` this guard starts enforcing it, which is the point.
+ * (Today the non-offered backlog is 12 keys, mostly np.js.)
+ */
+const offeredPacks = () => {
+  const catalog = readFileSync(join(I18N, "languageCatalog.js"), "utf8");
+  const codes = [...catalog.matchAll(/\{\s*code:\s*"([a-z_]+)"[^}]*offered:\s*true\s*\}/g)].map(
+    (m) => m[1],
+  );
+  // en and da live inline in useLanguage.jsx and are covered above.
+  return codes.filter((c) => c !== "en" && c !== "da");
+};
 
 /** Keys where English carries a placeholder Danish genuinely does not need. */
 const PLURAL_SUFFIX_EXEMPT = new Set(["taxComplianceFooter", "receiptViewerOcrLegend"]);
@@ -64,6 +81,52 @@ describe("en and da agree on what a string interpolates", () => {
       `A translated string does not interpolate what the English one does.\n` +
         `In a dialog that names the row it is about to delete, the dropped\n` +
         `placeholder IS the identification:\n` +
+        mismatches.join("\n"),
+    ).toEqual([]);
+  });
+});
+
+describe("an offered locale pack keeps the placeholders too", () => {
+  const PACK_ENTRY = /^ {2}([A-Za-z0-9_]+): "((?:[^"\\]|\\.)*)",\s*$/gm;
+
+  /** English is the first definition of each key in useLanguage.jsx. */
+  const english = new Map();
+  for (const [, key, value] of SOURCE.matchAll(ENTRY)) {
+    if (!english.has(key)) english.set(key, placeholdersOf(value));
+  }
+
+  const packs = offeredPacks();
+
+  it("there is at least one offered pack to check", () => {
+    expect(packs.length).toBeGreaterThan(0);
+  });
+
+  it.each(packs)("i18n/%s.js", (code) => {
+    const text = readFileSync(join(I18N, `${code}.js`), "utf8");
+    const mismatches = [];
+    let checked = 0;
+    for (const [, key, value] of text.matchAll(PACK_ENTRY)) {
+      const expected = english.get(key);
+      if (!expected) continue; // a pack-only key has nothing to disagree with
+      checked += 1;
+      const here = placeholdersOf(value);
+      const dropped = [...expected].filter((p) => !here.has(p));
+      const invented = [...here].filter((p) => !expected.has(p));
+      if (PLURAL_SUFFIX_EXEMPT.has(key) && !invented.length && dropped.every((p) => p === "s")) {
+        continue;
+      }
+      if (dropped.length || invented.length) {
+        mismatches.push(
+          `${key}: en has {${[...expected].join("} {")}}, ${code} has {${[...here].join("} {")}}`,
+        );
+      }
+    }
+    expect(checked, `nothing parsed out of i18n/${code}.js`).toBeGreaterThan(100);
+    expect(
+      mismatches,
+      `i18n/${code}.js drops or invents placeholders. In a dialog that names\n` +
+        `the row it is about to delete, the dropped placeholder IS the\n` +
+        `identification — this locale would show the anonymous version:\n` +
         mismatches.join("\n"),
     ).toEqual([]);
   });
