@@ -2476,15 +2476,26 @@ function ClosedScreen({ t, name, rootMinH = "min-h-screen" }) {
           className="text-gray-400 mx-auto mb-3"
           aria-hidden="true"
         />
+        {/* The server answers 410 not_accepting for a slug that does not
+            exist AND for a venue that has bookings switched off — the same
+            body, on purpose, so nobody can enumerate which businesses use
+            BonBox. This screen therefore cannot know which case it is in,
+            and must not claim to. It used to say "Not taking reservations",
+            which told a guest who mistyped the link that the restaurant was
+            closed: they stop trying instead of checking the link, and the
+            owner never hears about the booking they lost.
+            `name` is only ever set when a page HAD loaded and a later fetch
+            410'd; on the cold path it is undefined, so the unnamed line is
+            the one guests actually read. */}
         <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
           {name
             ? t("rsvpClosedNamed", "{name} tager ikke imod reservationer", { name })
-            : t("rsvpClosed", "Tager ikke imod reservationer")}
+            : t("rsvpClosed", "Dette link er ikke åbent for booking")}
         </h1>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           {t(
             "rsvpClosedHint",
-            "Prøv igen senere, eller kontakt stedet direkte for at booke et bord.",
+            "Tjek lige linket, eller kontakt stedet direkte for at booke.",
           )}
         </p>
       </div>

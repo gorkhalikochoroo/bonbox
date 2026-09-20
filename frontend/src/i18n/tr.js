@@ -2839,10 +2839,10 @@ export const tr = {
   // tr hit the same collision independently: it defined rsvpClosed as the
   // one-word day-chip label even though it sits with the ClosedScreen family,
   // so an un-named venue's public page was headlined "kapalı".
-  rsvpClosed: "Rezervasyon almıyor",
+  rsvpClosed: "Bu bağlantı rezervasyona açık değil",
   rsvpDayClosed: "kapalı",
   rsvpClosedNamed: "{name} rezervasyon almıyor",
-  rsvpClosedHint: "Daha sonra tekrar dene ya da masa ayırtmak için doğrudan mekanla iletişime geç.",
+  rsvpClosedHint: "Bağlantıyı bir kontrol et ya da rezervasyon için doğrudan mekanla iletişime geç.",
   rsvpEyebrow: "Rezervasyon",
   rsvpPickDate: "Tarih seç",
   rsvpOtherDate: "Başka tarih",

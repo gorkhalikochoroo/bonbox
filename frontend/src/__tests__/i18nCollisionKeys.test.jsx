@@ -51,8 +51,8 @@ describe("rsvpClosed — chip word vs page headline", () => {
   beforeEach(() => localStorage.clear());
 
   it.each([
-    ["en", "Not taking reservations"],
-    ["da", "Tager ikke imod reservationer"],
+    ["en", "This link isn't open for bookings"],
+    ["da", "Dette link er ikke åbent for booking"],
   ])("%s: rsvpClosed is the ClosedScreen headline, not a word", (lang, expected) => {
     expect(resolve("rsvpClosed", { lang })).toBe(expected);
   });
@@ -68,13 +68,24 @@ describe("rsvpClosed — chip word vs page headline", () => {
     expect(resolve("rsvpClosed", { lang })).not.toBe(resolve("rsvpDayClosed", { lang }));
   });
 
-  it.each(["en", "da"])("%s: the headline stays parallel to its named twin", (lang) => {
-    // rsvpClosedNamed is "{name} isn't taking reservations" — the un-named
-    // branch has to read like a headline, which is what regressed.
+  it.each(["en", "da"])("%s: both branches read like headlines", (lang) => {
     const named = resolve("rsvpClosedNamed", { lang });
     const plain = resolve("rsvpClosed", { lang });
-    expect(named.length).toBeGreaterThan(plain.length);
+    expect(named).toContain("{name}"); // its call site passes vars
     expect(plain.split(" ").length).toBeGreaterThan(1);
+  });
+
+  it.each(["en", "da"])("%s: the un-named headline blames the LINK, not the venue", (lang) => {
+    // The server answers 410 not_accepting for an unknown slug AND for a venue
+    // with bookings off — the same body on purpose, so nobody can enumerate
+    // which businesses use BonBox. The un-named branch therefore cannot know
+    // which case it is in. It used to say "Not taking reservations", telling a
+    // guest who mistyped the link that the restaurant was closed; they give up
+    // instead of checking the link, and the owner never hears about it.
+    // The NAMED branch is different: a name only exists when a page really did
+    // load, so there the venue is genuinely closed and may be named as such.
+    expect(resolve("rsvpClosed", { lang }).toLowerCase()).toContain("link");
+    expect(resolve("rsvpClosedHint", { lang }).toLowerCase()).toContain("link");
   });
 });
 

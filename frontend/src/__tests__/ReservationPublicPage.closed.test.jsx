@@ -49,8 +49,8 @@ describe("ClosedScreen headline", () => {
   });
 
   it.each([
-    ["da", "Tager ikke imod reservationer", "lukket"],
-    ["en", "Not taking reservations", "closed"],
+    ["da", "Dette link er ikke åbent for booking", "lukket"],
+    ["en", "This link isn't open for bookings", "closed"],
   ])("%s: the h1 is a sentence, not the day-chip word", async (lang, expected, chipWord) => {
     gone();
     renderAt(lang);
