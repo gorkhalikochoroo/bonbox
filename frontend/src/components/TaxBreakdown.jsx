@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { calcTaxBreakdown, getTaxConfig, displayCurrency } from "../utils/currency";
+import {
+  calcTaxBreakdown, getTaxConfig, formatOwnerMoney, moneyLocale, parseMoneyInput,
+} from "../utils/currency";
 import { getVatTerms } from "../utils/currency";
 
 /**
@@ -14,13 +16,23 @@ export default function TaxBreakdown({ amount, currencyCode, type = "sales", isT
   const setIncludeTax = onTaxExemptChange
     ? (val) => onTaxExemptChange(!val)
     : setLocalIncludeTax;
-  const num = parseFloat(amount);
+  // parseMoneyInput, not parseFloat — this widget reads the SAME raw string
+  // the EntryCard above it reads, and they disagreed. The field is
+  // type="text" on purpose so a Danish owner's own notation survives
+  // (EntryCard.jsx), and parseFloat("1.250") is 1.25, parseFloat("1.500,50")
+  // is 1.5, parseFloat("347,50") is 347. So the MOMS panel quoted 1,25 kr.
+  // under a box that booked 1.250 kr. — wrong by a thousandfold, at the exact
+  // moment the owner is checking the number.
+  const num = typeof amount === "number"
+    ? amount
+    : parseMoneyInput(amount, moneyLocale(currencyCode));
   const tax = getTaxConfig(currencyCode);
   const vat = getVatTerms(currencyCode);
-  const cur = displayCurrency(currencyCode);
 
-  // Don't show if no amount or currency has 0% tax (USD)
-  if (!num || num <= 0 || tax.rate === 0) return null;
+  // Nothing typed yet, mid-keystroke, or unreadable → show NOTHING rather
+  // than a breakdown of a number we could not read. Number.isFinite also
+  // catches the NaN parseMoneyInput returns for an ambiguous entry.
+  if (!Number.isFinite(num) || num <= 0 || tax.rate === 0) return null;
 
   const { amountInclTax, amountExclTax, taxAmount, taxName } = calcTaxBreakdown(num, currencyCode);
   const pct = Math.round(tax.rate * 100 * 10) / 10;
@@ -61,7 +73,7 @@ export default function TaxBreakdown({ amount, currencyCode, type = "sales", isT
               {tax.inclusive ? inclLabel : "Subtotal"}
             </span>
             <span className="font-semibold text-gray-700 dark:text-gray-200">
-              {(tax.inclusive ? num : amountExclTax).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {cur}
+              {formatOwnerMoney(tax.inclusive ? num : amountExclTax, currencyCode, { decimals: 2 })}
             </span>
           </div>
           <div className="flex items-center justify-between">
@@ -69,7 +81,7 @@ export default function TaxBreakdown({ amount, currencyCode, type = "sales", isT
               {taxName} ({pct}%)
             </span>
             <span className="font-semibold text-blue-600 dark:text-blue-400">
-              {taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {cur}
+              {formatOwnerMoney(taxAmount, currencyCode, { decimals: 2 })}
             </span>
           </div>
           <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-600/50 pt-1">
@@ -77,7 +89,7 @@ export default function TaxBreakdown({ amount, currencyCode, type = "sales", isT
               {tax.inclusive ? exclLabel : "Total"}
             </span>
             <span className="font-bold text-gray-800 dark:text-gray-100">
-              {(tax.inclusive ? amountExclTax : amountInclTax).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {cur}
+              {formatOwnerMoney(tax.inclusive ? amountExclTax : amountInclTax, currencyCode, { decimals: 2 })}
             </span>
           </div>
         </>
@@ -87,7 +99,7 @@ export default function TaxBreakdown({ amount, currencyCode, type = "sales", isT
             {type === "expenses" ? vat.expensesSection : vat.salesSection} ({taxName}-free)
           </span>
           <span className="font-bold text-gray-800 dark:text-gray-100">
-            {num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {cur}
+            {formatOwnerMoney(num, currencyCode, { decimals: 2 })}
           </span>
         </div>
       )}
