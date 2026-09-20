@@ -333,3 +333,34 @@ def test_the_footer_never_stands_alone_on_its_own_page(db_session, client):
     # The band travels with it, so the final page is never just the one line.
     assert len(last.splitlines()) > 1
 
+
+
+# ──────────────── The file's own properties are a claim too ────────────────
+
+
+def _pdf_doc_title(content):
+    from io import BytesIO
+    from pypdf import PdfReader  # type: ignore
+    meta = PdfReader(BytesIO(content)).metadata or {}
+    return meta.get("/Title")
+
+
+def test_a_draft_says_kladde_in_its_document_properties(db_session, client):
+    """A kladde opened in a viewer shows the PDF's /Title in the window and in
+    the file's Get Info panel. It said "Kasserapport" while the page said
+    KLADDE — the title bar was making a claim the document had withdrawn."""
+    user = _make_user(db_session)
+    dc = _make_close(db_session, user, status="draft", closed_at=None)
+    r = client.get(f"/api/daily-close/{dc.id}/pdf", headers=_auth_headers(user))
+    assert r.status_code == 200
+    assert "KLADDE" in (_pdf_doc_title(r.content) or "")
+
+
+def test_a_locked_close_keeps_the_plain_title(db_session, client):
+    """And the finished report is not marked as something it isn't."""
+    user = _make_user(db_session)
+    dc = _make_close(db_session, user)
+    r = client.get(f"/api/daily-close/{dc.id}/pdf", headers=_auth_headers(user))
+    title = _pdf_doc_title(r.content) or ""
+    assert "KASSERAPPORT" in title.upper()
+    assert "KLADDE" not in title.upper()

@@ -3030,7 +3030,10 @@ def daily_close_pdf(
         buf, pagesize=A4,
         topMargin=22 * mm, bottomMargin=18 * mm,
         leftMargin=22 * mm, rightMargin=22 * mm,
-        title="Kasserapport",
+        # The PDF's own document properties are part of what it claims: a
+        # kladde opened in a viewer must not present itself as "Kasserapport"
+        # in the title bar while the page says KLADDE.
+        title=claims["title"],
     )
     styles = getSampleStyleSheet()
     h1 = ParagraphStyle("H1", parent=styles["Title"], fontSize=14, spaceAfter=2,
