@@ -516,6 +516,29 @@ body.modal-open {
 }
 /* Same rung as .glass above — a sticky bar is shell, not ground. */
 .dark .glass-static { background: rgb(var(--surface-card) / 0.85); }
+
+/* THE BLUR HAS TO SURVIVE THE MINIFIER.
+   Measured on the deployed bundle, not guessed: the built stylesheet read
+       .glass{-webkit-backdrop-filter:blur(10px);background:#ffffffd9;…}
+   with the UNPREFIXED property dropped — the CSS optimizer decided the
+   -webkit- alias covered every target. On an engine that supports
+   `backdrop-filter` but not the alias, that leaves a flat 85%-opaque bar and
+   the page reads straight through the mobile bottom nav, the top bar and the
+   toasts. Confirmed in the browser: backdrop-filter computed to `none` while
+   CSS.supports('backdrop-filter','blur(10px)') was true.
+
+   The @supports fallback above cannot catch this. It asks "is blur supported",
+   the answer is yes, so it never raises the background to 0.95 — it was built
+   for a browser that lacks the feature, not for a build that lost the
+   declaration.
+
+   Restated here inside a condition the optimizer cannot collapse: a rule
+   guarded by @supports for the very property it sets has to be kept, and it
+   only applies where the unprefixed form genuinely works. */
+@supports (backdrop-filter: blur(1px)) {
+  .glass,
+  .glass-static { backdrop-filter: blur(10px); }
+}
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass-static { background: rgb(255 255 255 / 0.95); }
   /* The .dark rule above is (0,2,0) and this fallback was (0,1,0), so
