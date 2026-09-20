@@ -2,10 +2,12 @@
  * Amount — the app-wide money-render primitive (Copenhagen / Lunar-grade).
  *
  * Renders a money figure so the NUMBER leads and the currency token
- * whispers: the amount in tabular-nums, then a de-emphasized, baseline-
- * aligned token at ~0.62em in gray-400. This is the single highest-
- * leverage number-typography move — it makes a figure read like a bank
- * statement, not a spreadsheet cell.
+ * recedes: the amount in tabular-nums, then a de-emphasized, baseline-
+ * aligned token at ~0.62em in gray-400, floored at the doctrine's 11px.
+ * This is the single highest-leverage number-typography move — it makes a
+ * figure read like a bank statement, not a spreadsheet cell. In small
+ * contexts the floor wins and the size difference goes away; see the note
+ * on the token span for what carries the de-emphasis there.
  *
  * DKK (the default) routes through formatKr (da-DK grouping, literal
  * "kr." — a Danish owner reads a bank statement, never "DKK"). Pass a
@@ -59,7 +61,25 @@ export default function Amount({ value, decimals = 0, sign = false, size, curren
     <span className={`inline-flex items-baseline tabular-nums ${sizeCls} ${className}`.trim()}>
       <span>{num}</span>
       {token && (
-        <span className="text-[0.62em] font-medium text-gray-400 dark:text-gray-500 ml-0.5">
+        // 0.62em is RELATIVE, and most of this app is 13px body text — so the
+        // token that whispers beautifully at a 30px hero (18.6px) computed to
+        // 8.06px everywhere else. Measured live on /inventory: 23 "kr." nodes
+        // under the doctrine's 11px floor, on a screen an owner reads at
+        // arm's length across a counter. max() keeps the em relationship
+        // where the number is big enough to carry it and stops the shrink
+        // where it isn't; nothing above a ~17.7px parent changes at all.
+        //
+        // Say the cost out loud rather than claim the whisper is universal:
+        // BELOW ~17.7px the token stops scaling, so the ratio climbs — 0.85em
+        // at a 13px parent, 0.92em at 12px, 1.00em at 11px. At those sizes the
+        // de-emphasis is carried by WEIGHT and COLOUR alone, not by size. That
+        // is the right trade (an illegible token is worse than a level one),
+        // but the real fix for an 11px context is the context: 11px is the
+        // floor for the NUMBER too, so there is no room left under it.
+        //
+        // `length:` is the type hint — without it Tailwind can't tell an
+        // arbitrary max() from a colour and emits no utility.
+        <span className="text-[length:max(11px,0.62em)] font-medium text-gray-400 dark:text-gray-500 ml-0.5">
           {token}
         </span>
       )}

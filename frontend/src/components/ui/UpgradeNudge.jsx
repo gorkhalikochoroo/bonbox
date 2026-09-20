@@ -153,7 +153,8 @@ export default function UpgradeNudge({
         to={cta}
         onClick={handleClick}
         className={
-          "inline-flex items-center gap-2 px-3 py-1.5 rounded-md " +
+          // rounded-lg: a control is 8px here, the same as Button and Chip.
+          "inline-flex items-center gap-2 px-3 py-1.5 rounded-lg " +
           "bg-gray-50 dark:bg-gray-800/60 " +
           "text-gray-700 dark:text-gray-200 " +
           "border border-gray-200 dark:border-gray-700 " +
@@ -285,7 +286,10 @@ function UpgradeNudgeDialog({ glyph, benefit, ctaLabel, cta, handleClick, tier, 
         // A modal floats above every card on the page, so it takes rung 2
         // (`raised` + the stronger hairline), the same pair Card's `emphasis`
         // variant uses. In light that resolves to white, exactly as before.
-        className="bg-[rgb(var(--surface-raised))] border border-[rgb(var(--surface-line-strong))] rounded-2xl shadow-xl max-w-sm w-full p-6 text-center focus:outline-none"
+        // rounded-xl, not the rounded-2xl this used to carry: 16px was a third
+        // tier beside the locked two (12px surfaces, 8px controls), and a
+        // dialog is a surface like any other.
+        className="bg-[rgb(var(--surface-raised))] border border-[rgb(var(--surface-line-strong))] rounded-xl shadow-xl max-w-sm w-full p-6 text-center focus:outline-none"
       >
         {glyph && (
           <div className="mb-3 flex justify-center text-4xl" aria-hidden="true">
@@ -311,7 +315,7 @@ function UpgradeNudgeDialog({ glyph, benefit, ctaLabel, cta, handleClick, tier, 
         <button
           type="button"
           onClick={() => navigate(-1)}
-          className="mt-3 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded px-1"
+          className="mt-3 text-xs text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg px-1"
         >
           Maybe later
         </button>

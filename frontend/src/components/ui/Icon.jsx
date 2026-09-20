@@ -100,6 +100,11 @@ import {
   FolderOpen, LockOpen, RefreshCw,
   // Audit-Tryg (2026-07) — ShieldCheck = compliance/procedurebeskrivelse.
   ShieldCheck,
+  // Stock starter lists (2026-09) — the laundry and thrift rows used to be
+  // RotateCw and RotateCcw: the same circular arrow mirrored, at 18px, two
+  // rows apart in a list an owner scans once. Neither meant its trade, and
+  // together they were one silhouette. These two do mean it.
+  WashingMachine, Recycle,
   // Per-vertical adaptation (Phase A, 2026-06) — Onboarding branch tiles +
   // venueProfiles glance icons. Scissors=salon, Croissant=bakery.
   Scissors, Croissant,
@@ -177,6 +182,8 @@ const ICONS = {
   Hammer, Truck, RotateCcw, ShoppingCart, Ticket, Leaf, Smartphone, Gift,
   FolderOpen, LockOpen, RefreshCw,
   ShieldCheck,
+  // Stock starter lists (2026-09) — laundry + thrift, see the import note.
+  WashingMachine, Recycle,
   // Per-vertical adaptation (Phase A) — salon + bakery onboarding tiles
   Scissors, Croissant,
   // Utility

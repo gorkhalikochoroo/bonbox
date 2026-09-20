@@ -1173,7 +1173,7 @@ export const tr = {
   invSupplierSection: "Tedarikçi",
   invSupplierName: "Tedarikçi (opsiyonel)",
   invSupplierEmail: "Tedarikçi e-posta",
-  invSupplierHint: "Otopilotun sipariş göndermesini sağlar",
+  invSupplierHint: "BonBox sana kimden sipariş vermen gerektiğini söylesin diye — siparişi sen veriyorsun",
   invSmartImportTitle: "Stok listeni yapıştır, yükle veya fotoğrafla — gerisini AI dolduruyor",
   invPdfGenFailed: "PDF oluşturulamadı — tekrar dene.",
   invExportPdfTitle: "PDF stok listesi raporu indir",

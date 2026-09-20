@@ -44,6 +44,15 @@ import { errText } from "../utils/errText";
 import { expectedWeekLabor } from "../utils/weekLaborPct";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
+// THE modal container. ShiftModal used to hand-roll a vertically-centred card
+// with no max-height and no internal scroller. It fit a 390×844 portrait phone
+// with room to spare — so state the failure accurately: it broke wherever the
+// USABLE height dropped under the card, which is landscape (an iPhone here is
+// 844×390; Info.plist ships LandscapeLeft/Right), a short desktop window, and
+// a phone with the software keyboard up. In all three the title clipped off
+// the top and Tilføj vagt sat below the fold with nothing to scroll.
+// Sheet gives the bottom sheet, the cap, the scroll and the pinned footer.
+import Sheet from "../components/ui/Sheet";
 import { useLocation } from "react-router-dom";
 import { X, Link2, Pencil, Trash2, Mail, Phone, Loader2, Plus, Check, MapPin, MapPinOff, CalendarOff, Lock, LockKeyholeOpen, StickyNote } from "lucide-react";
 import OwnerChatDrawer from "../components/staff/OwnerChatDrawer";
@@ -2397,7 +2406,7 @@ export default function StaffSchedulePage() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  className="hidden sm:inline-flex"
+                  className="max-sm:hidden"
                   onClick={() =>
                     window.open("/staff/schedule/stand", "_blank", "noopener,noreferrer")
                   }
@@ -6501,7 +6510,22 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
 /* ═══════════════════════════════════════════════════════════
    SHIFT MODAL
    ═══════════════════════════════════════════════════════════ */
-function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemplateSave, onClose, onSaved, branchId }) {
+/**
+ * ShiftModal — add / edit one shift.
+ *
+ * Exported (named) for the same reason MobileSchedule and ScheduleGrid are:
+ * the viewport finding (an uncapped dialog with no scroller, so the title
+ * clips and Tilføj vagt sits below the fold) can only be pinned down as DOM,
+ * and this is the only way to mount the real thing without 6k lines of page
+ * around it.
+ *
+ * ROUTES IN, so the fix is re-checked where an owner actually meets it: the
+ * toolbar "+ Tilføj" (add mode, on screen at every width) and a tap on an
+ * OCCUPIED cell (edit mode). Tapping an EMPTY cell does NOT open this dialog —
+ * it blooms a seeded draft inline (see bloomDraft) — so any report that
+ * reproduces through an empty cell is describing a path that does not exist.
+ */
+export function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemplateSave, onClose, onSaved, branchId }) {
   const { t } = useLanguage();
   const { user } = useAuth();
   const roles = rolesFor(user?.business_type);
@@ -6695,25 +6719,38 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
     label: `${dayShort(d.getDay() === 0 ? 6 : d.getDay() - 1, t)} ${d.getDate()}/${d.getMonth() + 1}`,
   }));
 
+  const title = isEdit ? t("shiftEditTitle", "Edit Shift") : t("shiftAddTitle", "Add Shift");
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+    // Container swap ONLY — every field below is the one that shipped. Sheet
+    // supplies the phone bottom sheet (max-h-[92dvh]), the flex column, the
+    // portal, Escape, scroll lock and the focus trap; this file supplies the
+    // three rows: fixed header, scrolling body, pinned footer.
+    <Sheet
+      onClose={onClose}
+      zClassName="z-50"
+      ariaLabel={title}
+      panelClassName="bg-white dark:bg-gray-800 shadow-sm border-t sm:border border-gray-200 dark:border-gray-700"
+    >
+      {/* pt-4 on a phone: Sheet used to open with a grab bar whose padding was
+          standing in for this header's top margin, and that bar was a dead
+          affordance (nothing drags it). The spacing belongs here, stated. */}
+      <div className="shrink-0 flex items-center justify-between gap-3 px-5 pt-4 pb-3 sm:px-6 sm:pt-5">
+        {/* 16px, not text-lg: 18px is off the locked ramp. */}
+        <h2 className="text-[16px] font-semibold text-gray-900 dark:text-white">{title}</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label={t("close", "Close")}
+          className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-800 transition-colors"
+        >
+          <Icon name="X" size={20} />
+        </button>
+      </div>
 
-      {/* Modal */}
-      <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 w-full max-w-md p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {isEdit ? t("shiftEditTitle", "Edit Shift") : t("shiftAddTitle", "Add Shift")}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xl leading-none"
-          >
-            {"\u00D7"}
-          </button>
-        </div>
-
+      {/* The one scrolling region. Everything that used to push Tilføj vagt
+          off the bottom of the screen now scrolls inside this box instead. */}
+      <div data-sheet-body="" className="flex-1 overflow-y-auto px-5 pb-4 space-y-4 sm:px-6">
         {modalError && (
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-2.5 text-red-700 dark:text-red-300 text-xs">
             {modalError}
@@ -6892,12 +6929,20 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
             className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
         </div>
+      </div>
 
-        {/* Actions */}
+      {/* Pinned footer. The whole point of the port: Tilføj vagt / Opdater
+          vagt is ALWAYS on screen, whatever the form does above it, and sits
+          clear of the home indicator on a notched phone. */}
+      <div
+        data-sheet-footer=""
+        className="shrink-0 border-t border-gray-200 dark:border-gray-700 bg-white/95 dark:bg-gray-800/95 backdrop-blur px-5 pt-3 sm:px-6"
+        style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+      >
         {confirmDelete ? (
           /* In-app delete confirmation — replaces the native window.confirm()
              so it matches BonBox's dialog style and is automatable/testable. */
-          <div className="flex items-center justify-between gap-3 pt-3 mt-1 border-t border-gray-100 dark:border-gray-700">
+          <div className="flex items-center justify-between gap-3">
             <span className="text-sm text-gray-700 dark:text-gray-200">
               {t("shiftDeleteConfirm", "Delete this shift?")}
             </span>
@@ -6919,7 +6964,7 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
             </div>
           </div>
         ) : (
-          <div className="flex items-center justify-between pt-2">
+          <div className="flex items-center justify-between gap-3">
             <div>
               {isEdit && (
                 <button
@@ -6949,6 +6994,6 @@ function ShiftModal({ modal, staff, shifts = [], weekDates, lastTemplate, onTemp
           </div>
         )}
       </div>
-    </div>
+    </Sheet>
   );
 }

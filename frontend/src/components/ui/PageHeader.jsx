@@ -15,7 +15,7 @@
  *
  *   • Optional eyebrow — micro tracking-wider 11px uppercase, gray-400.
  *     Used to label the kind of page ("REPORTS", "MONEY", "STOCK").
- *   • H1 — 28px bold, gray-900, slight negative tracking. No green,
+ *   • H1 — 28px semibold, gray-900, slight negative tracking. No green,
  *     no emoji in the primary slot. Dinero/Billy do this.
  *   • Optional subtitle — 14px gray-500, sits 4px below the H1.
  *   • Actions slot — right-aligned on sm+, stacks under H1 on mobile.
@@ -62,7 +62,7 @@ export default function PageHeader({
             {eyebrow}
           </p>
         )}
-        {/* 22px on a phone, back to the canonical 28px from sm: up, so tablet
+        {/* 21px on a phone, back to the canonical 28px from sm: up, so tablet
             and desktop stay pixel-identical (the same mobile-only rule
             StatCard's dense scale already follows).
 
@@ -72,8 +72,18 @@ export default function PageHeader({
             owner scrolled past a third of the viewport before reaching any
             content. The comment on the actions block below already conceded the
             problem ("a 28px H1 already eats most of an iPhone SE's content
-            width"); it was worked around there instead of fixed here. */}
-        <h1 className="text-[22px] sm:text-[28px] font-bold tracking-[-0.025em] text-gray-900 dark:text-gray-100 leading-tight">
+            width"); it was worked around there instead of fixed here.
+
+            21, not 22: the locked ramp is 11/12/13/14/16/21/26–30 with no half
+            steps and no in-between sizes, and a primitive that composes onto
+            36 pages is the last place to invent one.
+
+            600, not 700. The doctrine reserves 700 for a figure that genuinely
+            is the loudest thing on the screen — Amount's hero, StatCard's
+            value. A page title is not a KPI, and this is the single most
+            expensive place in the app to shout: every screen composes it, so
+            one bold H1 here is 36 pages of raised voice. */}
+        <h1 className="text-[21px] sm:text-[28px] font-semibold tracking-[-0.025em] text-gray-900 dark:text-gray-100 leading-tight">
           {title}
         </h1>
         {subtitle && (

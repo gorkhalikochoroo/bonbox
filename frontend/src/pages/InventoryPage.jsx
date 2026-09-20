@@ -28,55 +28,33 @@ import InventoryAutopilotPanel from "../components/InventoryAutopilotPanel";
 import CountRitual from "../components/CountRitual";
 import { ClipboardCheck as ClipboardCheckIcon, ArrowRight as ArrowRightIcon } from "lucide-react";
 import SmartPricingModal from "../components/SmartPricingModal";
-import { localIso } from "../utils/dateFormat";
+import { formatDateClear, localIso } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
+import { INVENTORY_TEMPLATES, categoryLabel } from "../config/inventoryTemplates";
 import {
   Button, PageHeader, StatCard, SectionBanner, TabPills, Icon, Amount,
 } from "../components/ui";
 
-const TEMPLATES = [
-  // Food & Drink
-  { type: "restaurant", name: "Restaurant / Pizza / Grill", icon: "🍽️", count: 13, desc: "Chicken, rice, oil, produce, drinks, supplies.", color: "orange" },
-  { type: "cafe", name: "Cafe / Coffee Shop", icon: "☕", count: 13, desc: "Same as restaurant. Coffee, pastry, snacks focus.", color: "orange" },
-  { type: "bakery", name: "Bakery / Sweet Shop", icon: "🥐", count: 13, desc: "Flour, butter, sugar, pastries, bread, drinks.", color: "orange" },
-  { type: "bar", name: "Bar / Cocktail", icon: "🍸", count: 30, desc: "Spirits, wine, beer, mixers, garnish. Pour tracking.", color: "amber" },
-  { type: "food_truck", name: "Food Truck / Street Food", icon: "🚚", count: 13, desc: "Same as restaurant. Quick bites, drinks, sauces.", color: "orange" },
-  { type: "tea_shop", name: "Tea Shop / Chiya Pasal", icon: "🍵", count: 10, desc: "Tea, milk, sugar, spices, snacks, cups.", color: "orange" },
-  // Retail
-  { type: "clothing", name: "Clothing Store", icon: "👕", count: 12, desc: "Tops, bottoms, dresses, footwear, accessories.", color: "purple" },
-  { type: "online_clothing", name: "Online Clothing", icon: "🛍️", count: 12, desc: "Clothing + packaging, poly mailers, shipping boxes.", color: "purple" },
-  { type: "veggie_shop", name: "Veggie / Fruit Shop", icon: "🥬", count: 13, desc: "Vegetables, fruits, herbs, dry goods. Kg-based.", color: "green" },
-  { type: "grocery", name: "Grocery / Kirana", icon: "🛒", count: 12, desc: "Dairy, packaged food, drinks, household.", color: "yellow" },
-  { type: "kiosk", name: "Danish Kiosk", icon: "🏪", count: 12, desc: "Drinks, snacks, tobacco, bakery, scratch cards.", color: "blue" },
-  { type: "electronics", name: "Electronics & Mobile", icon: "📱", count: 11, desc: "Chargers, cables, earbuds, phone cases.", color: "cyan" },
-  { type: "pharmacy", name: "Pharmacy / Medical", icon: "💊", count: 12, desc: "Medicines, vitamins, first aid, hygiene.", color: "red" },
-  { type: "cosmetics", name: "Cosmetics / Beauty", icon: "💄", count: 10, desc: "Skincare, makeup, hair care, fragrance.", color: "pink" },
-  { type: "stationery", name: "Stationery / Books", icon: "📝", count: 10, desc: "Notebooks, pens, paper, school supplies.", color: "indigo" },
-  { type: "hardware", name: "Hardware / Construction", icon: "🔧", count: 10, desc: "Cement, rods, paint, plumbing, electrical.", color: "gray" },
-  { type: "flower_shop", name: "Flower Shop", icon: "💐", count: 9, desc: "Roses, tulips, bouquets, wrapping, vases.", color: "pink" },
-  { type: "jewelry", name: "Jewelry / Accessories", icon: "💍", count: 8, desc: "Gold, silver, earrings, bangles, watches.", color: "yellow" },
-  { type: "mobile_repair", name: "Mobile Repair", icon: "🔩", count: 8, desc: "Screens, batteries, parts, tools, cases.", color: "cyan" },
-  // Services
-  { type: "salon", name: "Salon / Barber / Nail", icon: "💇", count: 12, desc: "Shampoo, dye, razors, nail polish, skincare.", color: "pink" },
-  { type: "laundry", name: "Laundry / Dry Cleaning", icon: "🧺", count: 10, desc: "Detergent, softener, hangers, covers, tags.", color: "blue" },
-  { type: "thrift", name: "Thrift / Second-hand", icon: "♻️", count: 10, desc: "Used clothing, shoes, bags, books, electronics.", color: "green" },
-  // General
-  { type: "other", name: "Other / Custom", icon: "📦", count: 20, desc: "General supplies, tools, materials.", color: "gray" },
-];
-
-const COLOR_MAP = {
-  orange: { border: "hover:border-orange-400", bg: "hover:bg-orange-50 dark:hover:bg-orange-900/20" },
-  green: { border: "hover:border-gray-300", bg: "hover:bg-gray-50 dark:hover:bg-gray-800/50" },
-  blue: { border: "hover:border-blue-400", bg: "hover:bg-blue-50 dark:hover:bg-blue-900/20" },
-  yellow: { border: "hover:border-yellow-400", bg: "hover:bg-yellow-50 dark:hover:bg-yellow-900/20" },
-  purple: { border: "hover:border-purple-400", bg: "hover:bg-purple-50 dark:hover:bg-purple-900/20" },
-  red: { border: "hover:border-red-400", bg: "hover:bg-red-50 dark:hover:bg-red-900/20" },
-  cyan: { border: "hover:border-cyan-400", bg: "hover:bg-cyan-50 dark:hover:bg-cyan-900/20" },
-  amber: { border: "hover:border-amber-400", bg: "hover:bg-amber-50 dark:hover:bg-amber-900/20" },
-  pink: { border: "hover:border-pink-400", bg: "hover:bg-pink-50 dark:hover:bg-pink-900/20" },
-  indigo: { border: "hover:border-indigo-400", bg: "hover:bg-indigo-50 dark:hover:bg-indigo-900/20" },
-  gray: { border: "hover:border-gray-400", bg: "hover:bg-gray-50 dark:hover:bg-gray-700/30" },
-};
+/**
+ * The close control on the three expandable stat panels.
+ *
+ * One component rather than three copies because all three were copies of the
+ * same bare `&times;` glyph in an unlabelled <button> — a screen reader
+ * announced "multiplication sign", or nothing at all. 24px hit target, Lucide
+ * mark, and a real accessible name.
+ */
+function StatPanelClose({ onClick, t }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={t("close", "Close")}
+      className="w-6 h-6 shrink-0 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+    >
+      <Icon name="X" size={12} />
+    </button>
+  );
+}
 
 export default function InventoryPage() {
   const confirm = useConfirm();
@@ -251,7 +229,8 @@ export default function InventoryPage() {
         pieces_per_unit: form.pieces_per_unit ? parseFloat(form.pieces_per_unit) : null,
         category: form.category || "General",
         // Optional leverandør — empty email must be null (backend EmailStr
-        // rejects ""), so the autopilot can later send a bestilling.
+        // rejects ""). BonBox TELLS the owner who to reorder from; the owner
+        // places the order. Nothing here ever sends a bestilling.
         supplier_name: form.supplier_name?.trim() || null,
         supplier_email: form.supplier_email?.trim() || null,
       });
@@ -304,8 +283,8 @@ export default function InventoryPage() {
         ? null
         : parseMoneyInput(payload.sell_price_per_pour, mLocale);
       // Optional leverandør — empty email must be null (backend EmailStr
-      // rejects ""). A blank email clears it; a real one makes the item
-      // sendable by the autopilot.
+      // rejects ""). A blank email clears it; a real one is what BonBox names
+      // when it tells the owner who to reorder from. The owner orders.
       payload.supplier_name = payload.supplier_name?.trim() || null;
       payload.supplier_email = payload.supplier_email?.trim() || null;
       await api.patch(`/inventory/${editId}`, payload);
@@ -490,17 +469,23 @@ export default function InventoryPage() {
   const barItems = useMemo(() => items.filter((i) => i.pour_size && i.pour_size > 0), [items]);
 
   const perishableCount = items.filter((i) => i.is_perishable).length;
+  // "All" is the FILTER ID, not a label — it is compared against elsewhere in
+  // this file, so it stays an English constant and only its pill is translated.
   const displayCategories = templateFilter
     ? ["All", ...categories.filter((c) => templateFilter.includes(c))]
     : ["All", ...categories];
+  const loadedTemplate = INVENTORY_TEMPLATES.find((tp) => tp.type === templateLoaded);
 
   // Per-vertical page title (S1 of the inventory redesign). DK trade terms
   // stay Danish across all UI languages — same lock as kasserapport / MOMS.
   // A salon owner should never read kitchen-framed "Inventory Monitor".
   // (S2 will move this into a proper verticalVoice map.)
+  // "genbestilling", not "bestilling": the page tells the owner what to
+  // reorder, it does not place the order. A title that says otherwise is the
+  // same promise the supplier hint was just corrected for.
   const heroTitle = ({
-    restaurant: "Lager & bestilling",
-    cafe: "Lager & bestilling",
+    restaurant: "Lager & genbestilling",
+    cafe: "Lager & genbestilling",
     bar: "Lager & bar",
     salon: "Lager & ordre",
     bakery: "Lager",
@@ -523,10 +508,19 @@ export default function InventoryPage() {
               >
                 {t("invSmartImport", "Smart Import")}
               </Button>
+              {/* Stays on the phone: the starter list is what an owner with an
+                  empty lager needs FIRST, so it carries no breakpoint class at
+                  all. PDF and CSV below are desk work and DO hide under sm —
+                  via max-sm:hidden, because the `hidden sm:inline-flex` they
+                  used to carry was a no-op over <Button>: Button's base class
+                  already contains `inline-flex`, and at equal specificity the
+                  built sheet emits `.hidden` BEFORE `.inline-flex`, so
+                  inline-flex won at every width and both buttons shipped to
+                  every phone. `max-sm:hidden` lives inside a media query that
+                  Tailwind emits after the base utilities, so it actually wins. */}
               <Button
                 variant="secondary"
                 onClick={() => setShowTemplateModal(true)}
-                className="hidden sm:inline-flex"
               >
                 {t("loadTemplate")}
               </Button>
@@ -556,7 +550,7 @@ export default function InventoryPage() {
                 }}
                 iconLeft={<Icon name="FileText" size={16} />}
                 title={t("invExportPdfTitle", "Download a PDF stock-list report")}
-                className="hidden sm:inline-flex"
+                className="max-sm:hidden"
               >
                 PDF
               </Button>
@@ -580,7 +574,7 @@ export default function InventoryPage() {
                 }}
                 iconLeft={<Icon name="FileSpreadsheet" size={16} />}
                 title={t("invExportCsvTitle", "Download stock list as CSV (Excel-friendly, semicolon delimited)")}
-                className="hidden sm:inline-flex"
+                className="max-sm:hidden"
               >
                 CSV
               </Button>
@@ -686,7 +680,7 @@ export default function InventoryPage() {
               <ul className="space-y-0.5 text-[12px]">
                 {expired.slice(0, 3).map((it) => (
                   <li key={it.id} className="truncate">
-                    • {it.name} <span className="opacity-70">({it.expiry_date}, {Number(it.quantity).toFixed(1)} {it.unit})</span>
+                    • {it.name} <span className="opacity-70">({formatDateClear(it.expiry_date)}, {Number(it.quantity).toFixed(1)} {it.unit})</span>
                   </li>
                 ))}
                 {expired.length > 3 && (
@@ -712,7 +706,7 @@ export default function InventoryPage() {
               <ul className="space-y-0.5 text-[12px]">
                 {expiring.slice(0, 3).map((it) => (
                   <li key={it.id} className="truncate">
-                    • {it.name} <span className="opacity-70">({it.expiry_date}, {Number(it.quantity).toFixed(1)} {it.unit})</span>
+                    • {it.name} <span className="opacity-70">({formatDateClear(it.expiry_date)}, {Number(it.quantity).toFixed(1)} {it.unit})</span>
                   </li>
                 ))}
                 {expiring.length > 3 && (
@@ -733,7 +727,7 @@ export default function InventoryPage() {
 
       {/* Bar pour items now live on /bar — extracted to a dedicated page
           gated by the bar_pour vertical module. Owners who run a bar see
-          a 🍸 Bar entry in their sidebar; everyone else gets a calmer
+          a Bar entry in their sidebar; everyone else gets a calmer
           inventory page focused on general kitchen / shop / pantry stock. */}
 
       {/* Financial overview — auto-calculated from buy/sell prices. Once
@@ -841,7 +835,7 @@ export default function InventoryPage() {
           <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-800 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("allItems")} ({items.length})</p>
-              <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+              <StatPanelClose onClick={() => setExpandedStat(null)} t={t} />
             </div>
             {(() => {
               const byCat = {};
@@ -850,28 +844,28 @@ export default function InventoryPage() {
                 <>
                   <div className="flex flex-wrap gap-1.5 mb-3">
                     {Object.entries(byCat).sort((a, b) => b[1].length - a[1].length).map(([cat, list]) => (
-                      <span key={cat} className="px-2.5 py-1 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 rounded-lg text-xs font-bold text-gray-700 dark:text-gray-300">{cat} · {list.length}</span>
+                      <span key={cat} className="px-2.5 py-1 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 rounded-lg text-xs font-bold text-gray-700 dark:text-gray-300">{categoryLabel(t, cat)} · {list.length}</span>
                     ))}
                   </div>
                   <div className="grid grid-cols-3 gap-2 mb-3">
                     <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
-                      <p className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold">{t("stockValue")}</p>
-                      <p className="text-sm font-extrabold text-gray-800 dark:text-white"><Amount value={stats.totalCost} currency={currency} /></p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold">{t("stockValue")}</p>
+                      <p className="text-sm font-semibold text-gray-800 dark:text-white"><Amount value={stats.totalCost} currency={currency} /></p>
                     </div>
                     <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
-                      <p className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold">{t("saleValue")}</p>
-                      <p className="text-sm font-extrabold text-gray-800 dark:text-white"><Amount value={stats.totalRevenue} currency={currency} /></p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold">{t("saleValue")}</p>
+                      <p className="text-sm font-semibold text-gray-800 dark:text-white"><Amount value={stats.totalRevenue} currency={currency} /></p>
                     </div>
                     <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
-                      <p className="text-[10px] text-gray-500 dark:text-gray-400 font-semibold">{t("avgMargin")}</p>
-                      <p className={`text-sm font-extrabold ${stats.avgMargin >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500"}`}>{stats.avgMargin}%</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold">{t("avgMargin")}</p>
+                      <p className={`text-sm font-semibold ${stats.avgMargin >= 0 ? "text-[rgb(var(--brand-green-accent))]" : "text-red-500 dark:text-red-400"}`}>{stats.avgMargin}%</p>
                     </div>
                   </div>
                   <div className="space-y-1 max-h-48 overflow-y-auto">
                     {items.slice(0, 15).map((i) => (
                       <div key={i.id} className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-700/30 rounded-lg text-xs">
                         <span className="font-medium text-gray-800 dark:text-white truncate max-w-[40%]">{i.name}</span>
-                        <span className="text-gray-500 dark:text-gray-400">{i.category || t("general")}</span>
+                        <span className="text-gray-500 dark:text-gray-400">{categoryLabel(t, i.category)}</span>
                         <span className="font-bold text-gray-700 dark:text-gray-300">{i.quantity} {i.unit}</span>
                       </div>
                     ))}
@@ -886,7 +880,7 @@ export default function InventoryPage() {
           <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-red-200 dark:border-red-800 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("lowStockItems")} ({alerts.length})</p>
-              <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+              <StatPanelClose onClick={() => setExpandedStat(null)} t={t} />
             </div>
             {alerts.length > 0 ? (
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
@@ -894,10 +888,10 @@ export default function InventoryPage() {
                   <div key={a.id} className="flex items-center justify-between px-3 py-2 bg-red-50 dark:bg-red-900/20 rounded-lg text-xs">
                     <div>
                       <span className="font-bold text-red-700 dark:text-red-400">{a.name}</span>
-                      <span className="text-red-500/60 ml-2">{a.category || t("general")}</span>
+                      <span className="text-red-500/60 ml-2">{categoryLabel(t, a.category)}</span>
                     </div>
                     <div className="text-right">
-                      <span className="font-extrabold text-red-600 dark:text-red-400">{a.quantity} {a.unit}</span>
+                      <span className="font-semibold text-red-600 dark:text-red-400">{a.quantity} {a.unit}</span>
                       {/* `min_stock` is not a field InventoryItemResponse has
                           ever served, so every row printed "Min stock:" and
                           then nothing — on the one list that is supposed to
@@ -909,27 +903,34 @@ export default function InventoryPage() {
                   </div>
                 ))}
               </div>
-            ) : <p className="text-sm text-emerald-600 dark:text-gray-300 text-center py-3 font-medium">{t("allWellStocked")}</p>}
+            ) : <p className="text-sm text-[rgb(var(--brand-green-accent))] text-center py-3 font-medium">{t("allWellStocked")}</p>}
           </div>
         )}
 
         {expandedStat === "fresh" && (
-          <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-orange-200 dark:border-orange-800 shadow-sm">
+          /* The stat panels used to be colour-coded by WHICH panel you opened —
+             orange for fresh, purple for categories, blue for priced — so the
+             same neutral list of goods changed hue depending on the tile you
+             tapped. That is decoration, and decoration is what makes a screen
+             look vibe-coded. The surface is neutral now; the one mark left in
+             colour is the expiry date, which is the only thing here that is a
+             status (amber, the app's "watch this"). */
+          <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("perishableItems")} ({perishableCount})</p>
-              <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+              <StatPanelClose onClick={() => setExpandedStat(null)} t={t} />
             </div>
             {perishableCount > 0 ? (
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
                 {items.filter(i => i.is_perishable).map((i) => (
-                  <div key={i.id} className="flex items-center justify-between px-3 py-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg text-xs">
+                  <div key={i.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/40 rounded-lg text-xs">
                     <div>
-                      <span className="font-bold text-orange-700 dark:text-orange-400">{i.name}</span>
-                      <span className="text-orange-500/60 ml-2">{i.category || t("general")}</span>
+                      <span className="font-medium text-gray-900 dark:text-gray-100">{i.name}</span>
+                      <span className="text-gray-400 dark:text-gray-500 ml-2">{categoryLabel(t, i.category)}</span>
                     </div>
                     <div className="text-right">
-                      <span className="font-bold text-orange-600 dark:text-orange-400">{i.quantity} {i.unit}</span>
-                      {i.expiry_date && <span className="text-orange-400/60 ml-2">exp: {i.expiry_date}</span>}
+                      <span className="font-medium text-gray-900 dark:text-gray-100 tabular-nums">{i.quantity} {i.unit}</span>
+                      {i.expiry_date && <span className="text-amber-600 dark:text-amber-400 ml-2">{t("expExpiresLabel", "Expires:")} {formatDateClear(i.expiry_date)}</span>}
                     </div>
                   </div>
                 ))}
@@ -939,10 +940,16 @@ export default function InventoryPage() {
         )}
 
         {expandedStat === "categories" && (
-          <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-purple-200 dark:border-purple-800 shadow-sm">
+          /* No hue of its own. A category total is a plain number — it is not
+             late, not low, not overdue — so it carries no status and therefore
+             no colour. This panel used to paint its border, every row
+             background, every name and every amount purple, which is the
+             "different colour per row" look the whole page was cleaned of,
+             one tap above the picker that was cleaned. */
+          <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("categories")} ({categories.length})</p>
-              <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+              <StatPanelClose onClick={() => setExpandedStat(null)} t={t} />
             </div>
             {categories.length > 0 ? (
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
@@ -950,11 +957,11 @@ export default function InventoryPage() {
                   const catItems = items.filter(i => (i.category || "General") === cat);
                   const catValue = catItems.reduce((s, i) => s + parseFloat(i.quantity) * parseFloat(i.cost_per_unit), 0);
                   return (
-                    <button key={cat} onClick={() => { setActiveCategory(cat); setExpandedStat(null); }} className="w-full flex items-center justify-between px-3 py-2 bg-purple-50 dark:bg-purple-900/20 rounded-lg text-xs hover:bg-purple-100 dark:hover:bg-purple-900/40 transition">
-                      <span className="font-bold text-purple-700 dark:text-purple-400">{cat}</span>
+                    <button key={cat} onClick={() => { setActiveCategory(cat); setExpandedStat(null); }} className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-700/40 rounded-lg text-xs hover:bg-gray-100 dark:hover:bg-gray-700 transition">
+                      <span className="font-medium text-gray-900 dark:text-gray-100">{categoryLabel(t, cat)}</span>
                       <div className="flex items-center gap-3">
-                        <span className="text-purple-500/60">{catItems.length} {t("items")}</span>
-                        <span className="font-bold text-purple-600 dark:text-purple-400"><Amount value={catValue} currency={currency} /></span>
+                        <span className="text-gray-400 dark:text-gray-500">{catItems.length} {t("items")}</span>
+                        <span className="font-medium text-gray-900 dark:text-gray-100"><Amount value={catValue} currency={currency} /></span>
                       </div>
                     </button>
                   );
@@ -965,14 +972,17 @@ export default function InventoryPage() {
         )}
 
         {expandedStat === "priced" && (
-          <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-blue-200 dark:border-blue-800 shadow-sm">
+          /* Neutral surface, same as the other two. The status here is the
+             margin (emerald / red) and the "mangler salgspris" rows — a buy
+             and a sell price are just numbers, so they read as numbers. */
+          <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("pricingStatus")} ({stats.itemsWithMargin}/{items.length})</p>
-              <button onClick={() => setExpandedStat(null)} className="w-5 h-5 flex items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700 text-gray-400 text-xs hover:bg-gray-200 dark:hover:bg-gray-600">&times;</button>
+              <StatPanelClose onClick={() => setExpandedStat(null)} t={t} />
             </div>
             <div className="space-y-1.5 max-h-48 overflow-y-auto">
               {items.filter(i => i.sell_price != null && parseFloat(i.sell_price) > 0).length > 0 && (
-                <p className="text-[10px] uppercase tracking-wide text-emerald-600 dark:text-gray-300 font-semibold px-1 mb-1">{t("priced")}</p>
+                <p className="text-[11px] uppercase tracking-wide text-[rgb(var(--brand-green-accent))] font-semibold px-1 mb-1">{t("priced")}</p>
               )}
               {items.filter(i => i.sell_price != null && parseFloat(i.sell_price) > 0).slice(0, 10).map((i) => {
                 const margin = parseFloat(i.cost_per_unit) > 0 ? Math.round(((parseFloat(i.sell_price) - parseFloat(i.cost_per_unit)) / parseFloat(i.cost_per_unit)) * 100) : 0;
@@ -980,14 +990,14 @@ export default function InventoryPage() {
                   <div key={i.id} className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-800/50 rounded-lg text-xs">
                     <span className="font-medium text-gray-800 dark:text-white truncate max-w-[35%]">{i.name}</span>
                     <span className="text-gray-500">{t("buyLabel")}: <Amount value={parseFloat(i.cost_per_unit)} currency={currency} decimals={2} /></span>
-                    <span className="text-blue-600 dark:text-blue-400">{t("sellLabel")}: <Amount value={parseFloat(i.sell_price)} currency={currency} decimals={2} /></span>
-                    <span className={`font-bold ${margin >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500"}`}>{margin}%</span>
+                    <span className="text-gray-700 dark:text-gray-200">{t("sellLabel")}: <Amount value={parseFloat(i.sell_price)} currency={currency} decimals={2} /></span>
+                    <span className={`font-semibold tabular-nums ${margin >= 0 ? "text-[rgb(var(--brand-green-accent))]" : "text-red-500 dark:text-red-400"}`}>{margin}%</span>
                   </div>
                 );
               })}
               {items.filter(i => !i.sell_price || parseFloat(i.sell_price) === 0).length > 0 && (
                 <>
-                  <p className="text-[10px] uppercase tracking-wide text-red-500 dark:text-red-400 font-semibold px-1 mt-2 mb-1">{t("notPriced")}</p>
+                  <p className="text-[11px] uppercase tracking-wide text-red-500 dark:text-red-400 font-semibold px-1 mt-2 mb-1">{t("notPriced")}</p>
                   {items.filter(i => !i.sell_price || parseFloat(i.sell_price) === 0).slice(0, 8).map((i) => (
                     <div key={i.id} className="flex items-center justify-between px-3 py-1.5 bg-red-50 dark:bg-red-900/20 rounded-lg text-xs">
                       <span className="font-medium text-gray-800 dark:text-white truncate max-w-[50%]">{i.name}</span>
@@ -1004,13 +1014,15 @@ export default function InventoryPage() {
 
       {/* Category tabs — TabPills (gray-900 active, not green) so they
           match the sidebar's neutral-dark active treatment. Reserves the
-          one emerald accent for the Order autopilot button at the top. */}
+          one emerald accent for the Order autopilot button at the top.
+          The first pill is the owner's OWN language ("Vis alle"), not the
+          literal filter id "All" this page keys the filter on. */}
       {categories.length > 0 && (
         <div>
           {templateFilter && (
             <div className="flex items-center gap-2 mb-2">
               <p className="text-xs text-gray-600 dark:text-gray-400 font-medium">
-                {t("filteredBy")}: {TEMPLATES.find((tp) => tp.type === templateLoaded)?.name || t("loadTemplate")}
+                {t("filteredBy")}: {loadedTemplate ? t(loadedTemplate.nameKey) : t("loadTemplate")}
               </p>
               <button
                 onClick={() => { setTemplateFilter(null); setActiveCategory("All"); }}
@@ -1025,7 +1037,10 @@ export default function InventoryPage() {
             ariaLabel={t("invCategoryFilter", "Category filter")}
             activeId={activeCategory}
             onChange={setActiveCategory}
-            tabs={displayCategories.map((cat) => ({ id: cat, label: cat }))}
+            tabs={displayCategories.map((cat) => ({
+              id: cat,
+              label: cat === "All" ? t("showAll") : categoryLabel(t, cat),
+            }))}
           />
         </div>
       )}
@@ -1086,7 +1101,7 @@ export default function InventoryPage() {
       {profitRanking.length > 0 && (
         <div className="bg-gray-50 dark:bg-[rgb(var(--surface-subtle))] border border-gray-200 dark:border-gray-800 p-5 rounded-xl">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 flex items-center gap-2">
-            <Icon name="TrendingUp" size={16} className="text-emerald-600 dark:text-emerald-400" />
+            <Icon name="TrendingUp" size={16} className="text-[rgb(var(--brand-green-accent))]" />
             {t("bestMarginItems")}
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -1099,7 +1114,7 @@ export default function InventoryPage() {
                     <Amount value={pr.cost} currency={currency} decimals={2} /> → <Amount value={pr.sell} currency={currency} decimals={2} />
                   </p>
                 </div>
-                <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap tabular-nums">+{pr.margin_pct}%</span>
+                <span className="text-sm font-bold text-[rgb(var(--brand-green-accent))] whitespace-nowrap tabular-nums">+{pr.margin_pct}%</span>
               </div>
             ))}
           </div>
@@ -1163,8 +1178,10 @@ export default function InventoryPage() {
               className="rounded" />
             {t("freshItem")}
           </label>
-          {/* Optional leverandør — lets the Order autopilot draft + send a
-              bestilling for this vare. Email is validated server-side. */}
+          {/* Optional leverandør — so the reorder heads-up can name WHO to
+              order this vare from. BonBox sends nothing: the owner places the
+              order, same promise the panel at the top of this page makes.
+              Email is validated server-side. */}
           <input type="text" placeholder={t("invSupplierName", "Leverandør (valgfri)")} value={form.supplier_name}
             onChange={(e) => setForm({ ...form, supplier_name: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" />
@@ -1183,7 +1200,7 @@ export default function InventoryPage() {
       <div className="bg-white dark:bg-[rgb(var(--surface-card))] rounded-xl border border-gray-200 dark:border-[rgb(var(--surface-line))] overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">
-            {t("stockItems")} {activeCategory !== "All" && <span className="text-sm font-normal text-gray-500">({activeCategory})</span>}
+            {t("stockItems")} {activeCategory !== "All" && <span className="text-sm font-normal text-gray-500">({categoryLabel(t, activeCategory)})</span>}
           </h2>
           <input
             type="text"
@@ -1302,9 +1319,9 @@ export default function InventoryPage() {
                       <>
                         <td className="px-3 py-2.5 text-[13px] text-gray-700 dark:text-gray-300 font-medium">
                           {item.name}
-                          {alertIds.has(item.id) && <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[10px] font-semibold uppercase tracking-wider rounded">{t("lowLabel")}</span>}
+                          {alertIds.has(item.id) && <span className="ml-1.5 px-1.5 py-0.5 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[11px] font-semibold uppercase tracking-wider rounded">{t("lowLabel")}</span>}
                         </td>
-                        <td className="px-3 py-2.5 text-[12px] text-gray-500 dark:text-gray-400">{item.category || t("general")}</td>
+                        <td className="px-3 py-2.5 text-[12px] text-gray-500 dark:text-gray-400">{categoryLabel(t, item.category)}</td>
                         <td className="px-3 py-2.5 text-[13px] font-semibold text-gray-800 dark:text-white tabular-nums text-right">
                           <span className="inline-flex items-center justify-end">
                             {qty}
@@ -1339,7 +1356,7 @@ export default function InventoryPage() {
                           {item.sell_price_per_pour > 0 ? (
                             <span className="text-amber-600 dark:text-amber-400 font-medium">{parseFloat(item.sell_price_per_pour)}/{item.pour_unit || "glass"}</span>
                           ) : margin != null ? (
-                            <span className={margin >= 0 ? "text-emerald-600 dark:text-gray-300 font-medium" : "text-red-500 font-medium"}>
+                            <span className={margin >= 0 ? "text-[rgb(var(--brand-green-accent))] font-medium" : "text-red-500 dark:text-red-400 font-medium"}>
                               {margin >= 0 ? "+" : ""}{margin}%
                             </span>
                           ) : (
@@ -1348,7 +1365,7 @@ export default function InventoryPage() {
                         </td>
                         <td className="px-3 py-2.5 text-[13px] tabular-nums text-right">
                           {profit != null ? (
-                            <span className={profit >= 0 ? "text-emerald-600 dark:text-gray-300 font-medium" : "text-red-500 font-medium"}>
+                            <span className={profit >= 0 ? "text-[rgb(var(--brand-green-accent))] font-medium" : "text-red-500 dark:text-red-400 font-medium"}>
                               <Amount value={profit} currency={currency} sign />
                             </span>
                           ) : (
@@ -1418,7 +1435,7 @@ export default function InventoryPage() {
                       <td className="px-3"></td>
                       <td colSpan={9} className="px-3 pb-3 pt-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("invSupplierSection", "Leverandør")}</span>
+                          <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{t("invSupplierSection", "Leverandør")}</span>
                           <input type="text" value={editData.supplier_name || ""}
                             onChange={(e) => setEditData({ ...editData, supplier_name: e.target.value })}
                             placeholder={t("invSupplierName", "Leverandør (valgfri)")}
@@ -1427,7 +1444,7 @@ export default function InventoryPage() {
                             onChange={(e) => setEditData({ ...editData, supplier_email: e.target.value })}
                             placeholder={t("invSupplierEmail", "Leverandør-email")}
                             className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] dark:bg-gray-700 dark:text-white w-56" />
-                          <span className="text-[11px] text-gray-400 dark:text-gray-500">{t("invSupplierHint", "Lets the autopilot send a bestilling")}</span>
+                          <span className="text-[11px] text-gray-400 dark:text-gray-500">{t("invSupplierHint", "So BonBox can tell you who to reorder from — you place the order yourself")}</span>
                         </div>
                       </td>
                     </tr>
@@ -1527,7 +1544,8 @@ export default function InventoryPage() {
                         className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
                       />
                     </div>
-                    {/* Optional leverandør — makes the vare sendable by the autopilot */}
+                    {/* Optional leverandør — so BonBox can name who to reorder
+                        from. BonBox tells, the owner orders. */}
                     <div className="grid grid-cols-1 gap-2">
                       <input
                         type="text"
@@ -1543,6 +1561,14 @@ export default function InventoryPage() {
                         placeholder={t("invSupplierEmail", "Leverandør-email")}
                         className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] dark:bg-gray-700 dark:text-white"
                       />
+                      {/* The same sentence the add form and the desktop edit
+                          row carry. Without it this card asks a phone owner
+                          for a supplier email and never says what it is for —
+                          and a field that looks like it triggers an order the
+                          product never sends is a dead-end CTA in field form. */}
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                        {t("invSupplierHint", "So BonBox can tell you who to reorder from — you place the order yourself")}
+                      </p>
                     </div>
                     <div className="flex gap-2 pt-1">
                       <button
@@ -1568,13 +1594,13 @@ export default function InventoryPage() {
                         <div className="font-semibold text-gray-900 dark:text-white truncate flex items-center gap-1.5">
                           {item.name}
                           {isLow && (
-                            <span className="px-1.5 py-0.5 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[10px] font-semibold uppercase tracking-wider rounded">
+                            <span className="px-1.5 py-0.5 bg-red-100 dark:bg-red-900/40 text-red-600 dark:text-red-400 text-[11px] font-semibold uppercase tracking-wider rounded">
                               {t("lowLabel")}
                             </span>
                           )}
                         </div>
                         <div className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5">
-                          {item.category || t("general")}
+                          {categoryLabel(t, item.category)}
                         </div>
                       </div>
                       <div className="text-right shrink-0">
@@ -1600,14 +1626,14 @@ export default function InventoryPage() {
                           {item.sell_price_per_pour > 0 ? (
                             <span className="text-amber-600 dark:text-amber-400">{parseFloat(item.sell_price_per_pour)}/{item.pour_unit || "glass"}</span>
                           ) : margin != null ? (
-                            <span className={margin >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500"}>
+                            <span className={margin >= 0 ? "text-[rgb(var(--brand-green-accent))]" : "text-red-500 dark:text-red-400"}>
                               {margin >= 0 ? "+" : ""}{margin}%
                             </span>
                           ) : (
                             <span className="text-gray-400">—</span>
                           )}
                           {profit != null && (
-                            <span className={`ml-1.5 ${profit >= 0 ? "text-emerald-600 dark:text-gray-300" : "text-red-500"}`}>
+                            <span className={`ml-1.5 ${profit >= 0 ? "text-[rgb(var(--brand-green-accent))]" : "text-red-500 dark:text-red-400"}`}>
                               <Amount value={profit} currency={currency} sign />
                             </span>
                           )}
@@ -1781,7 +1807,12 @@ export default function InventoryPage() {
         </div>
       )}
 
-      {/* Template Side Panel */}
+      {/* Starter-list side panel. Rows carry NO colour of their own: the
+          catalogue used to hand each one a decorative hue out of a COLOR_MAP,
+          which made 23 identical choices look like 23 different states. The
+          only colour left is the emerald check on the row you already loaded —
+          that one is status. Names, descriptions and icons come from
+          config/inventoryTemplates.js. */}
       {showTemplateModal && (
         <div className="fixed inset-0 bg-black/30 z-50 flex justify-end" onClick={() => { setShowTemplateModal(false); setTemplateLoaded(null); }}>
           <div
@@ -1790,33 +1821,52 @@ export default function InventoryPage() {
             style={{ animation: "slideIn 0.25s ease-out" }}
           >
             <div className="flex items-center justify-between mb-1">
-              <h3 className="text-lg font-bold text-gray-800 dark:text-white">{t("loadTemplate")}</h3>
-              <button onClick={() => { setShowTemplateModal(false); setTemplateLoaded(null); }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+              {/* 16px/600, not 18px/700: 18 is off the locked ramp and 700 is
+                  reserved for a hero KPI figure, which a panel title is not. */}
+              <h3 className="text-[16px] font-semibold text-gray-900 dark:text-white">{t("loadTemplate")}</h3>
+              {/* Was a bare hand-rolled <svg> in an unlabelled <button>: a
+                  screen reader announced "button" with no name (WCAG 4.1.2). */}
+              <button
+                type="button"
+                onClick={() => { setShowTemplateModal(false); setTemplateLoaded(null); }}
+                aria-label={t("close", "Close")}
+                className="h-9 w-9 shrink-0 -mr-2 inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:text-gray-200 dark:hover:bg-gray-700 transition-colors"
+              >
+                <Icon name="X" size={20} />
               </button>
             </div>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">{t("pickTemplateDesc")}</p>
 
             <div className="space-y-2.5">
-              {TEMPLATES.map((tmpl) => {
-                const c = COLOR_MAP[tmpl.color];
+              {INVENTORY_TEMPLATES.map((tmpl) => {
                 const isLoaded = templateLoaded === tmpl.type;
                 return (
                   <button
                     key={tmpl.type}
                     onClick={() => loadTemplate(tmpl.type)}
                     disabled={templateLoading}
-                    className={`w-full p-4 text-left border rounded-xl transition ${isLoaded ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50" : `border-gray-200 dark:border-gray-600 ${c.border} ${c.bg}`}`}
+                    className={`w-full p-4 text-left border rounded-xl transition ${isLoaded ? "border-gray-300 bg-gray-50 dark:bg-gray-800/50" : "border-gray-200 dark:border-gray-600 hover:border-gray-300 hover:bg-gray-50 dark:hover:border-gray-500 dark:hover:bg-gray-700/30"}`}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="text-2xl">{tmpl.icon}</span>
+                      <span className="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300">
+                        <Icon name={tmpl.icon} size={18} />
+                      </span>
                       <div className="flex-1 min-w-0">
+                        {/* The count sits on the description line, not beside
+                            the name: at phone width a long name wraps and a
+                            count pinned to it lands in a different place on
+                            every row. */}
                         <div className="flex items-center gap-2">
-                          <p className="font-semibold text-gray-800 dark:text-white">{tmpl.name}</p>
-                          <span className="text-xs text-gray-400">{tmpl.count} {t("items")}</span>
-                          {isLoaded && <span className="text-xs text-emerald-600 dark:text-gray-300 font-medium">✓ {t("loaded")}</span>}
+                          <p className="font-semibold text-gray-800 dark:text-white">{t(tmpl.nameKey)}</p>
+                          {isLoaded && (
+                            <span className="inline-flex items-center gap-1 text-xs text-[rgb(var(--brand-green-accent))] font-medium shrink-0">
+                              <Icon name="Check" size={12} /> {t("loaded")}
+                            </span>
+                          )}
                         </div>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{tmpl.desc}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          <span className="tabular-nums">{tmpl.count} {t("items")}</span> · {t(tmpl.descKey)}
+                        </p>
                       </div>
                     </div>
                   </button>
@@ -1826,8 +1876,8 @@ export default function InventoryPage() {
 
             {templateLoading && (
               <div className="flex items-center justify-center gap-2 mt-4">
-                <svg className="animate-spin h-4 w-4 text-blue-600" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                <p className="text-sm text-blue-600 dark:text-blue-400">{t("loadingTemplate")}</p>
+                <svg className="animate-spin h-4 w-4 text-gray-500 dark:text-gray-400" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{t("loadingTemplate")}</p>
               </div>
             )}
 

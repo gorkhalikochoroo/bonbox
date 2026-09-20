@@ -28,7 +28,17 @@
 export const ALL_LANGUAGES = [
   { code: "en", label: "English", short: "EN", flag: "🇬🇧", coverage: 100, offered: true },
   { code: "da", label: "Dansk", short: "DK", flag: "🇩🇰", coverage: 100, offered: true },
-  { code: "tr", label: "Türkçe", short: "TR", flag: "🇹🇷", coverage: 100, offered: true },
+  // 88, not 100. Re-measured 2026-09-20 against the en table in
+  // useLanguage.jsx: 6257 of 7144 keys, 887 missing. The gap is real and
+  // visible — the whole Stock starter-list picker and every server-category
+  // label landed as en+da only, so a Turkish owner opening "Indlæs skabelon"
+  // reads 23 English rows under a picker entry that used to claim complete.
+  // Still OFFERED: the withdrawal bar set below was packs where half the UI
+  // fell back to English (10–22%), and 88% is nowhere near it. What was wrong
+  // was the number, not the decision — a claim on one surface disagreeing
+  // with a fact on another is the defect class, and it costs more than the
+  // gap it was hiding.
+  { code: "tr", label: "Türkçe", short: "TR", flag: "🇹🇷", coverage: 88, offered: true },
   // Hidden by an explicit product decision, not by the coverage rule.
   { code: "np", label: "नेपाली", short: "NP", flag: "🇳🇵", coverage: 34, offered: false },
   // WITHDRAWN 2026-08-30 — the call the note above was waiting for.
@@ -59,7 +69,15 @@ export const ALL_LANGUAGES = [
   { code: "de", label: "Deutsch", short: "DE", flag: "🇩🇪", coverage: 10, offered: false },
 ];
 
-/** What the picker shows — complete languages only. */
+/**
+ * What the picker shows. `offered` is a PRODUCT decision, not the arithmetic
+ * of `coverage`: the withdrawal note above set the bar at "half the UI falls
+ * back to English" and pulled the 10–22% packs against it. en and da are 100%;
+ * tr is 88% and stays offered. So read this list as "languages we stand
+ * behind", not "languages with no missing key" — the two were the same thing
+ * when tr was recorded (wrongly) at 100, and the exports below inherit the
+ * looser meaning.
+ */
 export const LANGUAGES = ALL_LANGUAGES.filter((l) => l.offered);
 
 /**

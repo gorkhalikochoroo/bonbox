@@ -230,12 +230,21 @@ export default function DataTable({
           <tr className="border-b border-[rgb(var(--surface-line))]">
             {selectable && (
               <th className="w-10 px-3 py-2.5 text-left">
+                {/* No radius utility here, and none on the row checkbox below.
+                    This app has no @tailwindcss/forms, so these stay
+                    appearance:auto — UA-painted — and a UA-painted checkbox
+                    REFUSES border-radius outright: measured in Chrome, a
+                    checkbox given border-radius:4px computes back 0px. The
+                    `rounded` these carried was never drawn. Dropping it costs
+                    nothing and stops the next radius census reading a tier
+                    that doesn't render. If this ever needs a real radius it
+                    needs `appearance-none` and a hand-drawn box first. */}
                 <input
                   type="checkbox"
                   checked={!!allChecked}
                   onChange={onToggleAll}
                   aria-label={t("dtSelectAllRows", "Select all rows")}
-                  className="rounded border-gray-300 dark:border-gray-700 text-gray-900 focus:ring-gray-400"
+                  className="border-gray-300 dark:border-gray-700 text-gray-900 focus:ring-gray-400"
                 />
               </th>
             )}
@@ -274,11 +283,15 @@ export default function DataTable({
             // lightness"). They used to be gray-800 in dark — the card's own
             // colour — so the loading state showed three blank rows and no
             // pulse at all. Same bars are reused by the mobile card list.
+            // The bars are PILLS (rounded-full), not the bare `rounded` 4px
+            // they used to carry: a placeholder is the one shape in the table
+            // that isn't a surface or a control, and 4px was a private fourth
+            // radius tier paid for on every loading table in the app.
             Array.from({ length: 3 }).map((_, i) => (
               <tr key={"sk-" + i}>
                 {selectable && (
                   <td className="px-3 py-3">
-                    <div className="h-4 w-4 rounded bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
+                    <div className="h-4 w-4 rounded-full bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
                   </td>
                 )}
                 {columns.map((c, ci) => (
@@ -287,14 +300,14 @@ export default function DataTable({
                     className={"px-3 py-3 " + (ALIGN[c.align] || ALIGN.left)}
                   >
                     <div
-                      className="h-3 rounded bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse"
+                      className="h-3 rounded-full bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse"
                       style={{ width: ci % 2 === 0 ? "60%" : "80%" }}
                     />
                   </td>
                 ))}
                 {typeof rowActions === "function" && (
                   <td className="px-3 py-3">
-                    <div className="h-3 w-12 ml-auto rounded bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
+                    <div className="h-3 w-12 ml-auto rounded-full bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
                   </td>
                 )}
               </tr>
@@ -340,7 +353,7 @@ export default function DataTable({
                           onToggleSelect && onToggleSelect(key, row)
                         }
                         aria-label={t("dtSelectRow", "Select row {n}", { n: idx + 1 })}
-                        className="rounded border-gray-300 dark:border-gray-700 text-gray-900 focus:ring-gray-400"
+                        className="border-gray-300 dark:border-gray-700 text-gray-900 focus:ring-gray-400"
                       />
                     </td>
                   )}
@@ -391,9 +404,9 @@ export default function DataTable({
         Array.from({ length: 3 }).map((_, i) => (
           <Card key={"mk-" + i}>
             <div className="space-y-2">
-              <div className="h-3 w-1/3 rounded bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
-              <div className="h-3 w-2/3 rounded bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
-              <div className="h-3 w-1/2 rounded bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
+              <div className="h-3 w-1/3 rounded-full bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
+              <div className="h-3 w-2/3 rounded-full bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
+              <div className="h-3 w-1/2 rounded-full bg-gray-200 dark:bg-[rgb(var(--surface-raised))] animate-pulse" />
             </div>
           </Card>
         ))}
@@ -451,7 +464,7 @@ export default function DataTable({
                         onToggleSelect && onToggleSelect(key, row)
                       }
                       aria-label={`Select row ${idx + 1}`}
-                      className="rounded border-gray-300 dark:border-gray-700 text-gray-900 focus:ring-gray-400"
+                      className="border-gray-300 dark:border-gray-700 text-gray-900 focus:ring-gray-400"
                     />
                   </div>
                 )}
