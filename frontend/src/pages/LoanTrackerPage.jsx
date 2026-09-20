@@ -78,6 +78,9 @@ export default function LoanTrackerPage() {
     // and their whole lending history out of the overview, with no undo
     // anywhere in the app. The dialog now says who — with the phone the row
     // shows, because two Mettes are not unusual — and what they stand at.
+    // "you cannot bring them back FROM HERE": DELETE /loans/persons/{id}
+    // soft-deletes and the LoanTransaction rows survive, so claiming BonBox
+    // cannot recover them would be false in the other direction.
     const who = p.phone ? `${p.name} (${p.phone})` : p.name;
     const ok = await confirm({
       title: t("loanDeletePersonTitleNamed", "Delete {name} from your loan list?", { name: who }),
@@ -86,7 +89,7 @@ export default function LoanTrackerPage() {
         // Nothing ends a clause straight after the balance: the Danish money
         // token already ends in a period ("1.500,00 kr."), so a full stop
         // there renders "kr..".
-        "The net balance with {name} is {balance} — the person and every loan line you have registered leave your overview, and BonBox cannot bring them back.",
+        "The net balance with {name} is {balance} — the person and every loan line you have registered leave your overview, and you cannot bring them back from here.",
         {
           name: p.name,
           balance: formatOwnerMoney(p.net_balance ?? 0, currency, { decimals: 2, sign: true }),

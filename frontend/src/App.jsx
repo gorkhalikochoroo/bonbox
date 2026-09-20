@@ -301,6 +301,15 @@ const GavekortBuyPage = lazyRetry(() => import("./pages/GavekortBuyPage"));
 const GavekortPage = lazyRetry(() => import("./pages/GavekortPage"));
 const MileagePage = lazyRetry(() => import("./pages/MileagePage"));
 const LoanTrackerPage = lazyRetry(() => import("./pages/LoanTrackerPage"));
+// The loan tracker belongs to PERSONAL mode — it is a bottom-nav tab there and
+// PersonalPage links to it. It has never had a navManifest entry, so a business
+// owner could only ever reach it by typing the URL, which is exactly how it
+// turned up on the founder's screen. A business account now lands on the
+// dashboard instead; a personal account is untouched, nav and all.
+function PersonalOnly({ children }) {
+  const { user } = useAuth();
+  return canUsePersonalMode(user) ? children : <Navigate to="/dashboard" replace />;
+}
 // C5 nav-diet (Imports merge): /bank-import + /payment-imports are now ONE
 // 'Imports' destination — a thin TabPills wrapper. The legacy routes stay
 // registered but redirect into the right tab (below). The two underlying
@@ -682,7 +691,7 @@ function AppRoutes() {
           <Route path="/faktura/review" element={<FakturaReviewPage />} />
           <Route path="/customers" element={<CustomersPage />} />
           <Route path="/mileage" element={<MileagePage />} />
-          <Route path="/loans" element={<LoanTrackerPage />} />
+          <Route path="/loans" element={<PersonalOnly><LoanTrackerPage /></PersonalOnly>} />
           {/* C5 Imports merge — one destination, two tabs. The legacy paths
               stay registered but redirect into the matching tab so old
               bookmarks / deep links / Connections-page links don't break. */}

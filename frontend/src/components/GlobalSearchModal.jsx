@@ -10,6 +10,7 @@ import { useDeviceShare } from "../hooks/useDeviceShare";
 import { Icon } from "./ui";
 import { NAV_MANIFEST, filterDestinations, isStaffMemberRole } from "../config/navManifest";
 import { isNativeApp } from "../utils/platform";
+import { canUsePersonalMode } from "../lib/appMode";
 import { errText } from "../utils/errText";
 
 /**
@@ -47,7 +48,10 @@ const SEARCH_EXTRAS = [
   // now-member-denied /api/reports/vat-export). Dropped from ⌘K for staff.
   { to: "/vat-report",    icon: "ClipboardList", labelKey: "vatReport",    aliases: ["vat", "moms report"], ownerOnly: true },
   { to: "/weekly-report", icon: "Calendar",      labelKey: "weeklyReport", aliases: ["weekly", "week"] },
-  { to: "/loans",         icon: "Banknote",      labelKey: "loans",        aliases: ["loan", "lån"] },
+  // personalOnly: the loan tracker is a personal-mode surface, and App.jsx
+  // now redirects a business account away from /loans. Offering it here
+  // would be a ⌘K result that bounces you straight back to the dashboard.
+  { to: "/loans",         icon: "Banknote",      labelKey: "loans",        aliases: ["loan", "lån"], personalOnly: true },
   { to: "/profile",       icon: "Settings",      labelKey: "profile",      aliases: ["profile", "settings", "account"] },
   { to: "/personal",      icon: "User",          labelKey: "personal",     aliases: ["personal"] },
   { to: "/feedback",      icon: "MessageCircle", labelKey: "feedback",     aliases: ["feedback", "support"] },
@@ -164,6 +168,7 @@ export default function GlobalSearchModal({ open, onClose }) {
     }));
     const extraPages = SEARCH_EXTRAS
       .filter((d) => !d.ownerOnly || !isStaffMember)
+      .filter((d) => !d.personalOnly || canUsePersonalMode(user))
       .map((d) => ({
         key: d.to,
         label: t(d.labelKey) || d.labelKey,

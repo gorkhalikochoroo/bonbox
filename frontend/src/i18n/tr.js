@@ -6813,7 +6813,7 @@ export const tr = {
   khataDeleteTxnBodySale: "Bu satır {amount} tutarında — {name} adlı müşterinin khata'sından kaldırılır; oluşturduğu satış da silinir. Bu işlem geri alınamaz.",
   khataDeleteTxnBodyCashbook: "Bu satır {amount} tutarında — {name} adlı müşterinin khata'sından kaldırılır; oluşturduğu kasa defteri kaydı da silinir. Bu işlem geri alınamaz.",
   loanDeletePersonTitleNamed: "{name} borç listenden silinsin mi?",
-  loanDeletePersonBodyBalance: "{name} ile net bakiye: {balance} — bu kişi ve kaydettiğin her borç satırı listenden çıkar; BonBox bunları geri getiremez.",
+  loanDeletePersonBodyBalance: "{name} ile net bakiye: {balance} — bu kişi ve kaydettiğin her borç satırı listenden çıkar; buradan geri getiremezsin.",
   loanDeleteTxnTitleDated: "{name} ile {date} tarihli satır silinsin mi?",
   loanDeleteTxnBodyAmount: "Satırda {type} {amount}{note} yazıyor — satır kalıcı olarak silinir ve diğer tüm satırlardaki yürüyen bakiye yeniden hesaplanır.",
   loanDeleteTxnNoteFrag: ", “{note}” notuyla",
