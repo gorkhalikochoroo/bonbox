@@ -5,7 +5,8 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { formatDate, localIso, localDaysAgo, dateLocale } from "../utils/dateFormat";
 import { FadeIn, AnimatedCard, StaggerContainer, StaggerItem } from "../components/AnimationKit";
 import { PageHeader, TabPills, Icon } from "../components/ui";
@@ -130,6 +131,11 @@ export default function StaffTipsPage() {
    TIP ENTRY FORM
    ═══════════════════════════════════════════════════════════ */
 function TipEntryForm({ currency, t, staffMembers, onDone }) {
+  // The tip pot is money the owner types — text box, strict parser, the
+  // ACCOUNT's notation (this form receives it as `currency`). The hours and
+  // percentage columns beside it stay number inputs: neither is kroner.
+  // See components/ui/MoneyField.jsx.
+  const mLocale = moneyLocale(currency);
   const [date, setDate] = useState(today());
   const [totalAmount, setTotalAmount] = useState("");
   const [splitMethod, setSplitMethod] = useState("hours");
@@ -225,7 +231,12 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
     [customRatios]
   );
 
-  const amount = parseFloat(totalAmount) || 0;
+  // parseMoneyInput, not parseFloat: this is what the whole distribution is
+  // divided by, so a "1.500,50" read as 1.5005 would hand every staff member
+  // a thousandth of their share.
+  const amountParsed = parseMoneyInput(totalAmount, mLocale);
+  const amount = Number.isFinite(amountParsed) ? amountParsed : 0;
+  const amountRejected = isMoneyRejected(totalAmount, mLocale);
 
   // Calculate distribution for each staff member
   const distribution = useMemo(() => {
@@ -340,10 +351,9 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
           </div>
           <div>
             <label className={labelClass}>{"\uD83D\uDCB0"} {t("stTotalTips", "Total Tips")} ({currency})</label>
-            <input
-              type="number"
-              inputMode="decimal"
-              placeholder="0.00"
+            <MoneyField
+              locale={mLocale}
+              placeholder="0,00"
               value={totalAmount}
               onChange={e => setTotalAmount(e.target.value)}
               className={inputClass}
@@ -618,7 +628,7 @@ function TipEntryForm({ currency, t, staffMembers, onDone }) {
           {/* Submit Button */}
           <button
             onClick={handleSubmit}
-            disabled={saving || amount <= 0}
+            disabled={saving || amount <= 0 || amountRejected}
             className="w-full py-3.5 bg-gray-900 text-white rounded-xl hover:bg-gray-700 font-semibold transition disabled:opacity-50 text-base"
           >
             {saving ? t("stDistributing", "Distributing...") : `\uD83D\uDCB0 ${t("stDistribute", "Distribute")} ${amount > 0 ? amount.toLocaleString() + " " + currency : t("tips", "Tips")}`}

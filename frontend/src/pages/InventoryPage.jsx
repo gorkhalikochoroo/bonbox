@@ -18,7 +18,8 @@ import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
-import { displayCurrency, formatOwnerMoney } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import SmartImportModal from "../components/SmartImportModal";
@@ -81,6 +82,14 @@ export default function InventoryPage() {
   const confirm = useConfirm();
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
+  // Cost, sell price and price-per-pour are MONEY the owner types and are
+  // text boxes read by the strict parser in the ACCOUNT's notation — a number
+  // input on an English-locale browser rewrites "1.500,50" to "1.50050" with
+  // no error (see components/ui/MoneyField.jsx). Quantity, pieces-per-unit
+  // and min-stock stay type="number": they are COUNTS, and a money parser
+  // would be wrong about them — it caps fractions at 2 digits and reads a
+  // 3-digit group as thousands, neither of which is true of "1.125 kg".
+  const mLocale = moneyLocale(user?.currency);
   const { t } = useLanguage();
   // Order Autopilot — Pro-tier reorder + supplier email flow (Task #63).
   // Free / Starter see an UpgradeNudge inside the panel; the button is
@@ -221,16 +230,23 @@ export default function InventoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
 
+  // The two money boxes on the add form. Blank cost is still refused by the
+  // field's own `required`; this catches text that a number input would have
+  // silently rewritten instead.
+  const addFormMoneyRejected =
+    isMoneyRejected(form.cost_per_unit, mLocale) || isMoneyRejected(form.sell_price, mLocale);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (addFormMoneyRejected) return;
     setError("");
     try {
       await api.post("/inventory", {
         ...form,
         quantity: parseFloat(form.quantity),
-        cost_per_unit: parseFloat(form.cost_per_unit),
+        cost_per_unit: parseMoneyInput(form.cost_per_unit, mLocale),
         min_threshold: parseFloat(form.min_threshold),
-        sell_price: form.sell_price ? parseFloat(form.sell_price) : null,
+        sell_price: form.sell_price ? parseMoneyInput(form.sell_price, mLocale) : null,
         sell_unit: form.sell_unit || null,
         pieces_per_unit: form.pieces_per_unit ? parseFloat(form.pieces_per_unit) : null,
         category: form.category || "General",
@@ -265,17 +281,28 @@ export default function InventoryPage() {
     });
   };
 
+  const editMoneyRejected =
+    isMoneyRejected(editData.cost_per_unit, mLocale)
+    || isMoneyRejected(editData.sell_price, mLocale)
+    || isMoneyRejected(editData.sell_price_per_pour, mLocale);
+
   const saveEdit = async () => {
     try {
       const payload = { ...editData };
       if (payload.quantity === "") payload.quantity = 0;
-      if (payload.cost_per_unit === "") payload.cost_per_unit = 0;
-      if (payload.sell_price === "" || payload.sell_price === null) {
-        payload.sell_price = null;
-      }
-      if (payload.sell_price_per_pour === "" || payload.sell_price_per_pour === null) {
-        payload.sell_price_per_pour = null;
-      }
+      // The three price boxes are text now, so these are the owner's own
+      // notation and have to be READ. An unreadable one never reaches here —
+      // the row's save button is dead while editMoneyRejected is true.
+      if (editMoneyRejected) return;
+      payload.cost_per_unit = payload.cost_per_unit === ""
+        ? 0
+        : parseMoneyInput(payload.cost_per_unit, mLocale);
+      payload.sell_price = (payload.sell_price === "" || payload.sell_price === null)
+        ? null
+        : parseMoneyInput(payload.sell_price, mLocale);
+      payload.sell_price_per_pour = (payload.sell_price_per_pour === "" || payload.sell_price_per_pour === null)
+        ? null
+        : parseMoneyInput(payload.sell_price_per_pour, mLocale);
       // Optional leverandør — empty email must be null (backend EmailStr
       // rejects ""). A blank email clears it; a real one makes the item
       // sendable by the autopilot.
@@ -1121,12 +1148,12 @@ export default function InventoryPage() {
             </>
           )}
 
-          <input type="number" step="0.01" placeholder={`${t("cost")} (${currency})`} value={form.cost_per_unit}
+          <MoneyField locale={mLocale} placeholder={`${t("cost")} (${currency})`} value={form.cost_per_unit}
             onChange={(e) => setForm({ ...form, cost_per_unit: e.target.value })}
-            className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
-          <input type="number" step="0.01" placeholder={`${t("sellPrice")} (${currency})`} value={form.sell_price}
+            className="w-full px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
+          <MoneyField locale={mLocale} placeholder={`${t("sellPrice")} (${currency})`} value={form.sell_price}
             onChange={(e) => setForm({ ...form, sell_price: e.target.value })}
-            className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" />
+            className="w-full px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" />
           <input type="number" step="0.01" placeholder={t("minStock")} value={form.min_threshold}
             onChange={(e) => setForm({ ...form, min_threshold: e.target.value })}
             className="px-3 py-3 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg" required />
@@ -1244,24 +1271,24 @@ export default function InventoryPage() {
                           </select>
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <input type="number" step="0.01" value={editData.cost_per_unit} onChange={(e) => setEditData({ ...editData, cost_per_unit: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                          <MoneyField locale={mLocale} value={editData.cost_per_unit} onChange={(e) => setEditData({ ...editData, cost_per_unit: e.target.value })}
                             className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] tabular-nums text-right dark:bg-gray-700 dark:text-white w-20" />
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <input type="number" step="0.01" value={editData.sell_price} onChange={(e) => setEditData({ ...editData, sell_price: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                          <MoneyField locale={mLocale} value={editData.sell_price} onChange={(e) => setEditData({ ...editData, sell_price: e.target.value })}
                             placeholder="—"
                             className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-[13px] tabular-nums text-right dark:bg-gray-700 dark:text-white w-20" />
                         </td>
                         <td className="px-3 py-2 text-right">
-                          <input type="number" step="0.01" value={editData.sell_price_per_pour} onChange={(e) => setEditData({ ...editData, sell_price_per_pour: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                          <MoneyField locale={mLocale} value={editData.sell_price_per_pour} onChange={(e) => setEditData({ ...editData, sell_price_per_pour: e.target.value })}
                             placeholder={t("perPour")}
                             className="px-2 py-1.5 border border-amber-300 dark:border-amber-600 rounded-lg text-[13px] tabular-nums text-right dark:bg-gray-700 dark:text-white w-20" />
                         </td>
                         <td className="px-3 py-2 text-[13px] text-gray-500 text-right tabular-nums">—</td>
                         <td className="px-3 py-2 text-right">
                           <span className="inline-flex items-center gap-1">
-                            <button onClick={saveEdit} title={t("save")} aria-label={t("save")}
-                              className="w-7 h-7 inline-flex items-center justify-center rounded-md text-emerald-600 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition">
+                            <button onClick={saveEdit} title={t("save")} aria-label={t("save")} disabled={editMoneyRejected}
+                              className="w-7 h-7 inline-flex items-center justify-center rounded-md text-emerald-600 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition disabled:opacity-40 disabled:cursor-not-allowed">
                               <Icon name="Check" size={14} />
                             </button>
                             <button onClick={() => setEditId(null)} title={t("cancel")} aria-label={t("cancel")}
@@ -1485,21 +1512,19 @@ export default function InventoryPage() {
                         placeholder={t("quantity")}
                         className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
                       />
-                      <input
-                        type="number"
-                        step="0.01"
+                      <MoneyField
+                        locale={mLocale}
                         value={editData.cost_per_unit}
-                        onChange={(e) => setEditData({ ...editData, cost_per_unit: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                        onChange={(e) => setEditData({ ...editData, cost_per_unit: e.target.value })}
                         placeholder={t("cost")}
-                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
                       />
-                      <input
-                        type="number"
-                        step="0.01"
+                      <MoneyField
+                        locale={mLocale}
                         value={editData.sell_price}
-                        onChange={(e) => setEditData({ ...editData, sell_price: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                        onChange={(e) => setEditData({ ...editData, sell_price: e.target.value })}
                         placeholder={t("sell")}
-                        className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-[14px] tabular-nums dark:bg-gray-700 dark:text-white"
                       />
                     </div>
                     {/* Optional leverandør — makes the vare sendable by the autopilot */}
@@ -1528,7 +1553,8 @@ export default function InventoryPage() {
                       </button>
                       <button
                         onClick={saveEdit}
-                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-900 bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-700"
+                        disabled={editMoneyRejected}
+                        className="flex-1 min-h-[44px] inline-flex items-center justify-center rounded-lg border border-gray-900 bg-gray-900 text-white text-[13px] font-semibold hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {t("save")}
                       </button>

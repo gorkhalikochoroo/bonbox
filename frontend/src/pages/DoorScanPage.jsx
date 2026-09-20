@@ -43,7 +43,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useActivation } from "../hooks/useActivation";
 import { platform } from "../utils/platform";
 import { haptic } from "../utils/haptics";
-import { formatKr } from "../utils/currency";
+import { formatKr, parseMoneyInput } from "../utils/currency";
 
 import PageShell from "../components/ui/PageShell";
 import PageHeader from "../components/ui/PageHeader";
@@ -51,6 +51,7 @@ import Card from "../components/ui/Card";
 import Button from "../components/ui/Button";
 import Empty from "../components/ui/Empty";
 import SectionBanner from "../components/ui/SectionBanner";
+import MoneyField from "../components/ui/MoneyField";
 
 // ── Constants ────────────────────────────────────────────────────────
 // Scan debounce — same QR within this window is silently dropped so a
@@ -316,9 +317,16 @@ function gkKr(minor) {
   return formatKr(minor / 100);
 }
 
+// da-DK, not the account currency: this is the Danish gavekort door scanner
+// end to end — every amount it prints goes through formatKr.
+const GK_SCAN_LOCALE = "da-DK";
+
 function gkMinorFromInput(value) {
   if (value === "" || value == null) return null;
-  const n = parseFloat(String(value).trim().replace(/\s/g, "").replace(",", "."));
+  // parseMoneyInput, not `.replace(",", ".")` + parseFloat. That swap turned
+  // "1.234,56" into "1.234.56", which parseFloat reads as 1.234 — so a
+  // 1.234,56 kr redemption debited 1,23 kr and told the host it had worked.
+  const n = parseMoneyInput(value, GK_SCAN_LOCALE);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.round(n * 100);
 }
@@ -411,12 +419,14 @@ function GavekortRedeemSheet({ t, card, onClose, onRedeemed }) {
             {t("gkScanAmountLabel", "Beløb at indløse")}
           </label>
           <div className="mt-1.5 flex items-center gap-2">
-            <input
-              type="number"
-              inputMode="decimal"
+            {/* TEXT: a number input on an English-locale browser takes
+                "1.500,50" and hands back "1.50050" with no error at all. */}
+            <MoneyField
+              locale={GK_SCAN_LOCALE}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="flex-1 rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2.5 text-lg tabular-nums text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100"
+              wrapperClassName="flex-1"
+              className="w-full rounded-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2.5 text-lg tabular-nums text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100"
               aria-label={t("gkScanAmountLabel", "Beløb at indløse")}
             />
             <button

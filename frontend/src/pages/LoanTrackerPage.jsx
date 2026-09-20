@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
@@ -11,6 +12,10 @@ import { errText } from "../utils/errText";
 export default function LoanTrackerPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
+  // A loan amount is money the owner types — text field, strict parser, the
+  // ACCOUNT's notation. type="number" silently rewrote a Dane's "1.500,50"
+  // to "1.50050" on an English-locale browser.
+  const mLocale = moneyLocale(user?.currency);
   const { t } = useLanguage();
   const confirm = useConfirm();
 
@@ -69,15 +74,21 @@ export default function LoanTrackerPage() {
     fetchPersons();
   };
 
+  // Parsed once, so the gate below and the payload cannot disagree. The old
+  // `parseFloat(txnForm.amount) || 0` posted a 0-kroner loan line for anything
+  // it could not read — a row in the ledger that never happened.
+  const txnAmountNum = parseMoneyInput(txnForm.amount, mLocale);
+
   const handleAddTxn = async (e) => {
     e.preventDefault();
+    if (!(txnAmountNum > 0)) return;
     setError("");
     try {
       const payload = {
         person_id: selected.id,
         date: txnForm.date,
         type: txnForm.type,
-        amount: parseFloat(txnForm.amount) || 0,
+        amount: txnAmountNum,
         is_repayment: txnForm.is_repayment,
         notes: txnForm.notes || null,
       };
@@ -245,8 +256,8 @@ export default function LoanTrackerPage() {
                     <option value="lent">{t("iLent")}</option>
                     <option value="borrowed">{t("iBorrowed")}</option>
                   </select>
-                  <input type="number" placeholder={t("amount")} value={txnForm.amount} onChange={(e) => setTxnForm({ ...txnForm, amount: e.target.value })}
-                    className="px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" min="0" step="0.01" />
+                  <MoneyField locale={mLocale} placeholder={t("amount")} value={txnForm.amount} onChange={(e) => setTxnForm({ ...txnForm, amount: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                   <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
                     <input type="checkbox" checked={txnForm.is_repayment} onChange={(e) => {
                       const checked = e.target.checked;
@@ -264,7 +275,8 @@ export default function LoanTrackerPage() {
                   <input type="text" placeholder={t("notes")} value={txnForm.notes} onChange={(e) => setTxnForm({ ...txnForm, notes: e.target.value })}
                     className="px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                   <div className="flex gap-2">
-                    <button type="submit" className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-purple-700 transition whitespace-nowrap">
+                    <button type="submit" disabled={!(txnAmountNum > 0)}
+                      className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-purple-700 transition whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed">
                       {editTxn ? t("update") : t("add")}
                     </button>
                     {editTxn && (

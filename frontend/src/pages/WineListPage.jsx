@@ -4,7 +4,8 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { FadeIn } from "../components/AnimationKit";
 import { localIso } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
@@ -422,6 +423,11 @@ function WineCard({ wine: w, currency, isSelected, onToggle, onSell, onDelete })
    MENU EDITOR TAB — edit display names, glass prices, export PDF
    ═══════════════════════════════════════════════════════════ */
 function MenuEditorTab({ wines, currency, onUpdate }) {
+  // Bottle and glass price are money the owner types, so the boxes are text
+  // and read through the strict parser in the ACCOUNT's notation — a number
+  // input on an English-locale browser rewrites "1.500,50" to "1.50050" with
+  // no error at all (see components/ui/MoneyField.jsx).
+  const mLocale = moneyLocale(currency);
   const toast = useToast();
   const { t } = useLanguage();
   const [edits, setEdits] = useState({});      // { wineId: { menu_name, glass_price, sell_price } }
@@ -469,16 +475,44 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
 
   const dirtyCount = wines.filter(isDirty).length;
 
+  // A row whose bottle or glass box holds text that is not an amount — and,
+  // for the BOTTLE box only, a row where it holds nothing at all.
+  //
+  // Empty is normally the resting state, not a refusal, which is why
+  // isMoneyRejected lets it through. sell_price is the exception: it is
+  // required, the PUT sends `null` for a NaN, and the backend setattrs that
+  // straight onto the column, so a cleared box silently erased the price and
+  // then 500'd the wine-list PDF export on the next `float(w.sell_price)`.
+  // Refusing here is what makes both Save buttons refuse, since they already
+  // gate on this. glass_price keeps empty-as-meaningful: a null there is the
+  // real answer "not sold by the glass".
+  const priceRejected = (w) => {
+    const e = edits[w.id];
+    if (!e) return false;
+    if (e.sell_price === "" || e.sell_price == null) return true;
+    return isMoneyRejected(e.sell_price, mLocale) || isMoneyRejected(e.glass_price, mLocale);
+  };
+  const anyPriceRejected = wines.some(priceRejected);
+
   const handleSave = async (w) => {
     const e = getEdit(w);
+    // Refuse BEFORE the spinner goes on: a bare `return` inside the try below
+    // would skip the setSaving(null) after it and leave the row saying
+    // "Saving…" forever. handleSaveAll walks every dirty row through here, so
+    // one unreadable price would have frozen the whole batch.
+    if (priceRejected(w)) return;
     setSaving(w.id);
     try {
       const payload = {};
       if ((e.menu_name || "") !== (w.menu_name || "")) payload.menu_name = e.menu_name || null;
+      // parseMoneyInput, not parseFloat. Note what the old sell_price line
+      // did on a value it could not read: `|| w.sell_price` quietly kept the
+      // OLD price and reported a successful save, so the owner's correction
+      // vanished without a word. Unreadable refuses above, and at the button.
       if ((e.glass_price || "") !== (w.glass_price != null ? String(w.glass_price) : ""))
-        payload.glass_price = e.glass_price ? parseFloat(e.glass_price) : null;
+        payload.glass_price = e.glass_price ? parseMoneyInput(e.glass_price, mLocale) : null;
       if ((e.sell_price || "") !== String(w.sell_price))
-        payload.sell_price = parseFloat(e.sell_price) || w.sell_price;
+        payload.sell_price = parseMoneyInput(e.sell_price, mLocale);
       if (Object.keys(payload).length > 0) {
         await api.put(`/wines/${w.id}`, payload);
         setEdits(prev => { const n = { ...prev }; delete n[w.id]; return n; });
@@ -547,8 +581,8 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
           <h3 className="text-sm font-bold dark:text-white">{t("winePrintSettings")}</h3>
           <div className="flex gap-2">
             {dirtyCount > 0 && (
-              <button onClick={handleSaveAll}
-                className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition">
+              <button onClick={handleSaveAll} disabled={anyPriceRejected}
+                className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
                 {t("wineSaveLabel", "Save")} {dirtyCount} {dirtyCount > 1 ? t("wineChangesPlural", "Changes") : t("wineChangeSingular", "Change")}
               </button>
             )}
@@ -644,7 +678,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
                             <label className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold block mb-0.5">
                               {t("wineBottlePriceLabel", "Bottle Price")} ({currency})
                             </label>
-                            <input type="number" step="0.01"
+                            <MoneyField locale={mLocale}
                               value={e.sell_price}
                               onChange={ev => setField(w.id, "sell_price", ev.target.value)}
                               className="w-full px-2.5 py-1.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm text-right focus:outline-none focus:ring-1 focus:ring-purple-500" />
@@ -653,7 +687,7 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
                             <label className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold block mb-0.5">
                               {t("wineGlassPriceLabel", "Glass Price")} ({currency})
                             </label>
-                            <input type="number" step="0.01"
+                            <MoneyField locale={mLocale}
                               value={e.glass_price}
                               onChange={ev => setField(w.id, "glass_price", ev.target.value)}
                               placeholder="—"
@@ -677,13 +711,13 @@ function MenuEditorTab({ wines, currency, onUpdate }) {
                               </span>
                             )}
                             <span className="text-xs text-gray-500">
-                              {t("wineBottleColon", "Bottle:")} <span className="font-semibold">{parseFloat(e.sell_price || w.sell_price).toLocaleString()}</span>
+                              {t("wineBottleColon", "Bottle:")} <span className="font-semibold">{formatOwnerMoney(parseMoneyInput(e.sell_price || String(w.sell_price), mLocale), currency, { decimals: 0 })}</span>
                             </span>
                           </div>
                         </div>
 
                         {dirty && (
-                          <button onClick={() => handleSave(w)} disabled={saving === w.id}
+                          <button onClick={() => handleSave(w)} disabled={saving === w.id || priceRejected(w)}
                             className="px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-semibold hover:bg-gray-700 transition disabled:opacity-50">
                             {saving === w.id ? t("wineSaving", "Saving...") : t("wineSaveLabel", "Save")}
                           </button>
@@ -960,24 +994,36 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  // Cost and sell are money the owner types — text boxes, strict parser, the
+  // ACCOUNT's notation. Vintage, stock and reorder level beside them stay
+  // number inputs: a year and a bottle count are not kroner.
+  const mLocale = moneyLocale(currency);
+  const readMoney0 = (v) => { const n = parseMoneyInput(v, mLocale); return Number.isFinite(n) ? n : 0; };
+  const priceRejected =
+    isMoneyRejected(form.cost_price, mLocale) || isMoneyRejected(form.sell_price, mLocale);
+
   const margin = useMemo(() => {
-    const c = parseFloat(form.cost_price) || 0;
-    const s = parseFloat(form.sell_price) || 0;
-    if (s <= 0) return 0;
-    return Math.round((s - c) / s * 1000) / 10;
-  }, [form.cost_price, form.sell_price]);
+    // parseMoneyInput inline rather than via the readMoney0 helper above: the
+    // helper is a fresh closure every render, which the compiler cannot carry
+    // through a useMemo.
+    const c = parseMoneyInput(form.cost_price, mLocale);
+    const s = parseMoneyInput(form.sell_price, mLocale);
+    if (!Number.isFinite(s) || s <= 0) return 0;
+    return Math.round((s - (Number.isFinite(c) ? c : 0)) / s * 1000) / 10;
+  }, [form.cost_price, form.sell_price, mLocale]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) return;
+    if (priceRejected) return;
     setSaving(true);
     setError("");
     try {
       await api.post("/wines", {
         ...form,
         vintage: form.vintage ? parseInt(form.vintage) : null,
-        cost_price: parseFloat(form.cost_price) || 0,
-        sell_price: parseFloat(form.sell_price) || 0,
+        cost_price: readMoney0(form.cost_price),
+        sell_price: readMoney0(form.sell_price),
         stock_qty: parseInt(form.stock_qty) || 0,
         reorder_level: parseInt(form.reorder_level) || 2,
       });
@@ -1039,9 +1085,9 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
             <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-3">{t("winePricingStock", "PRICING & STOCK")}</p>
             <div className="grid grid-cols-4 gap-3">
               <div><label className={labelClass}>{t("wineCostLabelFull", "Cost")} ({currency})</label>
-                <input className={inputClass + " text-right"} type="number" step="0.01" value={form.cost_price} onChange={e => set("cost_price", e.target.value)} placeholder="120" /></div>
+                <MoneyField locale={mLocale} className={inputClass + " text-right"} value={form.cost_price} onChange={e => set("cost_price", e.target.value)} placeholder="120" /></div>
               <div><label className={labelClass}>{t("wineSellLabel", "Sell")} ({currency})</label>
-                <input className={inputClass + " text-right"} type="number" step="0.01" value={form.sell_price} onChange={e => set("sell_price", e.target.value)} placeholder="350" /></div>
+                <MoneyField locale={mLocale} className={inputClass + " text-right"} value={form.sell_price} onChange={e => set("sell_price", e.target.value)} placeholder="350" /></div>
               <div><label className={labelClass}>{t("wineStockLabel")}</label>
                 <input className={inputClass + " text-right"} type="number" value={form.stock_qty} onChange={e => set("stock_qty", e.target.value)} placeholder="12" /></div>
               <div><label className={labelClass}>{t("wineReorderAt")}</label>
@@ -1068,7 +1114,7 @@ function AddWineModal({ currency, prefill, onClose, onDone }) {
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium text-gray-600 dark:text-gray-300">{t("cancel")}</button>
-            <button type="submit" disabled={saving || !form.name.trim()}
+            <button type="submit" disabled={saving || !form.name.trim() || priceRejected}
               className="flex-1 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-bold hover:bg-purple-700 transition disabled:opacity-50">
               {saving ? t("wineAdding", "Adding...") : `🍷 ${t("wineAddWine", "Add Wine")}`}
             </button>

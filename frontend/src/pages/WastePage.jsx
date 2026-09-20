@@ -14,7 +14,8 @@ import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { errText } from "../utils/errText";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { displayCurrency, formatOwnerMoney } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import {
@@ -28,6 +29,11 @@ const QUICK_COSTS = [50, 100, 250, 500, 1000];
 export default function WastePage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
+  // The COST of what was wasted is money the owner types — text box, strict
+  // parser, the ACCOUNT's notation (see components/ui/MoneyField.jsx). The
+  // QUANTITY beside it stays a number input: it is kg/liters/pieces, not
+  // kroner, and a money parser would refuse a legitimate 1.125 kg.
+  const mLocale = moneyLocale(user?.currency);
   const { t } = useLanguage();
   const confirm = useConfirm();
   const { show: showUndo, ToastUI: undoToastUI } = useUndoToast();
@@ -66,7 +72,11 @@ export default function WastePage() {
   useEffect(() => { fetchData(); }, []);
 
   const submit = async (quickCost) => {
-    const c = quickCost || parseFloat(cost);
+    const c = quickCost || parseMoneyInput(cost, mLocale);
+    // A waste log with an unreadable cost is refused rather than filed at 0 —
+    // `estimated_cost: c || 0` below would otherwise turn a typo into a free
+    // loss, which is the one number this page exists to make visible.
+    if (isMoneyRejected(cost, mLocale) && !quickCost) return;
     if (!item || !qty) return;
     setError("");
     try {
@@ -105,7 +115,15 @@ export default function WastePage() {
     try {
       const payload = { ...editData };
       if (payload.quantity === "") payload.quantity = 0;
+      // The box is text now, so this is the owner's own notation. Blank still
+      // means 0 (a waste log with no costed value is a real entry); text that
+      // is not an amount is refused, not rounded down to nothing.
       if (payload.estimated_cost === "") payload.estimated_cost = 0;
+      else {
+        const n = parseMoneyInput(payload.estimated_cost, mLocale);
+        if (!Number.isFinite(n)) return;
+        payload.estimated_cost = n;
+      }
       await api.put(`/waste/${editId}`, payload);
       setEditId(null);
       fetchData(filterFrom, filterTo);
@@ -256,8 +274,9 @@ export default function WastePage() {
         </div>
 
         <div className="flex gap-3">
-          <input type="number" value={cost} onChange={(e) => setCost(e.target.value)}
-            placeholder={t("customCost")} className="flex-1 max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900"
+          <MoneyField locale={mLocale} value={cost} onChange={(e) => setCost(e.target.value)}
+            placeholder={t("customCost")} wrapperClassName="flex-1 max-w-sm"
+            className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-900"
             onKeyDown={(e) => e.key === "Enter" && submit()} />
           {/* The submit button is intentionally `danger` — logging waste
               is a "cost-incurring" action, and the red signals the
@@ -267,7 +286,13 @@ export default function WastePage() {
             variant="danger"
             size="lg"
             onClick={() => submit()}
-            disabled={!item || !qty}
+            // The cost gate belongs on the BUTTON, not only in submit(). The
+            // refusal there was a bare `return`, so an owner with an
+            // unreadable cost tapped a live CTA and got nothing — while the
+            // row-edit Save one screen down was correctly disabled for the
+            // same reason. One page, two behaviours, is how owners learn to
+            // distrust a disabled state.
+            disabled={!item || !qty || isMoneyRejected(cost, mLocale)}
           >
             {t("logWaste")}
           </Button>
@@ -403,11 +428,13 @@ export default function WastePage() {
                         </select>
                       </td>
                       <td className="px-4 py-3">
-                        <input type="number" value={editData.estimated_cost} onChange={(e) => setEditData({ ...editData, estimated_cost: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                        <MoneyField locale={mLocale} value={editData.estimated_cost} onChange={(e) => setEditData({ ...editData, estimated_cost: e.target.value })}
                           className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white w-20" />
                       </td>
                       <td className="px-4 py-3 text-right space-x-2">
-                        <button onClick={saveEdit} className="text-emerald-600 dark:text-gray-300 text-sm font-medium hover:underline">{t("save")}</button>
+                        <button onClick={saveEdit}
+                          disabled={isMoneyRejected(editData.estimated_cost, mLocale)}
+                          className="text-emerald-600 dark:text-gray-300 text-sm font-medium hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{t("save")}</button>
                         <button onClick={() => setEditId(null)} className="text-gray-400 text-sm hover:underline">{t("cancel")}</button>
                       </td>
                     </>

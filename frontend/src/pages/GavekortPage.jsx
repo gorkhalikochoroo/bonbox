@@ -71,7 +71,7 @@ import FilterBar from "../components/ui/FilterBar";
 import Card from "../components/ui/Card";
 import UpgradeNudge from "../components/ui/UpgradeNudge";
 import GavekortPrintModal from "../components/GavekortPrintModal";
-import { formatKr } from "../utils/currency";
+import { formatKr, isMoneyRejected, parseMoneyInput } from "../utils/currency";
 import { errText } from "../utils/errText";
 
 // ─── money helpers (integer øre is the wire format) ───────────────────
@@ -82,12 +82,23 @@ function krFromMinor(minor, opts = {}) {
   return formatKr(minor / 100, opts);
 }
 
-// A typed amount in kroner → integer øre. Accepts "1.234,56" (DK), "1234.56",
-// and bare ints; returns null when it doesn't parse to a positive number.
+// A typed amount in kroner → integer øre. Returns null when the input is not
+// a single well-formed positive amount.
+//
+// This used to be `.replace(",", ".")` then parseFloat, under a comment
+// claiming it accepted "1.234,56". It did not: that swap produces "1.234.56",
+// parseFloat stops at the second dot and returns 1.234, and a 1.234,56 kr
+// gavekort was minted for 1,23 kr. parseMoneyInput validates the SHAPE first
+// and refuses what it cannot read, so a typo shows as an error instead of a
+// voucher worth a thousandth of its face value.
+//
+// da-DK, not the account currency: this surface is Danish gavekort end to end
+// — the field's suffix is a hard-coded "kr." and the totals print via
+// formatKr.
+const GAVEKORT_LOCALE = "da-DK";
 function minorFromInput(value) {
   if (value === "" || value == null) return null;
-  const s = String(value).trim().replace(/\s/g, "").replace(",", ".");
-  const n = parseFloat(s);
+  const n = parseMoneyInput(value, GAVEKORT_LOCALE);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.round(n * 100);
 }
@@ -488,14 +499,19 @@ function IssueSection({ t, onIssued }) {
             ))}
           </div>
           <div className="mt-2 sm:max-w-xs">
+            {/* TEXT, not number: a number input on an English-locale browser
+                takes "1.500,50" and hands back "1.50050" with no error. */}
             <Input
-              type="number"
+              type="text"
               inputMode="decimal"
+              autoComplete="off"
               size="lg"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder={t("gkAmountPh", "Eget beløb")}
               suffix="kr."
+              invalid={isMoneyRejected(amount, GAVEKORT_LOCALE)}
+              error={isMoneyRejected(amount, GAVEKORT_LOCALE) ? t("invalidAmount") : null}
               aria-label={t("gkAmountLabel", "Beløb")}
             />
           </div>
@@ -1374,14 +1390,17 @@ function DetailDrawer({ id, t, onClose, onChanged }) {
                   </button>
                 </div>
                 <Input
-                  type="number"
+                  type="text"
                   inputMode="decimal"
+                  autoComplete="off"
                   size="lg"
                   autoFocus
                   value={redeemAmount}
                   onChange={(e) => setRedeemAmount(e.target.value)}
                   placeholder={t("gkRedeemPh", "Beløb")}
                   suffix="kr."
+                  invalid={isMoneyRejected(redeemAmount, GAVEKORT_LOCALE)}
+                  error={isMoneyRejected(redeemAmount, GAVEKORT_LOCALE) ? t("invalidAmount") : null}
                   aria-label={t("gkRedeemLabel", "Indløs beløb")}
                 />
                 {actionError && <ErrorText>{actionError}</ErrorText>}

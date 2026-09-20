@@ -59,6 +59,7 @@ import { errText } from "../utils/errText";
 import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
 import { PageHeader, TabPills, Button, Empty, Amount, SectionBanner } from "../components/ui";
 import EntryCard from "../components/ui/EntryCard";
+import MoneyField from "../components/ui/MoneyField";
 import PageShell from "../components/ui/PageShell";
 import DataTable from "../components/ui/DataTable";
 import FilterBar from "../components/ui/FilterBar";
@@ -676,7 +677,14 @@ export default function ExpensesPage() {
   const saveEdit = async () => {
     try {
       const payload = { ...editData };
-      if (payload.amount === "") payload.amount = 0;
+      // The edit box is text now (see MoneyField), so `amount` is whatever the
+      // owner typed and has to be READ before it is sent. The old line was
+      // `if (payload.amount === "") payload.amount = 0` — a blank box silently
+      // rewrote a real expense to zero. Blank and unreadable are both refused;
+      // the Save button is disabled for them, and this is the second lock.
+      const n = parseMoneyInput(payload.amount, moneyLocale(currency));
+      if (!(n > 0)) return;
+      payload.amount = n;
       // Leave it OUT rather than sending "" — ExpenseUpdate is
       // exclude_unset, so an omitted field keeps whatever the row has
       // and an unanswered method stays honestly unknown.
@@ -1504,10 +1512,15 @@ export default function ExpensesPage() {
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
-                <input
-                  type="number"
+                {/* Text, like the logging field this modal corrects. The old
+                    handler was `parseFloat(e.target.value) || 0` on a number
+                    input, so a Dane's "1.500,50" arrived as "1.50050" and
+                    booked 1,50 kr — and anything unparseable became a
+                    confident 0 on an expense that already exists. */}
+                <MoneyField
+                  locale={moneyLocale(currency)}
                   value={editData.amount ?? ""}
-                  onChange={(e) => setEditData({ ...editData, amount: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                  onChange={(e) => setEditData({ ...editData, amount: e.target.value })}
                   placeholder={t("amount")}
                   className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-white focus:outline-none focus:ring-2 focus:ring-gray-400"
                 />
@@ -1539,7 +1552,8 @@ export default function ExpensesPage() {
                 <Button variant="ghost" size="md" onClick={() => { setEditId(null); setEditData({}); }}>
                   {t("cancel")}
                 </Button>
-                <Button variant="primary" size="md" onClick={saveEdit}>
+                <Button variant="primary" size="md" onClick={saveEdit}
+                  disabled={!(parseMoneyInput(editData.amount, moneyLocale(currency)) > 0)}>
                   {t("save")}
                 </Button>
               </div>

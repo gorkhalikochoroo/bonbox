@@ -4,6 +4,9 @@ import Modal from "./Modal";
 import { useLanguage } from "../hooks/useLanguage";
 import { localIso } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
+import { isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "./ui/MoneyField";
+import { useAuth } from "../hooks/useAuth";
 
 /**
  * Smart Sale Entry — type natural language, AI parses to structured items,
@@ -23,6 +26,11 @@ import { errText } from "../utils/errText";
  *      sale flow does today.
  */
 export default function SmartSaleInput({ open, onClose, onSaved }) {
+  const { user } = useAuth();
+  // Unit price is money the owner corrects by hand on a parsed line — text
+  // box, strict parser, the ACCOUNT's notation (see components/ui/MoneyField
+  // .jsx). Qty beside it stays a number input: it is a count, not kroner.
+  const mLocale = moneyLocale(user?.currency);
   const { t } = useLanguage();
   const [text, setText] = useState("");
   const [parsing, setParsing] = useState(false);
@@ -96,10 +104,13 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
 
   const linesTotal = (parsed?.lines || []).reduce((acc, l) => {
     const q = parseFloat(l.qty);
-    const p = parseFloat(l.unit_price);
+    const p = parseMoneyInput(l.unit_price, mLocale);
     if (!isFinite(q) || !isFinite(p)) return acc;
     return acc + q * p;
   }, 0);
+  // A hand-corrected price that is not an amount. It already drops out of the
+  // total above, so without this the row would just quietly stop counting.
+  const anyPriceRejected = (parsed?.lines || []).some((l) => isMoneyRejected(l.unit_price, mLocale));
 
   const onConfirm = async () => {
     if (!parsed || !parsed.lines || parsed.lines.length === 0 || saving) return;
@@ -107,7 +118,7 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
     const today = localIso();
     const validLines = parsed.lines.filter((l) => {
       const q = parseFloat(l.qty);
-      const p = parseFloat(l.unit_price);
+      const p = parseMoneyInput(l.unit_price, mLocale);
       return isFinite(q) && q > 0 && isFinite(p) && p > 0 && (l.name || "").trim().length > 0;
     });
     if (validLines.length === 0) {
@@ -124,8 +135,8 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
           date: today,
           payment_method: paymentMethod || "mixed",
           quantity_sold: parseFloat(l.qty),
-          unit_price: parseFloat(l.unit_price),
-          amount: parseFloat(l.qty) * parseFloat(l.unit_price),
+          unit_price: parseMoneyInput(l.unit_price, mLocale),
+          amount: parseFloat(l.qty) * parseMoneyInput(l.unit_price, mLocale),
         };
         if (l.inventory_item_id) body.inventory_item_id = l.inventory_item_id;
         else body.notes = l.name;  // unmatched: store the name in notes since
@@ -233,13 +244,11 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
                     className="w-16 px-2 py-1.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded text-[13px] text-right text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-gray-400"
                   />
                   <span className="text-[12px] text-gray-400">×</span>
-                  <input
-                    type="number"
+                  <MoneyField
+                    locale={mLocale}
                     value={l.unit_price ?? ""}
                     onChange={(e) => updateLine(i, { unit_price: e.target.value })}
                     placeholder={t("price", "Price")}
-                    min="0"
-                    step="any"
                     aria-label={t("unitPrice", "Unit price")}
                     className="w-20 px-2 py-1.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded text-[13px] text-right text-gray-900 dark:text-white outline-none focus:ring-2 focus:ring-gray-400"
                   />
@@ -287,7 +296,7 @@ export default function SmartSaleInput({ open, onClose, onSaved }) {
               <button
                 type="button"
                 onClick={onConfirm}
-                disabled={saving}
+                disabled={saving || anyPriceRejected}
                 className="w-full bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 py-2.5 rounded-lg text-[14px] font-medium hover:bg-gray-700 dark:hover:bg-white disabled:opacity-60 disabled:cursor-not-allowed transition"
               >
                 {saving

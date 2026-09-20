@@ -767,3 +767,22 @@ export function parseMoneyInput(raw, locale = "da-DK") {
   if (n === 0) return 0;
   return negative ? -n : n;
 }
+
+/* ───────────────────────── isMoneyRejected ────────────────────────────
+ * "There is text in this box and it is not an amount."
+ *
+ * The one definition of a refusal, so a field's inline error and the submit
+ * gate that reads the same state cannot disagree — a red field above a live
+ * button, or a dead button with nothing saying why, are both worse than
+ * either failure alone.
+ *
+ * An EMPTY field is not a refusal. It is the resting state, and a form that
+ * shouts at an untouched box teaches owners to ignore it. Whether a readable
+ * number is ALLOWED (> 0, under a cap, non-zero) is the caller's rule, because
+ * it differs per field: a counted drawer of 0 is a real answer, a sale of 0
+ * is not.
+ * ─────────────────────────────────────────────────────────────────────── */
+export function isMoneyRejected(value, locale) {
+  if (value === "" || value === null || value === undefined) return false;
+  return !Number.isFinite(parseMoneyInput(value, locale));
+}

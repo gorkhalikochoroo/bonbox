@@ -38,7 +38,8 @@ import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useDeviceShare } from "../hooks/useDeviceShare";
 import { useBranch } from "../components/BranchSelector";
-import { displayCurrency, formatKr } from "../utils/currency";
+import { displayCurrency, formatKr, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { errText } from "../utils/errText";
 import { expectedWeekLabor } from "../utils/weekLaborPct";
 import { FadeIn } from "../components/AnimationKit";
@@ -3450,6 +3451,19 @@ function StaffDetailModal({
   t,
 }) {
   const catFor = useCatFor();
+  // A wage rate is MONEY per hour — kroner the owner types — so the three
+  // rate boxes are text, read by the strict parser in the ACCOUNT's notation.
+  // type="number" on an English-locale browser rewrites a Dane's "1.500,50"
+  // to "1.50050" without raising badInput; see components/ui/MoneyField.jsx.
+  // The trækkort box below them stays a number input: it is a PERCENTAGE.
+  const mLocale = moneyLocale(currency);
+  const rateRejected =
+    isMoneyRejected(editForm.base_rate, mLocale)
+    || isMoneyRejected(editForm.evening_rate, mLocale)
+    || isMoneyRejected(editForm.weekend_rate, mLocale);
+  // The base rate as a number, for the "Use suggested" premiums below. Number()
+  // on the raw string would read a typed "1.500,50" as NaN and hide the button.
+  const baseRateNum = parseMoneyInput(editForm.base_rate, mLocale);
   const cardRef = useRef(null);
   // Hold the latest onClose in a ref so the focus/Esc effect can depend only
   // on `member` (open/close). Without this, the parent re-renders on every
@@ -3738,13 +3752,11 @@ function StaffDetailModal({
             {/* Base rate */}
             <div className="sm:col-span-2">
               <label className={labelCls} htmlFor="sd-rate">{t("baseRate")} ({currency}/hr)</label>
-              <input
+              <MoneyField
                 id="sd-rate"
-                type="number"
+                locale={mLocale}
                 value={editForm.base_rate ?? ""}
                 onChange={(e) => setEditForm({ ...editForm, base_rate: e.target.value })}
-                min="0"
-                step="0.5"
                 className={`${inputCls} tabular-nums`}
                 placeholder={`${t("baseRate")} (${currency}/hr)`}
               />
@@ -3761,14 +3773,14 @@ function StaffDetailModal({
               <p className="text-[11px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                 {t("premiumRatesTitle", "Premium rates (optional)")}
               </p>
-              {Number(editForm.base_rate) > 0 && (
+              {baseRateNum > 0 && (
                 <button
                   type="button"
                   onClick={() =>
                     setEditForm({
                       ...editForm,
-                      evening_rate: Math.round(Number(editForm.base_rate) * 1.25),
-                      weekend_rate: Math.round(Number(editForm.base_rate) * 1.45),
+                      evening_rate: Math.round(baseRateNum * 1.25),
+                      weekend_rate: Math.round(baseRateNum * 1.45),
                     })
                   }
                   className="text-[11px] font-medium text-gray-900 dark:text-gray-100 underline underline-offset-2 hover:opacity-70"
@@ -3780,11 +3792,9 @@ function StaffDetailModal({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className={labelCls} htmlFor="sd-evening">{t("rateEvening", "Evening")} ({currency}/hr)</label>
-                <input
+                <MoneyField
                   id="sd-evening"
-                  type="number"
-                  min="0"
-                  step="0.5"
+                  locale={mLocale}
                   value={editForm.evening_rate ?? ""}
                   onChange={(e) => setEditForm({ ...editForm, evening_rate: e.target.value })}
                   className={`${inputCls} tabular-nums`}
@@ -3793,11 +3803,9 @@ function StaffDetailModal({
               </div>
               <div>
                 <label className={labelCls} htmlFor="sd-weekend">{t("rateWeekend", "Weekend")} ({currency}/hr)</label>
-                <input
+                <MoneyField
                   id="sd-weekend"
-                  type="number"
-                  min="0"
-                  step="0.5"
+                  locale={mLocale}
                   value={editForm.weekend_rate ?? ""}
                   onChange={(e) => setEditForm({ ...editForm, weekend_rate: e.target.value })}
                   className={`${inputCls} tabular-nums`}
@@ -3862,7 +3870,7 @@ function StaffDetailModal({
             <button
               type="button"
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || rateRejected}
               className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -3906,6 +3914,8 @@ function StaffDetailModal({
    STAFF MANAGEMENT PANEL
    ═══════════════════════════════════════════════════════════ */
 function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCodeMinted }) {
+  // Wage rates are money — same reasoning as StaffDetailModal above.
+  const mLocale = moneyLocale(currency);
   const catFor = useCatFor();
   const { t } = useLanguage();
   const confirm = useConfirm();
@@ -4027,7 +4037,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
         phone: phone.trim() || undefined,
         role,
         contract_type: contractType,
-        base_rate: parseFloat(baseRate) || 0,
+        base_rate: (() => { const n = parseMoneyInput(baseRate, mLocale); return Number.isFinite(n) ? n : 0; })(),
         branch_id: branchId || undefined,
       });
       setName("");
@@ -4049,8 +4059,12 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
     // Premium rates: "" (field cleared) -> null = remove the premium; a number
     // -> set it; undefined (untouched) -> omitted from the JSON so the server
     // keeps the stored value. (axios/JSON.stringify drops undefined keys.)
+    // parseMoneyInput, not parseFloat: the rate boxes are text, so a Dane's
+    // "187,50" arrives intact and parseFloat would stop at the comma and
+    // return 187. An unreadable rate cannot get here — the modal's Save
+    // button is dead while one is on screen.
     const rateOrNull = (v) =>
-      v === undefined ? undefined : v === "" || v === null ? null : parseFloat(v);
+      v === undefined ? undefined : v === "" || v === null ? null : parseMoneyInput(v, mLocale);
     try {
       await api.put(`/staff/members/${id}`, {
         name: editForm.name?.trim() || undefined,
@@ -4061,7 +4075,7 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
         city: editForm.city !== undefined ? (editForm.city.trim() || null) : undefined,
         role: editForm.role || undefined,
         contract_type: editForm.contract_type || undefined,
-        base_rate: editForm.base_rate !== undefined ? parseFloat(editForm.base_rate) : undefined,
+        base_rate: editForm.base_rate !== undefined ? parseMoneyInput(editForm.base_rate, mLocale) : undefined,
         evening_rate: rateOrNull(editForm.evening_rate),
         weekend_rate: rateOrNull(editForm.weekend_rate),
         // Trækkort fields — null/empty maps to NULL on server (treated as
@@ -4203,18 +4217,16 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
               <option key={ct.value} value={ct.value}>{t(ct.labelKey, ct.fallback)}</option>
             ))}
           </select>
-          <input
-            type="number"
+          <MoneyField
+            locale={mLocale}
             placeholder={`${t("schedBaseRate", "Base rate")} (${currency}/hr)`}
             value={baseRate}
             onChange={(e) => setBaseRate(e.target.value)}
-            min="0"
-            step="0.5"
-            className="px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
+            className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-gray-400 focus:border-transparent outline-none"
           />
           <button
             onClick={handleAdd}
-            disabled={saving || !name.trim() || atSeatCap}
+            disabled={saving || !name.trim() || atSeatCap || isMoneyRejected(baseRate, mLocale)}
             className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white transition disabled:opacity-50 inline-flex items-center gap-1.5"
           >
             {atSeatCap && <Lock className="w-3.5 h-3.5" aria-hidden="true" />}

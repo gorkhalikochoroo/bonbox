@@ -12,7 +12,7 @@ import { useParams } from "react-router-dom";
 import { Gift, Check, ChevronRight, Mail, ShieldCheck } from "lucide-react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
-import { formatKr } from "../utils/currency";
+import { formatKr, parseMoneyInput, isMoneyRejected } from "../utils/currency";
 
 function krFromMinor(minor) {
   if (minor == null || Number.isNaN(minor)) return "—";
@@ -115,15 +115,26 @@ function BuyFlow({ t, slug, data }) {
   const [done, setDone] = useState(null); // {business_name, buyer_email}
 
   // Resolve the effective amount: a custom value (kr → øre) wins when entered.
+  //
+  // parseMoneyInput, not the hand-rolled "strip the dots, swap the comma" that
+  // used to sit here. That line treated EVERY dot as a thousands separator, so
+  // it multiplied dot-decimal entry instead of misreading it: "50.00" became
+  // 5000 kr — a hundredfold overcharge that passed the range check silently,
+  // on a page a CUSTOMER uses with a card in hand. Dot-decimal is ordinary
+  // here: a non-DK keyboard, a figure copied off the shop's own site.
+  //
+  // da-DK is hard-coded on purpose, as it is in GavekortPage and DoorScanPage:
+  // this page prints "kr." throughout and is the Danish business's public
+  // counter, so the notation is the shop's, not the visitor's browser's.
+  const customRejected = isMoneyRejected(customKr, "da-DK");
   const customMinor = (() => {
-    const v = (customKr || "").replace(/\./g, "").replace(",", ".").trim();
-    if (!v) return null;
-    const n = Number(v);
-    if (Number.isNaN(n) || n <= 0) return null;
+    const n = parseMoneyInput(customKr, "da-DK");
+    if (!Number.isFinite(n) || n <= 0) return null;
     return Math.round(n * 100);
   })();
   const effectiveMinor = customMinor ?? amountMinor;
-  const amountValid = effectiveMinor >= minMinor && effectiveMinor <= maxMinor;
+  const amountValid =
+    !customRejected && effectiveMinor >= minMinor && effectiveMinor <= maxMinor;
   const emailValid = /\S+@\S+\.\S+/.test(buyerEmail.trim());
   const canSubmit = amountValid && emailValid && !busy;
 
@@ -251,8 +262,23 @@ function BuyFlow({ t, slug, data }) {
             value={customKr}
             onChange={(e) => setCustomKr(e.target.value)}
             placeholder={t("gbuyCustomAmount", "Andet beløb (kr.)")}
+            aria-invalid={customRejected || undefined}
+            aria-describedby={customRejected ? "gbuy-custom-err" : undefined}
             className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3.5 py-2.5 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:border-gray-900 dark:focus:border-gray-300 focus:outline-none"
           />
+          {/* An unreadable amount refuses as an AMOUNT error. It used to fall
+              through to the range hint below ("Mellem 50 og 5.000"), which
+              told the customer their perfectly reasonable "347.50" was out of
+              range rather than unread. */}
+          {customRejected && (
+            <p
+              id="gbuy-custom-err"
+              role="alert"
+              className="mt-1.5 text-[11px] text-red-600 dark:text-red-400"
+            >
+              {t("invalidAmount")}
+            </p>
+          )}
         </div>
         <p className="mt-1.5 text-[11px] text-gray-400 dark:text-gray-500">
           {t("gbuyRange", "Mellem {min} og {max}", {

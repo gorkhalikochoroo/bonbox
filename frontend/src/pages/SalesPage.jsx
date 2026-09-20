@@ -31,7 +31,7 @@ import ReceiptViewer from "../components/ReceiptViewer";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
 import { errText } from "../utils/errText";
-import { displayCurrency, getTaxConfig, formatOwnerMoney, parseMoneyInput, moneyLocale } from "../utils/currency";
+import { displayCurrency, getTaxConfig, formatOwnerMoney, parseMoneyInput, moneyLocale, isMoneyRejected } from "../utils/currency";
 import { formatDate, formatDateClear, localIso, businessTodayIso } from "../utils/dateFormat";
 import { cutoffHourFor } from "../config/archetypes";
 import TaxBreakdown from "../components/TaxBreakdown";
@@ -39,6 +39,7 @@ import { FadeIn } from "../components/AnimationKit";
 import DismissibleTip from "../components/DismissibleTip";
 import { PageHeader, Button, SectionBanner, StatCard, TabPills, Empty, Card, Amount } from "../components/ui";
 import EntryCard from "../components/ui/EntryCard";
+import MoneyField from "../components/ui/MoneyField";
 import PageShell from "../components/ui/PageShell";
 import DataTable from "../components/ui/DataTable";
 import FilterBar from "../components/ui/FilterBar";
@@ -423,7 +424,15 @@ export default function SalesPage() {
   const saveEdit = async () => {
     try {
       const payload = { ...editData };
-      if (payload.amount === "") payload.amount = 0;
+      // The edit box is text now (see MoneyField), so `amount` is whatever the
+      // owner typed and has to be READ before it can be sent. The old line
+      // here was `if (payload.amount === "") payload.amount = 0` — a blank box
+      // silently rewrote a real sale to zero. Both a blank and an unreadable
+      // amount are refused instead; the Save button is already disabled for
+      // them, and this is the second lock on the same door.
+      const n = parseMoneyInput(payload.amount, moneyLocale(user?.currency));
+      if (!(n > 0)) return;
+      payload.amount = n;
       await api.put(`/sales/${editId}`, payload);
       setEditId(null);
       setEditData({});
@@ -700,11 +709,15 @@ export default function SalesPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
             {t("amount")}
-            <input
-              type="number"
+            {/* Text, like the logging field this modal corrects. The old
+                handler was `parseFloat(e.target.value) || 0` on a number
+                input: it dropped the Danish decimal comma AND turned anything
+                it could not read into a confident 0 on a booked sale. */}
+            <MoneyField
+              locale={moneyLocale(user?.currency)}
               value={editData.amount}
-              onChange={(e) => setEditData({ ...editData, amount: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
-              className="h-10 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-400"
+              onChange={(e) => setEditData({ ...editData, amount: e.target.value })}
+              className="h-10 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] px-3 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-gray-400"
             />
           </label>
           <label className="text-xs text-gray-500 dark:text-gray-400 flex flex-col gap-1">
@@ -743,7 +756,7 @@ export default function SalesPage() {
           <Button variant="secondary" onClick={() => { setEditId(null); setEditData({}); }}>
             {t("cancel")}
           </Button>
-          <Button variant="primary" onClick={saveEdit}>
+          <Button variant="primary" onClick={saveEdit} disabled={!(parseMoneyInput(editData.amount, moneyLocale(user?.currency)) > 0)}>
             {t("save")}
           </Button>
         </div>
@@ -1214,8 +1227,16 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
   const availableSellUnits = selectedItem ? (hasConversion ? parseFloat(selectedItem.quantity) * ppu : parseFloat(selectedItem.quantity)) : 0;
 
   const cost = costPerSellUnit;
+  // qty is a COUNT of sell units — parseFloat is right for it and a money
+  // parser would be wrong (it refuses "0.5" written as ",5"? no — it accepts
+  // that, but it also refuses a legitimate 3-decimal count like 1.125 kg).
   const qtyNum = parseFloat(qty) || 0;
-  const priceNum = parseFloat(price) || 0;
+  // price is MONEY the owner types per sell unit, so it reads strictly in the
+  // account's notation. It used to be parseFloat on a number input, which on
+  // an English-locale browser turned a typed "1.500,50" into 1.5005.
+  const mLocale = moneyLocale(currency);
+  const priceParsed = parseMoneyInput(price, mLocale);
+  const priceNum = Number.isFinite(priceParsed) ? priceParsed : 0;
   const total = qtyNum * priceNum;
   const profit = qtyNum * (priceNum - cost);
   const available = availableSellUnits;
@@ -1336,8 +1357,8 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
               </div>
               <div>
                 <label className="text-xs text-gray-500 dark:text-gray-400 mb-1 block">{t("sellPrice")} ({currency}/{sellUnit})</label>
-                <input
-                  type="number"
+                <MoneyField
+                  locale={mLocale}
                   value={price}
                   onChange={(e) => setPrice(e.target.value)}
                   placeholder="0"
@@ -1394,7 +1415,7 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
               <Button
                 variant="primary"
                 onClick={handleSubmit}
-                disabled={!qtyNum || !priceNum || qtyNum > available}
+                disabled={!qtyNum || !priceNum || qtyNum > available || isMoneyRejected(price, mLocale)}
                 className="flex-1"
               >
                 {t("sell")} {total > 0 ? `(${formatOwnerMoney(total, currency)})` : ""}

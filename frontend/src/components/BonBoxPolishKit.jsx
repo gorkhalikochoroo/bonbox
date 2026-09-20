@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLanguage } from "../hooks/useLanguage";
 import { Icon } from "./ui";
+import { parseMoneyInput, moneyLocale, isMoneyRejected, formatOwnerMoney } from "../utils/currency";
 
 // === ANIMATED COUNTER — Numbers count up on load ===
 export function AnimatedCounter({
@@ -254,6 +255,10 @@ export function QuickSaleModal({
   pricesIncludeMoms = true,
 }) {
   const { t } = useLanguage();
+  // The ACCOUNT's notation, never the UI chrome language: a DKK café can flip
+  // the interface to English mid-service and "1.234" must not change meaning
+  // when they do.
+  const mLocale = moneyLocale(currency);
   const [amount, setAmount] = useState("");
   const [inclMoms, setInclMoms] = useState(pricesIncludeMoms);
   // Tax-exempt flag — when true, the Incl./Excl. toggle is dimmed
@@ -284,14 +289,25 @@ export function QuickSaleModal({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  // "There is text in the box and it is not an amount." Empty is not a
+  // refusal — it is the resting state this modal opens in.
+  const rejected = isMoneyRejected(amount, mLocale);
+  const amountNum = parseMoneyInput(amount, mLocale);
+
   if (!open) return null;
 
   function handleSubmit(e) {
     e.preventDefault();
-    // Strip all non-numeric chars except decimal comma/period, then parse
-    const cleaned = String(amount || "").replace(/\./g, "").replace(/,/g, ".");
-    const num = parseFloat(cleaned);
-    if (num > 0) {
+    // parseMoneyInput, not the hand-rolled "strip the dots, swap the comma"
+    // that used to live here. That line assumed every dot was a thousands
+    // separator, so it did not merely mis-read dot-decimal entry — it
+    // MULTIPLIED it: "50.00" became 5000, and this modal posts straight to
+    // /sales. A hundredfold sale, silent, with the box still reading "50.00"
+    // and the `> 0` gate green. Dot-decimal is ordinary here — a price copied
+    // from a supplier's site, a keyboard bought abroad — and on a USD account
+    // it is the ONLY correct notation.
+    const num = parseMoneyInput(amount, mLocale);
+    if (Number.isFinite(num) && num > 0) {
       // When MOMS-fri is active, inclMoms is moot — the row never
       // contributes to taxable sales, so no conversion is needed.
       // We still forward the current inclMoms value (for storage
@@ -414,10 +430,35 @@ export function QuickSaleModal({
               // when state somehow becomes nullish (focus race, React strict
               // mode double-render, etc.)
               value={amount ?? ""}
-              onChange={(e) => setAmount(String(e.target.value || "").replace(/[^0-9.,]/g, ""))}
+              // No character filter. Stripping everything outside [0-9.,] is
+              // itself a salvager: it silently ate the dash out of "347-50"
+              // and handed the parser a clean, plausible, WRONG 34750. A
+              // money box must keep the keystrokes and refuse what it cannot
+              // read — see the refusal below.
+              onChange={(e) => setAmount(e.target.value)}
               placeholder="0"
+              aria-invalid={rejected || undefined}
+              aria-describedby={rejected ? "quicksale-amount-err" : undefined}
               className="w-full text-center text-5xl font-bold bg-transparent border-none outline-none text-gray-900 dark:text-white placeholder-gray-300 dark:placeholder-gray-700"
             />
+            {rejected && (
+              <p
+                id="quicksale-amount-err"
+                role="alert"
+                className="text-center mt-2 text-xs text-red-600 dark:text-red-400"
+              >
+                {t("invalidAmount")}
+              </p>
+            )}
+            {/* Echo what the app UNDERSTOOD, not what was typed. This is the
+                one place the hundredfold bug would have been visible to the
+                owner: the box says "50.00", and this line says whether that
+                means 50 kr or 5.000 kr. */}
+            {!rejected && Number.isFinite(amountNum) && String(amount).trim() !== "" && (
+              <p className="text-center mt-2 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
+                = {formatOwnerMoney(amountNum, currency, { decimals: 2 })}
+              </p>
+            )}
             <div className="text-center text-sm text-gray-400 mt-1">
               {currency === "DKK" ? "kr." : currency}
               <span className="ml-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -434,16 +475,24 @@ export function QuickSaleModal({
               <button
                 key={v}
                 type="button"
-                onClick={() => setAmount(v.toLocaleString("da-DK"))}
+                // Formatted in the ACCOUNT's notation, not a hardcoded da-DK.
+                // The preset writes its label into the box, and the box is now
+                // read by the account's parser: a hardcoded "5.000" handed to
+                // a USD account's en-US parser is unreadable, so a one-tap
+                // preset would have painted its own field red.
+                onClick={() => setAmount(v.toLocaleString(mLocale))}
                 className="py-2 px-3 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 transition-colors"
               >
-                {v.toLocaleString("da-DK")}
+                {v.toLocaleString(mLocale)}
               </button>
             ))}
           </div>
           <button
             type="submit"
-            disabled={!amount}
+            // `!amount` was never a money gate — it only asked whether the box
+            // had characters in it. The gate is whether those characters are
+            // an amount this account's notation can read, and a positive one.
+            disabled={!(amountNum > 0)}
             className="w-full py-3 rounded-xl font-semibold text-white bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {t("quickSaleLogBtn") || "Log Sale"}

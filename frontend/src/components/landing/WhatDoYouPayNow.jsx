@@ -31,6 +31,7 @@
 import { useEffect, useRef, useState } from "react";
 import api from "../../services/api";
 import { useLanguage } from "../../hooks/useLanguage";
+import { parseMoneyInput } from "../../utils/currency";
 
 // Fallback only for the seconds before /billing/plans answers, and for the
 // case where it never does. Kept equal to config.py PLAN_PRICES_DKK so a
@@ -41,11 +42,22 @@ function kr(n) {
   return new Intl.NumberFormat("da-DK", { maximumFractionDigits: 0 }).format(n);
 }
 
-/** Danish keyboards produce "1.200" and "1200,50"; both must parse. */
+/** Danish keyboards produce "1.200" and "1200,50"; both must parse.
+ *
+ * parseMoneyInput, not the hand-rolled "strip the dots" this used to be. That
+ * version multiplied dot-decimal entry rather than misreading it — "50.00"
+ * came out as 5000 — and an owner typing what their booking tool actually
+ * costs would have been shown a teardown inflated a hundredfold IN OUR OWN
+ * FAVOUR. Nothing is written to a ledger here, which is exactly why it
+ * matters: this calculator is the honesty claim the pitch rests on.
+ *
+ * da-DK is hard-coded because the calculator is DKK-only — every label on it
+ * says kr./md. A value it cannot read returns null, and the caller shows
+ * nothing rather than a salvaged figure.
+ */
 function parseKr(raw) {
   if (!raw) return null;
-  const cleaned = String(raw).replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
-  const n = Number(cleaned);
+  const n = parseMoneyInput(raw, "da-DK");
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 

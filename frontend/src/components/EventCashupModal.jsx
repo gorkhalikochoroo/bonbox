@@ -25,7 +25,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Wallet, Plus, Minus, X } from "lucide-react";
 import { useLanguage } from "../hooks/useLanguage";
-import { formatMoney } from "../utils/currency";
+import { formatMoney, parseMoneyInput, moneyLocale, isMoneyRejected } from "../utils/currency";
+import MoneyField from "./ui/MoneyField";
 
 export default function EventCashupModal({
   open,
@@ -35,6 +36,9 @@ export default function EventCashupModal({
   currency = "DKK",
 }) {
   const { t } = useLanguage();
+  // The ACCOUNT's notation, not the chrome language — this row carries a
+  // bilagsnummer, so what "1.234" means must not follow the UI toggle.
+  const mLocale = moneyLocale(currency);
   const tiers = useMemo(() => event?.ticket_tiers || [], [event]);
 
   // Per-tier qty, keyed by label (matches what we send to the backend).
@@ -113,23 +117,43 @@ export default function EventCashupModal({
   // Payment-split sum check (frontend-side preview — the backend
   // re-validates with ±1 DKK tolerance). Match the backend rule so
   // the preview message lines up with the eventual rejection.
-  const splitTotal = useMemo(() => {
-    const c = parseFloat(split.cash || 0) || 0;
-    const k = parseFloat(split.card || 0) || 0;
-    const m = parseFloat(split.mobilepay || 0) || 0;
-    const o = parseFloat(split.online || 0) || 0;
-    return c + k + m + o;
-  }, [split]);
+  // parseMoneyInput, not parseFloat. These four boxes have always been text
+  // with a decimal keypad, so they happily ACCEPTED "347,50" — and parseFloat
+  // then read it as 347. The ±1 DKK tolerance below hid exactly that: the øre
+  // went missing, the mismatch check stayed quiet, and 347 was written into a
+  // payment_split on a Sale row with a sequential bilagsnummer, reported as a
+  // successful save. The thousandfold case was caught, but as "splits don't
+  // add up" — the wrong complaint about the wrong field.
+  const splitNums = useMemo(() => ({
+    cash: parseMoneyInput(split.cash, mLocale),
+    card: parseMoneyInput(split.card, mLocale),
+    mobilepay: parseMoneyInput(split.mobilepay, mLocale),
+    online: parseMoneyInput(split.online, mLocale),
+  }), [split, mLocale]);
+
+  // A box holding text that is not an amount. Refused as an AMOUNT error, so
+  // the owner is told which box is unreadable instead of being sent to hunt
+  // for an arithmetic error that isn't there.
+  const splitRejected = useMemo(
+    () => ["cash", "card", "mobilepay", "online"].some((k) => isMoneyRejected(split[k], mLocale)),
+    [split, mLocale],
+  );
+
+  const splitTotal = useMemo(
+    () => Object.values(splitNums).reduce((sum, n) => sum + (Number.isFinite(n) ? n : 0), 0),
+    [splitNums],
+  );
 
   const splitProvided = splitTotal > 0;
-  const splitMismatch = splitProvided && Math.abs(splitTotal - gross) > 1;
+  const splitMismatch = splitProvided && !splitRejected && Math.abs(splitTotal - gross) > 1;
 
   const totalQty = useMemo(
     () => tierRows.reduce((sum, r) => sum + r.qty, 0),
     [tierRows],
   );
 
-  const canSubmit = !submitting && totalQty > 0 && gross > 0 && !splitMismatch;
+  const canSubmit =
+    !submitting && totalQty > 0 && gross > 0 && !splitMismatch && !splitRejected;
 
   const moneyFmt = (n) => formatMoney(n || 0, currency, { decimals: 0 });
 
@@ -161,10 +185,10 @@ export default function EventCashupModal({
 
     if (splitProvided) {
       const ps = {};
-      if (parseFloat(split.cash)) ps.cash = parseFloat(split.cash);
-      if (parseFloat(split.card)) ps.card = parseFloat(split.card);
-      if (parseFloat(split.mobilepay)) ps.mobilepay = parseFloat(split.mobilepay);
-      if (parseFloat(split.online)) ps.online = parseFloat(split.online);
+      for (const k of ["cash", "card", "mobilepay", "online"]) {
+        const n = splitNums[k];
+        if (Number.isFinite(n) && n !== 0) ps[k] = n;
+      }
       payload.payment_split = ps;
     }
 
@@ -313,21 +337,25 @@ export default function EventCashupModal({
                 <SplitInput
                   label={t("paymentCash", "Cash")}
                   value={split.cash}
+                  locale={mLocale}
                   onChange={(v) => setSplit({ ...split, cash: v })}
                 />
                 <SplitInput
                   label={t("paymentCard", "Card")}
                   value={split.card}
+                  locale={mLocale}
                   onChange={(v) => setSplit({ ...split, card: v })}
                 />
                 <SplitInput
                   label="MobilePay"
                   value={split.mobilepay}
+                  locale={mLocale}
                   onChange={(v) => setSplit({ ...split, mobilepay: v })}
                 />
                 <SplitInput
                   label={t("paymentOnline", "Online")}
                   value={split.online}
+                  locale={mLocale}
                   onChange={(v) => setSplit({ ...split, online: v })}
                 />
                 {splitMismatch && (
@@ -417,15 +445,18 @@ export default function EventCashupModal({
 // ── Sub-components ───────────────────────────────────────────────────
 
 
-function SplitInput({ label, value, onChange }) {
+function SplitInput({ label, value, onChange, locale }) {
   return (
     <label className="text-xs">
       <span className="block text-gray-500 dark:text-gray-400 mb-1">{label}</span>
-      <input
-        type="text"
-        inputMode="decimal"
+      {/* The old handler stripped everything outside [\d.,] before storing.
+          That is a salvager wearing a filter's clothes: it ate the dash out of
+          "347-50" and handed on a clean, plausible, wrong 34750. MoneyField
+          keeps the keystrokes and paints what it cannot read. */}
+      <MoneyField
+        locale={locale}
         value={value}
-        onChange={(e) => onChange(e.target.value.replace(/[^\d.,]/g, ""))}
+        onChange={(e) => onChange(e.target.value)}
         placeholder="0"
         className="w-full px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
       />

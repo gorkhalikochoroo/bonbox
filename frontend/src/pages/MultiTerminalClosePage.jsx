@@ -4,7 +4,8 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useEntitlements } from "../hooks/useEntitlements";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { FadeIn } from "../components/AnimationKit";
 import SmartTerminalsCard from "../components/SmartTerminalsCard";
 import { UpgradeNudge } from "../components/ui";
@@ -55,6 +56,13 @@ export default function MultiTerminalClosePage() {
     sales_pos: "",
     closed_by: user?.full_name || user?.email || "",
   });
+  // The four hand-entered figures are money the owner types. Declared here,
+  // after `manual` — above it they would be a TDZ ReferenceError at render.
+  const mLocale = moneyLocale(user?.currency);
+  const readManual = (v) => { const n = parseMoneyInput(v, mLocale); return Number.isFinite(n) ? n : 0; };
+  const manualRejected = ["cash_closing", "mobilepay_total", "gift_cards_total", "sales_pos"]
+    .some((k) => isMoneyRejected(manual[k], mLocale));
+
   const [aggregated, setAggregated] = useState(null);
   const [aggLoading, setAggLoading] = useState(false);
   const [scanning, setScanning] = useState(null); // currently-scanning terminal_id
@@ -125,6 +133,7 @@ export default function MultiTerminalClosePage() {
   /* ─── Step 2 → 3: aggregate ───────────────────────────────────── */
 
   async function goToReview() {
+    if (manualRejected) return;
     setAggLoading(true);
     setScanError("");
     try {
@@ -134,10 +143,14 @@ export default function MultiTerminalClosePage() {
       const body = {
         extraction_ids,
         manual: {
-          cash_closing: parseFloat(manual.cash_closing) || 0,
-          mobilepay_total: parseFloat(manual.mobilepay_total) || 0,
-          gift_cards_total: parseFloat(manual.gift_cards_total) || 0,
-          sales_pos: parseFloat(manual.sales_pos) || 0,
+          // readManual, not parseFloat: these boxes hold the owner's own
+          // notation now. Blank still means 0 (a till that took no MobilePay
+          // is a real answer); unreadable never gets here — manualRejected
+          // stops the Continue button.
+          cash_closing: readManual(manual.cash_closing),
+          mobilepay_total: readManual(manual.mobilepay_total),
+          gift_cards_total: readManual(manual.gift_cards_total),
+          sales_pos: readManual(manual.sales_pos),
           closed_by: (manual.closed_by || "").trim() || null,
         },
       };
@@ -459,6 +472,7 @@ export default function MultiTerminalClosePage() {
                 value={manual.cash_closing}
                 onChange={(v) => setManual({ ...manual, cash_closing: v })}
                 currency={currency}
+                locale={mLocale}
                 hint={t("cashCountedHint") || "What's in the till at end of shift"}
               />
               <ManualField
@@ -466,18 +480,21 @@ export default function MultiTerminalClosePage() {
                 value={manual.mobilepay_total}
                 onChange={(v) => setManual({ ...manual, mobilepay_total: v })}
                 currency={currency}
+                locale={mLocale}
               />
               <ManualField
                 label={t("giftCardsTotal") || "Gift cards accepted"}
                 value={manual.gift_cards_total}
                 onChange={(v) => setManual({ ...manual, gift_cards_total: v })}
                 currency={currency}
+                locale={mLocale}
               />
               <ManualField
                 label={t("salesPosTotal") || "Sales POS (incl. tax)"}
                 value={manual.sales_pos}
                 onChange={(v) => setManual({ ...manual, sales_pos: v })}
                 currency={currency}
+                locale={mLocale}
                 hint={t("salesPosHint") || "What the POS reported as today's gross"}
               />
             </div>
@@ -504,7 +521,7 @@ export default function MultiTerminalClosePage() {
               </button>
               <button
                 onClick={goToReview}
-                disabled={aggLoading}
+                disabled={aggLoading || manualRejected}
                 className="flex-1 sm:flex-none px-6 py-2.5 bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-sm font-semibold rounded-xl disabled:opacity-50 transition"
               >
                 {aggLoading ? (t("calculating") || "Calculating…") : (t("continueToReview") || "Continue → Review")}
@@ -623,23 +640,29 @@ function ProgressPill({ step }) {
   );
 }
 
-function ManualField({ label, value, onChange, currency, hint }) {
+// ManualField is the one shape every hand-entered figure on this page uses —
+// cash counted, MobilePay, gift cards, POS gross. All four are MONEY, so the
+// fix lands here once rather than four times. It was type="number", which on
+// an English-locale browser takes a Dane's "1.500,50" and hands back
+// "1.50050" with validity.badInput FALSE; see components/ui/MoneyField.jsx.
+function ManualField({ label, value, onChange, currency, locale, hint }) {
   return (
     <div>
       <label className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1.5 block">
         {label}
       </label>
       <div className="relative">
-        <input
-          type="number"
-          inputMode="decimal"
-          step="0.01"
+        <MoneyField
+          locale={locale}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="0,00"
           className="w-full px-3 py-2.5 pr-12 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm font-mono"
         />
-        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 dark:text-gray-500 font-semibold">
+        {/* top-5, not top-1/2: the relative box now also holds the refusal
+            message, so a centred suffix would drift down the moment the owner
+            mistypes. 20px is the input's own vertical centre. */}
+        <span className="absolute right-3 top-5 -translate-y-1/2 text-xs text-gray-400 dark:text-gray-500 font-semibold">
           {currency}
         </span>
       </div>

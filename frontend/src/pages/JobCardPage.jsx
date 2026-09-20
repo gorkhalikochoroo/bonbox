@@ -3,7 +3,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { FadeIn } from "../components/AnimationKit";
 import { errText } from "../utils/errText";
 
@@ -19,6 +20,11 @@ const STATUS_LABELS = {
 export function NewJobPage() {
   const nav = useNavigate();
   const { t } = useLanguage();
+  const { user: jobUser } = useAuth();
+  // The estimate is money the owner quotes a customer — text box, strict
+  // parser, the ACCOUNT's notation (see components/ui/MoneyField.jsx). Year,
+  // beside it, stays a number input: a model year is not kroner.
+  const mLocale = moneyLocale(jobUser?.currency);
   const [plateSearch, setPlateSearch] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
@@ -54,6 +60,7 @@ export function NewJobPage() {
   };
 
   const handleSubmit = async () => {
+    if (isMoneyRejected(estCost, mLocale)) return;
     setSaving(true);
     setError("");
     try {
@@ -79,7 +86,7 @@ export function NewJobPage() {
         complaint_description: complaint,
         assigned_mechanic: mechanic || null,
         estimated_completion: estDate || null,
-        estimated_cost: estCost ? parseFloat(estCost) : null,
+        estimated_cost: estCost ? parseMoneyInput(estCost, mLocale) : null,
       });
       nav(`/workshop/job/${res.data.id}`);
     } catch (err) {
@@ -199,13 +206,13 @@ export function NewJobPage() {
         </div>
         <div>
           <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{t("jcEstimatedCost", "Estimated Cost")}</label>
-          <input type="number" className={inputClass} value={estCost} onChange={e => setEstCost(e.target.value)} placeholder="0" />
+          <MoneyField locale={mLocale} className={inputClass} value={estCost} onChange={e => setEstCost(e.target.value)} placeholder="0" />
         </div>
       </div>
 
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}
 
-      <button onClick={handleSubmit} disabled={saving}
+      <button onClick={handleSubmit} disabled={saving || isMoneyRejected(estCost, mLocale)}
         className="w-full py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold transition disabled:opacity-50">
         {saving ? t("jcCreating", "Creating...") : t("jcCreateJobCard", "Create Job Card")}
       </button>
@@ -222,6 +229,11 @@ export default function JobCardPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
+  // Unit cost and rate-per-hour are money the owner types — text boxes,
+  // strict parser, the ACCOUNT's notation. Qty and Hours beside them stay
+  // number inputs: they are counts and durations, not kroner, and a money
+  // parser would refuse a legitimate 1.125.
+  const mLocale = moneyLocale(user?.currency);
   const nav = useNavigate();
 
   const [job, setJob] = useState(null);
@@ -257,10 +269,15 @@ export default function JobCardPage() {
 
   const addPart = async () => {
     if (!partName || !partCost) return;
+    // Refuse rather than book a 0-kroner part: `parseFloat(partCost) || 0`
+    // below used to file an unreadable cost as free, which quietly understates
+    // the job total the customer is invoiced from.
+    const partCostNum = parseMoneyInput(partCost, mLocale);
+    if (!Number.isFinite(partCostNum)) return;
     try {
       await api.post(`/workshop/jobs/${id}/parts`, {
         part_name: partName, quantity: parseFloat(partQty) || 1,
-        unit_cost: parseFloat(partCost) || 0, is_from_stock: partFromStock,
+        unit_cost: partCostNum, is_from_stock: partFromStock,
       });
       setPartName(""); setPartQty("1"); setPartCost(""); setPartFromStock(false);
       fetchJob();
@@ -269,10 +286,13 @@ export default function JobCardPage() {
 
   const addLabor = async () => {
     if (!laborDesc || !laborHours) return;
+    // hours is a DURATION (parseFloat is right); the rate is money.
+    const laborRateNum = laborRate === "" ? 0 : parseMoneyInput(laborRate, mLocale);
+    if (!Number.isFinite(laborRateNum)) return;
     try {
       await api.post(`/workshop/jobs/${id}/labor`, {
         description: laborDesc, mechanic_name: laborMechanic || null,
-        hours: parseFloat(laborHours) || 0, hourly_rate: parseFloat(laborRate) || 0,
+        hours: parseFloat(laborHours) || 0, hourly_rate: laborRateNum,
       });
       setLaborDesc(""); setLaborMechanic(""); setLaborHours(""); setLaborRate("");
       fetchJob();
@@ -368,13 +388,14 @@ export default function JobCardPage() {
                 <div className="grid grid-cols-3 gap-2">
                   <input type="text" className={inputClass} placeholder={t("jcPartNamePlaceholder", "Part name")} value={partName} onChange={e => setPartName(e.target.value)} />
                   <input type="number" className={inputClass} placeholder={t("jcQtyPlaceholder", "Qty")} value={partQty} onChange={e => setPartQty(e.target.value)} />
-                  <input type="number" className={inputClass} placeholder={t("jcUnitCostPlaceholder", "Unit cost")} value={partCost} onChange={e => setPartCost(e.target.value)} />
+                  <MoneyField locale={mLocale} className={inputClass} placeholder={t("jcUnitCostPlaceholder", "Unit cost")} value={partCost} onChange={e => setPartCost(e.target.value)} />
                 </div>
                 <div className="flex items-center justify-between">
                   <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                     <input type="checkbox" checked={partFromStock} onChange={e => setPartFromStock(e.target.checked)} /> {t("jcFromStockAutoDeduct", "From stock (auto-deduct)")}
                   </label>
-                  <button onClick={addPart} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">{t("add", "Add")}</button>
+                  <button onClick={addPart} disabled={isMoneyRejected(partCost, mLocale)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{t("add", "Add")}</button>
                 </div>
               </div>
             </div>
@@ -398,10 +419,11 @@ export default function JobCardPage() {
                 <div className="grid grid-cols-3 gap-2">
                   <input type="text" className={inputClass} placeholder={t("jcMechanicPlaceholder", "Mechanic")} value={laborMechanic} onChange={e => setLaborMechanic(e.target.value)} />
                   <input type="number" className={inputClass} placeholder={t("jcHoursPlaceholder", "Hours")} value={laborHours} onChange={e => setLaborHours(e.target.value)} />
-                  <input type="number" className={inputClass} placeholder={t("jcRatePerHrPlaceholder", "Rate/hr")} value={laborRate} onChange={e => setLaborRate(e.target.value)} />
+                  <MoneyField locale={mLocale} className={inputClass} placeholder={t("jcRatePerHrPlaceholder", "Rate/hr")} value={laborRate} onChange={e => setLaborRate(e.target.value)} />
                 </div>
                 <div className="text-right">
-                  <button onClick={addLabor} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">{t("add", "Add")}</button>
+                  <button onClick={addLabor} disabled={isMoneyRejected(laborRate, mLocale)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">{t("add", "Add")}</button>
                 </div>
               </div>
             </div>

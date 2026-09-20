@@ -8,7 +8,8 @@ import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { errText } from "../utils/errText";
 import { FadeIn } from "../components/AnimationKit";
 import { UpgradeNudge, PageHeader, StatCard, SectionBanner, TabPills, Button } from "../components/ui";
@@ -28,6 +29,11 @@ export default function CompetitorPage({ embedded = false }) {
   const { t } = useLanguage();
   const confirm = useConfirm();
   const currency = displayCurrency(user?.currency);
+  // Their price / our price are money the owner types — text boxes, strict
+  // parser, the ACCOUNT's notation. type="number" on an English-locale
+  // browser rewrote "1.500,50" to "1.50050" with no error at all; see
+  // components/ui/MoneyField.jsx.
+  const mLocale = moneyLocale(user?.currency);
   const wrapCls = embedded ? "space-y-6" : "p-4 md:p-8 space-y-6 max-w-5xl mx-auto";
 
   const [data, setData] = useState(null);
@@ -149,12 +155,19 @@ export default function CompetitorPage({ embedded = false }) {
   const handlePriceCheck = async (e) => {
     e.preventDefault();
     if (!priceCompId || !priceItem.trim() || !theirPrice) return;
+    const theirNum = parseMoneyInput(theirPrice, mLocale);
+    const ourNum = ourPrice ? parseMoneyInput(ourPrice, mLocale) : null;
+    // A price check that cannot be read is not logged. The old parseFloat
+    // posted 1.5005 for a typed "1.500,50", and the comparison then says the
+    // competitor is a thousand times cheaper than you.
+    if (!Number.isFinite(theirNum)) return;
+    if (ourNum !== null && !Number.isFinite(ourNum)) return;
     try {
       await api.post("/competitors/price-check", {
         competitor_id: priceCompId,
         item_name: priceItem.trim(),
-        their_price: parseFloat(theirPrice),
-        our_price: ourPrice ? parseFloat(ourPrice) : null,
+        their_price: theirNum,
+        our_price: ourNum,
       });
       setPriceItem(""); setTheirPrice(""); setOurPrice("");
       fetchData();
@@ -296,7 +309,12 @@ export default function CompetitorPage({ embedded = false }) {
   };
 
   const importExtractedItems = async () => {
-    const toImport = extractedItems.filter((it) => it.include && it.name && it.price > 0);
+    // The review rows hold what the owner typed, so parse before filtering —
+    // `it.price > 0` on the string "1.500,50" is false in JS, which silently
+    // dropped a corrected row from the import.
+    const toImport = extractedItems
+      .map((it) => ({ ...it, priceNum: parseMoneyInput(it.price, mLocale) }))
+      .filter((it) => it.include && it.name && it.priceNum > 0);
     if (toImport.length === 0) return;
     setBulkSaving(true);
     try {
@@ -304,7 +322,7 @@ export default function CompetitorPage({ embedded = false }) {
         competitor_id: scanCompId,
         items: toImport.map((it) => ({
           item_name: it.name,
-          their_price: parseFloat(it.price),
+          their_price: it.priceNum,
           our_price: it.our_price !== "" && it.our_price != null ? parseFloat(it.our_price) : null,
         })),
       });
@@ -764,12 +782,14 @@ export default function CompetitorPage({ embedded = false }) {
                 </select>
                 <input value={priceItem} onChange={(e) => setPriceItem(e.target.value)} placeholder={t("itemNamePlaceholder", "Item name (e.g. Latte, Burger)")}
                   className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" required />
-                <input type="number" step="0.01" value={theirPrice} onChange={(e) => setTheirPrice(e.target.value)}
-                  placeholder={`${t("theirPrice", "Their price")} (${currency})`} className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" required />
-                <input type="number" step="0.01" value={ourPrice} onChange={(e) => setOurPrice(e.target.value)}
-                  placeholder={`${t("ourPrice", "Our price")} (${currency})`} className="px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" />
+                <MoneyField locale={mLocale} value={theirPrice} onChange={(e) => setTheirPrice(e.target.value)}
+                  placeholder={`${t("theirPrice", "Their price")} (${currency})`} className="w-full px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" required />
+                <MoneyField locale={mLocale} value={ourPrice} onChange={(e) => setOurPrice(e.target.value)}
+                  placeholder={`${t("ourPrice", "Our price")} (${currency})`} className="w-full px-3 py-2 rounded-lg border dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" />
               </div>
-              <button type="submit" className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700">{t("logPriceCheck", "Log Price Check")}</button>
+              <button type="submit"
+                disabled={isMoneyRejected(theirPrice, mLocale) || isMoneyRejected(ourPrice, mLocale)}
+                className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">{t("logPriceCheck", "Log Price Check")}</button>
             </form>
           )}
 
@@ -1000,9 +1020,8 @@ export default function CompetitorPage({ embedded = false }) {
                               onChange={(e) => setExtractedItems(items => items.map((x, i) => i === idx ? { ...x, name: e.target.value } : x))}
                               className="flex-1 text-sm bg-transparent border-none focus:outline-none focus:ring-0 dark:text-gray-100"
                             />
-                            <input
-                              type="number"
-                              step="0.01"
+                            <MoneyField
+                              locale={mLocale}
                               value={it.price}
                               onChange={(e) => setExtractedItems(items => items.map((x, i) => i === idx ? { ...x, price: e.target.value } : x))}
                               className="w-20 text-sm text-right bg-gray-50 dark:bg-gray-900/40 rounded px-2 py-0.5 border border-gray-200 dark:border-gray-600"
@@ -1024,7 +1043,8 @@ export default function CompetitorPage({ embedded = false }) {
                 </button>
                 <button
                   onClick={importExtractedItems}
-                  disabled={bulkSaving || extractedItems.every((i) => !i.include)}
+                  disabled={bulkSaving || extractedItems.every((i) => !i.include)
+                    || extractedItems.some((i) => i.include && isMoneyRejected(i.price, mLocale))}
                   className="px-4 py-2 bg-gray-900 hover:bg-gray-700 text-white dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white rounded-lg text-sm font-semibold disabled:opacity-50"
                 >
                   {bulkSaving

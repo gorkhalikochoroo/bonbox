@@ -35,7 +35,8 @@ import {
 } from "lucide-react";
 import api from "../../services/api";
 import { useLanguage } from "../../hooks/useLanguage";
-import { formatKr } from "../../utils/currency";
+import { formatKr, isMoneyRejected, parseMoneyInput } from "../../utils/currency";
+import MoneyField from "../ui/MoneyField";
 
 function fmtDate(iso) {
   if (!iso) return "";
@@ -471,11 +472,25 @@ export default function ComplianceCountdownCard({
 function BalanceModal({ t, current, onClose, onSaved }) {
   const [value, setValue] = useState(current != null ? String(Math.round(current)) : "");
   const [saving, setSaving] = useState(false);
+  // A bank balance IS money the owner types. This card is the DK MOMS
+  // surface — the suffix beside the box is a hard-coded "kr" — so it reads
+  // in da-DK rather than following an account currency this figure does not
+  // carry.
+  //
+  // It was type="number" + `Number(value) || 0`. A Dane writes a hundred and
+  // twenty-five thousand as "125.000"; an English-locale number input takes
+  // that as valid and Number() reads the dot as a DECIMAL point, so 125.000
+  // kr became 125 kr — and the card then told an owner who could cover their
+  // MOMS bill that they could not. Fail-silent, in the frightening direction.
+  const BALANCE_LOCALE = "da-DK";
+  const rejected = isMoneyRejected(value, BALANCE_LOCALE);
 
   const submit = async (clear) => {
+    if (!clear && rejected) return;
     setSaving(true);
     try {
-      await api.put("/cashflow/balance", { balance: clear ? null : Number(value) || 0 });
+      const n = parseMoneyInput(value, BALANCE_LOCALE);
+      await api.put("/cashflow/balance", { balance: clear ? null : (Number.isFinite(n) ? n : 0) });
       onSaved();
     } catch {
       // best-effort — keep the modal forgiving on a transient error
@@ -503,21 +518,21 @@ function BalanceModal({ t, current, onClose, onSaved }) {
           {t("fsBalanceHelp", "Type what's in your account now — we'll tell you if it covers your MOMS bill.")}
         </p>
         <div className="mt-4 flex items-center gap-2">
-          <input
-            type="number"
-            inputMode="numeric"
+          <MoneyField
+            locale={BALANCE_LOCALE}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             autoFocus
             placeholder="0"
-            className="flex-1 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] px-3 py-2.5 text-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100"
+            wrapperClassName="flex-1"
+            className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[rgb(var(--surface-card))] px-3 py-2.5 text-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-100"
           />
           <span className="text-gray-500 dark:text-gray-400 text-sm shrink-0">kr</span>
         </div>
         <button
           type="button"
           onClick={() => submit(false)}
-          disabled={saving || value === ""}
+          disabled={saving || value === "" || rejected}
           className="mt-4 w-full rounded-xl bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 py-2.5 font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
         >
           {t("fsBalanceSave", "Save")}

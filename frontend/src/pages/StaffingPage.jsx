@@ -10,7 +10,8 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend, ComposedChart,
 } from "recharts";
-import { displayCurrency, formatOwnerMoney } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, SectionBanner, TabPills, Amount } from "../components/ui";
@@ -47,6 +48,11 @@ function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "—"; }
 export default function StaffingPage({ embedded = false }) {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
+  // The revenue band and the labour cost are MONEY — kroner the owner types —
+  // so they are text boxes read by the strict parser in the ACCOUNT's
+  // notation. Staff count and total hours beside them stay number inputs:
+  // they are heads and hours, not kroner. See components/ui/MoneyField.jsx.
+  const mLocale = moneyLocale(user?.currency);
   const { t } = useLanguage();
   const wrapCls = embedded ? "space-y-6" : "p-4 sm:p-6 space-y-6 max-w-5xl mx-auto";
   // Task #204 P2.7 — gate the "Apply this schedule" CTA on
@@ -80,6 +86,12 @@ export default function StaffingPage({ embedded = false }) {
   });
   const [logSuccess, setLogSuccess] = useState("");
 
+  // Declared HERE, after the two form states they read — up beside `currency`
+  // they would be a TDZ ReferenceError at render, not a lint warning.
+  const ruleMoneyRejected =
+    isMoneyRejected(ruleForm.revenue_min, mLocale) || isMoneyRejected(ruleForm.revenue_max, mLocale);
+  const logMoneyRejected = isMoneyRejected(logForm.labor_cost, mLocale);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeView, setActiveView] = useState("forecast"); // "forecast" | "intelligence" | "log"
@@ -104,12 +116,16 @@ export default function StaffingPage({ embedded = false }) {
 
   const addRule = async (e) => {
     e.preventDefault();
+    if (ruleMoneyRejected) return;
     setError(null);
     try {
       await api.post("/staffing/rules", {
         ...ruleForm,
-        revenue_min: parseFloat(ruleForm.revenue_min),
-        revenue_max: parseFloat(ruleForm.revenue_max),
+        // A band boundary is a revenue THRESHOLD in kroner, so it reads like
+        // money: parseFloat turned a typed "10.000" into 10 and the rule then
+        // fired on every ordinary day.
+        revenue_min: parseMoneyInput(ruleForm.revenue_min, mLocale),
+        revenue_max: parseMoneyInput(ruleForm.revenue_max, mLocale),
         recommended_staff: parseInt(ruleForm.recommended_staff),
       });
       setRuleForm({ label: "Normal", revenue_min: "", revenue_max: "", recommended_staff: "" });
@@ -127,12 +143,13 @@ export default function StaffingPage({ embedded = false }) {
   const logStaff = async (e) => {
     e.preventDefault();
     if (!logForm.staff_count) return;
+    if (logMoneyRejected) return;
     try {
       await api.post("/staffing/log", {
         date: logForm.date,
         staff_count: parseInt(logForm.staff_count),
         total_hours: logForm.total_hours ? parseFloat(logForm.total_hours) : null,
-        labor_cost: logForm.labor_cost ? parseFloat(logForm.labor_cost) : null,
+        labor_cost: logForm.labor_cost ? parseMoneyInput(logForm.labor_cost, mLocale) : null,
         notes: logForm.notes || null,
       });
       setLogForm({ ...logForm, staff_count: "", total_hours: "", labor_cost: "", notes: "" });
@@ -448,16 +465,17 @@ export default function StaffingPage({ embedded = false }) {
                 <option value="Normal">{t("normal")}</option>
                 <option value="Busy">{t("busy")}</option>
               </select>
-              <input type="number" placeholder={t("minRevenue")} value={ruleForm.revenue_min}
+              <MoneyField locale={mLocale} placeholder={t("minRevenue")} value={ruleForm.revenue_min}
                 onChange={(e) => setRuleForm({ ...ruleForm, revenue_min: e.target.value })}
-                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white" required />
-              <input type="number" placeholder={t("maxRevenue")} value={ruleForm.revenue_max}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white" required />
+              <MoneyField locale={mLocale} placeholder={t("maxRevenue")} value={ruleForm.revenue_max}
                 onChange={(e) => setRuleForm({ ...ruleForm, revenue_max: e.target.value })}
-                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white" required />
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white" required />
               <input type="number" placeholder={t("staffNeeded")} value={ruleForm.recommended_staff}
                 onChange={(e) => setRuleForm({ ...ruleForm, recommended_staff: e.target.value })}
                 className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white" required />
-              <button type="submit" className="bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition text-sm font-medium min-h-[44px] sm:min-h-0">
+              <button type="submit" disabled={ruleMoneyRejected}
+                className="bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50 disabled:cursor-not-allowed">
                 {t("addRule")}
               </button>
             </form>
@@ -596,14 +614,15 @@ export default function StaffingPage({ embedded = false }) {
                 onChange={e => setLogForm({ ...logForm, total_hours: e.target.value })}
                 className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
               />
-              <input
-                type="number"
+              <MoneyField
+                locale={mLocale}
                 placeholder={t("stafLaborCostPlaceholder", "Labor cost ({currency})").replace("{currency}", currency)}
                 value={logForm.labor_cost}
                 onChange={e => setLogForm({ ...logForm, labor_cost: e.target.value })}
-                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white"
               />
-              <button type="submit" className="bg-gray-900 text-white py-2 rounded-lg hover:bg-gray-700 transition text-sm font-medium min-h-[44px] sm:min-h-0">
+              <button type="submit" disabled={logMoneyRejected}
+                className="bg-gray-900 text-white py-2 rounded-lg hover:bg-gray-700 transition text-sm font-medium min-h-[44px] sm:min-h-0 disabled:opacity-50 disabled:cursor-not-allowed">
                 {t("staffingTabLog", "Log Staff")}
               </button>
             </form>

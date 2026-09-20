@@ -41,9 +41,18 @@
  *   don't fight that here — `lg` size is for visual emphasis, not for
  *   touch compliance.
  *
+ * NOT for money. An amount the owner TYPES goes in a text box with
+ * inputMode="decimal" and parseMoneyInput — see components/ui/MoneyField.jsx
+ * for why: `type="number"` does not refuse "1.500,50" on an English-locale
+ * browser, it rewrites it to "1.50050" and reports no error. The example below
+ * used to show `type="number" suffix="DKK"`, which taught exactly the pattern
+ * that cost a Danish owner a thousandfold.
+ *
  * Usage:
  *   <Input placeholder="Notes..." value={notes} onChange={...} />
- *   <Input type="number" suffix="DKK" value={amount} onChange={...} />
+ *   <Input type="number" suffix="kg" value={qty} onChange={...} />
+ *   <Input type="text" inputMode="decimal" suffix="DKK" value={amount}
+ *          invalid={amountRejected} error={t("invalidAmount")} ... />
  *   <Input invalid error="Invalid CVR number" value={cvr} ... />
  *   <Input prefix={<Icon name="Search" size={14} />} placeholder="Search" />
  */

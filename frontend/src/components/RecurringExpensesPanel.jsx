@@ -30,6 +30,8 @@ import { Button, Card, Empty, UpgradeNudge, Icon, Amount } from "./ui";
 import { Repeat } from "lucide-react";
 import { formatDateClearFull } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
+import { moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "./ui/MoneyField";
 
 const DAY_OPTIONS = Array.from({ length: 28 }, (_, i) => i + 1);
 
@@ -59,6 +61,11 @@ function PaymentMethodSelect({ value, onChange, t }) {
 }
 
 function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
+  // A recurring expense amount is money the owner types — text box, strict
+  // parser, the ACCOUNT's notation. type="number" rewrote a Dane's
+  // "1.500,50" to "1.50050" on an English-locale browser, and this rule then
+  // posted that figure EVERY MONTH. See components/ui/MoneyField.jsx.
+  const mLocale = moneyLocale(currency);
   const [name, setName] = useState(initial?.name || "");
   const [description, setDescription] = useState(initial?.description || "");
   const [amount, setAmount] = useState(
@@ -79,8 +86,8 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
       setError(t("recurringNameLabel", "Name") + " ≥ 2");
       return;
     }
-    const amt = parseFloat(amount);
-    if (!amt || amt <= 0) {
+    const amt = parseMoneyInput(amount, mLocale);
+    if (!(amt > 0)) {
       setError(t("invalidAmount", "Amount must be > 0"));
       return;
     }
@@ -131,11 +138,8 @@ function RuleForm({ initial, categories, currency, onSubmit, onCancel, t }) {
           <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
             {t("amount", "Amount")} ({currency})
           </label>
-          <input
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            min="0.01"
+          <MoneyField
+            locale={mLocale}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="18000"

@@ -6,7 +6,8 @@ import { dateLocale } from "../utils/dateFormat";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { FadeIn, StaggerGrid, StaggerGridItem } from "../components/AnimationKit";
 import { PageHeader, Button, SectionBanner, StatCard } from "../components/ui";
 
@@ -30,6 +31,10 @@ export default function BudgetPage() {
   const { user } = useAuth();
   const { t } = useLanguage();
   const currency = displayCurrency(user?.currency);
+  // Budget limits are money the owner types — text boxes read by the strict
+  // parser in the ACCOUNT's notation. type="number" silently rewrote a Dane's
+  // "1.500,50" to "1.50050". See components/ui/MoneyField.jsx.
+  const mLocale = moneyLocale(user?.currency);
 
   const [monthDate, setMonthDate] = useState(new Date());
   const month = useMemo(() => getMonthStr(monthDate), [monthDate]);
@@ -74,13 +79,27 @@ export default function BudgetPage() {
   }, [month]);
 
   // Save budgets
+  // One box holding text that is not an amount. The save is a full REPLACE of
+  // the month's budgets, so a dropped limit is a deleted limit — it must not
+  // happen on a typo the owner cannot see.
+  const limitsRejected =
+    isMoneyRejected(totalLimit, mLocale)
+    || Object.values(editLimits).some((v) => isMoneyRejected(v, mLocale));
+
   const handleSave = async () => {
+    if (limitsRejected) return;
     setSaving(true);
+    // parseMoneyInput, not parseFloat: these boxes hold the owner's own
+    // notation now. A limit that does not parse is DROPPED rather than saved
+    // as a guess — and limitsRejected below stops the save before it gets
+    // here, so a dropped limit is never a silent one.
     const items = Object.entries(editLimits)
-      .filter(([, v]) => v && parseFloat(v) > 0)
-      .map(([category, v]) => ({ category, limit_amount: parseFloat(v) }));
-    if (totalLimit && parseFloat(totalLimit) > 0) {
-      items.push({ category: "__TOTAL__", limit_amount: parseFloat(totalLimit) });
+      .map(([category, v]) => [category, parseMoneyInput(v, mLocale)])
+      .filter(([, n]) => n > 0)
+      .map(([category, n]) => ({ category, limit_amount: n }));
+    const totalNum = parseMoneyInput(totalLimit, mLocale);
+    if (totalNum > 0) {
+      items.push({ category: "__TOTAL__", limit_amount: totalNum });
     }
     try {
       await api.put("/budgets", { month, budgets: items });
@@ -170,12 +189,13 @@ export default function BudgetPage() {
             {/* Total budget */}
             <div className="flex items-center gap-3 pb-4 border-b border-gray-100 dark:border-gray-700">
               <span className="text-sm font-medium text-gray-600 dark:text-gray-400 w-32">{t("bgtTotalBudget", "Total Budget")}</span>
-              <input
-                type="number"
+              <MoneyField
+                locale={mLocale}
                 value={totalLimit}
                 onChange={(e) => setTotalLimit(e.target.value)}
                 placeholder={t("bgtTotalLimitPlaceholder", "e.g. 50000")}
-                className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
+                wrapperClassName="flex-1"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
               />
               <span className="text-xs text-gray-400">{currency}</span>
             </div>
@@ -186,12 +206,13 @@ export default function BudgetPage() {
               .map(([cat, val]) => (
                 <div key={cat} className="flex items-center gap-3">
                   <span className="text-sm text-gray-700 dark:text-gray-300 w-32 truncate" title={cat}>{cat}</span>
-                  <input
-                    type="number"
+                  <MoneyField
+                    locale={mLocale}
                     value={val}
                     onChange={(e) => setEditLimits((prev) => ({ ...prev, [cat]: e.target.value }))}
                     placeholder="0"
-                    className="flex-1 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
+                    wrapperClassName="flex-1"
+                    className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-sm text-gray-800 dark:text-gray-200"
                   />
                   <button
                     onClick={() => setEditLimits((prev) => { const n = { ...prev }; delete n[cat]; return n; })}
@@ -234,6 +255,7 @@ export default function BudgetPage() {
               variant="accent"
               size="lg"
               busy={saving}
+              disabled={limitsRejected}
               onClick={handleSave}
               className="w-full"
             >

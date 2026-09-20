@@ -8,7 +8,8 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
-import { displayCurrency, formatOwnerMoney } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
 import { PageHeader, StatCard, Amount } from "../components/ui";
@@ -23,6 +24,11 @@ const CATEGORY_KEYS = { Sales: "catSales", Tips: "catTips", Loan: "catLoan", Oth
 export default function CashBookPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
+  // Cash in / cash out is money the owner types, so the boxes are text and
+  // read through the strict parser in the ACCOUNT's notation — a number input
+  // on an English-locale browser turns "1.500,50" into "1.50050" with no
+  // error at all. See components/ui/MoneyField.jsx.
+  const mLocale = moneyLocale(user?.currency);
   const { t } = useLanguage();
   const { show: showUndo, ToastUI: undoToastUI } = useUndoToast();
   const [transactions, setTransactions] = useState([]);
@@ -52,8 +58,8 @@ export default function CashBookPage() {
   useEffect(() => { fetchData(); }, []);
 
   const submit = async (quickAmt) => {
-    const value = quickAmt || parseFloat(amount);
-    if (!value || !desc) return;
+    const value = quickAmt || parseMoneyInput(amount, mLocale);
+    if (!(value > 0) || !desc) return;
     setError("");
     try {
       await api.post("/cashbook", {
@@ -90,7 +96,12 @@ export default function CashBookPage() {
   const saveEdit = async () => {
     try {
       const payload = { ...editData };
-      if (payload.amount === "") payload.amount = 0;
+      // The row's amount box is text now, so this is the owner's own notation
+      // and has to be READ. The old line turned a blank box into a 0 entry in
+      // the cash book — a fabricated count, not a correction.
+      const n = parseMoneyInput(payload.amount, mLocale);
+      if (!(n > 0)) return;
+      payload.amount = n;
       await api.put(`/cashbook/${editId}`, payload);
       setEditId(null);
       fetchData(filterFrom, filterTo);
@@ -233,12 +244,13 @@ export default function CashBookPage() {
 
         {/* Custom amount */}
         <div className="flex gap-3">
-          <input
-            type="number"
+          <MoneyField
+            locale={mLocale}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder={t("customAmount")}
-            className="flex-1 max-w-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white"
+            wrapperClassName="flex-1 max-w-sm"
+            className="w-full px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-xl text-lg focus:outline-none focus:ring-2 focus:ring-gray-900 dark:bg-gray-700 dark:text-white"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <button
@@ -352,13 +364,14 @@ export default function CashBookPage() {
                             <option value="cash_in">{t("cashIn")}</option>
                             <option value="cash_out">{t("cashOut")}</option>
                           </select>
-                          <input type="number" value={editData.amount} onChange={(e) => setEditData({ ...editData, amount: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                          <MoneyField locale={mLocale} value={editData.amount} onChange={(e) => setEditData({ ...editData, amount: e.target.value })}
                             className="px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-sm dark:bg-gray-700 dark:text-white w-24" />
                         </div>
                       </td>
                       <td className="px-4 py-3"></td>
                       <td className="px-4 py-3 text-right space-x-2">
-                        <button onClick={saveEdit} className="text-emerald-600 dark:text-gray-300 text-sm font-medium hover:underline">{t("save")}</button>
+                        <button onClick={saveEdit} disabled={!(parseMoneyInput(editData.amount, mLocale) > 0)}
+                          className="text-emerald-600 dark:text-gray-300 text-sm font-medium hover:underline disabled:opacity-50 disabled:no-underline disabled:cursor-not-allowed">{t("save")}</button>
                         <button onClick={() => setEditId(null)} className="text-gray-400 text-sm hover:underline">{t("cancel")}</button>
                       </td>
                     </>

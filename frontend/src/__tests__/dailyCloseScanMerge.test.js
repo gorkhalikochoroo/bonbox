@@ -205,3 +205,68 @@ describe("mergeScans — multi-page (no competing total)", () => {
     expect(mergeScans(null, barTill)).toBe(barTill);
   });
 });
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * The owner's own keystrokes, arriving from the scan-review boxes.
+ *
+ * These buckets used to hold only the backend's JSON numbers, so toNum could
+ * safely parseFloat them. Then the scan-review fields on DailyClosePage were
+ * changed to keep the RAW typed string — deliberately, so a correction typed
+ * as "1.500,50" is not flattened to 1.5005 on the way in. That made this
+ * module a consumer of owner notation, and parseFloat("1.500,50") is 1.5.
+ *
+ * Reachable in one flow: edit a figure in the scan review, tap "add another
+ * page or terminal", scan a second till, answer "another terminal — add them
+ * up". The sum then went into a SIGNED kasserapport.
+ * ─────────────────────────────────────────────────────────────────────────── */
+describe("owner-typed notation in the review boxes", () => {
+  it("sums a corrected Danish amount as 1.500,50, not as 1,50", () => {
+    const merged = mergeScans(
+      { revenue: { food: "1.500,50" }, revenue_total: 2000 },
+      { revenue: { food: 1000 }, revenue_total: 1000 },
+      MERGE_SUM,
+      "da-DK",
+    );
+    expect(merged.revenue.food).toBe(2500.5);
+  });
+
+  it("reads a typed headline total in the account's notation", () => {
+    expect(headlineTotal({ revenue: { total: "1.500,50" } }, "da-DK")).toBe(1500.5);
+  });
+
+  it("carries a one-sided typed figure over as a NUMBER, not as the raw cell", () => {
+    // The field only one scan had is copied across. It must land parsed, or a
+    // string survives into a bucket every downstream reader treats as numeric.
+    const merged = mergeScans(
+      { revenue: { food: "1.500,50" } },
+      { revenue: { drinks: 200 } },
+      MERGE_SUM,
+      "da-DK",
+    );
+    expect(merged.revenue.food).toBe(1500.5);
+    expect(typeof merged.revenue.food).toBe("number");
+  });
+
+  it("still reads the backend's own numeric strings unchanged", () => {
+    // parseMoneyInput resolves unambiguous shapes the same in either locale,
+    // so switching off parseFloat cannot regress what the OCR sends.
+    expect(headlineTotal({ revenue_total: "1234.56" }, "da-DK")).toBe(1234.56);
+    expect(headlineTotal({ revenue_total: 1234.56 }, "da-DK")).toBe(1234.56);
+  });
+
+  it("refuses junk instead of salvaging a number into the kasserapport", () => {
+    // parseFloat("347-50") is 347 — a plausible figure with no basis on the
+    // paper. null means "we could not read it", which is what the merge
+    // reports as an incomplete field rather than inventing a total.
+    expect(headlineTotal({ revenue_total: "347-50" }, "da-DK")).toBe(null);
+    expect(headlineTotal({ revenue_total: "1.50050" }, "da-DK")).toBe(null);
+  });
+
+  it("settles the ambiguous 1.234 with the ACCOUNT's notation, both ways", () => {
+    expect(headlineTotal({ revenue_total: "1.234" }, "da-DK")).toBe(1234);
+    expect(headlineTotal({ revenue_total: "1,234" }, "en-US")).toBe(1234);
+    // And refuses each in the other's notation rather than guessing.
+    expect(headlineTotal({ revenue_total: "1,234" }, "da-DK")).toBe(null);
+    expect(headlineTotal({ revenue_total: "1.234" }, "en-US")).toBe(null);
+  });
+});

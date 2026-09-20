@@ -3,7 +3,8 @@ import { Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency } from "../utils/currency";
+import { displayCurrency, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { formatDate, formatDateShort, localIso, dateLocale } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
 import { useUndoToast } from "../hooks/useUndoToast";
@@ -26,6 +27,17 @@ export default function PersonalPage() {
   const { t } = useLanguage();
   const { show: showUndo, ToastUI: undoToastUI } = useUndoToast();
   const currency = displayCurrency(user?.currency);
+  // The budget boxes and the custom-amount box below are text, not
+  // type="number" — a number input on an English-locale browser rewrites a
+  // Dane's "1.500,50" to "1.50050" (see components/ui/MoneyField.jsx). So the
+  // state holds what was TYPED, and every arithmetic use reads it through the
+  // strict parser in the ACCOUNT's notation.
+  const mLocale = moneyLocale(user?.currency);
+  // useCallback, not a bare arrow: a fresh closure here is re-created on every
+  // render and the React compiler then refuses to carry the page's big
+  // spending memo through, which is a real perf regression for a lint-quiet
+  // reason.
+  const readMoney0 = useCallback((v) => { const n = parseMoneyInput(v, mLocale); return Number.isFinite(n) ? n : 0; }, [mLocale]);
   const [entries, setEntries] = useState([]);
   const [categories, setCategories] = useState([]);
   const [catId, setCatId] = useState("");
@@ -171,33 +183,46 @@ export default function PersonalPage() {
     setBudgetDirty(true);
   };
   const saveBudgetsToApi = () => {
-    const items = Object.entries(budgets).map(([category, limit_amount]) => ({ category, limit_amount: limit_amount || 0 }));
-    items.push({ category: "__TOTAL__", limit_amount: totalBudget || 0 });
+    // Refuse rather than save a guess: an unreadable limit here would land as
+    // 0, and 0 in this table does not mean "0 kr." — it means "no budget",
+    // which silently switches the over-budget warnings off.
+    if (budgetsRejected) return;
+    const items = Object.entries(budgets).map(([category, limit_amount]) => ({ category, limit_amount: readMoney0(limit_amount) }));
+    items.push({ category: "__TOTAL__", limit_amount: totalBudgetNum });
     api.put("/budgets", { month: filterMonth, budgets: items }).then(() => {
       setBudgetDirty(false);
     }).catch(() => {});
   };
 
   // Budget warnings — categories that exceeded their budget
-  const overBudgetCats = Object.entries(budgets).filter(([cat, limit]) => {
+  const overBudgetCats = Object.entries(budgets).map(([cat, limit]) => [cat, readMoney0(limit)]).filter(([cat, limit]) => {
     const spent = spendingByCategory[cat] || 0;
     return limit > 0 && spent > limit;
   }).map(([cat, limit]) => ({ cat, limit, spent: spendingByCategory[cat] || 0, over: (spendingByCategory[cat] || 0) - limit }));
 
   // Near budget (80%+)
-  const nearBudgetCats = Object.entries(budgets).filter(([cat, limit]) => {
+  const nearBudgetCats = Object.entries(budgets).map(([cat, limit]) => [cat, readMoney0(limit)]).filter(([cat, limit]) => {
     const spent = spendingByCategory[cat] || 0;
     return limit > 0 && spent >= limit * 0.8 && spent <= limit;
   }).map(([cat, limit]) => ({ cat, limit, spent: spendingByCategory[cat] || 0, pct: Math.round(((spendingByCategory[cat] || 0) / limit) * 100) }));
 
-  const totalBudgetUsed = totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0;
+  // One parse of the typed total, reused by every comparison and render below
+  // — the state itself is a string and `totalSpent - totalBudget` on one
+  // would be NaN.
+  const totalBudgetNum = readMoney0(totalBudget);
+  const budgetsRejected =
+    isMoneyRejected(totalBudget, mLocale)
+    || Object.values(budgets).some((v) => isMoneyRejected(v, mLocale));
+  const totalBudgetUsed = totalBudgetNum > 0 ? Math.round((totalSpent / totalBudgetNum) * 100) : 0;
 
   // Monthly report data
   const spendingCats = PERSONAL_CATEGORIES.filter((c) => !INCOME_CATS.includes(c));
 
   const submit = async () => {
-    const value = parseFloat(amount);
-    if (!value) return;
+    // parseMoneyInput, not parseFloat: the box is text so the owner's own
+    // notation arrives intact, and parseFloat("1.500,50") would be 1.5.
+    const value = parseMoneyInput(amount, mLocale);
+    if (!(value > 0)) return;
     let finalCatId = catId;
     if (!finalCatId && !customCat.trim()) return;
     setError("");
@@ -373,12 +398,12 @@ export default function PersonalPage() {
           ))}
         </div>
       )}
-      {totalBudget > 0 && (
+      {totalBudgetNum > 0 && (
         <div className={`rounded-xl p-4 border ${totalBudgetUsed > 100 ? "bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800" : totalBudgetUsed >= 80 ? "bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800" : "bg-gray-50 dark:bg-gray-800/50 border-gray-100 dark:border-gray-800"}`}>
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{t("monthlyBudget")}</span>
             <span className={`text-sm font-bold ${totalBudgetUsed > 100 ? "text-red-600" : totalBudgetUsed >= 80 ? "text-amber-600" : "text-emerald-600"}`}>
-              {totalSpent.toLocaleString()} / {totalBudget.toLocaleString()} {currency} ({totalBudgetUsed}%)
+              {totalSpent.toLocaleString()} / {totalBudgetNum.toLocaleString()} {currency} ({totalBudgetUsed}%)
             </span>
           </div>
           <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
@@ -386,7 +411,7 @@ export default function PersonalPage() {
               style={{ width: `${Math.min(totalBudgetUsed, 100)}%` }} />
           </div>
           {totalBudgetUsed > 100 && (
-            <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">{t("youveExceededMonthlyBudgetBy")} {(totalSpent - totalBudget).toLocaleString()} {currency}</p>
+            <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-medium">{t("youveExceededMonthlyBudgetBy")} {(totalSpent - totalBudgetNum).toLocaleString()} {currency}</p>
           )}
         </div>
       )}
@@ -409,7 +434,7 @@ export default function PersonalPage() {
           <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">{t("monthlyBudgetSettings")}</h2>
           <div className="flex items-center gap-3 pb-3 border-b border-gray-100 dark:border-gray-700">
             <label className="text-sm font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap">{t("totalMonthlyBudget")}:</label>
-            <input type="number" value={totalBudget || ""} onChange={(e) => saveTotalBudget(e.target.value === "" ? "" : parseFloat(e.target.value) || 0)}
+            <MoneyField locale={mLocale} value={totalBudget || ""} onChange={(e) => saveTotalBudget(e.target.value)}
               placeholder="e.g. 15000" className="px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-40" />
             <span className="text-sm text-gray-400">{currency}</span>
           </div>
@@ -418,13 +443,13 @@ export default function PersonalPage() {
             {spendingCats.map((cat) => (
               <div key={cat} className="flex items-center gap-2">
                 <span className="text-sm text-gray-600 dark:text-gray-400 w-32 truncate">{cat}</span>
-                <input type="number" value={budgets[cat] || ""} onChange={(e) => saveBudgets({ ...budgets, [cat]: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 })}
+                <MoneyField locale={mLocale} value={budgets[cat] || ""} onChange={(e) => saveBudgets({ ...budgets, [cat]: e.target.value })}
                   placeholder="0" className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-sm dark:bg-gray-700 dark:text-white w-24" />
               </div>
             ))}
           </div>
-          <button onClick={saveBudgetsToApi}
-            className={`mt-3 px-5 py-2.5 rounded-lg text-sm font-medium transition ${
+          <button onClick={saveBudgetsToApi} disabled={budgetsRejected}
+            className={`mt-3 px-5 py-2.5 rounded-lg text-sm font-medium transition disabled:opacity-50 disabled:cursor-not-allowed ${
               budgetDirty ? "bg-purple-600 text-white hover:bg-purple-700" : "bg-gray-200 text-gray-500 dark:bg-gray-700 dark:text-gray-400"
             }`}>
             {budgetDirty ? t("saveBudget") : t("saved")}
@@ -480,7 +505,7 @@ export default function PersonalPage() {
             <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">{t("spendingByCategory")}</h3>
             <div className="space-y-3">
               {topSpending.map(([cat, amt]) => {
-                const limit = budgets[cat] || 0;
+                const limit = readMoney0(budgets[cat]);
                 const pct = limit > 0 ? Math.round((amt / limit) * 100) : 0;
                 const exceeded = limit > 0 && amt > limit;
                 return (
@@ -512,8 +537,8 @@ export default function PersonalPage() {
                 ? savingsRate >= 20 ? t("greatMonth") : t("inTheGreen")
                 : t("overspentThisMonth")}
             </p>
-            {totalBudget > 0 && totalSpent > totalBudget && (
-              <p className="text-sm text-red-500 mt-1">{t("budgetExceededBy")} {(totalSpent - totalBudget).toLocaleString()} {currency}</p>
+            {totalBudgetNum > 0 && totalSpent > totalBudgetNum && (
+              <p className="text-sm text-red-500 mt-1">{t("budgetExceededBy")} {(totalSpent - totalBudgetNum).toLocaleString()} {currency}</p>
             )}
           </div>
         </div>
@@ -642,12 +667,13 @@ export default function PersonalPage() {
         </div>
 
         <div className="flex items-center gap-2 mb-3">
-          <input
-            type="number"
+          <MoneyField
+            locale={mLocale}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder={t("customAmount")}
-            className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
+            wrapperClassName="flex-1"
+            className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 dark:bg-gray-700 dark:text-white"
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <button

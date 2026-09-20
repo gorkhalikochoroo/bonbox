@@ -6,7 +6,7 @@ import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { useBranch } from "../components/BranchSelector";
 import { useEntitlements } from "../hooks/useEntitlements";
-import { displayCurrency, formatOwnerMoney, getTaxConfig, getVatTerms } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, getTaxConfig, getVatTerms, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
 import { trackEvent } from "../hooks/useEventLog";
 import DismissibleTip from "../components/DismissibleTip";
 import { safeImageUrl } from "../utils/safeUrl";
@@ -33,6 +33,7 @@ import {
   headlineTotal,
   mergeScans,
   needsTerminalChoice,
+  MERGE_FILL,
   MERGE_REPLACE,
   MERGE_SUM,
 } from "../utils/dailyCloseScanMerge";
@@ -64,6 +65,7 @@ import { sendDailyCloseRangeToAccountant } from "../utils/shareDailyCloseRange";
 import { UpgradeNudge, PageHeader, TabPills, Button, Icon, SectionBanner, Amount, StatCard } from "../components/ui";
 import PageShell from "../components/ui/PageShell";
 import Chip from "../components/ui/Chip";
+import MoneyField from "../components/ui/MoneyField";
 import SmartScanModal from "../components/SmartScanModal";
 // LiveKpisToday — extracted from the legacy /daily-report page so
 // the merged daily page (#150) shows the live operational snapshot
@@ -888,6 +890,22 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const defaultPayMethods = useMemo(() => getPaymentMethods(branchType), [branchType]);
   const config = CLOSE_CONFIG[branchType] || CLOSE_CONFIG.general;
 
+  // Every money box on this page is <MoneyField> (text), not <input
+  // type="number">, because a number input on an English-locale browser
+  // rewrites a Dane's "1.500,50" to "1.50050" without raising badInput — see
+  // the note in components/ui/MoneyField.jsx. So every read of one goes
+  // through the STRICT parser, in the ACCOUNT's notation, never the browser's
+  // and never the UI language's.
+  const mLocale = moneyLocale(user?.currency);
+  // Number, or NaN when the box holds something that is not an amount. The
+  // NaN is the point: it propagates instead of silently becoming a smaller,
+  // plausible number the way parseFloat("1.500,50") → 1.5 did.
+  const readMoney = (v) => parseMoneyInput(v, mLocale);
+  // For the running totals the owner watches while typing. An unreadable box
+  // contributes nothing AND turns red AND blocks the save below, so nothing
+  // can be written on the strength of a figure this skipped.
+  const readMoney0 = (v) => { const n = readMoney(v); return Number.isFinite(n) ? n : 0; };
+
   // Lane A — auto-email-on-lock preference. Mirrors user.auto_email_on_close
   // and writes through to /auth/profile when toggled. Starter+ feature;
   // shown locked for Free users with the upgrade nudge so the path
@@ -1221,13 +1239,16 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     const [head, ...rest] = pendingScansRef.current;
     if (!head) return;
     setMergeUndo({ scan: scanResultRef.current, pending: pendingScansRef.current });
-    let merged = mergeScans(scanResultRef.current, head, mode);
+    // mLocale, not a default: these buckets can hold the owner's own
+    // keystrokes from the scan-review boxes, so the sum has to read them in
+    // the account's notation or it adds 1,50 where 1.500,50 was corrected in.
+    let merged = mergeScans(scanResultRef.current, head, mode, mLocale);
     // Everything still queued that is NOT ambiguous against the new state
     // folds in straight away. We only ever ask when the question is real, so a
     // batch of "one till photo + two detail pages" costs exactly one tap.
     const waiting = [...rest];
-    while (waiting.length && !needsTerminalChoice(merged, waiting[0])) {
-      merged = mergeScans(merged, waiting.shift());
+    while (waiting.length && !needsTerminalChoice(merged, waiting[0], mLocale)) {
+      merged = mergeScans(merged, waiting.shift(), MERGE_FILL, mLocale);
     }
     applyScanResult(merged);
     applyPendingScans(waiting);
@@ -1274,10 +1295,10 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       // it. Merging a straggler into the numbers while an unanswered question
       // sits on top of them would mean answering that question about a state
       // the owner never saw.
-      if (pendingScansRef.current.length || (current && needsTerminalChoice(current, res.data))) {
+      if (pendingScansRef.current.length || (current && needsTerminalChoice(current, res.data, mLocale))) {
         applyPendingScans([...pendingScansRef.current, res.data]);
       } else {
-        applyScanResult(mergeScans(current, res.data));
+        applyScanResult(mergeScans(current, res.data, MERGE_FILL, mLocale));
       }
       // Capture the durable storage URL — first scan wins so editing
       // a draft and re-scanning doesn't churn the persisted reference.
@@ -1710,8 +1731,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     fetchPrefill();
   }, [branchId, branchType, businessDate]);
 
-  const revenueTotal = useMemo(() => Object.values(revAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0), [revAmounts]);
-  const paymentTotal = useMemo(() => Object.values(payAmounts).reduce((s, v) => s + (parseFloat(v) || 0), 0), [payAmounts]);
+  const revenueTotal = useMemo(() => Object.values(revAmounts).reduce((s, v) => s + readMoney0(v), 0), [revAmounts, mLocale]);
+  const paymentTotal = useMemo(() => Object.values(payAmounts).reduce((s, v) => s + readMoney0(v), 0), [payAmounts, mLocale]);
   // A total of 0 is only a NUMBER once the owner has typed something. Before
   // the first keystroke the reduce above returns 0 and the step header printed
   // it as "0 DKK" — a confident statement that the venue took nothing today,
@@ -1733,7 +1754,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // the date, in which case we fall back to the typed entry. The variance
   // math (counted − expected) and the persisted cash_difference are unchanged
   // — only the baseline source moves.
-  const typedCash = parseFloat(payAmounts.cash || 0);
+  const typedCash = readMoney0(payAmounts.cash);
   const cashExpectedFromRegister = registerCash != null && !Number.isNaN(registerCash);
   const cashExpected = cashExpectedFromRegister ? registerCash : typedCash;
   // Same rule as hasRevenueEntry/hasPaymentEntry above, applied one step later:
@@ -1745,10 +1766,14 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // cash_difference are untouched: this is what the figure SAYS, not what it is.
   const hasCashBaseline =
     cashExpectedFromRegister || String(payAmounts.cash ?? "").trim() !== "";
-  const cashCountedVal = parseFloat(cashCounted || 0);
+  const cashCountedVal = readMoney0(cashCounted);
   const cashDiff = cashCounted ? cashCountedVal - cashExpected : null;
+  // staffCount stays parseInt: it is a HEAD COUNT, not money. tipsTotal is
+  // money and reads strictly, so an unreadable tips box yields no per-person
+  // figure at all rather than a confident wrong one.
   const tipsPP = tipsTotal && staffCount && parseInt(staffCount) > 0
-    ? Math.round(parseFloat(tipsTotal) / parseInt(staffCount)) : null;
+    && Number.isFinite(readMoney(tipsTotal))
+    ? Math.round(readMoney(tipsTotal) / parseInt(staffCount)) : null;
 
   // ─── Tax-exempt awareness ──────────────────────────────────────────
   // Today's MOMS calc used to roll ALL revenue into the taxable base,
@@ -1809,6 +1834,27 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   const [momsMode, setMomsMode] = useState("auto"); // "auto" | "manual"
   const [momsManual, setMomsManual] = useState("");
 
+  // Any money box on the page holding text that is not an amount. This is the
+  // save gate: a close writes to the ledger and prints a kasserapport, so it
+  // must not go out while one of its figures is a question mark. Each field
+  // shows its own refusal; this is what stops the button.
+  //
+  // Declared HERE rather than beside the totals above because momsManual is
+  // declared on the line above it — reading it earlier would be a TDZ
+  // ReferenceError at render, not a lint warning.
+  const moneyRejected = useMemo(
+    () =>
+      [
+        ...Object.values(revAmounts),
+        ...Object.values(payAmounts),
+        cashCounted,
+        tipsTotal,
+        gavekortSold,
+        momsMode === "manual" ? momsManual : "",
+      ].some((v) => isMoneyRejected(v, mLocale)),
+    [revAmounts, payAmounts, cashCounted, tipsTotal, gavekortSold, momsManual, momsMode, mLocale],
+  );
+
   // Taxable base = entered revenue MINUS today's exempt sales total.
   // Clamp at 0: if the user only entered a placeholder and the exempt
   // total exceeds it, we'd otherwise show a negative MOMS amount which
@@ -1818,7 +1864,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   }, [revenueTotal, exemptSalesTotal]);
 
   const momsTotal = useMemo(() => {
-    if (momsMode === "manual") return parseFloat(momsManual) || 0;
+    if (momsMode === "manual") return readMoney0(momsManual);
     // Same guard as applyScanValues: a scanned MOMS that covers one of two
     // summed tills is not "the MOMS from the receipt". Without this, flipping
     // the toggle back to Auto did NOT recover — this branch returned the
@@ -1844,9 +1890,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
   // Build payload used by both auto-save and final submit
   const buildPayload = (status = "confirmed") => {
     const revenue_breakdown = {};
-    revCats.forEach(c => { if (revAmounts[c.key]) revenue_breakdown[c.key] = parseFloat(revAmounts[c.key]); });
+    // readMoney, not parseFloat: these go straight into the ledger row and the
+    // revisor PDF. An unreadable box cannot reach here anyway — moneyRejected
+    // blocks the save — so a NaN would be a bug, and it is left OUT of the
+    // breakdown rather than written as a guess.
+    revCats.forEach(c => { const n = readMoney(revAmounts[c.key]); if (revAmounts[c.key] && Number.isFinite(n)) revenue_breakdown[c.key] = n; });
     const payment_breakdown = {};
-    payMethods.forEach(m => { if (payAmounts[m.key]) payment_breakdown[m.key] = parseFloat(payAmounts[m.key]); });
+    payMethods.forEach(m => { const n = readMoney(payAmounts[m.key]); if (payAmounts[m.key] && Number.isFinite(n)) payment_breakdown[m.key] = n; });
 
     // Always forward the OCR'd total as override when one was detected.
     // Backend uses max(breakdown_sum, override) so:
@@ -1873,7 +1923,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
     // before the backend grows dedicated columns. Gavekort is explicitly
     // marked as EXCLUDED from the MOMS base (never auto-decided).
     const extraNoteParts = [];
-    const gavekortNum = gavekortSold ? parseFloat(gavekortSold) : 0;
+    const gavekortNum = gavekortSold ? readMoney0(gavekortSold) : 0;
     if (gavekortNum > 0) {
       extraNoteParts.push(
         // formatOwnerMoney, not toLocaleString: this note is persisted on the
@@ -1896,9 +1946,9 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
       payment_breakdown,
       moms_total: momsTotal || null,
       moms_mode: momsMode,
-      tips_total: tipsTotal ? parseFloat(tipsTotal) : null,
+      tips_total: tipsTotal && Number.isFinite(readMoney(tipsTotal)) ? readMoney(tipsTotal) : null,
       tips_staff_count: staffCount ? parseInt(staffCount) : null,
-      cash_counted: cashCounted ? parseFloat(cashCounted) : null,
+      cash_counted: cashCounted && Number.isFinite(readMoney(cashCounted)) ? readMoney(cashCounted) : null,
       closed_by: closedBy || null,
       notes: notesWithExtras,
       // Phase A forward-compat fields — the backend ignores unknown keys today
@@ -2109,7 +2159,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         <div className="text-xs text-gray-600 dark:text-gray-300">
           {(info.terminalTotals || []).map((v) => formatOwnerMoney(v, currency, { decimals: GLANCE_DECIMALS })).join("  +  ")}
           {" = "}
-          <strong>{formatOwnerMoney(headlineTotal(scanResult), currency, { decimals: GLANCE_DECIMALS })}</strong>
+          <strong>{formatOwnerMoney(headlineTotal(scanResult, mLocale), currency, { decimals: GLANCE_DECIMALS })}</strong>
         </div>
         {/* Honest about what could NOT be added, BY NAME. "Terminal 2's MOMS
             line was unreadable" and "terminal 2 had no MOMS" look the same on
@@ -2275,8 +2325,8 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 looking at the numbers, not by parsing a sentence. Nothing
                 is merged until they answer. */}
             {pendingScan && (() => {
-              const existingTotal = headlineTotal(scanResult);
-              const incomingTotal = headlineTotal(pendingScan);
+              const existingTotal = headlineTotal(scanResult, mLocale);
+              const incomingTotal = headlineTotal(pendingScan, mLocale);
               return (
                 <div className="rounded-xl p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 space-y-3">
                   <p className="text-sm font-semibold text-amber-900 dark:text-amber-100 flex items-center gap-1.5">
@@ -2648,14 +2698,27 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       {val && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
                       {isEmpty && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
-                    <input type="number" inputMode="decimal"
+                    {/* Controlled now, and the RAW string is what we keep. The
+                        old handler was `parseFloat(e.target.value) || 0` on a
+                        number input: a correction typed as "1.500,50" arrived
+                        as "1.50050" and was stored as 1.5005, and anything the
+                        parser disliked became a fabricated 0 sitting in the
+                        OCR review as if the scanner had read it. Keeping the
+                        keystrokes means applyScanValues hands them to the
+                        revenue boxes verbatim, where the page's own strict
+                        parser decides. */}
+                    <MoneyField
+                      locale={mLocale}
+                      // The field IS the flex child of the row above, so the
+                      // wrapper has to carry the growth or the box collapses.
+                      wrapperClassName="flex-1 min-w-0"
                       className={`${inputClass} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
-                      defaultValue={val || ""}
+                      value={val ?? ""}
                       placeholder={isEmpty ? t("enterActualAmount", "enter actual amount") : ""}
                       onChange={e => {
                         setScanResult(prev => ({
                           ...prev,
-                          revenue: { ...prev.revenue, [c.key]: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 }
+                          revenue: { ...prev.revenue, [c.key]: e.target.value }
                         }));
                       }} />
                   </div>
@@ -2707,7 +2770,13 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               {defaultRevCats.map(c => {
                 const val = scanResult.revenue?.[c.key];
                 if (!val) return null;
-                const udenMoms = Math.round((val / vatDivisor) * 100) / 100;
+                // The review field above stores what the owner TYPED, so this
+                // line divides a string. Parse it strictly and print nothing
+                // when it is not an amount — a NaN "uden moms" beside a red
+                // field is noise, and a salvaged one would be a lie.
+                const valNum = readMoney(val);
+                if (!Number.isFinite(valNum)) return null;
+                const udenMoms = Math.round((valNum / vatDivisor) * 100) / 100;
                 return (
                   <div key={c.key} className="flex justify-between text-[12px] text-gray-500 dark:text-gray-400 tabular-nums">
                     <span>{c.label.split(" / ")[0]} {t("udenMomsSuffix", "(uden moms)")}</span>
@@ -2731,14 +2800,19 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                       {val && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
                       {isEmpty && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                     </span>
-                    <input type="number" inputMode="decimal"
+                    {/* Raw string kept, same reason as the revenue field above. */}
+                    <MoneyField
+                      locale={mLocale}
+                      // The field IS the flex child of the row above, so the
+                      // wrapper has to carry the growth or the box collapses.
+                      wrapperClassName="flex-1 min-w-0"
                       className={`${inputClass} ${isEmpty ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
-                      defaultValue={val || ""}
+                      value={val ?? ""}
                       placeholder={isEmpty ? t("enterActualAmount", "enter actual amount") : ""}
                       onChange={e => {
                         setScanResult(prev => ({
                           ...prev,
-                          payments: { ...prev.payments, [m.key]: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 }
+                          payments: { ...prev.payments, [m.key]: e.target.value }
                         }));
                       }} />
                   </div>
@@ -2780,12 +2854,15 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   {scanResult.tips && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-emerald-700 dark:text-emerald-400 rounded-lg">OCR</span>}
                   {!scanResult.tips && <span className="text-[11px] font-mono px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 rounded-lg">{t("scanBadgeMissing", "missing")}</span>}
                 </span>
-                <input type="number" inputMode="decimal"
+                {/* Raw string kept, same reason as the revenue field above. */}
+                <MoneyField
+                  locale={mLocale}
+                  wrapperClassName="flex-1 min-w-0"
                   className={`${inputClass} ${!scanResult.tips ? "border-amber-300 dark:border-amber-700 bg-amber-50/30 dark:bg-amber-900/10" : ""}`}
-                  defaultValue={scanResult.tips || ""}
+                  value={scanResult.tips ?? ""}
                   placeholder={!scanResult.tips ? t("enterActualAmount", "enter actual amount") : ""}
                   onChange={e => {
-                    setScanResult(prev => ({ ...prev, tips: e.target.value === "" ? "" : parseFloat(e.target.value) || 0 }));
+                    setScanResult(prev => ({ ...prev, tips: e.target.value }));
                   }} />
               </div>
             </div>
@@ -3126,7 +3203,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {revCats.map(cat => (
               <div key={cat.key}>
                 <label className={labelClass}><Icon name={cat.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, cat)}</label>
-                <input type="number" inputMode="decimal" placeholder="0" className={inputClass}
+                <MoneyField locale={mLocale} placeholder="0" className={inputClass}
                   value={revAmounts[cat.key] || ""}
                   onChange={e => setRevAmounts({ ...revAmounts, [cat.key]: e.target.value })} />
               </div>
@@ -3162,7 +3239,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {payMethods.map(m => (
               <div key={m.key}>
                 <label className={labelClass}><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}</label>
-                <input type="number" inputMode="decimal" placeholder="0" className={inputClass}
+                <MoneyField locale={mLocale} placeholder="0" className={inputClass}
                   value={payAmounts[m.key] || ""}
                   onChange={e => setPayAmounts({ ...payAmounts, [m.key]: e.target.value })} />
               </div>
@@ -3223,7 +3300,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             </div>
             <div>
               <label className={labelClass}><Icon name="Banknote" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("countedAmount", "Counted Amount")}</label>
-              <input type="number" inputMode="decimal" placeholder={t("countYourDrawer")} className={inputClass}
+              <MoneyField locale={mLocale} placeholder={t("countYourDrawer")} className={inputClass}
                 value={cashCounted} onChange={e => setCashCounted(e.target.value)} />
             </div>
             {cashDiff !== null && (
@@ -3251,7 +3328,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
           <div className="space-y-4">
             <div>
               <label className={labelClass}><Icon name="Coins" size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {t("totalTipsLabel", "Total Tips")}</label>
-              <input type="number" inputMode="decimal" placeholder="0" className={inputClass}
+              <MoneyField locale={mLocale} placeholder="0" className={inputClass}
                 value={tipsTotal} onChange={e => setTipsTotal(e.target.value)} />
             </div>
             <div>
@@ -3296,7 +3373,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               {revCats.filter(c => revAmounts[c.key]).map(c => (
                 <div key={c.key} className="flex justify-between gap-3 text-[13px] py-0.5 text-gray-700 dark:text-gray-300 tabular-nums">
                   <span><Icon name={c.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, c)}</span>
-                  <span><Amount value={parseFloat(revAmounts[c.key])} currency={currency} decimals={LEDGER_DECIMALS} /></span>
+                  <span><Amount value={readMoney(revAmounts[c.key])} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
               ))}
               <div className="flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-2 text-gray-900 dark:text-white tabular-nums">
@@ -3330,7 +3407,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                 {momsMode === "manual" && (
                   <div>
                     <label className="text-[12px] text-gray-500 dark:text-gray-400 mb-1 block">{t("enterMomsFromReceipt", "Enter {vat} from your Z-report / receipt", { vat: vatName })}</label>
-                    <input type="number" inputMode="decimal" placeholder={t("momsAmountPlaceholder")}
+                    <MoneyField locale={mLocale} placeholder={t("momsAmountPlaceholder")}
                       className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-gray-400 text-right text-[16px] tabular-nums"
                       value={momsManual} onChange={e => setMomsManual(e.target.value)} />
                   </div>
@@ -3389,7 +3466,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               {payMethods.filter(m => payAmounts[m.key]).map(m => (
                 <div key={m.key} className="flex justify-between gap-3 text-[13px] py-0.5 text-gray-700 dark:text-gray-300 tabular-nums">
                   <span><Icon name={m.icon} size={14} className="inline align-text-bottom mr-1 text-gray-500 dark:text-gray-400" /> {catLabel(t, m)}</span>
-                  <span><Amount value={parseFloat(payAmounts[m.key])} currency={currency} decimals={LEDGER_DECIMALS} /></span>
+                  <span><Amount value={readMoney(payAmounts[m.key])} currency={currency} decimals={LEDGER_DECIMALS} /></span>
                 </div>
               ))}
               <div className="flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-2 text-gray-900 dark:text-white tabular-nums">
@@ -3434,7 +3511,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
             {tipsTotal && (
               <div className="bg-gray-50 dark:bg-gray-700/50 rounded-xl p-4">
                 <h3 className="font-semibold text-[13px] text-gray-500 dark:text-gray-400 mb-2">{t("tipsLabel", "Tips")}</h3>
-                <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300 tabular-nums"><span>{t("total")}</span><span><Amount value={parseFloat(tipsTotal)} currency={currency} decimals={LEDGER_DECIMALS} /></span></div>
+                <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300 tabular-nums"><span>{t("total")}</span><span><Amount value={readMoney(tipsTotal)} currency={currency} decimals={LEDGER_DECIMALS} /></span></div>
                 <div className="flex justify-between gap-3 text-[13px] text-gray-700 dark:text-gray-300 tabular-nums"><span>{t("staffCountLabel", "Staff Count")}</span><span>{staffCount}</span></div>
                 {tipsPP && <div className="flex justify-between gap-3 text-[14px] font-semibold pt-2 border-t border-gray-200 dark:border-gray-600 mt-2 text-gray-900 dark:text-white tabular-nums"><span>{t("perPerson")}</span><span><Amount value={tipsPP} currency={currency} decimals={LEDGER_DECIMALS} /></span></div>}
               </div>
@@ -3449,7 +3526,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                   <Icon name="Gift" size={14} className="text-gray-500 dark:text-gray-400" />
                   {t("closeGavekortSoldLabel", "Gavekort solgt")}
                 </label>
-                <input type="number" inputMode="decimal" placeholder="0"
+                <MoneyField locale={mLocale} placeholder="0"
                   className="w-full px-4 py-2.5 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-xl"
                   value={gavekortSold} onChange={e => setGavekortSold(e.target.value)} />
                 <p className="text-xs text-amber-700 dark:text-amber-300">
@@ -3585,7 +3662,11 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
               const usingOverride = ocrTotal > 0 && ocrTotal > revenueTotal;
               return (
                 <div className="flex flex-col items-end gap-1">
-                  <Button variant="primary" size="lg" onClick={() => handleSubmit()} disabled={saving || willSave === 0}>
+                  {/* moneyRejected: one of the amount boxes holds text that is
+                      not an amount. This close writes a ledger row and prints
+                      a kasserapport, so it does not go out on a figure nobody
+                      could read — the offending field says so in place. */}
+                  <Button variant="primary" size="lg" onClick={() => handleSubmit()} disabled={saving || willSave === 0 || moneyRejected}>
                     {saving ? (
                       t("savingEllipsis", "Saving…")
                     ) : !isOnline ? (

@@ -15,6 +15,8 @@ import HowItWorksCard from "../components/HowItWorksCard";
 import { UpgradeNudge, PageHeader, Button, SectionBanner, TabPills } from "../components/ui";
 import { localIso } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
+import { isMoneyRejected, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 
 /**
  * FakturaPage — list + create + send.
@@ -988,6 +990,11 @@ function InvoiceCard({ invoice, customer, onChanged, t }) {
 // ─── Create modal ──────────────────────────────────────────────────
 
 function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustomerCreated, t }) {
+  // A faktura is a DK document: this whole surface formats in da-DK and DKK
+  // (see the totals row below), so the unit price reads in da-DK too rather
+  // than following an account currency the invoice does not have. Quantity
+  // beside it stays a number input — a count of hours or units, not kroner.
+  const LINE_LOCALE = "da-DK";
   const [customerId, setCustomerId] = useState(customers[0]?.id || "");
   // localIso() respects the user's timezone — fixes the off-by-one where
   // a Danish owner at 01:14 CEST saw Issued=yesterday because toISOString
@@ -1089,7 +1096,10 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
   const totals = lines.reduce(
     (acc, l) => {
       const qty = parseFloat(l.quantity) || 0;
-      const price = parseFloat(l.unit_price_net) || 0;
+      // parseMoneyInput: the price box is text, so "1.500,50" arrives intact
+      // and parseFloat would read it as 1.5 — straight onto an invoice.
+      const priceParsed = parseMoneyInput(l.unit_price_net, LINE_LOCALE);
+      const price = Number.isFinite(priceParsed) ? priceParsed : 0;
       const rate = parseFloat(l.moms_rate) || 0;
       const net = qty * price;
       const moms = net * rate;
@@ -1100,8 +1110,13 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
     { net: 0, moms: 0 }
   );
 
+  // A line whose price box holds text that is not an amount. An invoice is a
+  // legal document; it does not go out on a figure nobody could read.
+  const linesMoneyRejected = lines.some((l) => isMoneyRejected(l.unit_price_net, LINE_LOCALE));
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (linesMoneyRejected) return;
     setSaving(true);
     setError("");
     try {
@@ -1116,7 +1131,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
             description: l.description,
             quantity: parseFloat(l.quantity),
             unit: l.unit || undefined,
-            unit_price_net: parseFloat(l.unit_price_net),
+            unit_price_net: parseMoneyInput(l.unit_price_net, LINE_LOCALE),
             moms_rate: parseFloat(l.moms_rate),
           })),
       };
@@ -1362,13 +1377,13 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
                     onChange={(e) => setLine(i, "quantity", e.target.value)}
                     className="col-span-1 px-2 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
                   />
-                  <input
-                    type="number"
+                  <MoneyField
+                    locale={LINE_LOCALE}
                     placeholder={t("unitPrice") || "Unit price"}
                     value={line.unit_price_net}
-                    step="0.01"
                     onChange={(e) => setLine(i, "unit_price_net", e.target.value)}
-                    className="col-span-3 px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
+                    wrapperClassName="col-span-3"
+                    className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm"
                   />
                   <select
                     value={line.moms_rate}
@@ -1442,7 +1457,7 @@ function CreateInvoiceModal({ customers, onClose, onCreated, onPlanCap, onCustom
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || linesMoneyRejected}
               className="px-4 py-2 bg-gray-900 text-white rounded-xl text-sm font-semibold hover:bg-gray-700 transition disabled:opacity-50"
             >
               {saving ? (t("creating") || "Creating…") : (t("createDraft") || "Create draft")}

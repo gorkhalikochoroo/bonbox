@@ -5,7 +5,8 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
-import { displayCurrency, formatOwnerMoney } from "../utils/currency";
+import { displayCurrency, formatOwnerMoney, isMoneyRejected, moneyLocale, parseMoneyInput } from "../utils/currency";
+import MoneyField from "../components/ui/MoneyField";
 import { useLanguage } from "../hooks/useLanguage";
 import { useConfirm } from "../hooks/useConfirm";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
@@ -17,6 +18,11 @@ import { errText } from "../utils/errText";
 export default function KhataPage() {
   const { user } = useAuth();
   const currency = displayCurrency(user?.currency);
+  // Khata is a credit ledger — purchased, paid, remaining are all money the
+  // owner types, so the boxes are text and read through the strict parser in
+  // the ACCOUNT's notation. type="number" silently rewrote "1.500,50" to
+  // "1.50050" on an English-locale browser. See components/ui/MoneyField.jsx.
+  const mLocale = moneyLocale(user?.currency);
   const { t } = useLanguage();
   const confirm = useConfirm();
 
@@ -86,15 +92,25 @@ export default function KhataPage() {
     window.dispatchEvent(new Event("bonbox-data-changed"));
   };
 
+  // Parsed once so the gate and the payload agree. A khata line is allowed to
+  // have 0 in ONE of the two columns (a pure purchase, or a pure payment), so
+  // an empty box is a legitimate 0 here — but text that is not an amount is
+  // not, and the old `parseFloat(...) || 0` booked it as 0 either way.
+  const purchaseNum = txnForm.purchase_amount === "" ? 0 : parseMoneyInput(txnForm.purchase_amount, mLocale);
+  const paidNum = txnForm.paid_amount === "" ? 0 : parseMoneyInput(txnForm.paid_amount, mLocale);
+  const txnRejected =
+    isMoneyRejected(txnForm.purchase_amount, mLocale) || isMoneyRejected(txnForm.paid_amount, mLocale);
+
   const handleAddTxn = async (e) => {
     e.preventDefault();
+    if (txnRejected) return;
     setError("");
     try {
       const payload = {
         customer_id: selectedCustomer.id,
         date: txnForm.date,
-        purchase_amount: parseFloat(txnForm.purchase_amount) || 0,
-        paid_amount: parseFloat(txnForm.paid_amount) || 0,
+        purchase_amount: purchaseNum,
+        paid_amount: paidNum,
         notes: txnForm.notes || null,
       };
       if (editTxn) {
@@ -127,8 +143,8 @@ export default function KhataPage() {
 
   const handleQuickPay = async (e) => {
     e.preventDefault();
-    const val = parseFloat(payAmount);
-    if (!val || !selectedCustomer) return;
+    const val = parseMoneyInput(payAmount, mLocale);
+    if (!(val > 0) || !selectedCustomer) return;
     setError("");
     try {
       await api.post("/khata/transactions", {
@@ -352,13 +368,14 @@ export default function KhataPage() {
                 {/* Quick Pay Form */}
                 {showPayForm && (
                   <form onSubmit={handleQuickPay} className="mt-3 flex gap-2">
-                    <input
-                      type="number"
+                    <MoneyField
+                      locale={mLocale}
                       placeholder={`${t("amount")} (${t("remaining")}: ${formatOwnerMoney(customerRemaining, user?.currency)})`}
                       value={payAmount}
                       onChange={(e) => setPayAmount(e.target.value)}
-                      className="flex-1 px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-white"
-                      min="0" step="0.01" autoFocus
+                      wrapperClassName="flex-1"
+                      className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 dark:text-white"
+                      autoFocus
                     />
                     <button
                       type="button"
@@ -369,7 +386,8 @@ export default function KhataPage() {
                     </button>
                     <button
                       type="submit"
-                      className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition"
+                      disabled={!(parseMoneyInput(payAmount, mLocale) > 0)}
+                      className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {t("pay")}
                     </button>
@@ -383,17 +401,18 @@ export default function KhataPage() {
                   <input type="date" value={txnForm.date} onChange={(e) => setTxnForm({ ...txnForm, date: e.target.value })}
                     className="px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                   <div>
-                    <input type="number" placeholder={t("purchased")} value={txnForm.purchase_amount} onChange={(e) => setTxnForm({ ...txnForm, purchase_amount: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" min="0" step="0.01" />
+                    <MoneyField locale={mLocale} placeholder={t("purchased")} value={txnForm.purchase_amount} onChange={(e) => setTxnForm({ ...txnForm, purchase_amount: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                   </div>
                   <div>
-                    <input type="number" placeholder={t("paid")} value={txnForm.paid_amount} onChange={(e) => setTxnForm({ ...txnForm, paid_amount: e.target.value })}
-                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" min="0" step="0.01" />
+                    <MoneyField locale={mLocale} placeholder={t("paid")} value={txnForm.paid_amount} onChange={(e) => setTxnForm({ ...txnForm, paid_amount: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                   </div>
                   <input type="text" placeholder={t("notes")} value={txnForm.notes} onChange={(e) => setTxnForm({ ...txnForm, notes: e.target.value })}
                     className="px-3 py-2 border rounded-lg text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
                   <div className="flex gap-2">
-                    <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition whitespace-nowrap">
+                    <button type="submit" disabled={txnRejected}
+                      className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed">
                       {editTxn ? t("update") : t("add")}
                     </button>
                     {editTxn && (

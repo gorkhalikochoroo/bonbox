@@ -209,7 +209,12 @@ describe("daily close — money on an English-locale browser", () => {
     const { container } = renderPage();
     await enterManually();
 
-    const inputs = container.querySelectorAll('input[type="number"]');
+    // inputmode="decimal", not type="number": the money boxes are TEXT now.
+    // A number input on an English-locale browser rewrote "1.500,50" to
+    // "1.50050" with badInput FALSE, so it could not stay. Selecting on
+    // inputmode keeps this test pointed at the money fields and away from the
+    // staff-count box, which is inputmode="numeric" and is not money.
+    const inputs = container.querySelectorAll('input[inputmode="decimal"]');
     fireEvent.change(inputs[0], { target: { value: "17030" } });
 
     // "17.030 kr." — never the browser-locale "17,030", which a Dane reads as
@@ -223,7 +228,7 @@ describe("daily close — money on an English-locale browser", () => {
     const { container } = renderPage();
     await enterManually();
 
-    const inputs = container.querySelectorAll('input[type="number"]');
+    const inputs = container.querySelectorAll('input[inputmode="decimal"]');
     fireEvent.change(inputs[0], { target: { value: "17030" } });
 
     // Walk to the last step — Review & Submit.
@@ -455,12 +460,115 @@ describe("daily close — the cash step does not invent a baseline", () => {
     await enterManually();
     tapNext();
     await waitFor(() => expect(screen.getByText(/^stepNPayments:/)).toBeInTheDocument());
-    const cashInput = container.querySelectorAll('input[type="number"]')[0];
+    const cashInput = container.querySelectorAll('input[inputmode="decimal"]')[0];
     fireEvent.change(cashInput, { target: { value: "0" } });
     tapNext();
     await waitFor(() => expect(screen.getByText(/^stepNCash:/)).toBeInTheDocument());
 
     const label = screen.getByText("expectedFromEntry");
     expect(label.parentElement.querySelector("div").textContent).not.toContain("—");
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * The close's own keyed money boxes, after the app-wide sweep.
+ *
+ * Every figure on this wizard was <input type="number" inputMode="decimal">
+ * with a `parseFloat(v) || 0` reader. On an English-locale browser — the one
+ * these tests already force via navigator.language — a Dane's "1.500,50"
+ * arrives as "1.50050" with validity.badInput FALSE, parseFloat returns
+ * 1.5005, and that number goes into a LOCKED ledger row and a signed
+ * kasserapport. The wizard is now MoneyField + parseMoneyInput throughout.
+ *
+ * These pin the wiring, not the parser: the exact production string, one real
+ * Danish amount, and the junk a salvaging parser would have rescued.
+ * ──────────────────────────────────────────────────────────────────────── */
+describe("daily close — the money boxes refuse what they cannot read", () => {
+  const PRODUCTION_STRING = "1.50050";
+  const moneyBoxes = (c) => Array.from(c.querySelectorAll('input[inputmode="decimal"]'));
+  const refusalsShown = () =>
+    screen.queryAllByRole("alert").filter((n) => n.textContent === "invalidAmount").length;
+
+  it("every money box is TEXT — a number input cannot come back here", async () => {
+    const { container } = renderPage();
+    await enterManually();
+    const boxes = moneyBoxes(container);
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const b of boxes) {
+      expect(b.getAttribute("type")).toBe("text");
+      // A close is typed standing at the till, on a phone.
+      expect(b.getAttribute("inputmode")).toBe("decimal");
+    }
+  });
+
+  it("the staff-count box is NOT one of them — a head count is not money", async () => {
+    // Converting this would be its own bug: parseMoneyInput has no business
+    // reading a head count, and a number input fails visibly for one.
+    const { container } = renderPage();
+    await enterManually();
+    const numeric = container.querySelectorAll('input[inputmode="numeric"]');
+    for (const n of numeric) expect(n.getAttribute("type")).toBe("number");
+  });
+
+  it("refuses the production string 1.50050 in a revenue box, out loud", async () => {
+    const { container } = renderPage();
+    await enterManually();
+    const box = moneyBoxes(container)[0];
+    fireEvent.change(box, { target: { value: PRODUCTION_STRING } });
+
+    expect(refusalsShown()).toBe(1);
+    expect(box.getAttribute("aria-invalid")).toBe("true");
+    // And the hero total must not quietly count it as 1,50 kr.
+    expect(container.textContent).not.toContain("1,50 kr.");
+  });
+
+  it.each(["347-50", "1.234.56", "12,34,56", "1,234"])(
+    "refuses %s rather than salvaging a positive number out of it",
+    async (junk) => {
+      const { container } = renderPage();
+      await enterManually();
+      fireEvent.change(moneyBoxes(container)[0], { target: { value: junk } });
+      expect(refusalsShown()).toBe(1);
+    },
+  );
+
+  it("accepts a real Danish amount and totals it as 1.500,50", async () => {
+    const { container } = renderPage();
+    await enterManually();
+    fireEvent.change(moneyBoxes(container)[0], { target: { value: "1.500,50" } });
+
+    expect(refusalsShown()).toBe(0);
+    // The step header prints the running total at glance precision, so what we
+    // pin is that the DANISH grouping dot survived — never the browser-locale
+    // "1,500", which a Dane reads as one and a half kroner.
+    await waitFor(() => expect(container.textContent).toMatch(/1\.50[01]/));
+    expect(container.textContent).not.toContain("1,500");
+  });
+
+  it("refuses the production string in the MOMS box", async () => {
+    // The one figure on this page that goes to SKAT. momsMode must be manual
+    // for the box to exist, which is what the toggle below does.
+    const { container } = renderPage();
+    await enterManually();
+    // The MOMS block only appears on the review step, and only once there is
+    // revenue for it to be a percentage OF.
+    fireEvent.change(moneyBoxes(container)[0], { target: { value: "17.030" } });
+    for (let i = 0; i < 8; i++) {
+      if (screen.queryByText("fromReceipt")) break;
+      if (!tapNext()) break;
+    }
+    // No early-return escape hatch: if the MOMS step stops being reachable,
+    // this test must FAIL rather than pass having asserted nothing.
+    const manual = screen.getByText("fromReceipt");
+    fireEvent.click(manual.closest("button") || manual);
+    const momsBox = await screen.findByPlaceholderText("momsAmountPlaceholder");
+
+    fireEvent.change(momsBox, { target: { value: PRODUCTION_STRING } });
+    expect(refusalsShown()).toBe(1);
+    expect(momsBox.getAttribute("type")).toBe("text");
+
+    // And a real Danish MOMS figure gets through.
+    fireEvent.change(momsBox, { target: { value: "1.500,50" } });
+    expect(refusalsShown()).toBe(0);
   });
 });

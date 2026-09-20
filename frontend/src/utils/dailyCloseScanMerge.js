@@ -27,6 +27,8 @@
  *                   what it could NOT sum instead of inventing a number.
  */
 
+import { parseMoneyInput } from "./currency";
+
 export const MERGE_FILL = "fill";
 export const MERGE_REPLACE = "replace";
 export const MERGE_SUM = "sum";
@@ -49,10 +51,23 @@ const NON_SUMMABLE_FIELDS = [
   "detected_provider",
 ];
 
-/** Numeric coercion that refuses "", null, undefined and NaN — never 0-fills. */
-function toNum(v) {
+/** Numeric coercion that refuses "", null, undefined and NaN — never 0-fills.
+ *
+ * The string branch goes through parseMoneyInput, NOT parseFloat, because the
+ * values in here are no longer only the backend's JSON numbers. The scan
+ * REVIEW boxes on DailyClosePage keep the owner's raw keystrokes — deliberately,
+ * so a correction typed as "1.500,50" is not flattened to 1.5005 on its way in
+ * — and those strings land in exactly these buckets. parseFloat("1.500,50") is
+ * 1.5, so "another terminal — add them up" summed a corrected 1.500,50 as 1,50
+ * into a signed kasserapport.
+ *
+ * parseMoneyInput reads the unambiguous shapes ("1234.56") the same in either
+ * locale, so the backend's own numeric strings are unaffected; only the
+ * genuinely ambiguous "1.234" needs the account's notation to settle it.
+ */
+function toNum(v, locale = "da-DK") {
   if (v === null || v === undefined || v === "") return null;
-  const n = typeof v === "string" ? parseFloat(v) : v;
+  const n = typeof v === "string" ? parseMoneyInput(v, locale) : v;
   return typeof n === "number" && Number.isFinite(n) ? n : null;
 }
 
@@ -60,14 +75,14 @@ function toNum(v) {
  * The headline total a scan claims, or null. This is the number that decides
  * whether the "same till or another till?" question is even meaningful.
  */
-export function headlineTotal(scan) {
+export function headlineTotal(scan, locale = "da-DK") {
   if (!scan || typeof scan !== "object") return null;
-  const direct = toNum(scan.revenue_total);
+  const direct = toNum(scan.revenue_total, locale);
   if (direct != null && direct > 0) return direct;
   for (const bucket of [scan.revenue, scan.payments]) {
     if (!bucket || typeof bucket !== "object") continue;
     for (const k of TOTAL_KEYS) {
-      const v = toNum(bucket[k]);
+      const v = toNum(bucket[k], locale);
       if (v != null && v > 0) return v;
     }
   }
@@ -78,8 +93,10 @@ export function headlineTotal(scan) {
  * True when the owner — not us — has to say what the second scan is.
  * Both scans carrying a headline total is the ONLY ambiguous case.
  */
-export function needsTerminalChoice(existing, incoming) {
-  return headlineTotal(existing) != null && headlineTotal(incoming) != null;
+export function needsTerminalChoice(existing, incoming, locale = "da-DK") {
+  return (
+    headlineTotal(existing, locale) != null && headlineTotal(incoming, locale) != null
+  );
 }
 
 /** Existing behaviour: count the fields we actually read off the paper. */
@@ -146,7 +163,7 @@ function fillMerge(existing, incoming) {
  * and "terminal 2 had no MOMS" are different facts and we cannot tell them
  * apart from a photo. Nothing missing ever becomes 0.
  */
-function sumMerge(existing, incoming) {
+function sumMerge(existing, incoming, locale = "da-DK") {
   const merged = { ...existing };
   const incomplete = [];
 
@@ -156,11 +173,14 @@ function sumMerge(existing, incoming) {
     const out = {};
     const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
     for (const k of keys) {
-      const av = toNum(a[k]);
-      const bv = toNum(b[k]);
+      const av = toNum(a[k], locale);
+      const bv = toNum(b[k], locale);
       if (av != null && bv != null) out[k] = av + bv;
-      else if (av != null) { out[k] = a[k]; incomplete.push(`${name}.${k}`); }
-      else if (bv != null) { out[k] = b[k]; incomplete.push(`${name}.${k}`); }
+      // Carry the PARSED number over, not the raw cell. A one-sided field used
+      // to keep `a[k]` verbatim, so an owner-typed "1.500,50" survived into a
+      // bucket every downstream reader treats as numeric.
+      else if (av != null) { out[k] = av; incomplete.push(`${name}.${k}`); }
+      else if (bv != null) { out[k] = bv; incomplete.push(`${name}.${k}`); }
       // Neither side had a usable number → the key simply stays absent.
     }
     return out;
@@ -169,8 +189,8 @@ function sumMerge(existing, incoming) {
   merged.payments = sumBucket("payments");
 
   for (const field of ["revenue_total", "moms_total", "tips", "cash_counted_total"]) {
-    const av = toNum(existing[field]);
-    const bv = toNum(incoming[field]);
+    const av = toNum(existing[field], locale);
+    const bv = toNum(incoming[field], locale);
     if (av != null && bv != null) merged[field] = av + bv;
     else if (av != null) { merged[field] = av; incomplete.push(field); }
     else if (bv != null) { merged[field] = bv; incomplete.push(field); }
@@ -218,10 +238,10 @@ function sumMerge(existing, incoming) {
  * @param {object} incoming
  * @param {"fill"|"replace"|"sum"} [mode=MERGE_FILL]
  */
-export function mergeScans(existing, incoming, mode = MERGE_FILL) {
+export function mergeScans(existing, incoming, mode = MERGE_FILL, locale = "da-DK") {
   if (!existing) return incoming;
   if (!incoming) return existing;
-  if (mode === MERGE_SUM) return sumMerge(existing, incoming);
+  if (mode === MERGE_SUM) return sumMerge(existing, incoming, locale);
 
   const merged = fillMerge(existing, incoming);
   if (mode === MERGE_REPLACE) {
