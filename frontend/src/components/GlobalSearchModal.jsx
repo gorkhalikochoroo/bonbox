@@ -225,7 +225,17 @@ export default function GlobalSearchModal({ open, onClose }) {
     if (matchedPages.length) {
       for (const p of matchedPages) {
         out.push({
-          kind: "page", group: "Pages", icon: p.icon,
+          // Localized, like every server group's own `label` below. This was
+          // a hard-coded "Pages" — the one English header in an otherwise
+          // Danish list of headers.
+          //
+          // No `|| "Pages"` guard: t() returns the KEY on a miss, which is
+          // truthy, so that arm is unreachable — and if it ever did run it
+          // would put the English literal back. useLanguage's own comment
+          // names this pattern as broken. The 2-arg form t(key, "…") is the
+          // supported way to carry a fallback; this key is real in both
+          // tables and EN is always inlined, so it needs none.
+          kind: "page", group: t("searchGroupPages"), icon: p.icon,
           label: p.label, sublabel: p.to,
           // Tier-locked page → tapping routes to the upgrade surface
           // (the UpgradeNudge funnel), same as the sidebar / More page.
@@ -251,7 +261,7 @@ export default function GlobalSearchModal({ open, onClose }) {
       }
     }
     return out;
-  }, [matchedPages, serverGroups]);
+  }, [matchedPages, serverGroups, t]);
 
   // Reset selection whenever results change so we don't point past the end
   useEffect(() => {

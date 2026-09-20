@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useLocation } from "react-router-dom";
+import { isFloatingChromeHidden } from "../config/floatingChrome";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
 import { isNativeApp } from "../utils/platform";
@@ -104,6 +106,9 @@ const WELCOME_CONTENT =
 export default function BonBoxAgent() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  // Only the orb below reads this — the panel and its hidden trigger are
+  // route-agnostic, which is the whole point of mounting this everywhere.
+  const location = useLocation();
   const currency = user?.currency || "DKK";
 
   /* ---- state ---- */
@@ -586,8 +591,14 @@ export default function BonBoxAgent() {
           replaced by a Sparkles button in the mobile header (Layout.jsx),
           which opens this same panel via the hidden [data-bonbox-agent-toggle]
           trigger above — so phones carry zero floating buttons except the
-          bottom tab bar (C4). */}
-      {!isOpen && (
+          bottom tab bar (C4).
+
+          Also stands down on /subscription so a pulsing orb does not compete
+          with the plan cards. That check is HERE, on the orb, not in Layout:
+          Layout used to enforce it by unmounting this whole component, which
+          took the hidden trigger with it and left the mobile header's ✨
+          opening nothing on exactly that route. */}
+      {!isOpen && !isFloatingChromeHidden(location.pathname) && (
         <button
           onClick={handleOpen}
           aria-label={t("openBonBoxAi")}

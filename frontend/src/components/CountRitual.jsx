@@ -150,8 +150,15 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
     }
     const discard = await confirm({
       title: t("countLeaveTitle", "You're in the middle of a count"),
-      message: t("countLeaveBody", "{n} items counted so far. Save it and pick up where you left off, or throw the count away?")
-        .replace("{n}", String(counted)),
+      // Singular has its own key rather than an "(s)" suffix: Danish does not
+      // pluralise by adding a letter ("1 vare" / "2 varer"), and this sentence
+      // is the last thing an owner reads before deciding whether to throw away
+      // work they did on their feet in a cold room. "1 items counted so far"
+      // reads as a machine talking.
+      message: (counted === 1
+        ? t("countLeaveBodyOne", "1 item counted so far. Save it and pick up where you left off, or throw the count away?")
+        : t("countLeaveBody", "{n} items counted so far. Save it and pick up where you left off, or throw the count away?")
+      ).replace("{n}", String(counted)),
       confirmLabel: t("countLeaveDiscard", "Discard the count"),
       cancelLabel: t("countLeaveKeep", "Save for later"),
       destructive: true,
@@ -344,8 +351,14 @@ export default function CountRitual({ open, items = [], onClose, onDone }) {
             {resumed > 0 && (
               <div className="mb-5 inline-flex items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-800 px-3 py-2 text-[13px] text-gray-600 dark:text-gray-300">
                 <RotateCcw size={14} strokeWidth={1.75} aria-hidden="true" className="text-gray-400 dark:text-gray-500" />
-                {t("countResumed", "Fortsætter din optælling — {n} varer var talt")
-                  .replace("{n}", String(resumed))}
+                {/* The fallback here used to be the DANISH string, so a
+                    missing key would have shown Danish to an English session —
+                    the inline-fallback drift this repo has been bitten by
+                    before. Fallbacks mirror the EN catalogue value. */}
+                {(resumed === 1
+                  ? t("countResumedOne", "Picking up your count — 1 item was already done")
+                  : t("countResumed", "Picking up your count — {n} items were already done")
+                ).replace("{n}", String(resumed))}
               </div>
             )}
             {cur.category ? (

@@ -1,6 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from "react";
 import { ScanLine, ArrowRight, QrCode } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import Modal from "./Modal";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
@@ -12,6 +12,7 @@ import { trackEvent } from "../hooks/useEventLog";
 import Chip from "./ui/Chip";
 import { useStickyMethod } from "../hooks/useStickyMethod";
 import { parseMoneyInput, moneyLocale, moneyExample, formatOwnerMoney } from "../utils/currency";
+import { isFloatingChromeHidden } from "../config/floatingChrome";
 // Lazy-load Smart Scan modal — only fetched when the owner taps the
 // "Smart skan" entry below. Keeps QuickAdd's bundle lean for owners
 // who use the keypad path 99% of the time.
@@ -64,6 +65,8 @@ const PERSONAL_CATEGORIES = [
 export default function QuickAdd() {
   const { t } = useLanguage();
   const navigate = useNavigate();
+  // Only the FAB below reads this — the sheet itself is route-agnostic.
+  const location = useLocation();
   const { hasFeature, isReady } = useEntitlements();
   const [open, setOpen] = useState(false);
   // Smart Scan handoff — opening the smart-scan modal from inside
@@ -338,14 +341,19 @@ export default function QuickAdd() {
 
       {/* Visible floating FAB — DESKTOP ONLY (md:flex). On phones the bottom
           tab bar's center "+" is the single add affordance, so we no longer
-          stack a floating "+" over the tab bar there (C4 FAB merge). */}
-      <button
-        onClick={openSheet}
-        aria-label={t("quickEntry")}
-        className={`hidden md:flex fixed md:bottom-6 left-6 z-40 w-10 h-10 bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-white rounded-full shadow-sm hover:scale-105 transition-all items-center justify-center text-xl font-light`}
-      >
-        +
-      </button>
+          stack a floating "+" over the tab bar there (C4 FAB merge).
+          Hidden on /subscription so it doesn't compete with the page's own
+          plan CTA — the check lives HERE, on the button, because Layout doing
+          it by unmounting took the sheet above with it. */}
+      {!isFloatingChromeHidden(location.pathname) && (
+        <button
+          onClick={openSheet}
+          aria-label={t("quickEntry")}
+          className={`hidden md:flex fixed md:bottom-6 left-6 z-40 w-10 h-10 bg-gray-900 hover:bg-gray-700 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white text-white rounded-full shadow-sm hover:scale-105 transition-all items-center justify-center text-xl font-light`}
+        >
+          +
+        </button>
+      )}
 
       <Modal open={open} onClose={() => setOpen(false)} title={mode === "personal" ? t("personalEntry") : t("quickEntry")}>
         {success && (

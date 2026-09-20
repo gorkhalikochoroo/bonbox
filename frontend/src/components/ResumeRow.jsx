@@ -16,6 +16,10 @@
  *     fake suggestion. The component returns null.
  *   • Chronological recency ONLY. Order is exactly the history order (newest
  *     first); we never rerank.
+ *   • NEVER A DUPLICATE OF THE RAIL. A destination already on this owner's
+ *     sidebar is skipped: repeating a row that is visible two inches below is
+ *     not a shortcut, it is the rail talking to itself. What Fortsæt surfaces
+ *     is the More / ⌘K page the owner was just using.
  *   • VISIBILITY/TIER respect. Candidates are resolved against the SAME
  *     filterDestinations the sidebar uses (business-type, module, pillar
  *     relevance, tier) for THIS owner — so we never deep-link into a page the
@@ -40,13 +44,14 @@ import { useRouteHistory } from "../hooks/useRouteHistory";
 import {
   NAV_MANIFEST,
   filterDestinations,
+  isOnSurface,
   isScopedOffTheRail,
   isStaffMemberRole,
 } from "../config/navManifest";
 import { useDeviceShare } from "../hooks/useDeviceShare";
 import { archetypeIdFor } from "../config/archetypes";
 import { useAuth } from "../hooks/useAuth";
-import { NAV_MUTED } from "../config/navChrome";
+import { NAV_FOCUS_RING, NAV_MUTED } from "../config/navChrome";
 import { Icon } from "./ui";
 
 // How many recent destinations to surface. Intentionally small — this is an
@@ -125,6 +130,19 @@ export default function ResumeRow({ enabledModules, onNavigate }) {
       //     (khata), or a pillar we are not selling (USAGE_GATED_PILLARS →
       //     Events). Resume must not be the one surface that still offers it.
       if (isScopedOffTheRail(d, archetypeId)) continue;
+      // ALREADY-ON-THE-RAIL axis. Fortsæt sits at the very top of a ~20-row
+      // rail, so its two rows were almost always rows the owner can already
+      // see two inches further down — the most valuable vertical space in the
+      // product spent restating the spine. A shortcut to something visible is
+      // not a shortcut.
+      //
+      // What is left is what Fortsæt is actually for: the More / ⌘K
+      // destination the owner was just working in and would otherwise have to
+      // go hunting for again (Budgets, Kørsel, Forbindelser, Terminaler, and
+      // for a restaurant Faktura + Kunder). Same archetype the sidebar itself
+      // resolves with (Layout), so the two can never disagree about what "on
+      // the rail" means.
+      if (isOnSurface(d, "sidebar", archetypeId)) continue;
       map.set(d.to, d);
     }
     return map;
@@ -163,9 +181,9 @@ export default function ResumeRow({ enabledModules, onNavigate }) {
             to={d.to}
             onClick={onNavigate}
             title={`${t("resumeEyebrow")} — ${t(d.labelKey)}`}
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition
+            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition
               text-gray-600 dark:text-gray-300
-              hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-white"
+              hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-900 dark:hover:text-white ${NAV_FOCUS_RING}`}
           >
             <Icon name={d.icon} size={16} strokeWidth={1.75} className="shrink-0" />
             <span className="flex-1 truncate text-left">{t(d.labelKey)}</span>

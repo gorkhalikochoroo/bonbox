@@ -1,4 +1,5 @@
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { clickHiddenTrigger } from "../utils/hiddenTrigger";
 import { useBranch } from "./BranchSelector";
 import { useLanguage } from "../hooks/useLanguage";
 import { useAuth } from "../hooks/useAuth";
@@ -87,8 +88,15 @@ function getTabsForType(branchType) {
   ];
 }
 
+/* Where the centre "+" goes when the QuickAdd sheet is not there to open.
+   Both are pages the owner can do the sheet's default job on by hand — log a
+   sale in business mode, log a personal entry in personal mode — so a miss
+   costs taps, never the task. */
+const CENTER_FALLBACK = { business: "/sales", personal: "/personal" };
+
 export default function MobileBottomNav() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { branchType } = useBranch();
   const { t } = useLanguage();
   // Mode comes from the ACCOUNT (lib/appMode.js) — the same resolver the
@@ -101,7 +109,8 @@ export default function MobileBottomNav() {
   // briefly wrong. `user` is safe here — both Layout render sites are behind
   // ProtectedRoute, which holds a loader until /auth/me resolves.
   const { user } = useAuth();
-  const tabs = resolveMode(user) === "personal"
+  const isPersonal = resolveMode(user) === "personal";
+  const tabs = isPersonal
     ? personalTabs()
     : getTabsForType(branchType || "general");
 
@@ -138,16 +147,23 @@ export default function MobileBottomNav() {
           if (tab.isCenter) {
             // Center "+" opens the QuickAdd action sheet (log sale / add
             // expense / Smart skan) by clicking QuickAdd's hidden trigger.
-            // It's a button, not a link — no route change. Uses Plus directly
-            // (larger + white stroke) to contrast against the dark/emerald fill.
+            // Normally no route change; it only navigates when the sheet is
+            // not there to open. Uses Plus directly (larger + white stroke)
+            // to contrast against the dark/emerald fill.
+            //
+            // This was `querySelector(...)?.click()`, and that `?.` meant an
+            // unmounted QuickAdd and a working "+" were indistinguishable —
+            // which is what /subscription shipped as, a centre button that did
+            // nothing at all. The sheet is mounted on every route now; this is
+            // the belt that makes a future miss LOUD (a navigation the owner
+            // can see) instead of silence.
             return (
               <button
                 key={`center-${i}`}
                 type="button"
                 onClick={() => {
-                  document
-                    .querySelector("[data-quickadd-toggle]")
-                    ?.click();
+                  if (clickHiddenTrigger("[data-quickadd-toggle]")) return;
+                  navigate(isPersonal ? CENTER_FALLBACK.personal : CENTER_FALLBACK.business);
                 }}
                 className="relative -top-3 flex items-center justify-center
                   w-12 h-12 bg-gray-900 dark:bg-emerald-500 rounded-full

@@ -194,7 +194,7 @@ export const vi = {
   actions: "Hành động", notes: "Ghi chú",
   cashBook: "Sổ quỹ",
   cashFlow: "Dòng tiền",
-  taxAutopilot: "Trợ lý thuế",
+  taxAutopilot: "Skat Autopilot",
   dailyCloseDesc: "Chốt sổ cuối ngày — doanh thu, thanh toán, két, tiền tip.",
   historyTab: "Lịch sử", insightsTab: "Phân tích",
   addCategory: "Thêm danh mục...",

@@ -80,7 +80,12 @@ describe("the count survives the interruption", () => {
     mount();
     // The restored lines are announced. A resume the owner is not told about
     // is indistinguishable from the app inventing numbers on their shelf.
-    expect(await screen.findByText(/1 items were already done/)).toBeInTheDocument();
+    // Singular, not "1 items". The count is resumed one item at a time far
+    // more often than in bulk — an owner interrupted mid-shelf is the whole
+    // reason this draft exists — so the singular is the COMMON case here, not
+    // the edge one. Danish makes it plainer: "1 varer" is simply wrong.
+    expect(await screen.findByText(/1 item was already done/)).toBeInTheDocument();
+    expect(screen.queryByText(/1 items/)).toBeNull();
   });
 
   it("drops a draft line whose item no longer exists", async () => {

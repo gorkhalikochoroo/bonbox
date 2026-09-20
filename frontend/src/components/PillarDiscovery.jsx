@@ -44,7 +44,7 @@ import {
   pillarIsScopedOffTheRail,
 } from "../config/navManifest";
 import { archetypeIdFor } from "../config/archetypes";
-import { NAV_MUTED } from "../config/navChrome";
+import { NAV_FOCUS_RING, NAV_MUTED } from "../config/navChrome";
 import { errText } from "../utils/errText";
 
 // The setup landing route per activation-gateable pillar — where a "Sæt op X"
@@ -261,9 +261,9 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
             onClick={() => { goSetup(p); }}
             title={`${t("activationSetupEyebrow")} — ${t(p.labelKey)}`}
             aria-label={`${t("activationSetupEyebrow")} — ${t(p.labelKey)}`}
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition
+            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition
               text-gray-500 dark:text-gray-400
-              hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-700 dark:hover:text-gray-200"
+              hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-700 dark:hover:text-gray-200 ${NAV_FOCUS_RING}`}
           >
             <Icon name={p.icon} size={16} strokeWidth={1.75} className="shrink-0" />
             <span className="flex-1 truncate text-left">{t(p.labelKey)}</span>
@@ -279,10 +279,10 @@ export default function PillarDiscovery({ variant = "sidebar", onNavigate }) {
             disabled={enablingId === p.id}
             title={`${t("pillarDiscoveryEnableCta")} — ${t(p.labelKey)}`}
             aria-label={`${t("pillarDiscoveryEnableCta")} — ${t(p.labelKey)}`}
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition
+            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-[13px] font-medium transition
               text-gray-500 dark:text-gray-400
               hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:text-gray-700 dark:hover:text-gray-200
-              disabled:opacity-50"
+              disabled:opacity-50 ${NAV_FOCUS_RING}`}
           >
             <Icon
               name={enablingId === p.id ? "Loader" : p.icon}

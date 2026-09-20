@@ -14,11 +14,15 @@
  */
 export const np = {
   dashboard: "ड्यासबोर्ड", sales: "बिक्री", expenses: "खर्च", inventory: "स्टक",
-  // navToday (#150) — Nepali copy. Translated UI chrome only (per
-  // translation-scope rule: jurisdiction-specific tax / lønseddel
-  // / accountant content stays in source language).
-  navToday: "आज",
-  navTodaySubtitle: "दिनभरि लाइभ KPI · पाली अन्त्यमा बन्द गर्नुहोस्",
+  // navToday (#150) — the comment that used to sit here claimed the
+  // translation-scope rule as cover ("UI chrome translates"). It is the wrong
+  // rule for this key: "Kasserapport" is not chrome, it is the name of the
+  // document a Danish business hands its revisor, and the DK terminology lock
+  // keeps it Danish in EVERY locale. np was the only pack that had translated
+  // it — tr, the other non-Danish pack the picker offers, has always kept it.
+  // The sentence around the term is Nepali; the term itself is not.
+  navToday: "Kasserapport",
+  navTodaySubtitle: "आजका तथ्यांक लाइभ · पाली सकिएपछि kasserapport लक गर्नुहोस्",
   liveKpisLabel: "आजको लाइभ KPI",
   liveRevenueToday: "अहिलेसम्मको आय",
   liveOrdersToday: "अर्डरहरू",
@@ -702,7 +706,7 @@ export const np = {
   actions: "कार्य",
   // Cash Book
   cashBook: "खाता",
-  taxAutopilot: "कर स्वचालित",
+  taxAutopilot: "Skat Autopilot",
   dailyClose: "दैनिक बन्द", dailyCloseDesc: "दिनको अन्त्यमा — आम्दानी, भुक्तानी, नगद गणना, टिप्स।",
   newClose: "नयाँ बन्द", historyTab: "इतिहास", insightsTab: "अन्तर्दृष्टि",
   addCategory: "कोटि थप्नुहोस्...",

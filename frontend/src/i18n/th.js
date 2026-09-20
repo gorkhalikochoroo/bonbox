@@ -189,7 +189,7 @@ export const th = {
   actions: "การกระทำ", notes: "หมายเหตุ",
   cashBook: "สมุดเงินสด",
   cashFlow: "กระแสเงินสด",
-  taxAutopilot: "ผู้ช่วยภาษี",
+  taxAutopilot: "Skat Autopilot",
   dailyCloseDesc: "ปิดยอดสิ้นวัน — รายรับ การชำระเงิน เงินสดในลิ้นชัก ทิป",
   historyTab: "ประวัติ", insightsTab: "ข้อมูลเชิงลึก",
   addCategory: "เพิ่มหมวดหมู่...",

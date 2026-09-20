@@ -237,7 +237,7 @@ export default function MultiTerminalClosePage() {
     return (
       <div className="px-4 sm:px-6 py-10 max-w-2xl mx-auto">
         <h1 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
-          {t("multiClose", "Kasserapport · several terminals")}
+          {t("multiClose", "Multiple terminals")}
         </h1>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
           {t(
@@ -308,7 +308,7 @@ export default function MultiTerminalClosePage() {
         <FadeIn>
           <div className="mb-5">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              🌙 {t("multiClose") || "Multi-terminal close"}
+              🌙 {t("multiClose") || "Multiple terminals"}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {t("smartTerminalsFirstTimeIntro") ||
@@ -335,7 +335,7 @@ export default function MultiTerminalClosePage() {
         <div className="flex items-start justify-between gap-3 mb-5 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-              🌙 {t("multiClose") || "Multi-terminal close"}
+              🌙 {t("multiClose") || "Multiple terminals"}
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {today} · {scanProgress.done}/{scanProgress.total} {t("terminalsScanned") || "terminals scanned"}

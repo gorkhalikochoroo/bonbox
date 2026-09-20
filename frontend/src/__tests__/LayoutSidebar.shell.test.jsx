@@ -230,3 +230,97 @@ describe("group collapse survives navigation", () => {
     expect(screen.getByText("cashBook")).toBeInTheDocument();
   });
 });
+
+/* ── The keyboard's view of the rail ──────────────────────────────────── */
+
+describe("the rail is visible to a keyboard", () => {
+  /** Every focusable control INSIDE the rail (drawer open so it isn't inert). */
+  function railControls() {
+    const rail = aside();
+    return Array.from(rail.querySelectorAll("a[href], button, select"));
+  }
+
+  it("puts a focus ring on every control in the rail, not just the chrome", () => {
+    renderShell("/dashboard");
+    const controls = railControls();
+    // Guards the guard: if the rail ever renders empty this test must fail,
+    // not pass vacuously on zero controls.
+    expect(controls.length).toBeGreaterThan(15);
+
+    const ringless = controls
+      .filter((el) => !(el.getAttribute("class") || "").includes("focus-visible:ring-"))
+      .map((el) => el.textContent.trim() || el.getAttribute("aria-label") || el.tagName);
+
+    // Layout shipped five focus-visible declarations and all five were on
+    // chrome (skip link, hamburger, hide, close ×, floating re-open). The ~28
+    // nav rows, the group headers and the whole footer fell back to the
+    // browser default outline, which on a white rail beside a gray-100 hover
+    // is close to invisible.
+    expect(ringless, `rail controls with no focus ring: ${ringless.join(", ")}`).toEqual([]);
+  });
+
+  it("makes each group header announce whether it is open", () => {
+    renderShell("/dashboard");
+    const headers = Array.from(aside().querySelectorAll("button"))
+      .filter((b) => /^(navMoney|navStock|navReportsMoms|navSettings)$/.test(b.textContent.trim()));
+    expect(headers.length).toBeGreaterThan(2);
+
+    // The chevron rotates; a screen reader cannot see a rotation.
+    for (const h of headers) expect(h).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(headers[0]);
+    expect(headers[0]).toHaveAttribute("aria-expanded", "false");
+  });
+});
+
+/* ── The rail does not move itself ────────────────────────────────────── */
+
+describe("only the owner collapses the rail", () => {
+  it("leaves a rail the owner collapsed alone when the viewport changes", () => {
+    // An EXPLICIT preference, made by clicking. This half always held — the
+    // toggle writes bonbox_sidebar_hidden and even the old resize handler
+    // returned early on a stored value — and it is pinned here because it is
+    // the contract the rest of this fix must not break.
+    setViewport(1280);
+    renderShell("/dashboard");
+    expect(aside()).not.toHaveAttribute("inert");
+
+    fireEvent.click(screen.getByLabelText("hideSidebar"));
+    expect(aside()).toHaveAttribute("inert");
+
+    // Widening must not hand it back unasked, any more than narrowing may
+    // take it away: the click is the whole of the rule, in both directions.
+    setViewport(1600);
+    fireEvent(window, new Event("resize"));
+    expect(aside()).toHaveAttribute("inert");
+  });
+
+  it("does not collapse on resize for an owner who has made no choice", () => {
+    // No stored preference at all — the case the resize handler really did
+    // own, and the one an owner actually hits: narrow a window mid-session and
+    // the rail was yanked off-canvas without a single click, into the
+    // 768-1023px band where the mobile top bar and the bottom tab bar are BOTH
+    // md:hidden and one floating button is the whole of navigation.
+    setViewport(1280);
+    renderShell("/dashboard");
+    expect(aside()).not.toHaveAttribute("inert");
+
+    setViewport(900);
+    fireEvent(window, new Event("resize"));
+    expect(aside()).not.toHaveAttribute("inert");
+
+    setViewport(820);
+    fireEvent(window, new Event("orientationchange"));
+    expect(aside()).not.toHaveAttribute("inert");
+  });
+
+  it("opens at first paint in the 768-1023px band, where nothing else navigates", () => {
+    // The old first-paint guess (<1024px) could only ever apply here: the flag
+    // reaches the DOM through `md:` classes alone, so below 768 it is inert.
+    // Collapsing by default in this band left one unlabelled 44px button as the
+    // owner's entire navigation, unasked.
+    setViewport(820);
+    renderShell("/dashboard");
+    expect(aside()).not.toHaveAttribute("inert");
+  });
+});

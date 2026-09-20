@@ -76,6 +76,29 @@ export const NAV_MUTED = "text-gray-500 dark:text-gray-400";
 export const NAV_MUTED_HOVER = "hover:text-gray-700 dark:hover:text-gray-200";
 
 /**
+ * The rail's KEYBOARD focus ring.
+ *
+ * Layout had five focus-visible declarations and every one of them was on
+ * chrome — the skip link, the hamburger, the hide button, the drawer ×, the
+ * floating re-open. The ~28 nav rows, the group-header buttons, Fortsæt, the
+ * discovery floor and the whole footer had none, so the only thing telling a
+ * keyboard user where they were standing was the browser default outline:
+ * a thin near-black hairline on a white rail, sitting directly beside rows
+ * that already carry a gray-100 hover. Tab through it and you cannot tell.
+ *
+ * On --brand-green-accent, not a literal, for two reasons: it is the rail's
+ * one identity accent (the same token the active row's 2px rail and the
+ * collapsed-group dot are drawn in), and it FLIPS by theme — a fixed emerald
+ * cannot clear the 3:1 non-text floor on both grounds. The offset ground is
+ * --surface-card because that is the rail itself, which is what is actually
+ * behind the ring.
+ */
+export const NAV_FOCUS_RING =
+  "focus-visible:outline-none focus-visible:ring-2 " +
+  "focus-visible:ring-[rgb(var(--brand-green-accent))] " +
+  "focus-visible:ring-offset-1 focus-visible:ring-offset-[rgb(var(--surface-card))]";
+
+/**
  * The literal colours behind the tokens above, kept next to them so the AA
  * guard test can assert the measured RATIO rather than trust a class name.
  * `surface` is the sidebar's own background (`bg-white dark:bg-gray-800`) —

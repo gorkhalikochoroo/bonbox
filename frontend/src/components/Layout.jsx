@@ -13,6 +13,7 @@ import { isNativeApp } from "../utils/platform";
 import { syncStatusBar } from "../utils/statusBar";
 import { filterDestinations, sidebarGroupsFor, PILLAR_DISPLAY_BY_ID, isStaffMemberRole, pillarIsScopedOffTheRail } from "../config/navManifest";
 import {
+  NAV_FOCUS_RING,
   NAV_GROUPS_STORAGE_KEY,
   NAV_MUTED,
   NAV_MUTED_HOVER,
@@ -20,6 +21,8 @@ import {
   readNavGroups,
   toggleNavGroup,
 } from "../config/navChrome";
+import { isFloatingChromeHidden } from "../config/floatingChrome";
+import { clickHiddenTrigger } from "../utils/hiddenTrigger";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { usePageTracking } from "../hooks/useEventLog";
 import NotificationCenter from "./NotificationCenter";
@@ -213,7 +216,15 @@ const accountantNavGroups = [
   },
   {
     id: "reports",
-    labelKey: "navReports",
+    // navReportsMoms, not navReports — the owner rail's own header key, which
+    // this nav claims to mirror. navReports resolves to the bare noun
+    // ("Rapporter" / "Reports" / "Raporlar"), i.e. character-for-character the
+    // row below it once that row stopped repeating the group's name. A header
+    // and its second row reading the same word is the defect the owner rail
+    // was just cleaned of; it would have been re-created here, on the surface
+    // a revisor sees. This key already exists in every loaded locale and keeps
+    // MOMS Danish.
+    labelKey: "navReportsMoms",
     icon: "BarChart3",
     visibleFor: null,
     items: [
@@ -264,23 +275,30 @@ export default function Layout() {
   // the existing sidebarOpen overlay model — this flag is ignored
   // there.
   //
-  // Smart default for tablets / smaller laptops: if the user hasn't
-  // explicitly set a preference, auto-collapse on viewports below
-  // 1024px (iPad portrait, small Windows tablets, 11" MacBook side-
-  // by-side, etc.) so reports + dashboard tables get the full width
-  // by default. Above 1024px the sidebar stays open by default.
+  // The rail starts OPEN unless the owner has said otherwise. There is no
+  // viewport guess left, and the reason is arithmetic rather than taste.
+  //
+  // This flag only ever reaches the DOM through `md:` classes — the rail's
+  // `md:-translate-x-full`, main's `md:ml-0`, the floating re-open button's
+  // `hidden md:flex` — and `md` is 768. Below 768 the rail is governed by
+  // `sidebarOpen` (the drawer) instead, so the flag is inert there. The old
+  // default fired below 1024. Intersect the two and its ENTIRE effective range
+  // was 768–1023px: exactly the band where the mobile top bar and the bottom
+  // tab bar are both `md:hidden`, so collapsing the rail leaves one unlabelled
+  // 44px floating button as the whole of navigation. The guess could only ever
+  // apply where it cost the most, and it cost it to an owner who had not asked
+  // for anything.
+  //
+  // The width it was buying back is still available — one click on the hide
+  // button, which writes the key and persists forever. That is the trade the
+  // right way round: the owner spends a click to gain width, instead of
+  // spending their navigation to gain width they did not ask for.
   const [desktopSidebarHidden, setDesktopSidebarHidden] = useState(() => {
     try {
       const saved = localStorage.getItem("bonbox_sidebar_hidden");
-      if (saved === "1") return true;
-      if (saved === "0") return false;
-      // No explicit preference — auto-decide based on viewport width.
-      if (typeof window !== "undefined") {
-        return window.innerWidth < 1024;
-      }
-      return false;
+      return saved === "1";
     } catch {
-      return false;
+      return false; // private mode — open is the safe direction for navigation
     }
   });
   const toggleDesktopSidebar = () => {
@@ -323,22 +341,24 @@ export default function Layout() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Listen for orientation changes (iPad rotating from portrait to
-  // landscape, phone rotating, etc). Respects an explicit user
-  // preference if present in localStorage; otherwise re-applies the
-  // viewport-based default so the sidebar feels native after a
-  // rotation. Cleans up on unmount.
+  // Width tracking for resize + orientationchange (iPad rotating from portrait
+  // to landscape, a window dragged narrower, etc). Cleans up on unmount.
+  //
+  // This used to ALSO re-apply the <1024px collapse default on every resize
+  // for anyone without a stored preference — so narrowing a window mid-session
+  // took the rail away from an owner who had not asked for that, in the one
+  // band (768–1023px) where the mobile top bar and the bottom tab bar are both
+  // `md:hidden` and the floating re-open button is the ONLY way back.
+  //
+  // Nothing but an explicit click moves the rail now, in either direction. No
+  // one-directional "reveal on widen" either: with the width guess gone (see
+  // the initialiser above) there is no auto-collapse left for a widen to undo,
+  // so re-opening on resize would only ever override a deliberate collapse.
   useEffect(() => {
     const onResize = () => {
-      // Breakpoint tracking FIRST, above the early return below: it must run
-      // even for an owner who has an explicit sidebar preference, or a rotate
-      // into portrait would leave the rail off-canvas but still tabbable.
+      // Whether the rail is off-canvas means different things either side of
+      // `md`, so this must keep tracking — see navOffCanvas.
       setIsMdUp(window.innerWidth >= MD_BREAKPOINT);
-      try {
-        const saved = localStorage.getItem("bonbox_sidebar_hidden");
-        if (saved === "1" || saved === "0") return;  // user has chosen — leave alone
-      } catch { /* ignore */ }
-      setDesktopSidebarHidden(window.innerWidth < 1024);
     };
     window.addEventListener("resize", onResize);
     window.addEventListener("orientationchange", onResize);
@@ -618,8 +638,12 @@ export default function Layout() {
   // background (#f3f4f6) — below the 3:1 WCAG non-text floor, i.e. the one
   // indicator telling you where you are was the least visible thing in the
   // rail. It is emerald-600 in light (3.42:1) and emerald-400 in dark (6.25:1).
-  const activeClass = "bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white font-semibold shadow-[inset_2px_0_0_0_rgb(var(--brand-green-accent))]";
-  const inactiveClass = "text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-white";
+  //
+  // Both strings carry NAV_FOCUS_RING (config/navChrome.js). Every nav row on
+  // the rail composes one of these two, so putting it here is what makes the
+  // sweep exhaustive rather than a list of rows someone remembered.
+  const activeClass = `bg-gray-100 dark:bg-gray-700/60 text-gray-900 dark:text-white font-semibold shadow-[inset_2px_0_0_0_rgb(var(--brand-green-accent))] ${NAV_FOCUS_RING}`;
+  const inactiveClass = `text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-white ${NAV_FOCUS_RING}`;
 
   return (
     /* Rung 0 of the SURFACE LADDER — the page ground every card sits on. Was a
@@ -712,10 +736,27 @@ export default function Layout() {
               The brand accent keeps the AI moment recognizable as the orb —
               on --brand-green-accent, which already resolves to emerald-600 in
               light and emerald-400 in dark, so this is the same two colours it
-              shipped, minus the hand-written theme pair that could drift. */}
+              shipped, minus the hand-written theme pair that could drift.
+
+              The `?.click()` this used to be could not tell "panel opened"
+              from "nothing was there" — and on /subscription nothing WAS
+              there. BonBoxAgent is mounted everywhere now, so the remaining
+              miss is its lazy chunk still in flight; the owner tapped ✨ to ask
+              BonBox something, so the question still gets somewhere to go.
+
+              The fallback NAVIGATES rather than dispatching bonbox:open-support
+              the way the "?" beside it does. That event's only listener is
+              SupportChip — a lazy sibling of the very component we just failed
+              to find — so in the one situation this fallback exists for, it was
+              firing into a subtree that was not there either. A fallback may
+              not depend on a sibling of the thing that was missing. /feedback
+              is a real route, rendered by the router, and it says "tell us
+              anything — a bug, an idea, a question": not the assistant, but
+              visibly somewhere rather than invisibly nowhere. */}
           <button
             onClick={() => {
-              document.querySelector("[data-bonbox-agent-toggle]")?.click();
+              if (clickHiddenTrigger("[data-bonbox-agent-toggle]")) return;
+              navigate("/feedback");
             }}
             aria-label={t("openBonBoxAi")}
             className="text-[rgb(var(--brand-green-accent))] hover:text-[rgb(var(--brand-green-hover))] transition"
@@ -845,10 +886,10 @@ export default function Layout() {
           <div className="px-3 py-2">
             <button
               onClick={toggleMode}
-              className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition
+              className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition
                 bg-gray-50 dark:bg-gray-700/60 text-gray-800 dark:text-gray-100
                 border border-gray-200 dark:border-gray-600
-                hover:bg-gray-100 dark:hover:bg-gray-700"
+                hover:bg-gray-100 dark:hover:bg-gray-700 ${NAV_FOCUS_RING}`}
             >
               <span
                 className={`w-2 h-2 rounded-full shrink-0 ${
@@ -876,7 +917,7 @@ export default function Layout() {
             onClick={() => setSearchOpen(true)}
             aria-label={t("search") || "Search"}
             className={`flex-1 min-w-0 flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition
-              ${NAV_MUTED}
+              ${NAV_MUTED} ${NAV_FOCUS_RING}
               hover:bg-gray-50 dark:hover:bg-gray-700/40 ${NAV_MUTED_HOVER}`}
           >
             <svg className="w-3 h-3 shrink-0 opacity-70" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
@@ -916,7 +957,7 @@ export default function Layout() {
                   }
                 >
                   <Icon name={item.icon} size={18} className="shrink-0" />
-                  {item.labelKey ? t(item.labelKey) : item.label}
+                  <span className="flex-1 truncate">{item.labelKey ? t(item.labelKey) : item.label}</span>
                 </NavLink>
               ))}
             </div>
@@ -986,7 +1027,14 @@ export default function Layout() {
                             }
                           >
                             <Icon name={item.icon} size={18} className="shrink-0" />
-                            {item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}
+                            {/* `truncate`, like the locked variant above
+                                already had. Measured on the real 224px rail:
+                                "Abonnement & betaling" is 148.7px in a 142px
+                                slot — the one label that still overflows once
+                                multiClose stops saying "Kasserapport · ". A
+                                locked row clipped it and an unlocked row spilled
+                                it, which is the asymmetry, not the width. */}
+                            <span className="flex-1 truncate">{item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}</span>
                           </NavLink>
                         )
                       ))}
@@ -1006,6 +1054,11 @@ export default function Layout() {
                   <div key={group.id} className="mt-3">
                     <button
                       onClick={() => toggleGroup(group.id)}
+                      /* The header IS the disclosure control for the rows under
+                         it, and it said so to sighted users only (the chevron
+                         rotates) — a screen-reader user got an unlabelled
+                         button with no state at all. */
+                      aria-expanded={isOpen}
                       /* Group headers are the organising layer — the thing that
                          makes a dense rail scannable at all. On the AA-passing
                          muted tier, not the 2.54:1 gray-400 they used to be.
@@ -1014,7 +1067,7 @@ export default function Layout() {
                          hugs its own label and the AIR lands between the header
                          and its rows, which is what makes it read as a label
                          for what follows rather than as the first row of it. */
-                      className={`w-full flex items-center gap-2 px-3 py-1 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition ${
+                      className={`w-full flex items-center gap-2 px-3 py-1 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition ${NAV_FOCUS_RING} ${
                         hasActiveChild
                           ? "text-gray-900 dark:text-gray-100"
                           : `${NAV_MUTED} ${NAV_MUTED_HOVER}`
@@ -1074,7 +1127,7 @@ export default function Layout() {
                               }
                             >
                               <Icon name={item.icon} size={16} className="shrink-0" />
-                              {item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}
+                              <span className="flex-1 truncate">{item.dynamic ? vatTerms.sidebarLabel : t(item.labelKey)}</span>
                             </NavLink>
                           )
                         ))}
@@ -1114,14 +1167,14 @@ export default function Layout() {
               global listener opens the modal (z-50) over everything. */}
           <button
             onClick={() => { closeSidebar(); window.dispatchEvent(new Event("bonbox:open-support")); }}
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition ${NAV_FOCUS_RING}`}
           >
             <span className="w-5 flex items-center justify-center"><Icon name="MessageSquare" size={14} /></span>
             {t("helpFeedback") || "Help & feedback"}
           </button>
           <button
             onClick={toggleDark}
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition ${NAV_FOCUS_RING}`}
           >
             <span className="w-5 flex items-center justify-center"><Icon name={dark ? "Sun" : "Moon"} size={14} /></span>
             {dark ? t("lightMode") : t("darkMode")}
@@ -1136,7 +1189,7 @@ export default function Layout() {
               value={lang}
               onChange={(e) => setLang(e.target.value)}
               aria-label="Language"
-              className="bg-transparent text-xs font-medium outline-none cursor-pointer pr-1"
+              className={`bg-transparent text-xs font-medium outline-none cursor-pointer pr-1 rounded ${NAV_FOCUS_RING}`}
             >
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>
@@ -1147,7 +1200,7 @@ export default function Layout() {
           </div>
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition font-medium"
+            className={`w-full flex items-center gap-2.5 px-3 py-1.5 rounded-lg text-xs text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition font-medium ${NAV_FOCUS_RING}`}
           >
             <span className="w-5 flex items-center justify-center"><Icon name="LogOut" size={14} /></span>
             {t("signOut")}
@@ -1206,29 +1259,47 @@ export default function Layout() {
       {/* Mobile bottom nav — iOS tab bar pattern */}
       <MobileBottomNav />
 
-      {/* Floating widgets — hidden on pricing/subscription pages so they
-          don't visually compete with the CTA cards. The "+" QuickAdd
-          implies "log a sale" which is wrong context when someone is
-          deciding whether to upgrade; the ✨ BonBoxAgent likewise
-          distracts from the pricing decision. */}
-      {!_HIDE_FLOATING_ON.some((p) => location.pathname.startsWith(p)) && (
-        <Suspense fallback={null}>
-          <QuickAdd />
-          <BonBoxAgent />
-          {/* Smart Scan FAB removed in C4 (FAB merge): "snap anything" now
-              lives as the first option inside the QuickAdd sheet, reached on
-              mobile via the bottom-tab center "+" and on desktop via the
-              QuickAdd "+". One fewer floating button on phones. */}
-          {/* SupportChip — bottom-left "?" so the founder hears
-              from owners before they churn. */}
-          <SupportChip />
-          {/* InstallAppPrompt — encourages adding BonBox to the home
-              screen. Self-hides when already standalone / dismissed /
-              running in a Capacitor shell, so it never shows up where
-              it would be redundant. */}
-          <InstallAppPrompt />
-        </Suspense>
-      )}
+      {/* Floating widgets — MOUNTED ON EVERY ROUTE.
+          The quiet-on-/subscription rule still holds, but it is now each
+          component's own job (config/floatingChrome.js): it hides that
+          component's floating BUTTON, not the sheet behind it. Layout used to
+          drop the whole subtree, which also removed the hidden triggers that
+          other surfaces click — so on /subscription the phone tab bar's centre
+          "+" opened nothing, the mobile header's ✨ opened nothing, and both
+          Help entries (header "?" and the sidebar's Help & feedback row)
+          dispatched an event with no listener. Three dead CTAs on ONE route,
+          to hide two buttons — the list's other entry, /pricing, is a redirect
+          and was never a rendered surface at all. */}
+      {/* ONE BOUNDARY EACH, deliberately. A Suspense boundary commits none of
+          its children while ANY of them is still resolving, so a single shared
+          boundary made these four widgets load as a unit: QuickAdd's chunk
+          arriving late unmounted BonBoxAgent's trigger and SupportChip's
+          listener too. "Mounted on every route" has to mean at every moment,
+          not just once the slowest chunk lands. Separate boundaries cost four
+          null fallbacks and make each widget's absence its own, short window. */}
+      <Suspense fallback={null}>
+        <QuickAdd />
+      </Suspense>
+      {/* Smart Scan FAB removed in C4 (FAB merge): "snap anything" now
+          lives as the first option inside the QuickAdd sheet, reached on
+          mobile via the bottom-tab center "+" and on desktop via the
+          QuickAdd "+". One fewer floating button on phones. */}
+      <Suspense fallback={null}>
+        <BonBoxAgent />
+      </Suspense>
+      {/* SupportChip — the support composer. It has no floating button of
+          its own any more (see its render), so it is pure listener: the
+          only thing suppressing it ever did was kill both Help entries. */}
+      <Suspense fallback={null}>
+        <SupportChip />
+      </Suspense>
+      {/* InstallAppPrompt — encourages adding BonBox to the home screen.
+          Self-hides when already standalone / dismissed / running in a
+          Capacitor shell. This one IS just chrome — nothing else opens it —
+          so it keeps the route gate, here where it is rendered. */}
+      <Suspense fallback={null}>
+        {!isFloatingChromeHidden(location.pathname) && <InstallAppPrompt />}
+      </Suspense>
 
       {/* Smart Language toast — fires once if we auto-picked the
           language from browser/currency on first visit. Self-suppresses
@@ -1255,6 +1326,3 @@ export default function Layout() {
     </div>
   );
 }
-
-// Routes where floating action buttons should be suppressed.
-const _HIDE_FLOATING_ON = ["/pricing", "/subscription"];

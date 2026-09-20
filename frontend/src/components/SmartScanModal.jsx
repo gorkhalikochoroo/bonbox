@@ -658,7 +658,12 @@ export default function SmartScanModal({ open, onClose }) {
                       {t("smartScan.pick.kasserapport", "Kasserapport")}
                     </p>
                     <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                      {t("smartScan.pick.kasserapportHint", "Til I dag")}
+                      {/* Re-synced with the catalogue. The fallback still
+                          said "Til I dag" — the daily close's pre-rename
+                          name — so the one moment this string shows (a pack
+                          loading without the key) would have put the old name
+                          back on screen. */}
+                      {t("smartScan.pick.kasserapportHint", "Vi udfylder dagens tal")}
                     </p>
                   </div>
                 </button>

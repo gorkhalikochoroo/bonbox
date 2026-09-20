@@ -2264,7 +2264,14 @@ const translations = {
     // longer "Daily Close" / "Daily Report" strings can live on as
     // tooltips / button copy without colliding with sidebar pressure for
     // short labels).
-    navHome: "Home", navTodaysFloor: "Today's Floor", navReportsTax: "Reports & Tax",
+    //
+    // navReportsTax is "Reports", not "Reports & Tax". The group it sits in
+    // is headed "Reports & MOMS" and the row under it is the tax filing, so
+    // the old value said the group's name AND its sibling's name — and said
+    // the second one in the OTHER language ("Tax" under "MOMS"). A row is
+    // allowed to share a noun with the group it names; it is not allowed to
+    // carry its neighbour's job as well. See taxAutopilot for the other half.
+    navHome: "Home", navTodaysFloor: "Today's Floor", navReportsTax: "Reports",
     navEndOfDayClose: "End-of-Day", navConnections: "Connections",
     // navToday (#150) — the merged daily page label. Replaces the
     // separate navTodaysFloor + navEndOfDayClose entries in the
@@ -3431,8 +3438,12 @@ const translations = {
     terminalDeleteFailed: "Could not delete",
     terminalConfirmDelete: "Delete terminal {name}? Past closes are preserved.",
     branch: "Branch",
-    // Multi-terminal daily close
-    multiClose: "Kasserapport · several terminals",
+    // Multi-terminal daily close. NOT "Kasserapport · …": this row sits ten
+    // rows below the one already called Kasserapport, and a nav row does not
+    // have to repeat the noun the page it opens already carries. Naming only
+    // what makes THIS row different also stopped it overflowing the 224px
+    // rail — it was the one label that did, by 60px.
+    multiClose: "Multiple terminals",
     terminalsScanned: "terminals scanned",
     scanFailed: "Scan failed — try again or skip this terminal",
     aggregateFailed: "Could not consolidate the close",
@@ -3561,7 +3572,7 @@ const translations = {
     // Inventory
     inventoryMonitor: "Inventory Monitor", lowStockAlerts: "Low Stock Alerts", itemsBelowMinStock: "items below min stock",
     countTitle: "Optælling", countCardTitle: "Weekly stock count", countCardSub: "BonBox keeps your stock live from sales — confirm it on the shelf.", countStart: "Start count", countProgress: "Item {n} of {total}", countRemaining: "{n} left", countDoneTitle: "Stock updated", countDoneNoChange: "All matched — nothing adjusted", countDoneAdjusted: "{n} items adjusted", countStockValue: "Lagerværdi", countSendRevisor: "Download stock report for revisor", countCloseDone: "Done", countEmpty: "No items to count yet.", countAiCounted: "AI estimated — confirm or fix", countBlind: "Count on the shelf", countMinus: "Fewer", countPlus: "More", countQty: "Quantity", countPrefilled: "BonBox suggested {n} {u}", countConfirmNext: "Correct · next", countConfirmFinish: "Correct · finish", countSkip: "Skip", countFinishEarly: "Finish count",
-    countLeaveTitle: "You're in the middle of a count", countLeaveBody: "{n} items counted so far. Save it and pick up where you left off, or throw the count away?", countLeaveDiscard: "Discard the count", countLeaveKeep: "Save for later", countResumed: "Picking up your count — {n} items were already done", countReportBusy: "Getting the report…", countReportFailed: "Couldn't get the report — try again.",
+    countLeaveTitle: "You're in the middle of a count", countLeaveBodyOne: "1 item counted so far. Save it and pick up where you left off, or throw the count away?", countLeaveBody: "{n} items counted so far. Save it and pick up where you left off, or throw the count away?", countLeaveDiscard: "Discard the count", countLeaveKeep: "Save for later", countResumedOne: "Picking up your count — 1 item was already done", countResumed: "Picking up your count — {n} items were already done", countReportBusy: "Getting the report…", countReportFailed: "Couldn't get the report — try again.",
     addItem: "Add Item", itemName: "Item name", quantity: "Quantity", unit: "Unit",
     costPerUnit: "Cost/Unit", threshold: "Threshold",
     pieces: "Pieces", kg: "Kg", liters: "Liters", boxes: "Boxes",
@@ -6709,13 +6720,23 @@ const translations = {
     searchHintClose: "close",
     searchExpand: "Bigger view",
     searchCollapse: "Smaller view",
+    // ⌘K group headers. The server sends a localized `label` for its own
+    // groups (sales / expenses / …); the client-side page matches used to
+    // carry a hard-coded English "Pages", so a Danish owner got one English
+    // header sitting among Danish ones. A group header is a label like any
+    // other — it gets a key.
+    searchGroupPages: "Pages",
     // Page label fallbacks used by the modal's static page list
     dailyReport: "Daily Report",
     cashBook: "Cash Book",
     cashFlow: "Cash Flow",
     vatReport: "VAT Report",
     weeklyReport: "Weekly Report",
-    taxAutopilot: "Tax",
+    // The page's own name, in every locale, exactly as taxAutopilotTitle
+    // already renders it. It was the bare category word "Tax" — which under
+    // a group headed "Reports & MOMS" was the same concept twice in two
+    // languages, one row apart. A proper noun cannot do that.
+    taxAutopilot: "Skat Autopilot",
     expiry: "Expiry",
     waste: "Waste",
     weather: "Weather",
@@ -10559,7 +10580,8 @@ const translations = {
     allergen_nsaids: "NSAID (f.eks. ibuprofen)", allergen_iodine: "Jod / kontrast",
     allergen_adhesives: "Klæbemidler / plastre",
     // Sidebar job-to-be-done labels — see EN block for rationale.
-    navHome: "Forsiden", navTodaysFloor: "Dagens drift", navReportsTax: "Rapporter & Skat",
+    // navReportsTax: "Rapporter", ikke "Rapporter & Skat" — se en-blokken.
+    navHome: "Forsiden", navTodaysFloor: "Dagens drift", navReportsTax: "Rapporter",
     navEndOfDayClose: "Dagsafslutning", navConnections: "Forbindelser",
     // navToday (#150) — Danish copy for the merged daily page.
     navToday: "Kasserapport",
@@ -11655,8 +11677,9 @@ const translations = {
     terminalDeleteFailed: "Kunne ikke slette",
     terminalConfirmDelete: "Slet terminal {name}? Tidligere lukninger bevares.",
     branch: "Filial",
-    // Multi-terminal daily close
-    multiClose: "Kasserapport · flere terminaler",
+    // Multi-terminal daily close — see the en note: the parent noun is
+    // implied by the page this opens.
+    multiClose: "Flere terminaler",
     terminalsScanned: "terminaler scannet",
     scanFailed: "Scanning fejlede — prøv igen eller spring denne terminal over",
     aggregateFailed: "Kunne ikke samle lukningen",
@@ -11787,7 +11810,7 @@ const translations = {
     // Inventory
     inventoryMonitor: "Lageroversigt", lowStockAlerts: "Advarsler om lav beholdning", itemsBelowMinStock: "varer under minimum",
     countTitle: "Optælling", countCardTitle: "Ugentlig optælling", countCardSub: "BonBox holder dit lager opdateret fra salget — bekræft det på hylden.", countStart: "Start optælling", countProgress: "Vare {n} af {total}", countRemaining: "{n} tilbage", countDoneTitle: "Lager opdateret", countDoneNoChange: "Alt stemte — intet justeret", countDoneAdjusted: "{n} varer justeret", countStockValue: "Lagerværdi", countSendRevisor: "Hent lagerrapport til revisor", countCloseDone: "Færdig", countEmpty: "Ingen varer at tælle endnu.", countAiCounted: "AI har beregnet — bekræft eller ret", countBlind: "Tæl på hylden", countMinus: "Færre", countPlus: "Flere", countQty: "Antal", countPrefilled: "BonBox foreslog {n} {u}", countConfirmNext: "Stemmer · næste", countConfirmFinish: "Stemmer · afslut", countSkip: "Spring over", countFinishEarly: "Afslut optælling",
-    countLeaveTitle: "Du er midt i en optælling", countLeaveBody: "{n} varer er talt indtil nu. Gem den og fortsæt, hvor du slap — eller kassér optællingen?", countLeaveDiscard: "Kassér optællingen", countLeaveKeep: "Gem og fortsæt senere", countResumed: "Fortsætter din optælling — {n} varer var talt", countReportBusy: "Henter rapporten…", countReportFailed: "Kunne ikke hente rapporten — prøv igen.",
+    countLeaveTitle: "Du er midt i en optælling", countLeaveBodyOne: "1 vare er talt indtil nu. Gem den og fortsæt, hvor du slap — eller kassér optællingen?", countLeaveBody: "{n} varer er talt indtil nu. Gem den og fortsæt, hvor du slap — eller kassér optællingen?", countLeaveDiscard: "Kassér optællingen", countLeaveKeep: "Gem og fortsæt senere", countResumedOne: "Fortsætter din optælling — 1 vare var talt", countResumed: "Fortsætter din optælling — {n} varer var talt", countReportBusy: "Henter rapporten…", countReportFailed: "Kunne ikke hente rapporten — prøv igen.",
     addItem: "Tilføj vare", itemName: "Varenavn", quantity: "Antal", unit: "Enhed",
     costPerUnit: "Pris/enhed", threshold: "Grænseværdi",
     pieces: "Styk", kg: "Kg", liters: "Liter", boxes: "Kasser",
@@ -14819,12 +14842,14 @@ const translations = {
     searchHintClose: "luk",
     searchExpand: "Større visning",
     searchCollapse: "Mindre visning",
+    searchGroupPages: "Sider",
     dailyReport: "Daglig rapport",
     cashBook: "Kassebog",
     cashFlow: "Pengestrøm",
     vatReport: "Momsopgørelse",
     weeklyReport: "Ugerapport",
-    taxAutopilot: "Skat",
+    // Sidens eget navn — se en-blokken.
+    taxAutopilot: "Skat Autopilot",
     // ─── single-word labels that slipped past earlier fills ─────────────
     budget: "Budget",
     competitors: "Konkurrenter",
