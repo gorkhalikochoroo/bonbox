@@ -429,10 +429,15 @@ export const NAV_MANIFEST = [
     // South-Asian retail convention, NOT part of the Denmark-first product —
     // a DK business doesn't run a khata. HIDDEN for now (Manoj, 2026-06-28):
     // `surfaces: []` removes it from the sidebar, More, and ⌘K everywhere.
-    // FULLY REVERSIBLE — the /khata route, the KhataPage, the backend, and any
-    // existing data are all untouched; restore visibility by putting the
-    // surfaces back (["sidebar","more","search"]). If a non-DK market ever
-    // needs it, also drop `personal`/add the right archetypes below.
+    // Sep 2026: the ROUTE is closed too. `surfaces: []` never stopped a typed
+    // URL or a bookmark from rendering the whole page, which is how it turned
+    // up again on the founder's screen — 10 customers and 11 lines across the
+    // whole database, nothing since 4 May. App.jsx now redirects /khata to the
+    // dashboard.
+    // FULLY REVERSIBLE — the KhataPage, its API and every existing row are
+    // untouched; restore visibility by putting the surfaces back
+    // (["sidebar","more","search"]) AND the route back in App.jsx. If a non-DK
+    // market ever needs it, also drop `personal`/add the right archetypes below.
     to: "/khata",
     icon: "BookText",
     labelKey: "khata",

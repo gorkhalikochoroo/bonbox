@@ -253,7 +253,13 @@ const CashBookPage = lazyRetry(() => import("./pages/CashBookPage"));
 const RecentlyDeletedPage = lazyRetry(() => import("./pages/RecentlyDeletedPage"));
 const ProfilePage = lazyRetry(() => import("./pages/ProfilePage"));
 const PersonalPage = lazyRetry(() => import("./pages/PersonalPage"));
-const KhataPage = lazyRetry(() => import("./pages/KhataPage"));
+// Khata (customer credit ledger) is a South-Asian retail convention and not
+// part of the Denmark-first product. It left the sidebar, More and ⌘K in June
+// (navManifest `surfaces: []`), but the ROUTE stayed live, so a bookmark or a
+// typed URL still rendered the whole page — which is how it surfaced again in
+// September. The page, its API and every existing row are untouched; only the
+// way in is closed. Restore by putting this import and the route back, and the
+// surfaces back on the manifest entry.
 // Invoicing module — Starter-tier feature for occasional businesses.
 const FakturaPage = lazyRetry(() => import("./pages/FakturaPage"));
 const FakturaReviewPage = lazyRetry(() => import("./pages/FakturaReviewPage"));
@@ -671,7 +677,7 @@ function AppRoutes() {
           <Route path="/recently-deleted" element={<RecentlyDeletedPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/personal" element={<PersonalPage />} />
-          <Route path="/khata" element={<KhataPage />} />
+          <Route path="/khata" element={<Navigate to="/dashboard" replace />} />
           <Route path="/faktura" element={<FakturaPage />} />
           <Route path="/faktura/review" element={<FakturaReviewPage />} />
           <Route path="/customers" element={<CustomersPage />} />
