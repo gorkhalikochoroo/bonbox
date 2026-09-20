@@ -11,6 +11,7 @@ import { trackEvent } from "../hooks/useEventLog";
 import DismissibleTip from "../components/DismissibleTip";
 import { safeImageUrl } from "../utils/safeUrl";
 import { errText } from "../utils/errText";
+import { useConfirm } from "../hooks/useConfirm";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { canPurchaseInApp, isNativeApp } from "../utils/platform";
 import { haptic } from "../utils/haptics";
@@ -3957,7 +3958,9 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
    ═══════════════════════════════════════════════════════════ */
 function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLockedClose, onDismissLastLocked }) {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [downloading, setDownloading] = useState(null);
+  const [deleting, setDeleting] = useState(null);
   const [sharing, setSharing] = useState(null);
   const [shareToast, setShareToast] = useState("");
   const [unlockId, setUnlockId] = useState(null);
@@ -4318,7 +4321,50 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     }
   };
 
-  const downloadPdf = async (id, dateStr) => {
+  /**
+   * Delete a DRAFT kasserapport.
+   *
+   * The gap this closes: the row actions were Edit / Send / PDF / Unlock only,
+   * so a mistaken or self-contradictory draft could never be removed — it sat
+   * forever in the exact list an owner hands to their revisor.
+   *
+   * A LOCKED close is a record under Bogføringsloven §10 and is never deletable
+   * from here; the server refuses it with 409 close_locked and the button is
+   * not rendered for it either. Deletion is SOFT (is_deleted / deleted_at) and
+   * writes an audit row, both server-side.
+   */
+  const deleteDraft = async (dc) => {
+    const ok = await confirm({
+      title: t("dcDeleteDraftTitle", "Delete this kladde?"),
+      message: t(
+        "dcDeleteDraftBody",
+        "This draft is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
+      ),
+      confirmLabel: t("delete", "Delete"),
+      cancelLabel: t("cancel", "Cancel"),
+      destructive: true,
+    });
+    if (!ok) return;
+    setDeleting(dc.id);
+    setRowError(null);
+    try {
+      await api.delete(`/daily-close/${dc.id}`);
+      onRefresh();
+    } catch (e) {
+      // A refused delete must say so next to the button the owner tapped —
+      // the server's own reason first (e.g. the close was locked in another
+      // tab between render and click).
+      setRowError({
+        id: dc.id,
+        message: errText(e, t("dcDeleteFailed", "Could not delete this draft.")),
+        isPlanCap: false,
+      });
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const downloadPdf = async (id, dateStr, isDraft = false) => {
     setDownloading(id);
     setRowError(null);
     try {
@@ -4327,7 +4373,15 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       // worst-shaped download in the repo: synchronous revoke, anchor never
       // appended. Through saveFile, and a failure says so instead of leaving
       // the owner looking at a Downloads folder that never got a file.
-      const out = await saveFile(res.data, `kasserapport_${dateStr}.pdf`, {
+      //
+      // A draft's filename must not imply finality either — it is mirrored
+      // from the server's own Content-Disposition (kasserapport_kladde_…).
+      // A kladde mailed on and opened a week later is identified by its
+      // filename alone.
+      const name = isDraft
+        ? `kasserapport_kladde_${dateStr}.pdf`
+        : `kasserapport_${dateStr}.pdf`;
+      const out = await saveFile(res.data, name, {
         type: "application/pdf",
       });
       if (!out.ok) setRowError({ id, message: t("dcExportFailed"), isPlanCap: false });
@@ -4891,10 +4945,24 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                   iconLeft={sharing === dc.id ? null : <Icon name="Send" size={13} />} className="border border-gray-200 dark:border-gray-700">
                   {t("send") || "Send"}
                 </Button>
-                <Button size="sm" variant="secondary" onClick={() => downloadPdf(dc.id, dc.date)} busy={downloading === dc.id}
+                <Button size="sm" variant="secondary"
+                  onClick={() => downloadPdf(dc.id, dc.date, (dc.status || "confirmed") !== "confirmed")}
+                  busy={downloading === dc.id}
                   iconLeft={downloading === dc.id ? null : <Icon name="FileText" size={13} />} className="border border-gray-200 dark:border-gray-700">
                   PDF
                 </Button>
+                {/* Delete — DRAFTS ONLY. A locked close is the day's legal
+                    kasserapport under Bogføringsloven §10; it is not offered
+                    here and the server refuses it regardless. Red because this
+                    one really does remove something. */}
+                {(dc.status || "confirmed") === "draft" && (
+                  <button onClick={() => deleteDraft(dc)} disabled={deleting === dc.id}
+                    title={t("dcDeleteDraftTitle", "Delete this kladde?")}
+                    className="text-[11px] px-3 py-1.5 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/40 font-medium inline-flex items-center gap-1.5 border border-red-200 dark:border-red-800 disabled:opacity-50">
+                    <Icon name="Trash2" size={13} />
+                    {deleting === dc.id ? t("dcDeleting", "Deleting…") : t("delete", "Delete")}
+                  </button>
+                )}
               </div>
             </div>
             {/* A failed PDF must not look like a finished one. Same amber +

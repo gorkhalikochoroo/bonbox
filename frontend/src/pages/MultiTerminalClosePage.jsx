@@ -797,9 +797,16 @@ function DoneView({ doneSummary, aggregated, currency, user, t, onReset }) {
   /** One filename for both the share sheet and the download. It used to differ
       between the two paths — the shared copy carried no date — so an owner who
       AirDropped three nights to their revisor sent three files with the same
-      name. */
+      name.
+
+      The stem is "kladde", not "lukning". This flow BUILDS a merged report from
+      the terminal figures just typed in; it does not persist a DailyClose and
+      nothing here locks or signs anything (see the commit note above). The
+      document's own footer now says "Forhåndsvisning (ikke låst)" and the
+      server names its copy the same way — a file mailed on to a revisor is
+      identified by its name alone, so the name must not claim more. */
   const closeFilename = (ext) =>
-    `lukning-${(businessName || "bonbox").toLowerCase().replace(/\W+/g, "_")}-${
+    `kladde-${(businessName || "bonbox").toLowerCase().replace(/\W+/g, "_")}-${
       dateLabel.split(" ")[0]?.replace(/\./g, "-") || "today"
     }.${ext}`;
 

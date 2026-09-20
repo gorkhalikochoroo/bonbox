@@ -62,20 +62,88 @@ def _money(value: Any, currency: str = "DKK") -> str:
 
 
 def _format_dk_address(profile: dict | None) -> str:
-    """Format a Danish address as one line: 'Nørregade 12, 1165 København K'."""
+    """Format a Danish address as one line: 'Nørregade 12, 1165 København K'.
+
+    Delegates to the ONE shared composer. This used to append "zip city"
+    unconditionally, and a DK `address` field almost always already ends with
+    the postal town, so the kasserapport printed "…, 2500 Valby, 2500 Valby".
+    """
     if not profile:
         return ""
-    parts = []
-    addr = (profile.get("address") or "").strip()
-    if addr:
-        parts.append(addr)
-    z = (profile.get("zipcode") or "").strip()
-    c = (profile.get("city") or "").strip()
-    if z and c:
-        parts.append(f"{z} {c}")
-    elif c:
-        parts.append(c)
-    return ", ".join(parts)
+    from app.services.bonbox_pdf_kit import compose_business_address
+    return compose_business_address(profile)
+
+
+def _doc_type_label(is_locked_signed: bool) -> str:
+    """The pill at the top of page 1.
+
+    A preview used to be marked ONLY by a 7pt grey "Forhåndsvisning (ikke låst)"
+    beside the document hash — at the very bottom, on the last page — while the
+    title said plain "KASSERAPPORT" and the signature block was unchanged. A
+    revisor cannot tell that from a final document at a glance. The per-close
+    kasserapport marks a draft in five independent places for exactly this
+    reason: no single mark being missed restores the lie.
+    """
+    return "KASSERAPPORT" if is_locked_signed else "KASSERAPPORT — KLADDE"
+
+
+_DRAFT_BANNER_TEXT = (
+    "KLADDE — ikke låst. Tallene er indtastet i BonBox og er ikke gemt som en "
+    "låst lukning. Dette er ikke den endelige kasserapport for dagen."
+)
+
+
+def _draft_band(is_locked_signed: bool) -> list:
+    """Amber band under the masthead of a preview — [] for a locked document."""
+    if is_locked_signed:
+        return []
+    from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
+
+    styles = getSampleStyleSheet()
+    band_style = ParagraphStyle(
+        "DraftBand", parent=styles["Normal"], fontSize=8.5, leading=11,
+        textColor=colors.HexColor("#92400e"),
+    )
+    band = Table(
+        [[Paragraph(f"<b>{_DRAFT_BANNER_TEXT}</b>", band_style)]],
+        colWidths=[166 * mm],
+    )
+    band.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fef3c7")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("ROUNDEDCORNERS", [4, 4, 4, 4]),
+    ]))
+    return [Spacer(1, 4), band, Spacer(1, 4)]
+
+
+def _closer_segment(aggregated: dict) -> str | None:
+    """"Lukket af: <name>" — or nothing at all.
+
+    `(aggregated.get("closed_by") or "—")` rendered "Lukket af: <b>—</b>": a
+    label with no value, the same empty claim as the per-close document's old
+    "Lukket —". The field is genuinely optional (MultiTerminalClosePage sends
+    null when the owner clears it), so when there is no closer there is no
+    claim to print.
+    """
+    closer = (aggregated.get("closed_by") or "").strip()
+    return f"Lukket af: <b>{closer}</b>" if closer else None
+
+
+def _closer_signature_cell(aggregated: dict) -> str:
+    """The "Lukket af" signature cell.
+
+    An em-dash under a signature heading reads as "signed by nobody". When
+    there is no closer, print the same blank rule the countersign cell uses —
+    a line to be signed, which is the truth, rather than a filled-in dash.
+    """
+    closer = (aggregated.get("closed_by") or "").strip()
+    return closer or "____________________"
 
 
 def _danish_date_label(date_label: str) -> tuple[str, str]:
@@ -311,7 +379,8 @@ def _render_close_pdf(
             logger.exception("kasserapport logo render failed — continuing without")
 
     # ─── Document type pill ───────────────────────────────────────
-    story.append(Paragraph("KASSERAPPORT", h_doc))
+    story.append(Paragraph(_doc_type_label(is_locked_signed), h_doc))
+    story.extend(_draft_band(is_locked_signed))
 
     # ─── Business name ────────────────────────────────────────────
     story.append(Paragraph(business_name or "BonBox", h_business))
@@ -340,11 +409,12 @@ def _render_close_pdf(
 
     # ─── Date / closer / bilagsnummer line ────────────────────────
     date_short, day_name = _danish_date_label(date_label)
-    closer = (aggregated.get("closed_by") or "—").strip()
     line_parts = [f"<b>{date_short}</b>"]
     if day_name:
         line_parts.append(day_name)
-    line_parts.append(f"Lukket af: <b>{closer}</b>")
+    _closer = _closer_segment(aggregated)
+    if _closer:
+        line_parts.append(_closer)
     if bilagsnummer:
         line_parts.append(f"Bilag: <b>{bilagsnummer}</b>")
     story.append(Paragraph(" &nbsp;·&nbsp; ".join(line_parts), h_meta))
@@ -362,8 +432,8 @@ def _render_close_pdf(
     cash_rows = [
         ["Kasse ved lukning",          _money(aggregated.get("cash_closing"), currency)],
         ["Indsat i bank",                    _money(aggregated.get("money_to_bank"), currency)],
-        ["Paid out - change/byttep",         _money(aggregated.get("paid_out"), currency)],
-        ["Paid in",                          _money(aggregated.get("paid_in"), currency)],
+        ["Udbetalt — byttepenge",         _money(aggregated.get("paid_out"), currency)],
+        ["Indbetalt",                          _money(aggregated.get("paid_in"), currency)],
         ["Kasse ved åbning",           _money(aggregated.get("cash_opening"), currency)],
         ["Kontant i alt",                       _money(aggregated.get("cash_total"), currency)],
     ]
@@ -372,8 +442,8 @@ def _render_close_pdf(
     # ─── ANDRE block ──────────────────────────────────────────────
     story.append(Paragraph("ANDRE", section))
     other_rows = [
-        ["Gift cards accepted (total)",      _money(aggregated.get("gift_cards_total"), currency)],
-        ["Mobile Pay",                       _money(aggregated.get("mobilepay_total"), currency)],
+        ["Gavekort modtaget (i alt)",      _money(aggregated.get("gift_cards_total"), currency)],
+        ["MobilePay",                       _money(aggregated.get("mobilepay_total"), currency)],
     ]
     story.append(_kv_table(other_rows))
 
@@ -396,8 +466,8 @@ def _render_close_pdf(
     # ─── OPSUMMERING ──────────────────────────────────────────────
     story.append(Paragraph("OPSUMMERING", section))
     agg_rows = [
-        ["Cards total",     _money(aggregated.get("cards_total"), currency)],
-        ["Payments total",  _money(aggregated.get("payments_total"), currency)],
+        ["Kortbetalinger i alt",     _money(aggregated.get("cards_total"), currency)],
+        ["Betalinger i alt",  _money(aggregated.get("payments_total"), currency)],
     ]
     story.append(_kv_table(agg_rows, all_bold=True))
 
@@ -439,7 +509,7 @@ def _render_close_pdf(
     flagged_reason = aggregated.get("flagged_reason") or ""
 
     rec_rows = [
-        ["Sales POS (incl. tax)",  _money(aggregated.get("sales_pos"), currency)],
+        ["Salg fra kassesystem (inkl. moms)",  _money(aggregated.get("sales_pos"), currency)],
         ["Kassedifference (+/-)",  _money(cash_diff, currency)],
     ]
     rec_table = _kv_table(rec_rows, all_bold=True)
@@ -470,7 +540,8 @@ def _render_close_pdf(
             ],
             [
                 Paragraph(
-                    f"<font color='#9ca3af' size='8'>{closer}</font>",
+                    f"<font color='#9ca3af' size='8'>"
+                    f"{_closer_signature_cell(aggregated)}</font>",
                     h_meta,
                 ),
                 Paragraph("<font color='#9ca3af' size='8'>____________________</font>", h_meta),
@@ -615,7 +686,8 @@ def _build_kasserapport_story(
         except Exception:
             pass
 
-    story.append(Paragraph("KASSERAPPORT", h_doc))
+    story.append(Paragraph(_doc_type_label(is_locked_signed), h_doc))
+    story.extend(_draft_band(is_locked_signed))
     story.append(Paragraph(business_name or "BonBox", h_business))
 
     cvr = (business_profile.get("org_number") or "").strip()
@@ -634,11 +706,12 @@ def _build_kasserapport_story(
         story.append(Paragraph(" &nbsp;·&nbsp; ".join(meta_parts), h_meta_dim))
 
     date_short, day_name = _danish_date_label(date_label)
-    closer = (aggregated.get("closed_by") or "—").strip()
     line_parts = [f"<b>{date_short}</b>"]
     if day_name:
         line_parts.append(day_name)
-    line_parts.append(f"Lukket af: <b>{closer}</b>")
+    _closer = _closer_segment(aggregated)
+    if _closer:
+        line_parts.append(_closer)
     if bilagsnummer:
         line_parts.append(f"Bilag: <b>{bilagsnummer}</b>")
     story.append(Paragraph(" &nbsp;·&nbsp; ".join(line_parts), h_meta))
@@ -651,8 +724,8 @@ def _build_kasserapport_story(
     cash_rows = [
         ["Kasse ved lukning",  _money(aggregated.get("cash_closing"), currency)],
         ["Indsat i bank",            _money(aggregated.get("money_to_bank"), currency)],
-        ["Paid out - change/byttep", _money(aggregated.get("paid_out"), currency)],
-        ["Paid in",                  _money(aggregated.get("paid_in"), currency)],
+        ["Udbetalt — byttepenge", _money(aggregated.get("paid_out"), currency)],
+        ["Indbetalt",                  _money(aggregated.get("paid_in"), currency)],
         ["Kasse ved åbning",   _money(aggregated.get("cash_opening"), currency)],
         ["Kontant i alt",               _money(aggregated.get("cash_total"), currency)],
     ]
@@ -660,8 +733,8 @@ def _build_kasserapport_story(
 
     story.append(Paragraph("ANDRE", section))
     other_rows = [
-        ["Gift cards accepted (total)", _money(aggregated.get("gift_cards_total"), currency)],
-        ["Mobile Pay",                  _money(aggregated.get("mobilepay_total"), currency)],
+        ["Gavekort modtaget (i alt)", _money(aggregated.get("gift_cards_total"), currency)],
+        ["MobilePay",                  _money(aggregated.get("mobilepay_total"), currency)],
     ]
     story.append(_kv_table(other_rows))
 
@@ -682,8 +755,8 @@ def _build_kasserapport_story(
 
     story.append(Paragraph("OPSUMMERING", section))
     agg_rows = [
-        ["Cards total",     _money(aggregated.get("cards_total"), currency)],
-        ["Payments total",  _money(aggregated.get("payments_total"), currency)],
+        ["Kortbetalinger i alt",     _money(aggregated.get("cards_total"), currency)],
+        ["Betalinger i alt",  _money(aggregated.get("payments_total"), currency)],
     ]
     story.append(_kv_table(agg_rows, all_bold=True))
 
@@ -719,7 +792,7 @@ def _build_kasserapport_story(
     diff_flagged = bool(aggregated.get("cash_diff_flagged"))
     flagged_reason = aggregated.get("flagged_reason") or ""
     rec_rows = [
-        ["Sales POS (incl. tax)", _money(aggregated.get("sales_pos"), currency)],
+        ["Salg fra kassesystem (inkl. moms)", _money(aggregated.get("sales_pos"), currency)],
         ["Kassedifference (+/-)", _money(cash_diff, currency)],
     ]
     rec_table = _kv_table(rec_rows, all_bold=True)
@@ -749,7 +822,8 @@ def _build_kasserapport_story(
             ],
             [
                 Paragraph(
-                    f"<font color='#9ca3af' size='8'>{closer}</font>",
+                    f"<font color='#9ca3af' size='8'>"
+                    f"{_closer_signature_cell(aggregated)}</font>",
                     h_meta,
                 ),
                 Paragraph("<font color='#9ca3af' size='8'>____________________</font>", h_meta),

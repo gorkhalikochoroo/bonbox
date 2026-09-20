@@ -249,3 +249,87 @@ def test_pdf_refuses_other_users_close(db_session, client):
 
     r = client.get(f"/api/daily-close/{alice_close.id}/pdf", headers=_auth_headers(bob))
     assert r.status_code == 404  # generic — don't leak existence
+
+
+# ─────────────────────── Layout: the band and its footer ───────────────────────
+# The assurance band went from a heading plus ONE static sentence to a heading
+# plus four derived lines. On a full close that pushed the footer onto a second
+# page carrying nothing else — a two-page kasserapport whose page 2 is one line
+# of small print. The band and the footer are now kept together.
+
+def _pdf_pages(content: bytes):
+    try:
+        from pypdf import PdfReader  # type: ignore
+        from io import BytesIO
+        return PdfReader(BytesIO(content)).pages
+    except Exception:
+        pytest.skip("no pypdf available for page-level assertions")
+
+
+def test_a_full_close_still_fits_one_page(db_session, client):
+    """Every section populated: revenue split, MOMS, payments, cash, vouchers."""
+    user = _make_user(db_session)
+    profile = BusinessProfile(
+        user_id=user.id, company_name="DukaanAI v/Manoz Chaudhary",
+        org_number="46417321",
+        address="Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby",
+        zipcode="2500", city="Valby", country="DK",
+    )
+    # A Sale with a voucher number so the BILAGSNUMRE section renders too —
+    # that section is two more rows, and it is what tipped the real export over
+    # the page boundary.
+    from app.models.sale import Sale
+    db_session.add(Sale(user_id=user.id, date=date(2026, 5, 15), amount=100.0,
+                        voucher_number=7, is_deleted=False))
+    db_session.add(profile); db_session.commit()
+    dc = _make_close(
+        db_session, user,
+        closed_by="Manoz",
+        revenue_categories="food:8000|drinks:2000|returns:-500",
+        revenue_total=9500.0, moms_total=1900.0, revenue_ex_moms=7600.0,
+        payment_categories="cash:2000|card:7000|bank_transfer:500",
+        payment_total=9500.0,
+        cash_expected=2000.0, cash_counted=2000.0, cash_difference=0.0,
+    )
+    r = client.get(f"/api/daily-close/{dc.id}/pdf", headers=_auth_headers(user))
+    assert r.status_code == 200
+    assert len(_pdf_pages(r.content)) == 1
+
+
+def test_the_band_and_its_footer_are_emitted_as_one_block():
+    """The rule, asserted structurally: a band on page 1 with its footer
+    stranded alone on page 2 reads as a truncated document, so the two are
+    emitted inside one KeepTogether. A rendered page-count check cannot pin
+    this on its own — whether it strands depends on how much content happens
+    to precede it."""
+    import inspect
+    from app.routers import daily_close as r
+
+    src = inspect.getsource(r.daily_close_pdf)
+    block = src[src.index("assurance = claims[\"assurance\"]"):src.index("doc.build(story)")]
+    assert "KeepTogether([" in block
+    kt = block[block.index("KeepTogether(["):]
+    assert "badge_table" in kt.split("]))")[0]
+    assert 'claims["footer"]' in kt.split("]))")[0]
+
+
+def test_the_footer_never_stands_alone_on_its_own_page(db_session, client):
+    """And the rendered document agrees: the last page carries more than the
+    footer line."""
+    user = _make_user(db_session)
+    dc = _make_close(
+        db_session, user,
+        revenue_categories="food:8000|drinks:2000|returns:-500",
+        revenue_total=9500.0, moms_total=1900.0, revenue_ex_moms=7600.0,
+        payment_categories="cash:2000|card:7000|bank_transfer:500",
+        payment_total=9500.0,
+        tips_total=850.0, tips_staff_count=4, tips_per_person=212.50,
+        notes="Lang note " * 60,
+    )
+    r = client.get(f"/api/daily-close/{dc.id}/pdf", headers=_auth_headers(user))
+    pages = _pdf_pages(r.content)
+    last = (pages[-1].extract_text() or "").strip()
+    assert "Genereret af BonBox" in last
+    # The band travels with it, so the final page is never just the one line.
+    assert len(last.splitlines()) > 1
+

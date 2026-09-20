@@ -89,6 +89,69 @@ def money_dk(value: Any, currency: str = "DKK") -> str:
     return f"{sign}{whole_str}.{fractional:02d} {currency}"
 
 
+def _addr_field(profile: Any, name: str) -> str:
+    """Read one address field from either a BusinessProfile ORM row or the
+    plain dict shape the kasserapport/gavekort builders pass around."""
+    if profile is None:
+        return ""
+    if isinstance(profile, dict):
+        raw = profile.get(name)
+    else:
+        raw = getattr(profile, name, None)
+    return (raw or "").strip()
+
+
+def split_address_parts(profile: Any) -> tuple[str, str]:
+    """(street_part, zipcity_part) with the postal town de-duplicated.
+
+    The low-level primitive behind every address line in the repo. `zipcity` is
+    returned EMPTY when the stored ``address`` already carries the postal town,
+    so a caller can join the two halves with whatever separator its document
+    uses — ", " on the kasserapport, " · " on a gavekort, a line break on a
+    faktura — and none of them can print the town twice.
+
+    Accepts an ORM row OR a dict.
+    """
+    addr = _addr_field(profile, "address").rstrip(",").strip()
+    zipc = _addr_field(profile, "zipcode")
+    city = _addr_field(profile, "city")
+    zipcity = " ".join(p for p in (zipc, city) if p).strip()
+    if not addr:
+        return ("", zipcity)
+    al = addr.lower()
+    # Conservative: suppress the tail only when the address demonstrably
+    # already carries it, so a street that merely contains a city name
+    # ("Københavnsvej 4") is not wrongly stripped of its real postal town.
+    already = (
+        (bool(zipcity) and zipcity.lower() in al)
+        or (bool(zipc) and bool(city) and zipc.lower() in al and city.lower() in al)
+        or (bool(city) and not zipc and city.lower() in al)
+    )
+    return (addr, "" if already else zipcity)
+
+
+def compose_business_address(profile: Any) -> str:
+    """One-line address that never double-prints the city. THE shared composer.
+
+    The stored ``address`` field very often ALREADY ends with the postal code +
+    city (DK convention: "Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby") while
+    ``zipcode`` and ``city`` are ALSO populated separately. Naively joining
+    ``address`` + "zip city" produced the "…, 2500 Valby, 2500 Valby" defect a
+    revisor sees on the kasserapport.
+
+    Rule: append the "zip city" tail ONLY when the address does not already
+    carry it — i.e. the full "zip city" is not a substring, AND we don't see
+    both the zip and the city already inside the address (and, when no zip is
+    set, the bare city is not already there). Conservative so a street that
+    merely contains a city name is not wrongly suppressed.
+
+    Accepts an ORM row OR a dict so every builder in the repo can share it;
+    each one used to hand-roll the same two-line join (and the same bug).
+    """
+    addr, zipcity = split_address_parts(profile)
+    return ", ".join(p for p in (addr, zipcity) if p)
+
+
 def export_bilagsnummer(prefix: str, period_start: date, period_end: date) -> str:
     """Stable per-document voucher number: '{PREFIX}-YYYYMMDD-YYYYMMDD'.
 

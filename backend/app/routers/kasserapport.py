@@ -652,6 +652,52 @@ def aggregate(
     }
 
 
+def _lock_claim_from_server(body: dict, *, db: Session, user: User) -> bool:
+    """Is this multi-terminal kasserapport allowed to call itself final?
+
+    The claim drives "Låst + signeret" vs "Forhåndsvisning (ikke låst)" and the
+    lukning_/kladde_ filename stem, so it decides whether a revisor reads the
+    document as a record.
+
+    It was hardcoded True on the reasoning that "a multi-terminal-close render
+    is always for a confirmed aggregate" — but `aggregated` arrives in the
+    REQUEST BODY, straight from the page's in-memory figures, and nothing on
+    this path locks or signs anything. Reading a `locked` flag off that same
+    body only moved the lie: the untrusted dict would still be asserting the
+    document's own status.
+
+    So the claim is derived from a row the SERVER reads. The caller may name a
+    close_id; the document is final only when THAT close, owned by this user,
+    is genuinely confirmed. A bare `locked: true` is not a claim this document
+    will make.
+
+    Today no caller sends a close_id — the multi-terminal flow persists no
+    DailyClose at all — so every one of these documents is a preview and now
+    says so. If that flow ever starts recording a close, passing its id here is
+    what makes the document final.
+    """
+    raw = body.get("close_id")
+    close_id = str(raw).strip() if raw else ""
+    if not close_id:
+        return False
+    from app.models.daily_close import DailyClose
+    try:
+        dc = (
+            db.query(DailyClose)
+            .filter(
+                DailyClose.id == close_id,
+                DailyClose.user_id == user.id,
+                DailyClose.is_deleted.is_(False),
+            )
+            .first()
+        )
+    except Exception:  # noqa: BLE001 — a bad id must not 500 the export
+        return False
+    # Fail closed: no row, wrong owner, or still a draft → no claim.
+    return bool(dc is not None
+                and (getattr(dc, "status", None) or "").lower() == "confirmed")
+
+
 # ────────────────────────────────────────────────────────────────────────
 # PDF rendering — Mirabelle-format clean attachment
 # ────────────────────────────────────────────────────────────────────────
@@ -741,10 +787,29 @@ def close_pdf(
             except Exception:
                 logo_bytes = None
 
-    # is_locked_signed: a multi-terminal-close render is always for a
-    # confirmed (router-validated) aggregate. The flag drives the
-    # audit footer label.
-    is_locked_signed = True
+    # is_locked_signed drives the footer label: True prints "Låst + signeret",
+    # False prints "Forhåndsvisning (ikke låst)".
+    #
+    # It was hardcoded True on the claim that "a multi-terminal-close render is
+    # always for a confirmed aggregate" — but `aggregated` arrives in the
+    # REQUEST BODY, straight from the page's in-memory figures, and nothing on
+    # this path locks or signs anything. So every one of these documents told a
+    # revisor it was final regardless. Same defect as the per-close PDF's
+    # "Lukket —": an assurance nothing earned.
+    #
+    # Deriving it from `body.get("locked")` replaced a hardcoded lie with a
+    # client-assertable one: the very same untrusted dict. The lock claim must
+    # come from a row the SERVER can read. So the caller may name a close_id;
+    # we look that close up (scoped to this user) and the document says "Låst +
+    # signeret" only when that row is genuinely confirmed. A bare `locked:true`
+    # in the body is not a claim this document will make.
+    #
+    # Today no caller sends a close_id — the multi-terminal flow persists no
+    # DailyClose at all (MultiTerminalClosePage.jsx says so in its own words),
+    # so every one of these documents is a preview and now says so. If that
+    # flow ever starts recording a close, passing its id here is what makes the
+    # document final.
+    is_locked_signed = _lock_claim_from_server(body, db=db, user=user)
 
     # L4 — pass `user` so render_close_pdf's defensive feature check
     # fires. Belt-and-braces backup for the enforce_feature gate above.
@@ -770,9 +835,14 @@ def close_pdf(
 
     # Filename: lukning_<businessSlug>_<isoDate>.pdf — predictable, no
     # special chars (closer's email client / WhatsApp don't choke).
+    #
+    # "lukning" (closing) implies the day is closed. A preview that was never
+    # locked carries `kladde_` instead, so the file is identified honestly by
+    # its name alone once it has been mailed on and the page is long gone.
     iso_date = (date_label.split(" ")[0] if date_label else "today").replace(".", "-")
     biz_slug = "".join(c if c.isalnum() else "_" for c in (business_name or "bonbox").lower())[:32]
-    filename = f"lukning_{biz_slug}_{iso_date}.pdf"
+    _stem = "lukning" if is_locked_signed else "kladde"
+    filename = f"{_stem}_{biz_slug}_{iso_date}.pdf"
 
     # ── Audit row — tamper-evidence trail. Records the SHA-256 of the
     # PDF + the bilagsnummer + the timestamp so a future revisor can
@@ -908,10 +978,12 @@ def close_excel(
             detail=feature_locked_detail(user, "multi_terminal_close"),
         )
 
-    # Filename: lukning_<businessSlug>_<isoDate>.xlsx — same scheme as PDF.
+    # Filename: lukning_<businessSlug>_<isoDate>.xlsx — same scheme as PDF,
+    # including the kladde_ stem when the caller made no lock claim.
     iso_date = (date_label.split(" ")[0] if date_label else "today").replace(".", "-")
     biz_slug = "".join(c if c.isalnum() else "_" for c in (business_name or "bonbox").lower())[:32]
-    filename = f"lukning_{biz_slug}_{iso_date}.xlsx"
+    _stem = "lukning" if _lock_claim_from_server(body, db=db, user=user) else "kladde"
+    filename = f"{_stem}_{biz_slug}_{iso_date}.xlsx"
 
     return Response(
         content=xlsx_bytes,

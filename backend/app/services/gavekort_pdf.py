@@ -179,8 +179,12 @@ def _read_profile(profile):
     logo_position = g("logo_position")
 
     # A single compact muted address line: "Nørregade 12 · 1165 København".
-    zc = " ".join(p for p in (zipcode, city) if p)
-    addr_line = " · ".join(p for p in (address, zc) if p)
+    # `zc` comes back EMPTY when the stored address already carries the postal
+    # town (the DK norm), so the town can never print twice — the same defect
+    # the kasserapport had. Shared primitive; only the separator is local.
+    from app.services.bonbox_pdf_kit import split_address_parts
+    _addr, zc = split_address_parts(profile)
+    addr_line = " · ".join(p for p in (_addr or address, zc) if p)
 
     return {
         "business_name": business_name,

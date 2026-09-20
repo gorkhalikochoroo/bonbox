@@ -324,3 +324,209 @@ def test_render_close_pdf_danish_date_label_parsed():
     date3, day3 = _danish_date_label("not-a-date")
     assert date3 == "not-a-date"
     assert day3 == ""
+
+
+# ─── The multi-terminal router's own lock claim ─────────────────────────
+# `is_locked_signed` was hardcoded True in routers/kasserapport.py on the claim
+# that "a multi-terminal-close render is always for a confirmed aggregate". But
+# `aggregated` arrives in the REQUEST BODY, from the page's in-memory figures,
+# and nothing on that path locks or signs anything — so every one of these
+# documents told a revisor it was final. Same shape as the per-close PDF's
+# "Lukket —": an assurance nothing earned. The caller must now SAY so, and the
+# filename follows the claim.
+
+def test_router_does_not_claim_locked_by_default():
+    """A body with no lock claim must not produce a 'Låst + signeret' document
+    or a 'lukning_' filename."""
+    import inspect
+    from app.routers import kasserapport as r
+
+    src = inspect.getsource(r.close_pdf)
+    assert "is_locked_signed = True" not in src, "the unconditional claim is back"
+    assert "_lock_claim_from_server(" in src
+    # The filename follows the claim rather than always saying "lukning".
+    assert '_stem = "lukning" if is_locked_signed else "kladde"' in src
+
+
+def test_router_excel_filename_follows_the_same_claim():
+    import inspect
+    from app.routers import kasserapport as r
+
+    src = inspect.getsource(r.close_excel)
+    assert 'f"lukning_{biz_slug}' not in src
+    assert "_lock_claim_from_server(" in src
+
+
+# The claim must not be assertable by the CALLER either. Reading `locked` off
+# the request body replaced a hardcoded lie with a client-supplied one: the
+# same untrusted dict the aggregate itself arrives in, with nothing server-side
+# verifying that any close was ever locked.
+
+class _FakeQuery:
+    def __init__(self, row):
+        self._row = row
+
+    def filter(self, *a, **kw):
+        return self
+
+    def first(self):
+        return self._row
+
+
+class _FakeDB:
+    def __init__(self, row=None):
+        self._row = row
+        self.queried = False
+
+    def query(self, *a, **kw):
+        self.queried = True
+        return _FakeQuery(self._row)
+
+
+class _FakeUser:
+    id = "u1"
+
+
+def test_a_bare_locked_flag_in_the_body_is_not_a_lock_claim():
+    from app.routers.kasserapport import _lock_claim_from_server
+
+    for body in ({"locked": True}, {"is_locked_signed": True},
+                 {"locked": True, "is_locked_signed": True}):
+        db = _FakeDB()
+        assert _lock_claim_from_server(body, db=db, user=_FakeUser()) is False
+        assert db.queried is False, "no row was consulted, so nothing was verified"
+
+
+def test_the_lock_claim_comes_from_the_stored_close():
+    from types import SimpleNamespace
+    from app.routers.kasserapport import _lock_claim_from_server
+
+    confirmed = SimpleNamespace(status="confirmed")
+    draft = SimpleNamespace(status="draft")
+    body = {"close_id": "c1"}
+    assert _lock_claim_from_server(
+        body, db=_FakeDB(confirmed), user=_FakeUser()) is True
+    assert _lock_claim_from_server(
+        body, db=_FakeDB(draft), user=_FakeUser()) is False
+    # No such close (or someone else's) → no claim.
+    assert _lock_claim_from_server(
+        body, db=_FakeDB(None), user=_FakeUser()) is False
+
+
+def test_preview_and_locked_documents_differ():
+    """The renderer already supported both labels; the point is that the two
+    are genuinely different documents, so the flag carries information."""
+    agg = {"cash_total": 1000, "payments_total": 1000, "closed_by": "Lars"}
+    preview = render_close_pdf(aggregated=agg, business_name="Cafe",
+                               date_label="2026-09-17", is_locked_signed=False)
+    locked = render_close_pdf(aggregated=agg, business_name="Cafe",
+                              date_label="2026-09-17", is_locked_signed=True)
+    assert preview.startswith(b"%PDF")
+    assert locked.startswith(b"%PDF")
+    assert preview != locked
+
+
+def test_address_renders_its_town_once_on_the_multi_terminal_kasserapport():
+    """The same E3 defect lived in this builder's own _format_dk_address."""
+    from app.services.kasserapport_pdf import _format_dk_address
+
+    line = _format_dk_address({
+        "address": "Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby",
+        "zipcode": "2500",
+        "city": "Valby",
+    })
+    assert line == "Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby"
+    assert line.count("Valby") == 1
+    # And a street-only address still gets its postal town.
+    assert _format_dk_address({
+        "address": "Nørregade 12", "zipcode": "1165", "city": "København K",
+    }) == "Nørregade 12, 1165 København K"
+
+
+
+# ─────────── The preview must be unmissable, not a footnote ───────────
+#
+# A preview was marked ONLY by 7pt grey text beside the document hash, on the
+# last page, while the title said plain "KASSERAPPORT". The per-close document
+# marks a draft in five independent places precisely so that no single mark
+# being missed restores the lie; this builder got one.
+
+
+def test_a_preview_is_marked_in_its_title():
+    from app.services.kasserapport_pdf import _doc_type_label
+
+    assert _doc_type_label(False) == "KASSERAPPORT — KLADDE"
+    assert _doc_type_label(True) == "KASSERAPPORT"
+
+
+def test_a_preview_carries_a_band_and_a_locked_document_does_not():
+    from app.services.kasserapport_pdf import _draft_band
+
+    assert _draft_band(True) == []
+    band = _draft_band(False)
+    assert band, "a preview with no band is a preview a reader can miss"
+
+
+def test_the_draft_banner_says_the_figures_are_not_final():
+    from app.services.kasserapport_pdf import _DRAFT_BANNER_TEXT
+
+    assert "KLADDE" in _DRAFT_BANNER_TEXT
+    assert "ikke låst" in _DRAFT_BANNER_TEXT
+
+
+# ─────────── A2: a label with no value is not a claim ───────────
+
+
+def test_no_closer_means_no_lukket_af_label():
+    from app.services.kasserapport_pdf import _closer_segment
+
+    assert _closer_segment({"closed_by": None}) is None
+    assert _closer_segment({"closed_by": "   "}) is None
+    assert _closer_segment({}) is None
+    assert _closer_segment({"closed_by": "Lars"}) == "Lukket af: <b>Lars</b>"
+
+
+def test_an_unsigned_signature_cell_is_a_rule_not_an_em_dash():
+    """"Lukket af / —" reads as "signed by nobody"; a blank rule reads as
+    "to be signed", which is what it is."""
+    from app.services.kasserapport_pdf import _closer_signature_cell
+
+    assert _closer_signature_cell({"closed_by": None}) == "____________________"
+    assert _closer_signature_cell({"closed_by": "Lars"}) == "Lars"
+
+
+# ─────────── E2/D7: no English row labels on a Danish accounting document ────
+
+
+def test_the_multi_terminal_rows_are_danish():
+    import inspect
+    from app.services import kasserapport_pdf as m
+
+    src = inspect.getsource(m)
+    for english in ("Paid out - change/byttep", "Paid in",
+                    "Gift cards accepted (total)", "Mobile Pay",
+                    "Cards total", "Payments total", "Sales POS (incl. tax)"):
+        assert english not in src, english
+    for danish in ("Udbetalt — byttepenge", "Indbetalt",
+                   "Gavekort modtaget (i alt)", "MobilePay",
+                   "Kortbetalinger i alt", "Betalinger i alt",
+                   "Salg fra kassesystem (inkl. moms)"):
+        assert danish in src, danish
+
+
+def test_brand_names_are_not_translated():
+    """Dankort / Teller / Amex are brands — the same word in both languages."""
+    import inspect
+    from app.services import kasserapport_pdf as m
+
+    src = inspect.getsource(m)
+    for brand in ('"Dankort"', '"Teller"', '"Amex"'):
+        assert brand in src, brand
+
+
+def test_a_preview_and_a_locked_document_render_without_raising():
+    agg = {"cash_total": 1000, "payments_total": 1000, "closed_by": None}
+    for locked in (True, False):
+        out = render_close_pdf(aggregated=agg, business_name="Cafe",
+                               date_label="2026-09-17", is_locked_signed=locked)
+        assert out.startswith(b"%PDF")

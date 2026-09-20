@@ -438,12 +438,17 @@ def _build_invoice_story(
         (profile.vat_number if profile and profile.vat_number else None)
         or (profile.org_number if profile and profile.org_number else None)
     )
+    # The postal town is de-duplicated by the shared primitive: a DK `address`
+    # field almost always already ends with "zip city", and appending it again
+    # printed the town twice on the faktura exactly as it did on the
+    # kasserapport. `zc` comes back empty when the address already carries it.
+    from app.services.bonbox_pdf_kit import split_address_parts
     issuer_addr_lines = []
     if profile:
-        if profile.address:
-            issuer_addr_lines.append(profile.address)
-        zc = " ".join(filter(None, [profile.zipcode, profile.city]))
-        if zc.strip():
+        _addr, zc = split_address_parts(profile)
+        if _addr:
+            issuer_addr_lines.append(_addr)
+        if zc:
             issuer_addr_lines.append(zc)
     issuer_email = user.email if user else None
 
@@ -455,11 +460,13 @@ def _build_invoice_story(
     cust_ean = getattr(customer, "ean_nummer", None) if customer else None
     cust_addr_lines = []
     if customer:
-        if customer.address:
-            cust_addr_lines.append(customer.address)
-        zc = " ".join(filter(None, [customer.zipcode, customer.city]))
-        if zc.strip():
-            cust_addr_lines.append(zc)
+        # Same de-duplication for the customer block — customer addresses are
+        # typed by the owner and carry the postal town just as often.
+        _caddr, czc = split_address_parts(customer)
+        if _caddr:
+            cust_addr_lines.append(_caddr)
+        if czc:
+            cust_addr_lines.append(czc)
         if customer.email:
             cust_addr_lines.append(customer.email)
 

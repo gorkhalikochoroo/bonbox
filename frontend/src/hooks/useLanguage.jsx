@@ -2737,6 +2737,13 @@ const translations = {
     dcUnlockReasonPlaceholder: "e.g. Accountant found an error in cash count…",
     dcUnlockFailed: "Could not unlock this kasserapport.",
     dcUnlockStillLocked: "The kasserapport is still locked.",
+    // Delete a KLADDE (draft). Locked closes are records under Bogføringsloven
+    // §10 and are never deletable — the button isn't offered for them and the
+    // server refuses them anyway.
+    dcDeleteDraftTitle: "Delete this kladde?",
+    dcDeleteDraftBody: "This draft is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
+    dcDeleting: "Deleting…",
+    dcDeleteFailed: "Could not delete this draft.",
     // Date-range export
     dcRangeFrom: "From",
     dcRangeTo: "To",
@@ -11006,6 +11013,13 @@ const translations = {
     dcUnlockReasonPlaceholder: "fx Revisor fandt en fejl i kasseoptællingen…",
     dcUnlockFailed: "Kunne ikke låse denne kasserapport op.",
     dcUnlockStillLocked: "Kasserapporten er stadig låst.",
+    // Slet en KLADDE. En låst lukning er regnskabsmateriale efter
+    // Bogføringsloven §10 og kan aldrig slettes — knappen vises ikke for den,
+    // og serveren afviser den under alle omstændigheder.
+    dcDeleteDraftTitle: "Slet denne kladde?",
+    dcDeleteDraftBody: "Kladden fjernes fra din historik og fra alt, du sender til din revisor. Låste lukninger kan ikke slettes.",
+    dcDeleting: "Sletter…",
+    dcDeleteFailed: "Kunne ikke slette kladden.",
     // Eksport af en periode
     dcRangeFrom: "Fra",
     dcRangeTo: "Til",

@@ -765,3 +765,198 @@ def test_long_voucher_range_wraps_instead_of_overlapping_the_amount():
     text = PdfReader(BytesIO(pdf)).pages[0].extract_text()
     assert "S-2026-0002" in text and "S-2026-0004" in text, "voucher range lost"
     assert "5.000,00 kr." in text, "amount was overwritten by the voucher"
+
+
+# ─── C2. The same MOMS reasoning over a RANGE ───────────────────────────
+# The per-close kasserapport must not assert 0,00 salgsmoms when the figure is
+# unknown. The range export builds the SAME kind of claim over many days, and it
+# summed with `float(c.moms_total or 0)` — so a period containing closes whose
+# VAT was never computed produced a confident headline figure that silently
+# UNDERSTATED the period's salgsmoms. That headline is the one number on the
+# page a revisor carries into a filing.
+
+def test_range_moms_kpi_is_dashed_when_a_confirmed_close_has_no_vat():
+    import datetime as dt
+    known = _close(dt.date(2026, 5, 1), 10000.0, 2000.0, "cash:10000")
+    unknown = _close(dt.date(2026, 5, 2), 10000.0, None, "cash:10000")
+    txt = _pdf_text(build_daily_close_range_pdf(
+        [known, unknown], from_date=dt.date(2026, 5, 1), to_date=dt.date(2026, 5, 2),
+        business_name="Cafe", currency="DKK"))
+    # The understated total must NOT be presented as the period's salgsmoms.
+    assert "kan ikke opgøres" in txt
+    assert "1 bekræftet(e) lukning(er)" in txt
+
+
+def test_range_moms_kpi_is_stated_when_every_close_has_its_vat():
+    """The dash is not noise — a complete period still shows its total."""
+    import datetime as dt
+    a = _close(dt.date(2026, 5, 1), 10000.0, 2000.0, "cash:10000")
+    b = _close(dt.date(2026, 5, 2), 5000.0, 1000.0, "cash:5000")
+    txt = _pdf_text(build_daily_close_range_pdf(
+        [a, b], from_date=dt.date(2026, 5, 1), to_date=dt.date(2026, 5, 2),
+        business_name="Cafe", currency="DKK"))
+    assert "kan ikke opgøres" not in txt
+    assert "3.000,00 kr." in txt
+
+
+def test_range_xlsx_moms_kpi_cell_is_dashed_when_unknown():
+    """Same rule in the workbook. The cell is written as "—" rather than a
+    fabricated number; the other three KPI cells stay numeric."""
+    import datetime as dt
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from app.services.daily_close_range_export import build_daily_close_range_xlsx
+
+    # revenue_categories=None: _make_close's default breakdown sums to 18.200,
+    # so leaving it while overriding revenue_total builds a row that contradicts
+    # ITSELF — which the shared moms_is_unknown predicate now (correctly) dashes
+    # for a reason that has nothing to do with what this test is about.
+    known = _make_close(date=dt.date(2026, 5, 1), revenue_total=10000.0,
+                        revenue_categories=None,
+                        moms_total=2000.0, revenue_ex_moms=8000.0)
+    unknown = _make_close(date=dt.date(2026, 5, 2), revenue_total=10000.0,
+                          revenue_categories=None,
+                          moms_total=None, revenue_ex_moms=None)
+    wb = load_workbook(BytesIO(build_daily_close_range_xlsx(
+        [known, unknown], from_date=dt.date(2026, 5, 1), to_date=dt.date(2026, 5, 2),
+        business_name="Cafe", currency="DKK")))
+    ws = wb["Oversigt"] if "Oversigt" in wb.sheetnames else wb[wb.sheetnames[0]]
+    cells = {ws.cell(row=r, column=1).value: ws.cell(row=r, column=2).value
+             for r in range(1, ws.max_row + 1)}
+    assert cells["Salgsmoms i alt"] == "—"
+    assert cells["Omsætning i alt"] == 20000.0      # still a real number
+    assert any(isinstance(k, str) and "kan ikke opgøres" in k for k in cells)
+
+
+def test_range_xlsx_moms_kpi_is_numeric_when_known():
+    import datetime as dt
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from app.services.daily_close_range_export import build_daily_close_range_xlsx
+
+    a = _make_close(date=dt.date(2026, 5, 1), revenue_total=10000.0,
+                    revenue_categories=None,
+                    moms_total=2000.0, revenue_ex_moms=8000.0)
+    b = _make_close(date=dt.date(2026, 5, 2), revenue_total=5000.0,
+                    revenue_categories=None,
+                    moms_total=1000.0, revenue_ex_moms=4000.0)
+    wb = load_workbook(BytesIO(build_daily_close_range_xlsx(
+        [a, b], from_date=dt.date(2026, 5, 1), to_date=dt.date(2026, 5, 2),
+        business_name="Cafe", currency="DKK")))
+    ws = wb["Oversigt"] if "Oversigt" in wb.sheetnames else wb[wb.sheetnames[0]]
+    cells = {ws.cell(row=r, column=1).value: ws.cell(row=r, column=2).value
+             for r in range(1, ws.max_row + 1)}
+    assert cells["Salgsmoms i alt"] == 3000.0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# The range export must not contradict ITSELF about the period's salgsmoms.
+#
+# The KPI band was taught to render "—" when a confirmed close has no VAT
+# figure, but the per-close TOTALS row four inches below it still printed the
+# understated sum, and the per-row Netto cell still handed the missing figure
+# back by subtraction. This is the artifact /api/daily-close/send-to-accountant
+# attaches, and its MOMS total is the number a revisor carries into a filing.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _mixed_vat_period():
+    """One close with a VAT figure, one without."""
+    import datetime as dt
+    return [
+        _close(dt.date(2026, 5, 1), 10000.0, 2000.0, "cash:10000"),
+        _close(dt.date(2026, 5, 2), 10000.0, None, "cash:10000"),
+    ]
+
+
+def test_range_totals_row_does_not_state_a_moms_the_kpi_band_dashes():
+    import datetime as dt
+    txt = _pdf_text(build_daily_close_range_pdf(
+        _mixed_vat_period(), from_date=dt.date(2026, 5, 1), to_date=dt.date(2026, 5, 2),
+        business_name="Cafe", currency="DKK"))
+    assert "kan ikke opgøres" in txt
+    # 2.000,00 is the ONE close that has a VAT figure; the period total would be
+    # 2.000,00 too, which is exactly the understatement. It may appear on that
+    # close's own row — but never a second time, as a period total.
+    assert txt.count("2.000,00 kr.") == 1, txt
+
+
+def test_range_row_netto_is_dashed_when_that_rows_moms_is_unknown():
+    """A confident net beside the row's own "—" Moms cell is the missing figure
+    handed back by subtraction."""
+    import datetime as dt
+    txt = _pdf_text(build_daily_close_range_pdf(
+        _mixed_vat_period(), from_date=dt.date(2026, 5, 1), to_date=dt.date(2026, 5, 2),
+        business_name="Cafe", currency="DKK"))
+    cells = [ln.strip() for ln in txt.splitlines() if ln.strip()]
+    # Column order: Dato | Bilag | Omsætning | Moms | Netto | …
+    known = cells.index("1. maj 2026")
+    unknown = cells.index("2. maj 2026")
+    assert cells[known + 2:known + 5] == ["10.000,00 kr.", "2.000,00 kr.", "8.000,00 kr."]
+    assert cells[unknown + 2:unknown + 5] == ["10.000,00 kr.", "—", "—"]
+
+
+def test_range_moms_unknown_uses_the_same_predicate_as_the_kasserapport():
+    """A close whose stored VAT is not NULL but cannot be stated — auto mode,
+    non-zero revenue, zero salgsmoms — was invisible to the range export's old
+    `moms_total is None` test while its own kasserapport dashed it."""
+    import datetime as dt
+    from app.services.kasserapport_claims import moms_is_unknown
+    contradictory = _close(dt.date(2026, 5, 2), 5000.0, 0.0, "cash:5000")
+    assert moms_is_unknown(contradictory) is True
+    txt = _pdf_text(build_daily_close_range_pdf(
+        [_close(dt.date(2026, 5, 1), 10000.0, 2000.0, "cash:10000"), contradictory],
+        from_date=dt.date(2026, 5, 1), to_date=dt.date(2026, 5, 2),
+        business_name="Cafe", currency="DKK"))
+    assert "kan ikke opgøres" in txt
+    # That close's own row states its revenue and dashes what it cannot say —
+    # it does not print the stored 0,00 as if it were a calculated salgsmoms.
+    cells = [ln.strip() for ln in txt.splitlines() if ln.strip()]
+    row = cells.index("2. maj 2026")
+    assert cells[row + 2:row + 5] == ["5.000,00 kr.", "—", "—"]
+
+
+def test_range_xlsx_totals_do_not_state_a_dashed_moms_or_net():
+    import datetime as dt
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from app.services.daily_close_range_export import build_daily_close_range_xlsx
+
+    known = _make_close(date=dt.date(2026, 5, 1), revenue_total=10000.0,
+                        revenue_categories=None,
+                        moms_total=2000.0, revenue_ex_moms=8000.0)
+    unknown = _make_close(date=dt.date(2026, 5, 2), revenue_total=10000.0,
+                          revenue_categories=None,
+                          moms_total=None, revenue_ex_moms=None)
+    wb = load_workbook(BytesIO(build_daily_close_range_xlsx(
+        [known, unknown], from_date=dt.date(2026, 5, 1), to_date=dt.date(2026, 5, 2),
+        business_name="Cafe", currency="DKK")))
+    ws = wb["Oversigt"] if "Oversigt" in wb.sheetnames else wb[wb.sheetnames[0]]
+    cells = {ws.cell(row=r, column=1).value: ws.cell(row=r, column=2).value
+             for r in range(1, ws.max_row + 1)}
+    assert cells["Salgsmoms i alt"] == "—"
+    # A net built by subtracting an unknown VAT is unknown too.
+    assert cells["Netto (uden moms)"] == "—"
+    assert cells["Omsætning i alt"] == 20000.0
+
+
+def test_range_xlsx_row_cells_dash_an_unknown_moms_and_net():
+    import datetime as dt
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from app.services.daily_close_range_export import build_daily_close_range_xlsx
+
+    unknown = _make_close(date=dt.date(2026, 5, 2), revenue_total=10000.0,
+                          revenue_categories=None,
+                          moms_total=None, revenue_ex_moms=None)
+    wb = load_workbook(BytesIO(build_daily_close_range_xlsx(
+        [unknown], from_date=dt.date(2026, 5, 2), to_date=dt.date(2026, 5, 2),
+        business_name="Cafe", currency="DKK")))
+    ws = wb["Kasserapport"]
+    header = [ws.cell(row=1, column=i).value for i in range(1, ws.max_column + 1)]
+    row = [ws.cell(row=2, column=i).value for i in range(1, ws.max_column + 1)]
+    cells = dict(zip(header, row))
+    assert cells["Omsætning"] == 10000
+    # Neither the VAT nor a net derived from it may be stated.
+    assert cells["Salgsmoms 25%"] in (None, "—")
+    assert cells["Netto (uden moms)"] in (None, "—")

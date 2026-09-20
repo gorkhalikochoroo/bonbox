@@ -159,18 +159,13 @@ def _render_close_xlsx(
     row += 1
 
     cvr = (business_profile.get("org_number") or "").strip() if business_profile else ""
-    addr_parts = []
+    # The ONE shared composer — this used to append "zip city" unconditionally,
+    # and a DK `address` almost always already ends with the postal town, so the
+    # sheet header printed "…, 2500 Valby, 2500 Valby" exactly like the PDF did.
+    addr = ""
     if business_profile:
-        a = (business_profile.get("address") or "").strip()
-        z = (business_profile.get("zipcode") or "").strip()
-        c = (business_profile.get("city") or "").strip()
-        if a:
-            addr_parts.append(a)
-        if z and c:
-            addr_parts.append(f"{z} {c}")
-        elif c:
-            addr_parts.append(c)
-    addr = ", ".join(addr_parts)
+        from app.services.bonbox_pdf_kit import compose_business_address
+        addr = compose_business_address(business_profile)
     meta_bits = []
     if cvr:
         meta_bits.append(f"CVR {cvr}")

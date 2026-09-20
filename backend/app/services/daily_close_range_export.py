@@ -191,34 +191,16 @@ def _has_reconcilable_payments(c: DailyClose) -> bool:
     return _payments_sum(c) > 0.005
 
 
-def compose_business_address(profile) -> str:
-    """One-line address that never double-prints the city.
-
-    The stored ``address`` field very often ALREADY ends with the postal code +
-    city (DK convention: "Carl Th. Dreyers Vej 244, 4. 3., 2500 Valby") while
-    ``zipcode`` and ``city`` are ALSO populated separately. Naively joining
-    ``address`` + "zip city" produced the "…, 2500 Valby, 2500 Valby" defect.
-
-    Rule: append the "zip city" tail ONLY when the address does not already
-    carry it — i.e. the full "zip city" is not a substring, AND we don't see
-    both the zip and the city already inside the address (and, when no zip is
-    set, the bare city is not already there). Conservative so a street that
-    merely contains a city name is not wrongly suppressed."""
-    addr = (getattr(profile, "address", None) or "").strip().rstrip(",").strip()
-    zipc = (getattr(profile, "zipcode", None) or "").strip()
-    city = (getattr(profile, "city", None) or "").strip()
-    zipcity = " ".join(p for p in (zipc, city) if p).strip()
-    if not addr:
-        return zipcity
-    al = addr.lower()
-    already = (
-        (bool(zipcity) and zipcity.lower() in al)
-        or (bool(zipc) and bool(city) and zipc.lower() in al and city.lower() in al)
-        or (bool(city) and not zipc and city.lower() in al)
-    )
-    if zipcity and not already:
-        return f"{addr}, {zipcity}"
-    return addr
+# The one-line address composer that never double-prints the city now lives in
+# bonbox_pdf_kit (every other artifact hand-rolled the same join — and the same
+# "…, 2500 Valby, 2500 Valby" defect). Re-exported here so the existing callers
+# and tests in this module keep their import path.
+from app.services.bonbox_pdf_kit import compose_business_address  # noqa: E402,F401
+# ONE predicate for "this close's salgsmoms cannot be stated", shared with the
+# per-close kasserapport. Without it the two artifacts disagreed about the same
+# stored row: "—" on the close's own document, a confident number in the period
+# total a revisor files from.
+from app.services.kasserapport_claims import moms_is_unknown  # noqa: E402
 
 
 def _fmt_kr(v, currency: str = "DKK") -> str:
@@ -425,6 +407,16 @@ def build_daily_close_range_pdf(
             if DA else
             "Payment columns exclude closes with no payment split"
         ),
+        # A period total built over closes whose salgsmoms was never computed is
+        # not a total — it is an understatement with no warning on it. The KPI
+        # renders "—" and this sentence says how many closes are behind it.
+        "moms_unknown_note": (
+            "Salgsmoms i alt kan ikke opgøres: {n} bekræftet(e) lukning(er) har "
+            "ingen momsopgørelse. Se kolonnen Moms nedenfor."
+            if DA else
+            "Total output VAT cannot be stated: {n} confirmed close(s) have no "
+            "VAT figure. See the VAT column below."
+        ),
     }
 
     # Sort ascending so the report reads chronologically.
@@ -580,6 +572,26 @@ def build_daily_close_range_pdf(
         )
         total_tips = _sum("tips_total")
 
+        # ── MOMS KPI honesty (the SAME predicate as the per-close kasserapport) ──
+        # `_sum` coerces a NULL moms_total to 0, so a range containing closes
+        # whose VAT was never computed produced a confident headline figure that
+        # silently UNDERSTATED the period's salgsmoms — the one number on this
+        # page a revisor carries into a filing. A total built over an unknown is
+        # not known. Doctrine: render "—" and say how many closes are missing.
+        #
+        # This used to test `c.moms_total is None` and nothing else, so a close
+        # the per-close kasserapport dashes (auto-mode zero VAT on non-zero
+        # revenue; a stored trio that does not reconstruct gross; revenue lines
+        # that contradict the total) still contributed a confident number here.
+        # The same stored row rendered "—" on its own document and a firm figure
+        # in the period export. One predicate now answers for both.
+        moms_unknown_closes = [c for c in confirmed if moms_is_unknown(c)]
+        moms_total_known = not moms_unknown_closes
+        # A period net built by subtracting an unknown VAT from revenue is just
+        # as unknown — and would sit beside a dashed MOMS in the same band,
+        # inviting the reader to reconstruct the missing figure from it.
+        net_total_known = moms_total_known
+
         def _fmt(v):
             # Canonical money formatter — the ONE every BonBox export must use
             # (mirrors the gold MOMS-PDF + the per-close kasserapport_pdf). DKK
@@ -593,8 +605,8 @@ def build_daily_close_range_pdf(
 
         kpi_rows = [[
             Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_rev']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_revenue)}</font>", subtitle),
-            Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_moms']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_moms)}</font>", subtitle),
-            Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_net']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_net)}</font>", subtitle),
+            Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_moms']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_moms) if moms_total_known else '—'}</font>", subtitle),
+            Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_net']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_net) if net_total_known else '—'}</font>", subtitle),
             Paragraph(f"<font color='#6b7280' size='8'>{L['kpi_tips']}</font><br/><font name='Helvetica-Bold' size='13'>{_fmt(total_tips)}</font>", subtitle),
         ]]
         kpi = Table(kpi_rows, colWidths=[68*mm, 68*mm, 68*mm, 66*mm])
@@ -608,6 +620,15 @@ def build_daily_close_range_pdf(
             ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
         ]))
         story.append(kpi)
+        if not moms_total_known:
+            # The dash above is not enough on its own — it must say WHY, and
+            # how many closes are behind it, or the reader assumes a bug.
+            story.append(Spacer(1, 4))
+            story.append(Paragraph(
+                f"<font color='{AMBER.hexval()}'>"
+                f"{L['moms_unknown_note'].format(n=len(moms_unknown_closes))}</font>",
+                note,
+            ))
         story.append(Spacer(1, 8))
 
         # ─── Per-close table — accountant columns ────────────────────────
@@ -671,10 +692,17 @@ def build_daily_close_range_pdf(
             pay = _bucketed_payments(c)
             vsales, _vexp = _voucher_ranges(db, user_id, c.date)
             revenue = float(c.revenue_total or 0)
-            moms = float(c.moms_total or 0) if c.moms_total is not None else None
+            # Same predicate as the KPI band and the per-close kasserapport, so
+            # a row cannot state a MOMS the page above it refuses to state.
+            row_moms_unknown = moms_is_unknown(c)
+            moms = None if row_moms_unknown else float(c.moms_total or 0)
+            # `revenue - (moms or 0)` printed a confident net BESIDE that row's
+            # own "—" Moms cell — the missing figure handed back to the reader
+            # by subtraction.
             net = (
-                float(c.revenue_ex_moms or 0) if c.revenue_ex_moms is not None
-                else (revenue - (moms or 0))
+                float(c.revenue_ex_moms or 0)
+                if (c.revenue_ex_moms is not None and not row_moms_unknown)
+                else (None if row_moms_unknown else revenue - (moms or 0))
             )
             cash_diff = c.cash_difference
             cash_diff_str = ""
@@ -706,7 +734,7 @@ def build_daily_close_range_pdf(
                 Paragraph(vsales, bilag_style) if vsales else "—",
                 _fmt(revenue),
                 _fmt(moms) if moms is not None else "—",
-                _fmt(net),
+                _fmt(net) if net is not None else "—",
                 _fmt(pay["cash"]) if pay["cash"] else "—",
                 _fmt(pay["card"]) if pay["card"] else "—",
                 _fmt(pay["mobilepay"]) if pay["mobilepay"] else "—",
@@ -732,7 +760,13 @@ def build_daily_close_range_pdf(
 
         table_data.append([
             f"{L['totals']} ({n_conf})", "",
-            _fmt(total_revenue), _fmt(total_moms), _fmt(total_net),
+            _fmt(total_revenue),
+            # The KPI band four inches above this row already renders "—" for
+            # exactly this quantity. Printing a confident (and understated)
+            # figure here made the document contradict itself about the single
+            # number a revisor carries into a MOMS filing.
+            _fmt(total_moms) if moms_total_known else "—",
+            _fmt(total_net) if net_total_known else "—",
             _fmt(sum_cash) if sum_cash else "—",
             _fmt(sum_card) if sum_card else "—",
             _fmt(sum_mp) if sum_mp else "—",
@@ -1085,12 +1119,39 @@ def build_daily_close_range_xlsx(
     ]
     k_start = period_row + 4
     s1.cell(row=k_start, column=1, value="Totaler (kun bekræftede)" if DA else "Totals (confirmed only)").font = bold
+    # Same MOMS honesty as the PDF: `or 0` above coerces a NULL moms_total into
+    # the sum, so a period containing closes whose VAT was never computed
+    # produced a confident, understated headline. A total built over an unknown
+    # is not known — write "—" in the cell instead of a fabricated number, and
+    # say why underneath. (The three other KPI cells stay numeric.)
+    # Same shared predicate as the PDF — `c.moms_total is None` alone let a
+    # close the per-close kasserapport dashes contribute a confident number.
+    moms_unknown_closes = [c for c in confirmed if moms_is_unknown(c)]
+    moms_total_known = not moms_unknown_closes
     for i, (label, val) in enumerate(kpi_rows):
         r = k_start + 1 + i
         s1.cell(row=r, column=1, value=label)
-        c = s1.cell(row=r, column=2, value=val)
-        c.number_format = money_fmt
+        # Rows 1 and 2 are Salgsmoms and Netto. A net built by subtracting an
+        # unknown VAT is unknown too, and stating it beside a dashed MOMS hands
+        # the missing figure back by subtraction.
+        if i in (1, 2) and not moms_total_known:
+            c = s1.cell(row=r, column=2, value="—")
+        else:
+            c = s1.cell(row=r, column=2, value=val)
+            c.number_format = money_fmt
         c.alignment = Alignment(horizontal="right")
+    if not moms_total_known:
+        note_row = k_start + 1 + len(kpi_rows)
+        s1.cell(
+            row=note_row, column=1,
+            value=(
+                "Salgsmoms i alt kan ikke opgøres: {n} bekræftet(e) lukning(er) "
+                "har ingen momsopgørelse."
+                if DA else
+                "Total output VAT cannot be stated: {n} confirmed close(s) have "
+                "no VAT figure."
+            ).format(n=len(moms_unknown_closes)),
+        )
 
     # ─── Sheet 2: Daily Close detail ─────────────────────────────────
     s2 = wb.create_sheet("Kasserapport" if DA else "Daily Close")
@@ -1111,9 +1172,13 @@ def build_daily_close_range_xlsx(
         pay = _bucketed_payments(c)
         vsales, vexp = _voucher_ranges(db, user_id, c.date)
         revenue = float(c.revenue_total or 0) if c.revenue_total is not None else None
-        moms = float(c.moms_total or 0) if c.moms_total is not None else None
+        # Same predicate as the PDF row builder — a cell must not state a MOMS
+        # (or a net derived from it) that the rest of the workbook dashes.
+        row_moms_unknown = moms_is_unknown(c)
+        moms = None if row_moms_unknown else float(c.moms_total or 0)
         net = (
-            float(c.revenue_ex_moms) if c.revenue_ex_moms is not None
+            None if row_moms_unknown
+            else float(c.revenue_ex_moms) if c.revenue_ex_moms is not None
             else (revenue - (moms or 0)) if revenue is not None else None
         )
         # Per-row tie-out note (Bemærkninger) — DRAFTS INCLUDED. When a close's
