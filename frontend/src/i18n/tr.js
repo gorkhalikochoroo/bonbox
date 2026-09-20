@@ -3346,7 +3346,7 @@ export const tr = {
   scanConfidenceLevel: "{level} güven — {detected}/{total} alan algılandı",
   scanGapNoBreakdown: "Kategori bazında dağılımı algılayamadık",
   scanGapDetectedSome: "{total} ciro kategorisinden {detected} tanesini algıladık",
-  scanGapTotalIs: "bu fişten — toplam {amount}.",
+  scanGapTotalIs: "bu fişten — toplam {amount}",
   scanGapSavingTotal: "Toplam ciro yine de kaydedilecek. Raporlar için gerekiyorsa kategori dağılımını aşağıya gir.",
   scanGapEnterActualFor: "Lütfen şunun gerçek tutarını gir:",
   scanGapOrSkip: "Ya da atla — yukarıdaki toplam her durumda doğru kaydedilir.",

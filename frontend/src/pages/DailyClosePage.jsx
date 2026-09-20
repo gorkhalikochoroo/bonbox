@@ -2710,7 +2710,7 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
                         ? t("scanGapNoBreakdown", "We couldn't detect the per-category breakdown")
                         : t("scanGapDetectedSome", "We detected {detected} of {total} revenue categories", { detected: detected.length, total: defaultRevCats.length })}
                     </strong>
-                    {" "}{t("scanGapTotalIs", "from this receipt — total is {amount}.", { amount: formatOwnerMoney(scanResult.revenue_total, currency, { decimals: GLANCE_DECIMALS }) })}
+                    {" "}{t("scanGapTotalIs", "from this receipt — total is {amount}", { amount: formatOwnerMoney(scanResult.revenue_total, currency, { decimals: GLANCE_DECIMALS }) })}
                   </div>
                   <div className="text-xs opacity-90">
                     {allEmpty
@@ -4346,7 +4346,9 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
       title: t("dcDeleteDraftTitleDated", "Delete the kladde for {date}?", { date: dayLabel }),
       message: t(
         "dcDeleteDraftBodyAmount",
-        "This kladde shows {amount}. It is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
+        // No full stop straight after the amount: the Danish money token ends
+        // in one already ("1.070 kr."), and the dialog rendered "kr..".
+        "This kladde shows {amount} — it is removed from your history and from anything you send your revisor. Locked closes cannot be deleted.",
         { amount: formatOwnerMoney(dc.revenue_total ?? 0, currency, { decimals: GLANCE_DECIMALS }) },
       ),
       confirmLabel: t("delete", "Delete"),
