@@ -24,7 +24,10 @@ log = logging.getLogger("bonbox.sales")
 from app.schemas.sale import SaleCreate, SaleUpdate, SaleResponse, SaleReturnRequest
 from app.services.auth import get_current_user
 from app.services.receipt_ocr import extract_amount_from_image, save_receipt_photo_ex
-from app.services.cash_sync import sync_cash_in_for_sale, delete_cash_entry_by_ref, update_cash_entry_for_ref
+from app.services.cash_sync import (
+    sync_cash_in_for_sale, delete_cash_entry_by_ref, update_cash_entry_for_ref,
+    soft_delete_cash_entry_by_ref, restore_cash_entry_by_ref,
+)
 from app.utils.time import utc_now
 
 router = APIRouter()
@@ -80,8 +83,14 @@ def restore_sale(
         raise HTTPException(status_code=404, detail="Deleted sale not found")
     sale.is_deleted = False
     sale.deleted_at = None
-    if sale.payment_method == "cash":
-        sync_cash_in_for_sale(db, sale)
+    # Bring back the exact line that was hidden. The fallback is for sales
+    # soft-deleted BEFORE the pair existed, whose cash_in the old cash-only
+    # unsync hard-deleted: nothing to un-hide, so re-cut it. Restoring first
+    # means an imported "mixed" sale gets its real line back rather than one
+    # this branch would have refused to create.
+    if not restore_cash_entry_by_ref(db, f"sale_{sale.id}", user.id):
+        if sale.payment_method == "cash":
+            sync_cash_in_for_sale(db, sale)
     db.commit()
     db.refresh(sale)
     return sale
@@ -329,8 +338,11 @@ def delete_sale(
     sale = db.query(Sale).filter(Sale.id == sale_id, Sale.user_id == user.id).first()
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
-    if sale.payment_method == "cash":
-        delete_cash_entry_by_ref(db, f"sale_{sale.id}", user.id)
+    # Hidden, not destroyed: the sale is recoverable, so its cash line has to
+    # be too. Unconditional because the key is the proof — the old cash-only
+    # guard never matched an imported "mixed" sale, so its cash_in kept
+    # counting toward kassebeholdning for a sale the owner had deleted.
+    soft_delete_cash_entry_by_ref(db, f"sale_{sale.id}", user.id)
     sale.is_deleted = True
     sale.deleted_at = utc_now()
     db.commit()
@@ -962,8 +974,9 @@ async def rollback_csv_import(
             # batch kept counting toward kassebeholdning for a sale the owner
             # had just taken back. Same unsync the single-sale DELETE does,
             # same cash-only condition, so restore stays symmetric.
-            if s.payment_method == "cash":
-                delete_cash_entry_by_ref(db, f"sale_{s.id}", user.id)
+            # Hidden, like the single-sale delete above: each of these stays
+            # restorable one by one, and its cash line has to come back with it.
+            soft_delete_cash_entry_by_ref(db, f"sale_{s.id}", user.id)
             s.is_deleted = True
             s.deleted_at = _dt.utcnow()
             deleted += 1

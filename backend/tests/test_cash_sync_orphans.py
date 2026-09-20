@@ -340,9 +340,14 @@ def test_permanent_delete_of_a_mixed_sale_leaves_no_orphan(client, db):
 
 def test_csv_import_undo_removes_the_cash_in_it_undid(client, db):
     """rollback_csv_import bulk-sets is_deleted on up to 1000 sales and
-    never unsyncs, so an "Undo" of a CSV import leaves the cash_in of
+    never unsynced, so an "Undo" of a CSV import left the cash_in of
     every cash sale in the batch counting toward kassebeholdning for a
-    sale the owner just took back."""
+    sale the owner just took back.
+
+    The line is HIDDEN rather than destroyed: each of those sales is still
+    restorable one at a time, so its cash must be able to come back with
+    it — and come back as the row that existed, not one re-derived from a
+    guard that never saw the original."""
     u = _owner(db)
     app.dependency_overrides[get_current_user] = lambda: u
 
@@ -358,12 +363,22 @@ def test_csv_import_undo_removes_the_cash_in_it_undid(client, db):
 
     db.expire_all()
     for sid in sids:
-        assert _rows_for(db, u, f"sale_{sid}") == [], (
+        rows = _rows_for(db, u, f"sale_{sid}")
+        assert len(rows) == 1, "the line is hidden, not destroyed — restore needs it"
+        assert rows[0].is_deleted is True, (
             "undoing the import must take back the cash it booked"
         )
 
     bal = client.get("/api/cashbook/balance").json()
     assert bal["total_in"] == 0.0, bal
+
+    # …and putting one sale back puts its cash back, at its real amount.
+    assert client.put(f"/api/sales/{sids[0]}/restore").status_code in (200, 204)
+    db.expire_all()
+    restored = _rows_for(db, u, f"sale_{sids[0]}")
+    assert len(restored) == 1 and restored[0].is_deleted is not True
+    bal = client.get("/api/cashbook/balance").json()
+    assert bal["total_in"] == 500.0, bal
 
 
 # ── The cash book's own permanent delete ──────────────────────────────
@@ -566,3 +581,91 @@ def test_cashbook_create_ignores_a_client_supplied_reference_id(client, db):
     assert db.query(CashTransaction).filter(CashTransaction.id == hand_id).first() is not None, (
         "the owner's own hand-typed line is not collateral of a sale delete"
     )
+
+
+# ── The soft delete: hidden, and it comes back ────────────────────────
+
+
+def test_soft_deleting_an_imported_mixed_sale_takes_its_cash_out_of_the_drawer(client, db):
+    """The hole the first pass left open, stated as the owner sees it.
+
+    An importer syncs a cash_in for a sale booked "mixed" (bank_import:151,
+    payment_import:415). The owner deletes that sale. The old unsync asked
+    `payment_method == "cash"`, so it matched nothing — and 2.400 kr. went
+    on counting toward kassebeholdning for a sale that is no longer in the
+    books. Not an orphan: the sale still exists in Recently Deleted, so
+    every orphan test in this file passes while the drawer is wrong.
+    """
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+
+    s = _sale(db, u, method="mixed", amount=2400.0)
+    sync_cash_in_for_sale(db, s)          # what the importer does
+    db.commit()
+    sid = str(s.id)
+
+    assert client.get("/api/cashbook/balance").json()["total_in"] == 2400.0
+
+    assert client.delete(f"/api/sales/{sid}").status_code == 204
+    db.expire_all()
+    bal = client.get("/api/cashbook/balance").json()
+    assert bal["total_in"] == 0.0, (
+        "a deleted sale's cash must leave the drawer whatever it was paid with"
+    )
+    rows = _rows_for(db, u, f"sale_{sid}")
+    assert len(rows) == 1 and rows[0].is_deleted is True, (
+        "hidden, not destroyed — the sale is still restorable"
+    )
+
+
+def test_restoring_that_sale_brings_back_the_line_that_existed(client, db):
+    """Restore must return the ROW, not re-derive one.
+
+    A "mixed" sale's cash_in could never be re-cut by the old restore — it
+    asked the same cash-only question — so destroying the line on delete
+    would have lost 2.400 kr. permanently on the way back.
+    """
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+
+    s = _sale(db, u, method="mixed", amount=2400.0)
+    sync_cash_in_for_sale(db, s)
+    db.commit()
+    sid = str(s.id)
+
+    assert client.delete(f"/api/sales/{sid}").status_code == 204
+    assert client.put(f"/api/sales/{sid}/restore").status_code in (200, 204)
+    db.expire_all()
+
+    bal = client.get("/api/cashbook/balance").json()
+    assert bal["total_in"] == 2400.0, ("restore must put the money back", bal)
+    rows = _rows_for(db, u, f"sale_{sid}")
+    assert len(rows) == 1, "exactly one line — restore must not mint a second"
+
+
+def test_soft_deleting_a_bank_transfer_expense_takes_its_cash_out_of_the_drawer(client, db):
+    """Same hole on the expense side. The four importers sync a cash_out
+    with no payment-method check at all, so a bank_transfer expense had
+    one — and the old `cash and not is_personal` unsync never matched it."""
+    u = _owner(db)
+    app.dependency_overrides[get_current_user] = lambda: u
+
+    cat = _category(db, u)
+    e = _expense(db, u, cat, method="bank_transfer", amount=1800.0)
+    sync_cash_out_for_expense(db, e, category_name="Grossist")
+    db.commit()
+    eid = str(e.id)
+
+    assert client.get("/api/cashbook/balance").json()["total_out"] == 1800.0
+
+    assert client.delete(f"/api/expenses/{eid}").status_code == 204
+    db.expire_all()
+    bal = client.get("/api/cashbook/balance").json()
+    assert bal["total_out"] == 0.0, (
+        "a deleted expense's cash must stop draining the drawer", bal
+    )
+
+    assert client.put(f"/api/expenses/{eid}/restore").status_code in (200, 204)
+    db.expire_all()
+    bal = client.get("/api/cashbook/balance").json()
+    assert bal["total_out"] == 1800.0, ("restore must put it back", bal)

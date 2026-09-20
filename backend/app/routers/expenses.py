@@ -33,7 +33,10 @@ from app.schemas.expense import (
     ExpenseCategoryCreate, ExpenseCategoryResponse, ExpenseApproveBatch,
 )
 from app.services.auth import get_current_user
-from app.services.cash_sync import sync_cash_out_for_expense, delete_cash_entry_by_ref, update_cash_entry_for_ref
+from app.services.cash_sync import (
+    sync_cash_out_for_expense, delete_cash_entry_by_ref, update_cash_entry_for_ref,
+    soft_delete_cash_entry_by_ref, restore_cash_entry_by_ref,
+)
 from app.services.expense_status import not_pending, is_pending as _is_pending
 from app.services.receipt_ocr import parse_expense_receipt
 from app.services.billing import PLAN_CAPS, get_cap, effective_plan
@@ -336,8 +339,11 @@ def restore_expense(
         raise HTTPException(status_code=404, detail="Deleted expense not found")
     expense.is_deleted = False
     expense.deleted_at = None
-    if expense.payment_method == "cash" and not expense.is_personal:
-        sync_cash_out_for_expense(db, expense)
+    # Un-hide the exact line; re-cut one only for expenses soft-deleted before
+    # the pair existed, whose cash_out the old guard hard-deleted.
+    if not restore_cash_entry_by_ref(db, f"expense_{expense.id}", user.id):
+        if expense.payment_method == "cash" and not expense.is_personal:
+            sync_cash_out_for_expense(db, expense)
     db.commit()
     db.refresh(expense)
     return expense
@@ -1371,8 +1377,12 @@ def delete_expense(
     expense = db.query(Expense).filter(Expense.id == expense_id, Expense.user_id == user.id).first()
     if not expense:
         raise HTTPException(status_code=404, detail="Expense not found")
-    if expense.payment_method == "cash" and not expense.is_personal:
-        delete_cash_entry_by_ref(db, f"expense_{expense.id}", user.id)
+    # Hidden, not destroyed — the expense is recoverable, so its cash line is
+    # too. Unconditional because the key is the proof: the old
+    # cash-and-not-personal guard never matched the bank_transfer /
+    # mobilepay / card expenses the four importers sync a cash_out for, so
+    # those kept draining the drawer for an expense already deleted.
+    soft_delete_cash_entry_by_ref(db, f"expense_{expense.id}", user.id)
     expense.is_deleted = True
     expense.deleted_at = utc_now()
     db.commit()

@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 from app.models.cashbook import CashTransaction
 import uuid
 from datetime import date as date_type
+from app.utils.time import utc_now
 
 
 def sync_cash_in_for_sale(db: Session, sale):
@@ -76,6 +77,48 @@ def delete_cash_entry_by_ref(db: Session, reference_id: str, user_id):
         CashTransaction.reference_id == reference_id,
         CashTransaction.user_id == user_id,
     ).delete()
+
+
+def soft_delete_cash_entry_by_ref(db: Session, reference_id: str, user_id):
+    """Hide the synced line while its parent sits in Recently Deleted.
+
+    A soft delete is recoverable, so destroying the cash line would be
+    asymmetric: restore could only guess whether to put one back, and for
+    an imported "mixed" sale or a bank_transfer expense — whose lines the
+    old cash-only unsync never touched — it would guess wrong in the
+    direction that invents or loses money. Hiding it instead means restore
+    brings back exactly the row that existed, amount and all.
+
+    get_balance and the cash-book list both filter `is_deleted`, so a
+    hidden line is already out of kassebeholdning. Keyed, so it can only
+    ever hide a row this parent produced.
+    """
+    db.query(CashTransaction).filter(
+        CashTransaction.reference_id == reference_id,
+        CashTransaction.user_id == user_id,
+        CashTransaction.is_deleted.isnot(True),
+    ).update({"is_deleted": True, "deleted_at": utc_now()}, synchronize_session=False)
+
+
+def restore_cash_entry_by_ref(db: Session, reference_id: str, user_id) -> int:
+    """Un-hide what soft_delete_cash_entry_by_ref hid. Returns rows restored.
+
+    The count is the caller's answer to "was there a line?". Zero means
+    this parent never had one, OR it was hard-deleted by the cash-only
+    unsync this pair replaces — which is why the callers fall back to a
+    fresh sync for rows that should have one. Without that fallback, every
+    sale soft-deleted before this change would come back with its cash_in
+    missing from the drawer.
+    """
+    return (
+        db.query(CashTransaction)
+        .filter(
+            CashTransaction.reference_id == reference_id,
+            CashTransaction.user_id == user_id,
+            CashTransaction.is_deleted.is_(True),
+        )
+        .update({"is_deleted": False, "deleted_at": None}, synchronize_session=False)
+    )
 
 
 def update_cash_entry_for_ref(db: Session, reference_id: str, user_id, **updates):
