@@ -2791,7 +2791,7 @@ const translations = {
     expiryConfirmClearsStock: "This writes all {qty} of {item} down to 0 in your stock. If you tapped the wrong button, type the quantity back in under Inventory.",
     expiryConfirmWasteRowLine: "It is also logged as a waste row in your waste history.",
     expiryConfirmExtendedBodyNamed: "{item} keeps its {qty} in stock — only the expiry date moves 3 days later.",
-    rdDeleteForeverTitleRow: "Delete {item} forever?",
+    rdDeleteForeverTitleRow: "Permanently delete {item}?",
     rdDeleteForeverBodyAmount: "This entry shows {amount} — deleting it here removes it for good. Nothing can bring it back.",
     rdDeleteForeverBody: "Deleting it here removes it for good. Nothing can bring it back.",
     connBankDisconnectTitleNamed: "Disconnect {bank}?",

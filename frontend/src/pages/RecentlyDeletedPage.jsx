@@ -148,7 +148,7 @@ export default function RecentlyDeletedPage() {
     const value = valueOf(item);
     const hasAmount = value != null && !Number.isNaN(Number(value));
     const ok = await confirm({
-      title: t("rdDeleteForeverTitleRow", "Delete {item} forever?", { item: describeItem(item) }),
+      title: t("rdDeleteForeverTitleRow", "Permanently delete {item}?", { item: describeItem(item) }),
       message: hasAmount
         ? t(
             "rdDeleteForeverBodyAmount",
