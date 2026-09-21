@@ -542,6 +542,13 @@ export default function LoginPage() {
                       width={String(googleWidth)}
                       text="signin_with"
                       theme="outline"
+                      // Google renders this button's own label, and without a
+                      // locale it picks one from the browser or the signed-in
+                      // Google account — so an English page showed "Log ind med
+                      // Google" above "Welcome back" and "Sign in to continue".
+                      // The first screen anyone sees, in two languages at once.
+                      // Follows the app's own picker instead.
+                      locale={lang}
                     />
                   </div>
                 )}
