@@ -3134,22 +3134,40 @@ function CloseForm({ currency, t, branchType, branchId, onDone, onQueued, isOnli
         )}
         {/* The prefill request FAILED. Rendering nothing here (the old silent
             catch) is indistinguishable from "this date has no sales" — and the
-            owner then closes the day with no POS cross-check, no
-            register-derived expected cash and no variance warning, none of
-            which announce their own absence. Say it. */}
+            owner then closes the day with no POS cross-check and no
+            register-derived expected cash, neither of which announces its own
+            absence. Say it — and say ONLY that. What actually goes quiet with
+            the prefill is exactly two things: the POS variance warning
+            (gated on `prefill && prefill.sales.total > 0`) and the
+            register-authoritative cash baseline (registerCash stays null, so
+            `cashExpected` falls back to the owner's typed cash line). The
+            "Expected" figure and the "Off by more than 100" shortage warning
+            both still render two steps later — `cashDiff` does not read
+            prefill at all — so claiming those are gone would be a banner the
+            owner's own screen contradicts. */}
         {prefillStatus === "failed" && !prefillLoading && (
           <SectionBanner
             severity="warn"
             icon="AlertTriangle"
             className="mb-4"
-            title={t("somethingWentWrong")}
+            title={t("dcPrefillFailedTitle", "We couldn't reach your sales register")}
           >
-            {/* Composed from keys that already exist in en + da + tr. This run
-                does not own useLanguage.jsx, so the purpose-built sentence this
-                deserves ("We couldn't reach your sales register — tonight's
-                numbers are yours alone, with no POS cross-check") is NOT
-                available; see the report. */}
-            {t("closeManualCta")}
+            {/* WAS: the generic "Noget gik galt. Prøv venligst igen." headline
+                over a body that said only "Indtast manuelt" — two stock strings
+                stacked, neither of which told the owner that the POS
+                cross-check and the register-derived cash baseline had gone
+                quiet.
+                THEN: a first attempt (dcPrefillFailedBody) that over-claimed —
+                it said there was "no expected cash in the drawer, and no
+                warning if the count comes up short", and the cash step then
+                showed the owner both. A banner the next screen contradicts is
+                worse than the vague pair it replaced. This key claims only the
+                two things that genuinely stop: the register cross-check, and
+                the baseline the Expected figure is derived FROM. */}
+            {t(
+              "dcPrefillFailedDetail",
+              "Tonight's numbers are yours alone: no cross-check against your POS total, and the expected cash falls back to the cash line you type instead of what the till recorded. Type the day in by hand — it still locks normally.",
+            )}
           </SectionBanner>
         )}
         {prefill && !prefillLoading && (
@@ -4390,7 +4408,11 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
                 "nudgeAccountantSend",
                 "Email your accountant in one tap"
               ),
-              icon: "📤",
+              // WAS: icon: "📤". A Free owner tapping "Send to revisor" met an
+              // emoji in the upgrade dialog — the one moment the product most
+              // needs to look like an accounting tool. UpgradeNudge prefers a
+              // Lucide `iconName` over the legacy emoji prop.
+              iconName: "Send",
             });
             setSendingToAccountant(false);
             return;
@@ -4725,7 +4747,12 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
             ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800"
             : "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800"
         }`}>
-          <span className="text-[16px] leading-none shrink-0" aria-hidden="true">{activeStreak.icon}</span>
+          {/* WAS: the server's raw emoji (🚨 / ⚠️ / 💡). Lucide, in the same
+              red-or-amber the sentence beside it already carries. */}
+          <Icon name={insightIconName(activeStreak)} size={16} className={`shrink-0 ${
+            activeStreak.severity === "critical" ? "text-red-700 dark:text-red-300"
+              : "text-amber-700 dark:text-amber-300"
+          }`} />
           <p className={`text-[13px] font-medium ${
             activeStreak.severity === "critical" ? "text-red-700 dark:text-red-300"
               : "text-amber-700 dark:text-amber-300"
@@ -5248,7 +5275,7 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
           intent="dialog"
           tier={upgradeNudge.tier}
           benefit={upgradeNudge.benefit}
-          icon={upgradeNudge.icon}
+          iconName={upgradeNudge.iconName}
           ctaLabel={t("nudgeSeePlans", "See plans")}
           onTry={() => setUpgradeNudge(null)}
         />
@@ -5644,6 +5671,30 @@ function CalendarHeatMap({ data, currency }) {
 /* ═══════════════════════════════════════════════════════════
    INSIGHTS VIEW
    ═══════════════════════════════════════════════════════════ */
+/* Insight glyphs, resolved HERE instead of rendered from the server string.
+   WAS: the backend hands every insight an `icon` field holding a literal emoji
+   (🍸 💰 🔍 ✅ 📦 🚨 ⚠️ 💡 — daily_close.py), and three sites on this surface
+   printed that string straight through. The owner's revisor-facing close page
+   showed a cocktail glass beside the drink ratio and a siren beside a cash
+   shortage. The emoji is now ignored: the insight's own `type` already carries
+   the meaning, and for the one glyph that varies, the number the card shows
+   decides it — so the mark can never disagree with the text beside it. */
+function insightIconName(ins) {
+  switch (ins?.type) {
+    case "drink_ratio": return "Wine";
+    case "tip_trends": return "Coins";
+    // The backend's own threshold: drift past −200 reads "investigate",
+    // anything gentler reads "healthy". Same cut the summary StatCard uses.
+    case "cash_drift": return Number(ins?.total_drift) < -200 ? "Search" : "CheckCircle2";
+    case "takeaway_growth": return "Package";
+    // One mark for all three streak severities — the card collapses info and
+    // warning into the same amber (see StreakAlertCard), so a third glyph
+    // would put back the level the colour deliberately dropped.
+    case "cash_streak": return "AlertTriangle";
+    default: return "Lightbulb";
+  }
+}
+
 function InsightsView({ data, currency, t, loading = false, failed = false, isOnline = true, onRetry = null }) {
   /* Same order as History, same reason. "Not enough data yet — lock a few
      kasserapporter" is a judgement about the OWNER's record; a request that
@@ -5722,9 +5773,10 @@ function InsightsView({ data, currency, t, loading = false, failed = false, isOn
       {regularInsights.map((ins, i) => (
         <div key={i} className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-200 dark:border-gray-700 shadow-sm">
           <div className="flex items-start gap-3">
-            {/* ins.icon is server-authored text (often an emoji). Kept as data,
-                demoted to 16px so it stops out-weighing the title next to it. */}
-            <span className="text-[16px] leading-none mt-0.5 shrink-0" aria-hidden="true">{ins.icon}</span>
+            {/* WAS: ins.icon rendered straight through — server-authored text
+                that is in practice an emoji. Resolved from the insight's type
+                instead, so the mark is Lucide like the rest of the page. */}
+            <Icon name={insightIconName(ins)} size={16} className="mt-0.5 shrink-0 text-gray-400 dark:text-gray-500" />
             <div className="min-w-0">
               <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white">{ins.title}</h3>
               <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1">{ins.detail}</p>
@@ -5780,7 +5832,9 @@ function StreakAlertCard({ alert, currency }) {
   return (
     <div className={`rounded-xl p-5 border ${s.border} ${s.bg} shadow-sm`}>
       <div className="flex items-start gap-3">
-        <span className="text-[16px] leading-none mt-0.5 shrink-0" aria-hidden="true">{alert.icon}</span>
+        {/* WAS: the server's raw emoji. Lucide, tinted with the card's own
+            severity ink so it reads as one object with the title. */}
+        <Icon name={insightIconName(alert)} size={16} className={`mt-0.5 shrink-0 ${s.title}`} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className={`text-[14px] font-semibold ${s.title}`}>{alert.title}</h3>

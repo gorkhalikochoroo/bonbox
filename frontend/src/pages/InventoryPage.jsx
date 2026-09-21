@@ -524,25 +524,62 @@ export default function InventoryPage() {
     return list.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
   }, [items, activeCategory, search, templateFilter]);
 
-  // Auto-calculated financials
+  // Auto-calculated financials.
+  //
+  // TWO POPULATIONS, NEVER SUBTRACTED ACROSS. `totalCost` used to add
+  // `qty * buy` for EVERY item while `totalRevenue` only added `qty * sell`
+  // for the priced ones — so a café with 60 varer and 12 priced read
+  // "Potentiel fortjeneste −14.800 kr." in red under the helper word
+  // "margin". The owner was looking at the cost of 48 unpriced varer
+  // subtracted from the sale value of 12, with nothing on screen saying so.
+  //
+  //   • stockValueAll — cost of EVERY item. Only ever shown on its own,
+  //     under a heading that already counts all items.
+  //   • pricedCost / pricedRevenue / pricedProfit / weightedMargin — the
+  //     PRICED subset only (a sell price and a real buy price), which is
+  //     exactly the `itemsWithMargin` items the strip already counts. These
+  //     four tie out against each other: profit = revenue − cost, and
+  //     margin = profit ÷ cost.
+  //
+  // WEIGHTED, NOT AVERAGED. The old margin was the unweighted mean of each
+  // item's own percentage, so one cheap garnish at +900% outvoted a whole
+  // pallet of flour, and — sitting in the same row as cost, revenue and
+  // profit — it disagreed with the profit ÷ cost the owner could do in their
+  // head from the three tiles beside it. It is now total profit over total
+  // cost across the priced subset, which closes that row, and the tile says
+  // it is weighted by the stock on hand so the owner knows why it moves as
+  // the shelf empties. The per-item, price-only margin has NOT gone
+  // anywhere: every priced row still shows its own % in the table's margin
+  // column. `null` (rendered "—") when there is no stock to weight — it used
+  // to return a confident, healthy-looking 0%.
+  //
+  // THREE OUTCOMES, NOT TWO. A row whose quantity or price will not parse is
+  // neither priced nor worth 0 kr. — it is unreadable. It is counted and
+  // said out loud next to the tiles instead of quietly dragging stock value
+  // down by its own cost. (Both columns are non-nullable with default 0, so
+  // this is a guard against a malformed payload, not everyday data — but a
+  // guard that keeps its own count.)
   const stats = useMemo(() => {
-    let totalCost = 0, totalRevenue = 0, itemsWithMargin = 0, totalMarginPct = 0;
+    let stockValueAll = 0, pricedCost = 0, pricedRevenue = 0, itemsWithMargin = 0, unreadable = 0;
     items.forEach((i) => {
       const qty = parseFloat(i.quantity);
       const buy = parseFloat(i.cost_per_unit);
       const sell = i.sell_price != null ? parseFloat(i.sell_price) : null;
-      totalCost += qty * buy;
-      if (sell != null) {
-        totalRevenue += qty * sell;
-        if (buy > 0) {
-          totalMarginPct += ((sell - buy) / buy) * 100;
-          itemsWithMargin++;
-        }
+      if (!Number.isFinite(qty) || !Number.isFinite(buy) || (sell != null && !Number.isFinite(sell))) {
+        unreadable++;
+        return;
+      }
+      const lineCost = qty * buy;
+      stockValueAll += lineCost;
+      if (sell != null && buy > 0) {
+        pricedCost += lineCost;
+        pricedRevenue += qty * sell;
+        itemsWithMargin++;
       }
     });
-    const totalProfit = totalRevenue - totalCost;
-    const avgMargin = itemsWithMargin > 0 ? Math.round(totalMarginPct / itemsWithMargin) : 0;
-    return { totalCost, totalRevenue, totalProfit, avgMargin, itemsWithMargin };
+    const pricedProfit = pricedRevenue - pricedCost;
+    const weightedMargin = pricedCost > 0 ? Math.round((pricedProfit / pricedCost) * 100) : null;
+    return { stockValueAll, pricedCost, pricedRevenue, pricedProfit, weightedMargin, itemsWithMargin, unreadable };
   }, [items]);
 
   // Bar items with pour tracking
@@ -843,29 +880,45 @@ export default function InventoryPage() {
           (the money moment); margin uses red when negative — that's a
           data-true color, not decoration. */}
       {stats.itemsWithMargin >= 10 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <StatCard
-            label={t("stockCost")}
-            value={<Amount value={stats.totalCost} currency={currency} />}
-            helper={t("invested")}
-          />
-          <StatCard
-            label={t("potentialRevenue")}
-            value={<Amount value={stats.totalRevenue} currency={currency} />}
-            helper={t("ifAllSold")}
-          />
-          <StatCard
-            label={t("potentialProfit")}
-            value={<Amount value={stats.totalProfit} currency={currency} sign />}
-            accent={stats.totalProfit >= 0 ? "success" : "critical"}
-            helper={t("margin")}
-          />
-          <StatCard
-            label={t("avgMargin")}
-            value={`${stats.avgMargin}%`}
-            accent={stats.avgMargin >= 0 ? "neutral" : "critical"}
-            helper={`${stats.itemsWithMargin} ${t("itemsPriced")}`}
-          />
+        <div className="space-y-2">
+          {/* SAY THE SCOPE OUT LOUD. All four tiles read the priced subset, so
+              the strip's arithmetic closes: profit = revenue − cost, and the
+              margin is that profit over that cost. Before, tile 1 counted all
+              60 varer and tiles 2–3 counted the 12 priced ones, and the owner
+              had no way to reconcile the red number in the middle. */}
+          <p className="text-[12px] text-gray-500 dark:text-gray-400">
+            {t("invPricedScopeStrip")} · {stats.itemsWithMargin}/{items.length} {t("itemsPriced")}
+            {stats.unreadable > 0 ? ` · ${stats.unreadable} ${t("invRowsUnreadable", "items could not be read")}` : ""}
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCard
+              label={t("stockCost")}
+              value={<Amount value={stats.pricedCost} currency={currency} />}
+              helper={t("invested")}
+            />
+            <StatCard
+              label={t("potentialRevenue")}
+              value={<Amount value={stats.pricedRevenue} currency={currency} />}
+              helper={t("ifAllSold")}
+            />
+            <StatCard
+              label={t("potentialProfit")}
+              value={<Amount value={stats.pricedProfit} currency={currency} sign />}
+              accent={stats.pricedProfit >= 0 ? "success" : "critical"}
+              // The helper used to read "margin" under a kroner figure. It now
+              // states the subtraction the tile actually performed.
+              helper={t("invPotentialProfitHelper")}
+            />
+            <StatCard
+              label={t("weightedMargin")}
+              value={stats.weightedMargin == null ? "—" : `${stats.weightedMargin}%`}
+              accent={stats.weightedMargin != null && stats.weightedMargin < 0 ? "critical" : "neutral"}
+              // Says WHY this number moves when no price changed: it is the
+              // margin of what is on the shelf today, not an average of the
+              // price list. The priced count sits in the caption above.
+              helper={t("invWeightedMarginHelper", "margin weighted by stock on hand")}
+            />
+          </div>
         </div>
       ) : items.length > 0 && (
         <SectionBanner
@@ -996,20 +1049,41 @@ export default function InventoryPage() {
                       <span key={cat} className="px-2.5 py-1 bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 rounded-lg text-xs font-bold text-gray-700 dark:text-gray-300">{categoryLabel(t, cat)} · {list.length}</span>
                     ))}
                   </div>
-                  <div className="grid grid-cols-3 gap-2 mb-3">
+                  {/* This panel is headed "Alle varer (60)", so stock value is
+                      the whole shelf — but sale value and margin can only come
+                      from the varer that HAVE a sell price. The two scopes now
+                      say which is which instead of sitting side by side as if
+                      they covered the same rows. And margin renders "—" where
+                      nothing is priced: it used to print a confident green 0%,
+                      which reads as "you break even" rather than "we don't
+                      know yet". */}
+                  <div className="grid grid-cols-3 gap-2 mb-1.5">
                     <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
                       <p className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold">{t("stockValue")}</p>
-                      <p className="text-sm font-semibold text-gray-800 dark:text-white"><Amount value={stats.totalCost} currency={currency} /></p>
+                      <p className="text-sm font-semibold text-gray-800 dark:text-white"><Amount value={stats.stockValueAll} currency={currency} /></p>
                     </div>
                     <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
                       <p className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold">{t("saleValue")}</p>
-                      <p className="text-sm font-semibold text-gray-800 dark:text-white"><Amount value={stats.totalRevenue} currency={currency} /></p>
+                      {/* Nothing priced means we do not know what the shelf
+                          sells for — not that it sells for 0 kr. The tile
+                          beside it already says "—" for exactly this. */}
+                      {stats.itemsWithMargin === 0 ? (
+                        <p className="text-sm font-semibold text-gray-400 dark:text-gray-500">—</p>
+                      ) : (
+                        <p className="text-sm font-semibold text-gray-800 dark:text-white"><Amount value={stats.pricedRevenue} currency={currency} /></p>
+                      )}
                     </div>
                     <div className="text-center p-2 bg-gray-50 dark:bg-gray-700/30 rounded-lg">
-                      <p className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold">{t("avgMargin")}</p>
-                      <p className={`text-sm font-semibold ${stats.avgMargin >= 0 ? "text-[rgb(var(--brand-green-accent))]" : "text-red-500 dark:text-red-400"}`}>{stats.avgMargin}%</p>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 font-semibold">{t("weightedMargin")}</p>
+                      <p className={`text-sm font-semibold ${stats.weightedMargin == null ? "text-gray-400 dark:text-gray-500" : stats.weightedMargin >= 0 ? "text-[rgb(var(--brand-green-accent))]" : "text-red-500 dark:text-red-400"}`}>
+                        {stats.weightedMargin == null ? "—" : `${stats.weightedMargin}%`}
+                      </p>
                     </div>
                   </div>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
+                    {t("invStockValueScopeNote")} · {t("invWeightedMarginHelper", "margin weighted by stock on hand")} · {stats.itemsWithMargin}/{items.length} {t("itemsPriced")}
+                    {stats.unreadable > 0 ? ` · ${stats.unreadable} ${t("invRowsUnreadable", "items could not be read")}` : ""}
+                  </p>
                   <div className="space-y-1 max-h-48 overflow-y-auto">
                     {items.slice(0, 15).map((i) => (
                       <div key={i.id} className="flex items-center justify-between px-3 py-1.5 bg-gray-50 dark:bg-gray-700/30 rounded-lg text-xs">
@@ -1527,8 +1601,17 @@ export default function InventoryPage() {
                           {sell != null ? <Amount value={sell} currency={currency} decimals={2} /> : "—"}
                         </td>
                         <td className="px-3 py-2.5 text-[13px] tabular-nums text-right">
+                          {/* This column doubles as the per-pour price cell —
+                              the edit row puts its per-pour MoneyField in the
+                              same slot. The figure used to print raw: "35/ml",
+                              no grouping, no "kr.", and pour_unit is a VOLUME
+                              unit, so it read as 35 kroner per millilitre next
+                              to rows saying "+42%". It is money per glas now. */}
                           {item.sell_price_per_pour > 0 ? (
-                            <span className="text-amber-600 dark:text-amber-400 font-medium">{parseFloat(item.sell_price_per_pour)}/{item.pour_unit || "glass"}</span>
+                            <span className="text-amber-600 dark:text-amber-400 font-medium">
+                              <Amount value={parseFloat(item.sell_price_per_pour)} currency={currency} decimals={2} />
+                              <span className="text-gray-500 dark:text-gray-400 font-normal">/{t("perGlass")}</span>
+                            </span>
                           ) : margin != null ? (
                             <span className={margin >= 0 ? "text-[rgb(var(--brand-green-accent))] font-medium" : "text-red-500 dark:text-red-400 font-medium"}>
                               {margin >= 0 ? "+" : ""}{margin}%
@@ -1818,8 +1901,13 @@ export default function InventoryPage() {
                       <div className="text-right">
                         <div className="text-gray-500 dark:text-gray-400">{t("margin")} / {t("profit")}</div>
                         <div className="font-semibold tabular-nums mt-0.5">
+                          {/* Same cell on a phone — it repeated the raw
+                              "35/ml" under the heading "margin / profit". */}
                           {item.sell_price_per_pour > 0 ? (
-                            <span className="text-amber-600 dark:text-amber-400">{parseFloat(item.sell_price_per_pour)}/{item.pour_unit || "glass"}</span>
+                            <span className="text-amber-600 dark:text-amber-400">
+                              <Amount value={parseFloat(item.sell_price_per_pour)} currency={currency} decimals={2} />
+                              <span className="text-gray-500 dark:text-gray-400 font-normal">/{t("perGlass")}</span>
+                            </span>
                           ) : margin != null ? (
                             <span className={margin >= 0 ? "text-[rgb(var(--brand-green-accent))]" : "text-red-500 dark:text-red-400"}>
                               {margin >= 0 ? "+" : ""}{margin}%

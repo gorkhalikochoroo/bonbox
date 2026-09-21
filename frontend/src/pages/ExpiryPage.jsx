@@ -28,8 +28,6 @@ import {
   Button, PageHeader, StatCard, SectionBanner, Empty, Icon, UpgradeNudge, Amount,
 } from "../components/ui";
 
-function fmt(n) { return n != null ? Math.round(n).toLocaleString() : "\u2014"; }
-
 const STATUS_CONFIG = {
   expired:  { labelKey: "expStatusExpired",  label: "Expired",   color: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" },
   critical: { labelKey: "expStatusCritical", label: "< 7 days",  color: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300" },
@@ -181,6 +179,236 @@ export default function ExpiryPage() {
     ...expiring_later.map(i => ({ ...i, _section: "upcoming" })),
   ];
 
+  // ─── Backend prose → the owner's own language ───────────────────────
+  // /expiry/forecast ships `recommendations` and `alerts` as FINISHED English
+  // sentences with an emoji glyph in front ("Remove 3 expired item(s)",
+  // "At-risk value: 4,820. Sell, discount, or use before expiry."), and this
+  // page printed them verbatim. A Danish owner read English advice sitting in
+  // Danish chrome, the emoji broke the Lucide-only rule, and the money arrived
+  // with English grouping and no currency at all.
+  //
+  // Every entry already carries a machine-readable `type`, so the type is the
+  // only thing we take from the server. The sentence is written here and the
+  // money goes through <Amount>, which renders "—" rather than a confident 0.
+  //
+  // COUNTS ARE NOT `list.length`. expiry_service.py ships every bucket capped
+  // for display — expired[:10], expiring_soon[:10], expiring_moderate[:10],
+  // missing_expiry[:5] — so a venue with 23 items inside 7 days sends ten of
+  // them. The English sentences this replaced were built server-side from the
+  // FULL lists, so counting the shipped rows here would have quietly turned
+  // 23 into 10 and 40 missing dates into 5. Two rules, in order:
+  //   1. If the server sent the real figure next to the entry, use it
+  //      (alerts carry `items_count` / `at_risk_value`).
+  //   2. Otherwise say "at least {n}" — true at any size, and identical to
+  //      the exact count in the ordinary case where nothing was capped.
+  // Never print a capped length as if it were the total.
+  const BUCKET_CAP = 10;   // expired / soon / moderate lists
+  const MISSING_CAP = 5;   // missing_expiry list
+
+  const firstNames = (rows, n = 3) =>
+    (rows || []).slice(0, n).map((r) => r.name).filter(Boolean).join(", ");
+
+  // `exact` is the server's own count when it sent one; `atLeast` marks the
+  // case where all we know is a floor.
+  const countOf = (exact, rows, cap) => {
+    if (Number.isFinite(exact) && exact >= 0) return { n: exact, atLeast: false };
+    const shown = (rows || []).length;
+    return { n: shown, atLeast: shown >= cap };
+  };
+
+  // One count, three honest shapes: exactly one, exactly n, or "at least n".
+  const countTitle = (c, k) => {
+    if (c.atLeast) return t(k.atLeastKey, k.atLeastEn, { n: c.n });
+    if (c.n === 1 && k.oneKey) return t(k.oneKey, k.oneEn);
+    return t(k.manyKey, k.manyEn, { n: c.n });
+  };
+
+  // The expiring_soon ALERT is the one entry that carries the true figures, and
+  // the discount recommendation counts the same bucket — so both read it.
+  const soonAlert = (alerts || []).find((a) => a.type === "expiring_soon");
+  const soonCount = countOf(soonAlert?.items_count, expiring_soon, BUCKET_CAP);
+  const expiredCount = countOf(null, expired_items, BUCKET_CAP);
+  const moderateCount = countOf(null, expiring_moderate, BUCKET_CAP);
+  const missingCount = countOf(null, missing_expiry, MISSING_CAP);
+
+  const repeatWaste = (waste_summary?.top_items || []).filter((w) => (w.count ?? 0) >= 3);
+
+  const recCopy = (rec) => {
+    switch (rec.type) {
+      case "remove_expired":
+        return {
+          icon: "Trash2",
+          title: countTitle(expiredCount, {
+            oneKey: "expRecRemoveTitleOne", oneEn: "Remove 1 expired item",
+            manyKey: "expRecRemoveTitle", manyEn: "Remove {n} expired items",
+            atLeastKey: "expRecRemoveTitleAtLeast", atLeastEn: "Remove at least {n} expired items",
+          }),
+          detail: t(
+            "expRecRemoveBody",
+            "Past their date: {names}. Log them as waste and take them out of stock.",
+            { names: firstNames(expired_items) },
+          ),
+        };
+      case "discount_soon":
+        return {
+          icon: "Tag",
+          title: countTitle(soonCount, {
+            oneKey: "expRecDiscountTitleOne",
+            oneEn: "Discount 1 item that expires within 7 days",
+            manyKey: "expRecDiscountTitle",
+            manyEn: "Discount {n} items that expire within 7 days",
+            atLeastKey: "expRecDiscountTitleAtLeast",
+            atLeastEn: "Discount at least {n} items that expire within 7 days",
+          }),
+          detail: t(
+            "expRecDiscountBody",
+            "{names} — sell them at a lower price instead of throwing them out.",
+            { names: firstNames(expiring_soon) },
+          ),
+        };
+      case "reduce_order":
+        return {
+          icon: "Package",
+          title: t("expRecReduceOrderTitle", "Order less of what keeps getting thrown out"),
+          // The server names the repeat offenders; we can only name the ones
+          // the waste list below actually shows, so when none of them made the
+          // top five the sentence stops claiming names it cannot back up.
+          detail: repeatWaste.length
+            ? t(
+                "expRecReduceOrderBody",
+                "{names} show up again and again in your waste history. Order smaller amounts.",
+                { names: firstNames(repeatWaste) },
+              )
+            : t(
+                "expRecReduceOrderBodyPlain",
+                "The same items show up again and again in your waste history. Order smaller amounts of those.",
+              ),
+        };
+      case "value_at_risk":
+        return {
+          icon: "TrendingDown",
+          // `total_at_risk_value` is exactly what the At-Risk Value tile above
+          // renders — the same field, not a re-derivation — so the card and
+          // the tile cannot disagree. The server's own `rec.at_risk_value` is
+          // that same number; the tile's field wins so the two stay bound.
+          title: (
+            <>
+              <Amount value={total_at_risk_value ?? rec.at_risk_value} currency={currency} />{" "}
+              {t("expiryAtRisk", "at risk")}
+            </>
+          ),
+          detail: t(
+            "expRecAtRiskBody",
+            "Stock that has expired or is close to it, valued at what it cost you. Act on it now to keep the loss down.",
+          ),
+        };
+      case "all_good":
+        return {
+          icon: "CheckCircle2",
+          title: t("expRecAllGoodTitle", "Nothing urgent on expiry"),
+          detail: t("expRecAllGoodBody", "Keep adding expiry dates and you stay ahead of the waste."),
+        };
+      default:
+        // An unmapped type is still advice. Show what the server sent rather
+        // than swallow it — minus the emoji, which never renders here.
+        return { icon: "Sparkles", title: rec.title, detail: rec.detail };
+    }
+  };
+
+  const alertCopy = (alert) => {
+    switch (alert.type) {
+      case "expired_stock":
+        return {
+          title: countTitle(expiredCount, {
+            oneKey: "expAlertExpiredTitleOne", oneEn: "1 item is already past its date",
+            manyKey: "expAlertExpiredTitle", manyEn: "{n} items are already past their date",
+            atLeastKey: "expAlertExpiredTitleAtLeast",
+            atLeastEn: "At least {n} items are already past their date",
+          }),
+          detail: t("expAlertExpiredBody", "Take them out of stock now and log them as waste."),
+          action: t("expAlertExpiredAction", "Correct the stock under Inventory, then log it under Waste Tracker."),
+        };
+      case "expiring_soon":
+        return {
+          title: countTitle(soonCount, {
+            oneKey: "expAlertSoonTitleOne", oneEn: "1 item expires within 7 days",
+            manyKey: "expAlertSoonTitle", manyEn: "{n} items expire within 7 days",
+            atLeastKey: "expAlertSoonTitleAtLeast",
+            atLeastEn: "At least {n} items expire within 7 days",
+          }),
+          // NO amount in this sentence, deliberately. The server does not ship
+          // a per-bucket figure — its alerts carry exactly
+          // {type, severity, icon, title, detail, action}, pinned by
+          // backend/tests/test_expiry_forecast_payload.py — and summing the
+          // rows we were SENT would understate it the moment the bucket runs
+          // past its display cap of ten. The At-Risk Value tile on this same
+          // screen already carries the honest total from total_at_risk_value,
+          // so the figure is on screen once, from the one source that knows
+          // it, rather than twice with the second one quietly wrong.
+          //
+          // An earlier pass guarded this on `alert.at_risk_value`, which the
+          // payload has never contained — unreachable code asserting a
+          // contract that does not exist, under a comment blaming "an older
+          // backend" when it was every backend.
+          detail: t("expAlertSoonBody", "Sell, discount or use them before the date."),
+          action: t("expAlertSoonAction", "A quick discount or a bundle usually clears them."),
+        };
+      case "expiring_moderate":
+        return {
+          title: countTitle(moderateCount, {
+            oneKey: "expAlertModerateTitleOne", oneEn: "1 item expires in 7-14 days",
+            manyKey: "expAlertModerateTitle", manyEn: "{n} items expire in 7-14 days",
+            atLeastKey: "expAlertModerateTitleAtLeast",
+            atLeastEn: "At least {n} items expire in 7-14 days",
+          }),
+          detail: t("expAlertModerateBody", "Plan to use them or put them on offer soon."),
+          action: null,
+        };
+      case "missing_expiry":
+        return {
+          // The server only raises this alert at two items or more, so there
+          // is no singular shape to write.
+          title: countTitle(missingCount, {
+            manyKey: "expAlertMissingTitle",
+            manyEn: "{n} perishable items have no expiry date",
+            atLeastKey: "expAlertMissingTitleAtLeast",
+            atLeastEn: "At least {n} perishable items have no expiry date",
+          }),
+          detail: t("expAlertMissingBody", "Add the dates and these items join the forecast."),
+          action: t("expAlertMissingAction", "Add the dates under Inventory."),
+        };
+      case "high_waste":
+        return {
+          // Same figure as "Expired:" in the Waste History section below —
+          // read from that section's own field first so the banner and the
+          // section can never print two different numbers; `waste_cost_90d`
+          // on the alert is the same value and stands in if it is missing.
+          title: (
+            <>
+              <Amount
+                value={waste_summary?.expired_cost_90d ?? alert.waste_cost_90d}
+                currency={currency}
+              />{" "}
+              {t("expAlertHighWasteTitle", "lost to expiry in the last 90 days")}
+            </>
+          ),
+          detail: t(
+            "expAlertHighWasteBody",
+            "That comes straight off your bottom line. Better dates and smaller orders bring it down.",
+          ),
+          action: t("expAlertHighWasteAction", "Check the most-wasted items below and order less of them."),
+        };
+      case "healthy":
+        return {
+          title: t("expAlertHealthyTitle", "Expiry tracking looks good"),
+          detail: t("expAlertHealthyBody", "Nothing urgent. Keep adding expiry dates to stay ahead."),
+          action: null,
+        };
+      default:
+        return { title: alert.title, detail: alert.detail, action: alert.action };
+    }
+  };
+
   return (
     <div className="p-4 md:p-8 space-y-6 max-w-5xl mx-auto">
       <FadeIn>
@@ -284,29 +512,35 @@ export default function ExpiryPage() {
           SectionBanner palette so the wider page stays palette-consistent. */}
       {alerts?.length > 0 && (
         <div className="space-y-3">
-          {alerts.map((alert, i) => (
-            <SectionBanner
-              key={i}
-              severity={
-                alert.severity === "warning" ? "warn" :
-                alert.severity === "positive" ? "success" :
-                "info"
-              }
-              icon={
-                alert.severity === "warning" ? "AlertTriangle" :
-                alert.severity === "positive" ? "CheckCircle2" :
-                "Sparkles"
-              }
-              title={alert.title}
-            >
-              <p>{alert.detail}</p>
-              {alert.action && (
-                <p className="mt-2 font-medium text-gray-700 dark:text-emerald-400">
-                  → {alert.action}
-                </p>
-              )}
-            </SectionBanner>
-          ))}
+          {alerts.map((alert, i) => {
+            // Was: alert.title / alert.detail / alert.action straight from the
+            // server — English prose, and "At-risk value: 4,820" with English
+            // grouping and no currency. See alertCopy() above.
+            const copy = alertCopy(alert);
+            return (
+              <SectionBanner
+                key={i}
+                severity={
+                  alert.severity === "warning" ? "warn" :
+                  alert.severity === "positive" ? "success" :
+                  "info"
+                }
+                icon={
+                  alert.severity === "warning" ? "AlertTriangle" :
+                  alert.severity === "positive" ? "CheckCircle2" :
+                  "Sparkles"
+                }
+                title={copy.title}
+              >
+                <p>{copy.detail}</p>
+                {copy.action && (
+                  <p className="mt-2 font-medium text-gray-700 dark:text-emerald-400">
+                    → {copy.action}
+                  </p>
+                )}
+              </SectionBanner>
+            );
+          })}
         </div>
       )}
 
@@ -352,24 +586,38 @@ export default function ExpiryPage() {
             {t("expRecommendations", "Recommendations")}
           </h2>
           <div className="space-y-3">
-            {recommendations.map((rec, i) => (
-              <div key={i} className={`flex items-start gap-3 p-3 rounded-xl border ${
-                rec.priority === "high" ? "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/40" :
-                rec.priority === "medium" ? "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/40" :
-                "bg-gray-50 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700"
-              }`}>
-                <span className="text-2xl shrink-0" aria-hidden="true">{rec.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{rec.title}</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">{rec.detail}</p>
-                </div>
-                {rec.priority === "high" && (
-                  <span className="text-xs bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 px-2 py-1 rounded-full font-medium ml-auto whitespace-nowrap">
-                    {t("expUrgent", "Urgent")}
+            {recommendations.map((rec, i) => {
+              // Was: rec.icon rendered at text-2xl — the server's emoji glyph
+              // (wastebasket / price tag / box / money / tick) — above
+              // rec.title and rec.detail in English. The glyph is now the
+              // Lucide icon the type means, tinted to the priority the card is
+              // already painted in. See recCopy() above.
+              const copy = recCopy(rec);
+              return (
+                <div key={i} className={`flex items-start gap-3 p-3 rounded-xl border ${
+                  rec.priority === "high" ? "bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800/40" :
+                  rec.priority === "medium" ? "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/40" :
+                  "bg-gray-50 dark:bg-gray-800/30 border-gray-200 dark:border-gray-700"
+                }`}>
+                  <span className={`shrink-0 mt-0.5 ${
+                    rec.priority === "high" ? "text-red-600 dark:text-red-400" :
+                    rec.priority === "medium" ? "text-amber-600 dark:text-amber-400" :
+                    "text-gray-500 dark:text-gray-400"
+                  }`} aria-hidden="true">
+                    <Icon name={copy.icon} size={18} />
                   </span>
-                )}
-              </div>
-            ))}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{copy.title}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-0.5">{copy.detail}</p>
+                  </div>
+                  {rec.priority === "high" && (
+                    <span className="text-xs bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 px-2 py-1 rounded-full font-medium ml-auto whitespace-nowrap">
+                      {t("expUrgent", "Urgent")}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -479,7 +727,21 @@ export default function ExpiryPage() {
                 <BarChart data={waste_trend}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                   <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tickFormatter={(v) => fmt(v)} />
+                  {/* This axis is kroner. The local fmt() helper it used to
+                      call was a bare Math.round().toLocaleString() — grouped
+                      in the BROWSER's locale, so a Chrome profile set to
+                      English drew a Danish owner's axis as "4,820" while the
+                      figures beside it said "4.820". formatOwnerMoney is the
+                      same helper the tooltip below already uses, so tick and
+                      tooltip now read identically. Width and tick size match
+                      the revenue chart on /weekly-report, which formats its
+                      money axis the same way. */}
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    width={60}
+                    className="tabular-nums"
+                    tickFormatter={(v) => formatOwnerMoney(v, user?.currency)}
+                  />
                   <Tooltip
                     formatter={(val) => [formatOwnerMoney(val, user?.currency), t("expWasteCost", "Waste Cost")]}
                     contentStyle={{ borderRadius: 12, border: "none", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}

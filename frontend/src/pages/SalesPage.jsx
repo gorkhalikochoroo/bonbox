@@ -156,6 +156,27 @@ export default function SalesPage() {
     return (b.created_at || "").localeCompare(a.created_at || "");
   }), [sales, statusFilter, search]);
 
+  // The table has always rendered the 50 most recent filtered rows, but the 50
+  // was an anonymous `.slice(0, 50)` repeated at three call sites that had
+  // drifted apart. Owner-visible consequence: on a 312-sale list the header
+  // checkbox ticked, 50 rows were selected, a second tap re-selected the SAME
+  // 50 instead of clearing (the guard compared against `filtered.length`), and
+  // the bulk bar then deleted 50 rows the owner had read as "everything".
+  // One named list now feeds the table, the toggle and the guard.
+  const VISIBLE_LIMIT = 50;
+  const visible = useMemo(() => filtered.slice(0, VISIBLE_LIMIT), [filtered]);
+
+  // A selection only ever means "these rows, the ones on screen" — so it
+  // cannot survive a change to what is on screen. It used to: select-all on a
+  // 312-sale list picked 50 rows, the owner then did exactly what the caption
+  // under the table says ("narrow the dates or search to reach the rest"), the
+  // table swapped in a different 50, and the bulk bar went on counting — and
+  // Move to trash went on deleting — the ORIGINAL 50, now nowhere on screen.
+  // Changing tab, search or date range clears the pick.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [statusFilter, search, filterFrom, filterTo]);
+
   const pendingReturnCount = useMemo(() => sales.filter(s => s.status === "return-pending").length, [sales]);
   const returnCount = useMemo(() => sales.filter(s => ["returned", "exchanged", "return-pending"].includes(s.status || "completed")).length, [sales]);
 
@@ -446,11 +467,15 @@ export default function SalesPage() {
   };
 
   const bulkDelete = async () => {
-    if (!(await confirm({ message: `${t("moveToTrash")} ${selected.size}?`, destructive: true }))) return;
+    // Delete exactly the rows the bulk bar counted: the picked ids that are
+    // still in the list the owner is looking at. One number runs the whole
+    // action — the bar, this confirm and the deletion — so a destructive tap
+    // can never reach further than the figure beside it. (Snapshotting here
+    // also keeps the ids for undo, which setSelected(new Set()) would drop.)
+    const deletedIds = filtered.filter((s) => selected.has(s.id)).map((s) => s.id);
+    if (deletedIds.length === 0) return;
+    if (!(await confirm({ message: `${t("moveToTrash")} ${deletedIds.length}?`, destructive: true }))) return;
     try {
-      // Snapshot the ids BEFORE clearing the selection — undo needs them and
-      // setSelected(new Set()) is about to drop the only copy.
-      const deletedIds = [...selected];
       await Promise.all(deletedIds.map(id => api.delete(`/sales/${id}`)));
       setSelected(new Set());
       fetchSales(filterFrom, filterTo);
@@ -498,9 +523,62 @@ export default function SalesPage() {
       return next;
     });
   };
+  // Select-all means the rows on screen, and the guard now reads the same way
+  // DataTable's own header checkbox does (`rows.every(...)`, DataTable.jsx) —
+  // so a ticked box always clears on the next tap. Before this, tapping a
+  // ticked box on a long list did nothing visible at all.
+  const allVisibleSelected = visible.length > 0 && visible.every((s) => selected.has(s.id));
   const toggleAll = () => {
-    if (selected.size === filtered.length) setSelected(new Set());
-    else setSelected(new Set(filtered.slice(0, 50).map((s) => s.id)));
+    if (allVisibleSelected) setSelected(new Set());
+    else setSelected(new Set(visible.map((s) => s.id)));
+  };
+
+  // ─── Export CSV ────────────────────────────────────────────────────────
+  // Three things the owner was living with. (1) The button handed over
+  // `sales` — everything the server had returned — no matter which tab, date
+  // range or search was on screen: standing on the Returns tab and tapping
+  // Export gave a file full of completed sales. (2) The file carried no
+  // status, so a revisor opening it could not tell a return from a sale.
+  // (3) It never said whether the file arrived; inside the iOS shell a plain
+  // <a download> does nothing at all, so the tap simply looked dead.
+  const [exporting, setExporting] = useState(false);
+  const exportSalesCsv = async () => {
+    if (exporting || filtered.length === 0) return;
+    setExporting(true);
+    try {
+      const ok = await exportToCsv(
+        "sales.csv",
+        // `status` is absent on rows that were never returned, so the default
+        // is spelled out rather than left as an empty cell in the file.
+        filtered.map((s) => ({ ...s, status: s.status || "completed" })),
+        [
+          { key: "date",           label: t("date") },
+          { key: "amount",         label: t("amount") },
+          { key: "payment_method", label: t("payment") },
+          { key: "status",         label: t("status") },
+          { key: "notes",          label: t("notes") },
+        ],
+      );
+      // saveFile returns false when nothing left the app — never claim a file
+      // the owner cannot find.
+      if (ok) {
+        // The file holds the FILTER set, not the 50 rows the table prints.
+        // The caption under the table has already defined "on screen" as 50,
+        // so a success line saying "the rows you have on screen" over 312
+        // exported rows is two numbers for the same words, a few centimetres
+        // apart. Name the filters instead — that is what the export maps.
+        setSuccess(t("salPgExportSavedFiltered", "Exported {n} sales to sales.csv — every sale matching your filters.", { n: filtered.length }));
+        setTimeout(() => setSuccess(""), 4000);
+      } else {
+        setError(t("salPgExportFailed", "The file didn't leave the app. Try Export CSV again."));
+        setTimeout(() => setError(""), 5000);
+      }
+    } catch {
+      setError(t("salPgExportFailed", "The file didn't leave the app. Try Export CSV again."));
+      setTimeout(() => setError(""), 5000);
+    } finally {
+      setExporting(false);
+    }
   };
 
   // ─── Filter clear (used by <FilterBar.Reset>) ─────────────────────────
@@ -857,8 +935,15 @@ export default function SalesPage() {
   // ─── Bulk-action toolbar (sticky bottom) ───────────────────────────────
   const bulkBar = selected.size > 0 && (() => {
     const selSales = filtered.filter((s) => selected.has(s.id));
+    // If none of the picked rows are in the list any more, show no bar at all
+    // rather than "50 selected · 0,00 kr." over a live Move-to-trash button:
+    // a fabricated zero beside a destructive control that would act on rows
+    // the owner cannot see. The effect above makes this near-unreachable; it
+    // is the second lock on the same door (a background refetch can still
+    // drop a picked row).
+    if (selSales.length === 0) return null;
     const total = selSales.reduce((acc, s) => acc + parseFloat(s.amount), 0);
-    const avg = selSales.length ? total / selSales.length : 0;
+    const avg = total / selSales.length;
     return (
       <div className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:bottom-4 left-1/2 -translate-x-1/2 z-50 max-w-lg w-[calc(100%-2rem)]">
         <Card variant="emphasis" className="!p-4">
@@ -871,8 +956,10 @@ export default function SalesPage() {
             >
               ×
             </Button>
+            {/* The count is the rows the total is summed from, so the two
+                figures on this line always tie out. */}
             <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 flex-1">
-              {selected.size} {t("selected")} · <Amount value={total} currency={user?.currency} />
+              {selSales.length} {t("selected")} · <Amount value={total} currency={user?.currency} />
             </p>
             <span className="text-xs text-gray-500 dark:text-gray-400">
               {t("avg")}: <Amount value={avg} currency={user?.currency} />
@@ -883,7 +970,7 @@ export default function SalesPage() {
               variant="secondary"
               size="sm"
               onClick={() => {
-                const text = `${selected.size} sales | Total: ${formatOwnerMoney(total, user?.currency)} | Avg: ${formatOwnerMoney(avg, user?.currency)}`;
+                const text = `${selSales.length} sales | Total: ${formatOwnerMoney(total, user?.currency)} | Avg: ${formatOwnerMoney(avg, user?.currency)}`;
                 navigator.clipboard?.writeText(text);
                 setSuccess(t("copiedToClipboard"));
                 setTimeout(() => setSuccess(""), 2000);
@@ -1086,12 +1173,11 @@ export default function SalesPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => exportToCsv("sales.csv", sales, [
-              { key: "date",           label: t("date") },
-              { key: "amount",         label: t("amount") },
-              { key: "payment_method", label: t("payment") },
-              { key: "notes",          label: t("notes") },
-            ])}
+            onClick={exportSalesCsv}
+            // Nothing on screen means nothing to export — a button that hands
+            // over an empty file is a dead end.
+            disabled={exporting || filtered.length === 0}
+            busy={exporting}
           >
             {t("exportCsv")}
           </Button>
@@ -1160,7 +1246,7 @@ export default function SalesPage() {
           // middle. No-op on phones (viewport < 3xl → mobile cards stay full).
           className="max-w-3xl"
           columns={columns}
-          rows={filtered.slice(0, 50)}
+          rows={visible}
           rowKey="id"
           empty={
             <Empty
@@ -1176,6 +1262,19 @@ export default function SalesPage() {
           onToggleSelect={toggleSelect}
           onToggleAll={toggleAll}
         />
+
+        {/* The cap used to be silent: the summary line above said "312 sales"
+            and the table showed 50, with nothing to explain the gap or to warn
+            that select-all reaches only this far. */}
+        {filtered.length > visible.length && (
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {t(
+              "salPgShowingNofM",
+              "Showing the {shown} most recent of {total}. Select all and bulk actions cover these {shown} — narrow the dates or search to reach the rest.",
+              { shown: visible.length, total: filtered.length },
+            )}
+          </p>
+        )}
       </section>
 
       {/* Sticky bulk-action toolbar */}
@@ -1240,6 +1339,17 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
   const total = qtyNum * priceNum;
   const profit = qtyNum * (priceNum - cost);
   const available = availableSellUnits;
+  // Whole sell units — the same floor the stock line above the field prints,
+  // so the warning quotes the number the owner is already reading. It is a
+  // FLOOR, not the exact ceiling: 12,7 kg on the shelf reads as 12, and the
+  // Sell button (like the warning) still gates on the exact `available`, so a
+  // legitimate 12,5 kg sale is neither blocked nor warned about.
+  const maxSellable = Number.isFinite(available) ? Math.floor(available) : 0;
+  // …which is why "Sell all" is only offered when the floor IS everything.
+  // On fractional stock a button labelled "Sell all 12" would leave 0,7
+  // behind — an action that does not do what it says. Tolerance absorbs the
+  // float noise from quantity × pieces_per_unit.
+  const sellAllExact = Number.isFinite(available) && available - maxSellable < 0.005;
 
   const handleSubmit = () => {
     if (!selectedItem || !qtyNum || !priceNum) return;
@@ -1351,8 +1461,25 @@ function ItemSaleModal({ items, currency, onClose, onSale }) {
                   className="w-full px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-[rgb(var(--surface-card))] dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-gray-400"
                   autoFocus
                 />
+                {/* The only feedback for an over-stock quantity was a bare red
+                    "12 stk" under the field — no verb, nothing to say what it
+                    meant — while the Sell button silently went flat. Say what
+                    is wrong, and offer the way out in one tap. */}
                 {qtyNum > available && (
-                  <p className="text-xs text-red-600 dark:text-red-400 mt-1">{Math.floor(available)} {sellUnit}</p>
+                  <div className="mt-1">
+                    <p className="text-xs text-red-600 dark:text-red-400">
+                      {t("salPgOnlyInStock", "Only {n} {unit} in stock", { n: maxSellable, unit: sellUnit })}
+                    </p>
+                    {sellAllExact && maxSellable > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setQty(String(maxSellable))}
+                        className="inline-flex items-center min-h-[44px] text-xs font-medium text-gray-700 dark:text-gray-300 underline underline-offset-2 hover:text-gray-900 dark:hover:text-gray-100"
+                      >
+                        {t("salPgSellAllAvailable", "Sell all {n}", { n: maxSellable })}
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
               <div>

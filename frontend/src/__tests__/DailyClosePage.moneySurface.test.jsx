@@ -313,7 +313,17 @@ describe("daily close — a failure the owner can see", () => {
     renderPage();
     await enterManually();
 
-    await waitFor(() => expect(screen.getByText("somethingWentWrong")).toBeInTheDocument());
+    // This used to assert `somethingWentWrong` over a body of `closeManualCta`
+    // — two stock strings stacked, which the source itself flagged as a
+    // placeholder. The banner now names the register and says what went quiet
+    // with it, so the assertion pins the purpose-built pair.
+    await waitFor(() => expect(screen.getByText("dcPrefillFailedTitle")).toBeInTheDocument());
+    // dcPrefillFailedDetail, not dcPrefillFailedBody: the first wording also
+    // claimed "no expected cash in the drawer, and no warning if the count
+    // comes up short", and the cash step renders both regardless of prefill
+    // (cashDiff never reads it). The banner now names only the POS
+    // cross-check and the register-derived baseline.
+    expect(screen.getByText("dcPrefillFailedDetail")).toBeInTheDocument();
   });
 });
 

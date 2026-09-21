@@ -62,12 +62,37 @@ def get_expiry_forecast(user_id: str, db: Session) -> dict:
     expiring_moderate = []   # 7-14 days
     expiring_later = []      # 14-30 days
 
-    total_at_risk_value = 0
+    # Owner's currency. The advice and alert copy below is composed here and
+    # rendered verbatim by every client (the web page AND the committed
+    # scheduler bundle), so the money inside it has to be formatted here or it
+    # is not formatted anywhere. Same lookup shape as agent_tools._get_currency.
+    currency = _get_currency(db, user_id)
+
+    # At-Risk Value used to count the 7-14 day bucket at HALF cost, while the
+    # Expiry Timeline directly underneath that tile lists every one of those
+    # rows with its FULL cost in a column headed "Cost at Risk" — so an owner
+    # who added the column up got a bigger number than the tile and no way of
+    # finding the missing kroner. Same rows, same full cost now, accumulated
+    # from the same rounded per-row figure the table prints.
+    #
+    # The 14-30 day bucket stays OUT of the total, as it always has. Pulling it
+    # in turns the tile red and fires "act now to minimize loss" at an owner
+    # whose nearest expiry date is still three weeks away — while the alerts
+    # banner on the same screen correctly reports that expiry tracking looks
+    # good. Those rows belong in the Timeline as "upcoming", which is what the
+    # advice copy calls them.
+    #
+    # Not a full tie-out: the four lists in the payload are each capped at 10
+    # rows for display, so in a heavy week the total legitimately covers more
+    # items than the table prints. Widening that cap is a separate call; the
+    # advice copy names the window it covers so the figure can be checked.
+    total_at_risk_value = 0.0
 
     for item in items_with_expiry:
         days_left = (item.expiry_date - today).days
         cost = float(item.cost_per_unit or 0) * float(item.quantity or 0)
         sell_value = float(item.sell_price or 0) * float(item.quantity or 0)
+        cost_at_risk = round(cost, 2)
 
         entry = {
             "id": str(item.id),
@@ -77,7 +102,7 @@ def get_expiry_forecast(user_id: str, db: Session) -> dict:
             "unit": item.unit,
             "expiry_date": str(item.expiry_date),
             "days_left": days_left,
-            "cost_at_risk": round(cost, 2),
+            "cost_at_risk": cost_at_risk,
             "sell_value": round(sell_value, 2),
             "is_perishable": item.is_perishable,
         }
@@ -85,15 +110,16 @@ def get_expiry_forecast(user_id: str, db: Session) -> dict:
         if days_left < 0:
             entry["status"] = "expired"
             expired.append(entry)
-            total_at_risk_value += cost
+            total_at_risk_value += cost_at_risk
         elif days_left <= 7:
             entry["status"] = "critical"
             expiring_soon.append(entry)
-            total_at_risk_value += cost
+            total_at_risk_value += cost_at_risk
         elif days_left <= 14:
             entry["status"] = "warning"
             expiring_moderate.append(entry)
-            total_at_risk_value += cost * 0.5  # partial risk
+            # Full cost, not cost * 0.5 — the table beside it prints full cost.
+            total_at_risk_value += cost_at_risk
         elif days_left <= 30:
             entry["status"] = "upcoming"
             expiring_later.append(entry)
@@ -190,12 +216,14 @@ def get_expiry_forecast(user_id: str, db: Session) -> dict:
     # ─── Recommendations ───
     recommendations = _generate_recommendations(
         expired, expiring_soon, top_waste, total_at_risk_value, expired_waste_cost,
+        currency=currency,
     )
 
     # ─── Alerts ───
     alerts = _generate_expiry_alerts(
         expired, expiring_soon, expiring_moderate, missing_expiry,
         total_at_risk_value, total_waste_cost, expired_waste_cost,
+        currency=currency,
     )
 
     return {
@@ -203,6 +231,9 @@ def get_expiry_forecast(user_id: str, db: Session) -> dict:
         "expiring_soon": expiring_soon[:10],
         "expiring_moderate": expiring_moderate[:10],
         "expiring_later": expiring_later[:10],
+        # Expired + everything inside 14 days, at the same full per-row cost
+        # the Expiry Timeline prints. "upcoming" (14-30 days) is listed there
+        # but deliberately not counted here — see the accumulator above.
         "total_at_risk_value": round(total_at_risk_value, 2),
         "total_tracked_items": len(items_with_expiry),
         "missing_expiry": missing_expiry[:5],
@@ -225,7 +256,30 @@ def _is_sqlite(db: Session) -> bool:
         return False
 
 
-def _generate_recommendations(expired, expiring_soon, top_waste, at_risk_value, expired_waste_cost):
+def _get_currency(db: Session, user_id) -> str:
+    """The owner's configured currency code; "DKK" when unset."""
+    from app.models.user import User  # lazy — keeps the import graph flat
+    row = db.query(User.currency).filter(User.id == user_id).first()
+    return row[0] if row and row[0] else "DKK"
+
+
+def _fmt_money(value, currency: str) -> str:
+    """Owner-facing money for the copy this service composes.
+
+    Delegates to bonbox_pdf_kit.money_dk — the one Danish money formatter —
+    so a DKK owner reads "4.820,00 kr." rather than the English-grouped
+    "4,820" with no currency next to it, and a missing figure reads "—"
+    rather than a fabricated 0. Lazy import: money_dk lives in a deliberately
+    reportlab-free module, so pulling it in here costs nothing.
+    """
+    from app.services.bonbox_pdf_kit import money_dk
+    return money_dk(value, currency)
+
+
+def _generate_recommendations(
+    expired, expiring_soon, top_waste, at_risk_value, expired_waste_cost,
+    *, currency: str = "DKK",
+):
     """Actionable recommendations based on expiry/waste data."""
     recs = []
 
@@ -258,8 +312,16 @@ def _generate_recommendations(expired, expiring_soon, top_waste, at_risk_value, 
     if at_risk_value > 0:
         recs.append({
             "type": "value_at_risk", "priority": "medium", "icon": "💸",
-            "title": f"Value at risk: {round(at_risk_value):,}",
-            "detail": "Total cost of expired + soon-expiring stock. Act now to minimize loss.",
+            # The owner used to read "Value at risk: 4,820" — English thousands
+            # grouping where Denmark writes 4.820, and no currency next to it
+            # at all. The amount stays IN the sentence and is formatted here:
+            # this string is rendered verbatim by every client, so moving the
+            # figure to a side field would leave those surfaces reading "Value
+            # at risk" with no number. Amount last so "kr." ends the sentence.
+            "title": f"Value at risk: {_fmt_money(at_risk_value, currency)}",
+            # Names the window the figure covers, so it can be checked against
+            # the Expiry Timeline instead of taken on faith.
+            "detail": "Total cost of stock that has expired or expires within 14 days. Act now to minimize loss.",
         })
 
     if not recs:
@@ -272,7 +334,10 @@ def _generate_recommendations(expired, expiring_soon, top_waste, at_risk_value, 
     return recs
 
 
-def _generate_expiry_alerts(expired, soon, moderate, missing, at_risk, waste_total, waste_expired):
+def _generate_expiry_alerts(
+    expired, soon, moderate, missing, at_risk, waste_total, waste_expired,
+    *, currency: str = "DKK",
+):
     alerts = []
 
     if expired:
@@ -288,7 +353,14 @@ def _generate_expiry_alerts(expired, soon, moderate, missing, at_risk, waste_tot
         alerts.append({
             "type": "expiring_soon", "severity": "warning", "icon": "⏰",
             "title": f"{len(soon)} item(s) expire within 7 days",
-            "detail": f"At-risk value: {round(cost):,}. Sell, discount, or use before expiry.",
+            # Was "At-risk value: 4,820. Sell, discount, ..." — English grouping,
+            # no currency, and a full stop hard against the amount. Formatted
+            # here and moved to the end so the "kr." IS the full stop. It sums
+            # the same per-row costs as the "< 7 days" rows of the Timeline.
+            "detail": (
+                "Sell, discount, or use these before their expiry date. "
+                f"At-risk value: {_fmt_money(cost, currency)}"
+            ),
             "action": "Consider a flash sale or bundle deal.",
         })
 
@@ -311,7 +383,12 @@ def _generate_expiry_alerts(expired, soon, moderate, missing, at_risk, waste_tot
     if waste_expired > 500:
         alerts.append({
             "type": "high_waste", "severity": "warning", "icon": "📉",
-            "title": f"Expired waste cost: {round(waste_expired):,} (90 days)",
+            # Same defect as the two above: "Expired waste cost: 4,820 (90 days)"
+            # put English grouping and no currency in front of a Danish owner.
+            # Formatted here, amount last so "kr." ends the line. It is the same
+            # `expired_cost_90d` the Waste History section prints, so the banner
+            # and that section cannot disagree.
+            "title": f"Expired waste, last 90 days: {_fmt_money(waste_expired, currency)}",
             "detail": "Significant value lost to expiry. Better tracking and ordering can help.",
             "action": "Review top wasted items and reduce order quantities.",
         })

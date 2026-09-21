@@ -6,13 +6,13 @@ import { dateLocale } from "../utils/dateFormat";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
-import { displayCurrency } from "../utils/currency";
-import { formatHours } from "../utils/hours";
+import { displayCurrency, formatOwnerMoney } from "../utils/currency";
+import { formatHours, hoursUnit } from "../utils/hours";
 import { errText } from "../utils/errText";
 import { useConfirm } from "../hooks/useConfirm";
 import { useAsyncData } from "../hooks/useAsyncData";
 import { FadeIn, TabContent, AnimatedList, AnimatedListItem, AnimatePresence } from "../components/AnimationKit";
-import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner, LoadFailed } from "../components/ui";
+import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner, LoadFailed, Amount } from "../components/ui";
 import WagePrivacyNotice from "../components/WagePrivacyNotice";
 
 /* ═══════════════════════════════════════════════════════════
@@ -148,6 +148,15 @@ export default function StaffHoursPage() {
   const [periodFrom, setPeriodFrom] = useState(null);
   const [periodTo, setPeriodTo] = useState(null);
   const [periodLoading, setPeriodLoading] = useState(true);
+  // THE CURRENT WINDOW, AS THE SERVER COMPUTED IT — {from, to}. Kept apart
+  // from the window on screen so "am I looking at the current period?" is a
+  // comparison against the venue's own answer instead of against the device
+  // clock. GET /staff/pay-period/current anchors on business_today_local
+  // (staff.py), which before the venue's 06:00 cutoff still returns
+  // YESTERDAY; a device-date comparison therefore disagrees with the server
+  // about which period is current for the whole after-midnight close hour on
+  // the first day of every period.
+  const [currentWindow, setCurrentWindow] = useState(null);
 
   // Data. THREE outcomes per request, not two — loading / failed / data — via
   // useAsyncData, because the two-outcome shape this page used to have
@@ -228,6 +237,7 @@ export default function StaffHoursPage() {
       const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
       setPeriodFrom(isoDate(start));
       setPeriodTo(isoDate(end));
+      setCurrentWindow({ from: isoDate(start), to: isoDate(end) });
     };
 
     api.get("/staff/pay-period/current")
@@ -241,6 +251,7 @@ export default function StaffHoursPage() {
         if (start && end) {
           setPeriodFrom(start);
           setPeriodTo(end);
+          setCurrentWindow({ from: start, to: end });
         } else {
           fallbackPeriod();
         }
@@ -318,6 +329,52 @@ export default function StaffHoursPage() {
     setPeriodTo(addDays(periodTo, -periodLength));
   };
 
+  // Is the window on screen the current pay period? Compared against the
+  // server's own window, NOT against the device date — see currentWindow.
+  const showingCurrent = !!(
+    currentWindow && periodFrom === currentWindow.from && periodTo === currentWindow.to
+  );
+
+  // THE WAY HOME. The control was prev · label · next and nothing else: an
+  // owner who stepped back to March had to count the same number of taps
+  // forward to return, and the label in the middle opens the frame picker
+  // rather than resetting. This re-reads the shared pay-period config, which
+  // is the same window Løn extracts.
+  const goCurrentPeriod = async () => {
+    let next = currentWindow;
+    let cfg = null;
+    try {
+      const r = await api.get("/staff/pay-period/current");
+      const d = r.data || {};
+      const start = d.start_date || d.period_start || d.start || d.from;
+      const end = d.end_date || d.period_end || d.end || d.to;
+      if (start && end) { next = { from: start, to: end }; cfg = d; }
+    } catch {
+      // Offline or 500 — fall back to the window THIS SESSION LOADED WITH,
+      // which the server computed on the venue's business day AND its saved
+      // frame. Do NOT recompute one here: computePayPeriod has no biweekly
+      // branch (which is why goPrev/goNext guard on CALENDAR_FRAMES), so
+      // guessing would put a biweekly venue on a 1st–31st calendar month and
+      // then let prev/next walk it 30 days at a time for the rest of the
+      // session. Reusing the known window is never a dead end either — it is
+      // by definition different from the one the owner navigated away to.
+    }
+    if (!next) return;
+    setFrameMode("recurring");
+    setCurrentWindow(next);
+    setPeriodFrom(next.from);
+    setPeriodTo(next.to);
+    if (cfg) {
+      // Adopt the frame too, not just the window. Taking the server's window
+      // while the picker keeps claiming a different frame is the same screen
+      // answering two ways — and it clears the "showing here only" note,
+      // which has just stopped describing anything: the picker now shows what
+      // is actually saved.
+      setPeriodConfig(cfg);
+      setFrameSaveFailed(false);
+    }
+  };
+
   const goNext = () => {
     if (!periodFrom || !periodTo) return;
     if (frameMode === "recurring" && CALENDAR_FRAMES.includes(periodType)) {
@@ -343,7 +400,10 @@ export default function StaffHoursPage() {
       const d = r.data || {};
       const start = d.start_date || d.period_start || d.start || d.from;
       const end = d.end_date || d.period_end || d.end || d.to;
-      if (start && end) { setPeriodFrom(start); setPeriodTo(end); }
+      // The new frame's window IS the current period — keep the "am I home?"
+      // reference in step with it, or the way-home button would appear the
+      // instant a frame is picked and then have nothing to do.
+      if (start && end) { setPeriodFrom(start); setPeriodTo(end); setCurrentWindow({ from: start, to: end }); }
       setPeriodConfig((c) => ({ ...(c || {}), period_type: type, custom_start_day: csd }));
     } catch {
       // Not fatal to the VIEW — the window on screen is still the one the owner
@@ -395,6 +455,8 @@ export default function StaffHoursPage() {
           loading={periodLoading}
           onPrev={goPrev}
           onNext={goNext}
+          isCurrent={showingCurrent}
+          onCurrent={goCurrentPeriod}
           periodType={frameMode === "custom" ? "custom_range" : periodType}
           customStartDay={customStartDay}
           onSelectFrame={selectFrame}
@@ -505,14 +567,29 @@ export default function StaffHoursPage() {
 /* ═══════════════════════════════════════════════════════════
    MONEY + NARRATIVE HELPERS
    ═══════════════════════════════════════════════════════════ */
-// da-DK grouped integer + a currency word. DKK shows "kr" (the DK convention);
-// other currencies show their code — we NEVER auto-convert across currencies.
-function fmtMoneyShort(n, currencyCode) {
-  const num = new Intl.NumberFormat("da-DK", { maximumFractionDigits: 0 }).format(
-    Math.round(Number(n) || 0),
-  );
-  const unit = !currencyCode || currencyCode === "DKK" ? "kr" : currencyCode;
-  return `${num} ${unit}`;
+// MONEY ON THIS PAGE GOES THROUGH THE HOUSE FORMATTERS — formatOwnerMoney in
+// template literals, <Amount> in JSX value slots. Nothing else.
+//
+// The owner used to read three different kroner on one screen: the Overview
+// tiles and the department split printed "12.500 kr" (a local fmtMoneyShort:
+// da-DK grouping, no full stop), the Details table one tap away printed
+// "12500 DKK" (toFixed(0) + the raw code: no grouping at all), and the Clock
+// In/Out preview mixed both inside one parenthesis. Same venue, same period,
+// three notations — and fmtMoneyShort turned a MISSING figure into "0 kr",
+// which on a pay surface is a number stated as fact about wages nobody
+// measured. formatOwnerMoney gives DKK "12.500 kr." and any other currency its
+// own locale grouping plus its code, and a missing value "—".
+//
+// ONE EXCEPTION, AND IT IS THE HOURLY RATE. formatOwnerMoney defaults to whole
+// kroner, which is right for a total nobody re-derives. The rate is the one
+// figure on this page the owner MULTIPLIES by the hours beside it: base_rate is
+// Numeric(10,2), 137,50 kr./t is a rate people really type, and `earned` is
+// computed server-side from the exact value. Printing "138 kr./t" next to an
+// earned figure derived from 137,50 hands the owner a payroll row they cannot
+// reproduce — right notation, wrong number. Whole rates stay clean; øre survive.
+function rateDecimals(rate) {
+  const n = typeof rate === "string" ? parseFloat(rate) : rate;
+  return Number.isInteger(n) ? 0 : 2;
 }
 
 // Narrative code → i18n key. The backend rule engine emits codes + params; the
@@ -542,7 +619,7 @@ function fillNarrative(t, currencyCode, line) {
   const p = line.params || {};
   Object.keys(p).forEach((k) => {
     // Money params are formatted with the currency word; the rest are plain.
-    const v = k === "cost" || k === "gross" ? fmtMoneyShort(p[k], currencyCode) : String(p[k]);
+    const v = k === "cost" || k === "gross" ? formatOwnerMoney(p[k], currencyCode) : String(p[k]);
     s = s.split(`{${k}}`).join(v);
   });
   return s;
@@ -563,7 +640,7 @@ const FRAME_OPTIONS = [
   { id: "custom_range", key: "hovFrameCustomRange" },
 ];
 
-function PeriodControl({ from, to, loading, onPrev, onNext, periodType, customStartDay, onSelectFrame, onCustomRange, saveFailed = false }) {
+function PeriodControl({ from, to, loading, onPrev, onNext, isCurrent = true, onCurrent, periodType, customStartDay, onSelectFrame, onCustomRange, saveFailed = false }) {
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   // Which editor sub-panel is open. The two editor chips (custom start-day,
@@ -630,6 +707,22 @@ function PeriodControl({ from, to, loading, onPrev, onNext, periodType, customSt
           <span className="sm:hidden sr-only">{t("periodNextShort", "Next")}</span>
         </Button>
       </div>
+
+      {/* The way back to now. Silent while the current period IS on screen —
+          a button that does nothing is worse than no button — and a plain
+          text control, not a third arrow, so the row keeps its shape on a
+          375px phone. */}
+      {!loading && !isCurrent && onCurrent && (
+        <div className="px-3 sm:px-4 pb-3 sm:pb-4 -mt-2 flex justify-center">
+          <button
+            type="button"
+            onClick={onCurrent}
+            className="inline-flex items-center justify-center min-h-[44px] px-3 rounded-lg text-[13px] font-medium text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400"
+          >
+            {t("hovThisPeriod", "This period")}
+          </button>
+        </div>
+      )}
 
       {/* Frame picker — one tap, no trip to Payroll settings. */}
       {open && (
@@ -883,7 +976,10 @@ function HoursOverview({ overview, loading, failed, onRetry, denied, currency, o
 
   // Tile 2 — Lønudgift. With no configured wage rate gross=0 → show a neutral
   // "set wage rates" state instead of a misleading ~0 kr.
-  let costValue = `~${fmtMoneyShort(cost.loaded_est, currency)}`;
+  // The em-dash branch is new: fmtMoneyShort coerced a missing figure to zero,
+  // so a payload that carried no cost at all rendered "~0 kr" — a venue told
+  // it paid nothing for a period nobody had actually costed.
+  let costValue = cost.loaded_est == null ? "—" : `~${formatOwnerMoney(cost.loaded_est, currency)}`;
   let costHelper = `${t("hovTileCostSub", "~ incl. feriepenge · estimate")}${soFar}`;
   if (!hasCostBasis) {
     costValue = "—";
@@ -1016,7 +1112,11 @@ function LaborSplitCard({ split, currency }) {
               <div className="flex items-baseline justify-between text-sm mb-1">
                 <span className="text-gray-700 dark:text-gray-200">{deptLabel(split.vertical, c.category, t)}</span>
                 <span className="tabular-nums">
-                  <span className="text-gray-900 dark:text-gray-100 font-medium">~{fmtMoneyShort(c.loaded, currency)}</span>
+                  {/* Was fmtMoneyShort ("12.500 kr"), which disagreed with the
+                      Details table's "12500 DKK" for the same kroner. */}
+                  <span className="text-gray-900 dark:text-gray-100 font-medium">
+                    ~<Amount value={c.loaded} currency={currency} />
+                  </span>
                   <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">{pct}%</span>
                 </span>
               </div>
@@ -1214,10 +1314,19 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
   // as fact and the one thing this page must never do on a pay record.
   const wagesHidden =
     (summary || []).length > 0 && (summary || []).every((r) => r.total == null);
-  const moneyTotal = (key) =>
-    wagesHidden
-      ? "—"
-      : `${(summary || []).reduce((s, r) => s + (r[key] || 0), 0).toFixed(0)} ${currency}`;
+  // The totals used to print "12500 DKK" — no thousands separator and the raw
+  // code — under an Overview tile that said "12.500 kr" for the same period.
+  // Rendered through <Amount>, the same primitive as the rows it sums: a
+  // formatOwnerMoney string here would agree on the NOTATION and disagree on
+  // the rendering, leaving "kr." full-size in the tfoot and a de-emphasized
+  // whisper in every row above it — one column, two typographies. Amount
+  // renders null as "—" on its own, which is exactly the wagesHidden branch.
+  const moneyTotal = (key) => (
+    <Amount
+      value={wagesHidden ? null : (summary || []).reduce((s, r) => s + (r[key] || 0), 0)}
+      currency={currency}
+    />
+  );
   if (loading) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
@@ -1422,17 +1531,25 @@ function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency
                       )
                     ) : "\u2014"}
                   </td>
+                  {/* The rate read "150 DKK/hr" — an English unit and a raw
+                      currency code on a Danish payroll row. The unit now comes
+                      off utils/hours.js, the same place the hour columns get
+                      theirs, so a Danish owner reads "150 kr./t". */}
                   <td className="hidden md:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
-                    {row.hourly_rate != null ? `${row.hourly_rate} ${currency}/hr` : "\u2014"}
+                    {row.hourly_rate != null
+                      ? `${formatOwnerMoney(row.hourly_rate, currency, { decimals: rateDecimals(row.hourly_rate) })}/${hoursUnit(lang)}`
+                      : "\u2014"}
                   </td>
+                  {/* <Amount> renders a missing figure as "—" on its own, which
+                      is what the redacted (member-seat) payload sends. */}
                   <td className="hidden sm:table-cell px-3 py-3 text-right font-medium text-gray-800 dark:text-white tabular-nums">
-                    {row.earned != null ? `${row.earned.toFixed(0)} ${currency}` : "\u2014"}
+                    <Amount value={row.earned} currency={currency} />
                   </td>
                   <td className="hidden md:table-cell px-3 py-3 text-right text-gray-600 dark:text-gray-300 tabular-nums">
-                    {row.tips != null && row.tips > 0 ? `${row.tips.toFixed(0)} ${currency}` : "\u2014"}
+                    {row.tips != null && row.tips > 0 ? <Amount value={row.tips} currency={currency} /> : "\u2014"}
                   </td>
                   <td className="px-3 py-3 text-right font-bold text-gray-900 dark:text-white tabular-nums">
-                    {row.total != null ? `${row.total.toFixed(0)} ${currency}` : "\u2014"}
+                    <Amount value={row.total} currency={currency} />
                   </td>
                 </tr>
               );
@@ -1674,10 +1791,14 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
     setBreakMin(String(gross >= 6 ? 45 : 0));
   };
 
-  // Look up staff rate for preview
+  // Look up staff rate for preview.
+  // Kept as a NUMBER now — it used to be a toFixed(0) string that the render
+  // then pasted next to a hand-built currency token, which is how the preview
+  // ended up reading "(1200 DKK at 150/kr/hr)" to a Danish owner. Formatting
+  // belongs at the render, in the house formatter.
   const selectedStaff = staffList.find(s => s.id === staffId);
   const rate = selectedStaff?.hourly_rate || null;
-  const estimated = rate && calcHours > 0 ? (rate * calcHours).toFixed(0) : null;
+  const estimated = rate && calcHours > 0 ? rate * calcHours : null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1787,9 +1908,17 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
             <span className="text-lg font-bold text-gray-800 dark:text-white">
               {calcHours > 0 ? formatHours(calcHours, { lang, decimals: 2 }) : "\u2014"}
             </span>
-            {estimated && (
+            {/* One currency token for both figures, and the per-hour unit off
+                utils/hours.js — the same source the "Calculated" figure beside
+                it uses. The old line built its own token twice and disagreed
+                with itself ("1200 DKK at 150/kr/hr"), with an untranslated
+                "at" and "/hr" in the middle of a Danish form. Reads
+                "(1.200 kr. · 150 kr./t)". */}
+            {estimated != null && (
               <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
-                ({estimated} {currency} at {rate}/{currency === "DKK" ? "kr" : currency}/hr)
+                ({formatOwnerMoney(estimated, currency)}
+                {" · "}
+                {formatOwnerMoney(rate, currency, { decimals: rateDecimals(rate) })}/{hoursUnit(lang)})
               </span>
             )}
           </div>
@@ -1875,19 +2004,48 @@ function FromScheduleForm({ periodFrom, onLogged }) {
 
       {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
 
+      {/* WHAT THE SERVER ACTUALLY SAID.
+          This block read `confirmed_count` and `skipped_count`; POST
+          /staff/hours/confirm-schedule returns `created` and
+          `skipped_not_ended`. Both reads were undefined, so every confirm —
+          a bulk write into the register that pays wages — showed the owner
+          the headline "Schedule confirmed!" and nothing else: no count, and
+          no word about the shifts the server deliberately refused to log
+          because they had not finished yet. */}
       {result && (
         <div className="bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-800 rounded-lg p-4">
           <p className="text-sm font-medium text-gray-800 dark:text-gray-300">
             {t("shpScheduleConfirmed", "Schedule confirmed!")}
           </p>
-          {result.confirmed_count != null && (
+          {/* Zero is reported too, and it is not "nothing happened": the
+              server 400s when NO shift has ended, so a result with created=0
+              means every ended shift in the week was already in the log.
+              SCOPED TO THE SHIFTS THAT HAVE ENDED when some have not. The
+              unscoped wording says "these shifts were already recorded" and
+              the amber line directly beneath it can say two of them were left
+              out because they are still running — the server only 400s when
+              NO shift has ended, so created=0 with skipped_not_ended=2 is a
+              reachable week. Two claims about the same shifts, one line
+              apart, contradicting each other. */}
+          {result.created != null && (
             <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">
-              {t("shpShiftsLogged", "{count} shifts logged as actual hours.").replace("{count}", result.confirmed_count)}
+              {result.created === 0
+                ? (result.skipped_not_ended > 0
+                    ? t("shpShiftsNoneNewEnded", "Nothing new to log — the shifts that have ended were already recorded.")
+                    : t("shpShiftsNoneNew", "Nothing new to log — these shifts were already recorded."))
+                : result.created === 1
+                  ? t("shpShiftsLoggedOne", "1 shift logged as actual hours.")
+                  : t("shpShiftsLogged", "{count} shifts logged as actual hours.").replace("{count}", result.created)}
             </p>
           )}
-          {result.skipped_count > 0 && (
+          {/* Not "skipped (already logged)" — these are shifts that have not
+              ended yet, and the owner needs the second half of that sentence:
+              come back and confirm the week once they are over. */}
+          {result.skipped_not_ended > 0 && (
             <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
-              {t("shpShiftsSkipped", "{count} shifts skipped (already logged).").replace("{count}", result.skipped_count)}
+              {result.skipped_not_ended === 1
+                ? t("shpShiftsNotEndedOne", "1 shift was left out — it has not finished yet. Confirm this week again once it is over.")
+                : t("shpShiftsNotEnded", "{count} shifts were left out — they have not finished yet. Confirm this week again once they are over.").replace("{count}", result.skipped_not_ended)}
             </p>
           )}
         </div>
@@ -2150,9 +2308,11 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                       <span className="font-bold text-gray-800 dark:text-white text-sm">
                         {formatHours(entry.total_hours, { lang, decimals: 2 })}
                       </span>
+                      {/* Was "1200 DKK" — ungrouped, raw code — on the audit
+                          trail of the same period the tiles price in "kr.". */}
                       {entry.earned != null && entry.earned > 0 && (
                         <div className="text-xs text-gray-500 dark:text-gray-400">
-                          {entry.earned.toFixed(0)} {currency}
+                          <Amount value={entry.earned} currency={currency} />
                         </div>
                       )}
                     </>
@@ -2160,11 +2320,25 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                 </div>
 
                 {/* Actions */}
+                {/* 28px-wide targets, 4px apart, on a payroll record — and the
+                    right-hand one permanently deletes it. The coarse-pointer
+                    floor in index.css sets min-height:44px but not min-width,
+                    so on a phone these were 28x44 with a 4px gap: a thumb
+                    aiming at Edit could land on Delete.
+                    TOUCH ONLY. Gated on the same hover query the visibility
+                    rule beside it uses: on a pointer device these buttons are
+                    opacity-hidden until hover but still HOLD LAYOUT, so a
+                    blanket min-width would have taken ~36px off the content
+                    column of every row at every viewport — including desktop,
+                    where a mouse never needed the target. Widening a control
+                    nobody was mis-tapping is not a fix, it is a layout change.
+                    On hover:none they are always visible and become 44x44,
+                    8px apart. */}
                 {!isEditing && (
-                  <div className="flex items-center gap-1 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                  <div className="flex items-center gap-1 [@media(hover:none)]:gap-2 [@media(hover:hover)]:opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
                     <button
                       onClick={() => { setEditingId(entry.id); setEditHours(String(entry.total_hours || "")); }}
-                      className="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                      className="p-1.5 [@media(hover:none)]:min-w-[44px] inline-flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition"
                       title={t("editHours", "Edit hours")}
                       aria-label={t("editHours", "Edit hours")}
                     >
@@ -2175,7 +2349,7 @@ function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList
                     <button
                       onClick={() => handleDelete(entry)}
                       disabled={isDeleting}
-                      className="p-1.5 text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition disabled:opacity-40"
+                      className="p-1.5 [@media(hover:none)]:min-w-[44px] inline-flex items-center justify-center text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition disabled:opacity-40"
                       title={t("deleteEntry", "Delete entry")}
                       aria-label={t("deleteEntry", "Delete entry")}
                     >

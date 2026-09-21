@@ -61,6 +61,27 @@ export default function WastePage() {
     return (b.created_at || "").localeCompare(a.created_at || "");
   });
 
+  // The table has always rendered the 50 most recent rows, but the cap was an
+  // anonymous `.slice(0, 50)` with nothing on screen to say so. An owner who
+  // widened the dates to check a bad month read a list that simply ENDED —
+  // no count, no "load more", no hint that anything was missing. One named
+  // list now feeds both the table and the footer that declares the gap.
+  const VISIBLE_LIMIT = 50;
+  const visible = filtered.slice(0, VISIBLE_LIMIT);
+
+  // Export the SAME rows the footer counts. It used to export `logs`, which
+  // ignores the search box entirely: with a search typed, the screen showed a
+  // handful of rows while the file handed the revisor every row in the date
+  // range — screen and file disagreeing about what "this list" means.
+  const exportWaste = () => exportToCsv("waste.csv", filtered, [
+    { key: "date", label: t("date") },
+    { key: "item_name", label: t("item") },
+    { key: "quantity", label: t("quantity") },
+    { key: "unit", label: t("unit") },
+    { key: "reason", label: t("reason") },
+    { key: "estimated_cost", label: t("cost") },
+  ]);
+
   const fetchData = (from, to) => {
     const params = {};
     if (from) params.from = from;
@@ -178,10 +199,16 @@ export default function WastePage() {
   return (
     <div className="p-4 sm:p-6 space-y-6">
       <FadeIn>
+        {/* The Spild page used to open with an English sentence under its
+            Danish title: the subtitle was a raw literal, so a fully Danish
+            account read "Log expired or damaged stock…". The eyebrow is
+            "LAGER" in every language — lager is DK trade vocabulary that does
+            not translate, and it matches the Lager page it sits beside in the
+            sidebar, which said LAGER while this one said STOCK. */}
         <PageHeader
-          eyebrow="STOCK"
+          eyebrow="LAGER"
           title={t("wasteTracker")}
-          subtitle="Log expired or damaged stock so the cost shows up in margin reports."
+          subtitle={t("wasteSubtitle")}
         />
       </FadeIn>
 
@@ -208,8 +235,11 @@ export default function WastePage() {
             value={summary.total_items}
           />
           <div className="rounded-xl border border-gray-200 bg-white px-4 py-3.5 dark:bg-[rgb(var(--surface-card))] dark:border-[rgb(var(--surface-line))]">
+            {/* This stat label was a bare English literal — the two cards
+                beside it were translated, so on a Danish account the third
+                card alone read "By reason". */}
             <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-              By reason
+              {t("wasteByReason")}
             </p>
             {pieData.length > 0 ? (
               <ResponsiveContainer width="100%" height={110}>
@@ -347,14 +377,7 @@ export default function WastePage() {
               </button>
             )}
             <button
-              onClick={() => exportToCsv("waste.csv", logs, [
-                { key: "date", label: t("date") },
-                { key: "item_name", label: t("item") },
-                { key: "quantity", label: t("quantity") },
-                { key: "unit", label: t("unit") },
-                { key: "reason", label: t("reason") },
-                { key: "estimated_cost", label: t("cost") },
-              ])}
+              onClick={exportWaste}
               className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
             >
               {t("exportCsv")}
@@ -388,7 +411,7 @@ export default function WastePage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {filtered.slice(0, 50).map((log) => (
+              {visible.map((log) => (
                 <tr key={log.id}>
                   <td className="px-4 py-4">
                     <input type="checkbox" checked={selected.has(log.id)} onChange={(e) => {
@@ -469,6 +492,22 @@ export default function WastePage() {
               ))}
               {filtered.length === 0 && (
                 <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noWasteYet")}</td></tr>
+              )}
+              {/* The cap used to be silent, so the list just stopped. The
+                  total here is the SAME `filtered` the CSV now exports, so
+                  the number the owner reads and the lines in the file agree. */}
+              {filtered.length > visible.length && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-2 text-center text-xs text-gray-500 dark:text-gray-400">
+                    {t("wasteShowingNofM", { shown: visible.length, total: filtered.length })}{" "}
+                    <button
+                      onClick={exportWaste}
+                      className="inline-flex items-center min-h-[44px] px-2 font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      {t("exportCsv")}
+                    </button>
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
