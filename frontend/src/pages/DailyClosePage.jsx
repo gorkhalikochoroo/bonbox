@@ -64,7 +64,17 @@ import { saveFile } from "../utils/download";
 // there is defined only by its 1px border. Converting SOME of them would split
 // the page into two different dark surfaces, and converting all seventeen is a
 // bigger change than a surface pass should make in one go. See the report.
-import { UpgradeNudge, PageHeader, TabPills, Button, Icon, SectionBanner, Amount, StatCard } from "../components/ui";
+import { UpgradeNudge, PageHeader, TabPills, Button, Icon, SectionBanner, Amount, StatCard, LoadFailed } from "../components/ui";
+// Three outcomes, not two — the same rule the money primitives already enforce
+// for a missing FIGURE ("—", never a confident 0), applied to a missing LIST.
+// `/daily-close` and `/daily-close/insights` were `.catch(() => {})`, so a
+// request that never came back left `history` at `[]` and the History tab told
+// an owner with a year of closes to "submit your first end-of-day close" — and
+// because today's lock status is derived from that same array, the page also
+// concluded today was NOT locked and re-offered a close it had already sealed.
+// useAsyncData keeps the last true rows through a failed reload and reports
+// `failed` separately; LoadFailed is what that state says out loud.
+import { useAsyncData } from "../hooks/useAsyncData";
 import PageShell from "../components/ui/PageShell";
 import Chip from "../components/ui/Chip";
 import MoneyField from "../components/ui/MoneyField";
@@ -386,8 +396,22 @@ export default function DailyClosePage() {
     navigate(location.pathname, { replace: true, state: null });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state]);
-  const [history, setHistory] = useState([]);
-  const [insights, setInsights] = useState(null);
+  // The two reads the whole page is built on. Declared HERE rather than beside
+  // the old fetchHistory/fetchInsights further down, because doSync() and
+  // confirmQueuedClose() below both refresh them and a `const` referenced
+  // before its own line is a TDZ error the moment either is called.
+  //
+  // `initial: []` keeps every `data.length` / `.filter` call site working
+  // unchanged; `failed` is the new fact, and it is rendered, never swallowed.
+  const historyQ = useAsyncData(() => api.get("/daily-close"), [], { initial: [] });
+  const insightsQ = useAsyncData(() => api.get("/daily-close/insights"), []);
+  // useMemo, not a bare `|| []`: `history` is a dependency of the lock-status
+  // useMemo below, and a fresh array identity every render would re-run it
+  // every render.
+  const history = useMemo(() => historyQ.data || [], [historyQ.data]);
+  const insights = insightsQ.data;
+  const fetchHistory = historyQ.reload;
+  const fetchInsights = insightsQ.reload;
   const [loading, setLoading] = useState(false);
   // Lane A — when CloseForm successfully locks a close, the parent
   // captures the close_ritual block returned by the backend (auto-
@@ -506,14 +530,9 @@ export default function DailyClosePage() {
     return () => { window.removeEventListener("online", goOn); window.removeEventListener("offline", goOff); };
   }, []);
 
-  const fetchHistory = () => {
-    api.get("/daily-close").then(r => setHistory(r.data)).catch(() => {});
-  };
-  const fetchInsights = () => {
-    api.get("/daily-close/insights").then(r => setInsights(r.data)).catch(() => {});
-  };
-
-  useEffect(() => { fetchHistory(); fetchInsights(); }, []);
+  // (fetchHistory / fetchInsights are useAsyncData's `reload`, declared above
+  // with the reads themselves. The initial load is the hook's own effect, so
+  // the mount effect that used to live here is gone.)
 
   // #150 merge — surface today's confirmed close (if any) at the very top
   // of the page so an owner who already locked sees the success summary
@@ -542,6 +561,20 @@ export default function DailyClosePage() {
     ? { ...todaysConfirmedClose, close_ritual: todaysConfirmedClose.close_ritual || {} }
     : null);
   const isLockedToday = Boolean(lockedBannerClose);
+  // …and the third outcome for the lock itself. `isLockedToday === false` used
+  // to mean two different things: "the list came back and today is not in it"
+  // and "the list never came back", and the page rendered the reassuring one —
+  // no locked banner, a plain "Close the day" CTA, no hint that it had not
+  // managed to ask. An owner who locked at 23:40 on a flaky connection was
+  // invited to close the day a second time as if the first had not happened.
+  //
+  // NOT a reason to take the CTA away: this page closes the day OFFLINE on
+  // purpose (handleSubmit queues when navigator.onLine is false), so a failed
+  // GET is the normal state on a phone in a basement and the primary action has
+  // to stay exactly where it was. The only change is that the page now says it
+  // could not check — and a duplicate is refused by the server (409) rather
+  // than double-counted, which is the fact that makes the CTA safe to tap.
+  const lockStatusUnknown = historyQ.failed && !isLockedToday;
 
   // CTA scroll target — when the owner taps "Close the day" at the top
   // we auto-scroll to the wizard. ref attached on the wrapper below.
@@ -734,6 +767,30 @@ export default function DailyClosePage() {
             <p className="text-xs text-gray-600 dark:text-gray-300 mt-0.5">
               {t("closeScanHint") || "Snap your Z-report and we fill in tonight's numbers — or enter them by hand."}
             </p>
+            {/* "We could not check", said out loud — and in the offline wording
+                when that is the actual reason, because "something went wrong"
+                is not true of a phone with no signal. The buttons above stay
+                live either way: closing the day is the thing the owner came
+                here to do, and the server refuses a duplicate. */}
+            {lockStatusUnknown && (
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-2 flex items-start gap-1.5">
+                <Icon name="AlertTriangle" size={13} className="shrink-0 mt-0.5" />
+                <span>
+                  {isOnline
+                    ? t("dcLockCheckFailed", "We couldn't check whether today's kasserapport is already locked. You can still close the day — if it is already locked, the save is refused and nothing changes.")
+                    : t("dcLockCheckOffline", "You're offline, so we can't check whether today's kasserapport is already locked. Close the day as usual — it's kept on this phone and sent when you're back online.")}
+                  {isOnline && (
+                    <>
+                      {" "}
+                      <button type="button" onClick={fetchHistory}
+                        className="font-semibold underline underline-offset-2 hover:no-underline">
+                        {t("tryAgain")}
+                      </button>
+                    </>
+                  )}
+                </span>
+              </p>
+            )}
           </div>
           <div className="flex flex-col sm:flex-row gap-2 shrink-0 w-full sm:w-auto">
             <Button
@@ -797,6 +854,10 @@ export default function DailyClosePage() {
           }}
           onQueued={() => { setQueue(getOfflineQueue()); setTab("history"); }} />}
         {tab === "history" && <HistoryView data={history} currency={currency} t={t} onRefresh={fetchHistory} insights={insights}
+          // The three outcomes, handed down whole. A child that only receives
+          // `data` cannot tell an empty list from an unanswered request, which
+          // is exactly how the first-run empty state reached a year-old venue.
+          loading={historyQ.loading} failed={historyQ.failed} isOnline={isOnline}
           // #150 — the locked-today card now renders at the top of the
           // page (above LiveKpisToday). Don't render it inside History
           // too, otherwise the same banner shows twice. The History
@@ -804,7 +865,9 @@ export default function DailyClosePage() {
           lastLockedClose={null}
           onDismissLastLocked={() => setLastLockedClose(null)}
           onEdit={(dc) => { setEditDraft(dc); setTab("close"); }} />}
-        {tab === "insights" && <InsightsView data={insights} currency={currency} t={t} />}
+        {tab === "insights" && <InsightsView data={insights} currency={currency} t={t}
+          loading={insightsQ.loading} failed={insightsQ.failed} isOnline={isOnline}
+          onRetry={fetchInsights} />}
         {tab === "branches" && <BranchSummaryView currency={currency} />}
       </div>
     </PageShell>
@@ -3956,7 +4019,8 @@ function JustLockedCard({ t, close, currency, onDismiss, businessType }) {
 /* ═══════════════════════════════════════════════════════════
    HISTORY VIEW
    ═══════════════════════════════════════════════════════════ */
-function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLockedClose, onDismissLastLocked }) {
+function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLockedClose, onDismissLastLocked,
+  loading = false, failed = false, isOnline = true }) {
   const { user } = useAuth();
   const confirm = useConfirm();
   const [downloading, setDownloading] = useState(null);
@@ -4009,7 +4073,13 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   });
   const persistAccountantFmt = (fmt) => {
     setAccountantFmt(fmt);
-    try { localStorage.setItem("bonbox_accountant_fmt", fmt); } catch {}
+    try {
+      localStorage.setItem("bonbox_accountant_fmt", fmt);
+    } catch {
+      // A remembered dropdown choice, nothing more. Private mode and a full
+      // quota both throw here, and neither is worth a word to the owner —
+      // the export still runs in the format now on screen.
+    }
   };
   const [exportError, setExportError] = useState("");
   // True iff the last export failure was a plan-cap (402). Drives an
@@ -4021,9 +4091,19 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
 
   // BusinessProfile carries accountant_email + accountant_name.
   // Loaded once so the Send button can pre-fill mailto's To: field
-  // and the Danish greeting line ("Hej Anna,"). Failure is silent —
-  // the Send button still works, just without a pre-filled recipient.
-  const [businessProfile, setBusinessProfile] = useState(null);
+  // and the Danish greeting line ("Hej Anna,"). Degrading to the mailto
+  // path when it fails is deliberate and unchanged — the Send button still
+  // works, just without a pre-filled recipient.
+  //
+  // What was NOT harmless: `!businessProfile?.accountant_email` also drives an
+  // on-screen hint telling the owner to go and save their revisor's address.
+  // On a failed read that hint fired at owners who saved it months ago, and
+  // sent them to Profile to re-type something already there — a failed fetch
+  // asserting a fact about the owner's own settings. `profileKnown` below is
+  // the third state: the hint now needs a profile we actually received.
+  const profileQ = useAsyncData(() => api.get("/business"), []);
+  const businessProfile = profileQ.data;
+  const profileKnown = !profileQ.loading && !profileQ.failed;
   // Plan caps from /billing/me — drives the cap-aware preset
   // buttons (Free=7d / Starter=31d / Pro=full year). Defaults to
   // 366 (the hard ceiling) so before /billing/me responds the UI
@@ -4034,13 +4114,23 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
   // UpgradeNudge state — shown as a dialog when a Free user tries
   // the gated "Send to accountant" feature. Null = no nudge open.
   const [upgradeNudge, setUpgradeNudge] = useState(null);
+  // /billing/me keeps its silent catch ON PURPOSE, and it is the one shape of
+  // silence that is honest: every failure leaves exportCapDays at 366, and the
+  // whole cap UI — the hint line, the locked presets, the "exceeds your plan"
+  // warning — is gated on `exportCapDays < 366`. So an unanswered read renders
+  // no claim about the owner's plan at all, rather than a comforting one, and
+  // the backend is the authoritative gate either way.
   useEffect(() => {
-    api.get("/business").then(r => setBusinessProfile(r.data)).catch(() => {});
     api.get("/billing/me").then(r => {
       const cap = r.data?.caps?.daily_close_export_days;
       if (typeof cap === "number" && cap > 0) setExportCapDays(cap);
       if (r.data?.plan) setPlanTier(r.data.plan);
-    }).catch(() => {});
+    }).catch(() => {
+      // Deliberate, and argued above: a failed read leaves exportCapDays at
+      // 366, and the whole cap UI is gated on `< 366`, so this renders NO
+      // claim about the owner's plan rather than a comforting one. The
+      // backend is the authoritative gate either way.
+    });
   }, []);
 
   // Compute the active (from, to) for whichever preset is selected.
@@ -4475,6 +4565,37 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
     }
   };
 
+  /* ── Loading → failed → empty → data. In that order, every time. ──
+     The empty state below is the product's first-run welcome ("submit your
+     first end-of-day close"), and it used to be what an owner with a year of
+     kasserapporter saw whenever the GET did not come back — the one screen
+     that could make them doubt the books was the one that lied. The two
+     branches in front of it are what make that empty state true again:
+     nothing reaches it now except a list the server actually returned empty.
+     A skeleton with WORDS, not a bare spinner, so the first paint of the tab
+     never reads as "you have none" either. */
+  if (loading && !data.length) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
+        <div className="flex justify-center mb-3 animate-pulse"><Icon name="ClipboardList" size={36} className="text-gray-400 dark:text-gray-500" /></div>
+        <p className="text-[13px] text-gray-500 dark:text-gray-400">{t("dcLoadingHistory", "Loading your kasserapporter…")}</p>
+      </div>
+    );
+  }
+
+  /* INSTEAD of the empty state, never above it — rendering both would still
+     leave "submit your first close" on a page that has no idea. Offline gets
+     its own headline: "something went wrong" is not true of a phone with no
+     signal, and this tab is reachable offline by design. */
+  if (failed && !data.length) {
+    return (
+      <LoadFailed
+        onRetry={onRefresh}
+        title={isOnline ? null : t("dcOfflineCantLoad", "You're offline, so this couldn't be loaded.")}
+      />
+    );
+  }
+
   if (!data.length) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-100 dark:border-gray-700">
@@ -4487,6 +4608,20 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
 
   return (
     <div className="space-y-3">
+      {/* Stale, and saying so. A reload that failed keeps the rows that WERE
+          true rather than blanking a list the owner may be reading mid-task —
+          but a refreshed-looking list that is actually ten minutes old is the
+          same lie in slower motion, so the banner names it and offers the
+          retry. (A close locked since the last good load is not in these
+          rows; that is exactly what "may not be up to date" means.) */}
+      {failed && data.length > 0 && (
+        <LoadFailed
+          onRetry={onRefresh}
+          title={isOnline ? null : t("dcOfflineCantLoad", "You're offline, so this couldn't be loaded.")}
+          body={t("dcShowingLastLoaded", "Showing the last kasserapporter we loaded — they may not be up to date.")}
+        />
+      )}
+
       {/* Share-to-team status toast — appears briefly after a Send tap.
           Floats above the list rather than inline so the closer's eye
           isn't pulled away from where they were tapping. */}
@@ -4787,8 +4922,10 @@ function HistoryView({ data, currency, t, onRefresh, insights, onEdit, lastLocke
         )}
 
         {/* Hint when no accountant email is saved — points to Profile so
-            the next send is one-tap. Hidden once the email is set. */}
-        {!businessProfile?.accountant_email && rangeCount > 0 && (
+            the next send is one-tap. Hidden once the email is set, and
+            withheld entirely until the profile has actually been read: we do
+            not tell an owner what is missing from a record we could not open. */}
+        {profileKnown && !businessProfile?.accountant_email && rangeCount > 0 && (
           <p className="mt-2 text-[11px] text-gray-400 dark:text-gray-500">
             <Icon name="Lightbulb" size={12} className="inline align-text-bottom mr-1" /> {t("accountantHint") || "Tip: save your accountant's email on "}
             <Link to="/profile" className="text-amber-600 dark:text-amber-400 hover:underline">
@@ -5436,7 +5573,30 @@ function CalendarHeatMap({ data, currency }) {
 /* ═══════════════════════════════════════════════════════════
    INSIGHTS VIEW
    ═══════════════════════════════════════════════════════════ */
-function InsightsView({ data, currency, t }) {
+function InsightsView({ data, currency, t, loading = false, failed = false, isOnline = true, onRetry = null }) {
+  /* Same order as History, same reason. "Not enough data yet — lock a few
+     kasserapporter" is a judgement about the OWNER's record; a request that
+     failed is a fact about ours, and only one of the two is theirs to act on.
+     The failure branch sits in front of the empty state so the empty state
+     can keep meaning what it says. */
+  if (loading && !data) {
+    return (
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-200 dark:border-gray-700">
+        <div className="flex justify-center mb-3 animate-pulse"><Icon name="Lightbulb" size={32} className="text-gray-400 dark:text-gray-500" /></div>
+        <p className="text-[13px] text-gray-500 dark:text-gray-400">{t("dcLoadingInsights", "Loading your insights…")}</p>
+      </div>
+    );
+  }
+
+  if (failed && !data) {
+    return (
+      <LoadFailed
+        onRetry={onRetry}
+        title={isOnline ? null : t("dcOfflineCantLoad", "You're offline, so this couldn't be loaded.")}
+      />
+    );
+  }
+
   if (!data || !data.has_data) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl p-8 text-center border border-gray-200 dark:border-gray-700">
@@ -5453,6 +5613,15 @@ function InsightsView({ data, currency, t }) {
 
   return (
     <div className="space-y-4">
+      {/* Stale insights, said out loud — same rule as the History list. */}
+      {failed && (
+        <LoadFailed
+          onRetry={onRetry}
+          title={isOnline ? null : t("dcOfflineCantLoad", "You're offline, so this couldn't be loaded.")}
+          body={t("dcShowingLastLoadedInsights", "Showing the last insights we loaded — they may not be up to date.")}
+        />
+      )}
+
       {/* Streak alerts — prominent at top */}
       {streakAlerts.map((alert, i) => (
         <StreakAlertCard key={i} alert={alert} currency={currency} />

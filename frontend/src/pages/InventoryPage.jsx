@@ -14,6 +14,7 @@ import { useState, useEffect, useMemo, Fragment } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import { useAsyncData } from "../hooks/useAsyncData";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
@@ -32,7 +33,7 @@ import { formatDateClear, localIso } from "../utils/dateFormat";
 import { errText } from "../utils/errText";
 import { INVENTORY_TEMPLATES, categoryLabel } from "../config/inventoryTemplates";
 import {
-  Button, PageHeader, StatCard, SectionBanner, TabPills, Icon, Amount,
+  Button, PageHeader, StatCard, SectionBanner, TabPills, Icon, Amount, LoadFailed,
 } from "../components/ui";
 import { SkeletonCard } from "../components/BonBoxPolishKit";
 import { saveFile } from "../utils/download";
@@ -82,7 +83,22 @@ export default function InventoryPage() {
   // Every row /api/inventory returned, unfiltered. `items` below is the
   // filtered view; the raw list is kept so a late answer about which surfaces
   // this owner has can re-filter without a refetch.
-  const [allItems, setAllItems] = useState([]);
+  //
+  // THREE OUTCOMES, NOT TWO. All seven fetches on this page used to be
+  // `api.get(...).then(setRows).catch(() => {})`. A refused, dropped or 500'd
+  // request left the array at `[]`, and `[]` is the same value an owner with an
+  // empty stockroom has — so the page fell through to its empty state and told
+  // an owner with 300 varer on the shelf "Ingen lagervarer endnu · 0 varer ·
+  // 0 lavt lager · 0/0 prissat". useAsyncData keeps "I could not check" apart
+  // from "there is nothing here", and keeps the last rows that WERE true
+  // through a failed reload, so this page can say which of the two it means.
+  const itemsQ = useAsyncData(
+    () => api.get("/inventory").then((r) => (Array.isArray(r.data) ? r.data : [])),
+    [],
+    { initial: [] },
+  );
+  const allItems = itemsQ.data;
+  const setAllItems = itemsQ.setData;
   // Is /bar in this owner's sidebar? It is gated on the `bar_pour` vertical
   // module, and pour-tracked bottles may only be hidden from THIS page while
   // that page exists to hold them. With the module off, hiding them here hides
@@ -91,8 +107,21 @@ export default function InventoryPage() {
   // Default false, so the failure direction is "show a bottle twice", never
   // "show it nowhere".
   const [barReachable, setBarReachable] = useState(false);
-  const [alerts, setAlerts] = useState([]);
-  const [categories, setCategories] = useState([]);
+  // The low-stock feed. Its expanded panel says "Alle varer er godt på lager!"
+  // when this array is empty — the loudest all-clear on the page, and the one
+  // a swallowed error used to put on screen without having asked.
+  const alertsQ = useAsyncData(
+    () => api.get("/inventory/alerts").then((r) => (Array.isArray(r.data) ? r.data : [])),
+    [],
+    { initial: [] },
+  );
+  const alerts = alertsQ.data;
+  const categoriesQ = useAsyncData(
+    () => api.get("/inventory/categories").then((r) => (Array.isArray(r.data) ? r.data : [])),
+    [],
+    { initial: [] },
+  );
+  const categories = categoriesQ.data;
   const [activeCategory, setActiveCategory] = useState("All");
   const [form, setForm] = useState({
     name: "", quantity: "", unit: "pieces", cost_per_unit: "",
@@ -127,10 +156,36 @@ export default function InventoryPage() {
   const [showBarSection, setShowBarSection] = useState(() => localStorage.getItem("bonbox_bar_mode") === "true");
   const [restockItem, setRestockItem] = useState(null);
   const [restockBottles, setRestockBottles] = useState(1);
-  const [deadStock, setDeadStock] = useState([]);
-  const [profitRanking, setProfitRanking] = useState([]);
-  const [expiring, setExpiring] = useState([]);   // Items in next 7 days
-  const [expired, setExpired] = useState([]);     // Items already past expiry
+  // The four panels below the alert zone. Each renders only when its array has
+  // rows, so a swallowed error did not print a wrong number here — it printed
+  // nothing, and on three of them (dead stock, expiring, expired) an absent
+  // warning reads exactly like an all-clear. They report their failure through
+  // one banner in the alert zone rather than four.
+  const deadStockQ = useAsyncData(
+    () => api.get("/inventory/dead-stock").then((r) => (Array.isArray(r.data) ? r.data : [])),
+    [],
+    { initial: [] },
+  );
+  const deadStock = deadStockQ.data;
+  const profitRankingQ = useAsyncData(
+    () => api.get("/inventory/profit-ranking").then((r) => (Array.isArray(r.data) ? r.data : [])),
+    [],
+    { initial: [] },
+  );
+  const profitRanking = profitRankingQ.data;
+  const expiringQ = useAsyncData(   // Items in next 7 days
+    () => api.get("/inventory/expiring", { params: { days: 7 } })
+      .then((r) => (Array.isArray(r.data) ? r.data : [])),
+    [],
+    { initial: [] },
+  );
+  const expiring = expiringQ.data;
+  const expiredQ = useAsyncData(    // Items already past expiry
+    () => api.get("/inventory/expired").then((r) => (Array.isArray(r.data) ? r.data : [])),
+    [],
+    { initial: [] },
+  );
+  const expired = expiredQ.data;
   const [expandedStat, setExpandedStat] = useState(null); // "total" | "low" | "fresh" | "categories" | "priced"
   // TRUE until /inventory has answered once. Without it the five stat tiles
   // rendered off an empty array for the ~1s the request takes, so opening
@@ -138,28 +193,39 @@ export default function InventoryPage() {
   // report of an empty stockroom, on the page whose whole job is telling them
   // what is on the shelf. Doctrine: a value that is not yet known is a
   // skeleton or an em-dash, never a zero.
-  const [loading, setLoading] = useState(true);
+  //
+  // It is the FIRST answer specifically. useAsyncData raises `loading` again on
+  // every reload, and this page reloads after each add, edit, adjust and
+  // delete; skeletoning the strip each time would blink numbers the owner had
+  // just watched land. Once an answer is in, a refresh keeps the old numbers up
+  // until the new ones replace them — or until `failed` says they are stale.
+  const [firstAnswerIn, setFirstAnswerIn] = useState(false);
+  useEffect(() => { if (!itemsQ.loading) setFirstAnswerIn(true); }, [itemsQ.loading]);
+  const loading = itemsQ.loading && !firstAnswerIn;
+  // The third state, named. `failed` alone is not enough to decide what to
+  // draw: a failed RELOAD still has the last true rows behind it, and stale-
+  // but-true beats blank. `stockUnknown` is the case where every count would
+  // be a confident zero about a shelf we could not see.
+  const stockUnknown = itemsQ.failed && allItems.length === 0;
   // Both header exports. Separate flags so the PDF spinner never appears on
   // the CSV button.
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
 
+  // One refresh for the whole page, as before — every caller (add, edit,
+  // adjust, delete, pour, restock, template load, Smart Import, CountRitual)
+  // still gets all seven feeds re-asked. The difference is that a request that
+  // comes back angry now leaves `failed` behind instead of nothing at all.
   const fetchData = () => {
-    api.get("/inventory")
-      .then((res) => {
-        setAllItems(Array.isArray(res.data) ? res.data : []);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-    api.get("/inventory/alerts").then((res) => setAlerts(res.data)).catch(() => {});
-    api.get("/inventory/categories").then((res) => setCategories(res.data)).catch(() => {});
-    api.get("/inventory/dead-stock").then((res) => setDeadStock(res.data)).catch(() => {});
-    api.get("/inventory/profit-ranking").then((res) => setProfitRanking(res.data)).catch(() => {});
-    api.get("/inventory/expiring", { params: { days: 7 } }).then((res) => setExpiring(res.data || [])).catch(() => {});
-    api.get("/inventory/expired").then((res) => setExpired(res.data || [])).catch(() => {});
+    itemsQ.reload();
+    alertsQ.reload();
+    categoriesQ.reload();
+    deadStockQ.reload();
+    profitRankingQ.reload();
+    expiringQ.reload();
+    expiredQ.reload();
   };
-
-  useEffect(() => { fetchData(); }, []);
+  // No mount effect: useAsyncData fetches on mount for each feed.
 
   // Same source the sidebar and MorePage gate /bar on, so this page and the
   // navigation cannot disagree about whether that page exists.
@@ -686,6 +752,28 @@ export default function InventoryPage() {
         />
       )}
 
+      {/* The warning feeds, when they could not be asked.
+          Dead stock, expiring and expired each render ONLY when they have rows,
+          so a swallowed error here did not show a wrong number — it showed no
+          banner, which on a page of warnings reads as "nothing to worry about".
+          That is the same lie in its quietest form, so the silence gets a
+          sentence. One banner for all four rather than four, because the owner
+          needs to know the alarms did not run, not which endpoint sulked. */}
+      {(deadStockQ.failed || expiringQ.failed || expiredQ.failed || profitRankingQ.failed) && (
+        <LoadFailed
+          onRetry={() => {
+            deadStockQ.reload();
+            expiringQ.reload();
+            expiredQ.reload();
+            profitRankingQ.reload();
+          }}
+          body={t(
+            "invAlertsUnchecked",
+            "We couldn't check expiry and dead stock just now — no warning here doesn't mean there is none.",
+          )}
+        />
+      )}
+
       {/* ─── Expiry alerts (already past = waste candidate; soon = use first) ─── */}
       {(expired.length > 0 || expiring.length > 0) && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -797,11 +885,41 @@ export default function InventoryPage() {
       <div className="space-y-3">
         {loading ? (
           // The zone's own shape — five tiles in the same grid — so the page
-          // does not reflow when the real numbers land.
-          <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            {[0, 1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)}
-          </div>
+          // does not reflow when the real numbers land. The line above the bars
+          // is there because bars alone say "wait" without saying for what, and
+          // an owner on a bad connection deserves the difference between a slow
+          // page and a stuck one.
+          <>
+            <p className="text-[13px] text-gray-500 dark:text-gray-400">
+              {t("invLoadingStock", "Checking what's on the shelf…")}
+            </p>
+            <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {[0, 1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)}
+            </div>
+          </>
+        ) : stockUnknown ? (
+          // INSTEAD OF the five tiles, never above them. All five are counts
+          // off `items`, and with no answer every one of them reads 0 — the
+          // page would state an empty stockroom as fact on the strength of a
+          // request that never came back.
+          <LoadFailed
+            onRetry={fetchData}
+            body={t(
+              "invStockUnchecked",
+              "We couldn't read your stock list, so these totals are missing rather than zero.",
+            )}
+          />
         ) : (
+        <>
+          {/* Failed RELOAD with rows still behind it. The numbers below were
+              true at the last successful check, which beats blanking them —
+              but only if the page says so out loud. */}
+          {itemsQ.failed && (
+            <LoadFailed
+              onRetry={fetchData}
+              body={t("invStockStale", "These numbers are from the last check that worked.")}
+            />
+          )}
         <div className="grid grid-cols-3 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <StatCard
             label={t("totalItems")}
@@ -813,7 +931,10 @@ export default function InventoryPage() {
           />
           <StatCard
             label={t("lowStock")}
-            value={alerts.length}
+            // Its own feed, its own third state: "—" when we could not ask.
+            // A 0 here is the tile version of "all well stocked", and this
+            // page is not allowed to say that on a request that failed.
+            value={alertsQ.failed && alerts.length === 0 ? "—" : alerts.length}
             // Critical accent only when there's an alert to signal —
             // with 0 low-stock items the tile stays neutral, no false alarm.
             accent={alerts.length > 0 ? "critical" : "neutral"}
@@ -832,7 +953,7 @@ export default function InventoryPage() {
           />
           <StatCard
             label={t("categories")}
-            value={categories.length}
+            value={categoriesQ.failed && categories.length === 0 ? "—" : categories.length}
             onClick={() => setExpandedStat(expandedStat === "categories" ? null : "categories")}
             selected={expandedStat === "categories"}
             expandable
@@ -851,6 +972,7 @@ export default function InventoryPage() {
             ariaControls="inventory-stat-panel"
           />
         </div>
+        </>
         )}
 
         {/* Expanded detail panels — each variant shares the same DOM id
@@ -906,10 +1028,23 @@ export default function InventoryPage() {
         {expandedStat === "low" && (
           <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-red-200 dark:border-red-800 shadow-sm">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("lowStockItems")} ({alerts.length})</p>
+              <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                {t("lowStockItems")} ({alertsQ.failed && alerts.length === 0 ? "—" : alerts.length})
+              </p>
               <StatPanelClose onClick={() => setExpandedStat(null)} t={t} />
             </div>
-            {alerts.length > 0 ? (
+            {/* The all-clear is the sentence this whole change exists for.
+                "Alle varer er godt på lager!" is a claim about every vare in
+                the stockroom, and it used to be printed off an array that was
+                empty because the request failed. It now needs a successful
+                answer behind it; without one the owner gets the honest version
+                and a way to ask again. */}
+            {alertsQ.failed && alerts.length === 0 ? (
+              <LoadFailed
+                onRetry={alertsQ.reload}
+                body={t("invLowStockUnchecked", "We couldn't check low stock — this is not an all-clear.")}
+              />
+            ) : alerts.length > 0 ? (
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
                 {alerts.map((a) => (
                   <div key={a.id} className="flex items-center justify-between px-3 py-2 bg-red-50 dark:bg-red-900/20 rounded-lg text-xs">
@@ -975,10 +1110,16 @@ export default function InventoryPage() {
              one tap above the picker that was cleaned. */
           <div id="inventory-stat-panel" className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700 shadow-sm">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">{t("categories")} ({categories.length})</p>
+              <p className="text-sm font-semibold text-gray-700 dark:text-gray-200">
+                {t("categories")} ({categoriesQ.failed && categories.length === 0 ? "—" : categories.length})
+              </p>
               <StatPanelClose onClick={() => setExpandedStat(null)} t={t} />
             </div>
-            {categories.length > 0 ? (
+            {/* Instead of "Ingen kategorier endnu", which an owner who has
+                sorted their lager into nine of them would read as data loss. */}
+            {categoriesQ.failed && categories.length === 0 ? (
+              <LoadFailed onRetry={categoriesQ.reload} />
+            ) : categories.length > 0 ? (
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
                 {categories.map((cat) => {
                   const catItems = items.filter(i => (i.category || "General") === cat);
@@ -1098,9 +1239,15 @@ export default function InventoryPage() {
                       if (!(await confirm({ message: `${t("removeFromInventory")} "${ds.name}"?`, destructive: true, confirmLabel: t("removeItem") }))) return;
                       try {
                         await api.delete(`/inventory/${ds.id}`);
-                        setDeadStock((prev) => prev.filter((d) => d.id !== ds.id));
+                        deadStockQ.setData((prev) => prev.filter((d) => d.id !== ds.id));
                         setAllItems((prev) => prev.filter((it) => it.id !== ds.id));
-                      } catch {}
+                      } catch (err) {
+                        // Same rule one layer over: a delete that the server
+                        // refused used to remove nothing and say nothing, so
+                        // the owner tapped X, watched the row stay, and had no
+                        // idea whether BonBox had heard them.
+                        setError(errText(err, t("failedToDelete")));
+                      }
                     }}
                     className="text-red-400 hover:text-red-600 dark:hover:text-red-300 transition p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 rounded"
                     title={t("removeItem")}
@@ -1479,8 +1626,18 @@ export default function InventoryPage() {
                   </Fragment>
                 );
               })}
+              {/* Three outcomes in the one slot that used to have two. The
+                  table sits ~700 lines below the stat strip, so its failure
+                  carries its own Try again rather than pointing up the page at
+                  a banner the owner has scrolled past. */}
               {filtered.length === 0 && (
-                <tr><td colSpan={10} className="px-3 py-8 text-center text-[13px] text-gray-400 dark:text-gray-500">{t("noInventoryYet")}</td></tr>
+                loading ? (
+                  <tr><td colSpan={10} className="px-3 py-8 text-center text-[13px] text-gray-400 dark:text-gray-500">{t("invLoadingStock", "Checking what's on the shelf…")}</td></tr>
+                ) : stockUnknown ? (
+                  <tr><td colSpan={10} className="px-3 py-4"><LoadFailed onRetry={fetchData} /></td></tr>
+                ) : (
+                  <tr><td colSpan={10} className="px-3 py-8 text-center text-[13px] text-gray-400 dark:text-gray-500">{t("noInventoryYet")}</td></tr>
+                )
               )}
             </tbody>
           </table>
@@ -1493,10 +1650,21 @@ export default function InventoryPage() {
             users tap Edit which drops to the table on tablet+, or the
             row can be edited on a later pass. */}
         <div className="md:hidden p-3 space-y-2">
+          {/* Same three outcomes as the table above — the phone is where a
+              dropped request is likeliest, so it is the last place that may
+              guess. */}
           {filtered.length === 0 && (
-            <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6 text-center text-[13px] text-gray-400 dark:text-gray-500">
-              {t("noInventoryYet")}
-            </div>
+            loading ? (
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6 text-center text-[13px] text-gray-400 dark:text-gray-500">
+                {t("invLoadingStock", "Checking what's on the shelf…")}
+              </div>
+            ) : stockUnknown ? (
+              <LoadFailed onRetry={fetchData} />
+            ) : (
+              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6 text-center text-[13px] text-gray-400 dark:text-gray-500">
+                {t("noInventoryYet")}
+              </div>
+            )
           )}
           {filtered.map((item) => {
             const qty = parseFloat(item.quantity);

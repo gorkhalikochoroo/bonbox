@@ -40,6 +40,7 @@ import { useLocation, useNavigate, Link } from "react-router-dom";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { useLanguage } from "../hooks/useLanguage";
+import { useAsyncData } from "../hooks/useAsyncData";
 import { useStickyMethod } from "../hooks/useStickyMethod";
 import { useUndoToast } from "../hooks/useUndoToast";
 import { trackEvent } from "../hooks/useEventLog";
@@ -57,7 +58,7 @@ import { safeImageUrl } from "../utils/safeUrl";
 import { resizeImageIfLarge } from "../utils/resizeImage";
 import { errText } from "../utils/errText";
 import RecurringExpensesPanel from "../components/RecurringExpensesPanel";
-import { PageHeader, TabPills, Button, Empty, Amount, SectionBanner } from "../components/ui";
+import { PageHeader, TabPills, Button, Empty, Amount, SectionBanner, LoadFailed } from "../components/ui";
 import EntryCard from "../components/ui/EntryCard";
 import MoneyField from "../components/ui/MoneyField";
 import PageShell from "../components/ui/PageShell";
@@ -118,13 +119,59 @@ export default function ExpensesPage() {
   const currency = displayCurrency(user?.currency);
   const { t } = useLanguage();
   const { show: showUndo, ToastUI: undoToastUI } = useUndoToast();
-  const [expenses, setExpenses] = useState([]);
-  // TRUE until /expenses has answered once. The month line below reduces over
+  // Declared ABOVE the query below, which names them in its deps array — a
+  // `const` read before its line is a TDZ crash, not a lint warning.
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
+  // THREE OUTCOMES, NEVER TWO. These were `useState([])` plus a `.catch` that
+  // wrote the message into the page's red banner and left the array at `[]`.
+  // The array is what the whole page reads, so a failed GET fell through to
+  // "Ingen udgifter endnu" in the ledger and to a month line that read "Denne
+  // måned: 0 kr. fordelt på 0 udgifter" — an owner with 300 expenses told,
+  // twice, in settled figures, that they had none. What the third state fixes:
+  // "we could not ask" now renders as itself (<LoadFailed onRetry>) INSTEAD of
+  // the empty state, and a reload that dies keeps the rows that were last
+  // actually true on screen rather than blanking them.
+  const expensesQ = useAsyncData(
+    () => {
+      const params = { is_personal: false };
+      if (filterFrom) params.from = filterFrom;
+      if (filterTo) params.to = filterTo;
+      return api.get("/expenses", { params });
+    },
+    // The date range is a dep now, not an imperative argument — changing it in
+    // the FilterBar re-runs the query the same way a mount does.
+    [user?.id, filterFrom, filterTo],
+    // Gated on user?.id so no GET fires before auth has hydrated. `enabled:
+    // false` HOLDS the request; it does not report a failure, because an
+    // un-asked question has no answer.
+    { enabled: !!user?.id },
+  );
+  const categoriesQ = useAsyncData(
+    () => api.get("/expenses/categories"),
+    [user?.id],
+    { enabled: !!user?.id },
+  );
+  // Memoized because `data` is null until the first reply and `|| []` would
+  // otherwise mint a new array every render, re-running the filter and the
+  // month reduce below for nothing.
+  const expenses = useMemo(() => expensesQ.data || [], [expensesQ.data]);
+  const categories = categoriesQ.data || [];
+  const expensesFailed = expensesQ.failed;
+  // TRUE until /expenses has answered ONCE. The month line below reduces over
   // `expenses`, so on an empty array it stated "Denne måned: 0 kr. på 0
   // udgifter" for the length of the request — a settled figure for a month we
-  // had not yet been told anything about.
-  const [expensesLoading, setExpensesLoading] = useState(true);
-  const [categories, setCategories] = useState([]);
+  // had not yet been told anything about. `data` stays null until a real reply
+  // lands, and a failure counts as a reply. Deliberately NOT `q.loading`: that
+  // is true on every background reload (freshness bus, tab focus) and would
+  // flash a skeleton over figures we already have.
+  const expensesLoading = expensesQ.data == null && !expensesQ.failed;
+  // First-run category setup. Derived from `isEmpty`, which is true only when
+  // the request actually came back with nothing — a FAILED categories load
+  // leaves it false, so we never offer to create the default set on top of a
+  // set this account may already have. (`Array.isArray` keeps the offer from
+  // flashing before the first reply, when `data` is still null.)
+  const showSetup = categoriesQ.isEmpty && Array.isArray(categoriesQ.data);
   const [catId, setCatId] = useState("");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
@@ -132,9 +179,6 @@ export default function ExpensesPage() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [showSetup, setShowSetup] = useState(false);
-  const [filterFrom, setFilterFrom] = useState("");
-  const [filterTo, setFilterTo] = useState("");
   const [editId, setEditId] = useState(null);
   // Receipt review modal — opens when user clicks the receipt thumb on
   // an expense row that has receipt_photo set.
@@ -354,7 +398,13 @@ export default function ExpensesPage() {
             setSuggestion(null);
           }
         })
-        .catch(() => {});
+        // Deliberate swallow, and the one shape on this page that stays
+        // silent. A suggestion is an OFFER, not a claim: when it does not
+        // arrive the chip simply never appears, and nothing on screen asserts
+        // that the description has no category — so there is no empty state
+        // here for a failure to be mistaken for. Nothing to retry either: the
+        // next keystroke asks again.
+        .catch(() => { /* a suggestion that never arrives claims nothing — see above */ });
     }, 400);
   };
 
@@ -365,42 +415,31 @@ export default function ExpensesPage() {
     setSuggestion(null);
   };
 
-  const fetchData = (from, to) => {
-    const params = { is_personal: false };
-    if (from) params.from = from;
-    if (to) params.to = to;
-    api.get("/expenses", { params })
-      .then((res) => setExpenses(res.data))
-      .catch((err) => setError(errText(err, t("failedToLoadExpenses"))))
-      .finally(() => setExpensesLoading(false));
-    api.get("/expenses/categories")
-      .then((res) => {
-        setCategories(res.data);
-        if (res.data.length === 0) setShowSetup(true);
-      })
-      .catch((err) => setError(errText(err, t("failedToLoadCategories"))));
-  };
-
-  // Mount fetch gated on user?.id so we don't fire a GET before auth has
-  // hydrated. ProtectedRoute already waits for the /auth/me probe, but
-  // threading user.id through here also handles hot account switches
-  // (impersonation / accountant view) without an extra full reload.
-  useEffect(() => {
-    if (!user?.id) return;
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  /** Re-run both GETs. Kept under the old name and shape so every call site
+   *  below reads exactly as it did; it returns a promise because one of them
+   *  awaits it.
+   *
+   *  The mount fetch it used to own now belongs to the queries themselves —
+   *  gated on user?.id so nothing fires before auth has hydrated (as
+   *  ProtectedRoute's /auth/me probe already guarantees), and re-run on a hot
+   *  account switch (impersonation / revisor view) because user?.id is a dep.
+   *  The (from, to) arguments are gone for the same reason: the range is a dep.
+   *
+   *  A failure here no longer writes into the page's red `error` banner. Red is
+   *  for money at risk; "we could not read the list" is amber, it is local to
+   *  the thing that could not be read, and it carries a Try again. */
+  const fetchData = () => Promise.all([expensesQ.reload(), categoriesQ.reload()]);
 
   // Cross-page sync (Smart Scan, ReceiptCapture, recurring runner, etc.)
-  // Filter values are read via a ref so we always pull the current range
-  // without re-binding the listener on every keystroke.
-  const filterRef = useRef({ from: "", to: "" });
-  filterRef.current = { from: filterFrom, to: filterTo };
+  // The listener binds once, so it reaches the latest fetchData through a ref
+  // — this replaces filterRef, which existed for exactly the same reason back
+  // when the range had to be threaded through by hand.
+  const fetchDataRef = useRef(fetchData);
+  fetchDataRef.current = fetchData;
   useEffect(() => {
-    const onDataChanged = () => fetchData(filterRef.current.from, filterRef.current.to);
+    const onDataChanged = () => fetchDataRef.current();
     window.addEventListener("bonbox-data-changed", onDataChanged);
     return () => window.removeEventListener("bonbox-data-changed", onDataChanged);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Snap-refresh on tab focus. The "stale after login" case happens when
@@ -412,7 +451,7 @@ export default function ExpensesPage() {
     if (!user?.id) return;
     const onVisible = () => {
       if (typeof document !== "undefined" && !document.hidden) {
-        fetchData(filterRef.current.from, filterRef.current.to);
+        fetchDataRef.current();
       }
     };
     if (typeof document !== "undefined") {
@@ -423,7 +462,6 @@ export default function ExpensesPage() {
         document.removeEventListener("visibilitychange", onVisible);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
   // ─── Smart Scan prefill consumer ─────────────────────────────────
@@ -481,7 +519,9 @@ export default function ExpensesPage() {
       for (const name of DEFAULT_CATEGORIES) {
         await api.post("/expenses/categories", { name });
       }
-      setShowSetup(false);
+      // No setShowSetup(false): the offer is derived from the categories
+      // query, so it goes away when the reload confirms the set exists —
+      // never before we have been told it does.
       fetchData();
     } catch (err) {
       setError(errText(err, t("failedToSetupCategories")));
@@ -542,7 +582,9 @@ export default function ExpensesPage() {
           if (!uncat) {
             const res = await api.post("/expenses/categories", { name: "Ukategoriseret" });
             uncat = res.data;
-            setCategories(prev => prev.find(c => c.id === res.data.id) ? prev : [...prev, res.data]);
+            // `|| []` because the query's data is null until it has answered
+            // once, and an owner can submit while that first GET is in flight.
+            categoriesQ.setData(prev => (prev || []).find(c => c.id === res.data.id) ? prev : [...(prev || []), res.data]);
           }
           finalCatId = uncat.id;
         }
@@ -550,9 +592,10 @@ export default function ExpensesPage() {
         // Detailed path — owner typed a custom category. Create it.
         const catRes = await api.post("/expenses/categories", { name: customCat.trim() });
         finalCatId = catRes.data.id;
-        setCategories((prev) => {
-          if (prev.find((c) => c.id === catRes.data.id)) return prev;
-          return [...prev, catRes.data];
+        categoriesQ.setData((prev) => {
+          const list = prev || [];
+          if (list.find((c) => c.id === catRes.data.id)) return list;
+          return [...list, catRes.data];
         });
         setCatId(catRes.data.id);
         setCustomCat("");
@@ -592,7 +635,10 @@ export default function ExpensesPage() {
         created_at: new Date().toISOString(),
         _pending: true,
       };
-      setExpenses(prev => [optimisticRow, ...prev]);
+      // `|| []` guards the one case useState([]) used to cover for free: the
+      // owner types an amount and hits Add while the first GET is still out,
+      // so the query's data is still null.
+      expensesQ.setData(prev => [optimisticRow, ...(prev || [])]);
       const submittedSnapshot = {
         amount, desc, method, notes, customCat, isPersonal, isTaxExempt, expDate,
         catId,
@@ -624,14 +670,14 @@ export default function ExpensesPage() {
       try {
         const res = await api.post("/expenses", payload);
         if (res?.data && res.data.id) {
-          setExpenses(prev => prev.map(e => e.id === tempId ? res.data : e));
+          expensesQ.setData(prev => (prev || []).map(e => e.id === tempId ? res.data : e));
         } else {
-          fetchData(filterFrom, filterTo);
+          fetchData();
         }
       } catch (postErr) {
         // Roll back optimistic insert + restore the form values so the
         // owner can retry without retyping.
-        setExpenses(prev => prev.filter(e => e.id !== tempId));
+        expensesQ.setData(prev => (prev || []).filter(e => e.id !== tempId));
         setAmount(submittedSnapshot.amount);
         setDesc(submittedSnapshot.desc);
         setMethod(submittedSnapshot.method);
@@ -699,7 +745,7 @@ export default function ExpensesPage() {
       await api.put(`/expenses/${editId}`, payload);
       setEditId(null);
       setEditData({});
-      fetchData(filterFrom, filterTo);
+      fetchData();
       // Keep the Dashboard's expense total / profit / margin in sync — the
       // add path fires this; edit + delete must too, or a mounted Dashboard
       // goes stale until manual reload.
@@ -715,13 +761,13 @@ export default function ExpensesPage() {
     try {
       await api.delete(`/expenses/${id}`);
       setDeleteConfirm(null);
-      fetchData(filterFrom, filterTo);
+      fetchData();
       window.dispatchEvent(new Event("bonbox-data-changed"));
       showUndo({
         message: t("movedToRecentlyDeleted"),
         onUndo: async () => {
           await api.put(`/expenses/${id}/restore`);
-          fetchData(filterFrom, filterTo);
+          fetchData();
           // An expense feeds profit AND the MOMS input-VAT figure, so the
           // freshness bus has to hear about the restore too.
           window.dispatchEvent(new Event("bonbox-data-changed"));
@@ -753,7 +799,9 @@ export default function ExpensesPage() {
     setFilterTo("");
     setSearch("");
     setCategoryFilter("all");
-    fetchData();
+    // No explicit refetch: clearing the range changes the query's deps, which
+    // re-runs it. Search and category are client-side filters over rows we
+    // already hold, so there is nothing to go and ask for.
   };
 
   // Detailed-disclosure extras — the contents of the "More fields"
@@ -766,6 +814,15 @@ export default function ExpensesPage() {
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">
           {t("pickCategory")}
         </p>
+        {/* Same third state, one level down. A failed /expenses/categories left
+            this array at [] too, so "Vælg kategori" sat above a blank row —
+            indistinguishable from an account that genuinely has no categories,
+            and one tap away from the owner typing a duplicate custom category
+            for one that already exists. The custom-category box below stays
+            live either way: a failed list must not block the entry. */}
+        {categoriesQ.failed && categories.length === 0 ? (
+          <LoadFailed onRetry={categoriesQ.reload} />
+        ) : (
         <div className="flex flex-wrap gap-1.5">
           {categories
             .filter((c) => !PERSONAL_ONLY_CATS.has(c.name))
@@ -795,6 +852,7 @@ export default function ExpensesPage() {
               </button>
             ))}
         </div>
+        )}
       </div>
 
       {/* Custom-category input + matching suggestions dropdown */}
@@ -1018,7 +1076,7 @@ export default function ExpensesPage() {
       const formData = new FormData();
       formData.append("file", file);
       await api.post(`/expenses/${rowId}/attach-receipt`, formData, { timeout: 60000 });
-      await fetchData(filterFrom, filterTo);
+      await fetchData();
       setSuccess(t("expBilagAttached", "Receipt attached"));
       setTimeout(() => setSuccess(""), 2000);
     } catch (err) {
@@ -1054,7 +1112,7 @@ export default function ExpensesPage() {
       const capMsg = res?.data?.cap_reached ? ` · ${t("koBurstCapReached", "scan limit reached")}` : "";
       setSuccess(`${t("koBurstDone", "{n} added to the queue").replace("{n}", String(n))}${capMsg}`);
       setTimeout(() => setSuccess(""), 3500);
-      fetchData(filterFrom, filterTo);
+      fetchData();
     } catch (err) {
       const detail = err?.response?.data?.detail;
       setError(typeof detail === "string" ? detail : t("koBurstFailed", "Could not scan the pile"));
@@ -1194,7 +1252,7 @@ export default function ExpensesPage() {
       <GodkendKo
         getCatName={getCatName}
         currency={currency}
-        onApproved={() => fetchData(filterFrom, filterTo)}
+        onApproved={() => fetchData()}
         onEdit={startEdit}
         refreshToken={success}
       />
@@ -1357,6 +1415,18 @@ export default function ExpensesPage() {
               with the locked page rhythm before the group and before the
               Recent table below — not orphaned between each line. */}
           <div className="space-y-2.5">
+          {/* A refresh died but we still hold rows from the last load that
+              worked. Everything in this group is DERIVED from `expenses`, so
+              the figures below are real — just no longer current. Say so
+              rather than presenting them as live, and offer the retry. The
+              blank case is not handled here: it has no figures to caveat, and
+              the ledger's own <LoadFailed> below carries that message once. */}
+          {expensesFailed && expenses.length > 0 && (
+            <LoadFailed
+              onRetry={fetchData}
+              body={t("expFiguresFromLastLoad", "These figures are from the last load that worked — they may have moved since.")}
+            />
+          )}
           {/* One-line "this month" summary — replaces the deleted
               4-tile period KPI right-rail. Full breakdown lives in
               /reports (per Tier-4 doctrine §1: ExpenseBreakdownCard
@@ -1366,6 +1436,15 @@ export default function ExpensesPage() {
             // nothing to reduce yet, and a settled month total for a month we
             // have not been told about is the fabrication this replaces.
             <SkeletonPulse className="h-3 w-64 max-w-full mx-1" />
+          ) : expensesFailed && expenses.length === 0 ? (
+            // THE THIRD STATE. A failed GET left the array at [], and this
+            // reduce turned that into "Denne måned: 0 kr. fordelt på 0
+            // udgifter" — a settled month total derived from an array that
+            // never arrived. A derived label must not be computed from a fetch
+            // that failed, and a total we could not read is not zero, so the
+            // line does not render at all; the ledger's <LoadFailed> below says
+            // why and offers Try again.
+            null
           ) : (
           <p className="text-xs text-gray-500 dark:text-gray-400 px-1">
             {t("thisMonthSummary", "This month: {total} across {count} expenses · ", {
@@ -1386,7 +1465,13 @@ export default function ExpensesPage() {
               receipt_photo, whose MOMS-fradrag the revisor can't defend
               under Bogføringsloven. Pull-only + page-local (no nagging);
               self-hides at zero. Personal / tax-exempt rows are excluded
-              (they carry no fradrag). */}
+              (they carry no fradrag).
+
+              It reduces over the same array, so a failed load hides it — and a
+              hidden nudge would read as "no gap found" when the truth is "we
+              could not look". That is why it renders nothing in words: the
+              banner above (stale rows) or the one in the ledger below (no rows)
+              is what tells the owner the page has not been able to ask. */}
           {(() => {
             const missing = expenses.filter(
               (e) => !e.receipt_photo && !e.is_personal && !e.is_tax_exempt,
@@ -1445,6 +1530,12 @@ export default function ExpensesPage() {
               <Button
                 variant="ghost"
                 size="sm"
+                // Nothing loaded and the load failed → the export would hand
+                // the owner a header-only CSV that looks like a real answer
+                // for the period. An accountant-grade artifact built from a
+                // fetch that never arrived is the same lie in a file the
+                // revisor keeps, so the button waits instead.
+                disabled={expensesLoading || (expensesFailed && expenses.length === 0)}
                 onClick={() => exportToCsv("expenses.csv", expenses.map(exp => ({
                   ...exp,
                   category_name: getCatName(exp.category_id),
@@ -1469,12 +1560,13 @@ export default function ExpensesPage() {
               <FilterBar.Date
                 label={t("fromDate", "From")}
                 value={filterFrom}
-                onChange={(v) => { setFilterFrom(v); fetchData(v, filterTo); }}
+                // The range is a dep of the query — setting it IS the refetch.
+                onChange={setFilterFrom}
               />
               <FilterBar.Date
                 label={t("toDate", "To")}
                 value={filterTo}
-                onChange={(v) => { setFilterTo(v); fetchData(filterFrom, v); }}
+                onChange={setFilterTo}
               />
               <FilterBar.Search
                 value={search}
@@ -1488,12 +1580,27 @@ export default function ExpensesPage() {
               columns={tableColumns}
               rows={filtered.slice(0, 50)}
               rowKey="id"
+              // THE SITE THE AUDIT NAMED. An empty state is a CLAIM about the
+              // data — and with the rows left at [] by a failed GET, this one
+              // told an owner with 300 udgifter that they had none, complete
+              // with a cheerful instruction to add their first. "Nothing here"
+              // and "I could not check" are different facts; the second gets
+              // its own words and a Try again, INSTEAD of the empty state, so
+              // the empty state below is now only ever telling the truth.
+              //
+              // Only when there is genuinely nothing to show: with stale rows
+              // still on screen the banner up in GROUP B already says they are
+              // stale, and a filter that matches none of them is a real empty.
               empty={
+                expensesFailed && expenses.length === 0 ? (
+                  <LoadFailed onRetry={fetchData} />
+                ) : (
                 <Empty
                   icon={Receipt}
                   title={t("noExpensesYet", "No expenses yet")}
                   body={t("noExpensesBody", "Add one above or forward a receipt to your inbox.")}
                 />
+                )
               }
               // Without this the ledger asserted "Ingen udgifter endnu" for the
               // length of the first request — an empty state is a CLAIM about
@@ -1607,7 +1714,7 @@ export default function ExpensesPage() {
           onClose={() => setReceiptOpen(false)}
           onSaved={() => {
             setReceiptOpen(false);
-            fetchData(filterFrom, filterTo);
+            fetchData();
             setSuccess(t("expenseAddedFromReceipt", "Expense added from receipt"));
             setTimeout(() => setSuccess(""), 2000);
           }}

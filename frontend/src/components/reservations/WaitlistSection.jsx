@@ -11,18 +11,31 @@
  * Mobile-first: the whole thing is a single calm card; the add form collapses
  * to one column and every row is a full-width stacked card with ≥44px taps.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Users, Clock, Bell, X, CalendarPlus, Loader2 } from "lucide-react";
 import api from "../../services/api";
 import { useLanguage } from "../../hooks/useLanguage";
 import { useConfirm } from "../../hooks/useConfirm";
+import useAsyncData from "../../hooks/useAsyncData";
 import Button from "../ui/Button";
+import LoadFailed from "../ui/LoadFailed";
 
 const inputCls =
   "w-full h-11 px-3 rounded-lg border border-gray-200 dark:border-gray-700 " +
   "bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 " +
   "placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 " +
   "dark:focus:ring-gray-100 focus:border-transparent";
+
+/**
+ * What we hand the cockpit when the fetch did not come back.
+ *
+ * The parent renders this straight into a StatCard (`value={n}`) and turns the
+ * tile amber on `n > 0`. "—" is the house glyph for a number we do not have
+ * (Amount, formatKr, formatHours all answer it), and it compares false, so an
+ * unanswered request neither lights the tile up nor zeroes it out. A blank
+ * value would read as a rendering bug; a 0 would read as a fact.
+ */
+const UNKNOWN_COUNT = "—";
 
 // Next round hour today (local) as an HH:MM default for the Book time picker.
 function defaultBookTime() {
@@ -35,8 +48,6 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
   const { t } = useLanguage();
   const confirm = useConfirm();
 
-  const [entries, setEntries] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState(null);
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ guest_name: "", guest_phone: "", party_size: 2, note: "" });
@@ -50,30 +61,41 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
   const [spotBanner, setSpotBanner] = useState(null); // {n, one?:name}
   const [toast, setToast] = useState(null); // transient inline result line
 
-  const fetchList = useCallback(async () => {
-    if (!day) return;
-    setLoading(true);
-    try {
-      const res = await api.get("/reservations/waitlist", { params: { day } });
-      const list = res.data?.waitlist || [];
-      setEntries(list);
-      if (onCountChange) onCountChange(res.data?.active_count ?? list.length);
-    } catch {
-      setEntries([]);
-      if (onCountChange) onCountChange(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [day, onCountChange]);
-
-  // Refetch on day change AND whenever the parent's book refetches
+  // THE THIRD STATE. This list used to be two-valued: rows, or "No one waiting
+  // yet". A failed GET took the same road as an empty one — `setEntries([])`
+  // plus `onCountChange(0)` — so a dropped request told the owner the Venteliste
+  // was empty AND told the cockpit tile the same thing as a number. Mid-service
+  // that is the lie that costs a table: the parties ARE still waiting, we just
+  // could not ask. "Couldn't load" now has its own words and its own retry, and
+  // what we push upward says "unknown" instead of zero.
+  //
+  // Refetches on day change AND whenever the parent's book refetches
   // (refreshTick bumps after any booking mutation — status flip, table move/
   // clear, new booking, walk-in). Keeps the Venteliste "spot on" the moment a
   // booking changes, so a freed / newly-taken seat is reflected without a
   // manual reload.
+  const q = useAsyncData(
+    () => api.get("/reservations/waitlist", { params: { day } }),
+    [day, refreshTick],
+    // No day picked yet is a question we never asked, not a request that failed.
+    { enabled: !!day },
+  );
+
+  // Stable across renders (useAsyncData memoizes it), so handlers and effects
+  // can depend on it without re-firing.
+  const reloadWaitlist = q.reload;
+  const entries = q.data?.waitlist || [];
+  const activeCount = q.data?.active_count ?? entries.length;
+
+  // Report the failure UPWARD, not a zero — a confident zero is the same lie one
+  // level up, where the cockpit tile has no banner to qualify it. We stay silent
+  // while the request is still in flight (nothing to say yet) and while there is
+  // no day (nothing was asked).
   useEffect(() => {
-    fetchList();
-  }, [fetchList, refreshTick]);
+    if (!onCountChange || !day || q.loading) return;
+    if (q.failed) onCountChange(UNKNOWN_COUNT, { failed: true });
+    else onCountChange(activeCount);
+  }, [onCountChange, day, q.loading, q.failed, activeCount]);
 
   // Parent surfaced matches from a just-freed table → highlight + a calm banner.
   useEffect(() => {
@@ -85,10 +107,10 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
         ? { one: spotMatches[0].guest_name }
         : { n: spotMatches.length },
     );
-    fetchList();
+    reloadWaitlist();
     const tmr = setTimeout(() => setHighlight(new Set()), 30000);
     return () => clearTimeout(tmr);
-  }, [spotMatches, fetchList]);
+  }, [spotMatches, reloadWaitlist]);
 
   const flashToast = (msg) => {
     setToast(msg);
@@ -118,7 +140,7 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
       });
       setForm({ guest_name: "", guest_phone: "", party_size: 2, note: "" });
       setAdding(false);
-      fetchList();
+      reloadWaitlist();
     } catch (err) {
       const code = err?.response?.status;
       setAddErr(
@@ -151,10 +173,14 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
           ? t("rsvpWlSmsSent", "SMS sent")
           : t("rsvpWlNotifyCall", "No SMS on this plan — call {name} on {phone}.", { name: who, phone: phone || entry.guest_phone }),
       );
-      fetchList();
+      reloadWaitlist();
     } catch (err) {
       if (err?.response?.status === 429) {
         flashToast(t("rsvpWlNotifyCap", "Already contacted twice — call them directly."));
+      } else {
+        // Same third-state rule one layer down: the button spun and then went
+        // quiet, which the owner reads as "sent". 402 / 500 / offline — say so.
+        flashToast(t("rsvpWlNotifyErr", "Couldn't send that just now — try again."));
       }
     } finally {
       setBusyId(null);
@@ -172,7 +198,11 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
     setBusyId(entry.id);
     try {
       await api.patch(`/reservations/waitlist/${entry.id}`, { status: "cancelled" });
-      fetchList();
+      reloadWaitlist();
+    } catch {
+      // There was no catch here at all: a failed remove threw into nothing and
+      // the row simply stayed, which reads as "the tap didn't register".
+      flashToast(t("rsvpWlRemoveErr", "Couldn't remove them just now — try again."));
     } finally {
       setBusyId(null);
     }
@@ -195,7 +225,7 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
         auto_assign: true,
       });
       setBookFor(null);
-      fetchList();
+      reloadWaitlist();
       if (onConverted) onConverted();
     } catch (err) {
       if (err?.response?.status === 409) {
@@ -224,7 +254,11 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
           <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
             {t("rsvpWlTitle", "Waitlist")}
           </h3>
-          {entries.length > 0 && (
+          {/* Suppressed on a failed reload: the cockpit tile is already saying
+              "—" for the same number, and two different answers on one screen
+              is worse than one that admits it doesn't know. The stale rows
+              below still show, under a banner that says they're stale. */}
+          {!q.failed && entries.length > 0 && (
             <span className="text-xs text-gray-500 dark:text-gray-400 tabular-nums">
               {entries.length}
             </span>
@@ -293,10 +327,26 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
         </div>
       )}
 
-      {/* List */}
-      {loading ? (
-        <div className="px-4 py-6 flex justify-center">
+      {/* List — in this order: still asking, couldn't ask, nothing there, rows.
+          "Couldn't ask" is the state that was missing; it stands INSTEAD of the empty state,
+          never above it, because "no one is waiting" and "we don't know who is
+          waiting" are different facts and only the first is reassuring. When a
+          RELOAD fails on top of rows we already had, the banner sits above those
+          rows instead: stale-but-true beats a blank card in the middle of
+          service, and the banner is what says they're stale. */}
+      {q.loading || !day ? (
+        <div className="px-4 py-6 flex items-center justify-center gap-2">
           <Loader2 className="w-5 h-5 text-gray-300 dark:text-gray-600 animate-spin" aria-hidden />
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            {t("rsvpWlLoading", "Loading the waitlist…")}
+          </p>
+        </div>
+      ) : q.failed && entries.length === 0 ? (
+        <div className="px-4 py-4">
+          <LoadFailed
+            onRetry={reloadWaitlist}
+            body={t("rsvpWlLoadFailedBody", "We couldn't load the waitlist just now — that isn't the same as nobody waiting.")}
+          />
         </div>
       ) : entries.length === 0 ? (
         <div className="px-4 py-6 text-center">
@@ -307,6 +357,14 @@ export default function WaitlistSection({ day, spotMatches, refreshTick, onCount
         </div>
       ) : (
         <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+          {q.failed && (
+            <li className="px-4 pt-3 pb-1">
+              <LoadFailed
+                onRetry={reloadWaitlist}
+                body={t("rsvpWlStaleBody", "Showing the last waitlist we loaded — it may be out of date.")}
+              />
+            </li>
+          )}
           {entries.map((e) => {
             const lit = highlight.has(e.id);
             const busy = busyId === e.id;

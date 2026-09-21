@@ -37,6 +37,7 @@ export { default as Empty } from "./Empty";
 export { default as Icon } from "./Icon";
 export { default as PageHeader } from "./PageHeader";
 export { default as SectionBanner } from "./SectionBanner";
+export { default as LoadFailed } from "./LoadFailed";
 export { default as StatCard } from "./StatCard";
 export { default as TabPills } from "./TabPills";
 export { default as UpgradeNudge } from "./UpgradeNudge";

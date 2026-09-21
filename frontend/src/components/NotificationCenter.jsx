@@ -1,7 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import api from "../services/api";
 import { useLanguage } from "../hooks/useLanguage";
 import { useLiveAlerts } from "../hooks/useLiveAlerts";
+import { useAsyncData } from "../hooks/useAsyncData";
+import { LoadFailed } from "./ui";
 
 function useTimeAgo() {
   const { t } = useLanguage();
@@ -23,8 +25,6 @@ export default function NotificationCenter({ align = "right" }) {
   // unread count + recent feed into this dropdown.
   const live = useLiveAlerts();
   const [open, setOpen] = useState(false);
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [dismissed, setDismissed] = useState(() => {
     try { return JSON.parse(localStorage.getItem("bonbox_dismissed_notifs") || "[]"); } catch { return []; }
   });
@@ -38,80 +38,113 @@ export default function NotificationCenter({ align = "right" }) {
   }, []);
 
   // Fetch notifications
-  const fetchNotifs = useCallback(async () => {
-    setLoading(true);
+  //
+  // THE THIRD STATE. All three of these used to be `api.get(...)` wrapped in
+  // `.catch(() => null)` inside a `try {} catch {}`, which is the swallow this
+  // sweep exists to remove: a dead network, an expired session or a 500 left
+  // `notifs` at `[]`, the body fell through to its empty state, and the bell
+  // told the owner "All clear! No notifications." That sentence is a claim
+  // about the WHOLE business — nothing is over budget, nothing is out of stock,
+  // no spending looks unusual — and it must not be made on a fetch that never
+  // came back. "Nothing to report" and "I could not ask" are different facts;
+  // `failed` below is what lets the bell say the second one.
+  //
+  // Three separate hooks rather than one combined fetch, deliberately: these
+  // are three independent questions, and if stock is down there is no reason
+  // to also stop showing the budget warnings we DID get. Whichever ones
+  // answered still render; the banner says the list may be short one source.
+  //
+  // useAsyncData also keeps the last good `data` through a failed reload, so a
+  // refresh that fails leaves the owner looking at the alerts that were true a
+  // minute ago instead of a blanked dropdown — with the banner saying they are
+  // stale. The hooks fetch on mount on their own, which is what the old
+  // mount-effect did for the badge count.
+  const month = useMemo(() => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}`;
+  }, []);
+
+  // 1. Expense spike alerts
+  const alerts = useAsyncData(() => api.get("/email/alerts-preview"), []);
+  // 2. Low stock alerts
+  const stock = useAsyncData(() => api.get("/inventory/alerts"), []);
+  // 3. Budget warnings
+  const budgets = useAsyncData(
+    () => api.get(`/budgets/summary?month=${month}&mode=business`),
+    [month],
+  );
+
+  const loading = alerts.loading || stock.loading || budgets.loading;
+  // ANY unanswered source makes the bell non-authoritative. One missing answer
+  // is enough to make "All clear" a guess, so it is enough to suppress it.
+  const checkFailed = alerts.failed || stock.failed || budgets.failed;
+
+  const reloadAll = useCallback(() => {
+    alerts.reload();
+    stock.reload();
+    budgets.reload();
+  }, [alerts.reload, stock.reload, budgets.reload]);
+
+  const notifications = useMemo(() => {
     const notifs = [];
     const now = new Date();
 
-    try {
-      // 1. Expense spike alerts
-      const alertRes = await api.get("/email/alerts-preview").catch(() => null);
-      if (alertRes?.data?.alerts) {
-        alertRes.data.alerts.forEach((a) => {
+    // 1. Expense spike alerts
+    if (Array.isArray(alerts.data?.alerts)) {
+      alerts.data.alerts.forEach((a) => {
+        notifs.push({
+          id: `alert_${a.category || a.type}_${now.toDateString()}`,
+          type: "expense",
+          icon: "📈",
+          title: a.title || t("expenseAlert") || "Expense Alert",
+          body: a.message || ((t("unusualSpending") || "{cat}: unusual spending detected").replace("{cat}", a.category)),
+          time: now.toISOString(),
+          severity: "warning",
+        });
+      });
+    }
+
+    // 2. Low stock alerts
+    if (Array.isArray(stock.data)) {
+      stock.data.slice(0, 5).forEach((item) => {
+        notifs.push({
+          id: `stock_${item.id}`,
+          type: "inventory",
+          icon: "📦",
+          title: t("lowStockTitle") || "Low Stock",
+          body: ((t("lowStockBody") || "{name}: {qty} left (min: {min})").replace("{name}", item.name).replace("{qty}", item.quantity).replace("{min}", item.min_threshold)),
+          time: now.toISOString(),
+          severity: item.quantity <= 0 ? "critical" : "warning",
+        });
+      });
+    }
+
+    // 3. Budget warnings
+    if (Array.isArray(budgets.data?.categories)) {
+      budgets.data.categories
+        .filter((c) => c.status === "red" || c.status === "yellow")
+        .slice(0, 5)
+        .forEach((c) => {
           notifs.push({
-            id: `alert_${a.category || a.type}_${now.toDateString()}`,
-            type: "expense",
-            icon: "📈",
-            title: a.title || t("expenseAlert") || "Expense Alert",
-            body: a.message || ((t("unusualSpending") || "{cat}: unusual spending detected").replace("{cat}", a.category)),
+            id: `budget_${c.category}_${month}`,
+            type: "budget",
+            icon: c.status === "red" ? "🔴" : "🟡",
+            title: c.status === "red" ? (t("overBudget") || "Over Budget") : (t("nearBudgetLimit") || "Near Budget Limit"),
+            body: ((t("budgetUsedFmt") || "{cat}: {pct}% used ({spent} / {limit})").replace("{cat}", c.category).replace("{pct}", c.pct).replace("{spent}", c.spent.toLocaleString()).replace("{limit}", c.limit_amount.toLocaleString())),
             time: now.toISOString(),
-            severity: "warning",
+            severity: c.status === "red" ? "critical" : "warning",
           });
         });
-      }
-    } catch {}
+    }
 
-    try {
-      // 2. Low stock alerts
-      const stockRes = await api.get("/inventory/alerts").catch(() => null);
-      if (stockRes?.data && Array.isArray(stockRes.data)) {
-        stockRes.data.slice(0, 5).forEach((item) => {
-          notifs.push({
-            id: `stock_${item.id}`,
-            type: "inventory",
-            icon: "📦",
-            title: t("lowStockTitle") || "Low Stock",
-            body: ((t("lowStockBody") || "{name}: {qty} left (min: {min})").replace("{name}", item.name).replace("{qty}", item.quantity).replace("{min}", item.min_threshold)),
-            time: now.toISOString(),
-            severity: item.quantity <= 0 ? "critical" : "warning",
-          });
-        });
-      }
-    } catch {}
+    return notifs;
+  }, [alerts.data, stock.data, budgets.data, month, t]);
 
-    try {
-      // 3. Budget warnings
-      const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-      const budRes = await api.get(`/budgets/summary?month=${month}&mode=business`).catch(() => null);
-      if (budRes?.data?.categories) {
-        budRes.data.categories
-          .filter((c) => c.status === "red" || c.status === "yellow")
-          .slice(0, 5)
-          .forEach((c) => {
-            notifs.push({
-              id: `budget_${c.category}_${month}`,
-              type: "budget",
-              icon: c.status === "red" ? "🔴" : "🟡",
-              title: c.status === "red" ? (t("overBudget") || "Over Budget") : (t("nearBudgetLimit") || "Near Budget Limit"),
-              body: ((t("budgetUsedFmt") || "{cat}: {pct}% used ({spent} / {limit})").replace("{cat}", c.category).replace("{pct}", c.pct).replace("{spent}", c.spent.toLocaleString()).replace("{limit}", c.limit_amount.toLocaleString())),
-              time: now.toISOString(),
-              severity: c.status === "red" ? "critical" : "warning",
-            });
-          });
-      }
-    } catch {}
-
-    setNotifications(notifs);
-    setLoading(false);
-  }, []);
-
-  // Fetch on open
+  // Fetch on open — the dropdown re-asks so the list is current when looked at.
   useEffect(() => {
-    if (open) fetchNotifs();
-  }, [open, fetchNotifs]);
-
-  // Auto-fetch on mount for badge count
-  useEffect(() => { fetchNotifs(); }, [fetchNotifs]);
+    if (open) reloadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // Persist dismissed
   useEffect(() => {
@@ -149,16 +182,27 @@ export default function NotificationCenter({ align = "right" }) {
       <button
         onClick={() => { const n = !open; setOpen(n); if (n && live.active) live.markAllRead(); }}
         className="relative p-2 rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
-        aria-label={t("notifications") || "Notifications"}
+        aria-label={checkFailed && badge === 0
+          ? t("notifCouldNotCheck", "Couldn't check for notifications")
+          : (t("notifications") || "Notifications")}
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
-        {badge > 0 && (
+        {badge > 0 ? (
           <span className="absolute -top-0.5 -right-0.5 w-4.5 h-4.5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center min-w-[18px] h-[18px] leading-none">
             {badge > 9 ? "9+" : badge}
           </span>
-        )}
+        ) : checkFailed ? (
+          // A bare bell is itself a claim: "nothing needs you". With a check
+          // that never came back we do not know that, so the chrome says so
+          // too — an amber dot, not a red count, because this is "unknown",
+          // not "urgent". Opening the bell gets the full sentence + Try again.
+          <span
+            title={t("notifCouldNotCheck", "Couldn't check for notifications")}
+            className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-white dark:ring-gray-800"
+          />
+        ) : null}
       </button>
 
       {/* Dropdown */}
@@ -221,34 +265,54 @@ export default function NotificationCenter({ align = "right" }) {
           <div className="max-h-80 overflow-y-auto">
             {loading && visible.length === 0 ? (
               <div className="p-6 text-center text-sm text-gray-400">{t("loading") || "Loading..."}</div>
+            ) : checkFailed && visible.length === 0 ? (
+              // INSTEAD of "All clear", never above it. With nothing to show and
+              // a check that did not answer, the only honest screen is the one
+              // that admits it and offers the retry.
+              <div className="p-4">
+                <LoadFailed onRetry={reloadAll} />
+              </div>
             ) : visible.length === 0 ? (
               <div className="p-8 text-center">
                 <div className="text-3xl mb-2">🎉</div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">{t("allClearNoNotifs") || "All clear! No notifications."}</p>
               </div>
             ) : (
-              visible.map((n) => (
-                <div
-                  key={n.id}
-                  className={`px-4 py-3 border-b border-gray-50 dark:border-gray-700/50 border-l-3 ${
-                    severityBorder[n.severity] || "border-l-gray-300"
-                  } hover:bg-gray-50 dark:hover:bg-gray-700/30 transition group`}
-                >
-                  <div className="flex items-start gap-3">
-                    <span className="text-lg flex-shrink-0 mt-0.5">{n.icon}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{n.title}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{n.body}</p>
-                    </div>
-                    <button
-                      onClick={() => dismiss(n.id)}
-                      className="text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 opacity-0 group-hover:opacity-100 transition text-sm flex-shrink-0"
-                    >
-                      &times;
-                    </button>
+              <>
+                {/* Partial answer: some sources replied, at least one did not.
+                    The rows below are real, so they stay — the banner is here to
+                    say the list may be short one source, not to replace it. */}
+                {checkFailed && (
+                  <div className="px-3 pt-3">
+                    <LoadFailed
+                      onRetry={reloadAll}
+                      body={t("notifCheckIncomplete", "Some checks didn't come back, so this list may be incomplete.")}
+                    />
                   </div>
-                </div>
-              ))
+                )}
+                {visible.map((n) => (
+                  <div
+                    key={n.id}
+                    className={`px-4 py-3 border-b border-gray-50 dark:border-gray-700/50 border-l-3 ${
+                      severityBorder[n.severity] || "border-l-gray-300"
+                    } hover:bg-gray-50 dark:hover:bg-gray-700/30 transition group`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className="text-lg flex-shrink-0 mt-0.5">{n.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 dark:text-gray-200">{n.title}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{n.body}</p>
+                      </div>
+                      <button
+                        onClick={() => dismiss(n.id)}
+                        className="text-gray-300 hover:text-gray-500 dark:text-gray-600 dark:hover:text-gray-400 opacity-0 group-hover:opacity-100 transition text-sm flex-shrink-0"
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </>
             )}
           </div>
         </div>

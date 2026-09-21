@@ -10,8 +10,9 @@ import { displayCurrency } from "../utils/currency";
 import { formatHours } from "../utils/hours";
 import { errText } from "../utils/errText";
 import { useConfirm } from "../hooks/useConfirm";
+import { useAsyncData } from "../hooks/useAsyncData";
 import { FadeIn, TabContent, AnimatedList, AnimatedListItem, AnimatePresence } from "../components/AnimationKit";
-import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner } from "../components/ui";
+import { PageHeader, Button, TabPills, Icon, StatCard, SectionBanner, LoadFailed } from "../components/ui";
 import WagePrivacyNotice from "../components/WagePrivacyNotice";
 
 /* ═══════════════════════════════════════════════════════════
@@ -27,6 +28,22 @@ function denialReason(err) {
   return err?.response?.data?.detail?.code === "device_pin_required"
     ? "curtain"
     : "role";
+}
+
+/** The house sentence, never axios's.
+ *
+ * errText() ends its fall-through at `err.message` — and when the request never
+ * reached the server that is axios's OWN English string ("Network Error",
+ * "timeout of 0ms exceeded"), printed under a pay form to a Danish owner. A
+ * request that got no response carries no server sentence to quote, so there is
+ * nothing to surface but our own words.
+ *
+ * The same third-state rule the reads on this page now follow: "the server said
+ * no, and here is why" and "I never got an answer" are different facts, and only
+ * the first one has a server sentence worth showing.
+ */
+function houseErrText(err, fallback) {
+  return err?.response ? errText(err, fallback) : fallback;
 }
 
 function fmtDate(iso) {
@@ -132,31 +149,64 @@ export default function StaffHoursPage() {
   const [periodTo, setPeriodTo] = useState(null);
   const [periodLoading, setPeriodLoading] = useState(true);
 
-  // Data
-  const [summary, setSummary] = useState([]);
-  const [entries, setEntries] = useState([]);
-  const [staffList, setStaffList] = useState([]);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [entriesLoading, setEntriesLoading] = useState(false);
-  const [recentBeforeCount, setRecentBeforeCount] = useState(0);
+  // Data. THREE outcomes per request, not two — loading / failed / data — via
+  // useAsyncData, because the two-outcome shape this page used to have
+  // (`.catch(() => setSummary([]))`) makes a failure indistinguishable from an
+  // absence, and every empty state on this page then states the absence as
+  // fact: "Ingen timer registreret denne periode" to a venue that logged 312.
+  // `enabled` holds the period-scoped requests until the window is known, so an
+  // un-asked question is never reported as a failed one.
+  const periodReady = !!(periodFrom && periodTo);
+
+  const staffQ = useAsyncData(() => api.get("/staff/members"), [], { initial: [] });
+  const staffList = staffQ.data || [];
+
+  const summaryQ = useAsyncData(
+    () => api.get("/staff/hours/summary", { params: { from: periodFrom, to: periodTo } }),
+    [periodFrom, periodTo],
+    { initial: [], enabled: periodReady },
+  );
+  const summary = summaryQ.data || [];
+
+  const entriesQ = useAsyncData(
+    () => api.get("/staff/hours", { params: { from: periodFrom, to: periodTo } }),
+    [periodFrom, periodTo],
+    { initial: [], enabled: periodReady },
+  );
+  // Memoised because currentHasClock reads it: a fresh `|| []` each render
+  // would re-run that memo forever.
+  const entries = useMemo(() => entriesQ.data || [], [entriesQ.data]);
 
   // Overview payload (one-glance hero + genuine narrative). Own fetch so a
   // slow summary/entries load never blocks the answer at the top.
-  const [overview, setOverview] = useState(null);
-  const [overviewLoading, setOverviewLoading] = useState(false);
-  // "You can't see this", kept apart from "this failed" — see the fetch.
+  const overviewQ = useAsyncData(
+    () => api.get("/staff/hours/overview", { params: { from: periodFrom, to: periodTo, compare: "prev" } }),
+    [periodFrom, periodTo],
+    { enabled: periodReady },
+  );
+  const overview = overviewQ.data || null;
+
+  // "You can't see this", kept apart from "this failed".
   // null | "role" | "curtain": WHICH of the two it is decides what the notice
   // may honestly say, and the server already distinguishes them in the 403
   // body (read_forbidden vs device_pin_required). Collapsing both to a boolean
   // is what told an owner on a shared tablet that their ROLE was the obstacle.
-  const [overviewDenied, setOverviewDenied] = useState(null);
-  // Same three outcomes for the period summary. /hours/summary is redacted per
-  // field rather than denied — for a member seat AND, since the curtain round,
-  // for a shared device — so this should never fire today. It exists because
-  // when it DID fire, `.catch(() => setSummary([]))` rendered "Ingen timer
-  // registreret denne periode" directly above a RecentHoursLog listing this
-  // month's real entries. A denial must never be able to look like an absence.
-  const [summaryDenied, setSummaryDenied] = useState(null);
+  //
+  // A 403 here is not a failure, it is an ANSWER: /hours/overview carries the
+  // venue's labour cost AND its revenue, so it is owner-only. Everything that
+  // is NOT a 403 is the third state — we could not ask — and it now gets
+  // <LoadFailed> instead of the blank page it used to get.
+  const overviewDenied = overviewQ.failed ? denialReason(overviewQ.error) : null;
+  const overviewFailed = overviewQ.failed && !overviewDenied;
+  // Same split for the period summary. /hours/summary is redacted per field
+  // rather than denied — for a member seat AND, since the curtain round, for a
+  // shared device — so the denial branch should never fire today. It exists
+  // because when it DID fire, the empty array rendered "Ingen timer registreret
+  // denne periode" directly above a RecentHoursLog listing this month's real
+  // entries. A denial must never be able to look like an absence, and neither
+  // must a 500 or an offline phone.
+  const summaryDenied = summaryQ.failed ? denialReason(summaryQ.error) : null;
+  const summaryFailed = summaryQ.failed && !summaryDenied;
 
   // Period-frame control — how the owner frames the period to extract hours
   // (1st–end / 15th→14th / custom start-day / biweekly), plus an ad-hoc custom
@@ -166,6 +216,9 @@ export default function StaffHoursPage() {
   const [periodType, setPeriodType] = useState("monthly_1st");
   const [customStartDay, setCustomStartDay] = useState(16);
   const [frameMode, setFrameMode] = useState("recurring"); // "recurring" | "custom"
+  // Did the last frame write reach the server? The picker's footnote claims the
+  // choice is SAVED and shared with Løn; it may only say that when it is true.
+  const [frameSaveFailed, setFrameSaveFailed] = useState(false);
 
   // Fetch pay period config
   useEffect(() => {
@@ -198,32 +251,6 @@ export default function StaffHoursPage() {
       .finally(() => setPeriodLoading(false));
   }, []);
 
-  // Fetch staff list
-  useEffect(() => {
-    api.get("/staff/members")
-      .then(r => setStaffList(r.data || []))
-      .catch(() => {});
-  }, []);
-
-  // Fetch summary + entries when period changes
-  const fetchData = useCallback(() => {
-    if (!periodFrom || !periodTo) return;
-    setSummaryLoading(true);
-    setEntriesLoading(true);
-
-    api.get("/staff/hours/summary", { params: { from: periodFrom, to: periodTo } })
-      .then(r => { setSummary(r.data || []); setSummaryDenied(null); })
-      .catch((err) => { setSummary([]); setSummaryDenied(denialReason(err)); })
-      .finally(() => setSummaryLoading(false));
-
-    api.get("/staff/hours", { params: { from: periodFrom, to: periodTo } })
-      .then(r => setEntries(r.data || []))
-      .catch(() => setEntries([]))
-      .finally(() => setEntriesLoading(false));
-  }, [periodFrom, periodTo]);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-
   // Keep the frame picker in sync when the saved config lands.
   useEffect(() => {
     if (!periodConfig) return;
@@ -231,38 +258,19 @@ export default function StaffHoursPage() {
     if (periodConfig.custom_start_day) setCustomStartDay(periodConfig.custom_start_day);
   }, [periodConfig]);
 
-  // Overview — the hero + narrative. Own loading state; compare=prev so the
-  // narrative can (honestly) trend vs the prior equal-length period.
-  useEffect(() => {
-    if (!periodFrom || !periodTo) return;
-    let alive = true;
-    setOverviewLoading(true);
-    api.get("/staff/hours/overview", { params: { from: periodFrom, to: periodTo, compare: "prev" } })
-      .then((r) => { if (alive) { setOverview(r.data || null); setOverviewDenied(null); } })
-      // A 403 here is not a failure, it is an ANSWER: /hours/overview carries
-      // the venue's labour cost AND its revenue, so it is owner-only. Catching
-      // it into `null` like any other error left HoursOverview returning null
-      // and a manager staring at a period picker above an empty page with
-      // nothing to explain it — the sub-tab this hub OPENS on. Keep the two
-      // apart so the page can say which one happened.
-      .catch((err) => {
-        if (!alive) return;
-        setOverview(null);
-        setOverviewDenied(denialReason(err));
-      })
-      .finally(() => { if (alive) setOverviewLoading(false); });
-    return () => { alive = false; };
-  }, [periodFrom, periodTo]);
-
-  // Re-pull the overview after a log/edit so the hero + narrative stay honest.
+  // Re-pull everything after a log/edit so the hero + narrative stay honest.
+  // The old version re-fetched the overview with a bare `.catch(() => {})`, so
+  // a refresh that failed left the owner reading pre-edit figures with nothing
+  // saying so. reload() keeps the numbers AND raises `failed`, which is what
+  // lets the banner call them stale.
+  const reloadSummary = summaryQ.reload;
+  const reloadEntries = entriesQ.reload;
+  const reloadOverview = overviewQ.reload;
   const refetchAll = useCallback(() => {
-    fetchData();
-    if (periodFrom && periodTo) {
-      api.get("/staff/hours/overview", { params: { from: periodFrom, to: periodTo, compare: "prev" } })
-        .then((r) => setOverview(r.data || null))
-        .catch(() => {});
-    }
-  }, [fetchData, periodFrom, periodTo]);
+    reloadSummary();
+    reloadEntries();
+    reloadOverview();
+  }, [reloadSummary, reloadEntries, reloadOverview]);
 
   // Does THIS period have any real clock punch? (Used to gate the boundary
   // nudge below so it only fires in the confusing "0 clocked this period" case.)
@@ -276,17 +284,17 @@ export default function StaffHoursPage() {
   // shows no clocked hours, look at the last few days before it — if a clock
   // punch is there, surface a one-tap jump so the owner isn't left thinking the
   // hours vanished. Reuses /staff/hours; changes no period total.
-  useEffect(() => {
-    if (!periodFrom) return; // count stays 0 (initial) until a period is set
-    let alive = true;
-    api.get("/staff/hours", { params: { from: addDays(periodFrom, -4), to: addDays(periodFrom, -1) } })
-      .then((r) => {
-        if (!alive) return;
-        setRecentBeforeCount((r.data || []).filter((e) => e.entry_method === "clock" && e.end_time).length);
-      })
-      .catch(() => { if (alive) setRecentBeforeCount(0); });
-    return () => { alive = false; };
-  }, [periodFrom]);
+  const recentBeforeQ = useAsyncData(
+    () => api.get("/staff/hours", { params: { from: addDays(periodFrom, -4), to: addDays(periodFrom, -1) } }),
+    [periodFrom],
+    { initial: [], enabled: !!periodFrom },
+  );
+  // A failed probe is not "nothing was clocked before this period" — it is no
+  // answer at all, and a nudge is exactly the kind of claim that must not be
+  // built on one. No answer, no nudge.
+  const recentBeforeCount = recentBeforeQ.failed
+    ? 0
+    : (recentBeforeQ.data || []).filter((e) => e.entry_method === "clock" && e.end_time).length;
 
   // Period navigation
   const periodLength = useMemo(() => {
@@ -326,6 +334,7 @@ export default function StaffHoursPage() {
   const selectFrame = async (type, day) => {
     setFrameMode("recurring");
     setPeriodType(type);
+    setFrameSaveFailed(false);
     const csd = type === "custom" ? (parseInt(day, 10) || customStartDay || 1) : null;
     if (csd) setCustomStartDay(csd);
     try {
@@ -337,7 +346,12 @@ export default function StaffHoursPage() {
       if (start && end) { setPeriodFrom(start); setPeriodTo(end); }
       setPeriodConfig((c) => ({ ...(c || {}), period_type: type, custom_start_day: csd }));
     } catch {
-      // Non-fatal: the picker still reflects the choice; a refresh reconciles.
+      // Not fatal to the VIEW — the window on screen is still the one the owner
+      // picked — but the note under the picker read "Saved — used for Hours and
+      // Payroll." on a write that never landed. That is this page's defect in
+      // miniature: a state we could not confirm, printed as fact. The picker now
+      // says the frame is showing here only.
+      setFrameSaveFailed(true);
     }
   };
 
@@ -357,7 +371,10 @@ export default function StaffHoursPage() {
   const subTabs = [
     { id: "overview", label: t("hovTabOverview", "Overview") },
     { id: "log", label: t("hovTabLog", "Log") },
-    { id: "details", label: t("hovTabDetails", "Details"), count: entries?.length || undefined },
+    // No count on a failed load. A tab badge is a claim about how many entries
+    // this period has, and a list that did not arrive cannot support one —
+    // including the "0" that a silent catch used to leave behind.
+    { id: "details", label: t("hovTabDetails", "Details"), count: entriesQ.failed ? undefined : (entries?.length || undefined) },
   ];
 
   return (
@@ -382,14 +399,20 @@ export default function StaffHoursPage() {
           customStartDay={customStartDay}
           onSelectFrame={selectFrame}
           onCustomRange={applyCustomRange}
+          saveFailed={frameSaveFailed}
         />
       </FadeIn>
 
       {/* Boundary nudge: this period shows no clocked hours, but a shift was
           clocked in the days just before it (an after-midnight punch is dated
           to the previous business day → lands in the prior period). One tap
-          jumps there so the hours never look "missing". */}
-      {recentBeforeCount > 0 && !currentHasClock && (
+          jumps there so the hours never look "missing".
+          `!entriesQ.failed` is the third state again: `!currentHasClock` is
+          read off THIS period's entries, so when that list never arrived the
+          absence of clocked hours is unknown, not established — and sending
+          the owner to the previous period on the strength of it would be a
+          claim built on a question we never got an answer to. */}
+      {recentBeforeCount > 0 && !currentHasClock && !entriesQ.failed && (
         <button
           type="button"
           onClick={goPrev}
@@ -416,7 +439,11 @@ export default function StaffHoursPage() {
         <FadeIn delay={0.1}>
           <HoursOverview
             overview={overview}
-            loading={overviewLoading}
+            // The period window is a precondition for this request, so while it
+            // resolves the tab is LOADING, not answered-and-empty.
+            loading={overviewQ.loading || periodLoading}
+            failed={overviewFailed}
+            onRetry={overviewQ.reload}
             denied={overviewDenied}
             currency={currency}
             onGoLog={() => setSubTab("log")}
@@ -430,6 +457,12 @@ export default function StaffHoursPage() {
         <FadeIn delay={0.1}>
           <LoggingSection
             staffList={staffList}
+            // An empty name picker has two causes and they are not the same
+            // sentence: a venue with no staff yet, or a roster we could not
+            // fetch. The forms stay mounted either way — this only explains
+            // the gap, it never takes the action away.
+            staffFailed={staffQ.failed}
+            onRetryStaff={staffQ.reload}
             currency={currency}
             periodFrom={periodFrom}
             onLogged={refetchAll}
@@ -444,7 +477,9 @@ export default function StaffHoursPage() {
           <FadeIn delay={0.1}>
             <HoursSummaryTable
               summary={summary}
-              loading={summaryLoading}
+              loading={summaryQ.loading || periodLoading}
+              failed={summaryFailed}
+              onRetry={summaryQ.reload}
               denied={summaryDenied}
               currency={currency}
               onResolved={refetchAll}
@@ -453,7 +488,9 @@ export default function StaffHoursPage() {
           <FadeIn delay={0.15}>
             <RecentHoursLog
               entries={entries}
-              loading={entriesLoading}
+              loading={entriesQ.loading || periodLoading}
+              failed={entriesQ.failed}
+              onRetry={entriesQ.reload}
               currency={currency}
               staffList={staffList}
               onUpdated={refetchAll}
@@ -526,7 +563,7 @@ const FRAME_OPTIONS = [
   { id: "custom_range", key: "hovFrameCustomRange" },
 ];
 
-function PeriodControl({ from, to, loading, onPrev, onNext, periodType, customStartDay, onSelectFrame, onCustomRange }) {
+function PeriodControl({ from, to, loading, onPrev, onNext, periodType, customStartDay, onSelectFrame, onCustomRange, saveFailed = false }) {
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   // Which editor sub-panel is open. The two editor chips (custom start-day,
@@ -676,8 +713,18 @@ function PeriodControl({ from, to, loading, onPrev, onNext, periodType, customSt
             </div>
           )}
 
+          {/* "Saved — used for Hours and Payroll." is a statement about the
+              SERVER, so it may only appear when the write reached it. When it
+              did not, the frame on screen is a local view and the note says
+              exactly that instead of quietly claiming Løn now agrees. */}
           {periodType !== "custom_range" && editor !== "custom_range" && (
-            <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("hovFrameSavedNote", "Saved — used for Hours and Payroll.")}</p>
+            saveFailed ? (
+              <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                {t("hovFrameNotSaved", "Not saved — showing here only. Pick the frame again to retry.")}
+              </p>
+            ) : (
+              <p className="text-[11px] text-gray-400 dark:text-gray-500">{t("hovFrameSavedNote", "Saved — used for Hours and Payroll.")}</p>
+            )
           )}
         </div>
       )}
@@ -714,8 +761,22 @@ function NarrativeBanner({ lines, severity, currencyCode, inProgress = false }) 
   );
 }
 
-function HoursOverview({ overview, loading, denied, currency, onGoLog, onGoDetails }) {
+function HoursOverview({ overview, loading, failed, onRetry, denied, currency, onGoLog, onGoDetails }) {
   const { t, lang } = useLanguage();
+
+  // THE THIRD STATE, on the tab this hub opens on. `if (!overview) return null`
+  // rendered a BLANK page under a working period picker whenever the request
+  // failed — a 500, or simply an owner on a train — and on this surface blank
+  // reads as "no hours this period", which is the one thing it must not say
+  // when it does not know. Failure gets its own words and a retry; when an
+  // earlier load did answer, those figures stay on screen and are LABELLED
+  // stale rather than blanked, because last week's true numbers beat nothing.
+  const failBanner = failed ? (
+    <LoadFailed
+      onRetry={onRetry}
+      body={overview ? t("loadFailedStale", "These are the last figures that loaded — they may be out of date.") : null}
+    />
+  ) : null;
 
   // Owner-only by rule, not by accident: this surface carries the venue's
   // labour cost AND its revenue. Say so, rather than rendering nothing — a
@@ -749,6 +810,13 @@ function HoursOverview({ overview, loading, denied, currency, onGoLog, onGoDetai
       </div>
     );
   }
+  // Order matters: the failure is shown INSTEAD of the empty state, never
+  // above it. With no figures at all there is nothing to keep, so the banner
+  // is the whole answer.
+  if (failed && !overview) return failBanner;
+
+  // Not asked yet (the period window is still resolving and the request is
+  // held): no answer, so nothing is claimed.
   if (!overview) return null;
 
   // Empty period → ONE honest card, never four "0"-value tiles that read like a
@@ -763,6 +831,8 @@ function HoursOverview({ overview, loading, denied, currency, onGoLog, onGoDetai
     // surface announces that the two halves disagree.
     const plannedT = (overview.hours || {}).scheduled_total;
     return (
+      <div className="space-y-4">
+      {failBanner}
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
         <Icon name="Clock" size={28} className="text-gray-400 mx-auto mb-2" />
         <p className="text-gray-800 dark:text-gray-100 font-medium">{t("hovEmptyTitle", "No hours logged yet for this period")}</p>
@@ -782,6 +852,7 @@ function HoursOverview({ overview, loading, denied, currency, onGoLog, onGoDetai
             {t("logHours", "Log hours")}
           </button>
         )}
+      </div>
       </div>
     );
   }
@@ -859,6 +930,10 @@ function HoursOverview({ overview, loading, denied, currency, onGoLog, onGoDetai
 
   return (
     <div className="space-y-4">
+      {/* Stale-but-true beats blank: the tiles below are the last figures that
+          actually came back, and this says so rather than letting them read as
+          current. */}
+      {failBanner}
       <NarrativeBanner lines={overview.narrative} severity={overview.banner_severity} currencyCode={currency} inProgress={!period.is_complete} />
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1048,7 +1123,7 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
     } catch (e) {
       // Surfaced, never swallowed. The old edit path had `catch { /* silent */ }`
       // so a failed save looked exactly like a successful one — on a pay record.
-      setErr(errText(e, t("shpResolveFailed", "Could not save. Try again.")));
+      setErr(houseErrText(e, t("shpResolveFailed", "Could not save. Try again.")));
       setBusy(false);
     }
   };
@@ -1123,7 +1198,7 @@ function ResolveSheet({ staffId, staffName, exception, onClose, onResolved }) {
   );
 }
 
-function HoursSummaryTable({ summary, loading, denied, currency, onResolved }) {
+function HoursSummaryTable({ summary, loading, failed, onRetry, denied, currency, onResolved }) {
   const { t, lang } = useLanguage();
   const [resolving, setResolving] = useState(null);   // {staffId, staffName, exception}
   // Same server field the rows read, so the chip and the rows can never
@@ -1166,6 +1241,14 @@ function HoursSummaryTable({ summary, loading, denied, currency, onResolved }) {
     return <WagePrivacyNotice reason={denied} />;
   }
 
+  // AND NEITHER IS A FAILED REQUEST. This is the site the audit found: a 500 or
+  // an offline phone left `summary` at [] and the owner read "Ingen timer
+  // registreret denne periode" — a statement of fact about a period nobody had
+  // managed to look at. The failure is rendered INSTEAD of that empty state.
+  if (failed && (!summary || summary.length === 0)) {
+    return <LoadFailed onRetry={onRetry} />;
+  }
+
   if (!summary || summary.length === 0) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
@@ -1177,6 +1260,12 @@ function HoursSummaryTable({ summary, loading, denied, currency, onResolved }) {
   }
 
   return (
+    <div className="space-y-4">
+    {/* Rows survived a failed refresh, so they are shown — and called stale.
+        Every derived figure under this banner (the totals row, the "n shifts
+        need your answer" chip) is computed from them, which is only honest
+        while the banner is there to say where they came from. */}
+    {failed ? <LoadFailed onRetry={onRetry} body={t("loadFailedStale", "These are the last figures that loaded — they may be out of date.")} /> : null}
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
       <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between gap-3">
@@ -1390,13 +1479,14 @@ function HoursSummaryTable({ summary, loading, denied, currency, onResolved }) {
         />
       )}
     </div>
+    </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
    LOGGING SECTION — 3 TABS
    ═══════════════════════════════════════════════════════════ */
-function LoggingSection({ staffList, currency, periodFrom, onLogged }) {
+function LoggingSection({ staffList, staffFailed, onRetryStaff, currency, periodFrom, onLogged }) {
   const { t } = useLanguage();
   const [logTab, setLogTab] = useState("quick");
 
@@ -1423,6 +1513,19 @@ function LoggingSection({ staffList, currency, periodFrom, onLogged }) {
       </div>
 
       <div className="p-4">
+        {/* The roster feeds the name picker in two of these three tabs. When it
+            did not load, an owner with nine staff sees the same empty dropdown
+            as an owner with none — so say which it is, and keep every form
+            mounted: "From Schedule" needs no picker and still works offline
+            once the request comes back. The forms are never disabled here. */}
+        {staffFailed && (
+          <div className="mb-4">
+            <LoadFailed
+              onRetry={onRetryStaff}
+              body={t("shpStaffListFailed", "The staff list did not load, so the name picker is empty.")}
+            />
+          </div>
+        )}
         <TabContent tabKey={logTab}>
           {logTab === "quick" && (
             <QuickLogForm staffList={staffList} currency={currency} onLogged={onLogged} />
@@ -1469,7 +1572,7 @@ function QuickLogForm({ staffList, currency, onLogged }) {
       onLogged();
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(errText(err, t("shpFailedLogHours", "Failed to log hours")));
+      setError(houseErrText(err, t("shpFailedLogHours", "Failed to log hours")));
     } finally {
       setSaving(false);
     }
@@ -1598,7 +1701,7 @@ function ClockInOutForm({ staffList, currency, onLogged }) {
       onLogged();
       setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
-      setError(errText(err, t("shpFailedLogEntry", "Failed to log entry")));
+      setError(houseErrText(err, t("shpFailedLogEntry", "Failed to log entry")));
     } finally {
       setSaving(false);
     }
@@ -1728,7 +1831,7 @@ function FromScheduleForm({ periodFrom, onLogged }) {
       setResult(res.data);
       onLogged();
     } catch (err) {
-      setError(errText(err, t("shpFailedConfirmSchedule", "Failed to confirm schedule")));
+      setError(houseErrText(err, t("shpFailedConfirmSchedule", "Failed to confirm schedule")));
     } finally {
       setConfirming(false);
     }
@@ -1796,7 +1899,7 @@ function FromScheduleForm({ periodFrom, onLogged }) {
 /* ═══════════════════════════════════════════════════════════
    RECENT HOURS LOG
    ═══════════════════════════════════════════════════════════ */
-function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
+function RecentHoursLog({ entries, loading, failed, onRetry, currency, staffList, onUpdated }) {
   const { t, lang } = useLanguage();
   const [editingId, setEditingId] = useState(null);
   const [editHours, setEditHours] = useState("");
@@ -1842,7 +1945,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
     } catch (e) {
       // Stay open, keep what they typed, and SAY SO. Closing the editor here
       // would be the original bug wearing a different mask.
-      setEditErr(errText(e, t("shpEditHoursFailed", "Could not save. Try again.")));
+      setEditErr(houseErrText(e, t("shpEditHoursFailed", "Could not save. Try again.")));
     } finally {
       setEditSaving(false);
     }
@@ -1881,7 +1984,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
       await api.delete(`/staff/hours/${id}`);
       onUpdated();
     } catch (e) {
-      setDelErr(errText(e, t("deleteHoursFailed")));
+      setDelErr(houseErrText(e, t("deleteHoursFailed")));
     } finally {
       setDeletingId(null);
     }
@@ -1899,6 +2002,14 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
     );
   }
 
+  // Instead of, never above: "Logged entries will appear here" is an invitation
+  // to start, and this audit trail is the venue's Arbejdstidsloven register —
+  // telling an owner it is empty because the GET failed is the worst reading of
+  // the two states this page used to collapse.
+  if (failed && (!entries || entries.length === 0)) {
+    return <LoadFailed onRetry={onRetry} />;
+  }
+
   if (!entries || entries.length === 0) {
     return (
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-8 text-center">
@@ -1913,6 +2024,8 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
   const sorted = [...entries].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
 
   return (
+    <div className="space-y-4">
+    {failed ? <LoadFailed onRetry={onRetry} body={t("loadFailedStale", "These are the last figures that loaded — they may be out of date.")} /> : null}
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
         <h2 className="text-base font-semibold text-gray-800 dark:text-white">{t("recentHoursLog")}</h2>
@@ -2084,6 +2197,7 @@ function RecentHoursLog({ entries, loading, currency, staffList, onUpdated }) {
           );
         })}
       </AnimatedList>
+    </div>
     </div>
   );
 }

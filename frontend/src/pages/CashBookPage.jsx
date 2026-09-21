@@ -2,9 +2,10 @@
 // balance/in/out stat row → StatCard grid (red/green semantic accents
 // preserved for cash-in vs cash-out where they're data-true).
 // Behavior + i18n + a11y unchanged.
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import api from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import { useAsyncData } from "../hooks/useAsyncData";
 import { useLanguage } from "../hooks/useLanguage";
 import { trackEvent } from "../hooks/useEventLog";
 import { exportToCsv } from "../utils/exportCsv";
@@ -12,7 +13,7 @@ import { displayCurrency, formatOwnerMoney, moneyLocale, parseMoneyInput } from 
 import MoneyField from "../components/ui/MoneyField";
 import { formatDate, formatDateShort, localIso } from "../utils/dateFormat";
 import { FadeIn } from "../components/AnimationKit";
-import { PageHeader, StatCard, Amount } from "../components/ui";
+import { PageHeader, StatCard, Amount, LoadFailed } from "../components/ui";
 import { errText } from "../utils/errText";
 import { useUndoToast } from "../hooks/useUndoToast";
 
@@ -31,8 +32,6 @@ export default function CashBookPage() {
   const mLocale = moneyLocale(user?.currency);
   const { t } = useLanguage();
   const { show: showUndo, ToastUI: undoToastUI } = useUndoToast();
-  const [transactions, setTransactions] = useState([]);
-  const [balance, setBalance] = useState({ balance: 0, total_in: 0, total_out: 0 });
   const [tab, setTab] = useState("cash_in");
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
@@ -47,15 +46,44 @@ export default function CashBookPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [search, setSearch] = useState("");
 
-  const fetchData = (from, to) => {
+  // THE THIRD STATE. Both of these loads used to discard the error and leave
+  // the page at its initial value — an empty list and a 0 balance. The table
+  // then rendered "no cash transactions yet" and the tiles rendered a
+  // confident 0 kr., so a drawer we could not reach looked exactly like a
+  // drawer that was empty. Those are different facts and only the second one
+  // is comforting, which is why it cost trust every time it was wrong.
+  // useAsyncData splits them: loading / failed / data, with the last good data
+  // kept through a failed reload so a refresh that drops leaves the owner
+  // looking at the numbers that were true a minute ago, labelled stale —
+  // never at a blank screen, and never at an invented zero.
+  //
+  // The entry form above deliberately does NOT depend on any of this: the
+  // owner can still book cash in or out while the history is unreachable.
+  const rangeParams = () => {
     const params = {};
-    if (from) params.from = from;
-    if (to) params.to = to;
-    api.get("/cashbook", { params }).then((res) => setTransactions(res.data)).catch(() => {});
-    api.get("/cashbook/balance", { params }).then((res) => setBalance(res.data)).catch(() => {});
+    if (filterFrom) params.from = filterFrom;
+    if (filterTo) params.to = filterTo;
+    return params;
   };
+  const txns = useAsyncData(() => api.get("/cashbook", { params: rangeParams() }), [filterFrom, filterTo], { initial: [] });
+  const bal = useAsyncData(() => api.get("/cashbook/balance", { params: rangeParams() }), [filterFrom, filterTo]);
 
-  useEffect(() => { fetchData(); }, []);
+  const transactions = Array.isArray(txns.data) ? txns.data : [];
+  // Re-runs BOTH after a write. The fetchers close over the filter range that
+  // is on screen right now, so this is the old fetchData(filterFrom, filterTo).
+  const refresh = () => { txns.reload(); bal.reload(); };
+
+  // A figure we could not fetch is not a figure. num() returns null for
+  // anything that is not a real number, so Amount renders its honest "—" and
+  // the tile drops its accent instead of painting an em-dash green.
+  const num = (v) => {
+    if (v == null || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const balBalance = num(bal.data?.balance);
+  const balIn = num(bal.data?.total_in);
+  const balOut = num(bal.data?.total_out);
 
   const submit = async (quickAmt) => {
     const value = quickAmt || parseMoneyInput(amount, mLocale);
@@ -75,7 +103,7 @@ export default function CashBookPage() {
       setTxnDate(localIso());
       trackEvent("cash_transaction", "cashbook", `${tab} ${value} ${currency}`);
       setSuccess(`${tab === "cash_in" ? "+" : "-"}${formatOwnerMoney(value, user?.currency, { decimals: 2 })}`);
-      fetchData(filterFrom, filterTo);
+      refresh();
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
       setError(errText(err, t("failedToAddTransaction")));
@@ -104,7 +132,7 @@ export default function CashBookPage() {
       payload.amount = n;
       await api.put(`/cashbook/${editId}`, payload);
       setEditId(null);
-      fetchData(filterFrom, filterTo);
+      refresh();
       setSuccess(t("updated"));
       setTimeout(() => setSuccess(""), 2500);
     } catch (err) {
@@ -116,7 +144,7 @@ export default function CashBookPage() {
     try {
       await api.delete(`/cashbook/${id}`);
       setDeleteConfirm(null);
-      fetchData(filterFrom, filterTo);
+      refresh();
       // NOTE: this page dispatches no bonbox-data-changed on delete (unlike
       // Sales/Expenses), so undo stays symmetric and doesn't either. If the
       // cash position ever feeds a cached figure, BOTH need the dispatch.
@@ -124,7 +152,7 @@ export default function CashBookPage() {
         message: t("movedToDeleted"),
         onUndo: async () => {
           await api.put(`/cashbook/${id}/restore`);
-          fetchData(filterFrom, filterTo);
+          refresh();
         },
       });
     } catch (err) {
@@ -152,24 +180,41 @@ export default function CashBookPage() {
       {success && <div className="bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 px-4 py-3 rounded-xl text-sm font-medium">{success}</div>}
       {error && <div className="bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 px-4 py-3 rounded-xl text-sm">{error}</div>}
 
+      {/* The cash position could not be checked. Said out loud, above the
+          tiles, because the tiles themselves have no empty state to replace —
+          they always show three numbers, and three em-dashes on their own do
+          not explain themselves or offer a way back. If a previous load
+          succeeded, useAsyncData still holds those figures: they stay on
+          screen, labelled as the last ones we could confirm. */}
+      {bal.failed && (
+        <LoadFailed
+          onRetry={bal.reload}
+          body={bal.data ? t("cbBalanceStale") : t("cbBalanceUnavailable")}
+        />
+      )}
+
       {/* Balance Summary — value accent only when it's data-true
           (balance going negative = critical; cash-in vs cash-out
-          colors are inherently semantic and preserved). */}
+          colors are inherently semantic and preserved). An unknown
+          figure is not data-true, so it renders "—" and stays neutral:
+          a green 0 kr. on a drawer we could not reach is the same lie
+          the empty state below used to tell. */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard
           label={t("cashBalance")}
-          value={<Amount value={balance.balance} currency={currency} decimals={2} />}
-          accent={balance.balance >= 0 ? "success" : "critical"}
+          value={<Amount value={balBalance} currency={currency} decimals={2} />}
+          accent={balBalance == null ? "neutral" : balBalance >= 0 ? "success" : "critical"}
+          helper={bal.loading && bal.data == null ? t("cbCheckingBalance") : null}
         />
         <StatCard
           label={t("totalCashIn")}
-          value={<Amount value={balance.total_in} currency={currency} decimals={2} sign />}
-          accent="success"
+          value={<Amount value={balIn} currency={currency} decimals={2} sign />}
+          accent={balIn == null ? "neutral" : "success"}
         />
         <StatCard
           label={t("totalCashOut")}
-          value={<Amount value={balance.total_out ? -balance.total_out : 0} currency={currency} decimals={2} />}
-          accent="critical"
+          value={<Amount value={balOut == null ? null : -balOut} currency={currency} decimals={2} />}
+          accent={balOut == null ? "neutral" : "critical"}
         />
       </div>
 
@@ -288,14 +333,14 @@ export default function CashBookPage() {
             <input
               type="date"
               value={filterFrom}
-              onChange={(e) => { setFilterFrom(e.target.value); fetchData(e.target.value, filterTo); }}
+              onChange={(e) => setFilterFrom(e.target.value)}
               className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white"
             />
             <span className="text-xs text-gray-400">→</span>
             <input
               type="date"
               value={filterTo}
-              onChange={(e) => { setFilterTo(e.target.value); fetchData(filterFrom, e.target.value); }}
+              onChange={(e) => setFilterTo(e.target.value)}
               className="px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded-lg text-xs dark:bg-gray-700 dark:text-white"
             />
             <input
@@ -307,12 +352,15 @@ export default function CashBookPage() {
             />
             {(filterFrom || filterTo) && (
               <button
-                onClick={() => { setFilterFrom(""); setFilterTo(""); fetchData(); }}
+                onClick={() => { setFilterFrom(""); setFilterTo(""); }}
                 className="text-xs text-red-500 hover:text-red-700 dark:text-red-400 font-medium"
               >
                 {t("clear")}
               </button>
             )}
+            {/* A CSV built from a list that did not load is a file the owner
+                would file. Disabled while we know the rows are incomplete —
+                an export is a claim about what happened, not a screenshot. */}
             <button
               onClick={() => exportToCsv("cashbook.csv", transactions, [
                 { key: "date", label: t("date") },
@@ -321,12 +369,23 @@ export default function CashBookPage() {
                 { key: "category", label: t("category") },
                 { key: "amount", label: t("amount") },
               ])}
-              className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium"
+              disabled={txns.failed}
+              title={txns.failed ? t("cbExportNeedsFullList") : undefined}
+              className="text-xs text-blue-600 dark:text-blue-400 hover:underline font-medium disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
             >
               {t("exportCsv")}
             </button>
           </div>
         </div>
+        {/* Stale rows, said so. When the reload drops but we still hold the
+            last good list, the rows stay — they were true — and this banner
+            is the only thing that changes. The no-rows case is handled in the
+            table body instead, where it replaces the empty state outright. */}
+        {txns.failed && transactions.length > 0 && (
+          <div className="px-6 pt-4">
+            <LoadFailed onRetry={txns.reload} body={t("cbListStale")} />
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead className="bg-gray-50 dark:bg-gray-700/50">
@@ -414,7 +473,21 @@ export default function CashBookPage() {
                   )}
                 </tr>
               ))}
-              {transactions.length === 0 && (
+              {/* The order that matters: asking → could not ask → nothing to
+                  show. The empty state is last and now only renders when the
+                  drawer genuinely came back empty, so "no cash transactions
+                  yet" is a fact about the drawer again instead of a guess
+                  about the network. Words, not a bare spinner — a spinner
+                  says something is happening, not what. */}
+              {txns.loading && transactions.length === 0 && (
+                <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500 animate-pulse">{t("cbLoadingTransactions")}</td></tr>
+              )}
+              {!txns.loading && txns.failed && transactions.length === 0 && (
+                <tr><td colSpan={7} className="px-6 py-6">
+                  <LoadFailed onRetry={txns.reload} body={t("cbListUnavailable")} />
+                </td></tr>
+              )}
+              {!txns.loading && !txns.failed && transactions.length === 0 && (
                 <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400 dark:text-gray-500">{t("noCashTransactionsYet")}</td></tr>
               )}
             </tbody>

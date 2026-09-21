@@ -33,6 +33,14 @@ import {
 // so the denial doesn't read as a broken toggle.
 import { isStaffMemberRole } from "../config/navManifest";
 import { useLanguage } from "../hooks/useLanguage";
+// Three outcomes, never two. Every fetch on this page used to end in
+// `catch { setRows([]) }`, which made "the week did not load" look exactly
+// like "the week is empty" — and draftCount, derived from that same array,
+// then read 0 and the toolbar announced "Udgivet" about a week nobody had
+// managed to read. useAsyncData keeps `failed` apart from empty (and keeps
+// the last true rows through a failed reload); LoadFailed is what we render
+// INSTEAD of an empty state that would otherwise be lying.
+import useAsyncData from "../hooks/useAsyncData";
 import { trackEvent } from "../hooks/useEventLog";
 import { useConfirm } from "../hooks/useConfirm";
 import { useEntitlements } from "../hooks/useEntitlements";
@@ -45,7 +53,7 @@ import { formatHours, hoursUnit } from "../utils/hours";
 import { saveFile } from "../utils/download";
 import { expectedWeekLabor } from "../utils/weekLaborPct";
 import { FadeIn } from "../components/AnimationKit";
-import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon } from "../components/ui";
+import { UpgradeNudge, PageHeader, Button, SectionBanner, Icon, LoadFailed } from "../components/ui";
 // THE modal container. ShiftModal used to hand-roll a vertically-centred card
 // with no max-height and no internal scroller. It fit a 390×844 portrait phone
 // with room to spare — so state the failure accurately: it broke wherever the
@@ -372,11 +380,29 @@ function loadShiftTemplates() {
   }
 }
 
+/** One localStorage write, one honest answer.
+ *  @returns {boolean} false when the browser refused (private mode / storage
+ *  disabled). The owner's preference simply does not survive the reload —
+ *  worth returning, never worth an error banner. */
+function writePref(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** @returns {boolean} false when this browser refused the write (private mode)
+ *  — the presets still work for this session, they just won't survive a
+ *  reload. Reported rather than swallowed: a catch that answers its caller is
+ *  the same rule as the load paths below, one size down. */
 function persistShiftTemplates(list) {
   try {
     localStorage.setItem(SHIFT_TEMPLATES_KEY, JSON.stringify(list));
+    return true;
   } catch {
-    /* private mode — presets just won't persist across reloads */
+    return false;
   }
 }
 
@@ -545,11 +571,20 @@ function staffConfirmState(memberId, weekDates, getShiftsForCell) {
 
 // Loading skeleton that mirrors the weekly grid (header + h-14 rows) so the
 // page settles instead of jumping from a bare spinner to a full table.
-function GridSkeleton() {
+//
+// With WORDS. A shimmer alone says "something is happening" and nothing else,
+// which leaves the owner to guess between "still loading" and "stuck" — the
+// same two-outcomes-for-three-states problem the rest of this page just lost.
+// One line naming what is on its way costs nothing and removes the guess.
+function GridSkeleton({ t }) {
   const cols = 7;
   const rows = 5;
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden animate-pulse">
+    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+      <p className="px-4 pt-3 text-[13px] text-gray-500 dark:text-gray-400">
+        {t ? t("schedLoadingWeek", "Loading this week's shifts…") : "Loading this week's shifts…"}
+      </p>
+      <div className="animate-pulse">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[700px]">
           <thead>
@@ -589,6 +624,7 @@ function GridSkeleton() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );
@@ -599,24 +635,23 @@ function GridSkeleton() {
 // near-real-time. Dark gray-900 chips = "in use", same language as the floor.
 function ClockedInStrip() {
   const { t, lang } = useLanguage();
-  const [rows, setRows] = useState([]);
+  // Polled, so the third state shows up in a particular way here: a failed
+  // poll used to be swallowed whole, and the strip went on pulsing its live
+  // dot over numbers that were by then minutes old. useAsyncData KEEPS the
+  // last rows through a failure (stale-but-true beats blank) and `failed` is
+  // what lets us stop calling them live.
+  const clockedInQ = useAsyncData(() => api.get("/staff/clocked-in"), []);
+  const { reload: reloadClockedIn } = clockedInQ;
   useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      try {
-        const res = await api.get("/staff/clocked-in");
-        if (alive) setRows(Array.isArray(res.data?.clocked_in) ? res.data.clocked_in : []);
-      } catch {
-        /* soft — strip just hides on error */
-      }
-    };
-    load();
-    const id = setInterval(load, 30000);
-    return () => {
-      alive = false;
-      clearInterval(id);
-    };
-  }, []);
+    const id = setInterval(() => reloadClockedIn(), 30000);
+    return () => clearInterval(id);
+  }, [reloadClockedIn]);
+  const rows = Array.isArray(clockedInQ.data?.clocked_in) ? clockedInQ.data.clocked_in : [];
+  // No LoadFailed here, ON PURPOSE. With nothing in hand this strip has never
+  // said anything — it renders nothing at all — so there is no comforting
+  // claim to correct, and an amber banner riding above the week on every
+  // offline load would be noise in front of the thing the owner came for.
+  // With stale rows in hand we do keep showing them, minus the "live" claim.
   if (!rows.length) return null;
   const fmtDur = (min) => {
     if (min == null) return "";
@@ -629,14 +664,28 @@ function ClockedInStrip() {
   };
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="relative flex h-2.5 w-2.5" aria-hidden>
-          <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
-          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
-        </span>
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
+        {/* The pulse IS the claim "this is live". It stops the moment we stop
+            being able to ask, and the words beside it say so — the rows stay,
+            because they were true, they are just no longer current. */}
+        {clockedInQ.failed ? (
+          <span className="flex h-2.5 w-2.5" aria-hidden>
+            <span className="inline-flex h-2.5 w-2.5 rounded-full bg-amber-500" />
+          </span>
+        ) : (
+          <span className="relative flex h-2.5 w-2.5" aria-hidden>
+            <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+            <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+          </span>
+        )}
         <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
           {t("schedClockedInNow", "Clocked in now")} · {rows.length}
         </span>
+        {clockedInQ.failed && (
+          <span className="text-[11px] font-medium normal-case tracking-normal text-amber-700 dark:text-amber-400">
+            {t("schedClockedInStale", "Not updating right now")}
+          </span>
+        )}
       </div>
       <div className="flex flex-wrap gap-2">
         {rows.map((r) => (
@@ -673,20 +722,23 @@ function ClockedInStrip() {
 // the punch, never stored (GDPR) — the staff card shows that notice.
 function ClockGeofenceSettings() {
   const { t } = useLanguage();
-  const [cfg, setCfg] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [savedMsg, setSavedMsg] = useState(""); // honest success confirmation
   const [open, setOpen] = useState(false);      // expanded only when unset, or on demand
   const [query, setQuery] = useState("");       // address or pasted map link
   const [found, setFound] = useState(null);     // resolved candidate, not yet saved
-  useEffect(() => {
-    let alive = true;
-    api.get("/staff/clock-geofence")
-      .then((r) => { if (alive) setCfg(r.data || null); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
+  // setData, not a second copy of the config in local state: a save writes the
+  // server's echo straight back into the one place this card reads from.
+  const cfgQ = useAsyncData(() => api.get("/staff/clock-geofence"), []);
+  const cfg = cfgQ.data;
+  const setCfg = cfgQ.setData;
+  // Rendering nothing is the RIGHT answer to a failure here, and the reason is
+  // specific rather than convenient: this endpoint is owner-only, so a 403 is
+  // the normal reply for a manager seat. An amber "something went wrong" would
+  // then fire on every single load for those seats, about a setting they are
+  // not allowed to see. The card asserts nothing when it is absent — it does
+  // not say "no location lock is set" — so silence tells no story.
   if (!cfg) return null;
 
   const save = async (patch) => {
@@ -997,12 +1049,11 @@ export default function StaffSchedulePage() {
   const [weekStart, setWeekStart] = useState(() => getWeekStart(new Date()));
   const weekDates = useMemo(() => getWeekDates(weekStart), [weekStart]);
 
-  // Data
-  const [staff, setStaff] = useState([]);
-  const [shifts, setShifts] = useState([]);
+  // Data. `staff` and `shifts` now come from useAsyncData further down (they
+  // are the two fetches whose silent [] told the lie this page was fixed for);
+  // these two are painted layers with no claim of their own.
   const [availability, setAvailability] = useState([]);
   const [absences, setAbsences] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   // Live labor-cost layer (server-computed, loaded/gross + labor% vs target).
@@ -1043,15 +1094,15 @@ export default function StaffSchedulePage() {
       return "gross";
     }
   });
+  // Both prefs write through one helper so the "this browser refuses storage"
+  // outcome is returned to a caller instead of vanishing inside a bare catch.
+  // Nothing on screen depends on the answer — a pref that cannot persist costs
+  // the owner one extra tap after a reload, it does not misreport anything.
   useEffect(() => {
-    try {
-      localStorage.setItem("bonbox_sched_showcost", showCost ? "true" : "false");
-    } catch { /* storage unavailable (private mode) — pref just won't persist */ }
+    writePref("bonbox_sched_showcost", showCost ? "true" : "false");
   }, [showCost]);
   useEffect(() => {
-    try {
-      localStorage.setItem("bonbox_sched_costbasis", costBasis);
-    } catch { /* storage unavailable */ }
+    writePref("bonbox_sched_costbasis", costBasis);
   }, [costBasis]);
   // What the grid and the phone list actually receive. The owner's stored
   // preference AND the seat gate, resolved once here rather than at each of the
@@ -1063,28 +1114,26 @@ export default function StaffSchedulePage() {
   const [showManageStaff, setShowManageStaff] = useState(false);
   // Owner ↔ staff chat ("Beskeder") — drawer + launcher-badge unread count.
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatUnread, setChatUnread] = useState(0);
   // Poll the cheap aggregate-unread endpoint so the launcher badge lights up
-  // when staff write. Pauses while the drawer is open (the drawer owns reads).
+  // when staff write. `enabled: !chatOpen` pauses it while the drawer is open
+  // (the drawer owns reads) WITHOUT reporting a failure — a question we chose
+  // not to ask has no answer. A failed poll keeps the last count rather than
+  // dropping the badge to 0: "we couldn't ask" must not read as "nobody
+  // wrote". Badge-only, so there is no banner to raise.
+  const chatUnreadQ = useAsyncData(
+    () => api.get("/staff/chat/unread"),
+    [chatOpen],
+    { enabled: !chatOpen },
+  );
+  const { reload: reloadChatUnread } = chatUnreadQ;
   useEffect(() => {
-    if (chatOpen) return;
-    let cancelled = false;
-    const poll = () => {
-      if (document.visibilityState !== "visible") return;
-      api
-        .get("/staff/chat/unread")
-        .then((res) => {
-          if (!cancelled) setChatUnread(res.data?.unread || 0);
-        })
-        .catch(() => {});
-    };
-    poll();
-    const id = setInterval(poll, 25000);
-    return () => {
-      cancelled = true;
-      clearInterval(id);
-    };
-  }, [chatOpen]);
+    if (chatOpen) return undefined;
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") reloadChatUnread();
+    }, 25000);
+    return () => clearInterval(id);
+  }, [chatOpen, reloadChatUnread]);
+  const chatUnread = chatUnreadQ.data?.unread || 0;
 
   // Shift modal
   const [shiftModal, setShiftModal] = useState(null); // { staffId, date, shift? }
@@ -1135,8 +1184,12 @@ export default function StaffSchedulePage() {
   const [publishResult, setPublishResult] = useState(null);
 
   /* ─── Data fetching ─── */
-  const fetchStaff = useCallback(async () => {
-    try {
+  // THE ROSTER. `catch { setStaff([]) }` made "we could not read your team"
+  // identical to "you have no team", and the page then offered the first-run
+  // "Build your first schedule" panel to an owner with fifteen people on the
+  // books. Three outcomes now: loading / failed / the real list.
+  const staffQ = useAsyncData(
+    () => {
       // include_inactive: deactivated staff must stay reachable — the owner
       // still has to clear their bank details after they leave, and the portal
       // stops working for them the moment active=false. Everything that
@@ -1144,23 +1197,50 @@ export default function StaffSchedulePage() {
       // not leak into pickers.
       const params = { include_inactive: true };
       if (branchId) params.branch_id = branchId;
-      const res = await api.get("/staff/members", { params });
-      setStaff(res.data || []);
-    } catch {
-      // Staff list may not exist yet
-      setStaff([]);
-    }
-  }, [branchId]);
+      return api.get("/staff/members", { params });
+    },
+    [branchId],
+    { initial: [] },
+  );
+  // useMemo so the identity is stable across renders — a fresh [] on every
+  // render would make every downstream memo (activeStaff, stats, the day
+  // tallies) recompute for nothing.
+  const staff = useMemo(() => staffQ.data || [], [staffQ.data]);
+  const fetchStaff = staffQ.reload;
 
-  const fetchShifts = useCallback(async () => {
+  // THE WEEK. The one the audit named: a failed load left shifts at [], which
+  // is also what an untouched week looks like — and draftCount, computed from
+  // this very array, then read 0, so the toolbar's primary action turned into
+  // a green "Udgivet". The page claimed every shift was out to staff for a
+  // week it had never managed to read. `failed` is now a state of its own and
+  // the Published/Draft label is gated on it.
+  const weekStartIso = toISO(weekStart);
+  const shiftsQ = useAsyncData(
+    () => {
+      const params = { week_start: weekStartIso };
+      if (branchId) params.branch_id = branchId;
+      return api.get("/staff/schedules", { params });
+    },
+    [weekStartIso, branchId],
+    { initial: [] },
+  );
+  const shifts = useMemo(() => shiftsQ.data || [], [shiftsQ.data]);
+  const reloadShifts = shiftsQ.reload;
+
+  // Two words, kept apart everywhere below: `loading` means we are still
+  // asking, `loadFailed` means we asked and got nothing back. The old page had
+  // only the first, so the second fell through to the empty state.
+  const loading = staffQ.loading || shiftsQ.loading;
+  const loadFailed = staffQ.failed || shiftsQ.failed;
+
+  // The layers painted ON TOP of the week (cost, hours load, forecast,
+  // availability, fravær). Each is fail-soft by design — a missing layer
+  // removes a chip or a footer, it never invents a number — so they keep their
+  // own catches, but they run as one step so every refresh path (initial load,
+  // copy-week, publish, autopilot-apply, modal save) still moves together.
+  const fetchWeekLayers = useCallback(async () => {
     const params = { week_start: toISO(weekStart) };
     if (branchId) params.branch_id = branchId;
-    try {
-      const res = await api.get("/staff/schedules", { params });
-      setShifts(res.data || []);
-    } catch {
-      setShifts([]);
-    }
     // Live labor cost — fetched alongside shifts so every refresh path
     // (initial load, copy-week, publish, autopilot-apply, modal save) keeps
     // the cost layer in sync. Fail-soft: on error (including the 403 a staff
@@ -1202,24 +1282,40 @@ export default function StaffSchedulePage() {
     // Standing "kan ikke" availability — painted as calm red cells on the grid
     // so the owner spots conflicts at a glance (at 15-30 rows especially). Not
     // week/branch scoped; fail-soft (never blocks the grid).
+    let avRows = null;
     try {
       const avRes = await api.get("/staff/availability");
-      setAvailability(avRes.data?.availability || []);
+      avRows = avRes.data?.availability || [];
     } catch {
-      setAvailability([]);
+      avRows = null; // "we could not ask", which is NOT an empty list
     }
+    // Only overwrite with an answer. Clearing to [] repainted every red cell
+    // white, i.e. told the owner nobody had said "kan ikke" — and they roster
+    // onto white. These rows are not week-scoped, so the ones already in hand
+    // stay true; stale beats a false all-clear.
+    if (avRows) setAvailability(avRows);
     // Approved/pending fravær (ferie, syg) — painted on the grid so the owner
     // sees who's off. include_resolved=true to also show 'covered' (still off);
     // 'cancelled' (declined) is filtered out client-side. Fail-soft.
+    let absRows = null;
     try {
       const absRes = await api.get("/staff/absences", {
         params: { days_back: 31, include_resolved: true },
       });
-      setAbsences(absRes.data || []);
+      absRows = absRes.data || [];
     } catch {
-      setAbsences([]);
+      absRows = null; // same rule as availability: no answer ≠ nobody is off
     }
+    if (absRows) setAbsences(absRows);
   }, [weekStart, branchId, isStaffSeat]);
+
+  // Everything the week is made of, refreshed together. Every existing caller
+  // (`await fetchShifts()` after a create / delete / move / copy-week /
+  // publish / autopilot-apply) keeps its exact meaning.
+  const fetchShifts = useCallback(
+    async () => { await Promise.all([reloadShifts(), fetchWeekLayers()]); },
+    [reloadShifts, fetchWeekLayers],
+  );
 
   // Map staff_id → their standing "unavailable" blocks; a soft signal the owner
   // sees but can still override (they can hand-place onto a red cell).
@@ -1272,16 +1368,19 @@ export default function StaffSchedulePage() {
     return byDate ? byDate[toISO(date)] || null : null;
   }, [absByStaff]);
 
+  // Both queries own their own mount/dep loads now; this is the retry handle
+  // the LoadFailed banner hands the owner, and the one path that clears the
+  // page-level error while it re-asks.
   const fetchAll = useCallback(async () => {
-    setLoading(true);
     setError("");
-    await Promise.all([fetchStaff(), fetchShifts()]);
-    setLoading(false);
-  }, [fetchStaff, fetchShifts]);
+    await Promise.all([fetchStaff(), reloadShifts(), fetchWeekLayers()]);
+  }, [fetchStaff, reloadShifts, fetchWeekLayers]);
 
+  // The painted layers follow the week/branch the grid is showing. The roster
+  // and the shifts themselves are fetched by their own hooks above.
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+    fetchWeekLayers();
+  }, [fetchWeekLayers]);
 
   /* ─── Click-to-bloom (one-tap add) ─── */
   // Holds { id } of the just-bloomed draft for ~6s so a mis-tap is one tap to
@@ -1429,19 +1528,26 @@ export default function StaffSchedulePage() {
   }, [undoMove, shifts, branchId, fetchShifts, t]);
 
   /* ─── Week navigation ─── */
+  // Each of these used to clear the error banner as a side effect of the
+  // refetch they triggered (fetchAll owned setError("")). The fetch is the
+  // hook's job now, so the clearing moves here, where it was always really
+  // about the owner navigating away from whatever failed.
   const goToPrevWeek = () => {
     const prev = new Date(weekStart);
     prev.setDate(prev.getDate() - 7);
+    setError("");
     setWeekStart(prev);
   };
 
   const goToNextWeek = () => {
     const next = new Date(weekStart);
     next.setDate(next.getDate() + 7);
+    setError("");
     setWeekStart(next);
   };
 
   const goToCurrentWeek = () => {
+    setError("");
     setWeekStart(getWeekStart(new Date()));
   };
 
@@ -1517,9 +1623,14 @@ export default function StaffSchedulePage() {
 
   // Persistent at-a-glance state for the toolbar CTA: how many shifts are still
   // unpublished. 0 → the week is fully live and the button reads "Published".
+  //
+  // null when the week could not be read AT ALL. This is the count the audit
+  // caught lying: derived from an array a failed fetch had left empty, it said
+  // 0, and 0 is the value that makes the button claim "Udgivet". A count we
+  // could not compute has to be a third value, not the reassuring one.
   const draftCount = useMemo(
-    () => (shifts || []).filter((s) => s.status === "draft").length,
-    [shifts],
+    () => (shiftsQ.failed ? null : (shifts || []).filter((s) => s.status === "draft").length),
+    [shifts, shiftsQ.failed],
   );
 
   // Step 1 — open the confirm sheet (the deliberate gate before going live).
@@ -1530,6 +1641,12 @@ export default function StaffSchedulePage() {
     // Vagtplan Shield — refetch week-load at the publish moment (the state
     // copy can be stale if shifts were just added) and attach warnings.
     // Fail-soft: a fetch error publishes without warnings, never blocks.
+    //
+    // But it no longer publishes SILENTLY without them. An empty shield list
+    // renders as no amber box, which the owner reads as "checked, nothing
+    // wrong" — a clean bill of health on the 48-timers and 11-timers rules
+    // that nobody actually ran. null now means "could not check", and the
+    // sheet says that in words instead of showing a reassuring blank.
     let shield = [];
     try {
       const res = await api.get("/staff/schedules/week-load", {
@@ -1549,7 +1666,7 @@ export default function StaffSchedulePage() {
         }
       }
     } catch {
-      /* warnings unavailable — publish flow unchanged */
+      shield = null; // could not check — NOT "nothing to warn about"
     }
     setPublishConfirm({ ...summary, shield });
   };
@@ -1935,8 +2052,16 @@ export default function StaffSchedulePage() {
   const targetPct = typeof weekCost?.target_labor_pct === "number" ? weekCost.target_labor_pct : null;
   const weekSummary = useMemo(() => {
     const w = weekCost?.week || null;
-    const hours = typeof w?.hours === "number" ? w.hours : stats.totalHours;
-    const cost = w ? costByBasis(w, costBasis) : stats.totalCost;
+    // The fallback to the client `stats` is the honest path ONLY while the
+    // shifts it sums actually arrived. With the week unread, stats.totalHours
+    // is 0 because there is nothing to add up, and "0 timer · ≈ 0 kr" is a
+    // confident answer to a question we never got to ask. null → "—", the same
+    // rule every money surface in the product already follows. The server's
+    // own week figures (w) stay trustworthy either way — they are not derived
+    // from the array that failed.
+    const shiftsUnknown = shiftsQ.failed && !w;
+    const hours = typeof w?.hours === "number" ? w.hours : (shiftsUnknown ? null : stats.totalHours);
+    const cost = w ? costByBasis(w, costBasis) : (shiftsUnknown ? null : stats.totalCost);
 
     // The headline labor%. `w.labor_pct_*` is now an ACTUALS number over
     // settled days only (matched numerator/denominator — see staff.py), so on
@@ -1960,8 +2085,10 @@ export default function StaffSchedulePage() {
         : (typeof actualPct === "number" ? actualPct : null);
 
     return {
-      hours: Math.round((hours || 0) * 10) / 10,
-      cost: Math.round(cost ?? 0),
+      // null travels all the way to the screen on purpose — `|| 0` and `?? 0`
+      // here were what turned "unknown" into a number.
+      hours: hours == null ? null : Math.round(hours * 10) / 10,
+      cost: cost == null ? null : Math.round(cost),
       laborPct,
       isForecast: typeof expected.pct === "number" && expected.isForecast,
       daysActual: expected.daysActual,
@@ -1969,7 +2096,7 @@ export default function StaffSchedulePage() {
       daysUnknown: expected.daysUnknown,
       hasRevenue: laborPct != null,
     };
-  }, [weekCost, forecast, costBasis, stats.totalHours, stats.totalCost]);
+  }, [weekCost, forecast, costBasis, stats.totalHours, stats.totalCost, shiftsQ.failed]);
 
   // ─── Unified Share sheet helpers (this component owns the toolbar + state) ──
   const shareActiveStaff = () => activeStaff;
@@ -1986,30 +2113,38 @@ export default function StaffSchedulePage() {
    *  403 here and simply renders no code — which is the correct outcome, not
    *  an error state.
    */
-  const loadShareLinks = useCallback(() => {
-    return api.get("/staff/schedules/share-links")
-      .then((r) => {
-        const map = {};
-        const codes = {};
-        const pins = {};
-        for (const row of r.data || []) {
-          if (row.staff_id && row.portal_url) {
-            map[row.staff_id] = `${window.location.origin}${row.portal_url}`;
-          }
-          if (row.staff_id && row.join_code) codes[row.staff_id] = row.join_code;
-          if (row.staff_id) pins[row.staff_id] = !!row.has_pin;
+  const loadShareLinks = useCallback(async () => {
+    try {
+      const r = await api.get("/staff/schedules/share-links");
+      const map = {};
+      const codes = {};
+      const pins = {};
+      for (const row of r.data || []) {
+        if (row.staff_id && row.portal_url) {
+          map[row.staff_id] = `${window.location.origin}${row.portal_url}`;
         }
-        setShareLinks((prev) => ({ ...map, ...prev }));
-        // Server LAST for codes: `prev` spread last meant a cached code could
-        // never be replaced by a fresh fetch. Harmless while the endpoint never
-        // re-minted — and a live bug the moment it does, because the screen
-        // would keep showing the burned code it had already cached.
-        // shareLinks deliberately keeps prev-wins: a portal token is durable and
-        // that ordering protects an in-flight per-staff mint. A code is not.
-        setShareCodes((prev) => ({ ...prev, ...codes }));
-        setPinHas(pins);
-      })
-      .catch(() => { /* fall back to per-staff mint on copy */ });
+        if (row.staff_id && row.join_code) codes[row.staff_id] = row.join_code;
+        if (row.staff_id) pins[row.staff_id] = !!row.has_pin;
+      }
+      setShareLinks((prev) => ({ ...map, ...prev }));
+      // Server LAST for codes: `prev` spread last meant a cached code could
+      // never be replaced by a fresh fetch. Harmless while the endpoint never
+      // re-minted — and a live bug the moment it does, because the screen
+      // would keep showing the burned code it had already cached.
+      // shareLinks deliberately keeps prev-wins: a portal token is durable and
+      // that ordering protects an in-flight per-staff mint. A code is not.
+      setShareCodes((prev) => ({ ...prev, ...codes }));
+      setPinHas(pins);
+      return true;
+    } catch {
+      // Answered, not swallowed — and deliberately without a banner. This
+      // pre-fetch is an optimisation with a REAL recovery: mintLinkFor
+      // re-mints per staffer on demand, so a failure costs one round-trip at
+      // copy time, not a wrong screen. A missing join code is also the correct
+      // render for a manager seat (the endpoint is owner-only), which is
+      // exactly why "no code" must not be dressed up as an error here.
+      return false;
+    }
   }, []);
 
   const openShareSheet = () => {
@@ -2322,22 +2457,30 @@ export default function StaffSchedulePage() {
                   before draftCount: until the week's shifts have arrived
                   draftCount is 0, and the button then rendered a green tick and
                   the words "Udgivet" — a claim that every shift was already out
-                  to staff, made about a week nobody had looked at yet. */}
+                  to staff, made about a week nobody had looked at yet.
+
+                  A FAILED week now lands in the same place, and that is the
+                  third state this page was missing: draftCount is null, not 0,
+                  so the tick cannot appear for a week we could not read. The
+                  button shows "—" and says so in its title. The grid below
+                  carries the amber banner and the Try again. */}
               <Button
                 variant={draftCount > 0 ? "accent" : "secondary"}
                 size="sm"
                 onClick={requestPublish}
-                disabled={publishing || loading}
+                disabled={publishing || loading || draftCount == null}
                 busy={publishing}
                 title={loading
                   ? t("schedPublishWeekTitle", "Publish week")
-                  : draftCount > 0
-                    ? t("schedPublishWeekTitle", "Publish week")
-                    : t("schedAllPublishedTitle", "All shifts published")}
+                  : draftCount == null
+                    ? t("somethingWentWrong")
+                    : draftCount > 0
+                      ? t("schedPublishWeekTitle", "Publish week")
+                      : t("schedAllPublishedTitle", "All shifts published")}
               >
                 {publishing ? (
                   "…"
-                ) : loading ? (
+                ) : loading || draftCount == null ? (
                   <span className="tabular-nums text-gray-400 dark:text-gray-500">—</span>
                 ) : draftCount > 0 ? (
                   <>
@@ -2587,8 +2730,10 @@ export default function StaffSchedulePage() {
         </div>
       </FadeIn>
 
-      {/* Saved shift presets — tap a chip to arm it, then tap a day to drop it. */}
-      {!loading && activeStaff.length > 0 && (
+      {/* Saved shift presets — tap a chip to arm it, then tap a day to drop it.
+          Hidden while the week is unknown: the cells they arm are not on
+          screen, so the tray would be a control with nowhere to land. */}
+      {!loading && !loadFailed && activeStaff.length > 0 && (
         <FadeIn delay={0.13}>
           <ShiftTemplatesTray
             templates={shiftTemplates}
@@ -2601,10 +2746,25 @@ export default function StaffSchedulePage() {
         </FadeIn>
       )}
 
-      {/* Schedule Grid */}
+      {/* Schedule Grid.
+          The order is the whole fix, and it only works in this order:
+          loading (a skeleton that says what it is waiting for) → FAILED (the
+          amber banner + Try again) → empty (the first-run panel, which is now
+          only ever shown to someone who really has no team) → the week.
+          LoadFailed replaces the empty state here rather than sitting above
+          it: showing both would still leave "Build your first schedule" on a
+          page that has no idea whether there is one. */}
       <FadeIn delay={0.15}>
         {loading ? (
-          <GridSkeleton />
+          <GridSkeleton t={t} />
+        ) : loadFailed ? (
+          <LoadFailed
+            onRetry={fetchAll}
+            body={t(
+              "schedLoadFailedBody",
+              "This week couldn't be loaded, so nothing below is the full picture yet.",
+            )}
+          />
         ) : activeStaff.length === 0 ? (
           <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
             {/* Ghosted grid backdrop — first-run still reads as "this is where
@@ -2755,7 +2915,9 @@ export default function StaffSchedulePage() {
                         )}
                       </div>
                       <div className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                        ≈ {formatKr(weekSummary.cost, { decimals: 0 })}
+                        {/* No "≈" in front of a dash — the squiggle promises
+                            an estimate, and we do not have one. */}
+                        {weekSummary.cost == null ? "—" : `≈ ${formatKr(weekSummary.cost, { decimals: 0 })}`}
                       </div>
                     </div>
                   </div>
@@ -2771,7 +2933,8 @@ export default function StaffSchedulePage() {
                     {t("schedStaffActive")}
                   </div>
                   <div className="text-base font-semibold text-gray-900 dark:text-gray-100 tabular-nums">
-                    {stats.activeCount}
+                    {/* A roster we could not read is not a roster of nobody. */}
+                    {staffQ.failed ? "—" : stats.activeCount}
                   </div>
                 </div>
               </div>
@@ -2926,7 +3089,10 @@ export default function StaffSchedulePage() {
       <OwnerChatDrawer
         open={chatOpen}
         onClose={() => setChatOpen(false)}
-        onUnreadChange={setChatUnread}
+        /* The drawer has just read the threads, so its count is the freshest
+           answer there is — written into the same place the poll writes, not
+           a second copy that could disagree with it. */
+        onUnreadChange={(n) => chatUnreadQ.setData({ unread: n })}
       />
 
       {/* Publish-confirm sheet — the deliberate gate before draft shifts go
@@ -4085,7 +4251,14 @@ function StaffPanel({ staff, currency, onRefresh, branchId, joinCodes = {}, onCo
           ),
           url: linkModal.portalUrl,
         });
-      } catch { /* user cancelled */ }
+      } catch {
+        // The ONE catch on this page that is genuinely nothing: the OS share
+        // sheet rejects when the owner dismisses it. Nothing failed and
+        // nothing is claimed, so there is nothing to report — returning says
+        // that out loud rather than leaving an empty block to be read as an
+        // oversight.
+        return;
+      }
     } else {
       copyLink();
     }
@@ -5543,26 +5716,22 @@ function OpenShiftsPanel({ weekStart, t }) {
   // Same resolver the chips render their role label with — the remove dialog
   // has to echo the chip word for word, not invent a second vocabulary.
   const catFor = useCatFor();
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const weekDates = useMemo(() => getWeekDates(weekStart), [weekStart]);
   const wsIso = toISO(weekStart);
 
-  const fetchOpen = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await api.get(`/staff/open-shifts?week_start=${wsIso}`);
-      setRows(Array.isArray(res.data) ? res.data : []);
-    } catch {
-      setRows([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [wsIso]);
-
-  useEffect(() => { fetchOpen(); }, [fetchOpen]);
+  // Same defect, one panel down: `catch { setRows([]) }` printed "Ingen åbne
+  // vagter i denne uge" — a statement about the week — whenever the request
+  // failed. Åbne vagter are the slots staff are watching for, so a false
+  // "there are none" is the version of this bug that reaches other people.
+  const openQ = useAsyncData(
+    () => api.get(`/staff/open-shifts?week_start=${wsIso}`),
+    [wsIso],
+    { initial: [] },
+  );
+  const rows = useMemo(() => (Array.isArray(openQ.data) ? openQ.data : []), [openQ.data]);
+  const fetchOpen = openQ.reload;
 
   const cancelOpen = useCallback(async (row) => {
     // The X that triggers this is invisible on a phone (hover-only reveal, now
@@ -5599,7 +5768,11 @@ function OpenShiftsPanel({ weekStart, t }) {
     }
   }, [fetchOpen, t, confirm, catFor, weekDates]);
 
-  const openCount = rows.filter((r) => r.status === "open").length;
+  // null, not 0, when the week did not load — and note WHICH week: the hook
+  // keeps the previous week's rows through a failed switch, so a stale count
+  // here would be a confident number about the wrong seven days. The body
+  // below shows the banner instead of those rows for the same reason.
+  const openCount = openQ.failed ? null : rows.filter((r) => r.status === "open").length;
   const byDate = useMemo(() => {
     const m = {};
     for (const r of rows) (m[r.date] ||= []).push(r);
@@ -5630,8 +5803,17 @@ function OpenShiftsPanel({ weekStart, t }) {
 
       {error && <div className="text-xs text-red-600 mb-2">{error}</div>}
 
-      {loading ? (
-        <div className="h-12 rounded-lg bg-gray-100 dark:bg-gray-700/40 animate-pulse" />
+      {openQ.loading ? (
+        <div className="py-1.5">
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">
+            {t("openShiftsLoading", "Loading open shifts…")}
+          </p>
+          <div className="h-12 rounded-lg bg-gray-100 dark:bg-gray-700/40 animate-pulse" />
+        </div>
+      ) : openQ.failed ? (
+        /* Instead of the empty line below, never above it — "no open shifts"
+           and "we couldn't ask" are different weeks. */
+        <LoadFailed onRetry={openQ.reload} />
       ) : rows.length === 0 ? (
         <p className="text-xs text-gray-400 dark:text-gray-500 py-1.5">
           {t("openShiftsEmpty", "No open shifts this week.")}
@@ -6542,6 +6724,20 @@ function PublishConfirmModal({ summary, result, currency, weekStart, publishing,
             {/* Vagtplan Shield — labour-law signals for THIS week. Warns,
                 never blocks: the owner always decides (the §-rules are their
                 call; we make the numbers visible at the moment that counts). */}
+            {summary.shield === null && (
+              <div className="rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-3 py-2.5">
+                <div className="flex items-center gap-1.5 text-[12px] font-semibold text-amber-800 dark:text-amber-300">
+                  <Icon name="AlertTriangle" size={13} />
+                  {t("shieldUnavailableTitle", "Hour warnings couldn't be checked")}
+                </div>
+                <p className="text-[12px] text-amber-800 dark:text-amber-300 leading-snug mt-0.5">
+                  {t(
+                    "shieldUnavailableBody",
+                    "You can still publish — this just means the 48-hour and 11-hour checks didn't run this time.",
+                  )}
+                </p>
+              </div>
+            )}
             {(summary.shield || []).length > 0 && (
               <div className="rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-3 py-2.5 space-y-1">
                 <div className="flex items-center gap-1.5 text-[12px] font-semibold text-amber-800 dark:text-amber-300">
