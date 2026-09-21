@@ -44,6 +44,13 @@ export default function TaxBreakdown({ amount, currencyCode, type = "sales", isT
   const exclLabel = type === "expenses"
     ? (vat.expensesExclVat || `${vat.expensesSection} excl. ${taxName}`)
     : (vat.salesExclVat || `${vat.salesSection} excl. ${taxName}`);
+  // Every other label in this panel comes from the jurisdiction vocabulary;
+  // this one was built by concatenation, so a Danish owner marking a sale
+  // tax-exempt read "MOMS-free" — the locked Danish token welded to an
+  // English suffix, on Sales and Expenses. vatFree carries the native phrase
+  // ("Momsfri", "Ohne MwSt", "Sin IVA"); the old concatenation stays as the
+  // fallback for any currency that has no entry yet.
+  const vatFreeLabel = vat.vatFree || `${taxName}-free`;
 
   return (
     <div className="mt-1.5 px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600/50 text-xs space-y-1.5 animate-in">
@@ -62,7 +69,7 @@ export default function TaxBreakdown({ amount, currencyCode, type = "sales", isT
           {includeTax ? `${taxName} ${pct}%` : `0% ${taxName}`}
         </button>
         <span className="text-[10px] text-gray-400 dark:text-gray-500">
-          {includeTax ? tax.inclusive ? inclLabel : `+ ${taxName}` : `${taxName}-free`}
+          {includeTax ? tax.inclusive ? inclLabel : `+ ${taxName}` : vatFreeLabel}
         </span>
       </div>
 
@@ -96,7 +103,7 @@ export default function TaxBreakdown({ amount, currencyCode, type = "sales", isT
       ) : (
         <div className="flex items-center justify-between">
           <span className="text-gray-500 dark:text-gray-400">
-            {type === "expenses" ? vat.expensesSection : vat.salesSection} ({taxName}-free)
+            {type === "expenses" ? vat.expensesSection : vat.salesSection} ({vatFreeLabel})
           </span>
           <span className="font-bold text-gray-800 dark:text-gray-100">
             {formatOwnerMoney(num, currencyCode, { decimals: 2 })}

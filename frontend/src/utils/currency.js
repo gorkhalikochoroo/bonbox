@@ -174,6 +174,7 @@ const VAT_TERMS = {
     // "Salg inkl. moms", "Indgående moms") keep lowercase per Danish
     // orthography — those are separate fields, not the standalone token.
     vatName: "MOMS",
+    vatFree: "Momsfri",
     sidebarLabel: "MOMS",
     reportTitle: "Momsopg\u00f8relse",
     salesSection: "Salg",
@@ -192,6 +193,7 @@ const VAT_TERMS = {
   },
   SEK: {
     vatName: "Moms",
+    vatFree: "Momsfri",
     sidebarLabel: "Moms",
     reportTitle: "Momsredovisning",
     salesSection: "F\u00f6rs\u00e4ljning",
@@ -210,6 +212,7 @@ const VAT_TERMS = {
   },
   NOK: {
     vatName: "MVA",
+    vatFree: "Uten MVA",
     sidebarLabel: "MVA",
     reportTitle: "MVA-oppgave",
     salesSection: "Salg",
@@ -228,6 +231,7 @@ const VAT_TERMS = {
   },
   EUR_DE: {
     vatName: "MwSt",
+    vatFree: "Ohne MwSt",
     sidebarLabel: "MwSt",
     reportTitle: "Umsatzsteuererkl\u00e4rung",
     salesSection: "Ums\u00e4tze",
@@ -246,6 +250,7 @@ const VAT_TERMS = {
   },
   EUR_FR: {
     vatName: "TVA",
+    vatFree: "Sans TVA",
     sidebarLabel: "TVA",
     reportTitle: "D\u00e9claration de TVA",
     salesSection: "Ventes",
@@ -264,6 +269,7 @@ const VAT_TERMS = {
   },
   EUR_ES: {
     vatName: "IVA",
+    vatFree: "Sin IVA",
     sidebarLabel: "IVA",
     reportTitle: "Declaraci\u00f3n de IVA",
     salesSection: "Ventas",
@@ -282,6 +288,7 @@ const VAT_TERMS = {
   },
   EUR_PT: {
     vatName: "IVA",
+    vatFree: "Sem IVA",
     sidebarLabel: "IVA",
     reportTitle: "Declara\u00e7\u00e3o de IVA",
     salesSection: "Vendas",
@@ -300,6 +307,7 @@ const VAT_TERMS = {
   },
   EUR_IT: {
     vatName: "IVA",
+    vatFree: "Senza IVA",
     sidebarLabel: "IVA",
     reportTitle: "Dichiarazione IVA",
     salesSection: "Vendite",
@@ -318,6 +326,7 @@ const VAT_TERMS = {
   },
   EUR_NL: {
     vatName: "BTW",
+    vatFree: "Zonder BTW",
     sidebarLabel: "BTW",
     reportTitle: "BTW-aangifte",
     salesSection: "Verkoop",
@@ -336,6 +345,7 @@ const VAT_TERMS = {
   },
   NPR: {
     vatName: "VAT",
+    vatFree: "VAT-free",
     sidebarLabel: "VAT",
     reportTitle: "\u0915\u0930 \u092A\u094D\u0930\u0924\u093F\u0935\u0947\u0926\u0928 / VAT Return",
     salesSection: "Sales",
@@ -354,6 +364,7 @@ const VAT_TERMS = {
   },
   GBP: {
     vatName: "VAT",
+    vatFree: "VAT-free",
     sidebarLabel: "VAT",
     reportTitle: "VAT Return",
     salesSection: "Sales",
@@ -372,6 +383,7 @@ const VAT_TERMS = {
   },
   INR: {
     vatName: "GST",
+    vatFree: "GST-free",
     sidebarLabel: "GST",
     reportTitle: "GST Return",
     salesSection: "Sales",
@@ -390,6 +402,7 @@ const VAT_TERMS = {
   },
   AUD: {
     vatName: "GST",
+    vatFree: "GST-free",
     sidebarLabel: "GST",
     reportTitle: "GST Report",
     salesSection: "Sales",
@@ -408,6 +421,7 @@ const VAT_TERMS = {
   },
   CHF: {
     vatName: "MWST",
+    vatFree: "Ohne MWST",
     sidebarLabel: "MWST",
     reportTitle: "MWST-Abrechnung",
     salesSection: "Ums\u00e4tze",
@@ -491,6 +505,7 @@ export function calcTaxBreakdown(amount, currencyCode) {
 // Default English/USD fallback
 const DEFAULT_VAT_TERMS = {
   vatName: "Sales Tax",
+  vatFree: "Tax-free",
   sidebarLabel: "Tax/VAT",
   reportTitle: "Tax Report",
   salesSection: "Sales",
