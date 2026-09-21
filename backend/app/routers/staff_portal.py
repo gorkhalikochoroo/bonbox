@@ -205,6 +205,20 @@ class PortalHoursEntry(BaseModel):
     end_time: str | None = None
     total_hours: float
     earned: float | None = None
+    # ── What the owner did about this shift ───────────────────────────────
+    # The owner can confirm a shift, mark it absent, or ADJUST it — and an
+    # adjustment changes the hours this person is paid for. Until now the
+    # portal never sent any of this, so the one person with the strongest
+    # interest in the correction was the only one who could not see it.
+    #
+    # `resolution` is None while the shift is still unanswered, which is a
+    # real third state and not "fine": it means nobody has looked yet.
+    resolution: str | None = None
+    resolved_at: datetime | None = None
+    # What the CLOCK measured, kept whatever the owner recorded. Sent
+    # alongside total_hours rather than instead of it, so a reduction is
+    # visible as a difference rather than silently replacing the original.
+    clock_hours: float | None = None
 
 class PortalTipEntry(BaseModel):
     date: date
@@ -1006,6 +1020,18 @@ def get_portal_hours(
                 end_time=h.end_time,
                 total_hours=float(h.total_hours or 0),
                 earned=float(h.earned) if h.earned else None,
+                resolution=h.resolution,
+                resolved_at=h.resolved_at,
+                # Only when it differs from what was recorded. Sending it
+                # always would put a second identical figure next to the
+                # first on every ordinary shift, which is noise — the point
+                # is to make a CHANGE visible, not to narrate agreement.
+                clock_hours=(
+                    float(h.clock_hours)
+                    if h.clock_hours is not None
+                    and abs(float(h.clock_hours) - float(h.total_hours or 0)) >= 0.01
+                    else None
+                ),
             )
             for h in hours
         ]
