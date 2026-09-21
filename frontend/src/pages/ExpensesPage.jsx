@@ -367,16 +367,36 @@ export default function ExpensesPage() {
   // Now the scope decides the label, from the same flag, so the two cannot
   // drift apart. (The dead refDate/monthPrefix branch went with it: when a
   // filter was set the prefix was computed and then never used.)
+  // THE SECOND HALF OF THE SAME HONESTY PROBLEM. The date half was fixed —
+  // the label follows the scope. But the total was still reduced over
+  // `expenses`, the whole fetched array, while the table below renders
+  // `filtered` (search + personal/business + category). So the two numbers
+  // described different sets of rows, 200px apart.
+  //
+  // The damaging case is the personal/business split. An owner who sets
+  // "Business only" — the view they build for their revisor — saw a
+  // business-only table under a total that still included personal spending.
+  // The count gave it away and nothing else did: "23 expenses" printed under
+  // a table showing 12 rows.
+  //
+  // Summing `filtered` means the line can no longer disagree with the list it
+  // sits beneath, whatever the owner filters by.
   const monthSummary = useMemo(() => {
     const scoped = !!(filterFrom || filterTo);
-    if (expenses.length === 0) {
-      return { total: 0, count: 0, scoped };
+    // Narrowed = the owner has moved OFF the default view. The default is
+    // showFilter "business", so a plain "This month:" already means "this
+    // month's business expenses" — that is the ledger this page is — and
+    // flagging it would be noise on every load. Anything else is the owner's
+    // own subset, and the line should not call it the month.
+    const narrowed = !!search || showFilter !== "business" || (!!categoryFilter && categoryFilter !== "all");
+    if (filtered.length === 0) {
+      return { total: 0, count: 0, scoped, narrowed };
     }
     const monthPrefix = localIso(new Date()).slice(0, 7);
-    const rows = scoped ? expenses : expenses.filter(e => e.date?.startsWith(monthPrefix));
+    const rows = scoped ? filtered : filtered.filter(e => e.date?.startsWith(monthPrefix));
     const total = rows.reduce((s, x) => s + parseFloat(x.amount), 0);
-    return { total, count: rows.length, scoped };
-  }, [expenses, filterFrom, filterTo]);
+    return { total, count: rows.length, scoped, narrowed };
+  }, [filtered, search, showFilter, categoryFilter, filterFrom, filterTo]);
 
   // The range the owner actually set, in words. Both bounds are inclusive
   // server-side (date >= from, date <= to), so "til og med" is literally true.
@@ -1476,16 +1496,21 @@ export default function ExpensesPage() {
             {/* The label follows the scope. With a date filter set this total
                 is the filtered range, not the calendar month, so it says so —
                 see monthSummary. */}
-            {monthSummary.scoped
-              ? t("expPeriodSummary", "{range}: {total} across {count} expenses · ", {
-                  range: filterRangeLabel,
+            {monthSummary.narrowed
+              ? t("expFilteredSummary", "Filtered: {total} across {count} expenses · ", {
                   total: formatOwnerMoney(monthSummary.total, currency),
                   count: monthSummary.count,
                 })
-              : t("thisMonthSummary", "This month: {total} across {count} expenses · ", {
-                  total: formatOwnerMoney(monthSummary.total, currency),
-                  count: monthSummary.count,
-                })}
+              : monthSummary.scoped
+                ? t("expPeriodSummary", "{range}: {total} across {count} expenses · ", {
+                    range: filterRangeLabel,
+                    total: formatOwnerMoney(monthSummary.total, currency),
+                    count: monthSummary.count,
+                  })
+                : t("thisMonthSummary", "This month: {total} across {count} expenses · ", {
+                    total: formatOwnerMoney(monthSummary.total, currency),
+                    count: monthSummary.count,
+                  })}
             <Link
               to="/reports?tab=expenses"
               className="text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100 underline"
